@@ -468,8 +468,16 @@ class HarmonyHid:
             self.seq = 1
         return s
 
+    def drain_input(self, timeout_ms: int = 20) -> None:
+        """Discard any stale/unread reports in the HID endpoint buffer."""
+        while self.dev:
+            r = self.dev.read_report(timeout_ms=timeout_ms)
+            if not r:
+                break
+
     def command(self, cmd_id: int, params: list[bytes], timeout_ms: int = 5000) -> bytes:
         """Send primary command frame and wait for matching response."""
+        self.drain_input(timeout_ms=20)
         seq = self._next_seq()
         frames = build_primary_frames(cmd_id, seq, params)
         for f in frames:

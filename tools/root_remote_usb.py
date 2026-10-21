@@ -246,10 +246,17 @@ def main() -> None:
         hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress)
         print(f"\n[+] Dropbear staging complete in {time.time() - t0:.1f}s.")
 
+        time.sleep(1.0)  # Allow remote flash write and hal symlink creation to settle
+
         print("[*] Arming boot trigger (/tde/enable -> /etc/tdeenable)...")
-        if hid.set_tde_enable(True):
-            print("[+] SUCCESS: /etc/tdeenable created.")
-        else:
+        armed = False
+        for _ in range(3):
+            if hid.set_tde_enable(True):
+                print("[+] SUCCESS: /etc/tdeenable created.")
+                armed = True
+                break
+            time.sleep(0.5)
+        if not armed:
             print("[-] Warning: Failed to confirm /tde/enable.")
 
         if not args.no_reboot:
