@@ -143,16 +143,9 @@ fi
 
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 
-# 5. Start services
-echo "[5/5] Starting codex services..."
+# 5. Reboot Hub cleanly
+echo "[5/5] Rebooting Hub..."
 ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-    "killall -9 codex_daemon codex_rf 2>/dev/null || true; sleep 1; /data/codex/bin/codex_daemon >/dev/null 2>&1 & /data/codex/bin/codex_rf >/dev/null 2>&1 &"
+    "sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &"
 
-echo "[*] Waiting 2s for daemon init..."
-sleep 2
-
-# Verification check
-echo "[*] Verifying HTTP API..."
-curl -s --connect-timeout 3 "http://${HUB_HOST}:8089/api/status" || echo "[!] Notice: API check returned status code or timeout"
-echo ""
-echo "=== Deployment to $HUB_HOST Complete! ==="
+echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting. ==="

@@ -254,13 +254,9 @@ do_apply() {
   # 7. Sync filesystem
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
 
-  echo "[+] Update to v${NEW_VER} applied successfully. Restarting services..."
-  # 8. Cleanly terminate running processes and let supervisor respawn them
-  killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
-  sleep 2
-  if ! ps | grep "/data/codex/init.sh" >/dev/null 2>&1 && [ -x /data/codex/init.sh ]; then
-    /data/codex/init.sh &
-  fi
+  echo "[+] Update to v${NEW_VER} applied successfully. Rebooting Hub..."
+  sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
+  (sleep 2 && reboot -f) >/dev/null 2>&1 &
 }
 
 do_elite_ota() {

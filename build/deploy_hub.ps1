@@ -159,7 +159,8 @@ if (Test-Path $bb) {
     & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
     $changed = Deploy-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
     if ($changed) {
-        & ssh @sshArgs $Target "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in \$(/cache/bin/busybox --list 2>/dev/null); do [ ! -e `"`/bin/`$_app`" ] && [ ! -e `"`/usr/bin/`$_app`" ] && ln -sf /cache/bin/busybox `"`/usr/bin/`$_app`" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/codex/bin:\$PATH' > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true"
+        $bbCmd = 'ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true'
+        & ssh @sshArgs $Target "$bbCmd"
     }
 }
 # Ensure root profile uses extended BusyBox in cache if present
@@ -231,9 +232,8 @@ if (Test-Path $rcsSrc) {
     Deploy-HubFileIfChanged -LocalFile $rcsSrc -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
 }
 
-# 5. Restart services
-Write-Host "[*] Launching services (/data/codex/init.sh)..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "/data/codex/init.sh >/dev/null 2>&1 &"
-Start-Sleep -Seconds 2
+# 5. Reboot Hub cleanly
+Write-Host "[*] Rebooting Hub..." -ForegroundColor Yellow
+& ssh @sshArgs $Target "sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &"
 
-Write-Host "[+] Deployment complete! Hub services running." -ForegroundColor Green
+Write-Host "[+] Deployment complete! Hub is rebooting." -ForegroundColor Green
