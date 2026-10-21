@@ -25,7 +25,7 @@
 #include <time.h>
 #include <dirent.h>
 
-#define CODEX_VERSION "1.5.2"
+#define CODEX_VERSION "1.5.3"
 #ifndef CODEX_COMMIT
 #define CODEX_COMMIT "dev"
 #endif
