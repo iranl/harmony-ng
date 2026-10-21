@@ -68,6 +68,19 @@ find_eth_interface() {
   return 1
 }
 
+is_wifi_configured() {
+  if [ -f "$WPA_CONF" ] && grep -q 'network=' "$WPA_CONF" 2>/dev/null; then
+    return 0
+  fi
+  if [ -f /etc/wpa_supplicant.conf ] && grep -q 'network=' /etc/wpa_supplicant.conf 2>/dev/null; then
+    return 0
+  fi
+  if [ -f /etc/wpa_supplicant.ath0.conf ] && grep -q 'network=' /etc/wpa_supplicant.ath0.conf 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
 ensure_wifi() {
   log "Ensuring Wi-Fi connection (ath0)..."
   if ! ifconfig ath0 >/dev/null 2>&1; then
@@ -86,7 +99,7 @@ ensure_wifi() {
     if ! pidof udhcpc >/dev/null 2>&1; then
       udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
     fi
-    for i in 1 2 3 4 5 6 7 8; do
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
       wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
       [ -n "$wifi_ip" ] && break
       sleep 1
@@ -378,6 +391,7 @@ migrate_to_ethernet() {
   configure_arp_isolation
   send_garp "$eth_if" "$target_ip"
   echo "$eth_if:ethernet:$target_ip" > "$STATE_FILE"
+  stop_recovery_ap 2>/dev/null || true
   log "Migration complete: Ethernet ($eth_if) active with IP $target_ip, GW $target_gw"
 }
 
@@ -485,6 +499,7 @@ run_monitor() {
                 route del default dev ath0 2>/dev/null || true
                 send_garp "$cur_eth" "$e_ip"
                 echo "$cur_eth:ethernet:$e_ip" > "$STATE_FILE"
+                stop_recovery_ap 2>/dev/null || true
                 log "Ethernet connected via DHCP: $cur_eth has IP $e_ip"
               fi
             fi
@@ -587,14 +602,19 @@ do_boot() {
   if start_eth; then
     log "USB Ethernet adapter initialized on boot."
     has_eth=1
+    stop_recovery_ap 2>/dev/null || true
   else
     log "No USB Ethernet adapter found on boot; running on Wi-Fi."
   fi
 
-  # If both Wi-Fi and Ethernet are offline, activate recovery AP captive portal
+  # If both Wi-Fi and Ethernet are offline AND Wi-Fi has no credentials, activate recovery AP
   if [ "$has_wifi" -eq 0 ] && [ "$has_eth" -eq 0 ]; then
-    log "No active network link detected on boot. Spawning recovery AP captive portal..."
-    start_recovery_ap
+    if ! is_wifi_configured; then
+      log "No active network link and no Wi-Fi credentials found on boot. Spawning recovery AP captive portal..."
+      start_recovery_ap
+    else
+      log "Wi-Fi is configured (association/DHCP pending). Skipping recovery AP; dynamic monitor will maintain link."
+    fi
   fi
 
   # 3. Start dynamic interface monitor
@@ -633,6 +653,12 @@ case "$1" in
     ;;
   ensure_wifi)
     ensure_wifi
+    ;;
+  start_recovery_ap)
+    start_recovery_ap
+    ;;
+  stop_recovery_ap)
+    stop_recovery_ap
     ;;
   monitor)
     run_monitor
