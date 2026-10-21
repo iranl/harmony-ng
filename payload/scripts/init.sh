@@ -89,6 +89,10 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
   ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
+  for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df; do
+    ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
+    ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
+  done
 fi
 
 mkdir -p /etc/profile.d 2>/dev/null || true

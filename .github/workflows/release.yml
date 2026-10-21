@@ -142,10 +142,10 @@ jobs:
           python-version: '3.11'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
-      - name: Install MIPS Toolchain
+      - name: Install Bootlin MIPS uClibc Toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mips-linux-gnu libc6-dev-mips-cross
+          mkdir -p build/toolchains
+          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
       - name: Compile Hub Binaries
         run: |
           chmod +x build/compile_all.sh
