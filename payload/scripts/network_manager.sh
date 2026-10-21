@@ -96,6 +96,7 @@ ensure_wifi() {
   if [ -n "$wifi_ip" ]; then
     log "Wi-Fi connected successfully: ath0 has IP $wifi_ip"
     echo "ath0:wifi:$wifi_ip" > "$STATE_FILE"
+    stop_recovery_ap 2>/dev/null || true
     return 0
   else
     log "Wi-Fi IP lease pending in background"
@@ -532,19 +533,54 @@ stop_monitor() {
   fi
 }
 
+start_recovery_ap() {
+  log "Starting recovery captive portal AP..."
+  for s in /data/codex/scripts/recovery_ap.sh /data/codex/recovery_ap.sh /data/codex/bin/recovery_ap.sh; do
+    if [ -x "$s" ]; then
+      "$s" start >> "$LOG" 2>&1 &
+      return 0
+    fi
+  done
+  log "Warning: recovery_ap.sh not found!"
+  return 1
+}
+
+stop_recovery_ap() {
+  if [ -f /var/run/codex-recovery-ap.pid ]; then
+    log "Stopping recovery AP..."
+    for s in /data/codex/scripts/recovery_ap.sh /data/codex/recovery_ap.sh /data/codex/bin/recovery_ap.sh; do
+      if [ -x "$s" ]; then
+        "$s" stop >> "$LOG" 2>&1
+        return 0
+      fi
+    done
+  fi
+}
+
 do_boot() {
   log "Boot initialization started..."
   load_config
 
   # 1. Initialize Wi-Fi immediately
-  ensure_wifi
+  has_wifi=0
+  if ensure_wifi; then
+    has_wifi=1
+  fi
 
   # 2. Switch USB to Host mode and load Ethernet driver immediately (no gadget delay)
+  has_eth=0
   log "Starting Ethernet (USB Host mode)..."
   if start_eth; then
     log "USB Ethernet adapter initialized on boot."
+    has_eth=1
   else
     log "No USB Ethernet adapter found on boot; running on Wi-Fi."
+  fi
+
+  # If both Wi-Fi and Ethernet are offline, activate recovery AP captive portal
+  if [ "$has_wifi" -eq 0 ] && [ "$has_eth" -eq 0 ]; then
+    log "No active network link detected on boot. Spawning recovery AP captive portal..."
+    start_recovery_ap
   fi
 
   # 3. Start dynamic interface monitor

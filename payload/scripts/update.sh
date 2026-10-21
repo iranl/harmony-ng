@@ -14,7 +14,7 @@ WGET="$BB wget --no-check-certificate"
 MD5SUM="$BB md5sum"
 TAR="$BB tar"
 
-CMD="${1:-check}"
+CMD="${1:-apply}"
 REPO_ARG="${2:-}"
 TOKEN_ARG="${3:-}"
 
@@ -119,7 +119,7 @@ do_apply() {
     NEW_VER=$(cat "$TMPDIR/VERSION" | tr -d '\r\n v')
   fi
   [ -z "$NEW_VER" ] && NEW_VER=$(cat /data/codex/latest_version 2>/dev/null | tr -d '\r\n v')
-  [ -z "$NEW_VER" ] && NEW_VER="1.4.1"
+  [ -z "$NEW_VER" ] && NEW_VER="1.5.0"
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
@@ -127,7 +127,6 @@ do_apply() {
   echo "[*] Downloading WebUI bundle..."
   if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
     mkdir -p /cache/www/assets 2>/dev/null
-    # Remove physical directory on /data if it is not already a symlink
     if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
       rm -rf /data/codex/www 2>/dev/null || true
     fi
@@ -140,23 +139,16 @@ do_apply() {
     echo "[-] Warning: WebUI bundle not available at ${REPO}/www.tar.gz"
   fi
 
-  # 3. Update Hub Binaries
+  # 3. Clean up bloated/redundant files on /data to prevent flash exhaustion
   mkdir -p /data/codex/bin /cache/bin 2>/dev/null
-  if download_retry "${REPO}/bin/mips/busybox?_=${TIMESTAMP}" "$TMPDIR/busybox" 30 3; then
-    chmod 755 "$TMPDIR/busybox"
-    mv -f "$TMPDIR/busybox" /cache/bin/busybox
-    ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
-  fi
-  if [ -x /cache/bin/busybox ]; then
-    /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-    for _app in $(/cache/bin/busybox --list 2>/dev/null); do
-      [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true
-    done
-  fi
+  rm -f /data/codex/bin/mknod /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
+  ln -sf /cache/bin/busybox /data/codex/bin/mknod 2>/dev/null || true
+  ln -sf /cache/bin/busybox /data/codex/bin/codex_sync 2>/dev/null || true
+  ln -sf /cache/bin/busybox /data/codex/bin/sync 2>/dev/null || true
 
-  HUB_BINS="codex_daemon codex_rf codex_btstack codex_dhcpd codex_portal codex_sntp codex_sync mknod register_ehci"
-  
-  for b in $HUB_BINS; do
+  # 4. Primary daemons stored in /data/codex/bin/
+  DATA_BINS="codex_daemon codex_btstack"
+  for b in $DATA_BINS; do
     echo "[*] Checking binary: $b..."
     if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
       local_md5=""
@@ -175,29 +167,54 @@ do_apply() {
     fi
   done
 
-  # 4. Update Elite Remote OTA image
+  # 5. Secondary daemons stored in /cache/bin/ and symlinked to /data/codex/bin/
+  CACHE_BINS="codex_rf codex_dhcpd codex_portal codex_sntp register_ehci"
+  for b in $CACHE_BINS; do
+    echo "[*] Checking binary: $b..."
+    if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
+      local_md5=""
+      [ -f "/cache/bin/$b" ] && local_md5=$($MD5SUM "/cache/bin/$b" 2>/dev/null | awk '{print $1}')
+      new_md5=$($MD5SUM "$TMPDIR/$b" 2>/dev/null | awk '{print $1}')
+      if [ -n "$new_md5" ] && [ "$new_md5" != "$local_md5" ]; then
+        echo "    -> Updating $b in /cache/bin (MD5: $new_md5)..."
+        chmod 755 "$TMPDIR/$b"
+        mv -f "$TMPDIR/$b" "/cache/bin/$b"
+      else
+        echo "    -> $b up to date."
+        rm -f "$TMPDIR/$b"
+      fi
+      # Ensure symlink from /data/codex/bin
+      rm -f "/data/codex/bin/$b" 2>/dev/null || true
+      ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+    else
+      rm -f "$TMPDIR/$b"
+    fi
+  done
+
+  # 6. Update Elite Remote OTA image (store on /cache to preserve /data flash)
   echo "[*] Checking Elite remote OTA package..."
   if download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" "$TMPDIR/codex_elite.ota.gz" 35 3; then
-    cp -f "$TMPDIR/codex_elite.ota.gz" /data/codex_elite.ota.gz 2>/dev/null || true
-    cp -f "$TMPDIR/codex_elite.ota.gz" /tmp/codex_elite.ota.gz 2>/dev/null || true
+    cp -f "$TMPDIR/codex_elite.ota.gz" /cache/codex_elite.ota.gz 2>/dev/null || true
+    rm -f /data/codex_elite.ota.gz 2>/dev/null || true
+    ln -sf /cache/codex_elite.ota.gz /data/codex_elite.ota.gz 2>/dev/null || true
     rm -f "$TMPDIR/codex_elite.ota.gz"
-    echo "[+] Elite remote OTA package cached (/data/codex_elite.ota.gz)."
+    echo "[+] Elite remote OTA package cached (/cache/codex_elite.ota.gz)."
   fi
 
-  # 5. Record new version
+  # 7. Record new version
   echo "$NEW_VER" > /data/codex/VERSION
   echo "$NEW_VER" > /etc/codex_version 2>/dev/null || true
   echo "$NEW_VER" > /data/codex/latest_version
   rm -f /data/codex/update_available.flag
 
-  # 6. Clean up temporary directory
+  # 8. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
-  # 7. Sync filesystem
+  # 9. Sync filesystem
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
 
   echo "[+] Update to v${NEW_VER} applied successfully. Restarting services..."
-  # 8. Restart services
+  # 10. Restart services
   if [ -x /data/codex/init.sh ]; then
     /data/codex/init.sh restart
   fi
@@ -207,14 +224,14 @@ do_elite_ota() {
   local slot="${1:-1}"
   echo "[*] Triggering RF OTA firmware update for Elite remote on Slot ${slot}..."
   
-  # Ensure OTA file exists, download if missing
-  if [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
+  if [ ! -f /cache/codex_elite.ota.gz ] && [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
     echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
-    download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" /tmp/codex_elite.ota.gz 35 3
+    download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" /cache/codex_elite.ota.gz 35 3
+    ln -sf /cache/codex_elite.ota.gz /data/codex_elite.ota.gz 2>/dev/null || true
   fi
 
-  if [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
-    echo "[-] Error: /data/codex_elite.ota.gz not found and could not be downloaded."
+  if [ ! -f /cache/codex_elite.ota.gz ] && [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
+    echo "[-] Error: codex_elite.ota.gz not found and could not be downloaded."
     return 1
   fi
 
@@ -266,7 +283,7 @@ case "$CMD" in
     fi
     ;;
   *)
-    # Default to check if interactive, apply if invoked directly
-    do_check
+    # Default to apply when invoked without arguments (e.g. from old daemon)
+    do_apply
     ;;
 esac
