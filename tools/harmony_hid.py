@@ -155,6 +155,8 @@ if sys.platform == "win32":
     # HID DLL prototypes
     hid_dll.HidD_GetHidGuid.restype = None
     hid_dll.HidD_GetHidGuid.argtypes = [ctypes.c_void_p]
+    hid_dll.HidD_FlushQueue.restype = wintypes.BOOL
+    hid_dll.HidD_FlushQueue.argtypes = [wintypes.HANDLE]
 
     # Kernel32 prototypes
     kernel32.CreateFileW.restype = wintypes.HANDLE
@@ -468,8 +470,13 @@ class HarmonyHid:
             self.seq = 1
         return s
 
-    def drain_input(self, timeout_ms: int = 20) -> None:
+    def drain_input(self, timeout_ms: int = 10) -> None:
         """Discard any stale/unread reports in the HID endpoint buffer."""
+        if sys.platform == "win32" and self.dev and getattr(self.dev, "handle", None):
+            try:
+                hid_dll.HidD_FlushQueue(self.dev.handle)
+            except Exception:
+                pass
         while self.dev:
             r = self.dev.read_report(timeout_ms=timeout_ms)
             if not r:
@@ -477,7 +484,7 @@ class HarmonyHid:
 
     def command(self, cmd_id: int, params: list[bytes], timeout_ms: int = 5000) -> bytes:
         """Send primary command frame and wait for matching response."""
-        self.drain_input(timeout_ms=20)
+        self.drain_input(timeout_ms=10)
         seq = self._next_seq()
         frames = build_primary_frames(cmd_id, seq, params)
         for f in frames:
@@ -489,12 +496,11 @@ class HarmonyHid:
             resp = self.dev.read_report(int((t_end - time.time()) * 1000))
             if not resp:
                 continue
-            # Look for 0xFF cmd_id sequence ...
-            if len(resp) >= 4 and resp[0] == 0xFF and resp[1] == cmd_id:
-                return resp
-            # Command error
-            if len(resp) >= 4 and resp[0] == 0xFF and resp[1] == 0xFF:
-                return resp
+            for off in range(0, max(0, len(resp) - 3)):
+                if resp[off] == 0xFF and resp[off + 1] == cmd_id:
+                    return resp[off:]
+                if resp[off] == 0xFF and resp[off + 1] == 0xFF:
+                    return resp[off:]
         return b""
 
     def open_file_write(self, remote_path: str, size: Optional[int] = None, timeout_ms: int = 15000) -> int:
@@ -514,10 +520,10 @@ class HarmonyHid:
         return resp[2]  # fallback handle byte
 
     def close_file(self, handle_id: int, timeout_ms: int = 10000) -> bool:
-        """Close an open file handle via command 0x04."""
+        """Close an open file handle via command 0x07."""
         params = [encode_param_byte(handle_id)]
-        resp = self.command(0x04, params, timeout_ms)
-        return bool(resp and resp[0] == 0xFF and resp[1] == 0x04)
+        resp = self.command(0x07, params, timeout_ms)
+        return bool(resp and resp[0] == 0xFF and resp[1] == 0x07)
 
     def write_file_chunks(
         self,
@@ -553,8 +559,13 @@ class HarmonyHid:
             acked = False
             while time.time() < t_end:
                 resp = self.dev.read_report(int((t_end - time.time()) * 1000))
-                if len(resp) >= 2 and resp[0] == 0xFF and resp[1] == 0x03:
-                    acked = True
+                if not resp:
+                    continue
+                for off in range(0, max(0, len(resp) - 3)):
+                    if resp[off] == 0xFF and resp[off + 1] == 0x03:
+                        acked = True
+                        break
+                if acked:
                     break
             if not acked:
                 raise RuntimeError(f"Write chunk timeout at offset {sent_frames * 62}/{len(data)}")
@@ -605,7 +616,7 @@ class HarmonyHid:
     def reboot(self) -> bool:
         """Send reboot signal via /sys/reboot."""
         try:
-            return self.write_simple("/sys/reboot", b"")
+            return self.write_simple("/sys/reboot", b"reboot")
         except Exception:
             return True  # Device frequently resets USB bus immediately
 

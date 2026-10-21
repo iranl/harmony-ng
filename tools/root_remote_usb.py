@@ -218,37 +218,35 @@ def main() -> None:
         hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress)
         print(f"\n[+] Dropbear staging complete in {time.time() - t0:.1f}s.")
 
-        time.sleep(1.0)  # Allow remote flash write and hal symlink creation to settle
-
         print("[*] Arming boot trigger (/tde/enable -> /etc/tdeenable)...")
-        armed = False
-        for _ in range(3):
-            if hid.set_tde_enable(True):
-                print("[+] SUCCESS: /etc/tdeenable created.")
-                armed = True
-                break
-            time.sleep(0.5)
-        if not armed:
+        if hid.set_tde_enable(True):
+            print("[+] SUCCESS: /etc/tdeenable created.")
+        else:
             print("[-] Warning: Failed to confirm /tde/enable.")
 
         if not args.no_reboot:
             print("[*] Sending reboot command to /sys/reboot...")
-            hid.reboot()
-            print("[+] Remote is rebooting into rooted firmware multi-user mode!")
-            print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}...")
-            if wait_for_ssh(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=60):
-                print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
-                print("    Deploying Codex Elite firmware...")
-                deploy_script = find_candidate([
-                    REPO_DIR / "elite" / "deploy_elite.py",
-                    REPO_DIR / "deploy_elite.py",
-                    SCRIPT_DIR / "deploy_elite.py",
-                ])
-                subprocess.run([sys.executable, str(deploy_script), "--ip", REMOTE_IP, "--key", str(pub_path.with_suffix(""))])
-            else:
-                print(f"\n[-] Timed out waiting for SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}.")
+            try:
+                hid.reboot()
+                print("[+] Remote is rebooting into rooted firmware multi-user mode!")
+            except Exception:
+                pass
     finally:
         hid.close()
+
+    if not args.no_reboot:
+        print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}...")
+        if wait_for_ssh(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=60):
+            print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
+            print("    Deploying Codex Elite firmware...")
+            deploy_script = find_candidate([
+                REPO_DIR / "elite" / "deploy_elite.py",
+                REPO_DIR / "deploy_elite.py",
+                SCRIPT_DIR / "deploy_elite.py",
+            ])
+            subprocess.run([sys.executable, str(deploy_script), "--ip", REMOTE_IP, "--key", str(pub_path.with_suffix(""))])
+        else:
+            print(f"\n[-] Timed out waiting for SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}.")
 
 
 if __name__ == "__main__":

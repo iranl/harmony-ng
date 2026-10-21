@@ -266,20 +266,21 @@ def step1_enable_usb_debug(pubkey_str: str) -> bool:
         hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress)
         print(f"\n[+] Dropbear staging complete in {time.time() - t0:.1f}s.")
 
-        time.sleep(1.0)
-
         print("[*] Arming boot trigger (/tde/enable -> /etc/tdeenable)...")
-        if not hid.set_tde_enable(True):
-            print("[-] Warning: Failed to confirm /tde/enable.")
-        else:
+        if hid.set_tde_enable(True):
             print("[+] SUCCESS: /etc/tdeenable created on remote.")
+        else:
+            print("[-] Warning: Failed to confirm /tde/enable.")
 
         print("[*] Sending reboot command to /sys/reboot...")
-        hid.reboot()
-        print("[+] Remote is rebooting into rooted firmware multi-user mode!")
+        try:
+            hid.reboot()
+            print("[+] Remote is rebooting into rooted firmware multi-user mode!")
+        except Exception as e:
+            print(f"[-] Reboot exception (expected if device disconnects): {e}")
         return True
     except Exception as e:
-        print(f"[-] Error during USB HID staging: {e}")
+        print(f"[-] Error over USB HID: {e}")
         return False
     finally:
         hid.close()
@@ -673,7 +674,6 @@ def print_success(priv_path: pathlib.Path):
     print("  + Hardware watchdog disabled (/etc/nowatchdog)")
     print("  + Dropbear SSH daemon installed on NAND (/data/dropbearmulti)")
     print("  + USB Ethernet & Dropbear auto-start on boot (/etc/init.d/rcS.local)")
-    print("  + Broken touchscreen no longer needed to access remote")
     print()
     print(" Connect to your remote anytime over USB:")
     print(f"    ssh -i {priv_path} root@{REMOTE_IP}")
