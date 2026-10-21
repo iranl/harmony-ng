@@ -18,13 +18,6 @@ COUNT=$(expr "$COUNT" + 1 2>/dev/null || echo 1)
 echo "$COUNT" > /data/codex/reboot_counter
 sync_fs
 
-# 2. 5-minute stability timer in background
-(
-	sleep 300
-	echo 0 > /data/codex/reboot_counter
-	sync_fs
-	echo "$(date) Hub uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
-) &
 
 # 3. Emergency recovery condition (>5 consecutive unverified boots)
 if [ "$COUNT" -gt 5 ]; then

@@ -356,7 +356,13 @@ migrate_to_ethernet() {
 
   # Assign IP to Ethernet
   ifconfig "$eth_if" "$target_ip" netmask "$target_mask" up >> "$LOG" 2>&1
-  ethtool -K "$eth_if" rx off tx off tso off gso off 2>/dev/null || true
+
+  # Disable hardware checksum & segmentation offload on MIPS to prevent corrupted TCP checksums
+  if [ -x /data/codex/bin/eth_fix ]; then
+    /data/codex/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
+  elif [ -x /cache/bin/eth_fix ]; then
+    /cache/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
+  fi
 
   # Explicitly configure default route
   route del default 2>/dev/null || true

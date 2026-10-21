@@ -73,6 +73,11 @@ build_register_ehci() {
     "$CC" $CFLAGS -o "$BIN/register_ehci" payload/source/register_ehci.c
 }
 
+build_eth_fix() {
+    echo "[-] Building eth_fix..."
+    "$CC" $CFLAGS -o "$BIN/eth_fix" payload/source/eth_fix.c
+}
+
 build_mknod() {
     echo "[-] Building mknod..."
     "$CC" $CFLAGS -o "$BIN/mknod" payload/source/mknod.c
@@ -144,12 +149,16 @@ case "$TARGET" in
         cp -f app/build/outputs/apk/debug/app-debug.apk "$OUT/app-debug.apk"
         echo "[+] APK copied to $OUT/app-debug.apk"
         ;;
+    eth_fix)
+        build_eth_fix
+        ;;
     hub)
         build_dhcpd
         build_portal
         build_sntp
         build_daemon
         build_register_ehci
+        build_eth_fix
         build_mknod
         build_sync
         build_rf
@@ -160,6 +169,7 @@ case "$TARGET" in
         build_sntp
         build_daemon
         build_register_ehci
+        build_eth_fix
         build_mknod
         build_sync
         build_rf
@@ -167,13 +177,13 @@ case "$TARGET" in
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: $0 [all|hub|daemon|sntp|portal|dhcpd|btstack|register_ehci|mknod|rf|elite|apk]"
+        echo "Usage: $0 [all|hub|daemon|sntp|portal|dhcpd|btstack|register_ehci|eth_fix|mknod|rf|elite|apk]"
         exit 1
         ;;
 esac
 
 echo "Copying binaries to build/output..."
-cp -f "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/mknod "$OUT"/ 2>/dev/null || true
+cp -f "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$OUT"/ 2>/dev/null || true
 
 echo "Updating MANIFEST.txt and FILES..."
 cd "$BIN"

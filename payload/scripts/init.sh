@@ -21,18 +21,32 @@ case "$1" in
     killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
     sleep 2
     # If supervisor loops already running from boot, let them respawn daemons
-    if ps | grep -v "$$" | grep "/data/codex/init.sh" >/dev/null 2>&1; then
-      exit 0
+    if [ -f /tmp/codex_watchdog.pid ]; then
+      _old=$(cat /tmp/codex_watchdog.pid 2>/dev/null)
+      if [ -n "$_old" ] && [ -d "/proc/$_old" ]; then
+        exit 0
+      fi
     fi
     ;;
 esac
 
 # Avoid duplicate supervisor loop spawns
-if ps | grep -v "$$" | grep "/data/codex/init.sh" >/dev/null 2>&1; then
-  echo "$(date) codex supervisor already running" >> "$LOG"
-  exit 0
+if [ -f /tmp/codex_watchdog.pid ]; then
+  _old=$(cat /tmp/codex_watchdog.pid 2>/dev/null)
+  if [ -n "$_old" ] && [ -d "/proc/$_old" ] && [ "$_old" != "$$" ]; then
+    echo "$(date) codex supervisor already running (PID $_old)" >> "$LOG"
+    exit 0
+  fi
 fi
 echo "$$" > /tmp/codex_watchdog.pid
+
+# 5-minute stability timer in background
+(
+  sleep 300
+  echo 0 > /data/codex/reboot_counter 2>/dev/null || true
+  sync_fs
+  echo "$(date) Hub uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
+) &
 
 # 0. Neuter watchdog and crash reporting immediately
 touch /etc/nowatchdog 2>/dev/null || true
