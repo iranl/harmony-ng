@@ -301,6 +301,7 @@ static void save_rf_config(void) {
         cJSON_AddStringToObject(b, "label", g_rf_buttons[i].label);
         cJSON_AddNumberToObject(b, "ctype", g_rf_buttons[i].context_type);
         cJSON_AddNumberToObject(b, "atype", g_rf_buttons[i].action_type);
+        cJSON_AddNumberToObject(b, "bidx", g_rf_buttons[i].btn_index);
         if (g_rf_buttons[i].icon_key[0]) {
             cJSON_AddStringToObject(b, "icon", g_rf_buttons[i].icon_key);
         }
@@ -414,6 +415,19 @@ static void load_rf_config(void) {
                 g_rf_buttons[g_rf_button_count].label[15] = '\0';
                 g_rf_buttons[g_rf_button_count].context_type = jctype ? (uint8_t)jctype->valueint : 0;
                 g_rf_buttons[g_rf_button_count].action_type = jatype ? (uint8_t)jatype->valueint : 1;
+                cJSON *jbidx = cJSON_GetObjectItem(b, "bidx");
+                if (jbidx && cJSON_IsNumber(jbidx)) {
+                    g_rf_buttons[g_rf_button_count].btn_index = (uint8_t)jbidx->valueint;
+                } else {
+                    uint8_t auto_idx = 0;
+                    for (int k = 0; k < g_rf_button_count; k++) {
+                        if (g_rf_buttons[k].context_type == g_rf_buttons[g_rf_button_count].context_type &&
+                            strcmp(g_rf_buttons[k].context_id, g_rf_buttons[g_rf_button_count].context_id) == 0) {
+                            auto_idx++;
+                        }
+                    }
+                    g_rf_buttons[g_rf_button_count].btn_index = auto_idx;
+                }
                 if (jico && cJSON_IsString(jico) && jico->valuestring[0]) {
                     strncpy(g_rf_buttons[g_rf_button_count].icon_key, jico->valuestring, sizeof(g_rf_buttons[0].icon_key) - 1);
                     g_rf_buttons[g_rf_button_count].icon_key[sizeof(g_rf_buttons[0].icon_key) - 1] = '\0';
@@ -747,6 +761,40 @@ static void clearpad_hw_init(void) {
     printf("[+] Synaptics Clearpad hardware reset & initialized via I2C\n");
 }
 
+/* Synaptics Clearpad Standby Wake & Interrupt Re-arm */
+static void clearpad_wake(bool full_reset) {
+    if (full_reset) {
+        clearpad_hw_init();
+    } else {
+        int fd = open("/dev/i2c-1", O_RDWR);
+        if (fd >= 0) {
+            if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
+                union i2c_smbus_data data;
+                struct i2c_smbus_ioctl_data args;
+
+                /* 1. Ensure normal operating mode: write 0x00 to F01 Control 0x35 */
+                data.byte = 0x00;
+                args.read_write = I2C_SMBUS_WRITE;
+                args.command = 0x35;
+                args.size = I2C_SMBUS_BYTE_DATA;
+                args.data = &data;
+                ioctl(fd, I2C_SMBUS, &args);
+
+                /* 2. Enable interrupts: write 0x07 to F01 Interrupt Enable 0x36 */
+                data.byte = 0x07;
+                args.command = 0x36;
+                ioctl(fd, I2C_SMBUS, &args);
+
+                /* 3. Read 0x14 to clear latched interrupt and de-assert ATTN line HIGH */
+                args.read_write = I2C_SMBUS_READ;
+                args.command = 0x14;
+                ioctl(fd, I2C_SMBUS, &args);
+            }
+            close(fd);
+        }
+    }
+}
+
 
 /* Power Debug Logging Infrastructure (/tmp/power_debug.log & /data/power_debug.log) */
 #define POWER_LOG_TMP   "/tmp/power_debug.log"
@@ -857,6 +905,18 @@ static void set_cpu_freq_standby(bool standby) {
             if (fputs("performance\n", fg) >= 0) gov_ok = true;
             fclose(fg);
         }
+        FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
+        if (fs) {
+            fputs("456000\n", fs);
+            fclose(fs);
+        }
+        if (!gov_ok) {
+            FILE *fgu = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
+            if (fgu) {
+                fputs("userspace\n", fgu);
+                fclose(fgu);
+            }
+        }
         char after[96];
         get_cpu_freq_status(after, sizeof(after));
         log_power_debug("CPU scale -> ACTIVE: before [%s] -> after [%s] (gov_ok=%d)\n",
@@ -894,6 +954,7 @@ static void fb_set_blank(bool blank) {
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
+        clearpad_wake(sleep_sec >= 10);
         read_elite_battery();
         log_power_debug("=== WAKING FROM STANDBY (Screen Active) ===\n");
         log_power_debug("  Slept for: %llu seconds | Backlight: %d | Battery: %dmV, %d%% (%s, chg=%d)\n",
@@ -1455,7 +1516,7 @@ typedef struct {
     unsigned char *rgba;
 } cached_png_t;
 
-#define MAX_CACHED_PNG 24
+#define MAX_CACHED_PNG 96
 static cached_png_t g_png_cache[MAX_CACHED_PNG];
 static int g_png_cache_count = 0;
 
@@ -1464,12 +1525,14 @@ static bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, cons
 
     unsigned char *data = NULL;
     int w = 0, h = 0;
+    bool is_cached = false;
 
     for (int i = 0; i < g_png_cache_count; i++) {
         if (strcmp(g_png_cache[i].path, filepath) == 0) {
             data = g_png_cache[i].rgba;
             w = g_png_cache[i].w;
             h = g_png_cache[i].h;
+            is_cached = true;
             break;
         }
     }
@@ -1484,6 +1547,7 @@ static bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, cons
             g_png_cache[g_png_cache_count].h = h;
             g_png_cache[g_png_cache_count].rgba = data;
             g_png_cache_count++;
+            is_cached = true;
         }
     }
 
@@ -1527,6 +1591,9 @@ static bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, cons
                 g_backbuffer[py * FB_WIDTH + px] = ((out_r >> 3) << 11) | ((out_g >> 2) << 5) | (out_b >> 3);
             }
         }
+    }
+    if (!is_cached) {
+        stbi_image_free(data);
     }
     return true;
 }
@@ -2658,12 +2725,17 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 g_ota_received_chunks++;
             }
 
-            if ((f->flags & RF_FLAG_ACK_REQ) || (c_idx % 16 == 0)) {
+            if ((f->flags & RF_FLAG_ACK_REQ) || (c_idx % 4 == 0)) {
                 rf_frame_t ack;
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
                 rf_send_frame(&ack);
             }
-            g_screen_dirty = true;
+            static uint64_t last_ota_render_ms = 0;
+            uint64_t now_ms = get_monotonic_ms();
+            if (now_ms - last_ota_render_ms >= 500) {
+                last_ota_render_ms = now_ms;
+                g_screen_dirty = true;
+            }
             break;
         }
 
@@ -3514,7 +3586,7 @@ static int get_settings_sub_count(void) {
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 5;
         case SETTINGS_VIEW_POWER:      return 4;
-        case SETTINGS_VIEW_SYSTEM:     return 6;
+        case SETTINGS_VIEW_SYSTEM:     return 7;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
         default: return 0;
@@ -3640,11 +3712,17 @@ static void execute_settings_action(int idx) {
 
     if (g_settings_subview == SETTINGS_VIEW_SYSTEM) {
         switch (idx) {
-            case 0:
+            case 0: {
+                char vmsg[64];
+                snprintf(vmsg, sizeof(vmsg), "Codex Elite v%s (cfg=%d)", CODEX_ELITE_VERSION, g_config_version);
+                show_notice(vmsg, 2500);
+                break;
+            }
+            case 1:
                 toggle_usbeth();
                 save_settings_conf();
                 break;
-            case 1:
+            case 2:
                 if (g_power_debug) {
                     log_power_debug("[*] Power debugging disabled from System menu\n");
                     g_power_debug = false;
@@ -3657,7 +3735,7 @@ static void execute_settings_action(int idx) {
                     show_notice("Power Debug: ENABLED", 2000);
                 }
                 break;
-            case 2:
+            case 3:
                 g_current_view = VIEW_PAIRING;
                 g_selected_pair_opt = 0;
                 g_unpair_confirm_active = false;
@@ -3669,16 +3747,16 @@ static void execute_settings_action(int idx) {
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
                 }
                 break;
-            case 3:
+            case 4:
                 g_settings_subview = SETTINGS_VIEW_REBOOT;
                 g_selected_sub_item = 0;
                 break;
-            case 4:
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
                 break;
-            case 5:
+            case 6:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -3689,7 +3767,7 @@ static void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_REBOOT) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 3;
+            g_selected_sub_item = 4;
         } else if (idx == 1) {
             execute_remote_reboot();
         }
@@ -3700,7 +3778,7 @@ static void execute_settings_action(int idx) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
             g_factory_reset_stage = 0;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = 5;
         } else if (idx == 1) {
             if (g_factory_reset_stage == 0) {
                 g_factory_reset_stage = 1;
@@ -3772,8 +3850,8 @@ static void render_settings_items(const char *title, int count, const char **lab
     fb_draw_text_aa(14, 10, title, RGB_CYAN, &g_font_title);
 
     int start_y = 40;
-    int card_h = (count >= 6) ? 34 : 36;
-    int spacing = (count >= 6) ? 4 : 5;
+    int card_h = (count >= 7) ? 30 : ((count >= 6) ? 34 : 36);
+    int spacing = (count >= 7) ? 3 : ((count >= 6) ? 4 : 5);
 
     for (int i = 0; i < count; i++) {
         int y = start_y + i * (card_h + spacing);
@@ -3787,16 +3865,16 @@ static void render_settings_items(const char *title, int count, const char **lab
 
         bool has_icon = false;
         if (icons && icons[i]) {
-            has_icon = blit_png_file(14, y + (card_h == 34 ? 7 : 8), 20, 20, icons[i]);
+            has_icon = blit_png_file(14, y + (card_h <= 30 ? 5 : (card_h == 34 ? 7 : 8)), 20, 20, icons[i]);
         }
         int text_x = has_icon ? 38 : 14;
         uint16_t text_col = is_back ? (is_sel ? RGB_WHITE : RGB_CYAN) : (is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-        fb_draw_text_aa(text_x, y + (card_h == 34 ? 8 : 9), labels[i], text_col, &g_font_main);
+        fb_draw_text_aa(text_x, y + (card_h <= 30 ? 6 : (card_h == 34 ? 8 : 9)), labels[i], text_col, &g_font_main);
 
         if (values && values[i][0]) {
             int vw = fb_text_width_aa(values[i], &g_font_main);
             uint16_t col = val_colors ? val_colors[i] : RGB_TEAL;
-            fb_draw_text_aa(FB_WIDTH - 18 - vw, y + (card_h == 34 ? 8 : 9), values[i], col, &g_font_main);
+            fb_draw_text_aa(FB_WIDTH - 18 - vw, y + (card_h <= 30 ? 6 : (card_h == 34 ? 8 : 9)), values[i], col, &g_font_main);
         }
     }
 }
@@ -4002,34 +4080,38 @@ static void render_settings_view(void) {
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[6] = { "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
-            char values[6][32];
-            uint16_t cols[6];
+            const char *labels[7] = { "Software Version", "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
+            char values[7][32];
+            uint16_t cols[7];
+
+            snprintf(values[0], sizeof(values[0]), "v" CODEX_ELITE_VERSION);
+            cols[0] = RGB_GREEN;
 
             if (!g_usbeth_enabled) {
-                snprintf(values[0], sizeof(values[0]), "[ OFF ]");
-                cols[0] = RGB_TEXT_MUTED;
+                snprintf(values[1], sizeof(values[1]), "[ OFF ]");
+                cols[1] = RGB_TEXT_MUTED;
             } else {
                 bool usb_hw = is_usb_hardware_connected();
                 if (usb_hw) {
-                    snprintf(values[0], sizeof(values[0]), "[ ACTIVE ]");
-                    cols[0] = RGB_GREEN;
+                    snprintf(values[1], sizeof(values[1]), "[ ACTIVE ]");
+                    cols[1] = RGB_GREEN;
                 } else {
-                    snprintf(values[0], sizeof(values[0]), "[ UNPLUGGED ]");
-                    cols[0] = RGB_YELLOW;
+                    snprintf(values[1], sizeof(values[1]), "[ UNPLUGGED ]");
+                    cols[1] = RGB_YELLOW;
                 }
             }
-            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_power_debug ? "ON" : "OFF");
-            cols[1] = g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED;
-            snprintf(values[2], sizeof(values[2]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
-            cols[2] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
-            snprintf(values[3], sizeof(values[3]), "[ REBOOT ]");
-            cols[3] = RGB_YELLOW;
-            snprintf(values[4], sizeof(values[4]), "[ REVERT ]");
-            cols[4] = RGB_RED;
-            values[5][0] = '\0';
-            cols[5] = RGB_CYAN;
-            const char *icons[6] = {
+            snprintf(values[2], sizeof(values[2]), "[ %s ]", g_power_debug ? "ON" : "OFF");
+            cols[2] = g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED;
+            snprintf(values[3], sizeof(values[3]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
+            cols[3] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
+            snprintf(values[4], sizeof(values[4]), "[ REBOOT ]");
+            cols[4] = RGB_YELLOW;
+            snprintf(values[5], sizeof(values[5]), "[ REVERT ]");
+            cols[5] = RGB_RED;
+            values[6][0] = '\0';
+            cols[6] = RGB_CYAN;
+            const char *icons[7] = {
+                "/opt/luadraws/appscommon/asset/footer/settings.png",
                 "/opt/luadraws/appscommon/asset/header/usb.png",
                 "/opt/luadraws/appscommon/asset/header/charging.png",
                 "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
@@ -4037,7 +4119,7 @@ static void render_settings_view(void) {
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("SYSTEM", 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("SYSTEM", 7, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_REBOOT:
@@ -4649,8 +4731,8 @@ static void handle_screen_touch_tap(int x, int y) {
         } else {
             int start_y = 40;
             int count = get_settings_sub_count();
-            int card_h = (count >= 6) ? 34 : 36;
-            int spacing = (count >= 6) ? 4 : 5;
+            int card_h = (count >= 7) ? 30 : ((count >= 6) ? 34 : 36);
+            int spacing = (count >= 7) ? 3 : ((count >= 6) ? 4 : 5);
             for (int i = 0; i < count; i++) {
                 int cy = start_y + i * (card_h + spacing);
                 if (y >= cy && y < cy + card_h) {
@@ -4798,13 +4880,13 @@ static void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 2;
+                g_selected_sub_item = 3;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
-                    g_selected_sub_item = was_reboot ? 3 : 4;
+                    g_selected_sub_item = was_reboot ? 4 : 5;
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
@@ -4827,7 +4909,7 @@ static void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 2;
+                g_selected_sub_item = 3;
             } else if (g_current_view == VIEW_ACTIVITIES) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
@@ -4916,14 +4998,14 @@ static void handle_navigation_key(int code, int value) {
                 } else {
                     g_current_view = VIEW_SETTINGS;
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                    g_selected_sub_item = 2;
+                    g_selected_sub_item = 3;
                 }
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
-                    g_selected_sub_item = was_reboot ? 3 : 4;
+                    g_selected_sub_item = was_reboot ? 4 : 5;
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
@@ -5255,7 +5337,7 @@ int main(int argc, char **argv) {
         /* Battery Reporting: send once every 1 hour (3600000ms), or immediately if charging state changes */
         static uint64_t last_battery_report_ms = 0;
         static uint8_t last_charging_state = 0xFF;
-        if (g_screen_on && g_rf_fd >= 0 && g_rf_link_connected) {
+        if (g_screen_on && g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
             read_elite_battery();
             if (now_ms - last_battery_report_ms >= 3600000 || g_battery_info.charging != last_charging_state) {
                 last_charging_state = g_battery_info.charging;
@@ -5266,7 +5348,7 @@ int main(int argc, char **argv) {
 
         /* Version Reporting: send once every 24 hours (86400000ms), or immediately on first link */
         static uint64_t last_version_report_ms = 0;
-        if (g_screen_on && g_rf_fd >= 0 && g_rf_link_connected) {
+        if (g_screen_on && g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
             if (last_version_report_ms == 0 || (now_ms - last_version_report_ms >= 86400000ULL)) {
                 last_version_report_ms = now_ms;
                 send_version_report_rf();

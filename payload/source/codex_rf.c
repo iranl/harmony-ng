@@ -234,7 +234,7 @@ static void http_post_local(int port, const char *endpoint, const char *json_bod
         fd_set wfds;
         FD_ZERO(&wfds);
         FD_SET(sock, &wfds);
-        struct timeval ctv = { .tv_sec = 2, .tv_usec = 0 };
+        struct timeval ctv = { .tv_sec = 0, .tv_usec = 150000 };
         if (select(sock + 1, NULL, &wfds, NULL, &ctv) <= 0) {
             close(sock);
             return;
@@ -250,7 +250,7 @@ static void http_post_local(int port, const char *endpoint, const char *json_bod
 
     /* Restore blocking mode with send/recv timeouts */
     fcntl(sock, F_SETFL, flags);
-    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 400000 };
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
@@ -473,11 +473,18 @@ static void dispatch_elite_button(uint8_t slot, const char *button_name, const c
     }
 }
 
-/* Asynchronous button dispatch queue to keep rx_worker completely non-blocking */
+/* Asynchronous event dispatch queue to keep rx_worker completely non-blocking */
+typedef enum {
+    RF_EV_BUTTON = 0,
+    RF_EV_DEVICE_CMD,
+    RF_EV_ACTIVITY
+} rf_ev_kind_t;
+
 typedef struct {
+    rf_ev_kind_t kind;
     uint8_t slot;
-    char button_name[64];
-    char action_state[16];
+    char param1[64]; /* button_name OR dev_id OR act_id */
+    char param2[64]; /* action_state OR command */
 } rf_event_t;
 
 #define RF_QUEUE_SIZE 64
@@ -491,9 +498,12 @@ static void enqueue_elite_button(uint8_t slot, const char *name, const char *act
     pthread_mutex_lock(&g_rf_q_mutex);
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
     if (next != g_rf_q_tail) {
+        g_rf_queue[g_rf_q_head].kind = RF_EV_BUTTON;
         g_rf_queue[g_rf_q_head].slot = slot;
-        strncpy(g_rf_queue[g_rf_q_head].button_name, name, sizeof(g_rf_queue[0].button_name) - 1);
-        strncpy(g_rf_queue[g_rf_q_head].action_state, action, sizeof(g_rf_queue[0].action_state) - 1);
+        strncpy(g_rf_queue[g_rf_q_head].param1, name ? name : "", sizeof(g_rf_queue[0].param1) - 1);
+        g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
+        strncpy(g_rf_queue[g_rf_q_head].param2, action ? action : "", sizeof(g_rf_queue[0].param2) - 1);
+        g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
     } else {
@@ -501,6 +511,45 @@ static void enqueue_elite_button(uint8_t slot, const char *name, const char *act
     }
     pthread_mutex_unlock(&g_rf_q_mutex);
 }
+
+static void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
+    if (!dev_id || !cmd) return;
+    pthread_mutex_lock(&g_rf_q_mutex);
+    int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
+    if (next != g_rf_q_tail) {
+        g_rf_queue[g_rf_q_head].kind = RF_EV_DEVICE_CMD;
+        g_rf_queue[g_rf_q_head].slot = 1;
+        strncpy(g_rf_queue[g_rf_q_head].param1, dev_id, sizeof(g_rf_queue[0].param1) - 1);
+        g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
+        strncpy(g_rf_queue[g_rf_q_head].param2, cmd, sizeof(g_rf_queue[0].param2) - 1);
+        g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
+        g_rf_q_head = next;
+        pthread_cond_signal(&g_rf_q_cond);
+    } else {
+        printf("[-] Warning: RF dispatch queue overflow on dev_cmd!\n");
+    }
+    pthread_mutex_unlock(&g_rf_q_mutex);
+}
+
+static void enqueue_elite_activity(const char *act_id) {
+    if (!act_id) return;
+    pthread_mutex_lock(&g_rf_q_mutex);
+    int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
+    if (next != g_rf_q_tail) {
+        g_rf_queue[g_rf_q_head].kind = RF_EV_ACTIVITY;
+        g_rf_queue[g_rf_q_head].slot = 1;
+        strncpy(g_rf_queue[g_rf_q_head].param1, act_id, sizeof(g_rf_queue[0].param1) - 1);
+        g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
+        g_rf_queue[g_rf_q_head].param2[0] = '\0';
+        g_rf_q_head = next;
+        pthread_cond_signal(&g_rf_q_cond);
+    } else {
+        printf("[-] Warning: RF dispatch queue overflow on activity!\n");
+    }
+    pthread_mutex_unlock(&g_rf_q_mutex);
+}
+
+static void dispatch_activity_to_daemon(const char *act_id);
 
 static void *dispatch_worker(void *arg) {
     (void)arg;
@@ -517,9 +566,26 @@ static void *dispatch_worker(void *arg) {
         pthread_mutex_unlock(&g_rf_q_mutex);
 
         if (has_event) {
-            dispatch_elite_button(ev.slot, ev.button_name, ev.action_state);
+            if (ev.kind == RF_EV_DEVICE_CMD) {
+                char body[256];
+                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
+                         ev.param1, ev.param2);
+                http_post_local(WEBUI_PORT, "/api/ir-send", body);
+            } else if (ev.kind == RF_EV_ACTIVITY) {
+                dispatch_activity_to_daemon(ev.param1);
+            } else {
+                dispatch_elite_button(ev.slot, ev.param1, ev.param2);
+            }
         } else {
-            usleep(20000); /* 20ms poll interval - 0% CPU, sub-frame latency */
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 20000000L; /* 20ms */
+            if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+            pthread_mutex_lock(&g_rf_q_mutex);
+            if (g_rf_q_head == g_rf_q_tail && g_running) {
+                pthread_cond_timedwait(&g_rf_q_cond, &g_rf_q_mutex, &ts);
+            }
+            pthread_mutex_unlock(&g_rf_q_mutex);
         }
     }
     return NULL;
@@ -1663,21 +1729,28 @@ static void *rf_ota_sender_worker(void *arg) {
         chunk_payload[2] = (uint8_t)rd;
         memcpy(&chunk_payload[3], chunk_data, rd);
 
-        bool need_ack = ((c_idx + 1 == tot_chunks) || (c_idx % 16 == 0));
+        bool need_ack = ((c_idx + 1 == tot_chunks) || (c_idx % 4 == 0));
         uint8_t flags = need_ack ? RF_FLAG_ACK_REQ : 0;
         rf_build_frame(&frame, target_slot, RF_MSG_OTA_CHUNK, ++g_tx_seq, flags, chunk_payload, (uint8_t)(3 + rd));
 
         if (need_ack) {
-            if (rf_send_frame_acked(&frame, 800) != 0) {
-                /* Retry chunk once */
-                if (rf_send_frame_acked(&frame, 1200) != 0) {
-                    fclose(f);
-                    snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Chunk %u ACK timeout", c_idx);
-                    g_rf_ota.status_code = -1;
-                    g_rf_ota.in_progress = false;
-                    pthread_mutex_unlock(&g_ota_lock);
-                    return NULL;
+            int retries = 0;
+            int ack_ok = -1;
+            while (retries < 3) {
+                if (rf_send_frame_acked(&frame, 800) == 0 && g_ack_status == 0x00) {
+                    ack_ok = 0;
+                    break;
                 }
+                retries++;
+                usleep(25000);
+            }
+            if (ack_ok != 0) {
+                fclose(f);
+                snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Chunk %u ACK timeout", c_idx);
+                g_rf_ota.status_code = -1;
+                g_rf_ota.in_progress = false;
+                pthread_mutex_unlock(&g_ota_lock);
+                return NULL;
             }
         } else {
             rf_send_frame(&frame);
@@ -1725,7 +1798,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_ACK: {
             pthread_mutex_lock(&g_ack_mutex);
-            uint8_t acked = f->payload[0] ? f->payload[0] : f->seq;
+            uint8_t acked = f->payload[0];
             if ((acked & 0x0F) == (g_pending_ack_seq & 0x0F) || acked == g_pending_ack_seq) {
                 g_ack_received = 1;
                 g_ack_status = f->payload[1];
@@ -1750,9 +1823,14 @@ static void handle_codex_frame(const rf_frame_t *f) {
             printf("[*] Codex BUTTON_PRESS: slot=%d code=0x%04X state=%s name=%s\n", slot, key_code, action, name);
             enqueue_elite_button(slot, name, action);
 
-            char cur[32] = "-1";
-            get_current_activity(cur, sizeof(cur));
-            rf_send_codex_activity_sync(cur);
+            static uint32_t s_last_sync_ms = 0;
+            uint32_t now_ms = (uint32_t)get_monotonic_ms();
+            if (now_ms - s_last_sync_ms > 5000) {
+                s_last_sync_ms = now_ms;
+                char cur[32] = "-1";
+                get_current_activity(cur, sizeof(cur));
+                rf_send_codex_activity_sync(cur);
+            }
             break;
         }
 
@@ -1760,7 +1838,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
             char act_id[13] = {0};
             memcpy(act_id, f->payload, 12);
             printf("[*] Codex ACTIVITY_REQUEST: %s\n", act_id);
-            dispatch_activity_to_daemon(act_id);
+            enqueue_elite_activity(act_id);
             break;
         }
 
@@ -1785,10 +1863,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
                             if (jdev && jcmd && jdev->valuestring && jcmd->valuestring) {
                                 printf("[*] Direct Screen button dispatch: slot=%d page=%s idx=%d -> dev=%s cmd=%s\n",
                                        slot, page_key, btn_idx, jdev->valuestring, jcmd->valuestring);
-                                char body[256];
-                                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                                         jdev->valuestring, jcmd->valuestring);
-                                http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                                enqueue_elite_device_cmd(jdev->valuestring, jcmd->valuestring);
                                 handled = true;
                             }
                         }
@@ -1816,10 +1891,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
                                     if (jdev && jdev->valuestring && jcmd && jcmd->valuestring) {
                                         printf("[*] Screen button dispatch: act=%s idx=%d -> dev=%s cmd=%s\n",
                                                act_or_dev, btn_idx, jdev->valuestring, jcmd->valuestring);
-                                        char body[256];
-                                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                                                 jdev->valuestring, jcmd->valuestring);
-                                        http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                                        enqueue_elite_device_cmd(jdev->valuestring, jcmd->valuestring);
                                         handled = true;
                                     }
                                 }
@@ -1837,9 +1909,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
                 memcpy(dev_id, f->payload, 12);
                 memcpy(cmd, &f->payload[12], 16);
                 printf("[*] Codex DEVICE_CMD direct: dev=%s cmd=%s\n", dev_id, cmd);
-                char body[256];
-                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id, cmd);
-                http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                enqueue_elite_device_cmd(dev_id, cmd);
             }
             break;
         }
@@ -1968,7 +2038,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 f.report_id = 0x20;
                 f.dev_slot = pkt[1] & 0x0F;
                 f.sub_id = 0x12;
-                f.seq = pkt[3];
+                f.seq = pkt[4] & 0x0F;
                 f.hdr_flag = pkt[4];
                 f.msg_type = pkt[5];
                 f.flags = pkt[6];
