@@ -589,7 +589,10 @@ class HarmonyHid:
     def set_tde_enable(self, state: bool = True) -> bool:
         """Set /etc/tdeenable on device via /tde/enable endpoint."""
         val = b"1" if state else b"0"
-        return self.write_simple("/tde/enable", val)
+        try:
+            return self.write_simple("/tde/enable", val)
+        except Exception:
+            return False
 
     def reboot(self) -> bool:
         """Send reboot signal via /sys/reboot."""
