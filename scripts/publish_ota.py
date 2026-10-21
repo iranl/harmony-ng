@@ -149,7 +149,39 @@ def package_ota(output_dir: Path, version: str):
     else:
         print("[-] Warning: No built WebUI bundle found with index.html")
 
-    # 5. Manifest.json
+    # 5. Unified Hub OTA bundle (hub_ota.tar.gz)
+    hub_tar = output_dir / "hub_ota.tar.gz"
+    print(f"[*] Creating unified Hub OTA package {hub_tar.name}...")
+    with tarfile.open(hub_tar, "w:gz") as tar:
+        # Version
+        tar.add(output_dir / "VERSION", arcname="VERSION")
+        # Binaries
+        for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
+            src = find_candidate_file(bname, MIPS_SEARCH_PATHS)
+            if src and src.exists():
+                tar.add(src, arcname=f"bin/{bname}")
+        # Scripts
+        scripts_dir = REPO_ROOT / "payload" / "scripts"
+        if scripts_dir.is_dir():
+            for f in scripts_dir.iterdir():
+                if f.is_file():
+                    tar.add(f, arcname=f"scripts/{f.name}")
+        # WebUI
+        if www_src and www_src.is_dir():
+            for root, _, files in os.walk(www_src):
+                for file in files:
+                    full_path = Path(root) / file
+                    rel_path = full_path.relative_to(www_src)
+                    tar.add(full_path, arcname=f"www/{str(rel_path).replace(os.sep, '/')}")
+
+    md5, sha = get_file_hashes(hub_tar)
+    manifest_files["hub_ota.tar.gz"] = {
+        "size": hub_tar.stat().st_size,
+        "md5": md5,
+        "sha256": sha
+    }
+
+    # 6. Manifest.json
     manifest = {
         "version": version,
         "files": manifest_files

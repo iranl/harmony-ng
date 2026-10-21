@@ -123,75 +123,94 @@ do_apply() {
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
-  # 2. Update WebUI assets (www.tar.gz) -> Store on /cache/www to preserve /data flash
-  echo "[*] Downloading WebUI bundle..."
-  if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
-    mkdir -p /cache/www/assets 2>/dev/null
-    if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
-      rm -rf /data/codex/www 2>/dev/null || true
+  mkdir -p /data/codex/bin /cache/bin /cache/www 2>/dev/null
+  # Prune redundant/bloated binaries to ensure flash space
+  rm -f /cache/bin/codex_portal /cache/bin/codex_dhcpd /cache/bin/codex_sntp /data/codex/bin/mknod /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
+
+  # 2. Attempt unified RAM bundle update (hub_ota.tar.gz)
+  OTA_BUNDLE_OK=0
+  echo "[*] Checking for unified Hub package (hub_ota.tar.gz)..."
+  if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3; then
+    echo "[+] Downloaded unified OTA package to RAM ($TMPDIR/hub_ota.tar.gz)."
+    mkdir -p "$TMPDIR/pkg" 2>/dev/null
+    if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
+      echo "[*] Extracting package to flash partitions..."
+      # A. Scripts -> /data/codex/
+      if [ -d "$TMPDIR/pkg/scripts" ]; then
+        cp -f "$TMPDIR/pkg/scripts/"*.sh /data/codex/ 2>/dev/null || true
+        chmod 755 /data/codex/*.sh 2>/dev/null || true
+      fi
+
+      # B. Primary binaries -> /data/codex/bin/
+      for b in codex_daemon codex_btstack dropbearmulti; do
+        if [ -f "$TMPDIR/pkg/bin/$b" ]; then
+          chmod 755 "$TMPDIR/pkg/bin/$b"
+          cp -f "$TMPDIR/pkg/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+        fi
+      done
+
+      # C. Secondary binaries & BusyBox -> /cache/bin/
+      for b in codex_rf register_ehci busybox; do
+        if [ -f "$TMPDIR/pkg/bin/$b" ]; then
+          chmod 755 "$TMPDIR/pkg/bin/$b"
+          cp -f "$TMPDIR/pkg/bin/$b" "/cache/bin/$b" 2>/dev/null || true
+          rm -f "/data/codex/bin/$b" 2>/dev/null || true
+          ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+        fi
+      done
+
+      # D. Symlink busybox applets & install extended BusyBox
+      if [ -x /cache/bin/busybox ]; then
+        /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+        ln -sf /cache/bin/busybox /data/codex/bin/mknod 2>/dev/null || true
+        ln -sf /cache/bin/busybox /data/codex/bin/sync 2>/dev/null || true
+      fi
+
+      # E. WebUI -> /cache/www/
+      if [ -d "$TMPDIR/pkg/www" ]; then
+        if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
+          rm -rf /data/codex/www 2>/dev/null || true
+        fi
+        ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+        cp -rf "$TMPDIR/pkg/www/"* /cache/www/ 2>/dev/null || true
+        echo "[+] WebUI bundle updated in /cache/www."
+      fi
+
+      OTA_BUNDLE_OK=1
     fi
-    mkdir -p /data/codex 2>/dev/null || true
-    ln -sfn /cache/www /data/codex/www 2>/dev/null || true
-    $TAR -xzf "$TMPDIR/www.tar.gz" -C /cache/www/ 2>/dev/null
-    rm -f "$TMPDIR/www.tar.gz"
-    echo "[+] WebUI bundle updated in /cache/www."
-  else
-    echo "[-] Warning: WebUI bundle not available at ${REPO}/www.tar.gz"
+    rm -rf "$TMPDIR/hub_ota.tar.gz" "$TMPDIR/pkg" 2>/dev/null
   fi
 
-  # 3. Clean up bloated/redundant files on /data to prevent flash exhaustion
-  mkdir -p /data/codex/bin /cache/bin 2>/dev/null
-  rm -f /data/codex/bin/mknod /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/codex/bin/mknod 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/codex/bin/codex_sync 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/codex/bin/sync 2>/dev/null || true
+  # 3. Fallback to individual asset download if unified bundle missing
+  if [ "$OTA_BUNDLE_OK" != "1" ]; then
+    echo "[*] Falling back to modular asset download..."
+    if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
+      mkdir -p /cache/www 2>/dev/null
+      [ -d /data/codex/www ] && [ ! -L /data/codex/www ] && rm -rf /data/codex/www 2>/dev/null || true
+      ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+      $TAR -xzf "$TMPDIR/www.tar.gz" -C /cache/www/ 2>/dev/null
+      rm -f "$TMPDIR/www.tar.gz"
+      echo "[+] WebUI bundle updated in /cache/www."
+    fi
 
-  # 4. Primary daemons stored in /data/codex/bin/
-  DATA_BINS="codex_daemon codex_btstack"
-  for b in $DATA_BINS; do
-    echo "[*] Checking binary: $b..."
-    if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
-      local_md5=""
-      [ -f "/data/codex/bin/$b" ] && local_md5=$($MD5SUM "/data/codex/bin/$b" 2>/dev/null | awk '{print $1}')
-      new_md5=$($MD5SUM "$TMPDIR/$b" 2>/dev/null | awk '{print $1}')
-      if [ -n "$new_md5" ] && [ "$new_md5" != "$local_md5" ]; then
-        echo "    -> Updating $b (MD5: $new_md5)..."
+    for b in codex_daemon codex_btstack; do
+      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/data/codex/bin/$b"
-      else
-        echo "    -> $b up to date."
-        rm -f "$TMPDIR/$b"
       fi
-    else
-      rm -f "$TMPDIR/$b"
-    fi
-  done
+    done
 
-  # 5. Secondary daemons stored in /cache/bin/ and symlinked to /data/codex/bin/
-  CACHE_BINS="codex_rf codex_dhcpd codex_portal codex_sntp register_ehci"
-  for b in $CACHE_BINS; do
-    echo "[*] Checking binary: $b..."
-    if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
-      local_md5=""
-      [ -f "/cache/bin/$b" ] && local_md5=$($MD5SUM "/cache/bin/$b" 2>/dev/null | awk '{print $1}')
-      new_md5=$($MD5SUM "$TMPDIR/$b" 2>/dev/null | awk '{print $1}')
-      if [ -n "$new_md5" ] && [ "$new_md5" != "$local_md5" ]; then
-        echo "    -> Updating $b in /cache/bin (MD5: $new_md5)..."
+    for b in codex_rf register_ehci; do
+      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/cache/bin/$b"
-      else
-        echo "    -> $b up to date."
-        rm -f "$TMPDIR/$b"
+        rm -f "/data/codex/bin/$b" 2>/dev/null || true
+        ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
       fi
-      # Ensure symlink from /data/codex/bin
-      rm -f "/data/codex/bin/$b" 2>/dev/null || true
-      ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
-    else
-      rm -f "$TMPDIR/$b"
-    fi
-  done
+    done
+  fi
 
-  # 6. Update Elite Remote OTA image (store on /cache to preserve /data flash)
+  # 4. Update Elite Remote OTA image (store on /cache to preserve /data flash)
   echo "[*] Checking Elite remote OTA package..."
   if download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" "$TMPDIR/codex_elite.ota.gz" 35 3; then
     cp -f "$TMPDIR/codex_elite.ota.gz" /cache/codex_elite.ota.gz 2>/dev/null || true
@@ -201,20 +220,22 @@ do_apply() {
     echo "[+] Elite remote OTA package cached (/cache/codex_elite.ota.gz)."
   fi
 
-  # 7. Record new version
+  # 5. Record new version
   echo "$NEW_VER" > /data/codex/VERSION
   echo "$NEW_VER" > /etc/codex_version 2>/dev/null || true
   echo "$NEW_VER" > /data/codex/latest_version
   rm -f /data/codex/update_available.flag
 
-  # 8. Clean up temporary directory
+  # 6. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
-  # 9. Sync filesystem
+  # 7. Sync filesystem
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
 
   echo "[+] Update to v${NEW_VER} applied successfully. Restarting services..."
-  # 10. Restart services
+  # 8. Cleanly terminate running processes and restart services
+  killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
+  sleep 1
   if [ -x /data/codex/init.sh ]; then
     /data/codex/init.sh restart
   fi

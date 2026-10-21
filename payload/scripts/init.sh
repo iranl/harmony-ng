@@ -7,7 +7,20 @@ sync_fs() {
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true
 }
 
-echo "$(date) codex init start" > "$LOG"
+echo "$(date) codex init start: $1" >> "$LOG"
+
+case "$1" in
+  stop)
+    echo "$(date) Stopping codex services..." >> "$LOG"
+    killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
+    exit 0
+    ;;
+  restart)
+    echo "$(date) Restarting codex services..." >> "$LOG"
+    killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
+    sleep 1
+    ;;
+esac
 
 # 0. Neuter watchdog and crash reporting immediately
 touch /etc/nowatchdog 2>/dev/null || true
@@ -75,9 +88,7 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 # 3. Dropbear SSH Server & Shell Profile & Extended BusyBox
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-  for _app in $(/cache/bin/busybox --list 2>/dev/null); do
-    [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true
-  done
+  ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
 fi
 
 mkdir -p /etc/profile.d 2>/dev/null || true
@@ -106,8 +117,11 @@ EOF
 done
 
 if [ -x /data/codex/bin/dropbear ]; then
-  echo '#!/bin/sh' > /usr/sbin/dropbear
-  echo 'exec /data/codex/bin/dropbear -K 300 "$@"' >> /usr/sbin/dropbear
+  cat <<'EOF' > /usr/sbin/dropbear
+#!/bin/sh
+export PATH=/cache/bin:/data/codex/bin:$PATH
+exec /data/codex/bin/dropbear -K 300 "$@"
+EOF
   chmod 755 /usr/sbin/dropbear
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
     /usr/sbin/dropbear

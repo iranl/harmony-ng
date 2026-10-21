@@ -163,7 +163,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Logitech Harmony Hub USB Root & Persistence Tool")
     parser.add_argument("--pubkey", help="Path to SSH public key to authorize")
     parser.add_argument("--wifi-ssid", help="Wi-Fi SSID to provision over USB")
-    parser.add_argument("--wifi-pass", default="", help="Wi-Fi password to provision over USB")
+    parser.add_argument("--wifi-pass", default=None, help="Wi-Fi password (prompted if omitted)")
     parser.add_argument("--wifi-enc", default="WPA2-PSK", help="Wi-Fi encryption (default: WPA2-PSK)")
     parser.add_argument("--wifi-only", action="store_true", help="Only configure Wi-Fi and reboot without restaging Dropbear")
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address to verify SSH after reboot")
@@ -185,8 +185,12 @@ def main() -> None:
     try:
         # 2. Wi-Fi Provisioning
         if args.wifi_ssid:
+            wifi_pass = args.wifi_pass
+            if wifi_pass is None and args.wifi_enc.upper() not in ("NONE", "OPEN"):
+                import getpass
+                wifi_pass = getpass.getpass(f"Enter Wi-Fi password for '{args.wifi_ssid}': ")
             print(f"[*] Provisioning Wi-Fi SSID '{args.wifi_ssid}' over USB HID...")
-            if hid.provision_wifi(args.wifi_ssid, args.wifi_pass, args.wifi_enc):
+            if hid.provision_wifi(args.wifi_ssid, wifi_pass or "", args.wifi_enc):
                 print("[+] Wi-Fi credentials accepted by Hub.")
             else:
                 print("[-] Warning: Wi-Fi provisioning command failed.")
