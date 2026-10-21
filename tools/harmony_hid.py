@@ -124,6 +124,90 @@ if sys.platform == "win32":
     setupapi = ctypes.windll.setupapi
     hid_dll = ctypes.windll.hid
 
+    # Win32 SetupAPI prototypes (critical on 64-bit Windows to avoid 32-bit handle truncation)
+    setupapi.SetupDiGetClassDevsW.restype = wintypes.HANDLE
+    setupapi.SetupDiGetClassDevsW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_wchar_p,
+        wintypes.HWND,
+        wintypes.DWORD,
+    ]
+    setupapi.SetupDiEnumDeviceInterfaces.restype = wintypes.BOOL
+    setupapi.SetupDiEnumDeviceInterfaces.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    setupapi.SetupDiGetDeviceInterfaceDetailW.restype = wintypes.BOOL
+    setupapi.SetupDiGetDeviceInterfaceDetailW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+    setupapi.SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
+
+    # HID DLL prototypes
+    hid_dll.HidD_GetHidGuid.restype = None
+    hid_dll.HidD_GetHidGuid.argtypes = [ctypes.c_void_p]
+
+    # Kernel32 prototypes
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        ctypes.c_wchar_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CreateEventW.restype = wintypes.HANDLE
+    kernel32.CreateEventW.argtypes = [
+        ctypes.c_void_p,
+        wintypes.BOOL,
+        wintypes.BOOL,
+        ctypes.c_wchar_p,
+    ]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.ResetEvent.restype = wintypes.BOOL
+    kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WriteFile.restype = wintypes.BOOL
+    kernel32.WriteFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_char_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel32.ReadFile.restype = wintypes.BOOL
+    kernel32.ReadFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_char_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel32.GetOverlappedResult.restype = wintypes.BOOL
+    kernel32.GetOverlappedResult.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.BOOL,
+    ]
+    kernel32.CancelIo.restype = wintypes.BOOL
+    kernel32.CancelIo.argtypes = [wintypes.HANDLE]
+    kernel32.GetLastError.restype = wintypes.DWORD
+    kernel32.GetLastError.argtypes = []
+
     GENERIC_READ = 0x80000000
     GENERIC_WRITE = 0x40000000
     FILE_SHARE_READ = 0x00000001
@@ -207,13 +291,13 @@ class WinHidDevice:
         return raw[:64]
 
     def close(self) -> None:
-        if self.handle and self.handle != INVALID_HANDLE_VALUE:
+        if self.handle and self.handle not in (INVALID_HANDLE_VALUE, -1):
             kernel32.CloseHandle(self.handle)
             self.handle = 0
-        if self.read_event:
+        if self.read_event and self.read_event not in (INVALID_HANDLE_VALUE, -1):
             kernel32.CloseHandle(self.read_event)
             self.read_event = 0
-        if self.write_event:
+        if self.write_event and self.write_event not in (INVALID_HANDLE_VALUE, -1):
             kernel32.CloseHandle(self.write_event)
             self.write_event = 0
 
@@ -229,7 +313,7 @@ def find_windows_device(target_pid: Optional[int] = None) -> Optional[str]:
         None,
         0x00000002 | 0x00000010,  # DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
     )
-    if hdev == INVALID_HANDLE_VALUE:
+    if hdev in (INVALID_HANDLE_VALUE, -1, None, 0):
         return None
 
     iface_data = SP_DEVICE_INTERFACE_DATA()
@@ -345,7 +429,7 @@ class HarmonyHid:
                 FILE_FLAG_OVERLAPPED,
                 None,
             )
-            if h == INVALID_HANDLE_VALUE:
+            if h in (INVALID_HANDLE_VALUE, -1, None, 0):
                 return False
             ev_r = kernel32.CreateEventW(None, True, False, None)
             ev_w = kernel32.CreateEventW(None, True, False, None)

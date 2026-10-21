@@ -27,11 +27,23 @@ import time
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
-BIN_DIR = REPO_DIR / "elite" / "bin"
-DROPBEAR_ARM_PATH = BIN_DIR / "dropbearmulti_musl"
 
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
+
+
+def find_candidate(candidates: list[pathlib.Path]) -> pathlib.Path:
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+
+DROPBEAR_ARM_PATH = find_candidate([
+    REPO_DIR / "bin" / "dropbearmulti_musl",
+    REPO_DIR / "elite" / "bin" / "dropbearmulti_musl",
+    SCRIPT_DIR / "bin" / "dropbearmulti_musl",
+])
 
 from tools.harmony_hid import HarmonyHid, ELITE_PID
 
@@ -190,14 +202,22 @@ def main() -> None:
     if probe_tcp(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=0.5):
         print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
         print("    Running deploy_elite.py to deploy Codex Elite runtime...")
-        deploy_script = REPO_DIR / "elite" / "deploy_elite.py"
+        deploy_script = find_candidate([
+            REPO_DIR / "elite" / "deploy_elite.py",
+            REPO_DIR / "deploy_elite.py",
+            SCRIPT_DIR / "deploy_elite.py",
+        ])
         subprocess.run([sys.executable, str(deploy_script), "--ip", REMOTE_IP, "--key", str(pub_path.with_suffix(""))])
         return
 
     if probe_tcp(REMOTE_IP, REMOTE_HTTP_PORT, timeout_s=0.5):
         print(f"[+] Remote is active in USB Ethernet mode (HTTP {REMOTE_IP}:{REMOTE_HTTP_PORT})!")
         print("    Running setup_remote.py --step 2 to install Dropbear and persistence...")
-        setup_script = REPO_DIR / "elite" / "setup_remote.py"
+        setup_script = find_candidate([
+            REPO_DIR / "elite" / "setup_remote.py",
+            REPO_DIR / "tools" / "setup_remote.py",
+            SCRIPT_DIR / "setup_remote.py",
+        ])
         subprocess.run([sys.executable, str(setup_script), "--step", "2", "--key", str(pub_path.with_suffix(""))])
         return
 
@@ -240,7 +260,11 @@ def main() -> None:
             if wait_for_ssh(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=60):
                 print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
                 print("    Deploying Codex Elite firmware...")
-                deploy_script = REPO_DIR / "elite" / "deploy_elite.py"
+                deploy_script = find_candidate([
+                    REPO_DIR / "elite" / "deploy_elite.py",
+                    REPO_DIR / "deploy_elite.py",
+                    SCRIPT_DIR / "deploy_elite.py",
+                ])
                 subprocess.run([sys.executable, str(deploy_script), "--ip", REMOTE_IP, "--key", str(pub_path.with_suffix(""))])
             else:
                 print(f"\n[-] Timed out waiting for SSH on {REMOTE_IP}.")
