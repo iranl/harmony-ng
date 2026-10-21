@@ -150,7 +150,7 @@ if (Test-Path $bb) {
     & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
     $changed = Deploy-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
     if ($changed) {
-        & ssh @sshArgs $Target "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true"
+        & ssh @sshArgs $Target "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in \$(/cache/bin/busybox --list 2>/dev/null); do [ ! -e `"`/bin/`$_app`" ] && [ ! -e `"`/usr/bin/`$_app`" ] && ln -sf /cache/bin/busybox `"`/usr/bin/`$_app`" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/codex/bin:\$PATH' > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true"
     }
 }
 # Ensure root profile uses extended BusyBox in cache if present
@@ -163,10 +163,10 @@ elif [ -x /cache/busybox ]; then
 fi
 if [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
     export BB_EXTENDED=1
-    export PATH=$(dirname "$BB_PATH"):$PATH
+    export PATH=/cache/bin:/data/codex/bin:$PATH
     exec "$BB_PATH" sh -l
 fi
-export PATH=/cache/bin:/cache:/data/codex/bin:$PATH
+export PATH=/cache/bin:/data/codex/bin:$PATH
 EOF
 chmod 644 "$prof" 2>/dev/null || true; done'
 & ssh @sshArgs $Target "$profCmd"
@@ -191,20 +191,20 @@ if (Test-Path $ModulesDir) {
     }
 }
 
-# 3. Upload Web UI static bundle (gzip assets, only when MD5 differs)
+# 3. Upload Web UI static bundle (gzip assets, only when MD5 differs) -> Store on /cache/www
 if (Test-Path $WwwDir) {
     Write-Host "[*] Building & compressing Web UI assets with build_webui.ps1..." -ForegroundColor Yellow
     $buildScript = Join-Path $ScriptDir "build_webui.ps1"
     if (Test-Path $buildScript) {
         & powershell -ExecutionPolicy Bypass -File $buildScript
     }
-    Write-Host "[*] Syncing Web UI static assets (/data/codex/www, MD5 check)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "mkdir -p /data/codex/www/assets 2>/dev/null"
+    Write-Host "[*] Syncing Web UI static assets (/cache/www, MD5 check)..." -ForegroundColor Yellow
+    & ssh @sshArgs $Target "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
     $wwwFiles = Get-ChildItem -Path $WwwDir -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]icons([\\/]|$)' }
     $localRelNames = @()
     foreach ($f in $wwwFiles) {
         $relPath = $f.FullName.Substring($WwwDir.Length).TrimStart('\', '/') -replace '\\', '/'
-        $remotePath = "/data/codex/www/$relPath"
+        $remotePath = "/cache/www/$relPath"
         $localRelNames += $remotePath
         Deploy-HubFileIfChanged -LocalFile $f.FullName -RemoteFile $remotePath -Perm "644" | Out-Null
     }
@@ -212,7 +212,7 @@ if (Test-Path $WwwDir) {
     $activeAssetNames = $wwwFiles | Where-Object { $_.DirectoryName -match 'assets' } | ForEach-Object { $_.Name }
     if ($activeAssetNames) {
         $activeCases = ($activeAssetNames | ForEach-Object { "$_*" }) -join '|'
-        $pruneCmd = "if [ -d /data/codex/www/assets ]; then cd /data/codex/www/assets && for f in index-*.js* index-*.css* web-*.js*; do [ -f `"`$f`" ] || continue; case `"`$f`" in $activeCases) ;; *) rm -f `"`$f`" ;; esac; done; fi"
+        $pruneCmd = "if [ -d /cache/www/assets ]; then cd /cache/www/assets && for f in index-*.js* index-*.css* web-*.js*; do [ -f `"`$f`" ] || continue; case `"`$f`" in $activeCases) ;; *) rm -f `"`$f`" ;; esac; done; fi"
         & ssh @sshArgs $Target $pruneCmd
     }
     # Upload core static icons to /cache/www/assets/icons
@@ -229,7 +229,7 @@ if (Test-Path $WwwDir) {
     }
     # If Elite icons are present on Hub, ensure flattened symlinks and semantic aliases
     & ssh @sshArgs $Target "if [ -d /cache/www/assets/icons ]; then cd /cache/www/assets/icons && for f in */*.png; do [ -f `"`$f`" ] || continue; base=`"`${f##*/}`"; [ ! -e `"`$base`" ] && ln -sf `"`$f`" `"`$base`" 2>/dev/null || true; done; [ -e juniperDevice/1.png ] && [ ! -e tv.png ] && ln -sf juniperDevice/1.png tv.png 2>/dev/null; [ -e notification/tv.png ] && ln -sf notification/tv.png tv.png 2>/dev/null; [ -e juniperDevice/5.png ] && [ ! -e receiver.png ] && ln -sf juniperDevice/5.png receiver.png 2>/dev/null; [ -e juniperDevice/default.png ] && [ ! -e generic.png ] && ln -sf juniperDevice/default.png generic.png 2>/dev/null; [ -e commands/116.png ] && [ ! -e poweroff.png ] && ln -sf commands/116.png poweroff.png 2>/dev/null; [ -e notification/switch.png ] && [ ! -e switch.png ] && ln -sf notification/switch.png switch.png 2>/dev/null; fi"
-    & ssh @sshArgs $Target "chmod 755 /data/codex/www /data/codex/www/assets /cache/www/assets/icons 2>/dev/null || true"
+    & ssh @sshArgs $Target "chmod 755 /cache/www /cache/www/assets /cache/www/assets/icons 2>/dev/null || true"
 }
 
 # 4. Update /etc/init.d/rcS.local

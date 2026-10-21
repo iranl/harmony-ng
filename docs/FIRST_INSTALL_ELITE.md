@@ -31,12 +31,7 @@ cd harmony-ng
 
 ---
 
-## 2. Step-by-Step USB Rooting Options (Touchscreen NOT Required)
-
-Choose whichever method best fits your remote. None of them require a functioning touchscreen.
-
-### Method A: Direct USB HID Staging (Recommended — Fully Automated)
-*Requires zero button pressing or touchscreen interaction.*
+## 2. Automated USB Rooting
 
 1. Connect the remote directly to your host PC via Micro-USB.
 2. Run the automated USB HID root tool:
@@ -46,41 +41,6 @@ Choose whichever method best fits your remote. None of them require a functionin
    *(Or `python tools/root_remote_usb.py --pubkey ~/.ssh/id_rsa.pub` to inject a custom public key).*
 3. The tool injects Dropbear SSH, disables the hardware watchdog, and reboots the remote.
 4. Remote boots with Dropbear SSH listening on `192.168.2.1:22`.
-
----
-
-### Method B: Hardware Recovery Mode (Recommended for Broken Screens)
-*Works regardless of touchscreen condition or firmware state.*
-
-1. Ensure the remote is charged to at least 50%.
-2. Disconnect the remote from USB and cradle.
-3. Press and hold both **Menu** and **Mute** buttons simultaneously for **15 seconds**.
-   *(Alternative combo: Hold the physical **Off** button while plugging in the Micro-USB cable).*
-4. The remote screen flashes and displays the USB connection gear icon.
-5. Configure static IP on your host PC's RNDIS adapter:
-   - **IP Address**: `192.168.2.2`
-   - **Subnet Mask**: `255.255.255.0`
-   - **Default Gateway**: `192.168.2.1`
-6. Run the setup script:
-   ```bash
-   python elite/setup_remote.py --step 2
-   ```
-
----
-
-### Method C: Physical Keypad Debug Menu
-*Works on running stock remotes when screen displays but touch digitizer is broken.*
-
-1. With the remote powered on and connected via Micro-USB to PC:
-2. On the physical keypad, press simultaneously:
-   **`>>` (Fast Forward) + `Stop` + `Red button`**
-3. The developer/debug menu opens on the remote screen.
-4. Use the physical **Direction Down / Up** navigation pad to highlight **"Enable USB Ethernet"**.
-5. Press the physical **Center / OK** button to activate.
-6. Configure host PC static IP `192.168.2.2/24` and run:
-   ```bash
-   python elite/setup_remote.py
-   ```
 
 ---
 

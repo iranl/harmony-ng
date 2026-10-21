@@ -123,19 +123,37 @@ do_apply() {
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
-  # 2. Update WebUI assets (www.tar.gz)
+  # 2. Update WebUI assets (www.tar.gz) -> Store on /cache/www to preserve /data flash
   echo "[*] Downloading WebUI bundle..."
   if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
-    mkdir -p /data/codex/www/assets
-    $TAR -xzf "$TMPDIR/www.tar.gz" -C /data/codex/www/ 2>/dev/null
+    mkdir -p /cache/www/assets 2>/dev/null
+    # Remove physical directory on /data if it is not already a symlink
+    if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
+      rm -rf /data/codex/www 2>/dev/null || true
+    fi
+    mkdir -p /data/codex 2>/dev/null || true
+    ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+    $TAR -xzf "$TMPDIR/www.tar.gz" -C /cache/www/ 2>/dev/null
     rm -f "$TMPDIR/www.tar.gz"
-    echo "[+] WebUI bundle updated."
+    echo "[+] WebUI bundle updated in /cache/www."
   else
     echo "[-] Warning: WebUI bundle not available at ${REPO}/www.tar.gz"
   fi
 
   # 3. Update Hub Binaries
-  mkdir -p /data/codex/bin
+  mkdir -p /data/codex/bin /cache/bin 2>/dev/null
+  if download_retry "${REPO}/bin/mips/busybox?_=${TIMESTAMP}" "$TMPDIR/busybox" 30 3; then
+    chmod 755 "$TMPDIR/busybox"
+    mv -f "$TMPDIR/busybox" /cache/bin/busybox
+    ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
+  fi
+  if [ -x /cache/bin/busybox ]; then
+    /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+    for _app in $(/cache/bin/busybox --list 2>/dev/null); do
+      [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true
+    done
+  fi
+
   HUB_BINS="codex_daemon codex_rf codex_btstack codex_dhcpd codex_portal codex_sntp codex_sync mknod register_ehci"
   
   for b in $HUB_BINS; do
@@ -157,22 +175,76 @@ do_apply() {
     fi
   done
 
-  # 4. Record new version
+  # 4. Update Elite Remote OTA image
+  echo "[*] Checking Elite remote OTA package..."
+  if download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" "$TMPDIR/codex_elite.ota.gz" 35 3; then
+    cp -f "$TMPDIR/codex_elite.ota.gz" /data/codex_elite.ota.gz 2>/dev/null || true
+    cp -f "$TMPDIR/codex_elite.ota.gz" /tmp/codex_elite.ota.gz 2>/dev/null || true
+    rm -f "$TMPDIR/codex_elite.ota.gz"
+    echo "[+] Elite remote OTA package cached (/data/codex_elite.ota.gz)."
+  fi
+
+  # 5. Record new version
   echo "$NEW_VER" > /data/codex/VERSION
   echo "$NEW_VER" > /etc/codex_version 2>/dev/null || true
   echo "$NEW_VER" > /data/codex/latest_version
   rm -f /data/codex/update_available.flag
 
-  # 5. Clean up temporary directory
+  # 6. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
-  # 6. Sync filesystem
+  # 7. Sync filesystem
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
 
   echo "[+] Update to v${NEW_VER} applied successfully. Restarting services..."
-  # 7. Restart services
+  # 8. Restart services
   if [ -x /data/codex/init.sh ]; then
     /data/codex/init.sh restart
+  fi
+}
+
+do_elite_ota() {
+  local slot="${1:-1}"
+  echo "[*] Triggering RF OTA firmware update for Elite remote on Slot ${slot}..."
+  
+  # Ensure OTA file exists, download if missing
+  if [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
+    echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
+    download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" /tmp/codex_elite.ota.gz 35 3
+  fi
+
+  if [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
+    echo "[-] Error: /data/codex_elite.ota.gz not found and could not be downloaded."
+    return 1
+  fi
+
+  # Trigger codex_rf OTA endpoint on port 8092
+  res=$($WGET -qO- --post-data '' "http://127.0.0.1:8092/api/rf/ota-start?slot=${slot}" 2>/dev/null || true)
+  echo "Response: $res"
+  
+  if echo "$res" | grep -q '"ok":true'; then
+    echo "[+] RF OTA started! Streaming firmware chunks over CC2544 RF..."
+    while true; do
+      sleep 2
+      st=$($WGET -qO- "http://127.0.0.1:8092/api/rf/ota-status" 2>/dev/null || true)
+      if echo "$st" | grep -q '"in_progress":true'; then
+        sent=$(echo "$st" | grep -o '"sent_bytes":[0-9]*' | cut -d':' -f2)
+        total=$(echo "$st" | grep -o '"total_bytes":[0-9]*' | cut -d':' -f2)
+        echo "    Progress: ${sent}/${total} bytes..."
+      elif echo "$st" | grep -q '"status":2'; then
+        echo "[+] Elite remote OTA complete! Remote is verifying and rebooting."
+        break
+      elif echo "$st" | grep -q '"status":-1'; then
+        echo "[-] Elite remote OTA failed: $st"
+        break
+      else
+        echo "Status: $st"
+        break
+      fi
+    done
+  else
+    echo "[-] Could not initiate RF OTA on slot ${slot}."
+    return 1
   fi
 }
 
@@ -182,6 +254,9 @@ case "$CMD" in
     ;;
   apply)
     do_apply
+    ;;
+  elite|remote)
+    do_elite_ota "${2:-1}"
     ;;
   status)
     if [ -f /data/codex/update_state.conf ]; then

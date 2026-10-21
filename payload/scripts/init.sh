@@ -36,14 +36,23 @@ for _mod in /data/codex/modules/*.ko; do
   [ -f "/data/codex/modules/usb_net/$_b" ] && rm -f "$_mod"
 done
 
-# Prune unreferenced/orphaned web UI bundles in /data/codex/www/assets
-if [ -f /data/codex/www/index.html ] && [ -d /data/codex/www/assets ]; then
-  _ajs=$(grep -o 'index-[^"]*\.js' /data/codex/www/index.html 2>/dev/null | head -n 1)
-  _acss=$(grep -o 'index-[^"]*\.css' /data/codex/www/index.html 2>/dev/null | head -n 1)
+# Migrate WebUI from /data/codex/www to /cache/www to preserve critical /data flash space
+if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
+  mkdir -p /cache/www 2>/dev/null
+  cp -rf /data/codex/www/* /cache/www/ 2>/dev/null || true
+  rm -rf /data/codex/www 2>/dev/null || true
+fi
+mkdir -p /cache/www/assets/icons 2>/dev/null || true
+[ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+
+# Prune unreferenced/orphaned web UI bundles in /cache/www/assets
+if [ -f /cache/www/index.html ] && [ -d /cache/www/assets ]; then
+  _ajs=$(sed -n 's/.*src=["'\'']\.\/assets\/\(index-[^"'\'']*\.js\)["'\''].*/\1/p' /cache/www/index.html 2>/dev/null)
+  _acss=$(sed -n 's/.*href=["'\'']\.\/assets\/\(index-[^"'\'']*\.css\)["'\''].*/\1/p' /cache/www/index.html 2>/dev/null)
   if [ -n "$_ajs" ] && [ -n "$_acss" ]; then
     _ajsb="${_ajs%.js}"
     _acssb="${_acss%.css}"
-    for _f in /data/codex/www/assets/index-*.js* /data/codex/www/assets/index-*.css*; do
+    for _f in /cache/www/assets/index-*.js* /cache/www/assets/index-*.css*; do
       [ -f "$_f" ] || continue
       _fn="${_f##*/}"
       case "$_fn" in
@@ -53,9 +62,6 @@ if [ -f /data/codex/www/index.html ] && [ -d /data/codex/www/assets ]; then
     done
   fi
 fi
-rm -f /cache/www/index.html /cache/www/favicon.png /cache/www/assets/* 2>/dev/null || true
-
-
 
 # 2. Disable and kill unneeded stock Logitech runtime (frees ~12MB RAM)
 chmod -x /opt/luaworks/luaworks 2>/dev/null || true
@@ -66,7 +72,20 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
   done
 ) &
 
-# 3. Dropbear SSH Server & Shell Profile
+# 3. Dropbear SSH Server & Shell Profile & Extended BusyBox
+if [ -x /cache/bin/busybox ]; then
+  /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+  for _app in $(/cache/bin/busybox --list 2>/dev/null); do
+    [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true
+  done
+fi
+
+mkdir -p /etc/profile.d 2>/dev/null || true
+cat <<'EOF' > /etc/profile.d/00-codex.sh
+export PATH=/cache/bin:/data/codex/bin:$PATH
+EOF
+chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true
+
 for prof in /root/.profile /home/root/.profile; do
   mkdir -p "$(dirname "$prof")" 2>/dev/null || true
   cat <<'EOF' > "$prof"
@@ -78,10 +97,10 @@ elif [ -x /cache/busybox ]; then
 fi
 if [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
     export BB_EXTENDED=1
-    export PATH=$(dirname "$BB_PATH"):$PATH
+    export PATH=/cache/bin:/data/codex/bin:$PATH
     exec "$BB_PATH" sh -l
 fi
-export PATH=/cache/bin:/cache:/data/codex/bin:$PATH
+export PATH=/cache/bin:/data/codex/bin:$PATH
 EOF
   chmod 644 "$prof" 2>/dev/null || true
 done

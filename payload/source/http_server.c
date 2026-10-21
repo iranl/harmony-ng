@@ -768,10 +768,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
 
     char file_path[512];
     snprintf(file_path, sizeof(file_path), "/data/codex/www%s", rel_path);
-    if (access(file_path, F_OK) != 0 && strncmp(rel_path, "/assets/icons/", 14) == 0) {
+    if (access(file_path, F_OK) != 0) {
         snprintf(file_path, sizeof(file_path), "/cache/www%s", rel_path);
     }
-
 
     int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
     int is_gzip = 0;
@@ -798,6 +797,10 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
     if (!f && !strchr(rel_path, '.')) {
         const char *idx_raw = "/data/codex/www/index.html";
         const char *idx_gz = "/data/codex/www/index.html.gz";
+        if (access(idx_raw, F_OK) != 0 && access(idx_gz, F_OK) != 0) {
+            idx_raw = "/cache/www/index.html";
+            idx_gz = "/cache/www/index.html.gz";
+        }
         int has_idx_raw = (stat(idx_raw, &st_raw) == 0);
         int has_idx_gz = (stat(idx_gz, &st_gz) == 0);
 

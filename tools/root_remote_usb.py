@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """Logitech Harmony Elite Remote USB Root & Persistence Tool.
 
-Supports 3 primary installation methods:
-  - Method A (Hardware Recovery): Hold Menu+Mute 15s (or hold Off while plugging USB).
-    Boots directly into USB RNDIS gadget mode (192.168.2.1) without touchscreen.
-  - Method B (Keypad Debug Menu): >> + Stop + Red -> D-pad to "Enable USB Ethernet" -> OK.
-    Enables RNDIS on stock running remote without touchscreen.
-  - Method C (Direct USB HID Staging): Writes ARM Dropbear payload to /sys/dropbear,
-    arms /tde/enable, and reboots without touching the remote.
+Injects Dropbear SSH and persistence payload directly over USB HID (046d:c12b)
+without requiring touchscreen or button interactions.
 
 Usage:
     python tools/root_remote_usb.py
@@ -165,26 +160,6 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = REMOTE_SSH_PORT, timeout_s: in
     return False
 
 
-def print_method_instructions() -> None:
-    print("\n" + "=" * 70)
-    print(" HARMONY ELITE SETUP OPTIONS (NO TOUCHSCREEN REQUIRED)")
-    print("=" * 70)
-    print(" [Method A] Hardware Recovery Mode (Recommended if screen is broken):")
-    print("   1. Disconnect remote from USB and cradle.")
-    print("   2. Hold 'Menu' + 'Mute' buttons for 15s (or hold 'Off' while plugging in USB).")
-    print("   3. Remote screen displays USB gear icon -> boots into USB Ethernet gadget mode.")
-    print("   4. Set PC IP to 192.168.2.2 (Gateway 192.168.2.1), then run setup_remote.py.")
-    print()
-    print(" [Method B] Keypad Debug Menu (If screen works but touch is dead):")
-    print("   1. On running remote, press: >> (Fast Forward) + Stop + Red button.")
-    print("   2. Use physical D-pad (Up/Down) to highlight 'Enable USB Ethernet'.")
-    print("   3. Press Center/OK button to activate RNDIS interface.")
-    print("   4. Set PC IP to 192.168.2.2, then run setup_remote.py.")
-    print()
-    print(" [Method C] Direct USB HID Staging (Attempting now over USB)...")
-    print("=" * 70 + "\n")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Logitech Harmony Elite Remote USB Root & Persistence Tool")
     parser.add_argument("--pubkey", help="Path to SSH public key to authorize")
@@ -198,7 +173,7 @@ def main() -> None:
     pub_path, pub_str = resolve_ssh_key(args.pubkey)
     print(f"[+] Authorized public key: {pub_str.split()[0]} {pub_str.split()[-1]}")
 
-    # Check if remote is ALREADY in USB Ethernet mode (Method A or B)
+    # Check if remote is ALREADY online with SSH active
     if probe_tcp(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=0.5):
         print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
         print("    Running deploy_elite.py to deploy Codex Elite runtime...")
@@ -221,15 +196,12 @@ def main() -> None:
         subprocess.run([sys.executable, str(setup_script), "--step", "2", "--key", str(pub_path.with_suffix(""))])
         return
 
-    print_method_instructions()
-
-    # Method C: Connect to Remote over USB HID
+    # Connect to Remote over USB HID
     print(f"[*] Searching for Harmony Elite Remote over USB HID (046D:C12B)...")
     hid = HarmonyHid(pid=ELITE_PID)
     if not hid.open():
         print("[-] Elite Remote not detected on USB HID (046D:C12B).")
         print("    Please connect remote via direct Micro-USB cable to PC.")
-        print("    Alternatively, use Method A (Menu + Mute for 15s) to boot into RNDIS recovery.")
         sys.exit(1)
 
     try:
@@ -274,8 +246,7 @@ def main() -> None:
                 ])
                 subprocess.run([sys.executable, str(deploy_script), "--ip", REMOTE_IP, "--key", str(pub_path.with_suffix(""))])
             else:
-                print(f"\n[-] Timed out waiting for SSH on {REMOTE_IP}.")
-                print("    If remote rebooted into HID mode, use Method A (Menu + Mute 15s) to launch RNDIS Ethernet.")
+                print(f"\n[-] Timed out waiting for SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}.")
     finally:
         hid.close()
 

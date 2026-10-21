@@ -15,7 +15,7 @@ boot
 To push Dropbear, generate SSH keys, enable USB Ethernet, and install the recovery boot script directly over serial:
 ```sh
 pip install pyserial
-python elite/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub
+python tools/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub
 ```
 This utility:
 1. Starts `/usr/bin/usbeth start` on the remote.

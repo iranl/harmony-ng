@@ -80,7 +80,7 @@ if [ -f "$BIN_DIR/busybox" ]; then
     echo "[*] Syncing extended BusyBox to /cache/bin/..."
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/bin 2>/dev/null"
     deploy_file_if_changed "$BIN_DIR/busybox" "/cache/bin/busybox" 755
-    ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true"
+    ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in \$(/cache/bin/busybox --list 2>/dev/null); do [ ! -e \"/bin/\$_app\" ] && [ ! -e \"/usr/bin/\$_app\" ] && ln -sf /cache/bin/busybox \"/usr/bin/\$_app\" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/codex/bin:\$PATH' > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true"
 fi
 # Ensure root profile uses extended BusyBox in cache if present
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
@@ -93,10 +93,10 @@ elif [ -x /cache/busybox ]; then
 fi
 if [ -n \"\$BB_PATH\" ] && [ -z \"\$BB_EXTENDED\" ]; then
     export BB_EXTENDED=1
-    export PATH=\$(dirname \"\$BB_PATH\"):\$PATH
+    export PATH=/cache/bin:/data/codex/bin:\$PATH
     exec \"\$BB_PATH\" sh -l
 fi
-export PATH=/cache/bin:/cache:/data/codex/bin:\$PATH
+export PATH=/cache/bin:/data/codex/bin:\$PATH
 EOF
 chmod 644 \"\$prof\" 2>/dev/null || true; done"
 
@@ -122,25 +122,29 @@ if [ -d "$MODULES_DIR" ]; then
 fi
 
 
-# 4. Deploy WebUI to /data/codex/www/
-echo "[4/5] Syncing WebUI to /data/codex/www/ (MD5 check)..."
+# 4. Deploy WebUI to /cache/www/ (preserves critical /data flash)
+echo "[4/5] Syncing WebUI to /cache/www/ (MD5 check)..."
 if [ -f "$REPO_ROOT/build/gzip_assets.py" ]; then
     python3 "$REPO_ROOT/build/gzip_assets.py" "$WWW_DIR" 2>/dev/null || true
 fi
 
-# Clean up stale assets on Hub
-for remote_file in $(ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "ls -1 /data/codex/www/assets/ 2>/dev/null || true"); do
-    if [ ! -f "$WWW_DIR/assets/$remote_file" ]; then
+# Clean up physical directory on /data if present, symlink to /cache/www
+ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
+    "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
+
+# Clean up stale assets on Hub (/cache/www/assets)
+for remote_file in $(ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "ls -1 /cache/www/assets/ 2>/dev/null || true"); do
+    if [ ! -f "$WWW_DIR/assets/$remote_file" ] && [ "$remote_file" != "icons" ]; then
         echo "    [-] Purging obsolete asset: $remote_file"
-        ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "rm -f /data/codex/www/assets/$remote_file 2>/dev/null || true"
+        ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "rm -f /cache/www/assets/$remote_file 2>/dev/null || true"
     fi
 done
 
 while IFS= read -r -d '' wfile; do
     rel="${wfile#$WWW_DIR/}"
-    deploy_file_if_changed "$wfile" "/data/codex/www/$rel" 644
+    deploy_file_if_changed "$wfile" "/cache/www/$rel" 644
 done < <(find "$WWW_DIR" -type f -print0)
-ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod 755 /data/codex/www /data/codex/www/assets 2>/dev/null || true"
+ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 
 # 5. Start services
 echo "[5/5] Starting codex services..."
