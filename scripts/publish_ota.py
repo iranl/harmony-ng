@@ -127,7 +127,7 @@ def package_ota(output_dir: Path, version: str):
     # 4. WebUI bundle (tar.gz)
     www_src = None
     for wsp in WWW_SEARCH_PATHS:
-        if (wsp / "index.html").is_file():
+        if (wsp / "index.html").is_file() or (wsp / "index.html.gz").is_file():
             www_src = wsp
             break
 
