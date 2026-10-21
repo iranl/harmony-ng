@@ -150,35 +150,37 @@ start_eth() {
     return 2
   fi
 
-  # Configure IP
-  if [ "$ETH_MODE" = "static" ] && [ -n "$ETH_IP" ]; then
-    log "Configuring static IP $ETH_IP on $eth_if..."
-    mask_arg=""
-    [ -n "$ETH_NETMASK" ] && mask_arg="netmask $ETH_NETMASK"
-    ifconfig "$eth_if" "$ETH_IP" $mask_arg up >> "$LOG" 2>&1
-    if [ -n "$ETH_GATEWAY" ]; then
-      route del default 2>/dev/null || true
-      route add default gw "$ETH_GATEWAY" dev "$eth_if" >> "$LOG" 2>&1
-    fi
-    if [ -n "$ETH_DNS" ]; then
-      echo "nameserver $ETH_DNS" > /etc/resolv.conf
-    fi
-  else
-    log "Requesting DHCP lease on $eth_if..."
-    udhcpc -i "$eth_if" -n -q -t 5 -T 3 >> "$LOG" 2>&1
+  # Determine canonical static IP from config or current ath0
+  canonical_ip="$ETH_IP"
+  if [ -z "$canonical_ip" ]; then
+    canonical_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
   fi
 
-  eth_ip=$(ifconfig "$eth_if" 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
-  if [ -n "$eth_ip" ]; then
-    configure_arp_isolation
-    log "Ethernet connected successfully: $eth_if has IP $eth_ip"
-    echo "$eth_if:ethernet:$eth_ip" > "$STATE_FILE"
-    # Ensure default route prioritizes Ethernet over ath0
-    route del default dev ath0 2>/dev/null || true
+  target_ip="${ETH_IP:-$canonical_ip}"
+  if [ -n "$target_ip" ]; then
+    migrate_to_ethernet "$eth_if" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
     return 0
   else
-    log "DHCP failed to obtain IP on $eth_if"
-    return 3
+    # Pure DHCP mode
+    udhcpc -i "$eth_if" -p /var/run/udhcpc.$eth_if.pid -b -t 5 -T 3 >> "$LOG" 2>&1
+    for i in 1 2 3 4 5; do
+      eth_ip=$(ifconfig "$eth_if" 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
+      [ -n "$eth_ip" ] && break
+      sleep 1
+    done
+    if [ -n "$eth_ip" ]; then
+      flush_iface_routes "ath0"
+      ifconfig ath0 0.0.0.0 2>/dev/null || true
+      [ -x /data/codex/bin/eth_fix ] && /data/codex/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
+      route del default dev ath0 2>/dev/null || true
+      send_garp "$eth_if" "$eth_ip"
+      echo "$eth_if:ethernet:$eth_ip" > "$STATE_FILE"
+      log "Ethernet connected via DHCP: $eth_if has IP $eth_ip"
+      return 0
+    else
+      log "DHCP failed to obtain IP on $eth_if"
+      return 3
+    fi
   fi
 }
 
@@ -455,7 +457,12 @@ run_monitor() {
       if [ "$carrier" = "1" ]; then
         case "$cur_state" in
           "$cur_eth:ethernet:"*)
-            # Already active on Ethernet; verify default gateway route is present
+            # Already active on Ethernet; ensure ath0 has no lingering IP or subnet routes
+            if ifconfig ath0 2>/dev/null | grep -q 'inet addr'; then
+              flush_iface_routes "ath0"
+              ifconfig ath0 0.0.0.0 2>/dev/null || true
+            fi
+            # Verify default gateway route is present
             if ! route -n 2>/dev/null | grep -q '^0\.0\.0\.0'; then
               gw=$(get_current_gw)
               [ -z "$gw" ] && [ -n "$target_ip" ] && gw=$(echo "$target_ip" | sed 's/\.[0-9]*$/.1/')
