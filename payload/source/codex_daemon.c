@@ -1524,6 +1524,7 @@ int main(int argc, char **argv) {
                 socklen_t clen = sizeof(caddr);
                 int cfd = accept(srv_fd, (struct sockaddr *)&caddr, &clen);
                 if (cfd >= 0) {
+                    fcntl(cfd, F_SETFD, FD_CLOEXEC);
                     struct timeval to;
                     to.tv_sec = 1;
                     to.tv_usec = 0;

@@ -2323,6 +2323,8 @@ static void *api_server_worker(void *arg) {
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) return NULL;
 
+    fcntl(srv, F_SETFD, FD_CLOEXEC);
+
     int opt = 1;
     setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -2344,6 +2346,7 @@ static void *api_server_worker(void *arg) {
             if (errno == EINTR) continue;
             break;
         }
+        fcntl(cli, F_SETFD, FD_CLOEXEC);
 
         char buf[4096];
         ssize_t n = read(cli, buf, sizeof(buf) - 1);

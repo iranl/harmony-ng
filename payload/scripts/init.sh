@@ -20,19 +20,17 @@ case "$1" in
     echo "$(date) Restarting codex services..." >> "$LOG"
     killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
     sleep 2
-    if pidof codex_daemon >/dev/null 2>&1; then
+    # If supervisor loops already running from boot, let them respawn daemons
+    if ps | grep -v "$$" | grep "/data/codex/init.sh" >/dev/null 2>&1; then
       exit 0
     fi
     ;;
 esac
 
 # Avoid duplicate supervisor loop spawns
-if [ -f /tmp/codex_watchdog.pid ]; then
-  _old_pid=$(cat /tmp/codex_watchdog.pid 2>/dev/null)
-  if [ -n "$_old_pid" ] && kill -0 "$_old_pid" 2>/dev/null; then
-    echo "$(date) codex watchdog already running (PID $_old_pid)" >> "$LOG"
-    exit 0
-  fi
+if ps | grep -v "$$" | grep "/data/codex/init.sh" >/dev/null 2>&1; then
+  echo "$(date) codex supervisor already running" >> "$LOG"
+  exit 0
 fi
 echo "$$" > /tmp/codex_watchdog.pid
 

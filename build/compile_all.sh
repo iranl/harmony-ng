@@ -7,11 +7,12 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 SRC="$REPO_ROOT/payload/source"
 BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
-TOOLS="$SCRIPT_DIR/toolchains/mips32--uclibc--stable"
-
-if [ -d "$TOOLS/bin" ]; then
-    export PATH="$TOOLS/bin:$PATH"
-fi
+for t in "$SCRIPT_DIR/toolchains"/mips32--uclibc--stable*; do
+    if [ -d "$t/bin" ]; then
+        export PATH="$t/bin:$PATH"
+        break
+    fi
+done
 
 if [ -z "${CC:-}" ]; then
     if command -v mips-buildroot-linux-uclibc-gcc >/dev/null 2>&1; then

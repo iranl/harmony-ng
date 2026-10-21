@@ -213,6 +213,8 @@ int http_server_init(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
 
+    fcntl(s, F_SETFD, FD_CLOEXEC);
+
     int opt = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
