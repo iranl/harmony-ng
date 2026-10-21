@@ -38,9 +38,6 @@ cd android-app && npm install && npm run build && cd ..
 
 If your Hub is running stock firmware with SSH disabled, use this one-time automated USB HID rooting procedure.
 
-> [!NOTE]
-> No special button holding, pairing combos, or fake recovery modes exist. Simply connect the Hub to your PC via standard Micro-USB while powered on; it enumerates as a standard USB HID device (`046D:C129`).
-
 ### Step 2.1: Connect Hub via Micro-USB
 1. Connect the Harmony Hub directly to your host PC using a standard Micro-USB data cable.
 2. The Hub powers on and enumerates on USB as `046D:C129` (Logitech Harmony Hub).
@@ -132,21 +129,3 @@ The installer automatically:
 3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
 
 ---
-
-## Appendix: Flash Storage Architecture & Safety Limits
-
-> [!NOTE]
-> The deployment scripts manage partition limits automatically. This section is provided for reference and advanced development.
-
-The Harmony Hub has a single 16 MB SPI NOR flash shared between the Atheros AR9344 CPU and the CC2544 RF chip:
-
-| Partition | Mount Point | Filesystem | Total Size | Available Space | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `mtd3` | `/` (root) | SquashFS | 4.0 MB | 0 KB (Read-Only) | Contains stock Dropbear (`/usr/sbin/dropbear`) and base utilities. |
-| `mtd4` | `/mnt/data` | JFFS2 | 5.0 MB | **~1.25 MB Free** | **Configuration only!** Exceeding this partition corrupts JFFS2. |
-| `mtd5` | `/cache` | JFFS2 | 5.0 MB | **~4.80 MB Free** | **Safe for binaries & modules.** Extended BusyBox and modules live here. |
-| `tmpfs` | `/tmp` | RAM tmpfs | ~35 MB | ~34 MB Free | Runtime sockets, active logs, and PID files. |
-
-- **Dropbear**: Takes **0 bytes** of writable flash because it is already embedded in the stock read-only SquashFS (`/usr/sbin/dropbear`).
-- **Codex Micro-Daemon**: Lean C daemon (~370 KB), fits safely in `/data/codex/bin/`.
-- **BusyBox (Enhanced)**: Pre-compiled standalone BusyBox (~1.6 MB) is installed to `/cache/bin/busybox`, never `/data/`.
