@@ -622,5 +622,5 @@ class HarmonyHid:
 
     def provision_wifi(self, ssid: str, password: str, encryption: str = "WPA2-PSK") -> bool:
         """Provision Wi-Fi directly over USB HID."""
-        payload = f"ssid,{ssid}\npassword,{password}\nencryption,{encryption}\n".encode("ascii")
+        payload = f"ssid,{ssid}\npassword,{password}\nencryption,{encryption}\n".encode("utf-8")
         return self.write_simple("/sys/wifi/connect", payload)

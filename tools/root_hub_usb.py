@@ -163,7 +163,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Logitech Harmony Hub USB Root & Persistence Tool")
     parser.add_argument("--pubkey", help="Path to SSH public key to authorize")
     parser.add_argument("--wifi-ssid", help="Wi-Fi SSID to provision over USB")
-    parser.add_argument("--wifi-pass", help="Wi-Fi password to provision over USB")
+    parser.add_argument("--wifi-pass", default="", help="Wi-Fi password to provision over USB")
+    parser.add_argument("--wifi-enc", default="WPA2-PSK", help="Wi-Fi encryption (default: WPA2-PSK)")
+    parser.add_argument("--wifi-only", action="store_true", help="Only configure Wi-Fi and reboot without restaging Dropbear")
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address to verify SSH after reboot")
     parser.add_argument("--no-reboot", action="store_true", help="Do not reboot Hub after staging Dropbear")
     args = parser.parse_args()
@@ -172,16 +174,7 @@ def main() -> None:
     print(" LOGITECH HARMONY HUB USB ROOT & PERSISTENCE TOOL")
     print("=" * 70)
 
-    # 1. Resolve SSH Public Key
-    pub_path, pub_str = resolve_ssh_key(args.pubkey)
-    print(f"[+] Authorized public key: {pub_str.split()[0]} {pub_str.split()[-1]}")
-
-    # 2. Build Self-Extracting Payload
-    print(f"[*] Building self-extracting Dropbear payload (MIPS 24Kc)...")
-    payload = build_payload(pub_str)
-    print(f"[+] Payload built: {len(payload):,} bytes (MD5: {hashlib.md5(payload).hexdigest()})")
-
-    # 3. Connect to Hub over USB HID
+    # 1. Connect to Hub over USB HID
     print(f"[*] Searching for Harmony Hub over USB HID (046D:C129)...")
     hid = HarmonyHid(pid=HUB_PID)
     if not hid.open():
@@ -190,13 +183,39 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        # 4. (Optional) Wi-Fi Provisioning
+        # 2. Wi-Fi Provisioning
         if args.wifi_ssid:
             print(f"[*] Provisioning Wi-Fi SSID '{args.wifi_ssid}' over USB HID...")
-            if hid.provision_wifi(args.wifi_ssid, args.wifi_pass or ""):
+            if hid.provision_wifi(args.wifi_ssid, args.wifi_pass, args.wifi_enc):
                 print("[+] Wi-Fi credentials accepted by Hub.")
             else:
                 print("[-] Warning: Wi-Fi provisioning command failed.")
+
+        if args.wifi_only:
+            if not args.no_reboot:
+                print("[*] Sending reboot command to /sys/reboot...")
+                try:
+                    hid.reboot()
+                    print("[+] Hub is rebooting to connect to Wi-Fi!")
+                except Exception:
+                    pass
+                if args.hub_ip:
+                    print(f"[*] Waiting for Dropbear SSH on {args.hub_ip}:22...")
+                    if wait_for_ssh(args.hub_ip, 22, timeout_s=60):
+                        print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {args.hub_ip}:22!")
+                    else:
+                        print(f"\n[-] Timed out waiting for SSH on {args.hub_ip}.")
+                else:
+                    print("\n[+] Wi-Fi configuration complete! Hub is joining your network.")
+            return
+
+        # 3. Resolve SSH Public Key & Build Self-Extracting Payload
+        pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        print(f"[+] Authorized public key: {pub_str.split()[0]} {pub_str.split()[-1]}")
+
+        print(f"[*] Building self-extracting Dropbear payload (MIPS 24Kc)...")
+        payload = build_payload(pub_str)
+        print(f"[+] Payload built: {len(payload):,} bytes (MD5: {hashlib.md5(payload).hexdigest()})")
 
         # 5. Upload Dropbear Payload to /sys/dropbear
         print(f"[*] Staging Dropbear payload to /sys/dropbear ({len(payload):,} bytes)...")

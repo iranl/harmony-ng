@@ -1584,7 +1584,8 @@ static void *rf_ota_sender_worker(void *arg) {
     g_rf_ota.sent_bytes = 0;
     g_rf_ota.sent_chunks = 0;
 
-    const char *ota_path = "/data/codex_elite.ota.gz";
+    const char *ota_path = "/cache/codex_elite.ota.gz";
+    if (access(ota_path, R_OK) != 0) ota_path = "/data/codex_elite.ota.gz";
     if (access(ota_path, R_OK) != 0) ota_path = "/tmp/codex_elite.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
