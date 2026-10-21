@@ -15,6 +15,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <sys/reboot.h>
+#include <stdarg.h>
 #include <linux/input.h>
 #include <linux/fb.h>
 #include <linux/i2c-dev.h>
@@ -475,7 +477,8 @@ typedef enum {
     SETTINGS_VIEW_TOUCH,
     SETTINGS_VIEW_POWER,
     SETTINGS_VIEW_SYSTEM,
-    SETTINGS_VIEW_FACTORY_RESET
+    SETTINGS_VIEW_FACTORY_RESET,
+    SETTINGS_VIEW_REBOOT
 } settings_subview_t;
 
 static settings_subview_t g_settings_subview = SETTINGS_VIEW_CATEGORIES;
@@ -745,25 +748,119 @@ static void clearpad_hw_init(void) {
 }
 
 
+/* Power Debug Logging Infrastructure (/tmp/power_debug.log & /data/power_debug.log) */
+#define POWER_LOG_TMP   "/tmp/power_debug.log"
+#define POWER_LOG_FLASH "/data/power_debug.log"
+
+static pthread_mutex_t g_power_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool g_power_debug = false;
+static bool is_usb_hardware_connected(void);
+static void read_elite_battery(void);
+
+static void log_power_debug(const char *fmt, ...) {
+    if (!g_power_debug) return;
+    pthread_mutex_lock(&g_power_log_mutex);
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+    char time_buf[32] = {0};
+    if (tm) {
+        strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", tm);
+    } else {
+        snprintf(time_buf, sizeof(time_buf), "epoch=%ld", (long)now);
+    }
+
+    char msg[512];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, args);
+    va_end(args);
+
+    /* Write to stdout/stderr */
+    printf("[PWR %s] %s", time_buf, msg);
+    fflush(stdout);
+
+    /* Write to /tmp/power_debug.log (RAM tmpfs) */
+    FILE *ftmp = fopen(POWER_LOG_TMP, "a");
+    if (ftmp) {
+        fprintf(ftmp, "[%s mono=%llums] %s", time_buf, (unsigned long long)get_monotonic_ms(), msg);
+        fflush(ftmp);
+        fclose(ftmp);
+    }
+
+    /* Mirror major events and periodic checkpoints to flash (/data/power_debug.log) */
+    static uint64_t s_last_flash_log_ms = 0;
+    uint64_t mono = get_monotonic_ms();
+    if (strstr(msg, "STANDBY") || strstr(msg, "WAKING") || strstr(msg, "reboot") ||
+        strstr(msg, "Ethernet") || strstr(msg, "INIT") || (mono - s_last_flash_log_ms >= 300000)) {
+        s_last_flash_log_ms = mono;
+        FILE *fdata = fopen(POWER_LOG_FLASH, "a");
+        if (fdata) {
+            fprintf(fdata, "[%s mono=%llums] %s", time_buf, (unsigned long long)mono, msg);
+            fflush(fdata);
+            fclose(fdata);
+        }
+    }
+    pthread_mutex_unlock(&g_power_log_mutex);
+}
+
+static void get_cpu_freq_status(char *out, size_t max_len) {
+    char cur_freq[32] = "N/A";
+    char gov[32] = "N/A";
+    FILE *fc = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
+    if (fc) {
+        if (fscanf(fc, "%31s", cur_freq) != 1) strcpy(cur_freq, "err");
+        fclose(fc);
+    }
+    FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "r");
+    if (fg) {
+        if (fscanf(fg, "%31s", gov) != 1) strcpy(gov, "err");
+        fclose(fg);
+    }
+    snprintf(out, max_len, "gov=%.16s, cur=%.16s", gov, cur_freq);
+}
+
 /* DaVinci DM365 CPU Frequency Scaling (456MHz active / 96MHz standby) */
 static void set_cpu_freq_standby(bool standby) {
+    char before[96];
+    get_cpu_freq_status(before, sizeof(before));
     if (standby) {
+        bool gov_ok = false;
         FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
         if (fg) {
-            fputs("userspace\n", fg);
+            if (fputs("userspace\n", fg) >= 0) gov_ok = true;
             fclose(fg);
         }
-        FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
-        if (fs) {
-            fputs("96000\n", fs);
-            fclose(fs);
+        bool speed_ok = false;
+        if (gov_ok) {
+            FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
+            if (fs) {
+                if (fputs("96000\n", fs) >= 0) speed_ok = true;
+                fclose(fs);
+            }
         }
+        if (!gov_ok || !speed_ok) {
+            /* Fallback to powersave governor */
+            FILE *fp = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
+            if (fp) {
+                fputs("powersave\n", fp);
+                fclose(fp);
+            }
+        }
+        char after[96];
+        get_cpu_freq_status(after, sizeof(after));
+        log_power_debug("CPU scale -> STANDBY: before [%s] -> after [%s] (gov_ok=%d, speed_ok=%d)\n",
+                        before, after, gov_ok, speed_ok);
     } else {
+        bool gov_ok = false;
         FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
         if (fg) {
-            fputs("performance\n", fg);
+            if (fputs("performance\n", fg) >= 0) gov_ok = true;
             fclose(fg);
         }
+        char after[96];
+        get_cpu_freq_status(after, sizeof(after));
+        log_power_debug("CPU scale -> ACTIVE: before [%s] -> after [%s] (gov_ok=%d)\n",
+                        before, after, gov_ok);
     }
 }
 
@@ -780,20 +877,40 @@ static bool is_night_time(void) {
     }
 }
 
+static uint64_t s_last_blank_time_ms = 0;
+
 static void fb_set_blank(bool blank) {
+    int blank_res = -1;
     int fd = open(FB_BLANK_SYSFS, O_WRONLY);
     if (fd >= 0) {
         const char *val = blank ? "1\n" : "0\n";
-        write(fd, val, strlen(val));
+        blank_res = (int)write(fd, val, strlen(val));
         close(fd);
     }
     g_screen_on = !blank;
+    uint64_t now_ms = get_monotonic_ms();
+
     if (g_screen_on) {
+        uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
+        read_elite_battery();
+        log_power_debug("=== WAKING FROM STANDBY (Screen Active) ===\n");
+        log_power_debug("  Slept for: %llu seconds | Backlight: %d | Battery: %dmV, %d%% (%s, chg=%d)\n",
+                        (unsigned long long)sleep_sec, g_brightness_val,
+                        g_battery_info.voltage_mv, g_battery_info.percent,
+                        g_battery_info.powersource, g_battery_info.charging);
     } else {
+        s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
         set_cpu_freq_standby(true);
+        read_elite_battery();
+        bool usb_plug = is_usb_hardware_connected();
+        log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
+        log_power_debug("  fb_blank=%d, bl=0 | USB Eth: cfg=%d, cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
+                        blank_res, g_usbeth_enabled, usb_plug,
+                        g_battery_info.voltage_mv, g_battery_info.percent,
+                        g_battery_info.powersource, g_battery_info.charging);
     }
     int lfd = open(BTN_LED_SYSFS, O_WRONLY);
     if (lfd >= 0) {
@@ -803,8 +920,11 @@ static void fb_set_blank(bool blank) {
             else if (g_btn_backlight_mode == 1) turn_on = true;
             else if (g_btn_backlight_mode == 2) turn_on = is_night_time();
         }
-        write(lfd, turn_on ? "100\n" : "0\n", turn_on ? 4 : 2);
+        int w_res = (int)write(lfd, turn_on ? "100\n" : "0\n", turn_on ? 4 : 2);
         close(lfd);
+        if (!blank) {
+            log_power_debug("  Button LED: mode=%d -> %s (res=%d)\n", g_btn_backlight_mode, turn_on ? "ON" : "OFF", w_res);
+        }
     }
 }
 
@@ -935,6 +1055,7 @@ static void load_settings_conf(void) {
             else if (strcmp(key, "nav_key") == 0) g_nav_toggle_key = val;
             else if (strcmp(key, "nav_mode") == 0) g_nav_toggle_mode = val;
             else if (strcmp(key, "usbeth") == 0) g_usbeth_enabled = (val != 0);
+            else if (strcmp(key, "power_debug") == 0) g_power_debug = (val != 0);
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "tz") == 0) {
                 strncpy(g_timezone_str, sval, sizeof(g_timezone_str) - 1);
@@ -972,6 +1093,7 @@ static void save_settings_conf(void) {
     fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "usbeth=%d\n", g_usbeth_enabled ? 1 : 0);
+    fprintf(f, "power_debug=%d\n", g_power_debug ? 1 : 0);
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;
@@ -1169,16 +1291,38 @@ static void send_version_report_rf(void) {
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);
 }
 
+static void stop_usbeth_and_dropbear(void) {
+    log_power_debug("[*] Stopping USB Ethernet and Dropbear synchronously...\n");
+    system("killall -9 dropbear dropbearmulti 2>/dev/null; /usr/bin/usbeth stop 2>/dev/null; ifconfig usb0 down 2>/dev/null; chmod +x /usr/bin/usbhid 2>/dev/null; true");
+    log_power_debug("[+] USB Ethernet stopped and Dropbear killed.\n");
+}
+
+static void start_usbeth_and_dropbear(void) {
+    log_power_debug("[*] Starting USB Ethernet and Dropbear...\n");
+    system("killall -9 usbhid 2>/dev/null; chmod -x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth start 2>/dev/null; /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true &");
+    log_power_debug("[+] USB Ethernet and Dropbear started.\n");
+}
+
 static void toggle_usbeth(void) {
     g_usbeth_enabled = !g_usbeth_enabled;
     if (g_usbeth_enabled) {
-        printf("[*] Starting USB Ethernet and Dropbear...\n");
-        system("killall -9 usbhid 2>/dev/null; chmod -x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth start 2>/dev/null; /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true &");
+        save_settings_conf();
+        if (is_usb_hardware_connected()) {
+            show_notice("Starting USB Ethernet...", 1500);
+            render_screen();
+            start_usbeth_and_dropbear();
+            show_notice("USB Ethernet: ACTIVE", 2000);
+        } else {
+            stop_usbeth_and_dropbear();
+            show_notice("USB Eth ON (unplugged)", 2500);
+        }
     } else {
-        printf("[*] Stopping USB Ethernet and restoring usbhid...\n");
-        system("killall -9 dropbear 2>/dev/null; chmod +x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth stop 2>/dev/null || true &");
+        show_notice("Stopping USB Ethernet...", 1500);
+        render_screen();
+        stop_usbeth_and_dropbear();
+        save_settings_conf();
+        show_notice("USB Ethernet: OFF", 2000);
     }
-    save_settings_conf();
 }
 
 /* Draw a filled rectangle in RGB565 into backbuffer */
@@ -2555,8 +2699,9 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
 
                 g_is_ota_updating = false;
                 render_screen();
-                sleep(1);
-                system("reboot 2>/dev/null || /data/codex_sync 2>/dev/null; killall -9 codex_elite &");
+                system("/data/codex_sync 2>/dev/null; sync 2>/dev/null; reboot -f 2>/dev/null || (sleep 1; echo b > /proc/sysrq-trigger 2>/dev/null) &");
+                usleep(250000);
+                reboot(RB_AUTOBOOT);
                 exit(0);
             } else {
                 printf("[-] OTA ELF verification failed! Corrupted transfer.\n");
@@ -3338,6 +3483,17 @@ static void render_ota_overlay(void) {
     fb_draw_text_aa(18, FB_HEIGHT - 22, "Firmware update in progress", RGB_YELLOW, &g_font_main);
 }
 
+static void execute_remote_reboot(void) {
+    show_notice("Rebooting Remote...", 4000);
+    render_screen();
+    log_power_debug("[*] System reboot initiated by user from Settings menu. Syncing and rebooting (-f)...\n");
+    sync();
+    system("/data/codex_sync 2>/dev/null; sync 2>/dev/null; reboot -f 2>/dev/null || (sleep 1; echo b > /proc/sysrq-trigger 2>/dev/null) &");
+    usleep(250000);
+    reboot(RB_AUTOBOOT);
+    exit(0);
+}
+
 static void execute_elite_factory_reset(void) {
     show_notice("Restoring stock & rebooting...", 6000);
     render_screen();
@@ -3356,8 +3512,9 @@ static int get_settings_sub_count(void) {
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 5;
         case SETTINGS_VIEW_POWER:      return 4;
-        case SETTINGS_VIEW_SYSTEM:     return 5;
+        case SETTINGS_VIEW_SYSTEM:     return 6;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
+        case SETTINGS_VIEW_REBOOT:        return 2;
         default: return 0;
     }
 }
@@ -3486,6 +3643,19 @@ static void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1:
+                if (g_power_debug) {
+                    log_power_debug("[*] Power debugging disabled from System menu\n");
+                    g_power_debug = false;
+                    save_settings_conf();
+                    show_notice("Power Debug: DISABLED", 2000);
+                } else {
+                    g_power_debug = true;
+                    save_settings_conf();
+                    log_power_debug("[*] Power debugging enabled from System menu\n");
+                    show_notice("Power Debug: ENABLED", 2000);
+                }
+                break;
+            case 2:
                 g_current_view = VIEW_PAIRING;
                 g_selected_pair_opt = 0;
                 g_unpair_confirm_active = false;
@@ -3497,21 +3667,29 @@ static void execute_settings_action(int idx) {
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
                 }
                 break;
-            case 2:
-                show_notice("Rebooting Remote...", 4000);
-                render_screen();
-                usleep(250000);
-                system("sync; reboot &");
-                break;
             case 3:
+                g_settings_subview = SETTINGS_VIEW_REBOOT;
+                g_selected_sub_item = 0;
+                break;
+            case 4:
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
                 break;
-            case 4:
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
+        }
+        return;
+    }
+
+    if (g_settings_subview == SETTINGS_VIEW_REBOOT) {
+        if (idx == 0) {
+            g_settings_subview = SETTINGS_VIEW_SYSTEM;
+            g_selected_sub_item = 3;
+        } else if (idx == 1) {
+            execute_remote_reboot();
         }
         return;
     }
@@ -3520,7 +3698,7 @@ static void execute_settings_action(int idx) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
             g_factory_reset_stage = 0;
-            g_selected_sub_item = 3;
+            g_selected_sub_item = 4;
         } else if (idx == 1) {
             if (g_factory_reset_stage == 0) {
                 g_factory_reset_stage = 1;
@@ -3592,8 +3770,8 @@ static void render_settings_items(const char *title, int count, const char **lab
     fb_draw_text_aa(14, 10, title, RGB_CYAN, &g_font_title);
 
     int start_y = 40;
-    int card_h = 36;
-    int spacing = 5;
+    int card_h = (count >= 6) ? 34 : 36;
+    int spacing = (count >= 6) ? 4 : 5;
 
     for (int i = 0; i < count; i++) {
         int y = start_y + i * (card_h + spacing);
@@ -3607,16 +3785,16 @@ static void render_settings_items(const char *title, int count, const char **lab
 
         bool has_icon = false;
         if (icons && icons[i]) {
-            has_icon = blit_png_file(14, y + 8, 20, 20, icons[i]);
+            has_icon = blit_png_file(14, y + (card_h == 34 ? 7 : 8), 20, 20, icons[i]);
         }
         int text_x = has_icon ? 38 : 14;
         uint16_t text_col = is_back ? (is_sel ? RGB_WHITE : RGB_CYAN) : (is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-        fb_draw_text_aa(text_x, y + 9, labels[i], text_col, &g_font_main);
+        fb_draw_text_aa(text_x, y + (card_h == 34 ? 8 : 9), labels[i], text_col, &g_font_main);
 
         if (values && values[i][0]) {
             int vw = fb_text_width_aa(values[i], &g_font_main);
             uint16_t col = val_colors ? val_colors[i] : RGB_TEAL;
-            fb_draw_text_aa(FB_WIDTH - 18 - vw, y + 9, values[i], col, &g_font_main);
+            fb_draw_text_aa(FB_WIDTH - 18 - vw, y + (card_h == 34 ? 8 : 9), values[i], col, &g_font_main);
         }
     }
 }
@@ -3674,6 +3852,45 @@ static void render_settings_factory_reset(void) {
         fb_draw_rect(8, y, FB_WIDTH - 16, btn_h, border);
         int tw = fb_text_width_aa(btn_labels[g_factory_reset_stage][i], &g_font_title);
         fb_draw_text_aa((FB_WIDTH - tw) / 2, y + 10, btn_labels[g_factory_reset_stage][i], text_col, &g_font_title);
+    }
+}
+
+static void render_settings_reboot(void) {
+    render_header();
+
+    /* Warning card */
+    int card_y = 38;
+    int card_h = 130;
+    fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
+    fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_YELLOW);
+
+    fb_draw_text_aa(16, card_y + 10, "REBOOT REMOTE", RGB_YELLOW, &g_font_title);
+    fb_draw_text_aa(16, card_y + 36, "Restart remote cleanly.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(16, card_y + 56, "Saved configs and paired Hub", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(16, card_y + 76, "connection will be restored.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(16, card_y + 100, "Device reboots in a few seconds.", RGB_TEAL, &g_font_main);
+
+    /* Option Buttons */
+    int btn_y = card_y + card_h + 10;
+    int btn_h = 38;
+    int spacing = 8;
+
+    const char *btn_labels[2] = {
+        "CANCEL - DO NOT REBOOT",
+        "REBOOT REMOTE NOW"
+    };
+
+    for (int i = 0; i < 2; i++) {
+        int y = btn_y + i * (btn_h + spacing);
+        bool is_sel = (i == g_selected_sub_item);
+        uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
+        uint16_t border = is_sel ? (i == 1 ? RGB_RED : RGB_TEAL) : (i == 1 ? 0x8000 : 0x2945);
+        uint16_t text_col = (i == 1) ? (is_sel ? RGB_RED : RGB_YELLOW) : RGB_WHITE;
+
+        fb_fill_rect(8, y, FB_WIDTH - 16, btn_h, bg);
+        fb_draw_rect(8, y, FB_WIDTH - 16, btn_h, border);
+        int tw = fb_text_width_aa(btn_labels[i], &g_font_title);
+        fb_draw_text_aa((FB_WIDTH - tw) / 2, y + 10, btn_labels[i], text_col, &g_font_title);
     }
 }
 
@@ -3783,30 +4000,47 @@ static void render_settings_view(void) {
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[5] = { "USB Ethernet Mode", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
-            char values[5][32];
-            snprintf(values[0], sizeof(values[0]), "[ %s ]", g_usbeth_enabled ? "ON" : "OFF");
-            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
-            snprintf(values[2], sizeof(values[2]), "[ REBOOT ]");
-            snprintf(values[3], sizeof(values[3]), "[ REVERT ]");
-            values[4][0] = '\0';
-            uint16_t cols[5] = {
-                g_usbeth_enabled ? RGB_GREEN : RGB_TEXT_MUTED,
-                g_rf_link_connected ? RGB_GREEN : RGB_YELLOW,
-                RGB_YELLOW,
-                RGB_RED,
-                RGB_CYAN
-            };
-            const char *icons[5] = {
+            const char *labels[6] = { "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
+            char values[6][32];
+            uint16_t cols[6];
+
+            if (!g_usbeth_enabled) {
+                snprintf(values[0], sizeof(values[0]), "[ OFF ]");
+                cols[0] = RGB_TEXT_MUTED;
+            } else {
+                bool usb_hw = is_usb_hardware_connected();
+                if (usb_hw) {
+                    snprintf(values[0], sizeof(values[0]), "[ ACTIVE ]");
+                    cols[0] = RGB_GREEN;
+                } else {
+                    snprintf(values[0], sizeof(values[0]), "[ UNPLUGGED ]");
+                    cols[0] = RGB_YELLOW;
+                }
+            }
+            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_power_debug ? "ON" : "OFF");
+            cols[1] = g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED;
+            snprintf(values[2], sizeof(values[2]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
+            cols[2] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
+            snprintf(values[3], sizeof(values[3]), "[ REBOOT ]");
+            cols[3] = RGB_YELLOW;
+            snprintf(values[4], sizeof(values[4]), "[ REVERT ]");
+            cols[4] = RGB_RED;
+            values[5][0] = '\0';
+            cols[5] = RGB_CYAN;
+            const char *icons[6] = {
                 "/opt/luadraws/appscommon/asset/header/usb.png",
+                "/opt/luadraws/appscommon/asset/header/charging.png",
                 "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
                 "/opt/luadraws/appscommon/asset/home/power_icon.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("SYSTEM", 5, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("SYSTEM", 6, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
+        case SETTINGS_VIEW_REBOOT:
+            render_settings_reboot();
+            break;
         case SETTINGS_VIEW_FACTORY_RESET:
             render_settings_factory_reset();
             break;
@@ -3834,7 +4068,7 @@ static void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 1;
+            g_selected_sub_item = 2;
         }
         g_selected_pair_opt = 0;
     } else if (is_paired) {
@@ -3844,7 +4078,7 @@ static void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 1;
+            g_selected_sub_item = 2;
         }
     } else {
         if (idx == 0) {
@@ -3853,7 +4087,7 @@ static void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 1;
+            g_selected_sub_item = 2;
         }
     }
     render_screen();
@@ -4123,11 +4357,26 @@ static void sig_wake_handler(int sig) {
 /* Power / Timeout Watcher Thread */
 static void *power_manager(void *arg) {
     (void)arg;
+    uint64_t last_standby_heartbeat_ms = 0;
+
     while (g_running) {
         if (!g_screen_on) {
             usleep(1000000); /* 1s sleep when screen blanked */
+            uint64_t now_ms = get_monotonic_ms();
+            if (now_ms - last_standby_heartbeat_ms >= 60000) {
+                last_standby_heartbeat_ms = now_ms;
+                read_elite_battery();
+                char cstat[96];
+                get_cpu_freq_status(cstat, sizeof(cstat));
+                uint64_t elapsed_s = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
+                log_power_debug("[HEARTBEAT in STANDBY] Slept %llus | Batt: %dmV, %d%%, %s (chg=%d) | CPU: %s\n",
+                                (unsigned long long)elapsed_s,
+                                g_battery_info.voltage_mv, g_battery_info.percent,
+                                g_battery_info.powersource, g_battery_info.charging, cstat);
+            }
         } else {
             usleep(200000);  /* 200ms check when screen awake */
+            last_standby_heartbeat_ms = 0;
         }
         if (g_wake_requested) {
             g_wake_requested = 0;
@@ -4380,7 +4629,7 @@ static void handle_screen_touch_tap(int x, int y) {
                     return;
                 }
             }
-        } else if (g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
+        } else if (g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_REBOOT) {
             int card_y = 38;
             int card_h = 130;
             int btn_y = card_y + card_h + 10;
@@ -4397,9 +4646,9 @@ static void handle_screen_touch_tap(int x, int y) {
             }
         } else {
             int start_y = 40;
-            int card_h = 36;
-            int spacing = 5;
             int count = get_settings_sub_count();
+            int card_h = (count >= 6) ? 34 : 36;
+            int spacing = (count >= 6) ? 4 : 5;
             for (int i = 0; i < count; i++) {
                 int cy = start_y + i * (card_h + spacing);
                 if (y >= cy && y < cy + card_h) {
@@ -4547,9 +4796,14 @@ static void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 1;
+                g_selected_sub_item = 2;
             } else if (g_current_view == VIEW_SETTINGS) {
-                if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
+                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
+                    bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
+                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_factory_reset_stage = 0;
+                    g_selected_sub_item = was_reboot ? 3 : 4;
+                } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
                 } else {
@@ -4571,7 +4825,7 @@ static void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 1;
+                g_selected_sub_item = 2;
             } else if (g_current_view == VIEW_ACTIVITIES) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
@@ -4660,10 +4914,15 @@ static void handle_navigation_key(int code, int value) {
                 } else {
                     g_current_view = VIEW_SETTINGS;
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                    g_selected_sub_item = 1;
+                    g_selected_sub_item = 2;
                 }
             } else if (g_current_view == VIEW_SETTINGS) {
-                if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
+                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
+                    bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
+                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_factory_reset_stage = 0;
+                    g_selected_sub_item = was_reboot ? 3 : 4;
+                } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
                 } else {
@@ -4732,6 +4991,16 @@ int main(int argc, char **argv) {
 
     /* Load persistent config from /data/codex_elite.conf if present */
     load_settings_conf();
+
+    /* Initialize USB hardware connection state and guarantee clean network state */
+    g_usb_connected = is_usb_hardware_connected();
+    log_power_debug("[*] codex_elite INIT: usbeth_enabled=%d, usb_cable_connected=%d\n",
+                    g_usbeth_enabled, g_usb_connected);
+    if (!g_usb_connected || !g_usbeth_enabled) {
+        stop_usbeth_and_dropbear();
+    } else {
+        start_usbeth_and_dropbear();
+    }
 
     /* Sync system time from MSP430 hardware RTC */
     sync_time_from_rtc();
@@ -4967,11 +5236,15 @@ int main(int argc, char **argv) {
             if (usb_now != g_usb_connected) {
                 g_usb_connected = usb_now;
                 if (g_usb_connected) {
-                    printf("[+] USB connected: starting USB Ethernet and Dropbear...\n");
-                    system("killall -9 usbhid 2>/dev/null; chmod -x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth start 2>/dev/null; /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true &");
+                    if (g_usbeth_enabled) {
+                        log_power_debug("[+] USB cable plugged: starting USB Ethernet and Dropbear...\n");
+                        start_usbeth_and_dropbear();
+                    } else {
+                        log_power_debug("[+] USB cable plugged (Ethernet mode is disabled in settings).\n");
+                    }
                 } else {
-                    printf("[-] USB disconnected: stopping USB Ethernet and Dropbear...\n");
-                    system("killall -9 dropbear 2>/dev/null; chmod +x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth stop 2>/dev/null || true &");
+                    log_power_debug("[-] USB cable disconnected: stopping Dropbear and USB Ethernet...\n");
+                    stop_usbeth_and_dropbear();
                 }
                 g_screen_dirty = true;
             }

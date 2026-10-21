@@ -49,7 +49,9 @@ if [ -f /data/codex_elite.conf ]; then
     if [ "$VAL" = "1" ]; then USBETH_CONF=1; fi
 fi
 
-if [ "$USBETH_CONF" = "1" ]; then
+PSRC=$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null || echo "")
+
+if [ "$USBETH_CONF" = "1" ] && [ "$PSRC" = "usb" ]; then
     chmod -x /usr/bin/usbhid 2>/dev/null || true
     /usr/bin/usbeth start 2>/dev/null || true
     if [ -x /data/dropbear ]; then
@@ -60,6 +62,7 @@ if [ "$USBETH_CONF" = "1" ]; then
 else
     chmod +x /usr/bin/usbhid 2>/dev/null || true
     /usr/bin/usbeth stop 2>/dev/null || true
+    killall -9 dropbear dropbearmulti 2>/dev/null || true
 fi
 
 if [ -x /data/codex_sync ]; then
@@ -84,5 +87,5 @@ fi
 if [ -x /data/init.sh ]; then
     /data/init.sh &
 elif [ -x /data/codex_elite ]; then
-    /data/codex_elite &
+    /data/codex_elite > /tmp/codex_elite.log 2>&1 &
 fi
