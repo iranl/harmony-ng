@@ -146,11 +146,12 @@ jobs:
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
-      - name: Compile Hub Binaries
+      - name: Compile Hub Binaries & Extended BusyBox
         run: |
-          chmod +x build/compile_all.sh
+          chmod +x build/compile_all.sh build/build_busybox.sh
           ./build/compile_all.sh hub
           ./build/compile_all.sh btstack || true
+          ./build/build_busybox.sh mips || true
           mkdir -p build/output/hub
           cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           [ -f payload/bin/busybox ] && cp -f payload/bin/busybox build/output/hub/ || true
