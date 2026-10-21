@@ -91,7 +91,7 @@ if [ -x /cache/bin/busybox ]; then
 elif [ -x /cache/busybox ]; then
     BB_PATH=/cache/busybox
 fi
-if [ -n \"\$BB_PATH\" ] && [ -z \"\$BB_EXTENDED\" ]; then
+if [ -t 0 ] && [ -n \"\$BB_PATH\" ] && [ -z \"\$BB_EXTENDED\" ]; then
     export BB_EXTENDED=1
     export PATH=/cache/bin:/data/codex/bin:\$PATH
     exec \"\$BB_PATH\" sh -l
