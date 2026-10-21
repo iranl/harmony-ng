@@ -803,8 +803,13 @@ export class HarmonyClient {
     return this.request('/api/update-status');
   }
 
-  async checkUpdate(force = false) {
-    return this.postForm('/api/update-check-state', { check: force ? '1' : '0' });
+  async checkUpdate(force = false, repo = '', token = '', remoteVersion = '') {
+    return this.postForm('/api/update-check-state', {
+      check: force ? '1' : '0',
+      repo: repo || '',
+      token: token || '',
+      remote_version: remoteVersion || ''
+    });
   }
 
   async applyUpdate(token = '', repo = '') {

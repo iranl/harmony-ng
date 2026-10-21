@@ -6856,15 +6856,28 @@ class HarmonyApp {
         this.client.getSystemInfo().catch(() => ({})),
         this.client.getUpdateStatus().catch(() => ({}))
       ]);
+
+      let remoteVer = stat.remote_version || '';
+      try {
+        const rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION?_=${Date.now()}`);
+        if (rawRes.ok) {
+          const v = (await rawRes.text()).trim();
+          if (v) remoteVer = v.startsWith('v') ? v : `v${v}`;
+        }
+      } catch (_) {}
+
+      const localVer = stat.local_version || ('v' + (sys.version || APP_VERSION));
+      const hasUpdate = stat.update_available || (remoteVer && !localVer.includes(remoteVer.replace(/^v/, '')));
+
       if (log) {
         log.textContent = `Hub Firmware: ${sys.firmware || stat.fw_version || '4.15.600'}\n` +
           `Codex Software: v${this.appVersion || APP_VERSION}\n` +
           `Codex Daemon: v${sys.version || stat.current_version || APP_VERSION}\n` +
           `Commit: ${stat.commit || sys.commit || 'dev'}\n` +
           `Build: ${stat.build_time || sys.build_time || 'Release'}\n` +
-          `Local Version: ${stat.local_version || ('v' + (sys.version || APP_VERSION))}\n` +
-          `Remote Version: ${stat.remote_version || 'Up to date'}\n` +
-          `Status: ${stat.update_available ? '⚠️ Update available' : '✓ Up to date'}`;
+          `Local Version: ${localVer}\n` +
+          `Remote Version: ${remoteVer || 'Up to date'}\n` +
+          `Status: ${hasUpdate ? '⚠️ Update available' : '✓ Up to date'}`;
       }
     } catch (err) {
       if (log) log.textContent = 'Failed to fetch version info: ' + err.message;
@@ -6873,13 +6886,36 @@ class HarmonyApp {
 
   async checkSoftwareUpdate() {
     const log = document.getElementById('updateLog');
+    const repoInput = document.getElementById('updateRepo')?.value.trim() || '';
+    const tokenInput = document.getElementById('updateToken')?.value.trim() || '';
     try {
       if (log) log.textContent = 'Checking update repository and GitHub releases...';
-      const res = await this.client.checkUpdate(true);
+      let remoteVer = '';
+      try {
+        const ghHeaders = { 'Accept': 'application/vnd.github.v3+json' };
+        if (tokenInput) ghHeaders['Authorization'] = `token ${tokenInput}`;
+        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', { headers: ghHeaders });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          remoteVer = (ghData.tag_name || '').replace(/^v/, '');
+        }
+      } catch (_) {
+        try {
+          const rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION?_=${Date.now()}`);
+          if (rawRes.ok) {
+            const rawVer = await rawRes.text();
+            remoteVer = rawVer.trim().replace(/^v/, '');
+          }
+        } catch (_) {}
+      }
+
+      const res = await this.client.checkUpdate(true, repoInput, tokenInput, remoteVer);
       const stat = await this.client.getUpdateStatus().catch(() => ({}));
       if (log) {
-        const msg = res.message || res.reply || 'Check complete';
-        log.textContent = `${msg}\nLocal: ${stat.local_version || 'unknown'} | Remote: ${stat.remote_version || 'unknown'}\nStatus: ${stat.update_available ? '⚠️ Update available to install!' : '✓ Hub is up to date'}`;
+        const displayRemote = remoteVer ? `v${remoteVer}` : (stat.remote_version || res.remote_version || 'unknown');
+        const curVer = stat.current_version || APP_VERSION;
+        const hasUpdate = (stat.update_available || res.has_update || (remoteVer && remoteVer !== curVer));
+        log.textContent = `Local: v${curVer} | Remote: ${displayRemote}\nStatus: ${hasUpdate ? `⚠️ Update available to install (${displayRemote})!` : '✓ Hub is up to date'}`;
       }
     } catch (err) {
       if (log) log.textContent = 'Update check failed: ' + err.message;
@@ -6894,7 +6930,22 @@ class HarmonyApp {
     try {
       if (log) log.textContent = t('update_applying', 'Applying software update...');
       const res = await this.client.applyUpdate(token, repo);
-      if (log) log.textContent = res.message || 'Update applied successfully!';
+      if (log) log.textContent = (res.message || 'Update applied successfully!') + '\nDownloading and applying update in background...\nHub services will restart in ~15-30 seconds.';
+
+      let attempts = 0;
+      const pollTimer = setInterval(async () => {
+        attempts++;
+        if (attempts > 20) {
+          clearInterval(pollTimer);
+          if (log) log.textContent += '\nUpdate timeout. Please refresh the page.';
+          return;
+        }
+        try {
+          const stat = await this.client.getUpdateStatus();
+          clearInterval(pollTimer);
+          if (log) log.textContent = `Update complete! Hub is now running ${stat.local_version || ('v' + stat.current_version)}.\nStatus: ${stat.update_available ? '⚠️ Update available' : '✓ Up to date'}`;
+        } catch (_) {}
+      }, 3000);
     } catch (err) {
       if (log) log.textContent = t('update_failed', 'Install failed: ') + err.message;
     }
