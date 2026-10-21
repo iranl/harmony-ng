@@ -51,6 +51,7 @@ fi
 # 1. Clean up legacy flash artifacts to minimize flash wear and reclaim space
 rm -rf /data/codex-backups /data/codex/resource-backups /data/codex/bin/*.tmp-handoff* /data/*.tmp-handoff* 2>/dev/null || true
 rm -rf /cache/*.log /cache/codex-init.log /cache/crashlog-*.json /tmp/codex_bthid_remote.pid 2>/dev/null || true
+rm -rf /cache/www/assets/icons/hops* /cache/www/assets/icons/juniper* /cache/www/assets/icons/commands /cache/www/assets/icons/settings /cache/www/assets/icons/footer /cache/www/assets/icons/header 2>/dev/null || true
 rm -f /data/*.ota* /data/*.tar.gz /data/*.zip /data/codex_elite.ota.gz /data/codex/*.log /data/codex/bin/*.old /data/codex/bin/*.bak 2>/dev/null || true
 rm -f /data/codex/bin/pair_b25.sh /data/codex/bin/do_pair.sh /data/codex/bin/test_ble_diag /data/codex/bin/test_smp /data/codex/bin/test_hci_sniff /data/codex/bin/codex_ir_send /data/codex/bin/codex_webui /data/codex/bin/codex_rf_query /data/codex/bin/codex_rf_sniff /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true
 rm -f /data/codex/g_serial.ko /data/codex/mknod_bin /data/codex/mknod 2>/dev/null || true
@@ -99,9 +100,15 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 
 # 3. Dropbear SSH Server & Shell Profile & Extended BusyBox
 if [ -x /cache/bin/busybox ]; then
-  /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
+  if [ ! -f /bin/busybox.stock ]; then
+    cp /bin/busybox /bin/busybox.stock 2>/dev/null || true
+  fi
+  ln -sf /cache/bin/busybox /bin/busybox 2>/dev/null || true
+  ln -sf /cache/bin/busybox /usr/bin/busybox 2>/dev/null || true
+  ln -sf /cache/bin/busybox /bin/sh 2>/dev/null || true
+  ln -sf /cache/bin/busybox /bin/ash 2>/dev/null || true
   ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
-  for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df; do
+  for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df wc diff patch; do
     ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
     ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
   done

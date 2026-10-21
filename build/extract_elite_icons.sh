@@ -32,13 +32,13 @@ scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no -r \
 ICON_COUNT=$(find "$DEST_DIR" -type f -name "*.png" | wc -l)
 echo "[+] Successfully extracted $ICON_COUNT icons to $DEST_DIR"
 
-# If Hub IP provided, push to Hub in one go
+# If Hub IP provided, package full archive and push to Hub
 if [ -n "$HUB_HOST" ]; then
-    echo "=== Pushing Icons to Harmony Hub ($HUB_HOST) ==="
-    ssh -o BatchMode=yes -o StrictHostKeyChecking=no "${REMOTE_USER}@${HUB_HOST}" "mkdir -p /data/codex/www/assets/icons"
-    scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no -r "$DEST_DIR"/* "${REMOTE_USER}@${HUB_HOST}:/data/codex/www/assets/icons/" || {
+    echo "=== Packaging and Pushing Full Icon Archive to Harmony Hub ($HUB_HOST) ==="
+    tar -czf "$REPO_ROOT/build/icons.tar.gz" -C "$DEST_DIR/.." icons
+    scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no "$REPO_ROOT/build/icons.tar.gz" "${REMOTE_USER}@${HUB_HOST}:/data/codex/icons.tar.gz" || {
         echo "[!] SCP to Hub failed. Ensure Hub is reachable at $HUB_HOST"
         exit 1
     }
-    echo "[+] Successfully pushed icons to Hub at /data/codex/www/assets/icons/"
+    echo "[+] Successfully pushed full icon archive (all $ICON_COUNT icons) to Hub at /data/codex/icons.tar.gz"
 fi

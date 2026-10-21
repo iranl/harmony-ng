@@ -174,6 +174,22 @@ def package_ota(output_dir: Path, version: str):
                     rel_path = full_path.relative_to(www_src)
                     tar.add(full_path, arcname=f"www/{str(rel_path).replace(os.sep, '/')}")
 
+        # Icons Archive
+        icons_tar = REPO_ROOT / "build" / "icons.tar.gz"
+        if not icons_tar.is_file() and (REPO_ROOT / "data" / "remote_icons" / "icons").is_dir():
+            print("[*] Creating icons.tar.gz from data/remote_icons/icons...")
+            with tarfile.open(icons_tar, "w:gz") as itar:
+                itar.add(REPO_ROOT / "data" / "remote_icons" / "icons", arcname="icons")
+        if icons_tar.is_file():
+            tar.add(icons_tar, arcname="icons.tar.gz")
+            shutil.copy2(icons_tar, output_dir / "icons.tar.gz")
+            imd5, isha = get_file_hashes(output_dir / "icons.tar.gz")
+            manifest_files["icons.tar.gz"] = {
+                "size": (output_dir / "icons.tar.gz").stat().st_size,
+                "md5": imd5,
+                "sha256": isha
+            }
+
     md5, sha = get_file_hashes(hub_tar)
     manifest_files["hub_ota.tar.gz"] = {
         "size": hub_tar.stat().st_size,

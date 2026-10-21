@@ -159,21 +159,37 @@ do_apply() {
         fi
       done
 
-      # D. Symlink busybox applets & install extended BusyBox
+      # D. Link extended BusyBox to /bin/busybox and core tools
       if [ -x /cache/bin/busybox ]; then
-        /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-        ln -sf /cache/bin/busybox /data/codex/bin/mknod 2>/dev/null || true
-        ln -sf /cache/bin/busybox /data/codex/bin/sync 2>/dev/null || true
+        if [ ! -f /bin/busybox.stock ]; then
+          cp /bin/busybox /bin/busybox.stock 2>/dev/null || true
+        fi
+        ln -sf /cache/bin/busybox /bin/busybox 2>/dev/null || true
+        ln -sf /cache/bin/busybox /usr/bin/busybox 2>/dev/null || true
+        ln -sf /cache/bin/busybox /bin/sh 2>/dev/null || true
+        ln -sf /cache/bin/busybox /bin/ash 2>/dev/null || true
+        ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
+        for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df wc diff patch; do
+          ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
+          ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
+        done
       fi
 
-      # E. WebUI -> /cache/www/
+      # E. WebUI -> /cache/www/ (clean old hashed assets first to prevent flash fill-up)
       if [ -d "$TMPDIR/pkg/www" ]; then
         if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
           rm -rf /data/codex/www 2>/dev/null || true
         fi
         ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+        rm -f /cache/www/assets/index-*.js* /cache/www/assets/web-*.js* 2>/dev/null || true
         cp -rf "$TMPDIR/pkg/www/"* /cache/www/ 2>/dev/null || true
         echo "[+] WebUI bundle updated in /cache/www."
+      fi
+
+      # F. Icons archive -> /data/codex/icons.tar.gz
+      if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
+        cp -f "$TMPDIR/pkg/icons.tar.gz" /data/codex/icons.tar.gz 2>/dev/null || true
+        echo "[+] Icons archive updated in /data/codex/icons.tar.gz."
       fi
 
       OTA_BUNDLE_OK=1

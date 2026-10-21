@@ -757,6 +757,33 @@ static const char *get_mime_type(const char *path) {
     return "application/octet-stream";
 }
 
+static void ensure_icons_extracted(void) {
+    if (access("/tmp/www/assets/icons", F_OK) == 0) return;
+
+    const char *tar_path = NULL;
+    if (access("/data/codex/icons.tar.gz", F_OK) == 0) {
+        tar_path = "/data/codex/icons.tar.gz";
+    } else if (access("/cache/icons.tar.gz", F_OK) == 0) {
+        tar_path = "/cache/icons.tar.gz";
+    } else if (access("/cache/www/assets/icons.tar.gz", F_OK) == 0) {
+        tar_path = "/cache/www/assets/icons.tar.gz";
+    }
+    if (tar_path) {
+        mkdir("/tmp/www", 0755);
+        mkdir("/tmp/www/assets", 0755);
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd),
+            "tar -xzf \"%s\" -C /tmp/www/assets/ 2>/dev/null && "
+            "for d in /tmp/www/assets/icons/*/; do "
+            "  if [ -d \"$d\" ]; then "
+            "    for f in \"$d\"*.png; do [ -f \"$f\" ] && ln -sf \"$f\" /tmp/www/assets/icons/ 2>/dev/null; done; "
+            "  fi; "
+            "done",
+            tar_path);
+        system(cmd);
+    }
+}
+
 static int serve_static_file(int client_fd, const char *req, const char *path) {
     if (strstr(path, "..")) return 0;
 
@@ -768,10 +795,17 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
         rel_path[sizeof(rel_path) - 1] = '\0';
     }
 
+    if (strncmp(rel_path, "/assets/icons/", 14) == 0) {
+        ensure_icons_extracted();
+    }
+
     char file_path[512];
-    snprintf(file_path, sizeof(file_path), "/data/codex/www%s", rel_path);
+    snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
     if (access(file_path, F_OK) != 0) {
-        snprintf(file_path, sizeof(file_path), "/cache/www%s", rel_path);
+        snprintf(file_path, sizeof(file_path), "/data/codex/www%s", rel_path);
+        if (access(file_path, F_OK) != 0) {
+            snprintf(file_path, sizeof(file_path), "/cache/www%s", rel_path);
+        }
     }
 
     int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
@@ -1007,10 +1041,15 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddStringToObject(mj, "baseTopic", mbase);
         cJSON_AddItemToObject(st, "mqtt", mj);
 
+        ensure_icons_extracted();
         int icons_present = 0;
         struct stat st_icon;
-        if (stat("/cache/www/assets/icons", &st_icon) == 0 && S_ISDIR(st_icon.st_mode)) {
-            DIR *d = opendir("/cache/www/assets/icons");
+        const char *icon_dir = "/tmp/www/assets/icons";
+        if (stat(icon_dir, &st_icon) != 0) {
+            icon_dir = "/cache/www/assets/icons";
+        }
+        if (stat(icon_dir, &st_icon) == 0 && S_ISDIR(st_icon.st_mode)) {
+            DIR *d = opendir(icon_dir);
             if (d) {
                 struct dirent *de;
                 while ((de = readdir(d)) != NULL) {
@@ -1144,13 +1183,16 @@ static void http_process_request(int client_fd, const char *req) {
     }
 
     if (strcmp(clean_path, "/api/icons") == 0 && strcmp(method, "GET") == 0) {
+        ensure_icons_extracted();
         cJSON *arr = cJSON_CreateArray();
-        const char *base_dir = "/cache/www/assets/icons";
-        DIR *d = opendir(base_dir);
-        if (!d) {
-            base_dir = "/data/codex/www/assets/icons";
-            d = opendir(base_dir);
+        const char *base_dir = "/tmp/www/assets/icons";
+        if (access(base_dir, F_OK) != 0) {
+            base_dir = "/cache/www/assets/icons";
+            if (access(base_dir, F_OK) != 0) {
+                base_dir = "/data/codex/www/assets/icons";
+            }
         }
+        DIR *d = opendir(base_dir);
         if (d) {
             struct dirent *de;
             while ((de = readdir(d)) != NULL) {

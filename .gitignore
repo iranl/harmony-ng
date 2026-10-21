@@ -27,6 +27,7 @@ scratch_*
 *.keystore
 *.base64.txt
 build/ota_staging/
+build/icons.tar.gz
 payload/www/assets/icons/
 
 # Compiled payload binaries and built web assets (tracked on 'ota' branch only)

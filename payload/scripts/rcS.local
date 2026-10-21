@@ -38,9 +38,16 @@ if [ "$COUNT" -gt 5 ]; then
 
 	# Setup default SSH shell to use extended BusyBox if present in cache
 	if [ -x /cache/bin/busybox ]; then
-		/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-		for _app in $(/cache/bin/busybox --list 2>/dev/null); do
-			[ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true
+		if [ ! -f /bin/busybox.stock ]; then
+			cp /bin/busybox /bin/busybox.stock 2>/dev/null || true
+		fi
+		ln -sf /cache/bin/busybox /bin/busybox 2>/dev/null || true
+		ln -sf /cache/bin/busybox /usr/bin/busybox 2>/dev/null || true
+		ln -sf /cache/bin/busybox /bin/sh 2>/dev/null || true
+		ln -sf /cache/bin/busybox /bin/ash 2>/dev/null || true
+		for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df wc diff patch; do
+			ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
+			ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
 		done
 	fi
 	mkdir -p /etc/profile.d 2>/dev/null || true
