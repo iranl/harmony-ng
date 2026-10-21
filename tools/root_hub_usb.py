@@ -107,12 +107,27 @@ def resolve_ssh_key(pubkey_path: str | None = None) -> tuple[pathlib.Path, str]:
     return new_pub, new_pub.read_text(encoding="utf-8").strip()
 
 
+def find_dropbear_binary() -> pathlib.Path:
+    candidates = [
+        SCRIPT_DIR / "bin" / "dropbearmulti_mips",
+        SCRIPT_DIR / "bin" / "dropbearmulti",
+        REPO_DIR / "bin" / "dropbearmulti",
+        REPO_DIR / "bin" / "dropbearmulti_mips",
+        REPO_DIR / "payload" / "bin" / "dropbearmulti",
+        REPO_DIR / "payload" / "bin" / "dropbearmulti_mips",
+        SCRIPT_DIR / "dropbearmulti_mips",
+        SCRIPT_DIR / "dropbearmulti",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    raise FileNotFoundError(f"MIPS Dropbear binary missing. Checked: {[str(c) for c in candidates]}")
+
+
 def build_payload(pubkey_str: str) -> bytes:
     """Build self-extracting bootstrap script + MIPS Dropbear binary."""
-    if not DROPBEAR_MIPS_PATH.is_file():
-        raise FileNotFoundError(f"MIPS Dropbear binary missing at {DROPBEAR_MIPS_PATH}")
-
-    mips_binary = DROPBEAR_MIPS_PATH.read_bytes()
+    dropbear_path = find_dropbear_binary()
+    mips_binary = dropbear_path.read_bytes()
 
     # Template offset placeholder format
     dummy_offset = b"00000000"
