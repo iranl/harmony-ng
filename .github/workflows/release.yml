@@ -236,7 +236,8 @@ jobs:
       - name: Package Release Assets
         run: |
           VERSION="${{ needs.prepare-version.outputs.version }}"
-          mkdir -p release_assets
+          RELEASE_DIR="$PWD/release_assets"
+          mkdir -p "$RELEASE_DIR"
           
           # 1. Package Complete Hub Release Bundle
           if [ -d artifacts/hub-binaries ]; then
@@ -251,9 +252,9 @@ jobs:
             cp -f build/deploy_hub.sh build/deploy_hub.ps1 staging_hub/
             cp -f tools/root_hub_usb.py tools/harmony_hid.py staging_hub/tools/
             
-            (cd staging_hub && zip -r "../release_assets/harmony-hub-v${VERSION}.zip" .)
-            tar -czvf "release_assets/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
-            cp -f artifacts/hub-binaries/codex_daemon.gz "release_assets/codex_daemon_v${VERSION}.gz"
+            (cd staging_hub && zip -r "${RELEASE_DIR}/harmony-hub-v${VERSION}.zip" .)
+            tar -czvf "${RELEASE_DIR}/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
+            cp -f artifacts/hub-binaries/codex_daemon.gz "${RELEASE_DIR}/codex_daemon_v${VERSION}.gz"
           fi
 
           # 2. Package Complete Elite Release Bundle
@@ -265,24 +266,24 @@ jobs:
             cp -f elite/deploy_elite.py elite/deploy_elite.ps1 staging_elite/
             cp -f tools/root_remote_usb.py tools/harmony_hid.py elite/setup_remote.py staging_elite/tools/
             
-            (cd staging_elite && zip -r "../release_assets/harmony-elite-v${VERSION}.zip" .)
-            tar -czvf "release_assets/harmony-elite-v${VERSION}.tar.gz" -C staging_elite .
-            cp -f artifacts/elite-binaries/codex_elite.gz "release_assets/codex_elite_v${VERSION}.gz"
+            (cd staging_elite && zip -r "${RELEASE_DIR}/harmony-elite-v${VERSION}.zip" .)
+            tar -czvf "${RELEASE_DIR}/harmony-elite-v${VERSION}.tar.gz" -C staging_elite .
+            cp -f artifacts/elite-binaries/codex_elite.gz "${RELEASE_DIR}/codex_elite_v${VERSION}.gz"
           fi
           
           # 3. Package WebUI Bundle
           if [ -d artifacts/webui-assets ]; then
-            (cd artifacts/webui-assets && zip -r "../release_assets/harmony-webui-v${VERSION}.zip" .)
-            tar -czvf "release_assets/harmony-webui-v${VERSION}.tar.gz" -C artifacts/webui-assets .
+            (cd artifacts/webui-assets && zip -r "${RELEASE_DIR}/harmony-webui-v${VERSION}.zip" .)
+            tar -czvf "${RELEASE_DIR}/harmony-webui-v${VERSION}.tar.gz" -C artifacts/webui-assets .
           fi
           
           # 4. Copy APKs
           if [ -d artifacts/android-apks ]; then
-            cp -f artifacts/android-apks/*.apk release_assets/
+            cp -f artifacts/android-apks/*.apk "${RELEASE_DIR}/"
           fi
           
           # 5. Generate SHA256 checksums
-          cd release_assets
+          cd "${RELEASE_DIR}"
           sha256sum * > sha256sums.txt
           cat sha256sums.txt
           ls -lh
