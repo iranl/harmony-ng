@@ -128,13 +128,13 @@ if [ -f "$REPO_ROOT/build/gzip_assets.py" ]; then
     python3 "$REPO_ROOT/build/gzip_assets.py" "$WWW_DIR" 2>/dev/null || true
 fi
 
-# Clean up physical directory on /data if present, symlink to /cache/www
+# Clean up physical directory on /data if present, symlink to /cache/www, prune flash icons
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-    "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
+    "mkdir -p /cache/www/assets 2>/dev/null; rm -rf /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
 
 # Clean up stale assets on Hub (/cache/www/assets)
 for remote_file in $(ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "ls -1 /cache/www/assets/ 2>/dev/null || true"); do
-    if [ ! -f "$WWW_DIR/assets/$remote_file" ] && [ "$remote_file" != "icons" ]; then
+    if [ ! -f "$WWW_DIR/assets/$remote_file" ]; then
         echo "    [-] Purging obsolete asset: $remote_file"
         ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "rm -f /cache/www/assets/$remote_file 2>/dev/null || true"
     fi
@@ -144,6 +144,11 @@ while IFS= read -r -d '' wfile; do
     rel="${wfile#$WWW_DIR/}"
     deploy_file_if_changed "$wfile" "/cache/www/$rel" 644
 done < <(find "$WWW_DIR" -type f -print0)
+
+if [ -f "$REPO_ROOT/build/icons.tar.gz" ]; then
+    deploy_file_if_changed "$REPO_ROOT/build/icons.tar.gz" "/data/codex/icons.tar.gz" 644
+fi
+
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 
 # 5. Start services

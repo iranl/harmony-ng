@@ -814,11 +814,10 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
     struct stat st_raw, st_gz;
     int has_raw = (stat(file_path, &st_raw) == 0);
 
-    if (client_gzip) {
+    if (client_gzip || !has_raw) {
         char gz_path[520];
         snprintf(gz_path, sizeof(gz_path), "%s.gz", file_path);
         if (stat(gz_path, &st_gz) == 0) {
-            /* Only serve .gz if raw file does not exist, or .gz is at least as new as raw file */
             if (!has_raw || st_gz.st_mtime >= st_raw.st_mtime) {
                 f = fopen(gz_path, "rb");
                 if (f) is_gzip = 1;
@@ -840,10 +839,12 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
         int has_idx_raw = (stat(idx_raw, &st_raw) == 0);
         int has_idx_gz = (stat(idx_gz, &st_gz) == 0);
 
-        if (client_gzip && has_idx_gz) {
-            if (!has_idx_raw || st_gz.st_mtime >= st_raw.st_mtime) {
-                f = fopen(idx_gz, "rb");
-                if (f) is_gzip = 1;
+        if (client_gzip || !has_idx_raw) {
+            if (stat(idx_gz, &st_gz) == 0) {
+                if (!has_idx_raw || st_gz.st_mtime >= st_raw.st_mtime) {
+                    f = fopen(idx_gz, "rb");
+                    if (f) is_gzip = 1;
+                }
             }
         }
         if (!f && has_idx_raw) {

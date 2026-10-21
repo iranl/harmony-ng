@@ -215,21 +215,13 @@ if (Test-Path $WwwDir) {
         $pruneCmd = "if [ -d /cache/www/assets ]; then cd /cache/www/assets && for f in index-*.js* index-*.css* web-*.js*; do [ -f `"`$f`" ] || continue; case `"`$f`" in $activeCases) ;; *) rm -f `"`$f`" ;; esac; done; fi"
         & ssh @sshArgs $Target $pruneCmd
     }
-    # Upload core static icons to /cache/www/assets/icons
-    $iconDir = Join-Path $WwwDir "assets\icons"
-    if (Test-Path $iconDir) {
-        $iconFiles = Get-ChildItem -Path $iconDir -File
-        if ($iconFiles) {
-            Write-Host "[*] Syncing core Web UI icons (/cache/www/assets/icons)..." -ForegroundColor Yellow
-            & ssh @sshArgs $Target "mkdir -p /cache/www/assets/icons 2>/dev/null"
-            foreach ($ic in $iconFiles) {
-                Deploy-HubFileIfChanged -LocalFile $ic.FullName -RemoteFile "/cache/www/assets/icons/$($ic.Name)" -Perm "644" | Out-Null
-            }
-        }
+    # Upload icons archive to /data/codex/icons.tar.gz (served on-demand from RAM tmpfs)
+    $iconsTar = Join-Path $RootDir "build\icons.tar.gz"
+    if (Test-Path $iconsTar) {
+        Deploy-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/data/codex/icons.tar.gz" -Perm "644" | Out-Null
     }
-    # If Elite icons are present on Hub, ensure flattened symlinks and semantic aliases
-    & ssh @sshArgs $Target "if [ -d /cache/www/assets/icons ]; then cd /cache/www/assets/icons && for f in */*.png; do [ -f `"`$f`" ] || continue; base=`"`${f##*/}`"; [ ! -e `"`$base`" ] && ln -sf `"`$f`" `"`$base`" 2>/dev/null || true; done; [ -e juniperDevice/1.png ] && [ ! -e tv.png ] && ln -sf juniperDevice/1.png tv.png 2>/dev/null; [ -e notification/tv.png ] && ln -sf notification/tv.png tv.png 2>/dev/null; [ -e juniperDevice/5.png ] && [ ! -e receiver.png ] && ln -sf juniperDevice/5.png receiver.png 2>/dev/null; [ -e juniperDevice/default.png ] && [ ! -e generic.png ] && ln -sf juniperDevice/default.png generic.png 2>/dev/null; [ -e commands/116.png ] && [ ! -e poweroff.png ] && ln -sf commands/116.png poweroff.png 2>/dev/null; [ -e notification/switch.png ] && [ ! -e switch.png ] && ln -sf notification/switch.png switch.png 2>/dev/null; fi"
-    & ssh @sshArgs $Target "chmod 755 /cache/www /cache/www/assets /cache/www/assets/icons 2>/dev/null || true"
+    # Prune individual icons directory on flash to preserve JFFS2 partition space
+    & ssh @sshArgs $Target "rm -rf /cache/www/assets/icons 2>/dev/null; chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 }
 
 # 4. Update /etc/init.d/rcS.local

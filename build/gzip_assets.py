@@ -14,17 +14,18 @@ def main():
         sys.exit(1)
 
     targets = []
+    text_exts = ('.html', '.js', '.css', '.svg', '.json', '.xml', '.txt')
+
     idx_path = os.path.join(www_dir, "index.html")
     if os.path.isfile(idx_path):
         targets.append(idx_path)
 
     assets_dir = os.path.join(www_dir, "assets")
     if os.path.isdir(assets_dir):
-        for entry in os.listdir(assets_dir):
-            if not entry.endswith(".gz"):
-                full_path = os.path.join(assets_dir, entry)
-                if os.path.isfile(full_path):
-                    targets.append(full_path)
+        for root, _, files in os.walk(assets_dir):
+            for file in files:
+                if file.endswith(text_exts) and not file.endswith(".gz"):
+                    targets.append(os.path.join(root, file))
 
     total_orig = 0
     total_gz = 0
@@ -37,9 +38,18 @@ def main():
             f_out.write(gz_data)
         total_orig += len(data)
         total_gz += len(gz_data)
-        print(f"  [+] Gzipped {os.path.basename(target)}: {len(data):,} -> {len(gz_data):,} bytes (saved {100.0 - (len(gz_data) / max(len(data), 1) * 100.0):.1f}%)")
+        # Delete uncompressed original to save flash space
+        os.remove(target)
+        saved = 100.0 - (len(gz_data) / max(len(data), 1) * 100.0)
+        print(f"  [+] Gzipped & replaced {os.path.basename(target)}: {len(data):,} -> {len(gz_data):,} bytes (saved {saved:.1f}%)")
 
-    print(f"[+] Done! {len(targets)} files compressed. Total: {total_orig:,} -> {total_gz:,} bytes.")
+    # Remove any useless .png.gz or image .gz
+    for root, _, files in os.walk(www_dir):
+        for file in files:
+            if (file.endswith('.png.gz') or file.endswith('.jpg.gz') or file.endswith('.ico.gz')):
+                os.remove(os.path.join(root, file))
+
+    print(f"[+] Done! {len(targets)} files compressed into .gz (raw files removed). Flash savings: {total_orig - total_gz:,} bytes.")
 
 if __name__ == "__main__":
     main()

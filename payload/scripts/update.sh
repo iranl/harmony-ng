@@ -182,8 +182,14 @@ do_apply() {
         fi
         ln -sfn /cache/www /data/codex/www 2>/dev/null || true
         rm -f /cache/www/assets/index-*.js* /cache/www/assets/web-*.js* 2>/dev/null || true
+        rm -rf /cache/www/assets/icons 2>/dev/null || true
         cp -rf "$TMPDIR/pkg/www/"* /cache/www/ 2>/dev/null || true
-        echo "[+] WebUI bundle updated in /cache/www."
+        # Prune raw uncompressed assets where .gz exists to save flash
+        for f in /cache/www/assets/*.js /cache/www/assets/*.css /cache/www/index.html; do
+          [ -f "${f}.gz" ] && rm -f "$f" 2>/dev/null || true
+        done
+        rm -f /cache/www/assets/*.png.gz /cache/www/*.png.gz 2>/dev/null || true
+        echo "[+] WebUI bundle updated in /cache/www (raw files pruned, .gz preserved)."
       fi
 
       # F. Icons archive -> /data/codex/icons.tar.gz

@@ -51,7 +51,11 @@ fi
 # 1. Clean up legacy flash artifacts to minimize flash wear and reclaim space
 rm -rf /data/codex-backups /data/codex/resource-backups /data/codex/bin/*.tmp-handoff* /data/*.tmp-handoff* 2>/dev/null || true
 rm -rf /cache/*.log /cache/codex-init.log /cache/crashlog-*.json /tmp/codex_bthid_remote.pid 2>/dev/null || true
-rm -rf /cache/www/assets/icons/hops* /cache/www/assets/icons/juniper* /cache/www/assets/icons/commands /cache/www/assets/icons/settings /cache/www/assets/icons/footer /cache/www/assets/icons/header 2>/dev/null || true
+rm -rf /cache/www/assets/icons 2>/dev/null || true
+for _f in /cache/www/assets/*.js /cache/www/assets/*.css /cache/www/index.html; do
+  [ -f "${_f}.gz" ] && rm -f "$_f" 2>/dev/null || true
+done
+rm -f /cache/www/assets/*.png.gz /cache/www/*.png.gz 2>/dev/null || true
 rm -f /data/*.ota* /data/*.tar.gz /data/*.zip /data/codex_elite.ota.gz /data/codex/*.log /data/codex/bin/*.old /data/codex/bin/*.bak 2>/dev/null || true
 rm -f /data/codex/bin/pair_b25.sh /data/codex/bin/do_pair.sh /data/codex/bin/test_ble_diag /data/codex/bin/test_smp /data/codex/bin/test_hci_sniff /data/codex/bin/codex_ir_send /data/codex/bin/codex_webui /data/codex/bin/codex_rf_query /data/codex/bin/codex_rf_sniff /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true
 rm -f /data/codex/g_serial.ko /data/codex/mknod_bin /data/codex/mknod 2>/dev/null || true
