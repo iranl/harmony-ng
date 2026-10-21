@@ -110,8 +110,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
-      - name: Compile Elite Binaries
+      - name: Compile Elite Binaries & Extended BusyBox
         run: |
+          chmod +x build/build_busybox.sh
+          ./build/build_busybox.sh arm || true
           mkdir -p build/output/elite
           arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source \
             payload/source/codex_elite.c payload/source/cJSON.c \
@@ -122,6 +124,14 @@ jobs:
           [ -f elite/bin/busybox ] && cp -f elite/bin/busybox build/output/elite/ || true
           [ -f elite/bin/dropbearmulti_musl ] && cp -f elite/bin/dropbearmulti_musl build/output/elite/ || true
           [ -f elite/b64dec_tiny ] && cp -f elite/b64dec_tiny build/output/elite/ || true
+          if [ -f build/output/elite/dropbearmulti_musl ]; then
+            for link in dropbear dropbearkey scp; do
+              cp -f build/output/elite/dropbearmulti_musl "build/output/elite/$link"
+            done
+          fi
+          if [ -f build/output/elite/busybox ]; then
+            cp -f build/output/elite/busybox build/output/elite/mknod
+          fi
           (cd build/output/elite && gzip -c -9 codex_elite > codex_elite.gz && cp -f codex_elite.gz codex_elite.ota.gz)
           ls -lh build/output/elite
       - name: Archive Elite Binaries

@@ -26,8 +26,12 @@ build_mips() {
     tar -xjf "$TMP_DIR/$BB_TAR" -C "$MIPS_BUILD" --strip-components=1
 
     cd "$MIPS_BUILD"
-    MIPS_BIN="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin"
-    export PATH="$MIPS_BIN:$PATH"
+    for t in "$REPO_ROOT/build/toolchains"/mips32--uclibc--stable*; do
+        if [ -d "$t/bin" ]; then
+            export PATH="$t/bin:$PATH"
+            break
+        fi
+    done
 
     make defconfig
     # Enable static compilation and disable tc (requires linux kernel headers) and seedrng (requires getrandom syscall)
@@ -46,15 +50,19 @@ build_mips() {
 }
 
 build_arm() {
-    echo "=== Building BusyBox ${BB_VER} for Elite Remote (ARM little-endian uClibc) ==="
+    echo "=== Building BusyBox ${BB_VER} for Elite Remote (ARM little-endian) ==="
     ARM_BUILD="$TMP_DIR/busybox-${BB_VER}-arm"
     rm -rf "$ARM_BUILD"
     mkdir -p "$ARM_BUILD"
     tar -xjf "$TMP_DIR/$BB_TAR" -C "$ARM_BUILD" --strip-components=1
 
     cd "$ARM_BUILD"
-    ARM_BIN="$REPO_ROOT/build/toolchains/armv5-eabi--uclibc--stable/bin"
-    export PATH="$ARM_BIN:$PATH"
+    for t in "$REPO_ROOT/build/toolchains"/armv5-eabi--uclibc--stable*; do
+        if [ -d "$t/bin" ]; then
+            export PATH="$t/bin:$PATH"
+            break
+        fi
+    done
 
     make defconfig
     # Enable static compilation and disable tc and seedrng
@@ -63,11 +71,19 @@ build_arm() {
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
-    scripts/kconfig/conf -D .config Config.in
-    set -euo pipefail
 
-    make -j"$(nproc)" CROSS_COMPILE="arm-buildroot-linux-uclibcgnueabi-" busybox
-    arm-buildroot-linux-uclibcgnueabi-strip busybox
+    if command -v arm-buildroot-linux-uclibcgnueabi-gcc >/dev/null 2>&1; then
+        CROSS="arm-buildroot-linux-uclibcgnueabi-"
+        scripts/kconfig/conf -D .config Config.in
+        make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
+        "${CROSS}strip" busybox
+    else
+        CROSS="arm-linux-gnueabi-"
+        sed -i 's/CONFIG_LFS=y/# CONFIG_LFS is not set/' .config
+        scripts/kconfig/conf -D .config Config.in
+        make -j"$(nproc)" CROSS_COMPILE="$CROSS" EXTRA_CFLAGS="-U_TIME_BITS -D_TIME_BITS=32 -D_FILE_OFFSET_BITS=32" busybox
+        "${CROSS}strip" busybox
+    fi
 
     cp busybox "$REPO_ROOT/elite/bin/busybox"
     echo "[+] ARM BusyBox built: $REPO_ROOT/elite/bin/busybox ($(ls -lh "$REPO_ROOT/elite/bin/busybox" | awk '{print $5}'))"
