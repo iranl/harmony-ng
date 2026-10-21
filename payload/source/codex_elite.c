@@ -3497,10 +3497,12 @@ static void execute_remote_reboot(void) {
 static void execute_elite_factory_reset(void) {
     show_notice("Restoring stock & rebooting...", 6000);
     render_screen();
-    system("if [ -f /data/factory_reset.sh ]; then /data/factory_reset.sh --confirm; "
+    system("chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
+           "rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/codex_elite.log 2>/dev/null || true; "
+           "if [ -f /data/factory_reset.sh ]; then /data/factory_reset.sh --confirm; "
            "elif [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-           "chmod 755 /etc/init.d/rcS.local; rm -f /data/codex_elite /data/codex_sync; sync; reboot -f; "
-           "else rm -f /etc/init.d/rcS.local /data/codex_elite /data/codex_sync; sync; reboot -f; fi &");
+           "chmod 755 /etc/init.d/rcS.local; rm -f /data/codex_elite /data/codex_sync /data/dropbear*; sync; reboot -f; "
+           "else rm -f /etc/init.d/rcS.local /data/codex_elite /data/codex_sync /data/dropbear*; sync; reboot -f; fi &");
     sleep(1);
     exit(0);
 }

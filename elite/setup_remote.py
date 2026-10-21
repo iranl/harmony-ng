@@ -7,9 +7,9 @@ Transforms a stock/factory remote into a permanently rooted device with:
 - Dropbear SSH server on 192.168.2.1:22 with public-key authentication
 
 Usage:
-    python elite/setup_remote.py
-    python elite/setup_remote.py --step 1   (USB HID debug unlock only)
-    python elite/setup_remote.py --step 2   (Dropbear & persistence install only)
+    python tools/setup_remote.py
+    python tools/setup_remote.py --step 1   (USB HID debug unlock only)
+    python tools/setup_remote.py --step 2   (Dropbear & persistence install only)
 """
 
 import argparse
@@ -31,8 +31,36 @@ REMOTE_USB_VID = 0x046D
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
-TINY_PATH = SCRIPT_DIR / "b64dec_tiny"
-DROPBEAR_PATH = SCRIPT_DIR / "bin" / "dropbearmulti_musl"
+
+
+def find_candidate(candidates: list[pathlib.Path]) -> pathlib.Path:
+    for c in candidates:
+        if c.is_file():
+            return c
+    return candidates[0]
+
+
+def find_dir_candidate(candidates: list[pathlib.Path]) -> pathlib.Path:
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return candidates[0]
+
+
+TINY_PATH = find_candidate([
+    REPO_DIR / "bin" / "b64dec_tiny",
+    REPO_DIR / "elite" / "bin" / "b64dec_tiny",
+    REPO_DIR / "elite" / "b64dec_tiny",
+    SCRIPT_DIR / "bin" / "b64dec_tiny",
+    SCRIPT_DIR / "b64dec_tiny",
+])
+
+DROPBEAR_PATH = find_candidate([
+    REPO_DIR / "bin" / "dropbearmulti_musl",
+    REPO_DIR / "elite" / "bin" / "dropbearmulti_musl",
+    SCRIPT_DIR / "bin" / "dropbearmulti_musl",
+    SCRIPT_DIR / "dropbearmulti_musl",
+])
 DEFAULT_KEY_PATH = None
 
 LUA_DECODER_ONELINE = (
@@ -373,7 +401,8 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
     print("[*] Verifying SSH connectivity...")
     test_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", str(pub_path.with_suffix("")),
@@ -393,7 +422,8 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
     print("=" * 70)
     priv_path = pub_path.with_suffix("")
     ssh_opts = [
-        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
         "-o", "BatchMode=yes",
         "-i", str(priv_path),
     ]
@@ -401,7 +431,11 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
     target = f"root@{REMOTE_IP}"
 
     # Upload ARM binaries to /data/
-    bin_dir = SCRIPT_DIR / "bin"
+    bin_dir = find_dir_candidate([
+        REPO_DIR / "bin",
+        REPO_DIR / "elite" / "bin",
+        SCRIPT_DIR / "bin",
+    ])
     binaries = ["codex_elite", "codex_sync", "scp", "dropbearkey"]
     print("[*] Uploading ARM runtime binaries to /data/...")
     for b in binaries:
@@ -411,7 +445,11 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
             subprocess.run(["scp"] + scp_opts + [str(src), f"{target}:/data/{b}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # Upload rcS.local recovery script
-    rcs_file = SCRIPT_DIR / "rcS.local"
+    rcs_file = find_candidate([
+        REPO_DIR / "rcS.local",
+        REPO_DIR / "elite" / "rcS.local",
+        SCRIPT_DIR / "rcS.local",
+    ])
     if rcs_file.is_file():
         print("[*] Uploading /etc/init.d/rcS.local (reboot counter & force USB Ethernet)...")
         subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

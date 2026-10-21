@@ -39,7 +39,7 @@ cp -f /data/codex_elite_config.json /data/elite_conf_p/ 2>/dev/null || true
 cp -f /data/codex_elite.conf /data/elite_conf_p/ 2>/dev/null || true
 
 echo "[*] Removing Codex binaries and Dropbear symlinks..."
-rm -f /etc/nowatchdog /data/reboot_counter /tmp/codex_elite.log 2>/dev/null || true
+rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/codex_elite.log 2>/dev/null || true
 rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true
 rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true
 
