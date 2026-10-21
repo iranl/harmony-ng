@@ -8,10 +8,10 @@ This guide walks you through rooting and installing **HarmonyNG** (`codex_daemon
 
 ### Hardware & Network Requirements
 - **Harmony Hub** (Model O-R0004).
-- **Micro-USB Cable**: Must support high-speed data transfer (not charge-only).
+- **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
-- **RNDIS Network Driver**: Installed on host PC (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **Python 3**: Installed on host PC with `pip install pyusb`.
+- **Python 3**: Installed on host PC (no external libraries needed; uses standard library).
+- **Local Wi-Fi Network**: 2.4 GHz 802.11b/g/n (Harmony Hub connects via Wi-Fi).
 
 ### Choose Your Installation Method
 
@@ -34,56 +34,58 @@ cd android-app && npm install && npm run build && cd ..
 
 ---
 
-## 2. Step-by-Step USB Rooting Procedure
+## 2. Automated USB HID Rooting Procedure
 
-If your Hub is running stock firmware with SSH disabled, use this one-time USB unlock procedure.
+If your Hub is running stock firmware with SSH disabled, use this one-time automated USB HID rooting procedure.
 
-### Step 2.1: Put Hub into USB Diagnostic Mode
-1. Unplug the Harmony Hub from power and USB.
-2. Press and **hold the Pair / Reset button** on the back of the Hub.
-3. While continuing to hold the button, connect the Micro-USB cable to your PC.
-4. Keep holding the button for **15 to 20 seconds** until the front LED begins flashing rapidly (amber / fast red).
-5. Release the button. The Hub is now in USB Recovery / Engineering mode.
+> [!NOTE]
+> No special button holding, pairing combos, or fake recovery modes exist. Simply connect the Hub to your PC via standard Micro-USB while powered on; it enumerates as a standard USB HID device (`046D:C129`).
 
-### Step 2.2: Configure Host PC Static IP
-Configure your host PC's RNDIS USB network adapter with a static IP:
-- **IP Address**: `192.168.1.2`
-- **Subnet Mask**: `255.255.255.0`
-- **Default Gateway**: `192.168.1.1`
+### Step 2.1: Connect Hub via Micro-USB
+1. Connect the Harmony Hub directly to your host PC using a standard Micro-USB data cable.
+2. The Hub powers on and enumerates on USB as `046D:C129` (Logitech Harmony Hub).
 
-Test connectivity:
+### Step 2.2: Run Automated USB Root Tool
+Run the all-in-one root tool:
+
 ```bash
-ping 192.168.1.1
+# If your Hub is already connected to your Wi-Fi network:
+python tools/root_hub_usb.py --hub-ip <YOUR_HUB_IP>
+
+# If your Hub is factory-reset or needs Wi-Fi credentials configured:
+python tools/root_hub_usb.py --wifi-ssid "YourNetworkName" --wifi-pass "YourPassword"
 ```
 
-### Step 2.3: Unlock SSH & Inject Root Key
-Run the automated USB root unlock tool:
-```bash
-python tools/root_hub_usb.py
-```
-The tool enables Dropbear SSH on the Hub and injects your host SSH public key.
+The tool automatically:
+1. Detects the Harmony Hub on USB HID (`046D:C129`).
+2. Configures Wi-Fi credentials over USB HID if `--wifi-ssid` is supplied.
+3. Stages the self-extracting MIPS Dropbear payload to `/sys/dropbear`.
+4. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
+5. Sends reboot signal to `/sys/reboot`.
+6. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
 
-Verify root SSH access:
+### Step 2.3: Verify SSH Access
+Test SSH connectivity over your local network:
 ```bash
-ssh root@192.168.1.1
-# Output should show: Linux HarmonyHub 2.6.31.14 ...
+ssh -i ~/.ssh/harmony_owner_ed25519 root@<YOUR_HUB_IP>
+# Output: Linux HarmonyHub 2.6.31.14 ...
 exit
 ```
 
 ---
 
-## 3. Create Stock Backup (Recommended)
+## 3. Create Stock Backup (Optional)
 
 Before modifying flash contents, create a safety archive of your original stock certificates, Wi-Fi configs, and factory state:
 
 ```bash
 # Windows (PowerShell):
-bash build/backup_hub.sh 192.168.1.1
+bash build/backup_hub.sh <YOUR_HUB_IP>
 
 # Linux / macOS:
-./build/backup_hub.sh 192.168.1.1
+./build/backup_hub.sh <YOUR_HUB_IP>
 ```
-*(If working inside an extracted release zip, run `backup_hub.sh 192.168.1.1` directly).*
+*(If working inside an extracted release zip, run `backup_hub.sh <YOUR_HUB_IP>` directly).*
 
 The backup archive is saved to `backups/golden_hub_backup.tar.gz`.
 
@@ -96,19 +98,19 @@ Run the deployment script to push `codex_daemon`, the WebUI, network manager, an
 ### On Windows (PowerShell):
 ```powershell
 # From repo root:
-.\build\deploy_hub.ps1 -HubIp 192.168.1.1
+.\build\deploy_hub.ps1 -HubIp <YOUR_HUB_IP>
 
 # Or from extracted release zip:
-.\deploy_hub.ps1 -HubIp 192.168.1.1
+.\deploy_hub.ps1 -HubIp <YOUR_HUB_IP>
 ```
 
 ### On Linux / macOS (Bash):
 ```bash
 # From repo root:
-./build/deploy_hub.sh 192.168.1.1
+./build/deploy_hub.sh <YOUR_HUB_IP>
 
 # Or from extracted release zip:
-./deploy_hub.sh 192.168.1.1
+./deploy_hub.sh <YOUR_HUB_IP>
 ```
 
 The installer automatically:
@@ -116,19 +118,18 @@ The installer automatically:
 2. Installs `codex_daemon` (Hub micro-daemon) to `/data/codex/bin/`.
 3. Deploys startup scripts and USB Ethernet kernel drivers.
 4. Deploys the lightweight Web UI to `/data/codex/www/`.
-5. Launches all services and verifies `http://192.168.1.1:8089/api/status`.
+5. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
 
 ---
 
 ## 5. Accessing the Web Console & Android App
 
-1. Connect the Hub to your home Wi-Fi or local network.
-2. In your browser or companion app, navigate to:
+1. In your browser or companion app, navigate to:
    ```text
    http://<YOUR_HUB_IP>:8089
    ```
-3. Use the header language selector for English, Deutsch, Français, Nederlands, or Español.
-4. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
+2. Use the header language selector for English, Deutsch, Français, Nederlands, or Español.
+3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
 
 ---
 

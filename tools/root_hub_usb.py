@@ -204,8 +204,11 @@ def main() -> None:
         # 7. Reboot
         if not args.no_reboot:
             print("[*] Sending reboot command to /sys/reboot...")
-            hid.reboot()
-            print("[+] Hub is rebooting into rooted firmware multi-user mode!")
+            try:
+                hid.reboot()
+                print("[+] Hub is rebooting into rooted firmware multi-user mode!")
+            except Exception:
+                pass
 
             if args.hub_ip:
                 print(f"[*] Waiting for Dropbear SSH on {args.hub_ip}:22...")
