@@ -20,7 +20,7 @@ import {
 import { t, setLanguage, getInitialLanguage } from './i18n.js';
 import iconMetadata from './icon-metadata.json';
 
-export const APP_VERSION = '1.5.3';
+export const APP_VERSION = '1.6.0';
 
 export let stockIconsAvailable = false;
 export const failedIconUrls = new Set();

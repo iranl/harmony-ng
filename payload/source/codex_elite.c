@@ -30,7 +30,7 @@
 
 #include "font_aa.h"
 
-#define CODEX_ELITE_VERSION "1.5.3"
+#define CODEX_ELITE_VERSION "1.6.0"
 #define FB_DEV              "/dev/fb0"
 #define FB_BLANK_SYSFS      "/sys/class/graphics/fb0/blank"
 #define BACKLIGHT_SYSFS     "/sys/class/backlight/ap3156_backlight/brightness"

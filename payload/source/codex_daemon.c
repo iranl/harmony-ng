@@ -27,7 +27,7 @@
 #include "cJSON.h"
 
 #define PID_FILE "/tmp/codex_daemon.pid"
-#define CODEX_VERSION "1.5.3"
+#define CODEX_VERSION "1.6.0"
 
 static char g_ntp_server[128] = "pool.ntp.org";
 static volatile int g_running = 1;
