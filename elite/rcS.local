@@ -1,0 +1,88 @@
+#!/bin/sh
+# Harmony Elite Boot Script (/etc/init.d/rcS.local)
+# Automatic reboot recovery + USB Ethernet + Dropbear SSH
+
+sync_fs() {
+    sync 2>/dev/null || /data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || true
+}
+
+# 0. Early watchdog neuter and neuter stock binaries
+touch /etc/nowatchdog 2>/dev/null || true
+chmod -x /usr/bin/watchdog /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true
+killall -9 watchdog usbhid hal luaworks luadraws lua luajit luajit-2.0.0-beta10 2>/dev/null || true
+
+# 1. Reboot counter check
+COUNT=0
+if [ -f /data/reboot_counter ]; then
+    COUNT=$(cat /data/reboot_counter 2>/dev/null || echo 0)
+fi
+COUNT=$(expr "$COUNT" + 1 2>/dev/null || echo 1)
+echo "$COUNT" > /data/reboot_counter
+sync_fs
+
+# 2. 5-minute stability timer in background
+(
+    sleep 300
+    echo 0 > /data/reboot_counter
+    sync_fs
+    echo "$(date) Elite uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
+) &
+
+# 3. Emergency recovery condition (>5 consecutive failed boots)
+if [ "$COUNT" -gt 5 ]; then
+    echo "$(date) EMERGENCY RECOVERY MODE: $COUNT failed boots. USB Ethernet and SSH only." > /tmp/emergency_recovery.log
+    chmod -x /usr/bin/usbhid 2>/dev/null || true
+    /usr/bin/usbeth start 2>/dev/null || true
+    if [ -x /data/dropbear ]; then
+        /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B
+    elif [ -x /usr/sbin/dropbear ]; then
+        /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null || /usr/sbin/dropbear -R -B
+    fi
+    exit 0
+fi
+
+# 4. Normal Boot: USB Ethernet & Dropbear SSH disabled by default on battery to save power;
+# enabled only if explicitly configured in /data/codex_elite.conf (usbeth=1)
+USBETH_CONF=0
+if [ -f /data/codex_elite.conf ]; then
+    VAL=$(grep '^usbeth=' /data/codex_elite.conf 2>/dev/null | cut -d= -f2)
+    if [ "$VAL" = "1" ]; then USBETH_CONF=1; fi
+fi
+
+if [ "$USBETH_CONF" = "1" ]; then
+    chmod -x /usr/bin/usbhid 2>/dev/null || true
+    /usr/bin/usbeth start 2>/dev/null || true
+    if [ -x /data/dropbear ]; then
+        /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B
+    elif [ -x /usr/sbin/dropbear ]; then
+        /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null || /usr/sbin/dropbear -R -B
+    fi
+else
+    chmod +x /usr/bin/usbhid 2>/dev/null || true
+    /usr/bin/usbeth stop 2>/dev/null || true
+fi
+
+if [ -x /data/codex_sync ]; then
+    ln -sf /data/codex_sync /data/sync 2>/dev/null || true
+    ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true
+fi
+
+# Ensure /dev/i2c-1 exists for Clearpad touchscreen
+if [ ! -e /dev/i2c-1 ] && [ -x /data/mknod ]; then
+    /data/mknod /dev/i2c-1 c 89 1 2>/dev/null || true
+fi
+
+# Ensure extended BusyBox utilities are available in standard PATH and default shell
+if [ -x /data/busybox ]; then
+    cp -f /data/busybox /bin/busybox 2>/dev/null || true
+    for applet in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do
+        ln -sf /data/busybox "/usr/bin/$applet" 2>/dev/null || true
+    done
+fi
+
+# 5. Launch custom Elite runtime
+if [ -x /data/init.sh ]; then
+    /data/init.sh &
+elif [ -x /data/codex_elite ]; then
+    /data/codex_elite &
+fi

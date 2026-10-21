@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /data/codex/bin/dropbear -s -g -K 300 "$@"

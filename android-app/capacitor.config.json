@@ -1,0 +1,12 @@
+{
+  "appId": "com.harmony.hubcontrol",
+  "appName": "Harmony Remote",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

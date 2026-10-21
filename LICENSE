@@ -1,0 +1,34 @@
+MIT License
+
+Copyright (c) 2026 iranl and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+### Third-Party & Component Licenses
+- **Linux Kernel Driver (`build/cc2544/`)**: GNU General Public License v2 (GPL-2.0).
+- **BTstack (`codex_btstack`)**: Free for non-commercial use, Copyright (c) BlueKitchen GmbH.
+- **cJSON (`payload/source/cJSON.*`)**: MIT License, Copyright (c) 2009-2017 Dave Gamble and cJSON contributors.
+- **stb libraries (`payload/source/stb_*`)**: MIT / Public Domain, Copyright (c) Sean Barrett.
+- **Dropbear (`dropbearmulti`)**: MIT/X11-style, Copyright (c) Matt Johnston.
+
+### Trademark Notice
+Logitech, Harmony, and related marks are trademarks or registered trademarks of Logitech Europe S.A.
+This project is an independent community open-source effort to restore functionality to discontinued hardware and is not affiliated with, sponsored by, or endorsed by Logitech.

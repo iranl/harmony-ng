@@ -1,0 +1,118 @@
+#!/bin/sh
+
+sync_fs() {
+	sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true
+}
+
+# 0. Neuter watchdog and luaworks immediately
+touch /etc/nowatchdog 2>/dev/null || true
+chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
+killall -9 watchdog 2>/dev/null || true
+
+# 1. Reboot counter emergency check
+COUNT=0
+if [ -f /data/codex/reboot_counter ]; then
+	COUNT=$(cat /data/codex/reboot_counter 2>/dev/null || echo 0)
+fi
+COUNT=$(expr "$COUNT" + 1 2>/dev/null || echo 1)
+echo "$COUNT" > /data/codex/reboot_counter
+sync_fs
+
+# 2. 5-minute stability timer in background
+(
+	sleep 300
+	echo 0 > /data/codex/reboot_counter
+	sync_fs
+	echo "$(date) Hub uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
+) &
+
+# 3. Emergency recovery condition (>5 consecutive unverified boots)
+if [ "$COUNT" -gt 5 ]; then
+	echo "$(date) EMERGENCY RECOVERY MODE: $COUNT failed boots. WiFi and Dropbear SSH only." > /tmp/emergency_recovery.log
+
+	# Initialize WLAN, wpa_supplicant, and background DHCP
+	load_modules /etc/modules.wlan 2>/dev/null || true
+	/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
+	/usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
+	udhcpc -i ath0 -b 2>/dev/null &
+
+	# Setup default SSH shell to use extended BusyBox if present in cache
+	for prof in /root/.profile /home/root/.profile; do
+		mkdir -p "$(dirname "$prof")" 2>/dev/null || true
+		cat <<'EOF' > "$prof"
+BB_PATH=""
+if [ -x /cache/bin/busybox ]; then
+    BB_PATH=/cache/bin/busybox
+elif [ -x /cache/busybox ]; then
+    BB_PATH=/cache/busybox
+fi
+if [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
+    export BB_EXTENDED=1
+    export PATH=$(dirname "$BB_PATH"):$PATH
+    exec "$BB_PATH" sh -l
+fi
+export PATH=/cache/bin:/cache:/data/codex/bin:$PATH
+EOF
+		chmod 644 "$prof" 2>/dev/null || true
+	done
+
+	# Start Dropbear SSH
+	if [ -x /data/codex/bin/dropbear ]; then
+		echo '#!/bin/sh' > /usr/sbin/dropbear
+		echo 'exec /data/codex/bin/dropbear -K 300 "$@"' >> /usr/sbin/dropbear
+		chmod 755 /usr/sbin/dropbear
+		/usr/sbin/dropbear
+	elif [ -x /usr/sbin/dropbear ]; then
+		/usr/sbin/dropbear
+	fi
+
+	exit 0
+fi
+
+# 4. Normal Boot: start core services and Dropbear SSH immediately
+if [ -x /data/codex/init.sh ]; then
+	/data/codex/init.sh &
+fi
+
+# Initialize WLAN and wpa_supplicant (DHCP managed by ifup / network_manager)
+load_modules /etc/modules.wlan 2>/dev/null || true
+/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
+/usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
+
+# Kernel overcommit
+echo 1 > /proc/sys/vm/overcommit_memory
+
+# Hardware version & Bluetooth (skip if Bluetooth disabled)
+if [ ! -f /data/codex/bt_disabled.conf ]; then
+(
+	MFG_DATA=/dev/$(grep mfg /proc/mtd | cut -d: -f1)
+	HW_VERSION=$(sed -n '/hw_ver/{N N N N s/^[^0-9]*\([0-9][0-9]\)/\1/p}' $MFG_DATA 2>/dev/null)
+
+	BUILDNAME=$(/usr/sbin/bccmd -t bcsp buildname 2>/dev/null)
+	case "$BUILDNAME" in
+		*A06*) PSKEYS=csr8811-a06.psr ;;
+		*A08*) case "$HW_VERSION" in
+			00.40) PSKEYS=csr8811-a08-pb1.psr ;;
+			*)     PSKEYS=csr8811-a08.psr ;;
+		       esac ;;
+		*) exit 0 ;;
+	esac
+
+	[ -f "/lib/firmware/$PSKEYS" ] || exit 0
+	cat /lib/firmware/$PSKEYS > /tmp/pskeys.psr
+
+	for i in 1 2 3 4 5; do
+		if [ -f /sys/class/net/ath0/address ]; then break; fi
+		sleep 1
+	done
+
+	cat /sys/class/net/ath0/address 2>/dev/null | sed 's/\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\):\([0-9a-f][0-9a-f]\).*/\&0x0001 = 0x\4 0x\5\6 0x\3 0x\1\2/' >> /tmp/pskeys.psr
+
+	/usr/sbin/bccmd -t bcsp psload -r /tmp/pskeys.psr 2>/dev/null
+	/usr/sbin/hciattach ttyS0 bcsp 2>/dev/null
+	/usr/sbin/hciconfig hci0 up 2>/dev/null
+	/usr/sbin/hciconfig hci0 sspmode 1 2>/dev/null
+) &
+else
+	echo "$(date) Bluetooth disabled in config, skipping hardware init" >> /tmp/codex-boot.log
+fi

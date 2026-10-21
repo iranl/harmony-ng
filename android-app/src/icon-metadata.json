@@ -1,0 +1,5885 @@
+{
+  "013A19AA-DFB1-40E8-80A3-773C7A0AE986.png": {
+    "name": "TV with Antenna / Broadcast (Large)",
+    "category": "activity",
+    "tags": [
+      "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
+      "antenna",
+      "broadcast",
+      "tv"
+    ]
+  },
+  "013A19AA-DFB1-40E8-80A3-773C7A0AE986_small.png": {
+    "name": "TV with Antenna / Broadcast",
+    "category": "activity",
+    "tags": [
+      "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
+      "antenna",
+      "broadcast",
+      "tv"
+    ]
+  },
+  "013A19AA-DFB1-40E8-80A3-773C7A0AE986_smallon.png": {
+    "name": "TV with Antenna / Broadcast (Active)",
+    "category": "activity",
+    "tags": [
+      "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
+      "antenna",
+      "broadcast",
+      "tv"
+    ]
+  },
+  "01D34356-613C-45F3-935D-4BF763AE4F4B.png": {
+    "name": "Smart Desk Lamp (Large)",
+    "category": "home",
+    "tags": [
+      "01d34356-613c-45f3-935d-4bf763ae4f4b",
+      "lamp",
+      "desk",
+      "light"
+    ]
+  },
+  "01D34356-613C-45F3-935D-4BF763AE4F4B_small.png": {
+    "name": "Smart Desk Lamp",
+    "category": "home",
+    "tags": [
+      "01d34356-613c-45f3-935d-4bf763ae4f4b",
+      "lamp",
+      "desk",
+      "light"
+    ]
+  },
+  "01D34356-613C-45F3-935D-4BF763AE4F4B_smallon.png": {
+    "name": "Smart Desk Lamp (Active)",
+    "category": "home",
+    "tags": [
+      "01d34356-613c-45f3-935d-4bf763ae4f4b",
+      "lamp",
+      "desk",
+      "light"
+    ]
+  },
+  "053FA80A-458F-4EA9-85E5-B2F7DB1C7052.png": {
+    "name": "Subwoofer / Bass Sound (Large)",
+    "category": "activity",
+    "tags": [
+      "subwoofer",
+      "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
+      "speaker",
+      "audio"
+    ]
+  },
+  "053FA80A-458F-4EA9-85E5-B2F7DB1C7052_small.png": {
+    "name": "Subwoofer / Bass Sound",
+    "category": "activity",
+    "tags": [
+      "subwoofer",
+      "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
+      "speaker",
+      "audio"
+    ]
+  },
+  "053FA80A-458F-4EA9-85E5-B2F7DB1C7052_smallon.png": {
+    "name": "Subwoofer / Bass Sound (Active)",
+    "category": "activity",
+    "tags": [
+      "subwoofer",
+      "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
+      "speaker",
+      "audio"
+    ]
+  },
+  "085A8031-090D-4052-BB5F-C7809DCE8665.png": {
+    "name": "Curved Display / Gaming Monitor (Large)",
+    "category": "activity",
+    "tags": [
+      "monitor",
+      "curved",
+      "085a8031-090d-4052-bb5f-c7809dce8665",
+      "screen"
+    ]
+  },
+  "085A8031-090D-4052-BB5F-C7809DCE8665_small.png": {
+    "name": "Curved Display / Gaming Monitor",
+    "category": "activity",
+    "tags": [
+      "monitor",
+      "curved",
+      "085a8031-090d-4052-bb5f-c7809dce8665",
+      "screen"
+    ]
+  },
+  "085A8031-090D-4052-BB5F-C7809DCE8665_smallon.png": {
+    "name": "Curved Display / Gaming Monitor (Active)",
+    "category": "activity",
+    "tags": [
+      "monitor",
+      "curved",
+      "085a8031-090d-4052-bb5f-c7809dce8665",
+      "screen"
+    ]
+  },
+  "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4.png": {
+    "name": "Set-Top Box with Clock (Large)",
+    "category": "activity",
+    "tags": [
+      "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
+      "clock",
+      "stb",
+      "cable"
+    ]
+  },
+  "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4_small.png": {
+    "name": "Set-Top Box with Clock",
+    "category": "activity",
+    "tags": [
+      "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
+      "clock",
+      "stb",
+      "cable"
+    ]
+  },
+  "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4_smallon.png": {
+    "name": "Set-Top Box with Clock (Active)",
+    "category": "activity",
+    "tags": [
+      "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
+      "clock",
+      "stb",
+      "cable"
+    ]
+  },
+  "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2.png": {
+    "name": "Electric Guitar / Rock Music (Large)",
+    "category": "activity",
+    "tags": [
+      "guitar",
+      "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
+      "rock",
+      "music"
+    ]
+  },
+  "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2_small.png": {
+    "name": "Electric Guitar / Rock Music",
+    "category": "activity",
+    "tags": [
+      "guitar",
+      "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
+      "rock",
+      "music"
+    ]
+  },
+  "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2_smallon.png": {
+    "name": "Electric Guitar / Rock Music (Active)",
+    "category": "activity",
+    "tags": [
+      "guitar",
+      "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
+      "rock",
+      "music"
+    ]
+  },
+  "0E588723-18DA-4DF7-978F-0306F601FE28.png": {
+    "name": "Ceiling Fan with Light (Large)",
+    "category": "home",
+    "tags": [
+      "ceiling",
+      "fan",
+      "cooling",
+      "0e588723-18da-4df7-978f-0306f601fe28"
+    ]
+  },
+  "0E588723-18DA-4DF7-978F-0306F601FE28_small.png": {
+    "name": "Ceiling Fan with Light",
+    "category": "home",
+    "tags": [
+      "ceiling",
+      "fan",
+      "cooling",
+      "0e588723-18da-4df7-978f-0306f601fe28"
+    ]
+  },
+  "0E588723-18DA-4DF7-978F-0306F601FE28_smallon.png": {
+    "name": "Ceiling Fan with Light (Active)",
+    "category": "home",
+    "tags": [
+      "ceiling",
+      "fan",
+      "cooling",
+      "0e588723-18da-4df7-978f-0306f601fe28"
+    ]
+  },
+  "0F40F257-68C8-4F24-9561-3CB3441DA395.png": {
+    "name": "Apple TV (Large)",
+    "category": "activity",
+    "tags": [
+      "stream",
+      "0f40f257-68c8-4f24-9561-3cb3441da395",
+      "appletv",
+      "apple"
+    ]
+  },
+  "0F40F257-68C8-4F24-9561-3CB3441DA395_small.png": {
+    "name": "Apple TV",
+    "category": "activity",
+    "tags": [
+      "stream",
+      "0f40f257-68c8-4f24-9561-3cb3441da395",
+      "appletv",
+      "apple"
+    ]
+  },
+  "0F40F257-68C8-4F24-9561-3CB3441DA395_smallon.png": {
+    "name": "Apple TV (Active)",
+    "category": "activity",
+    "tags": [
+      "stream",
+      "0f40f257-68c8-4f24-9561-3cb3441da395",
+      "appletv",
+      "apple"
+    ]
+  },
+  "1.png": {
+    "name": "Television",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "1"
+    ]
+  },
+  "10.png": {
+    "name": "Yellow Y Button (Xbox)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "10"
+    ]
+  },
+  "101.png": {
+    "name": "Refresh / Circular Arrow",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "101"
+    ]
+  },
+  "104.png": {
+    "name": "Page Down (vv)",
+    "category": "commands",
+    "tags": [
+      "104",
+      "button",
+      "command"
+    ]
+  },
+  "105.png": {
+    "name": "Page Up (^^)",
+    "category": "commands",
+    "tags": [
+      "105",
+      "button",
+      "command"
+    ]
+  },
+  "106.png": {
+    "name": "Pause (||)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "106"
+    ]
+  },
+  "112.png": {
+    "name": "Picture in Picture (PiP)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "112"
+    ]
+  },
+  "113.png": {
+    "name": "Play (Solid Triangle)",
+    "category": "commands",
+    "tags": [
+      "113",
+      "button",
+      "command"
+    ]
+  },
+  "114.png": {
+    "name": "Blue Solid Circle",
+    "category": "commands",
+    "tags": [
+      "button",
+      "114",
+      "command"
+    ]
+  },
+  "115.png": {
+    "name": "Record (Red Circle)",
+    "category": "commands",
+    "tags": [
+      "115",
+      "button",
+      "command"
+    ]
+  },
+  "116.png": {
+    "name": "Power Off (Standby)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "116"
+    ]
+  },
+  "123.png": {
+    "name": "Numeric Keypad (123)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "123"
+    ]
+  },
+  "125.png": {
+    "name": "Red Solid Circle",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "125"
+    ]
+  },
+  "127.png": {
+    "name": "Solid Square",
+    "category": "commands",
+    "tags": [
+      "127",
+      "button",
+      "command"
+    ]
+  },
+  "128.png": {
+    "name": "Return / Curve Arrow",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "128"
+    ]
+  },
+  "130.png": {
+    "name": "Replay / Loop Arrow",
+    "category": "commands",
+    "tags": [
+      "130",
+      "button",
+      "command"
+    ]
+  },
+  "131.png": {
+    "name": "Rewind (<<)",
+    "category": "commands",
+    "tags": [
+      "131",
+      "button",
+      "command"
+    ]
+  },
+  "135.png": {
+    "name": "Search / Magnifier",
+    "category": "commands",
+    "tags": [
+      "135",
+      "button",
+      "command"
+    ]
+  },
+  "14.png": {
+    "name": "Play (Triangle)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "14"
+    ]
+  },
+  "141.png": {
+    "name": "Skip Backward (|<)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "141"
+    ]
+  },
+  "142.png": {
+    "name": "Fullscreen / Expand",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "142"
+    ]
+  },
+  "143.png": {
+    "name": "Slow Rewind (<|)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "143"
+    ]
+  },
+  "144.png": {
+    "name": "Slow Forward (|>) ",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "144"
+    ]
+  },
+  "145.png": {
+    "name": "Sleep Timer (Moon)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "145"
+    ]
+  },
+  "147.png": {
+    "name": "Record / Red Dot",
+    "category": "commands",
+    "tags": [
+      "147",
+      "button",
+      "command"
+    ]
+  },
+  "149.png": {
+    "name": "Subtitles / Speech Bubble",
+    "category": "commands",
+    "tags": [
+      "button",
+      "149",
+      "command"
+    ]
+  },
+  "150.png": {
+    "name": "Aspect Ratio (16:9)",
+    "category": "commands",
+    "tags": [
+      "150",
+      "button",
+      "command"
+    ]
+  },
+  "158.png": {
+    "name": "Yellow Dot",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "158"
+    ]
+  },
+  "159.png": {
+    "name": "Audio Track / Music Note",
+    "category": "commands",
+    "tags": [
+      "159",
+      "button",
+      "command"
+    ]
+  },
+  "16.png": {
+    "name": "Cable / Satellite STB",
+    "category": "commands",
+    "tags": [
+      "16",
+      "button",
+      "command"
+    ]
+  },
+  "160.png": {
+    "name": "Live Broadcast",
+    "category": "commands",
+    "tags": [
+      "button",
+      "160",
+      "command"
+    ]
+  },
+  "161.png": {
+    "name": "DVR / Recorded TV",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "161"
+    ]
+  },
+  "162.png": {
+    "name": "TV Guide (Calendar)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "162"
+    ]
+  },
+  "163.png": {
+    "name": "Info (i)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "163"
+    ]
+  },
+  "166.png": {
+    "name": "Volume Down (-)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "166",
+      "command"
+    ]
+  },
+  "171.png": {
+    "name": "Volume Up (+)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "171"
+    ]
+  },
+  "172.png": {
+    "name": "Yellow Solid Circle",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "172"
+    ]
+  },
+  "173.png": {
+    "name": "Aspect Ratio / Wide",
+    "category": "commands",
+    "tags": [
+      "173",
+      "button",
+      "command"
+    ]
+  },
+  "1861D98D-B831-4DD7-96DD-58FD0EA1B045.png": {
+    "name": "Video Game Controller (Large)",
+    "category": "activity",
+    "tags": [
+      "play",
+      "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
+      "console",
+      "gamepad"
+    ]
+  },
+  "1861D98D-B831-4DD7-96DD-58FD0EA1B045_small.png": {
+    "name": "Video Game Controller",
+    "category": "activity",
+    "tags": [
+      "play",
+      "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
+      "console",
+      "gamepad"
+    ]
+  },
+  "1861D98D-B831-4DD7-96DD-58FD0EA1B045_smallon.png": {
+    "name": "Video Game Controller (Active)",
+    "category": "activity",
+    "tags": [
+      "play",
+      "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
+      "console",
+      "gamepad"
+    ]
+  },
+  "193.png": {
+    "name": "Home House",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "193"
+    ]
+  },
+  "195.png": {
+    "name": "Light Bulb (Outline)",
+    "category": "commands",
+    "tags": [
+      "195",
+      "button",
+      "command"
+    ]
+  },
+  "196.png": {
+    "name": "Padlock (Locked)",
+    "category": "commands",
+    "tags": [
+      "196",
+      "button",
+      "command"
+    ]
+  },
+  "197.png": {
+    "name": "Padlock (Unlocked)",
+    "category": "commands",
+    "tags": [
+      "197",
+      "button",
+      "command"
+    ]
+  },
+  "1978F30F-E27F-4126-B622-FC230936AE2F.png": {
+    "name": "Blu-ray / DVD Disc Tray (Large)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "1978f30f-e27f-4126-b622-fc230936ae2f",
+      "bluray",
+      "dvd"
+    ]
+  },
+  "1978F30F-E27F-4126-B622-FC230936AE2F_small.png": {
+    "name": "Blu-ray / DVD Disc Tray",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "1978f30f-e27f-4126-b622-fc230936ae2f",
+      "bluray",
+      "dvd"
+    ]
+  },
+  "1978F30F-E27F-4126-B622-FC230936AE2F_smallon.png": {
+    "name": "Blu-ray / DVD Disc Tray (Active)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "1978f30f-e27f-4126-b622-fc230936ae2f",
+      "bluray",
+      "dvd"
+    ]
+  },
+  "2.png": {
+    "name": "Fast Forward (>>)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "2"
+    ]
+  },
+  "200.png": {
+    "name": "Door / Exit",
+    "category": "commands",
+    "tags": [
+      "button",
+      "200",
+      "command"
+    ]
+  },
+  "201.png": {
+    "name": "Fan / Airflow",
+    "category": "commands",
+    "tags": [
+      "201",
+      "button",
+      "command"
+    ]
+  },
+  "203.png": {
+    "name": "Thermostat / Temperature",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "203"
+    ]
+  },
+  "204.png": {
+    "name": "Radiator / Heater",
+    "category": "commands",
+    "tags": [
+      "204",
+      "button",
+      "command"
+    ]
+  },
+  "204F0071-4B64-4577-BDA9-E726D6480ABF.png": {
+    "name": "Media Player Box (Large)",
+    "category": "activity",
+    "tags": [
+      "204f0071-4b64-4577-bda9-e726d6480abf",
+      "box",
+      "media",
+      "player"
+    ]
+  },
+  "204F0071-4B64-4577-BDA9-E726D6480ABF_small.png": {
+    "name": "Media Player Box",
+    "category": "activity",
+    "tags": [
+      "204f0071-4b64-4577-bda9-e726d6480abf",
+      "box",
+      "media",
+      "player"
+    ]
+  },
+  "204F0071-4B64-4577-BDA9-E726D6480ABF_smallon.png": {
+    "name": "Media Player Box (Active)",
+    "category": "activity",
+    "tags": [
+      "204f0071-4b64-4577-bda9-e726d6480abf",
+      "box",
+      "media",
+      "player"
+    ]
+  },
+  "207.png": {
+    "name": "Water Droplet / Moisture",
+    "category": "commands",
+    "tags": [
+      "207",
+      "button",
+      "command"
+    ]
+  },
+  "209.png": {
+    "name": "Flame / Heating",
+    "category": "commands",
+    "tags": [
+      "button",
+      "209",
+      "command"
+    ]
+  },
+  "212.png": {
+    "name": "Window Blinds",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "212"
+    ]
+  },
+  "215.png": {
+    "name": "Power Socket / Plug",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "215"
+    ]
+  },
+  "21AA7D88-E238-49B3-9933-276232B7DC6C.png": {
+    "name": "Retro Gamepad / D-Pad (Large)",
+    "category": "activity",
+    "tags": [
+      "game",
+      "retro",
+      "controller",
+      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+    ]
+  },
+  "21AA7D88-E238-49B3-9933-276232B7DC6C_small.png": {
+    "name": "Retro Gamepad / D-Pad",
+    "category": "activity",
+    "tags": [
+      "game",
+      "retro",
+      "controller",
+      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+    ]
+  },
+  "21AA7D88-E238-49B3-9933-276232B7DC6C_smallon.png": {
+    "name": "Retro Gamepad / D-Pad (Active)",
+    "category": "activity",
+    "tags": [
+      "game",
+      "retro",
+      "controller",
+      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+    ]
+  },
+  "223.png": {
+    "name": "Angled Power Plug",
+    "category": "commands",
+    "tags": [
+      "223",
+      "button",
+      "command"
+    ]
+  },
+  "225.png": {
+    "name": "Motion Sensor",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "225"
+    ]
+  },
+  "226.png": {
+    "name": "Light Bulb (Off)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "226",
+      "command"
+    ]
+  },
+  "227.png": {
+    "name": "Light Bulb (On)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "227"
+    ]
+  },
+  "257C953F-B575-4F4D-8429-F8EAA1DE8241.png": {
+    "name": "Floor Lamp / Reading Light (Large)",
+    "category": "home",
+    "tags": [
+      "floor",
+      "lamp",
+      "257c953f-b575-4f4d-8429-f8eaa1de8241",
+      "reading"
+    ]
+  },
+  "257C953F-B575-4F4D-8429-F8EAA1DE8241_off.png": {
+    "name": "Floor Lamp / Reading Light (Inactive)",
+    "category": "home",
+    "tags": [
+      "floor",
+      "lamp",
+      "257c953f-b575-4f4d-8429-f8eaa1de8241",
+      "reading"
+    ]
+  },
+  "257C953F-B575-4F4D-8429-F8EAA1DE8241_on.png": {
+    "name": "Floor Lamp / Reading Light (Active)",
+    "category": "home",
+    "tags": [
+      "floor",
+      "lamp",
+      "257c953f-b575-4f4d-8429-f8eaa1de8241",
+      "reading"
+    ]
+  },
+  "257C953F-B575-4F4D-8429-F8EAA1DE8241_small.png": {
+    "name": "Floor Lamp / Reading Light",
+    "category": "home",
+    "tags": [
+      "floor",
+      "lamp",
+      "257c953f-b575-4f4d-8429-f8eaa1de8241",
+      "reading"
+    ]
+  },
+  "257C953F-B575-4F4D-8429-F8EAA1DE8241_smallon.png": {
+    "name": "Floor Lamp / Reading Light (Active)",
+    "category": "home",
+    "tags": [
+      "floor",
+      "lamp",
+      "257c953f-b575-4f4d-8429-f8eaa1de8241",
+      "reading"
+    ]
+  },
+  "259.png": {
+    "name": "Timer Preset 1",
+    "category": "commands",
+    "tags": [
+      "259",
+      "button",
+      "command"
+    ]
+  },
+  "260.png": {
+    "name": "Timer Preset 2",
+    "category": "commands",
+    "tags": [
+      "260",
+      "button",
+      "command"
+    ]
+  },
+  "261.png": {
+    "name": "Timer Preset 3",
+    "category": "commands",
+    "tags": [
+      "261",
+      "button",
+      "command"
+    ]
+  },
+  "262.png": {
+    "name": "Timer Preset 4",
+    "category": "commands",
+    "tags": [
+      "button",
+      "262",
+      "command"
+    ]
+  },
+  "267.png": {
+    "name": "Timer Preset 5",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "267"
+    ]
+  },
+  "268.png": {
+    "name": "Timer Preset 6",
+    "category": "commands",
+    "tags": [
+      "268",
+      "button",
+      "command"
+    ]
+  },
+  "269.png": {
+    "name": "Timer Preset 7",
+    "category": "commands",
+    "tags": [
+      "269",
+      "button",
+      "command"
+    ]
+  },
+  "270.png": {
+    "name": "Timer Preset 8",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "270"
+    ]
+  },
+  "27BBF517-B5EA-46CE-8155-08F6D48E0BCE.png": {
+    "name": "Over-Ear Headphones (Large)",
+    "category": "activity",
+    "tags": [
+      "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
+      "headphones",
+      "listen",
+      "audio"
+    ]
+  },
+  "27BBF517-B5EA-46CE-8155-08F6D48E0BCE_small.png": {
+    "name": "Over-Ear Headphones",
+    "category": "activity",
+    "tags": [
+      "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
+      "headphones",
+      "listen",
+      "audio"
+    ]
+  },
+  "27BBF517-B5EA-46CE-8155-08F6D48E0BCE_smallon.png": {
+    "name": "Over-Ear Headphones (Active)",
+    "category": "activity",
+    "tags": [
+      "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
+      "headphones",
+      "listen",
+      "audio"
+    ]
+  },
+  "29281B8D-FC8D-4C13-89C4-60705B8429F9.png": {
+    "name": "AV Receiver with Volume Knob (Large)",
+    "category": "activity",
+    "tags": [
+      "29281b8d-fc8d-4c13-89c4-60705b8429f9",
+      "receiver",
+      "sound",
+      "avr"
+    ]
+  },
+  "29281B8D-FC8D-4C13-89C4-60705B8429F9_small.png": {
+    "name": "AV Receiver with Volume Knob",
+    "category": "activity",
+    "tags": [
+      "29281b8d-fc8d-4c13-89c4-60705b8429f9",
+      "receiver",
+      "sound",
+      "avr"
+    ]
+  },
+  "29281B8D-FC8D-4C13-89C4-60705B8429F9_smallon.png": {
+    "name": "AV Receiver with Volume Knob (Active)",
+    "category": "activity",
+    "tags": [
+      "29281b8d-fc8d-4c13-89c4-60705b8429f9",
+      "receiver",
+      "sound",
+      "avr"
+    ]
+  },
+  "31179E2F-BD17-48E9-95C0-22CEB36C6188.png": {
+    "name": "Home Theater Projector (Large)",
+    "category": "activity",
+    "tags": [
+      "projector",
+      "cinema",
+      "theater",
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+    ]
+  },
+  "31179E2F-BD17-48E9-95C0-22CEB36C6188_small.png": {
+    "name": "Home Theater Projector",
+    "category": "activity",
+    "tags": [
+      "projector",
+      "cinema",
+      "theater",
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+    ]
+  },
+  "31179E2F-BD17-48E9-95C0-22CEB36C6188_smallon.png": {
+    "name": "Home Theater Projector (Active)",
+    "category": "activity",
+    "tags": [
+      "projector",
+      "cinema",
+      "theater",
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+    ]
+  },
+  "311D40B5-6CF9-4DA2-8820-E17012B852A1.png": {
+    "name": "Stereo Bookshelf Speakers (Large)",
+    "category": "activity",
+    "tags": [
+      "stereo",
+      "bookshelf",
+      "311d40b5-6cf9-4da2-8820-e17012b852a1",
+      "speakers"
+    ]
+  },
+  "311D40B5-6CF9-4DA2-8820-E17012B852A1_small.png": {
+    "name": "Stereo Bookshelf Speakers",
+    "category": "activity",
+    "tags": [
+      "stereo",
+      "bookshelf",
+      "311d40b5-6cf9-4da2-8820-e17012b852a1",
+      "speakers"
+    ]
+  },
+  "311D40B5-6CF9-4DA2-8820-E17012B852A1_smallon.png": {
+    "name": "Stereo Bookshelf Speakers (Active)",
+    "category": "activity",
+    "tags": [
+      "stereo",
+      "bookshelf",
+      "311d40b5-6cf9-4da2-8820-e17012b852a1",
+      "speakers"
+    ]
+  },
+  "32.png": {
+    "name": "Square A Button",
+    "category": "commands",
+    "tags": [
+      "32",
+      "button",
+      "command"
+    ]
+  },
+  "33.png": {
+    "name": "Plus (+)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "33"
+    ]
+  },
+  "349826B4-FA41-4AF4-B032-D5280B1363AC.png": {
+    "name": "Smart Speaker Waves (Large)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "349826b4-fa41-4af4-b032-d5280b1363ac",
+      "speaker",
+      "audio"
+    ]
+  },
+  "349826B4-FA41-4AF4-B032-D5280B1363AC_off.png": {
+    "name": "Smart Speaker Waves (Inactive)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "349826b4-fa41-4af4-b032-d5280b1363ac",
+      "speaker",
+      "audio"
+    ]
+  },
+  "349826B4-FA41-4AF4-B032-D5280B1363AC_on.png": {
+    "name": "Smart Speaker Waves (Active)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "349826b4-fa41-4af4-b032-d5280b1363ac",
+      "speaker",
+      "audio"
+    ]
+  },
+  "349826B4-FA41-4AF4-B032-D5280B1363AC_small.png": {
+    "name": "Smart Speaker Waves",
+    "category": "home",
+    "tags": [
+      "smart",
+      "349826b4-fa41-4af4-b032-d5280b1363ac",
+      "speaker",
+      "audio"
+    ]
+  },
+  "349826B4-FA41-4AF4-B032-D5280B1363AC_smallon.png": {
+    "name": "Smart Speaker Waves (Active)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "349826b4-fa41-4af4-b032-d5280b1363ac",
+      "speaker",
+      "audio"
+    ]
+  },
+  "36.png": {
+    "name": "Aspect Ratio / Scale",
+    "category": "commands",
+    "tags": [
+      "36",
+      "button",
+      "command"
+    ]
+  },
+  "363CE48C-B589-48FA-99D9-6AE5056C1E9C.png": {
+    "name": "Compact Disc / CD Audio (Large)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
+      "cd",
+      "audio"
+    ]
+  },
+  "363CE48C-B589-48FA-99D9-6AE5056C1E9C_small.png": {
+    "name": "Compact Disc / CD Audio",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
+      "cd",
+      "audio"
+    ]
+  },
+  "363CE48C-B589-48FA-99D9-6AE5056C1E9C_smallon.png": {
+    "name": "Compact Disc / CD Audio (Active)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
+      "cd",
+      "audio"
+    ]
+  },
+  "36D512D1-9F0B-4084-89A1-63B6947E9587.png": {
+    "name": "Studio Headphones (Large)",
+    "category": "activity",
+    "tags": [
+      "studio",
+      "headphones",
+      "36d512d1-9f0b-4084-89a1-63b6947e9587",
+      "music"
+    ]
+  },
+  "36D512D1-9F0B-4084-89A1-63B6947E9587_small.png": {
+    "name": "Studio Headphones",
+    "category": "activity",
+    "tags": [
+      "studio",
+      "headphones",
+      "36d512d1-9f0b-4084-89a1-63b6947e9587",
+      "music"
+    ]
+  },
+  "36D512D1-9F0B-4084-89A1-63B6947E9587_smallon.png": {
+    "name": "Studio Headphones (Active)",
+    "category": "activity",
+    "tags": [
+      "studio",
+      "headphones",
+      "36d512d1-9f0b-4084-89a1-63b6947e9587",
+      "music"
+    ]
+  },
+  "37.png": {
+    "name": "Headphones / Audio",
+    "category": "commands",
+    "tags": [
+      "37",
+      "button",
+      "command"
+    ]
+  },
+  "38.png": {
+    "name": "Square B Button",
+    "category": "commands",
+    "tags": [
+      "38",
+      "button",
+      "command"
+    ]
+  },
+  "39.png": {
+    "name": "Replay / Loop Arrow",
+    "category": "commands",
+    "tags": [
+      "39",
+      "button",
+      "command"
+    ]
+  },
+  "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB.png": {
+    "name": "Handheld Gaming Console (Large)",
+    "category": "activity",
+    "tags": [
+      "handheld",
+      "portable",
+      "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
+      "console"
+    ]
+  },
+  "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB_small.png": {
+    "name": "Handheld Gaming Console",
+    "category": "activity",
+    "tags": [
+      "handheld",
+      "portable",
+      "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
+      "console"
+    ]
+  },
+  "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB_smallon.png": {
+    "name": "Handheld Gaming Console (Active)",
+    "category": "activity",
+    "tags": [
+      "handheld",
+      "portable",
+      "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
+      "console"
+    ]
+  },
+  "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD.png": {
+    "name": "Watch TV / Television (Large)",
+    "category": "activity",
+    "tags": [
+      "television",
+      "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
+      "watch",
+      "tv"
+    ]
+  },
+  "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png": {
+    "name": "Watch TV / Television",
+    "category": "activity",
+    "tags": [
+      "television",
+      "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
+      "watch",
+      "tv"
+    ]
+  },
+  "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_smallon.png": {
+    "name": "Watch TV / Television (Active)",
+    "category": "activity",
+    "tags": [
+      "television",
+      "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
+      "watch",
+      "tv"
+    ]
+  },
+  "3D057F31-87AD-4AD5-BCFD-453403A21D29.png": {
+    "name": "Smart Home Hub / Mesh Wi-Fi (Large)",
+    "category": "home",
+    "tags": [
+      "3d057f31-87ad-4ad5-bcfd-453403a21d29",
+      "hub",
+      "wifi",
+      "network"
+    ]
+  },
+  "3D057F31-87AD-4AD5-BCFD-453403A21D29_small.png": {
+    "name": "Smart Home Hub / Mesh Wi-Fi",
+    "category": "home",
+    "tags": [
+      "3d057f31-87ad-4ad5-bcfd-453403a21d29",
+      "hub",
+      "wifi",
+      "network"
+    ]
+  },
+  "3D057F31-87AD-4AD5-BCFD-453403A21D29_smallon.png": {
+    "name": "Smart Home Hub / Mesh Wi-Fi (Active)",
+    "category": "home",
+    "tags": [
+      "3d057f31-87ad-4ad5-bcfd-453403a21d29",
+      "hub",
+      "wifi",
+      "network"
+    ]
+  },
+  "3D423017-BA9E-4132-A885-69222CFE4842.png": {
+    "name": "Cinema Popcorn / Movie Night (Large)",
+    "category": "activity",
+    "tags": [
+      "3d423017-ba9e-4132-a885-69222cfe4842",
+      "cinema",
+      "movie",
+      "popcorn"
+    ]
+  },
+  "3D423017-BA9E-4132-A885-69222CFE4842_small.png": {
+    "name": "Cinema Popcorn / Movie Night",
+    "category": "activity",
+    "tags": [
+      "3d423017-ba9e-4132-a885-69222cfe4842",
+      "cinema",
+      "movie",
+      "popcorn"
+    ]
+  },
+  "3D423017-BA9E-4132-A885-69222CFE4842_smallon.png": {
+    "name": "Cinema Popcorn / Movie Night (Active)",
+    "category": "activity",
+    "tags": [
+      "3d423017-ba9e-4132-a885-69222cfe4842",
+      "cinema",
+      "movie",
+      "popcorn"
+    ]
+  },
+  "3FB5EEAD-419D-472F-8232-3BBBED1F4874.png": {
+    "name": "Karaoke Microphone (Large)",
+    "category": "activity",
+    "tags": [
+      "microphone",
+      "mic",
+      "karaoke",
+      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+    ]
+  },
+  "3FB5EEAD-419D-472F-8232-3BBBED1F4874_small.png": {
+    "name": "Karaoke Microphone",
+    "category": "activity",
+    "tags": [
+      "microphone",
+      "mic",
+      "karaoke",
+      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+    ]
+  },
+  "3FB5EEAD-419D-472F-8232-3BBBED1F4874_smallon.png": {
+    "name": "Karaoke Microphone (Active)",
+    "category": "activity",
+    "tags": [
+      "microphone",
+      "mic",
+      "karaoke",
+      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+    ]
+  },
+  "4.png": {
+    "name": "Play (>)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "4",
+      "command"
+    ]
+  },
+  "40.png": {
+    "name": "Square Icon",
+    "category": "commands",
+    "tags": [
+      "40",
+      "button",
+      "command"
+    ]
+  },
+  "41.png": {
+    "name": "TV Guide / Open Book",
+    "category": "commands",
+    "tags": [
+      "41",
+      "button",
+      "command"
+    ]
+  },
+  "41BF3AA6-DA1D-4115-A225-E99F475D7DC7.png": {
+    "name": "Wall Sconce / Ambient Light (Large)",
+    "category": "home",
+    "tags": [
+      "41bf3aa6-da1d-4115-a225-e99f475d7dc7",
+      "ambient",
+      "sconce",
+      "light"
+    ]
+  },
+  "41BF3AA6-DA1D-4115-A225-E99F475D7DC7_small.png": {
+    "name": "Wall Sconce / Ambient Light",
+    "category": "home",
+    "tags": [
+      "41bf3aa6-da1d-4115-a225-e99f475d7dc7",
+      "ambient",
+      "sconce",
+      "light"
+    ]
+  },
+  "41BF3AA6-DA1D-4115-A225-E99F475D7DC7_smallon.png": {
+    "name": "Wall Sconce / Ambient Light (Active)",
+    "category": "home",
+    "tags": [
+      "41bf3aa6-da1d-4115-a225-e99f475d7dc7",
+      "ambient",
+      "sconce",
+      "light"
+    ]
+  },
+  "42.png": {
+    "name": "Brightness / Sun",
+    "category": "commands",
+    "tags": [
+      "button",
+      "42",
+      "command"
+    ]
+  },
+  "43.png": {
+    "name": "Settings / Cogwheel",
+    "category": "commands",
+    "tags": [
+      "43",
+      "button",
+      "command"
+    ]
+  },
+  "44.png": {
+    "name": "Search Document / Find",
+    "category": "commands",
+    "tags": [
+      "button",
+      "44",
+      "command"
+    ]
+  },
+  "46700828-34B6-42B9-9D6A-968BC681172A.png": {
+    "name": "Soundbar Speaker (Large)",
+    "category": "activity",
+    "tags": [
+      "soundbar",
+      "tv",
+      "46700828-34b6-42b9-9d6a-968bc681172a",
+      "audio"
+    ]
+  },
+  "46700828-34B6-42B9-9D6A-968BC681172A_small.png": {
+    "name": "Soundbar Speaker",
+    "category": "activity",
+    "tags": [
+      "soundbar",
+      "tv",
+      "46700828-34b6-42b9-9d6a-968bc681172a",
+      "audio"
+    ]
+  },
+  "46700828-34B6-42B9-9D6A-968BC681172A_smallon.png": {
+    "name": "Soundbar Speaker (Active)",
+    "category": "activity",
+    "tags": [
+      "soundbar",
+      "tv",
+      "46700828-34b6-42b9-9d6a-968bc681172a",
+      "audio"
+    ]
+  },
+  "468668AB-2587-4662-9E89-CF66BD70F314.png": {
+    "name": "PC Desktop / Computer (Large)",
+    "category": "activity",
+    "tags": [
+      "desktop",
+      "468668ab-2587-4662-9e89-cf66bd70f314",
+      "pc",
+      "computer"
+    ]
+  },
+  "468668AB-2587-4662-9E89-CF66BD70F314_small.png": {
+    "name": "PC Desktop / Computer",
+    "category": "activity",
+    "tags": [
+      "desktop",
+      "468668ab-2587-4662-9e89-cf66bd70f314",
+      "pc",
+      "computer"
+    ]
+  },
+  "468668AB-2587-4662-9E89-CF66BD70F314_smallon.png": {
+    "name": "PC Desktop / Computer (Active)",
+    "category": "activity",
+    "tags": [
+      "desktop",
+      "468668ab-2587-4662-9e89-cf66bd70f314",
+      "pc",
+      "computer"
+    ]
+  },
+  "49.png": {
+    "name": "Square C Button",
+    "category": "commands",
+    "tags": [
+      "button",
+      "49",
+      "command"
+    ]
+  },
+  "4A703D51-717D-4BD3-8457-3442879A7DCC.png": {
+    "name": "Satellite Dish / DVB (Large)",
+    "category": "activity",
+    "tags": [
+      "dish",
+      "satellite",
+      "broadcast",
+      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+    ]
+  },
+  "4A703D51-717D-4BD3-8457-3442879A7DCC_small.png": {
+    "name": "Satellite Dish / DVB",
+    "category": "activity",
+    "tags": [
+      "dish",
+      "satellite",
+      "broadcast",
+      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+    ]
+  },
+  "4A703D51-717D-4BD3-8457-3442879A7DCC_smallon.png": {
+    "name": "Satellite Dish / DVB (Active)",
+    "category": "activity",
+    "tags": [
+      "dish",
+      "satellite",
+      "broadcast",
+      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+    ]
+  },
+  "4AE30392-221F-4718-9E17-ACE55F27CD3D.png": {
+    "name": "Smart Ceiling Light (Large)",
+    "category": "home",
+    "tags": [
+      "4ae30392-221f-4718-9e17-ace55f27cd3d",
+      "ceiling",
+      "lamp",
+      "light"
+    ]
+  },
+  "4AE30392-221F-4718-9E17-ACE55F27CD3D_off.png": {
+    "name": "Smart Ceiling Light (Inactive)",
+    "category": "home",
+    "tags": [
+      "4ae30392-221f-4718-9e17-ace55f27cd3d",
+      "ceiling",
+      "lamp",
+      "light"
+    ]
+  },
+  "4AE30392-221F-4718-9E17-ACE55F27CD3D_on.png": {
+    "name": "Smart Ceiling Light (Active)",
+    "category": "home",
+    "tags": [
+      "4ae30392-221f-4718-9e17-ace55f27cd3d",
+      "ceiling",
+      "lamp",
+      "light"
+    ]
+  },
+  "4AE30392-221F-4718-9E17-ACE55F27CD3D_small.png": {
+    "name": "Smart Ceiling Light",
+    "category": "home",
+    "tags": [
+      "4ae30392-221f-4718-9e17-ace55f27cd3d",
+      "ceiling",
+      "lamp",
+      "light"
+    ]
+  },
+  "4AE30392-221F-4718-9E17-ACE55F27CD3D_smallon.png": {
+    "name": "Smart Ceiling Light (Active)",
+    "category": "home",
+    "tags": [
+      "4ae30392-221f-4718-9e17-ace55f27cd3d",
+      "ceiling",
+      "lamp",
+      "light"
+    ]
+  },
+  "4D002443-A954-47C3-98C5-F24E53B1E628.png": {
+    "name": "Streaming Media Stick (Large)",
+    "category": "activity",
+    "tags": [
+      "4d002443-a954-47c3-98c5-f24e53b1e628",
+      "hdmi",
+      "streaming",
+      "stick"
+    ]
+  },
+  "4D002443-A954-47C3-98C5-F24E53B1E628_small.png": {
+    "name": "Streaming Media Stick",
+    "category": "activity",
+    "tags": [
+      "4d002443-a954-47c3-98c5-f24e53b1e628",
+      "hdmi",
+      "streaming",
+      "stick"
+    ]
+  },
+  "4D002443-A954-47C3-98C5-F24E53B1E628_smallon.png": {
+    "name": "Streaming Media Stick (Active)",
+    "category": "activity",
+    "tags": [
+      "4d002443-a954-47c3-98c5-f24e53b1e628",
+      "hdmi",
+      "streaming",
+      "stick"
+    ]
+  },
+  "5.png": {
+    "name": "Rewind (<<)",
+    "category": "commands",
+    "tags": [
+      "5",
+      "button",
+      "command"
+    ]
+  },
+  "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC.png": {
+    "name": "Digital SLR Camera (Large)",
+    "category": "activity",
+    "tags": [
+      "dslr",
+      "photo",
+      "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
+      "camera"
+    ]
+  },
+  "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC_small.png": {
+    "name": "Digital SLR Camera",
+    "category": "activity",
+    "tags": [
+      "dslr",
+      "photo",
+      "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
+      "camera"
+    ]
+  },
+  "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC_smallon.png": {
+    "name": "Digital SLR Camera (Active)",
+    "category": "activity",
+    "tags": [
+      "dslr",
+      "photo",
+      "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
+      "camera"
+    ]
+  },
+  "5180221E-8F0C-459E-A61C-6D6E02BB2A0C.png": {
+    "name": "Floor Standing Speaker (Large)",
+    "category": "activity",
+    "tags": [
+      "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
+      "hifi",
+      "speaker",
+      "tower"
+    ]
+  },
+  "5180221E-8F0C-459E-A61C-6D6E02BB2A0C_small.png": {
+    "name": "Floor Standing Speaker",
+    "category": "activity",
+    "tags": [
+      "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
+      "hifi",
+      "speaker",
+      "tower"
+    ]
+  },
+  "5180221E-8F0C-459E-A61C-6D6E02BB2A0C_smallon.png": {
+    "name": "Floor Standing Speaker (Active)",
+    "category": "activity",
+    "tags": [
+      "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
+      "hifi",
+      "speaker",
+      "tower"
+    ]
+  },
+  "5248477C-D901-49E0-A8A6-24F212443817.png": {
+    "name": "Smart Doorbell / Camera (Large)",
+    "category": "home",
+    "tags": [
+      "entry",
+      "5248477c-d901-49e0-a8a6-24f212443817",
+      "doorbell",
+      "camera"
+    ]
+  },
+  "5248477C-D901-49E0-A8A6-24F212443817_small.png": {
+    "name": "Smart Doorbell / Camera",
+    "category": "home",
+    "tags": [
+      "entry",
+      "5248477c-d901-49e0-a8a6-24f212443817",
+      "doorbell",
+      "camera"
+    ]
+  },
+  "5248477C-D901-49E0-A8A6-24F212443817_smallon.png": {
+    "name": "Smart Doorbell / Camera (Active)",
+    "category": "home",
+    "tags": [
+      "entry",
+      "5248477c-d901-49e0-a8a6-24f212443817",
+      "doorbell",
+      "camera"
+    ]
+  },
+  "53.png": {
+    "name": "Red Circle Button (PlayStation)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "53"
+    ]
+  },
+  "53469038-7E1C-4241-B9BD-BAE95CC0509C.png": {
+    "name": "Custom Activity / Star (Large)",
+    "category": "activity",
+    "tags": [
+      "star",
+      "53469038-7e1c-4241-b9bd-bae95cc0509c",
+      "custom",
+      "favorite"
+    ]
+  },
+  "53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png": {
+    "name": "Custom Activity / Star",
+    "category": "activity",
+    "tags": [
+      "star",
+      "53469038-7e1c-4241-b9bd-bae95cc0509c",
+      "custom",
+      "favorite"
+    ]
+  },
+  "53469038-7E1C-4241-B9BD-BAE95CC0509C_smallon.png": {
+    "name": "Custom Activity / Star (Active)",
+    "category": "activity",
+    "tags": [
+      "star",
+      "53469038-7e1c-4241-b9bd-bae95cc0509c",
+      "custom",
+      "favorite"
+    ]
+  },
+  "56887e6f-3c8c-4fb5-b25f-ca027e8cbc3c_small.png": {
+    "name": "Table Lamp with Shade",
+    "category": "home",
+    "tags": [
+      "table",
+      "shade",
+      "lamp",
+      "56887e6f-3c8c-4fb5-b25f-ca027e8cbc3c"
+    ]
+  },
+  "57.png": {
+    "name": "Blue Cross Button (PlayStation)",
+    "category": "commands",
+    "tags": [
+      "57",
+      "button",
+      "command"
+    ]
+  },
+  "58.png": {
+    "name": "Square D Button",
+    "category": "commands",
+    "tags": [
+      "58",
+      "button",
+      "command"
+    ]
+  },
+  "58DF2164-056E-4965-A911-CAE9621E0885.png": {
+    "name": "Smart Thermostat Dial (Large)",
+    "category": "home",
+    "tags": [
+      "dial",
+      "58df2164-056e-4965-a911-cae9621e0885",
+      "thermostat",
+      "climate"
+    ]
+  },
+  "58DF2164-056E-4965-A911-CAE9621E0885_small.png": {
+    "name": "Smart Thermostat Dial",
+    "category": "home",
+    "tags": [
+      "dial",
+      "58df2164-056e-4965-a911-cae9621e0885",
+      "thermostat",
+      "climate"
+    ]
+  },
+  "58DF2164-056E-4965-A911-CAE9621E0885_smallon.png": {
+    "name": "Smart Thermostat Dial (Active)",
+    "category": "home",
+    "tags": [
+      "dial",
+      "58df2164-056e-4965-a911-cae9621e0885",
+      "thermostat",
+      "climate"
+    ]
+  },
+  "5BBC2BC3-551A-493B-B374-3EC77EB5B1EB.png": {
+    "name": "Smart Socket Outlet (Large)",
+    "category": "home",
+    "tags": [
+      "socket",
+      "outlet",
+      "plug",
+      "5bbc2bc3-551a-493b-b374-3ec77eb5b1eb"
+    ]
+  },
+  "5BBC2BC3-551A-493B-B374-3EC77EB5B1EB_small.png": {
+    "name": "Smart Socket Outlet",
+    "category": "home",
+    "tags": [
+      "socket",
+      "outlet",
+      "plug",
+      "5bbc2bc3-551a-493b-b374-3ec77eb5b1eb"
+    ]
+  },
+  "5BBC2BC3-551A-493B-B374-3EC77EB5B1EB_smallon.png": {
+    "name": "Smart Socket Outlet (Active)",
+    "category": "home",
+    "tags": [
+      "socket",
+      "outlet",
+      "plug",
+      "5bbc2bc3-551a-493b-b374-3ec77eb5b1eb"
+    ]
+  },
+  "5BE0F80A-D144-40B0-A467-B67A7633282A.png": {
+    "name": "Surround Sound 5.1 System (Large)",
+    "category": "activity",
+    "tags": [
+      "5be0f80a-d144-40b0-a467-b67a7633282a",
+      "surround",
+      "theater",
+      "5.1"
+    ]
+  },
+  "5BE0F80A-D144-40B0-A467-B67A7633282A_small.png": {
+    "name": "Surround Sound 5.1 System",
+    "category": "activity",
+    "tags": [
+      "5be0f80a-d144-40b0-a467-b67a7633282a",
+      "surround",
+      "theater",
+      "5.1"
+    ]
+  },
+  "5BE0F80A-D144-40B0-A467-B67A7633282A_smallon.png": {
+    "name": "Surround Sound 5.1 System (Active)",
+    "category": "activity",
+    "tags": [
+      "5be0f80a-d144-40b0-a467-b67a7633282a",
+      "surround",
+      "theater",
+      "5.1"
+    ]
+  },
+  "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285.png": {
+    "name": "Amazon Fire TV (Large)",
+    "category": "activity",
+    "tags": [
+      "firetv",
+      "amazon",
+      "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "streaming"
+    ]
+  },
+  "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285_small.png": {
+    "name": "Amazon Fire TV",
+    "category": "activity",
+    "tags": [
+      "firetv",
+      "amazon",
+      "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "streaming"
+    ]
+  },
+  "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285_smallon.png": {
+    "name": "Amazon Fire TV (Active)",
+    "category": "activity",
+    "tags": [
+      "firetv",
+      "amazon",
+      "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "streaming"
+    ]
+  },
+  "6.png": {
+    "name": "Stop ([])",
+    "category": "commands",
+    "tags": [
+      "6",
+      "button",
+      "command"
+    ]
+  },
+  "62.png": {
+    "name": "Chevron Down (v)",
+    "category": "commands",
+    "tags": [
+      "62",
+      "button",
+      "command"
+    ]
+  },
+  "6231922F-AB2E-4AE1-A111-41B09B6F3E08.png": {
+    "name": "Smart Window Shades (Large)",
+    "category": "home",
+    "tags": [
+      "shades",
+      "window",
+      "6231922f-ab2e-4ae1-a111-41b09b6f3e08",
+      "blinds"
+    ]
+  },
+  "6231922F-AB2E-4AE1-A111-41B09B6F3E08_off.png": {
+    "name": "Smart Window Shades (Inactive)",
+    "category": "home",
+    "tags": [
+      "shades",
+      "window",
+      "6231922f-ab2e-4ae1-a111-41b09b6f3e08",
+      "blinds"
+    ]
+  },
+  "6231922F-AB2E-4AE1-A111-41B09B6F3E08_on.png": {
+    "name": "Smart Window Shades (Active)",
+    "category": "home",
+    "tags": [
+      "shades",
+      "window",
+      "6231922f-ab2e-4ae1-a111-41b09b6f3e08",
+      "blinds"
+    ]
+  },
+  "6231922F-AB2E-4AE1-A111-41B09B6F3E08_small.png": {
+    "name": "Smart Window Shades",
+    "category": "home",
+    "tags": [
+      "shades",
+      "window",
+      "6231922f-ab2e-4ae1-a111-41b09b6f3e08",
+      "blinds"
+    ]
+  },
+  "6231922F-AB2E-4AE1-A111-41B09B6F3E08_smallon.png": {
+    "name": "Smart Window Shades (Active)",
+    "category": "home",
+    "tags": [
+      "shades",
+      "window",
+      "6231922f-ab2e-4ae1-a111-41b09b6f3e08",
+      "blinds"
+    ]
+  },
+  "63.png": {
+    "name": "Chevron Left (<)",
+    "category": "commands",
+    "tags": [
+      "63",
+      "button",
+      "command"
+    ]
+  },
+  "63677E44-C3AC-46CB-873D-E948BB64A727.png": {
+    "name": "Pendant Hanging Light (Large)",
+    "category": "home",
+    "tags": [
+      "pendant",
+      "light",
+      "63677e44-c3ac-46cb-873d-e948bb64a727",
+      "hanging"
+    ]
+  },
+  "63677E44-C3AC-46CB-873D-E948BB64A727_small.png": {
+    "name": "Pendant Hanging Light",
+    "category": "home",
+    "tags": [
+      "pendant",
+      "light",
+      "63677e44-c3ac-46cb-873d-e948bb64a727",
+      "hanging"
+    ]
+  },
+  "63677E44-C3AC-46CB-873D-E948BB64A727_smallon.png": {
+    "name": "Pendant Hanging Light (Active)",
+    "category": "home",
+    "tags": [
+      "pendant",
+      "light",
+      "63677e44-c3ac-46cb-873d-e948bb64a727",
+      "hanging"
+    ]
+  },
+  "64.png": {
+    "name": "Chevron Right (>)",
+    "category": "commands",
+    "tags": [
+      "64",
+      "button",
+      "command"
+    ]
+  },
+  "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3.png": {
+    "name": "Streaming Box / IPTV (Large)",
+    "category": "activity",
+    "tags": [
+      "box",
+      "streaming",
+      "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
+      "iptv"
+    ]
+  },
+  "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3_small.png": {
+    "name": "Streaming Box / IPTV",
+    "category": "activity",
+    "tags": [
+      "box",
+      "streaming",
+      "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
+      "iptv"
+    ]
+  },
+  "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3_smallon.png": {
+    "name": "Streaming Box / IPTV (Active)",
+    "category": "activity",
+    "tags": [
+      "box",
+      "streaming",
+      "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
+      "iptv"
+    ]
+  },
+  "65.png": {
+    "name": "Chevron Up (^)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "65"
+    ]
+  },
+  "66.png": {
+    "name": "OK / Select Bullseye",
+    "category": "commands",
+    "tags": [
+      "button",
+      "66",
+      "command"
+    ]
+  },
+  "67.png": {
+    "name": "Disc 1",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "67"
+    ]
+  },
+  "68.png": {
+    "name": "Disc 2",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "68"
+    ]
+  },
+  "68AA6991-A06F-49FA-9BE6-FE882E03D979.png": {
+    "name": "Smart Door Lock (Large)",
+    "category": "home",
+    "tags": [
+      "security",
+      "68aa6991-a06f-49fa-9be6-fe882e03d979",
+      "lock",
+      "door"
+    ]
+  },
+  "68AA6991-A06F-49FA-9BE6-FE882E03D979_off.png": {
+    "name": "Smart Door Lock (Inactive)",
+    "category": "home",
+    "tags": [
+      "security",
+      "68aa6991-a06f-49fa-9be6-fe882e03d979",
+      "lock",
+      "door"
+    ]
+  },
+  "68AA6991-A06F-49FA-9BE6-FE882E03D979_on.png": {
+    "name": "Smart Door Lock (Active)",
+    "category": "home",
+    "tags": [
+      "security",
+      "68aa6991-a06f-49fa-9be6-fe882e03d979",
+      "lock",
+      "door"
+    ]
+  },
+  "68AA6991-A06F-49FA-9BE6-FE882E03D979_small.png": {
+    "name": "Smart Door Lock",
+    "category": "home",
+    "tags": [
+      "security",
+      "68aa6991-a06f-49fa-9be6-fe882e03d979",
+      "lock",
+      "door"
+    ]
+  },
+  "68AA6991-A06F-49FA-9BE6-FE882E03D979_smallon.png": {
+    "name": "Smart Door Lock (Active)",
+    "category": "home",
+    "tags": [
+      "security",
+      "68aa6991-a06f-49fa-9be6-fe882e03d979",
+      "lock",
+      "door"
+    ]
+  },
+  "69.png": {
+    "name": "Disc 3",
+    "category": "commands",
+    "tags": [
+      "69",
+      "button",
+      "command"
+    ]
+  },
+  "6D621A24-72D6-4CCD-8ED8-1114B52952AE.png": {
+    "name": "Multiroom Audio Group (Large)",
+    "category": "activity",
+    "tags": [
+      "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
+      "group",
+      "multiroom",
+      "audio"
+    ]
+  },
+  "6D621A24-72D6-4CCD-8ED8-1114B52952AE_small.png": {
+    "name": "Multiroom Audio Group",
+    "category": "activity",
+    "tags": [
+      "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
+      "group",
+      "multiroom",
+      "audio"
+    ]
+  },
+  "6D621A24-72D6-4CCD-8ED8-1114B52952AE_smallon.png": {
+    "name": "Multiroom Audio Group (Active)",
+    "category": "activity",
+    "tags": [
+      "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
+      "group",
+      "multiroom",
+      "audio"
+    ]
+  },
+  "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099.png": {
+    "name": "Internet Radio / Podcast (Large)",
+    "category": "activity",
+    "tags": [
+      "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
+      "podcast",
+      "radio",
+      "stream"
+    ]
+  },
+  "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099_small.png": {
+    "name": "Internet Radio / Podcast",
+    "category": "activity",
+    "tags": [
+      "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
+      "podcast",
+      "radio",
+      "stream"
+    ]
+  },
+  "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099_smallon.png": {
+    "name": "Internet Radio / Podcast (Active)",
+    "category": "activity",
+    "tags": [
+      "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
+      "podcast",
+      "radio",
+      "stream"
+    ]
+  },
+  "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E.png": {
+    "name": "Roku Streaming Player (Large)",
+    "category": "activity",
+    "tags": [
+      "roku",
+      "streaming",
+      "6ebd03b8-c815-48be-adbb-d36e06caac5e",
+      "player"
+    ]
+  },
+  "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png": {
+    "name": "Roku Streaming Player",
+    "category": "activity",
+    "tags": [
+      "roku",
+      "streaming",
+      "6ebd03b8-c815-48be-adbb-d36e06caac5e",
+      "player"
+    ]
+  },
+  "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_smallon.png": {
+    "name": "Roku Streaming Player (Active)",
+    "category": "activity",
+    "tags": [
+      "roku",
+      "streaming",
+      "6ebd03b8-c815-48be-adbb-d36e06caac5e",
+      "player"
+    ]
+  },
+  "7.png": {
+    "name": "Green A Button (Xbox)",
+    "category": "commands",
+    "tags": [
+      "7",
+      "button",
+      "command"
+    ]
+  },
+  "70.png": {
+    "name": "Disc 4",
+    "category": "commands",
+    "tags": [
+      "button",
+      "70",
+      "command"
+    ]
+  },
+  "71.png": {
+    "name": "Disc 5",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "71"
+    ]
+  },
+  "718B691B-DF39-4787-989D-EAB9D39D595E.png": {
+    "name": "Cable TV Box / DVR (Large)",
+    "category": "activity",
+    "tags": [
+      "718b691b-df39-4787-989d-eab9d39d595e",
+      "tv",
+      "dvr",
+      "cable"
+    ]
+  },
+  "718B691B-DF39-4787-989D-EAB9D39D595E_small.png": {
+    "name": "Cable TV Box / DVR",
+    "category": "activity",
+    "tags": [
+      "718b691b-df39-4787-989d-eab9d39d595e",
+      "tv",
+      "dvr",
+      "cable"
+    ]
+  },
+  "718B691B-DF39-4787-989D-EAB9D39D595E_smallon.png": {
+    "name": "Cable TV Box / DVR (Active)",
+    "category": "activity",
+    "tags": [
+      "718b691b-df39-4787-989d-eab9d39d595e",
+      "tv",
+      "dvr",
+      "cable"
+    ]
+  },
+  "72.png": {
+    "name": "Disc 6",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "72"
+    ]
+  },
+  "72D0AAB4-2ED8-4644-84D2-0031BDAE356E.png": {
+    "name": "Listen to Music / Audio (Large)",
+    "category": "activity",
+    "tags": [
+      "audio",
+      "72d0aab4-2ed8-4644-84d2-0031bdae356e",
+      "listen",
+      "music"
+    ]
+  },
+  "72D0AAB4-2ED8-4644-84D2-0031BDAE356E_small.png": {
+    "name": "Listen to Music / Audio",
+    "category": "activity",
+    "tags": [
+      "audio",
+      "72d0aab4-2ed8-4644-84d2-0031bdae356e",
+      "listen",
+      "music"
+    ]
+  },
+  "72D0AAB4-2ED8-4644-84D2-0031BDAE356E_smallon.png": {
+    "name": "Listen to Music / Audio (Active)",
+    "category": "activity",
+    "tags": [
+      "audio",
+      "72d0aab4-2ed8-4644-84d2-0031bdae356e",
+      "listen",
+      "music"
+    ]
+  },
+  "74.png": {
+    "name": "Eject Disc",
+    "category": "commands",
+    "tags": [
+      "74",
+      "button",
+      "command"
+    ]
+  },
+  "75.png": {
+    "name": "Exit / Door",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "75"
+    ]
+  },
+  "76.png": {
+    "name": "Fast Forward (>>)",
+    "category": "commands",
+    "tags": [
+      "76",
+      "button",
+      "command"
+    ]
+  },
+  "77.png": {
+    "name": "Favorite (Star)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "77"
+    ]
+  },
+  "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC.png": {
+    "name": "Turntable / Vinyl Record (Large)",
+    "category": "activity",
+    "tags": [
+      "vinyl",
+      "record",
+      "turntable",
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+    ]
+  },
+  "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC_small.png": {
+    "name": "Turntable / Vinyl Record",
+    "category": "activity",
+    "tags": [
+      "vinyl",
+      "record",
+      "turntable",
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+    ]
+  },
+  "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC_smallon.png": {
+    "name": "Turntable / Vinyl Record (Active)",
+    "category": "activity",
+    "tags": [
+      "vinyl",
+      "record",
+      "turntable",
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+    ]
+  },
+  "7B7FF0C6-CC71-498D-8B1E-C029CBB07CF3.png": {
+    "name": "Air Conditioner / AC Unit (Large)",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "7b7ff0c6-cc71-498d-8b1e-c029cbb07cf3",
+      "ac",
+      "climate"
+    ]
+  },
+  "7B7FF0C6-CC71-498D-8B1E-C029CBB07CF3_small.png": {
+    "name": "Air Conditioner / AC Unit",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "7b7ff0c6-cc71-498d-8b1e-c029cbb07cf3",
+      "ac",
+      "climate"
+    ]
+  },
+  "7B7FF0C6-CC71-498D-8B1E-C029CBB07CF3_smallon.png": {
+    "name": "Air Conditioner / AC Unit (Active)",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "7b7ff0c6-cc71-498d-8b1e-c029cbb07cf3",
+      "ac",
+      "climate"
+    ]
+  },
+  "8.png": {
+    "name": "Red B Button (Xbox)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "8",
+      "command"
+    ]
+  },
+  "80.png": {
+    "name": "Step Forward / Slow (|>) ",
+    "category": "commands",
+    "tags": [
+      "button",
+      "80",
+      "command"
+    ]
+  },
+  "818AD711-EAC5-42E8-80DC-D5ED9F1046F4.png": {
+    "name": "Smart Power Strip (Large)",
+    "category": "home",
+    "tags": [
+      "power",
+      "818ad711-eac5-42e8-80dc-d5ed9f1046f4",
+      "strip",
+      "plugs"
+    ]
+  },
+  "818AD711-EAC5-42E8-80DC-D5ED9F1046F4_small.png": {
+    "name": "Smart Power Strip",
+    "category": "home",
+    "tags": [
+      "power",
+      "818ad711-eac5-42e8-80dc-d5ed9f1046f4",
+      "strip",
+      "plugs"
+    ]
+  },
+  "818AD711-EAC5-42E8-80DC-D5ED9F1046F4_smallon.png": {
+    "name": "Smart Power Strip (Active)",
+    "category": "home",
+    "tags": [
+      "power",
+      "818ad711-eac5-42e8-80dc-d5ed9f1046f4",
+      "strip",
+      "plugs"
+    ]
+  },
+  "818D06A7-7821-4380-8A62-719A9D6B9C9B.png": {
+    "name": "Spotlight / Track Lighting (Large)",
+    "category": "home",
+    "tags": [
+      "spotlight",
+      "818d06a7-7821-4380-8a62-719a9d6b9c9b",
+      "track",
+      "light"
+    ]
+  },
+  "818D06A7-7821-4380-8A62-719A9D6B9C9B_small.png": {
+    "name": "Spotlight / Track Lighting",
+    "category": "home",
+    "tags": [
+      "spotlight",
+      "818d06a7-7821-4380-8a62-719a9d6b9c9b",
+      "track",
+      "light"
+    ]
+  },
+  "818D06A7-7821-4380-8A62-719A9D6B9C9B_smallon.png": {
+    "name": "Spotlight / Track Lighting (Active)",
+    "category": "home",
+    "tags": [
+      "spotlight",
+      "818d06a7-7821-4380-8a62-719a9d6b9c9b",
+      "track",
+      "light"
+    ]
+  },
+  "819ABAB3-94AD-4798-8B71-BD98C829EB89.png": {
+    "name": "FM / DAB Tuner Radio (Large)",
+    "category": "activity",
+    "tags": [
+      "819abab3-94ad-4798-8b71-bd98c829eb89",
+      "fm",
+      "radio",
+      "tuner"
+    ]
+  },
+  "819ABAB3-94AD-4798-8B71-BD98C829EB89_small.png": {
+    "name": "FM / DAB Tuner Radio",
+    "category": "activity",
+    "tags": [
+      "819abab3-94ad-4798-8b71-bd98c829eb89",
+      "fm",
+      "radio",
+      "tuner"
+    ]
+  },
+  "819ABAB3-94AD-4798-8B71-BD98C829EB89_smallon.png": {
+    "name": "FM / DAB Tuner Radio (Active)",
+    "category": "activity",
+    "tags": [
+      "819abab3-94ad-4798-8b71-bd98c829eb89",
+      "fm",
+      "radio",
+      "tuner"
+    ]
+  },
+  "83.png": {
+    "name": "Green Solid Button",
+    "category": "commands",
+    "tags": [
+      "83",
+      "button",
+      "command"
+    ]
+  },
+  "835B9806-A8F5-4395-9AE7-A1086D75F5D3.png": {
+    "name": "Smart Roller Shutters (Large)",
+    "category": "home",
+    "tags": [
+      "roller",
+      "shutters",
+      "835b9806-a8f5-4395-9ae7-a1086d75f5d3",
+      "blinds"
+    ]
+  },
+  "835B9806-A8F5-4395-9AE7-A1086D75F5D3_small.png": {
+    "name": "Smart Roller Shutters",
+    "category": "home",
+    "tags": [
+      "roller",
+      "shutters",
+      "835b9806-a8f5-4395-9ae7-a1086d75f5d3",
+      "blinds"
+    ]
+  },
+  "835B9806-A8F5-4395-9AE7-A1086D75F5D3_smallon.png": {
+    "name": "Smart Roller Shutters (Active)",
+    "category": "home",
+    "tags": [
+      "roller",
+      "shutters",
+      "835b9806-a8f5-4395-9ae7-a1086d75f5d3",
+      "blinds"
+    ]
+  },
+  "840AD7C6-5295-465F-A6AE-9BC9154B6549.png": {
+    "name": "Smart Thermostat Flame (Heating) (Large)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "840ad7c6-5295-465f-a6ae-9bc9154b6549",
+      "flame",
+      "heating"
+    ]
+  },
+  "840AD7C6-5295-465F-A6AE-9BC9154B6549_off.png": {
+    "name": "Smart Thermostat Flame (Heating) (Inactive)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "840ad7c6-5295-465f-a6ae-9bc9154b6549",
+      "flame",
+      "heating"
+    ]
+  },
+  "840AD7C6-5295-465F-A6AE-9BC9154B6549_on.png": {
+    "name": "Smart Thermostat Flame (Heating) (Active)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "840ad7c6-5295-465f-a6ae-9bc9154b6549",
+      "flame",
+      "heating"
+    ]
+  },
+  "840AD7C6-5295-465F-A6AE-9BC9154B6549_small.png": {
+    "name": "Smart Thermostat Flame (Heating)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "840ad7c6-5295-465f-a6ae-9bc9154b6549",
+      "flame",
+      "heating"
+    ]
+  },
+  "840AD7C6-5295-465F-A6AE-9BC9154B6549_smallon.png": {
+    "name": "Smart Thermostat Flame (Heating) (Active)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "840ad7c6-5295-465f-a6ae-9bc9154b6549",
+      "flame",
+      "heating"
+    ]
+  },
+  "85.png": {
+    "name": "Target / Dial",
+    "category": "commands",
+    "tags": [
+      "button",
+      "85",
+      "command"
+    ]
+  },
+  "86D46E83-04EA-460A-B3DC-70A0246C7794.png": {
+    "name": "Smart Dimmer Slider (Large)",
+    "category": "home",
+    "tags": [
+      "light",
+      "86d46e83-04ea-460a-b3dc-70a0246c7794",
+      "slider",
+      "dimmer"
+    ]
+  },
+  "86D46E83-04EA-460A-B3DC-70A0246C7794_small.png": {
+    "name": "Smart Dimmer Slider",
+    "category": "home",
+    "tags": [
+      "light",
+      "86d46e83-04ea-460a-b3dc-70a0246c7794",
+      "slider",
+      "dimmer"
+    ]
+  },
+  "86D46E83-04EA-460A-B3DC-70A0246C7794_smallon.png": {
+    "name": "Smart Dimmer Slider (Active)",
+    "category": "home",
+    "tags": [
+      "light",
+      "86d46e83-04ea-460a-b3dc-70a0246c7794",
+      "slider",
+      "dimmer"
+    ]
+  },
+  "88.png": {
+    "name": "Audio / Cassette",
+    "category": "commands",
+    "tags": [
+      "88",
+      "button",
+      "command"
+    ]
+  },
+  "89.png": {
+    "name": "Compass / Dial",
+    "category": "commands",
+    "tags": [
+      "89",
+      "button",
+      "command"
+    ]
+  },
+  "897101B2-567B-11E7-907B-A6006AD3DBA0.png": {
+    "name": "Smart Scene Mode (Large)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "routine",
+      "897101b2-567b-11e7-907b-a6006ad3dba0",
+      "scene"
+    ]
+  },
+  "897101B2-567B-11E7-907B-A6006AD3DBA0_small.png": {
+    "name": "Smart Scene Mode",
+    "category": "home",
+    "tags": [
+      "smart",
+      "routine",
+      "897101b2-567b-11e7-907b-a6006ad3dba0",
+      "scene"
+    ]
+  },
+  "897101B2-567B-11E7-907B-A6006AD3DBA0_smallon.png": {
+    "name": "Smart Scene Mode (Active)",
+    "category": "home",
+    "tags": [
+      "smart",
+      "routine",
+      "897101b2-567b-11e7-907b-a6006ad3dba0",
+      "scene"
+    ]
+  },
+  "8A4CC6CD-16E8-40E4-8C91-2917076F967D.png": {
+    "name": "Smart LED Light Strip (Large)",
+    "category": "home",
+    "tags": [
+      "8a4cc6cd-16e8-40e4-8c91-2917076f967d",
+      "led",
+      "strip",
+      "light"
+    ]
+  },
+  "8A4CC6CD-16E8-40E4-8C91-2917076F967D_off.png": {
+    "name": "Smart LED Light Strip (Inactive)",
+    "category": "home",
+    "tags": [
+      "8a4cc6cd-16e8-40e4-8c91-2917076f967d",
+      "led",
+      "strip",
+      "light"
+    ]
+  },
+  "8A4CC6CD-16E8-40E4-8C91-2917076F967D_on.png": {
+    "name": "Smart LED Light Strip (Active)",
+    "category": "home",
+    "tags": [
+      "8a4cc6cd-16e8-40e4-8c91-2917076f967d",
+      "led",
+      "strip",
+      "light"
+    ]
+  },
+  "8A4CC6CD-16E8-40E4-8C91-2917076F967D_small.png": {
+    "name": "Smart LED Light Strip",
+    "category": "home",
+    "tags": [
+      "8a4cc6cd-16e8-40e4-8c91-2917076f967d",
+      "led",
+      "strip",
+      "light"
+    ]
+  },
+  "8A4CC6CD-16E8-40E4-8C91-2917076F967D_smallon.png": {
+    "name": "Smart LED Light Strip (Active)",
+    "category": "home",
+    "tags": [
+      "8a4cc6cd-16e8-40e4-8c91-2917076f967d",
+      "led",
+      "strip",
+      "light"
+    ]
+  },
+  "8B271ADA-D2ED-477B-BFF2-D2450245C3B0.png": {
+    "name": "Audio DAC / Pre-Amp (Large)",
+    "category": "activity",
+    "tags": [
+      "8b271ada-d2ed-477b-bff2-d2450245c3b0",
+      "preamp",
+      "hifi",
+      "dac"
+    ]
+  },
+  "8B271ADA-D2ED-477B-BFF2-D2450245C3B0_small.png": {
+    "name": "Audio DAC / Pre-Amp",
+    "category": "activity",
+    "tags": [
+      "8b271ada-d2ed-477b-bff2-d2450245c3b0",
+      "preamp",
+      "hifi",
+      "dac"
+    ]
+  },
+  "8B271ADA-D2ED-477B-BFF2-D2450245C3B0_smallon.png": {
+    "name": "Audio DAC / Pre-Amp (Active)",
+    "category": "activity",
+    "tags": [
+      "8b271ada-d2ed-477b-bff2-d2450245c3b0",
+      "preamp",
+      "hifi",
+      "dac"
+    ]
+  },
+  "8C07FD25-A715-4A64-A4F9-46B0B7A0C1EF.png": {
+    "name": "Chandelier / Luxury Light (Large)",
+    "category": "home",
+    "tags": [
+      "8c07fd25-a715-4a64-a4f9-46b0b7a0c1ef",
+      "light",
+      "luxury",
+      "chandelier"
+    ]
+  },
+  "8C07FD25-A715-4A64-A4F9-46B0B7A0C1EF_small.png": {
+    "name": "Chandelier / Luxury Light",
+    "category": "home",
+    "tags": [
+      "8c07fd25-a715-4a64-a4f9-46b0b7a0c1ef",
+      "light",
+      "luxury",
+      "chandelier"
+    ]
+  },
+  "8C07FD25-A715-4A64-A4F9-46B0B7A0C1EF_smallon.png": {
+    "name": "Chandelier / Luxury Light (Active)",
+    "category": "home",
+    "tags": [
+      "8c07fd25-a715-4a64-a4f9-46b0b7a0c1ef",
+      "light",
+      "luxury",
+      "chandelier"
+    ]
+  },
+  "9.png": {
+    "name": "Blue X Button (Xbox)",
+    "category": "commands",
+    "tags": [
+      "button",
+      "command",
+      "9"
+    ]
+  },
+  "90.png": {
+    "name": "Menu Grid",
+    "category": "commands",
+    "tags": [
+      "90",
+      "button",
+      "command"
+    ]
+  },
+  "91.png": {
+    "name": "Mute / Sound Off",
+    "category": "commands",
+    "tags": [
+      "91",
+      "button",
+      "command"
+    ]
+  },
+  "92.png": {
+    "name": "Antenna / Live TV",
+    "category": "commands",
+    "tags": [
+      "92",
+      "button",
+      "command"
+    ]
+  },
+  "93.png": {
+    "name": "Teletext / Page",
+    "category": "commands",
+    "tags": [
+      "93",
+      "button",
+      "command"
+    ]
+  },
+  "93CE3ABA-5FED-4374-ADC1-D5CD36DEDB36.png": {
+    "name": "Smart Radiator Valve (Large)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "93ce3aba-5fed-4374-adc1-d5cd36dedb36",
+      "radiator",
+      "valve"
+    ]
+  },
+  "93CE3ABA-5FED-4374-ADC1-D5CD36DEDB36_small.png": {
+    "name": "Smart Radiator Valve",
+    "category": "home",
+    "tags": [
+      "heat",
+      "93ce3aba-5fed-4374-adc1-d5cd36dedb36",
+      "radiator",
+      "valve"
+    ]
+  },
+  "93CE3ABA-5FED-4374-ADC1-D5CD36DEDB36_smallon.png": {
+    "name": "Smart Radiator Valve (Active)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "93ce3aba-5fed-4374-adc1-d5cd36dedb36",
+      "radiator",
+      "valve"
+    ]
+  },
+  "94.png": {
+    "name": "Previous / Back Arrow",
+    "category": "commands",
+    "tags": [
+      "button",
+      "94",
+      "command"
+    ]
+  },
+  "9532487A-4FBF-4BEF-ADD3-3CDE6EE8DB16.png": {
+    "name": "Smart Color Bulb (RGB) (Large)",
+    "category": "home",
+    "tags": [
+      "9532487a-4fbf-4bef-add3-3cde6ee8db16",
+      "bulb",
+      "rgb",
+      "color"
+    ]
+  },
+  "9532487A-4FBF-4BEF-ADD3-3CDE6EE8DB16_off.png": {
+    "name": "Smart Color Bulb (RGB) (Inactive)",
+    "category": "home",
+    "tags": [
+      "9532487a-4fbf-4bef-add3-3cde6ee8db16",
+      "bulb",
+      "rgb",
+      "color"
+    ]
+  },
+  "9532487A-4FBF-4BEF-ADD3-3CDE6EE8DB16_on.png": {
+    "name": "Smart Color Bulb (RGB) (Active)",
+    "category": "home",
+    "tags": [
+      "9532487a-4fbf-4bef-add3-3cde6ee8db16",
+      "bulb",
+      "rgb",
+      "color"
+    ]
+  },
+  "9532487A-4FBF-4BEF-ADD3-3CDE6EE8DB16_small.png": {
+    "name": "Smart Color Bulb (RGB)",
+    "category": "home",
+    "tags": [
+      "9532487a-4fbf-4bef-add3-3cde6ee8db16",
+      "bulb",
+      "rgb",
+      "color"
+    ]
+  },
+  "9532487A-4FBF-4BEF-ADD3-3CDE6EE8DB16_smallon.png": {
+    "name": "Smart Color Bulb (RGB) (Active)",
+    "category": "home",
+    "tags": [
+      "9532487a-4fbf-4bef-add3-3cde6ee8db16",
+      "bulb",
+      "rgb",
+      "color"
+    ]
+  },
+  "96.png": {
+    "name": "Number Keypad (3x3 Grid)",
+    "category": "commands",
+    "tags": [
+      "96",
+      "button",
+      "command"
+    ]
+  },
+  "970C1E6E-9E37-48F1-BAF0-EABDDB9E989B.png": {
+    "name": "Smart Security Alarm (Large)",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "970c1e6e-9e37-48f1-baf0-eabddb9e989b",
+      "security",
+      "sensor"
+    ]
+  },
+  "970C1E6E-9E37-48F1-BAF0-EABDDB9E989B_small.png": {
+    "name": "Smart Security Alarm",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "970c1e6e-9e37-48f1-baf0-eabddb9e989b",
+      "security",
+      "sensor"
+    ]
+  },
+  "970C1E6E-9E37-48F1-BAF0-EABDDB9E989B_smallon.png": {
+    "name": "Smart Security Alarm (Active)",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "970c1e6e-9e37-48f1-baf0-eabddb9e989b",
+      "security",
+      "sensor"
+    ]
+  },
+  "974D2E15-D103-463A-8386-36B9EBD4037F.png": {
+    "name": "Smart Scene / Moon & Stars (Large)",
+    "category": "home",
+    "tags": [
+      "night",
+      "974d2e15-d103-463a-8386-36b9ebd4037f",
+      "sleep",
+      "scene"
+    ]
+  },
+  "974D2E15-D103-463A-8386-36B9EBD4037F_small.png": {
+    "name": "Smart Scene / Moon & Stars",
+    "category": "home",
+    "tags": [
+      "night",
+      "974d2e15-d103-463a-8386-36b9ebd4037f",
+      "sleep",
+      "scene"
+    ]
+  },
+  "974D2E15-D103-463A-8386-36B9EBD4037F_smallon.png": {
+    "name": "Smart Scene / Moon & Stars (Active)",
+    "category": "home",
+    "tags": [
+      "night",
+      "974d2e15-d103-463a-8386-36b9ebd4037f",
+      "sleep",
+      "scene"
+    ]
+  },
+  "9B0478B4-CB51-4CC8-B58E-682033DFC8EF.png": {
+    "name": "LaserDisc / Optical Media (Large)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "laserdisc",
+      "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
+      "player"
+    ]
+  },
+  "9B0478B4-CB51-4CC8-B58E-682033DFC8EF_small.png": {
+    "name": "LaserDisc / Optical Media",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "laserdisc",
+      "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
+      "player"
+    ]
+  },
+  "9B0478B4-CB51-4CC8-B58E-682033DFC8EF_smallon.png": {
+    "name": "LaserDisc / Optical Media (Active)",
+    "category": "activity",
+    "tags": [
+      "disc",
+      "laserdisc",
+      "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
+      "player"
+    ]
+  },
+  "9C0B36C2-F503-41FA-B957-4A0BCC7E4D8F.png": {
+    "name": "Smart Light Switch (Large)",
+    "category": "home",
+    "tags": [
+      "9c0b36c2-f503-41fa-b957-4a0bcc7e4d8f",
+      "switch",
+      "light",
+      "wall"
+    ]
+  },
+  "9C0B36C2-F503-41FA-B957-4A0BCC7E4D8F_small.png": {
+    "name": "Smart Light Switch",
+    "category": "home",
+    "tags": [
+      "9c0b36c2-f503-41fa-b957-4a0bcc7e4d8f",
+      "switch",
+      "light",
+      "wall"
+    ]
+  },
+  "9C0B36C2-F503-41FA-B957-4A0BCC7E4D8F_smallon.png": {
+    "name": "Smart Light Switch (Active)",
+    "category": "home",
+    "tags": [
+      "9c0b36c2-f503-41fa-b957-4a0bcc7e4d8f",
+      "switch",
+      "light",
+      "wall"
+    ]
+  },
+  "9CCF9A96-B984-4AEB-9227-9B565FF74E06.png": {
+    "name": "Karaoke Machine / Jukebox (Large)",
+    "category": "activity",
+    "tags": [
+      "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
+      "jukebox",
+      "karaoke",
+      "sing"
+    ]
+  },
+  "9CCF9A96-B984-4AEB-9227-9B565FF74E06_off.png": {
+    "name": "Karaoke Machine / Jukebox (Inactive)",
+    "category": "activity",
+    "tags": [
+      "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
+      "jukebox",
+      "karaoke",
+      "sing"
+    ]
+  },
+  "9CCF9A96-B984-4AEB-9227-9B565FF74E06_on.png": {
+    "name": "Karaoke Machine / Jukebox (Active)",
+    "category": "activity",
+    "tags": [
+      "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
+      "jukebox",
+      "karaoke",
+      "sing"
+    ]
+  },
+  "9CCF9A96-B984-4AEB-9227-9B565FF74E06_small.png": {
+    "name": "Karaoke Machine / Jukebox",
+    "category": "activity",
+    "tags": [
+      "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
+      "jukebox",
+      "karaoke",
+      "sing"
+    ]
+  },
+  "9CCF9A96-B984-4AEB-9227-9B565FF74E06_smallon.png": {
+    "name": "Karaoke Machine / Jukebox (Active)",
+    "category": "activity",
+    "tags": [
+      "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
+      "jukebox",
+      "karaoke",
+      "sing"
+    ]
+  },
+  "9CEC604E-B876-4953-88D2-7CD6283D3275.png": {
+    "name": "Smart Garage Door Opener (Large)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "door",
+      "9cec604e-b876-4953-88d2-7cd6283d3275",
+      "garage"
+    ]
+  },
+  "9CEC604E-B876-4953-88D2-7CD6283D3275_small.png": {
+    "name": "Smart Garage Door Opener",
+    "category": "home",
+    "tags": [
+      "motor",
+      "door",
+      "9cec604e-b876-4953-88d2-7cd6283d3275",
+      "garage"
+    ]
+  },
+  "9CEC604E-B876-4953-88D2-7CD6283D3275_smallon.png": {
+    "name": "Smart Garage Door Opener (Active)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "door",
+      "9cec604e-b876-4953-88d2-7cd6283d3275",
+      "garage"
+    ]
+  },
+  "9D24EB35-468B-4148-A6A2-BB764AA9609C.png": {
+    "name": "Play Game / Gamepad (Large)",
+    "category": "activity",
+    "tags": [
+      "game",
+      "console",
+      "9d24eb35-468b-4148-a6a2-bb764aa9609c",
+      "gamepad"
+    ]
+  },
+  "9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png": {
+    "name": "Play Game / Gamepad",
+    "category": "activity",
+    "tags": [
+      "game",
+      "console",
+      "9d24eb35-468b-4148-a6a2-bb764aa9609c",
+      "gamepad"
+    ]
+  },
+  "9D24EB35-468B-4148-A6A2-BB764AA9609C_smallon.png": {
+    "name": "Play Game / Gamepad (Active)",
+    "category": "activity",
+    "tags": [
+      "game",
+      "console",
+      "9d24eb35-468b-4148-a6a2-bb764aa9609c",
+      "gamepad"
+    ]
+  },
+  "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C.png": {
+    "name": "Music Cassette Tape (Large)",
+    "category": "activity",
+    "tags": [
+      "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
+      "retro",
+      "cassette",
+      "tape"
+    ]
+  },
+  "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C_small.png": {
+    "name": "Music Cassette Tape",
+    "category": "activity",
+    "tags": [
+      "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
+      "retro",
+      "cassette",
+      "tape"
+    ]
+  },
+  "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C_smallon.png": {
+    "name": "Music Cassette Tape (Active)",
+    "category": "activity",
+    "tags": [
+      "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
+      "retro",
+      "cassette",
+      "tape"
+    ]
+  },
+  "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366.png": {
+    "name": "Smart Garden Sprinkler (Large)",
+    "category": "home",
+    "tags": [
+      "garden",
+      "sprinkler",
+      "9d6b957c-8a14-4c92-adee-dd0c8fbb2366",
+      "irrigation"
+    ]
+  },
+  "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366_off.png": {
+    "name": "Smart Garden Sprinkler (Inactive)",
+    "category": "home",
+    "tags": [
+      "garden",
+      "sprinkler",
+      "9d6b957c-8a14-4c92-adee-dd0c8fbb2366",
+      "irrigation"
+    ]
+  },
+  "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366_on.png": {
+    "name": "Smart Garden Sprinkler (Active)",
+    "category": "home",
+    "tags": [
+      "garden",
+      "sprinkler",
+      "9d6b957c-8a14-4c92-adee-dd0c8fbb2366",
+      "irrigation"
+    ]
+  },
+  "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366_small.png": {
+    "name": "Smart Garden Sprinkler",
+    "category": "home",
+    "tags": [
+      "garden",
+      "sprinkler",
+      "9d6b957c-8a14-4c92-adee-dd0c8fbb2366",
+      "irrigation"
+    ]
+  },
+  "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366_smallon.png": {
+    "name": "Smart Garden Sprinkler (Active)",
+    "category": "home",
+    "tags": [
+      "garden",
+      "sprinkler",
+      "9d6b957c-8a14-4c92-adee-dd0c8fbb2366",
+      "irrigation"
+    ]
+  },
+  "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7.png": {
+    "name": "Over-The-Air TV Antenna (Large)",
+    "category": "activity",
+    "tags": [
+      "antenna",
+      "ota",
+      "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
+      "tuner"
+    ]
+  },
+  "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7_small.png": {
+    "name": "Over-The-Air TV Antenna",
+    "category": "activity",
+    "tags": [
+      "antenna",
+      "ota",
+      "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
+      "tuner"
+    ]
+  },
+  "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7_smallon.png": {
+    "name": "Over-The-Air TV Antenna (Active)",
+    "category": "activity",
+    "tags": [
+      "antenna",
+      "ota",
+      "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
+      "tuner"
+    ]
+  },
+  "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D.png": {
+    "name": "Audio Equalizer (EQ) (Large)",
+    "category": "activity",
+    "tags": [
+      "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
+      "equalizer",
+      "eq",
+      "audio"
+    ]
+  },
+  "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D_small.png": {
+    "name": "Audio Equalizer (EQ)",
+    "category": "activity",
+    "tags": [
+      "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
+      "equalizer",
+      "eq",
+      "audio"
+    ]
+  },
+  "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D_smallon.png": {
+    "name": "Audio Equalizer (EQ) (Active)",
+    "category": "activity",
+    "tags": [
+      "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
+      "equalizer",
+      "eq",
+      "audio"
+    ]
+  },
+  "A181D535-D966-4178-91F9-57278BE8D7EA.png": {
+    "name": "Smart Outdoor Floodlight (Large)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "a181d535-d966-4178-91f9-57278be8d7ea",
+      "light",
+      "outdoor"
+    ]
+  },
+  "A181D535-D966-4178-91F9-57278BE8D7EA_off.png": {
+    "name": "Smart Outdoor Floodlight (Inactive)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "a181d535-d966-4178-91f9-57278be8d7ea",
+      "light",
+      "outdoor"
+    ]
+  },
+  "A181D535-D966-4178-91F9-57278BE8D7EA_on.png": {
+    "name": "Smart Outdoor Floodlight (Active)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "a181d535-d966-4178-91f9-57278be8d7ea",
+      "light",
+      "outdoor"
+    ]
+  },
+  "A181D535-D966-4178-91F9-57278BE8D7EA_small.png": {
+    "name": "Smart Outdoor Floodlight",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "a181d535-d966-4178-91f9-57278be8d7ea",
+      "light",
+      "outdoor"
+    ]
+  },
+  "A181D535-D966-4178-91F9-57278BE8D7EA_smallon.png": {
+    "name": "Smart Outdoor Floodlight (Active)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "a181d535-d966-4178-91f9-57278be8d7ea",
+      "light",
+      "outdoor"
+    ]
+  },
+  "A3A7FE08-E4DD-4B05-B0A9-945CD717A09B.png": {
+    "name": "Smart Air Purifier (Large)",
+    "category": "home",
+    "tags": [
+      "purifier",
+      "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b",
+      "air",
+      "clean"
+    ]
+  },
+  "A3A7FE08-E4DD-4B05-B0A9-945CD717A09B_off.png": {
+    "name": "Smart Air Purifier (Inactive)",
+    "category": "home",
+    "tags": [
+      "purifier",
+      "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b",
+      "air",
+      "clean"
+    ]
+  },
+  "A3A7FE08-E4DD-4B05-B0A9-945CD717A09B_on.png": {
+    "name": "Smart Air Purifier (Active)",
+    "category": "home",
+    "tags": [
+      "purifier",
+      "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b",
+      "air",
+      "clean"
+    ]
+  },
+  "A3A7FE08-E4DD-4B05-B0A9-945CD717A09B_small.png": {
+    "name": "Smart Air Purifier",
+    "category": "home",
+    "tags": [
+      "purifier",
+      "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b",
+      "air",
+      "clean"
+    ]
+  },
+  "A3A7FE08-E4DD-4B05-B0A9-945CD717A09B_smallon.png": {
+    "name": "Smart Air Purifier (Active)",
+    "category": "home",
+    "tags": [
+      "purifier",
+      "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b",
+      "air",
+      "clean"
+    ]
+  },
+  "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD.png": {
+    "name": "Soundboard / DJ Mixer (Large)",
+    "category": "activity",
+    "tags": [
+      "mixer",
+      "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
+      "dj",
+      "soundboard"
+    ]
+  },
+  "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD_small.png": {
+    "name": "Soundboard / DJ Mixer",
+    "category": "activity",
+    "tags": [
+      "mixer",
+      "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
+      "dj",
+      "soundboard"
+    ]
+  },
+  "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD_smallon.png": {
+    "name": "Soundboard / DJ Mixer (Active)",
+    "category": "activity",
+    "tags": [
+      "mixer",
+      "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
+      "dj",
+      "soundboard"
+    ]
+  },
+  "A648AC27-8B04-4CAD-A2B2-82A83BCDB741.png": {
+    "name": "Smart Humidifier (Large)",
+    "category": "home",
+    "tags": [
+      "humidifier",
+      "a648ac27-8b04-4cad-a2b2-82a83bcdb741",
+      "moisture",
+      "climate"
+    ]
+  },
+  "A648AC27-8B04-4CAD-A2B2-82A83BCDB741_small.png": {
+    "name": "Smart Humidifier",
+    "category": "home",
+    "tags": [
+      "humidifier",
+      "a648ac27-8b04-4cad-a2b2-82a83bcdb741",
+      "moisture",
+      "climate"
+    ]
+  },
+  "A648AC27-8B04-4CAD-A2B2-82A83BCDB741_smallon.png": {
+    "name": "Smart Humidifier (Active)",
+    "category": "home",
+    "tags": [
+      "humidifier",
+      "a648ac27-8b04-4cad-a2b2-82a83bcdb741",
+      "moisture",
+      "climate"
+    ]
+  },
+  "AB95C212-7B27-4118-8CD3-0E595EA061D5.png": {
+    "name": "Streaming Audio Player (Large)",
+    "category": "activity",
+    "tags": [
+      "player",
+      "streamer",
+      "ab95c212-7b27-4118-8cd3-0e595ea061d5",
+      "audio"
+    ]
+  },
+  "AB95C212-7B27-4118-8CD3-0E595EA061D5_small.png": {
+    "name": "Streaming Audio Player",
+    "category": "activity",
+    "tags": [
+      "player",
+      "streamer",
+      "ab95c212-7b27-4118-8cd3-0e595ea061d5",
+      "audio"
+    ]
+  },
+  "AB95C212-7B27-4118-8CD3-0E595EA061D5_smallon.png": {
+    "name": "Streaming Audio Player (Active)",
+    "category": "activity",
+    "tags": [
+      "player",
+      "streamer",
+      "ab95c212-7b27-4118-8cd3-0e595ea061d5",
+      "audio"
+    ]
+  },
+  "AC921110-8F9C-40A3-B51C-06F3B1E18C92.png": {
+    "name": "Smart Security Camera (Large)",
+    "category": "home",
+    "tags": [
+      "ac921110-8f9c-40a3-b51c-06f3b1e18c92",
+      "security",
+      "cctv",
+      "camera"
+    ]
+  },
+  "AC921110-8F9C-40A3-B51C-06F3B1E18C92_off.png": {
+    "name": "Smart Security Camera (Inactive)",
+    "category": "home",
+    "tags": [
+      "ac921110-8f9c-40a3-b51c-06f3b1e18c92",
+      "security",
+      "cctv",
+      "camera"
+    ]
+  },
+  "AC921110-8F9C-40A3-B51C-06F3B1E18C92_on.png": {
+    "name": "Smart Security Camera (Active)",
+    "category": "home",
+    "tags": [
+      "ac921110-8f9c-40a3-b51c-06f3b1e18c92",
+      "security",
+      "cctv",
+      "camera"
+    ]
+  },
+  "AC921110-8F9C-40A3-B51C-06F3B1E18C92_small.png": {
+    "name": "Smart Security Camera",
+    "category": "home",
+    "tags": [
+      "ac921110-8f9c-40a3-b51c-06f3b1e18c92",
+      "security",
+      "cctv",
+      "camera"
+    ]
+  },
+  "AC921110-8F9C-40A3-B51C-06F3B1E18C92_smallon.png": {
+    "name": "Smart Security Camera (Active)",
+    "category": "home",
+    "tags": [
+      "ac921110-8f9c-40a3-b51c-06f3b1e18c92",
+      "security",
+      "cctv",
+      "camera"
+    ]
+  },
+  "B25A8282-30CE-4EA3-9F92-3E25474B076B.png": {
+    "name": "Home Cinema Projector Screen (Large)",
+    "category": "activity",
+    "tags": [
+      "b25a8282-30ce-4ea3-9f92-3e25474b076b",
+      "projector",
+      "cinema",
+      "screen"
+    ]
+  },
+  "B25A8282-30CE-4EA3-9F92-3E25474B076B_small.png": {
+    "name": "Home Cinema Projector Screen",
+    "category": "activity",
+    "tags": [
+      "b25a8282-30ce-4ea3-9f92-3e25474b076b",
+      "projector",
+      "cinema",
+      "screen"
+    ]
+  },
+  "B25A8282-30CE-4EA3-9F92-3E25474B076B_smallon.png": {
+    "name": "Home Cinema Projector Screen (Active)",
+    "category": "activity",
+    "tags": [
+      "b25a8282-30ce-4ea3-9f92-3e25474b076b",
+      "projector",
+      "cinema",
+      "screen"
+    ]
+  },
+  "B4241984-3855-46C7-A940-3604743297BD.png": {
+    "name": "Smart Water Heater Boiler (Large)",
+    "category": "home",
+    "tags": [
+      "heater",
+      "b4241984-3855-46c7-a940-3604743297bd",
+      "boiler",
+      "water"
+    ]
+  },
+  "B4241984-3855-46C7-A940-3604743297BD_off.png": {
+    "name": "Smart Water Heater Boiler (Inactive)",
+    "category": "home",
+    "tags": [
+      "heater",
+      "b4241984-3855-46c7-a940-3604743297bd",
+      "boiler",
+      "water"
+    ]
+  },
+  "B4241984-3855-46C7-A940-3604743297BD_on.png": {
+    "name": "Smart Water Heater Boiler (Active)",
+    "category": "home",
+    "tags": [
+      "heater",
+      "b4241984-3855-46c7-a940-3604743297bd",
+      "boiler",
+      "water"
+    ]
+  },
+  "B4241984-3855-46C7-A940-3604743297BD_small.png": {
+    "name": "Smart Water Heater Boiler",
+    "category": "home",
+    "tags": [
+      "heater",
+      "b4241984-3855-46c7-a940-3604743297bd",
+      "boiler",
+      "water"
+    ]
+  },
+  "B4241984-3855-46C7-A940-3604743297BD_smallon.png": {
+    "name": "Smart Water Heater Boiler (Active)",
+    "category": "home",
+    "tags": [
+      "heater",
+      "b4241984-3855-46c7-a940-3604743297bd",
+      "boiler",
+      "water"
+    ]
+  },
+  "BAB09C4A-E61D-4284-B1F3-84135F562217.png": {
+    "name": "Watch Movie / Film (Large)",
+    "category": "activity",
+    "tags": [
+      "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "film",
+      "cinema",
+      "movie"
+    ]
+  },
+  "BAB09C4A-E61D-4284-B1F3-84135F562217_small.png": {
+    "name": "Watch Movie / Film",
+    "category": "activity",
+    "tags": [
+      "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "film",
+      "cinema",
+      "movie"
+    ]
+  },
+  "BAB09C4A-E61D-4284-B1F3-84135F562217_smallon.png": {
+    "name": "Watch Movie / Film (Active)",
+    "category": "activity",
+    "tags": [
+      "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "film",
+      "cinema",
+      "movie"
+    ]
+  },
+  "BF4C747E-C437-423E-9801-535E0EA55848.png": {
+    "name": "Smart Vacuum Cleaner / Robot (Large)",
+    "category": "home",
+    "tags": [
+      "vacuum",
+      "robot",
+      "cleaning",
+      "bf4c747e-c437-423e-9801-535e0ea55848"
+    ]
+  },
+  "BF4C747E-C437-423E-9801-535E0EA55848_small.png": {
+    "name": "Smart Vacuum Cleaner / Robot",
+    "category": "home",
+    "tags": [
+      "vacuum",
+      "robot",
+      "cleaning",
+      "bf4c747e-c437-423e-9801-535e0ea55848"
+    ]
+  },
+  "BF4C747E-C437-423E-9801-535E0EA55848_smallon.png": {
+    "name": "Smart Vacuum Cleaner / Robot (Active)",
+    "category": "home",
+    "tags": [
+      "vacuum",
+      "robot",
+      "cleaning",
+      "bf4c747e-c437-423e-9801-535e0ea55848"
+    ]
+  },
+  "C45B3641-9CE3-43D8-907F-F87838A86C84.png": {
+    "name": "Multi-Disc Carousel Player (Large)",
+    "category": "activity",
+    "tags": [
+      "c45b3641-9ce3-43d8-907f-f87838a86c84",
+      "carousel",
+      "multidisc",
+      "player"
+    ]
+  },
+  "C45B3641-9CE3-43D8-907F-F87838A86C84_small.png": {
+    "name": "Multi-Disc Carousel Player",
+    "category": "activity",
+    "tags": [
+      "c45b3641-9ce3-43d8-907f-f87838a86c84",
+      "carousel",
+      "multidisc",
+      "player"
+    ]
+  },
+  "C45B3641-9CE3-43D8-907F-F87838A86C84_smallon.png": {
+    "name": "Multi-Disc Carousel Player (Active)",
+    "category": "activity",
+    "tags": [
+      "c45b3641-9ce3-43d8-907f-f87838a86c84",
+      "carousel",
+      "multidisc",
+      "player"
+    ]
+  },
+  "C4D124B8-F851-4200-86C0-B38494FE6167.png": {
+    "name": "Wireless Subwoofer (Large)",
+    "category": "activity",
+    "tags": [
+      "wireless",
+      "bass",
+      "subwoofer",
+      "c4d124b8-f851-4200-86c0-b38494fe6167"
+    ]
+  },
+  "C4D124B8-F851-4200-86C0-B38494FE6167_small.png": {
+    "name": "Wireless Subwoofer",
+    "category": "activity",
+    "tags": [
+      "wireless",
+      "bass",
+      "subwoofer",
+      "c4d124b8-f851-4200-86c0-b38494fe6167"
+    ]
+  },
+  "C4D124B8-F851-4200-86C0-B38494FE6167_smallon.png": {
+    "name": "Wireless Subwoofer (Active)",
+    "category": "activity",
+    "tags": [
+      "wireless",
+      "bass",
+      "subwoofer",
+      "c4d124b8-f851-4200-86c0-b38494fe6167"
+    ]
+  },
+  "C62C7998-D6BF-4C2D-9E6C-47440E28A113.png": {
+    "name": "Smart Home Door Sensor (Large)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "c62c7998-d6bf-4c2d-9e6c-47440e28a113",
+      "sensor",
+      "door"
+    ]
+  },
+  "C62C7998-D6BF-4C2D-9E6C-47440E28A113_small.png": {
+    "name": "Smart Home Door Sensor",
+    "category": "home",
+    "tags": [
+      "contact",
+      "c62c7998-d6bf-4c2d-9e6c-47440e28a113",
+      "sensor",
+      "door"
+    ]
+  },
+  "C62C7998-D6BF-4C2D-9E6C-47440E28A113_smallon.png": {
+    "name": "Smart Home Door Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "c62c7998-d6bf-4c2d-9e6c-47440e28a113",
+      "sensor",
+      "door"
+    ]
+  },
+  "C83A52E3-5615-4A0B-987E-58C3D85FFCCD.png": {
+    "name": "Smart Window Open Sensor (Large)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "sensor",
+      "window",
+      "c83a52e3-5615-4a0b-987e-58c3d85ffccd"
+    ]
+  },
+  "C83A52E3-5615-4A0B-987E-58C3D85FFCCD_off.png": {
+    "name": "Smart Window Open Sensor (Inactive)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "sensor",
+      "window",
+      "c83a52e3-5615-4a0b-987e-58c3d85ffccd"
+    ]
+  },
+  "C83A52E3-5615-4A0B-987E-58C3D85FFCCD_on.png": {
+    "name": "Smart Window Open Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "sensor",
+      "window",
+      "c83a52e3-5615-4a0b-987e-58c3d85ffccd"
+    ]
+  },
+  "C83A52E3-5615-4A0B-987E-58C3D85FFCCD_small.png": {
+    "name": "Smart Window Open Sensor",
+    "category": "home",
+    "tags": [
+      "contact",
+      "sensor",
+      "window",
+      "c83a52e3-5615-4a0b-987e-58c3d85ffccd"
+    ]
+  },
+  "C83A52E3-5615-4A0B-987E-58C3D85FFCCD_smallon.png": {
+    "name": "Smart Window Open Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "contact",
+      "sensor",
+      "window",
+      "c83a52e3-5615-4a0b-987e-58c3d85ffccd"
+    ]
+  },
+  "CB589261-82DB-4113-BC1B-C09EC6E17B2C.png": {
+    "name": "Smart Outdoor Weather Station (Large)",
+    "category": "home",
+    "tags": [
+      "outdoor",
+      "temperature",
+      "cb589261-82db-4113-bc1b-c09ec6e17b2c",
+      "weather"
+    ]
+  },
+  "CB589261-82DB-4113-BC1B-C09EC6E17B2C_small.png": {
+    "name": "Smart Outdoor Weather Station",
+    "category": "home",
+    "tags": [
+      "outdoor",
+      "temperature",
+      "cb589261-82db-4113-bc1b-c09ec6e17b2c",
+      "weather"
+    ]
+  },
+  "CB589261-82DB-4113-BC1B-C09EC6E17B2C_smallon.png": {
+    "name": "Smart Outdoor Weather Station (Active)",
+    "category": "home",
+    "tags": [
+      "outdoor",
+      "temperature",
+      "cb589261-82db-4113-bc1b-c09ec6e17b2c",
+      "weather"
+    ]
+  },
+  "CD78E011-E7FD-42EA-B6D8-FAFCA64B9C09.png": {
+    "name": "Smart Siren / Alarm Bell (Large)",
+    "category": "home",
+    "tags": [
+      "siren",
+      "cd78e011-e7fd-42ea-b6d8-fafca64b9c09",
+      "security",
+      "bell"
+    ]
+  },
+  "CD78E011-E7FD-42EA-B6D8-FAFCA64B9C09_small.png": {
+    "name": "Smart Siren / Alarm Bell",
+    "category": "home",
+    "tags": [
+      "siren",
+      "cd78e011-e7fd-42ea-b6d8-fafca64b9c09",
+      "security",
+      "bell"
+    ]
+  },
+  "CD78E011-E7FD-42EA-B6D8-FAFCA64B9C09_smallon.png": {
+    "name": "Smart Siren / Alarm Bell (Active)",
+    "category": "home",
+    "tags": [
+      "siren",
+      "cd78e011-e7fd-42ea-b6d8-fafca64b9c09",
+      "security",
+      "bell"
+    ]
+  },
+  "CEDA3F57-1D34-48F0-852D-EC9C425B2733.png": {
+    "name": "Smart Water Leak Detector (Large)",
+    "category": "home",
+    "tags": [
+      "ceda3f57-1d34-48f0-852d-ec9c425b2733",
+      "leak",
+      "flood",
+      "water"
+    ]
+  },
+  "CEDA3F57-1D34-48F0-852D-EC9C425B2733_small.png": {
+    "name": "Smart Water Leak Detector",
+    "category": "home",
+    "tags": [
+      "ceda3f57-1d34-48f0-852d-ec9c425b2733",
+      "leak",
+      "flood",
+      "water"
+    ]
+  },
+  "CEDA3F57-1D34-48F0-852D-EC9C425B2733_smallon.png": {
+    "name": "Smart Water Leak Detector (Active)",
+    "category": "home",
+    "tags": [
+      "ceda3f57-1d34-48f0-852d-ec9c425b2733",
+      "leak",
+      "flood",
+      "water"
+    ]
+  },
+  "CEDD3F0F-932A-4135-8F2D-1670550F20EE.png": {
+    "name": "Audio Cassette Deck (Large)",
+    "category": "activity",
+    "tags": [
+      "cedd3f0f-932a-4135-8f2d-1670550f20ee",
+      "tape",
+      "cassette",
+      "deck"
+    ]
+  },
+  "CEDD3F0F-932A-4135-8F2D-1670550F20EE_small.png": {
+    "name": "Audio Cassette Deck",
+    "category": "activity",
+    "tags": [
+      "cedd3f0f-932a-4135-8f2d-1670550f20ee",
+      "tape",
+      "cassette",
+      "deck"
+    ]
+  },
+  "CEDD3F0F-932A-4135-8F2D-1670550F20EE_smallon.png": {
+    "name": "Audio Cassette Deck (Active)",
+    "category": "activity",
+    "tags": [
+      "cedd3f0f-932a-4135-8f2d-1670550f20ee",
+      "tape",
+      "cassette",
+      "deck"
+    ]
+  },
+  "CFA819F4-DB13-4F04-985D-D59087108D62.png": {
+    "name": "Smart Keypad Door Entry (Large)",
+    "category": "home",
+    "tags": [
+      "entry",
+      "cfa819f4-db13-4f04-985d-d59087108d62",
+      "door",
+      "keypad"
+    ]
+  },
+  "CFA819F4-DB13-4F04-985D-D59087108D62_small.png": {
+    "name": "Smart Keypad Door Entry",
+    "category": "home",
+    "tags": [
+      "entry",
+      "cfa819f4-db13-4f04-985d-d59087108d62",
+      "door",
+      "keypad"
+    ]
+  },
+  "CFA819F4-DB13-4F04-985D-D59087108D62_smallon.png": {
+    "name": "Smart Keypad Door Entry (Active)",
+    "category": "home",
+    "tags": [
+      "entry",
+      "cfa819f4-db13-4f04-985d-d59087108d62",
+      "door",
+      "keypad"
+    ]
+  },
+  "D1D5E928-D0AD-488A-A43E-56FD6D17209B.png": {
+    "name": "Smart Smoke Detector (Large)",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "smoke",
+      "d1d5e928-d0ad-488a-a43e-56fd6d17209b",
+      "fire"
+    ]
+  },
+  "D1D5E928-D0AD-488A-A43E-56FD6D17209B_small.png": {
+    "name": "Smart Smoke Detector",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "smoke",
+      "d1d5e928-d0ad-488a-a43e-56fd6d17209b",
+      "fire"
+    ]
+  },
+  "D1D5E928-D0AD-488A-A43E-56FD6D17209B_smallon.png": {
+    "name": "Smart Smoke Detector (Active)",
+    "category": "home",
+    "tags": [
+      "alarm",
+      "smoke",
+      "d1d5e928-d0ad-488a-a43e-56fd6d17209b",
+      "fire"
+    ]
+  },
+  "D22A587C-E45C-4B4A-9396-19396EB8E32B.png": {
+    "name": "Wireless Headphone Stand (Large)",
+    "category": "activity",
+    "tags": [
+      "charging",
+      "stand",
+      "headphones",
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+    ]
+  },
+  "D22A587C-E45C-4B4A-9396-19396EB8E32B_small.png": {
+    "name": "Wireless Headphone Stand",
+    "category": "activity",
+    "tags": [
+      "charging",
+      "stand",
+      "headphones",
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+    ]
+  },
+  "D22A587C-E45C-4B4A-9396-19396EB8E32B_smallon.png": {
+    "name": "Wireless Headphone Stand (Active)",
+    "category": "activity",
+    "tags": [
+      "charging",
+      "stand",
+      "headphones",
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+    ]
+  },
+  "D4F91D44-F634-41FB-A9BE-FC8F63ABCED2.png": {
+    "name": "Smart Window Curtains (Large)",
+    "category": "home",
+    "tags": [
+      "drapes",
+      "curtains",
+      "d4f91d44-f634-41fb-a9be-fc8f63abced2",
+      "window"
+    ]
+  },
+  "D4F91D44-F634-41FB-A9BE-FC8F63ABCED2_small.png": {
+    "name": "Smart Window Curtains",
+    "category": "home",
+    "tags": [
+      "drapes",
+      "curtains",
+      "d4f91d44-f634-41fb-a9be-fc8f63abced2",
+      "window"
+    ]
+  },
+  "D4F91D44-F634-41FB-A9BE-FC8F63ABCED2_smallon.png": {
+    "name": "Smart Window Curtains (Active)",
+    "category": "home",
+    "tags": [
+      "drapes",
+      "curtains",
+      "d4f91d44-f634-41fb-a9be-fc8f63abced2",
+      "window"
+    ]
+  },
+  "D636FD4E-016C-447F-BA4A-25E8943E23F4.png": {
+    "name": "Smart Gas Leak Detector (Large)",
+    "category": "home",
+    "tags": [
+      "detector",
+      "gas",
+      "safety",
+      "d636fd4e-016c-447f-ba4a-25e8943e23f4"
+    ]
+  },
+  "D636FD4E-016C-447F-BA4A-25E8943E23F4_small.png": {
+    "name": "Smart Gas Leak Detector",
+    "category": "home",
+    "tags": [
+      "detector",
+      "gas",
+      "safety",
+      "d636fd4e-016c-447f-ba4a-25e8943e23f4"
+    ]
+  },
+  "D636FD4E-016C-447F-BA4A-25E8943E23F4_smallon.png": {
+    "name": "Smart Gas Leak Detector (Active)",
+    "category": "home",
+    "tags": [
+      "detector",
+      "gas",
+      "safety",
+      "d636fd4e-016c-447f-ba4a-25e8943e23f4"
+    ]
+  },
+  "D70209CE-A536-4194-84D5-1648087BB060.png": {
+    "name": "Smart Thermostat Snowflake (Cooling) (Large)",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "ac",
+      "snowflake",
+      "d70209ce-a536-4194-84d5-1648087bb060"
+    ]
+  },
+  "D70209CE-A536-4194-84D5-1648087BB060_small.png": {
+    "name": "Smart Thermostat Snowflake (Cooling)",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "ac",
+      "snowflake",
+      "d70209ce-a536-4194-84d5-1648087bb060"
+    ]
+  },
+  "D70209CE-A536-4194-84D5-1648087BB060_smallon.png": {
+    "name": "Smart Thermostat Snowflake (Cooling) (Active)",
+    "category": "home",
+    "tags": [
+      "cooling",
+      "ac",
+      "snowflake",
+      "d70209ce-a536-4194-84d5-1648087bb060"
+    ]
+  },
+  "D7F21109-8F71-4EDB-990A-BCAB435EFB92.png": {
+    "name": "Smart Motion Floodlight (Large)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "d7f21109-8f71-4edb-990a-bcab435efb92",
+      "motion",
+      "light"
+    ]
+  },
+  "D7F21109-8F71-4EDB-990A-BCAB435EFB92_off.png": {
+    "name": "Smart Motion Floodlight (Inactive)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "d7f21109-8f71-4edb-990a-bcab435efb92",
+      "motion",
+      "light"
+    ]
+  },
+  "D7F21109-8F71-4EDB-990A-BCAB435EFB92_on.png": {
+    "name": "Smart Motion Floodlight (Active)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "d7f21109-8f71-4edb-990a-bcab435efb92",
+      "motion",
+      "light"
+    ]
+  },
+  "D7F21109-8F71-4EDB-990A-BCAB435EFB92_small.png": {
+    "name": "Smart Motion Floodlight",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "d7f21109-8f71-4edb-990a-bcab435efb92",
+      "motion",
+      "light"
+    ]
+  },
+  "D7F21109-8F71-4EDB-990A-BCAB435EFB92_smallon.png": {
+    "name": "Smart Motion Floodlight (Active)",
+    "category": "home",
+    "tags": [
+      "floodlight",
+      "d7f21109-8f71-4edb-990a-bcab435efb92",
+      "motion",
+      "light"
+    ]
+  },
+  "DEC07396-B858-47E8-AE50-4AB346AF1D98.png": {
+    "name": "Sony PlayStation Console (Large)",
+    "category": "activity",
+    "tags": [
+      "ps",
+      "sony",
+      "dec07396-b858-47e8-ae50-4ab346af1d98",
+      "playstation",
+      "game"
+    ]
+  },
+  "DEC07396-B858-47E8-AE50-4AB346AF1D98_small.png": {
+    "name": "Sony PlayStation Console",
+    "category": "activity",
+    "tags": [
+      "ps",
+      "sony",
+      "dec07396-b858-47e8-ae50-4ab346af1d98",
+      "playstation",
+      "game"
+    ]
+  },
+  "DEC07396-B858-47E8-AE50-4AB346AF1D98_smallon.png": {
+    "name": "Sony PlayStation Console (Active)",
+    "category": "activity",
+    "tags": [
+      "ps",
+      "sony",
+      "dec07396-b858-47e8-ae50-4ab346af1d98",
+      "playstation",
+      "game"
+    ]
+  },
+  "DFF3A4B7-B2A5-41F6-8347-77CAC20A7DD0.png": {
+    "name": "Smart Pool Heater / Pump (Large)",
+    "category": "home",
+    "tags": [
+      "pool",
+      "pump",
+      "dff3a4b7-b2a5-41f6-8347-77cac20a7dd0",
+      "water"
+    ]
+  },
+  "DFF3A4B7-B2A5-41F6-8347-77CAC20A7DD0_small.png": {
+    "name": "Smart Pool Heater / Pump",
+    "category": "home",
+    "tags": [
+      "pool",
+      "pump",
+      "dff3a4b7-b2a5-41f6-8347-77cac20a7dd0",
+      "water"
+    ]
+  },
+  "DFF3A4B7-B2A5-41F6-8347-77CAC20A7DD0_smallon.png": {
+    "name": "Smart Pool Heater / Pump (Active)",
+    "category": "home",
+    "tags": [
+      "pool",
+      "pump",
+      "dff3a4b7-b2a5-41f6-8347-77cac20a7dd0",
+      "water"
+    ]
+  },
+  "E816D949-6F22-4FA2-A278-17FABE2CFCC9.png": {
+    "name": "Smart Window Sensor (Large)",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "window",
+      "security",
+      "e816d949-6f22-4fa2-a278-17fabe2cfcc9"
+    ]
+  },
+  "E816D949-6F22-4FA2-A278-17FABE2CFCC9_small.png": {
+    "name": "Smart Window Sensor",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "window",
+      "security",
+      "e816d949-6f22-4fa2-a278-17fabe2cfcc9"
+    ]
+  },
+  "E816D949-6F22-4FA2-A278-17FABE2CFCC9_smallon.png": {
+    "name": "Smart Window Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "window",
+      "security",
+      "e816d949-6f22-4fa2-a278-17fabe2cfcc9"
+    ]
+  },
+  "E942EDFA-826D-4B06-9E8F-073F8895E69C.png": {
+    "name": "Smart Irrigation Valve (Large)",
+    "category": "home",
+    "tags": [
+      "e942edfa-826d-4b06-9e8f-073f8895e69c",
+      "water",
+      "valve",
+      "irrigation"
+    ]
+  },
+  "E942EDFA-826D-4B06-9E8F-073F8895E69C_small.png": {
+    "name": "Smart Irrigation Valve",
+    "category": "home",
+    "tags": [
+      "e942edfa-826d-4b06-9e8f-073f8895e69c",
+      "water",
+      "valve",
+      "irrigation"
+    ]
+  },
+  "E942EDFA-826D-4B06-9E8F-073F8895E69C_smallon.png": {
+    "name": "Smart Irrigation Valve (Active)",
+    "category": "home",
+    "tags": [
+      "e942edfa-826d-4b06-9e8f-073f8895e69c",
+      "water",
+      "valve",
+      "irrigation"
+    ]
+  },
+  "EAC61C29-ABB4-4545-9F69-85010B4CCAD5.png": {
+    "name": "Smart Light Bulb Globe (Large)",
+    "category": "home",
+    "tags": [
+      "bulb",
+      "eac61c29-abb4-4545-9f69-85010b4ccad5",
+      "light",
+      "globe"
+    ]
+  },
+  "EAC61C29-ABB4-4545-9F69-85010B4CCAD5_off.png": {
+    "name": "Smart Light Bulb Globe (Inactive)",
+    "category": "home",
+    "tags": [
+      "bulb",
+      "eac61c29-abb4-4545-9f69-85010b4ccad5",
+      "light",
+      "globe"
+    ]
+  },
+  "EAC61C29-ABB4-4545-9F69-85010B4CCAD5_on.png": {
+    "name": "Smart Light Bulb Globe (Active)",
+    "category": "home",
+    "tags": [
+      "bulb",
+      "eac61c29-abb4-4545-9f69-85010b4ccad5",
+      "light",
+      "globe"
+    ]
+  },
+  "EAC61C29-ABB4-4545-9F69-85010B4CCAD5_small.png": {
+    "name": "Smart Light Bulb Globe",
+    "category": "home",
+    "tags": [
+      "bulb",
+      "eac61c29-abb4-4545-9f69-85010b4ccad5",
+      "light",
+      "globe"
+    ]
+  },
+  "EAC61C29-ABB4-4545-9F69-85010B4CCAD5_smallon.png": {
+    "name": "Smart Light Bulb Globe (Active)",
+    "category": "home",
+    "tags": [
+      "bulb",
+      "eac61c29-abb4-4545-9f69-85010b4ccad5",
+      "light",
+      "globe"
+    ]
+  },
+  "EB6113E5-431D-4642-9348-F1FD23207B69.png": {
+    "name": "Smart Thermostat Schedule (Large)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "schedule",
+      "timer",
+      "eb6113e5-431d-4642-9348-f1fd23207b69"
+    ]
+  },
+  "EB6113E5-431D-4642-9348-F1FD23207B69_small.png": {
+    "name": "Smart Thermostat Schedule",
+    "category": "home",
+    "tags": [
+      "heat",
+      "schedule",
+      "timer",
+      "eb6113e5-431d-4642-9348-f1fd23207b69"
+    ]
+  },
+  "EB6113E5-431D-4642-9348-F1FD23207B69_smallon.png": {
+    "name": "Smart Thermostat Schedule (Active)",
+    "category": "home",
+    "tags": [
+      "heat",
+      "schedule",
+      "timer",
+      "eb6113e5-431d-4642-9348-f1fd23207b69"
+    ]
+  },
+  "EC6648B8-49EE-4457-95E4-F31B242D989A.png": {
+    "name": "Smart Wall Switch Dual (Large)",
+    "category": "home",
+    "tags": [
+      "wall",
+      "switch",
+      "ec6648b8-49ee-4457-95e4-f31b242d989a",
+      "dual"
+    ]
+  },
+  "EC6648B8-49EE-4457-95E4-F31B242D989A_off.png": {
+    "name": "Smart Wall Switch Dual (Inactive)",
+    "category": "home",
+    "tags": [
+      "wall",
+      "switch",
+      "ec6648b8-49ee-4457-95e4-f31b242d989a",
+      "dual"
+    ]
+  },
+  "EC6648B8-49EE-4457-95E4-F31B242D989A_on.png": {
+    "name": "Smart Wall Switch Dual (Active)",
+    "category": "home",
+    "tags": [
+      "wall",
+      "switch",
+      "ec6648b8-49ee-4457-95e4-f31b242d989a",
+      "dual"
+    ]
+  },
+  "EC6648B8-49EE-4457-95E4-F31B242D989A_small.png": {
+    "name": "Smart Wall Switch Dual",
+    "category": "home",
+    "tags": [
+      "wall",
+      "switch",
+      "ec6648b8-49ee-4457-95e4-f31b242d989a",
+      "dual"
+    ]
+  },
+  "EC6648B8-49EE-4457-95E4-F31B242D989A_smallon.png": {
+    "name": "Smart Wall Switch Dual (Active)",
+    "category": "home",
+    "tags": [
+      "wall",
+      "switch",
+      "ec6648b8-49ee-4457-95e4-f31b242d989a",
+      "dual"
+    ]
+  },
+  "EDCD349E-0BB5-4320-A1AE-D409BCFBA325.png": {
+    "name": "Smart Garage Sensor (Large)",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "tilt",
+      "edcd349e-0bb5-4320-a1ae-d409bcfba325",
+      "garage"
+    ]
+  },
+  "EDCD349E-0BB5-4320-A1AE-D409BCFBA325_small.png": {
+    "name": "Smart Garage Sensor",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "tilt",
+      "edcd349e-0bb5-4320-a1ae-d409bcfba325",
+      "garage"
+    ]
+  },
+  "EDCD349E-0BB5-4320-A1AE-D409BCFBA325_smallon.png": {
+    "name": "Smart Garage Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "sensor",
+      "tilt",
+      "edcd349e-0bb5-4320-a1ae-d409bcfba325",
+      "garage"
+    ]
+  },
+  "EFD06B84-DCE8-4BF7-AF0C-AFAC990862B5.png": {
+    "name": "Smart Awning Motor (Large)",
+    "category": "home",
+    "tags": [
+      "awning",
+      "motor",
+      "shade",
+      "efd06b84-dce8-4bf7-af0c-afac990862b5"
+    ]
+  },
+  "EFD06B84-DCE8-4BF7-AF0C-AFAC990862B5_small.png": {
+    "name": "Smart Awning Motor",
+    "category": "home",
+    "tags": [
+      "awning",
+      "motor",
+      "shade",
+      "efd06b84-dce8-4bf7-af0c-afac990862b5"
+    ]
+  },
+  "EFD06B84-DCE8-4BF7-AF0C-AFAC990862B5_smallon.png": {
+    "name": "Smart Awning Motor (Active)",
+    "category": "home",
+    "tags": [
+      "awning",
+      "motor",
+      "shade",
+      "efd06b84-dce8-4bf7-af0c-afac990862b5"
+    ]
+  },
+  "F30D50E9-96A2-4A44-92D5-9A42431F83DA.png": {
+    "name": "Smart Window Motor (Large)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "window",
+      "shutter",
+      "f30d50e9-96a2-4a44-92d5-9a42431f83da"
+    ]
+  },
+  "F30D50E9-96A2-4A44-92D5-9A42431F83DA_off.png": {
+    "name": "Smart Window Motor (Inactive)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "window",
+      "shutter",
+      "f30d50e9-96a2-4a44-92d5-9a42431f83da"
+    ]
+  },
+  "F30D50E9-96A2-4A44-92D5-9A42431F83DA_on.png": {
+    "name": "Smart Window Motor (Active)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "window",
+      "shutter",
+      "f30d50e9-96a2-4a44-92d5-9a42431f83da"
+    ]
+  },
+  "F30D50E9-96A2-4A44-92D5-9A42431F83DA_small.png": {
+    "name": "Smart Window Motor",
+    "category": "home",
+    "tags": [
+      "motor",
+      "window",
+      "shutter",
+      "f30d50e9-96a2-4a44-92d5-9a42431f83da"
+    ]
+  },
+  "F30D50E9-96A2-4A44-92D5-9A42431F83DA_smallon.png": {
+    "name": "Smart Window Motor (Active)",
+    "category": "home",
+    "tags": [
+      "motor",
+      "window",
+      "shutter",
+      "f30d50e9-96a2-4a44-92d5-9a42431f83da"
+    ]
+  },
+  "FA224AD1-A6B0-4FB3-84A1-9EE204C0DCD9.png": {
+    "name": "Smart Scent Diffuser (Large)",
+    "category": "home",
+    "tags": [
+      "scent",
+      "fa224ad1-a6b0-4fb3-84a1-9ee204c0dcd9",
+      "diffuser",
+      "aroma"
+    ]
+  },
+  "FA224AD1-A6B0-4FB3-84A1-9EE204C0DCD9_small.png": {
+    "name": "Smart Scent Diffuser",
+    "category": "home",
+    "tags": [
+      "scent",
+      "fa224ad1-a6b0-4fb3-84a1-9ee204c0dcd9",
+      "diffuser",
+      "aroma"
+    ]
+  },
+  "FA224AD1-A6B0-4FB3-84A1-9EE204C0DCD9_smallon.png": {
+    "name": "Smart Scent Diffuser (Active)",
+    "category": "home",
+    "tags": [
+      "scent",
+      "fa224ad1-a6b0-4fb3-84a1-9ee204c0dcd9",
+      "diffuser",
+      "aroma"
+    ]
+  },
+  "FAD05710-2621-4042-9DD4-B3466665A584.png": {
+    "name": "Smart Air Quality Monitor (Large)",
+    "category": "home",
+    "tags": [
+      "co2",
+      "sensor",
+      "fad05710-2621-4042-9dd4-b3466665a584",
+      "air"
+    ]
+  },
+  "FAD05710-2621-4042-9DD4-B3466665A584_off.png": {
+    "name": "Smart Air Quality Monitor (Inactive)",
+    "category": "home",
+    "tags": [
+      "co2",
+      "sensor",
+      "fad05710-2621-4042-9dd4-b3466665a584",
+      "air"
+    ]
+  },
+  "FAD05710-2621-4042-9DD4-B3466665A584_on.png": {
+    "name": "Smart Air Quality Monitor (Active)",
+    "category": "home",
+    "tags": [
+      "co2",
+      "sensor",
+      "fad05710-2621-4042-9dd4-b3466665a584",
+      "air"
+    ]
+  },
+  "FAD05710-2621-4042-9DD4-B3466665A584_small.png": {
+    "name": "Smart Air Quality Monitor",
+    "category": "home",
+    "tags": [
+      "co2",
+      "sensor",
+      "fad05710-2621-4042-9dd4-b3466665a584",
+      "air"
+    ]
+  },
+  "FAD05710-2621-4042-9DD4-B3466665A584_smallon.png": {
+    "name": "Smart Air Quality Monitor (Active)",
+    "category": "home",
+    "tags": [
+      "co2",
+      "sensor",
+      "fad05710-2621-4042-9dd4-b3466665a584",
+      "air"
+    ]
+  },
+  "FCF344CE-4029-406C-8E11-582D7A7BFB08.png": {
+    "name": "Smart Light Bulb Filament (Large)",
+    "category": "home",
+    "tags": [
+      "filament",
+      "vintage",
+      "bulb",
+      "fcf344ce-4029-406c-8e11-582d7a7bfb08"
+    ]
+  },
+  "FCF344CE-4029-406C-8E11-582D7A7BFB08_small.png": {
+    "name": "Smart Light Bulb Filament",
+    "category": "home",
+    "tags": [
+      "filament",
+      "vintage",
+      "bulb",
+      "fcf344ce-4029-406c-8e11-582d7a7bfb08"
+    ]
+  },
+  "FCF344CE-4029-406C-8E11-582D7A7BFB08_smallon.png": {
+    "name": "Smart Light Bulb Filament (Active)",
+    "category": "home",
+    "tags": [
+      "filament",
+      "vintage",
+      "bulb",
+      "fcf344ce-4029-406c-8e11-582d7a7bfb08"
+    ]
+  },
+  "FDC89D40-DBBF-469B-9FC9-B24A6651FE6A.png": {
+    "name": "Smart Temperature Sensor (Large)",
+    "category": "home",
+    "tags": [
+      "temp",
+      "thermometer",
+      "temperature",
+      "fdc89d40-dbbf-469b-9fc9-b24a6651fe6a"
+    ]
+  },
+  "FDC89D40-DBBF-469B-9FC9-B24A6651FE6A_small.png": {
+    "name": "Smart Temperature Sensor",
+    "category": "home",
+    "tags": [
+      "temp",
+      "thermometer",
+      "temperature",
+      "fdc89d40-dbbf-469b-9fc9-b24a6651fe6a"
+    ]
+  },
+  "FDC89D40-DBBF-469B-9FC9-B24A6651FE6A_smallon.png": {
+    "name": "Smart Temperature Sensor (Active)",
+    "category": "home",
+    "tags": [
+      "temp",
+      "thermometer",
+      "temperature",
+      "fdc89d40-dbbf-469b-9fc9-b24a6651fe6a"
+    ]
+  },
+  "Uparrow.png": {
+    "name": "Uparrow",
+    "category": "other",
+    "tags": [
+      "uparrow"
+    ]
+  },
+  "activitygreyline.png": {
+    "name": "Activitygreyline",
+    "category": "other",
+    "tags": [
+      "activitygreyline"
+    ]
+  },
+  "add.png": {
+    "name": "Add",
+    "category": "ui",
+    "tags": [
+      "add"
+    ]
+  },
+  "album1.png": {
+    "name": "Album1",
+    "category": "other",
+    "tags": [
+      "album1"
+    ]
+  },
+  "alert.png": {
+    "name": "Alert",
+    "category": "other",
+    "tags": [
+      "alert"
+    ]
+  },
+  "alert_big.png": {
+    "name": "Alert Warning",
+    "category": "ui",
+    "tags": [
+      "alert_big"
+    ]
+  },
+  "alert_small.png": {
+    "name": "Alert Warning",
+    "category": "ui",
+    "tags": [
+      "alert_small"
+    ]
+  },
+  "apple.png": {
+    "name": "Apple",
+    "category": "other",
+    "tags": [
+      "apple"
+    ]
+  },
+  "arrow_off.png": {
+    "name": "Arrow Off",
+    "category": "other",
+    "tags": [
+      "arrow_off"
+    ]
+  },
+  "arrow_on.png": {
+    "name": "Arrow On",
+    "category": "other",
+    "tags": [
+      "arrow_on"
+    ]
+  },
+  "arrowdown.png": {
+    "name": "Arrowdown",
+    "category": "other",
+    "tags": [
+      "arrowdown"
+    ]
+  },
+  "back.png": {
+    "name": "Back",
+    "category": "other",
+    "tags": [
+      "back"
+    ]
+  },
+  "bg_check_box.png": {
+    "name": "Bg Check Box",
+    "category": "other",
+    "tags": [
+      "bg_check_box"
+    ]
+  },
+  "black_line.png": {
+    "name": "Black Line",
+    "category": "other",
+    "tags": [
+      "black_line"
+    ]
+  },
+  "blinds_off.png": {
+    "name": "Window Blinds (Closed)",
+    "category": "home",
+    "tags": [
+      "blinds_off"
+    ]
+  },
+  "blinds_on.png": {
+    "name": "Window Blinds (Open)",
+    "category": "home",
+    "tags": [
+      "blinds_on"
+    ]
+  },
+  "bri.png": {
+    "name": "Brightness",
+    "category": "ui",
+    "tags": [
+      "bri"
+    ]
+  },
+  "bulb.png": {
+    "name": "Light Bulb",
+    "category": "home",
+    "tags": [
+      "bulb"
+    ]
+  },
+  "bulb_off.png": {
+    "name": "Light Bulb (Off)",
+    "category": "home",
+    "tags": [
+      "bulb_off"
+    ]
+  },
+  "bulb_on.png": {
+    "name": "Light Bulb (On)",
+    "category": "home",
+    "tags": [
+      "bulb_on"
+    ]
+  },
+  "bulb_small.png": {
+    "name": "Light Bulb (Small)",
+    "category": "home",
+    "tags": [
+      "bulb_small"
+    ]
+  },
+  "cd.png": {
+    "name": "CD Player / Disc",
+    "category": "device",
+    "tags": [
+      "cd"
+    ]
+  },
+  "charging.png": {
+    "name": "Battery Charging",
+    "category": "ui",
+    "tags": [
+      "charging"
+    ]
+  },
+  "checkbox.png": {
+    "name": "Checkbox (Empty)",
+    "category": "ui",
+    "tags": [
+      "checkbox"
+    ]
+  },
+  "checkbox_true.png": {
+    "name": "Checkbox (Checked)",
+    "category": "ui",
+    "tags": [
+      "checkbox_true"
+    ]
+  },
+  "checkmark.png": {
+    "name": "Checkmark",
+    "category": "ui",
+    "tags": [
+      "checkmark"
+    ]
+  },
+  "close.png": {
+    "name": "Close",
+    "category": "ui",
+    "tags": [
+      "close"
+    ]
+  },
+  "collapse.png": {
+    "name": "Collapse View",
+    "category": "device",
+    "tags": [
+      "collapse"
+    ]
+  },
+  "color1.png": {
+    "name": "Color1",
+    "category": "other",
+    "tags": [
+      "color1"
+    ]
+  },
+  "color2.png": {
+    "name": "Color2",
+    "category": "other",
+    "tags": [
+      "color2"
+    ]
+  },
+  "color3.png": {
+    "name": "Color3",
+    "category": "other",
+    "tags": [
+      "color3"
+    ]
+  },
+  "color4.png": {
+    "name": "Color4",
+    "category": "other",
+    "tags": [
+      "color4"
+    ]
+  },
+  "color5.png": {
+    "name": "Color5",
+    "category": "other",
+    "tags": [
+      "color5"
+    ]
+  },
+  "commands_preview.png": {
+    "name": "Commands Preview",
+    "category": "other",
+    "tags": [
+      "commands_preview"
+    ]
+  },
+  "covering_off.png": {
+    "name": "Covering Off",
+    "category": "other",
+    "tags": [
+      "covering_off"
+    ]
+  },
+  "covering_on.png": {
+    "name": "Covering On",
+    "category": "other",
+    "tags": [
+      "covering_on"
+    ]
+  },
+  "ct.png": {
+    "name": "Color Temperature",
+    "category": "ui",
+    "tags": [
+      "ct"
+    ]
+  },
+  "default.png": {
+    "name": "Default",
+    "category": "other",
+    "tags": [
+      "default"
+    ]
+  },
+  "device_bg.png": {
+    "name": "Device Bg",
+    "category": "other",
+    "tags": [
+      "device_bg"
+    ]
+  },
+  "devicelock_lock.png": {
+    "name": "Devicelock Lock",
+    "category": "other",
+    "tags": [
+      "devicelock_lock"
+    ]
+  },
+  "devicelock_unlock.png": {
+    "name": "Devicelock Unlock",
+    "category": "other",
+    "tags": [
+      "devicelock_unlock"
+    ]
+  },
+  "devices.png": {
+    "name": "Devices",
+    "category": "other",
+    "tags": [
+      "devices"
+    ]
+  },
+  "divline.png": {
+    "name": "Divline",
+    "category": "other",
+    "tags": [
+      "divline"
+    ]
+  },
+  "divline_02.png": {
+    "name": "Divline 02",
+    "category": "other",
+    "tags": [
+      "divline_02"
+    ]
+  },
+  "doorlock_lock.png": {
+    "name": "Door Lock (Locked)",
+    "category": "home",
+    "tags": [
+      "doorlock_lock"
+    ]
+  },
+  "doorlock_unlock.png": {
+    "name": "Door Lock (Unlocked)",
+    "category": "home",
+    "tags": [
+      "doorlock_unlock"
+    ]
+  },
+  "downarrow.png": {
+    "name": "Downarrow",
+    "category": "other",
+    "tags": [
+      "downarrow"
+    ]
+  },
+  "edit.png": {
+    "name": "Edit",
+    "category": "ui",
+    "tags": [
+      "edit"
+    ]
+  },
+  "edit_lock.png": {
+    "name": "Edit Locked",
+    "category": "ui",
+    "tags": [
+      "edit_lock"
+    ]
+  },
+  "expand.png": {
+    "name": "Expand View",
+    "category": "ui",
+    "tags": [
+      "expand"
+    ]
+  },
+  "favorites_preview.png": {
+    "name": "Favorites Preview",
+    "category": "other",
+    "tags": [
+      "favorites_preview"
+    ]
+  },
+  "firetv.png": {
+    "name": "Amazon Fire TV",
+    "category": "device",
+    "tags": [
+      "firetv"
+    ]
+  },
+  "flip.png": {
+    "name": "Page Flip",
+    "category": "ui",
+    "tags": [
+      "flip"
+    ]
+  },
+  "flip_device.png": {
+    "name": "Switch Device View",
+    "category": "ui",
+    "tags": [
+      "flip_device"
+    ]
+  },
+  "footermenu.png": {
+    "name": "Bottom Bar Menu",
+    "category": "ui",
+    "tags": [
+      "footermenu"
+    ]
+  },
+  "footermenu_sleeptimer.png": {
+    "name": "Sleep Timer Menu",
+    "category": "ui",
+    "tags": [
+      "footermenu_sleeptimer"
+    ]
+  },
+  "forward.png": {
+    "name": "Forward",
+    "category": "other",
+    "tags": [
+      "forward"
+    ]
+  },
+  "fwUpdate.png": {
+    "name": "Fwupdate",
+    "category": "other",
+    "tags": [
+      "fwupdate"
+    ]
+  },
+  "game.png": {
+    "name": "Game",
+    "category": "other",
+    "tags": [
+      "game"
+    ]
+  },
+  "generic.png": {
+    "name": "Generic Device",
+    "category": "device",
+    "tags": [
+      "generic"
+    ]
+  },
+  "gesture_cue.png": {
+    "name": "Gesture Guide",
+    "category": "ui",
+    "tags": [
+      "gesture_cue"
+    ]
+  },
+  "gesture_preview.png": {
+    "name": "Touch Gestures",
+    "category": "ui",
+    "tags": [
+      "gesture_preview"
+    ]
+  },
+  "gesture_pulldown.png": {
+    "name": "Gesture Pulldown",
+    "category": "other",
+    "tags": [
+      "gesture_pulldown"
+    ]
+  },
+  "help.png": {
+    "name": "Help Support",
+    "category": "ui",
+    "tags": [
+      "help"
+    ]
+  },
+  "help2.png": {
+    "name": "Help Assistant",
+    "category": "ui",
+    "tags": [
+      "help2"
+    ]
+  },
+  "heos.png": {
+    "name": "Denon HEOS Audio",
+    "category": "device",
+    "tags": [
+      "heos"
+    ]
+  },
+  "hopscharging.png": {
+    "name": "Hopscharging",
+    "category": "other",
+    "tags": [
+      "hopscharging"
+    ]
+  },
+  "hopscommands_preview.png": {
+    "name": "Hopscommands Preview",
+    "category": "other",
+    "tags": [
+      "hopscommands_preview"
+    ]
+  },
+  "hopsfavorites_preview.png": {
+    "name": "Hopsfavorites Preview",
+    "category": "other",
+    "tags": [
+      "hopsfavorites_preview"
+    ]
+  },
+  "hopsgesture_preview.png": {
+    "name": "Hopsgesture Preview",
+    "category": "other",
+    "tags": [
+      "hopsgesture_preview"
+    ]
+  },
+  "hopslevel10.png": {
+    "name": "Hopslevel10",
+    "category": "other",
+    "tags": [
+      "hopslevel10"
+    ]
+  },
+  "hopslevel100.png": {
+    "name": "Hopslevel100",
+    "category": "other",
+    "tags": [
+      "hopslevel100"
+    ]
+  },
+  "hopslevel20.png": {
+    "name": "Hopslevel20",
+    "category": "other",
+    "tags": [
+      "hopslevel20"
+    ]
+  },
+  "hopslevel30.png": {
+    "name": "Hopslevel30",
+    "category": "other",
+    "tags": [
+      "hopslevel30"
+    ]
+  },
+  "hopslevel40.png": {
+    "name": "Hopslevel40",
+    "category": "other",
+    "tags": [
+      "hopslevel40"
+    ]
+  },
+  "hopslevel50.png": {
+    "name": "Hopslevel50",
+    "category": "other",
+    "tags": [
+      "hopslevel50"
+    ]
+  },
+  "hopslevel60.png": {
+    "name": "Hopslevel60",
+    "category": "other",
+    "tags": [
+      "hopslevel60"
+    ]
+  },
+  "hopslevel70.png": {
+    "name": "Hopslevel70",
+    "category": "other",
+    "tags": [
+      "hopslevel70"
+    ]
+  },
+  "hopslevel80.png": {
+    "name": "Hopslevel80",
+    "category": "other",
+    "tags": [
+      "hopslevel80"
+    ]
+  },
+  "hopslevel90.png": {
+    "name": "Hopslevel90",
+    "category": "other",
+    "tags": [
+      "hopslevel90"
+    ]
+  },
+  "hopsmenu.png": {
+    "name": "Activity Navigation Menu",
+    "category": "device",
+    "tags": [
+      "hopsmenu"
+    ]
+  },
+  "hopsmenu_sleeptimer.png": {
+    "name": "Sleep Timer",
+    "category": "device",
+    "tags": [
+      "hopsmenu_sleeptimer"
+    ]
+  },
+  "lamp.png": {
+    "name": "Lamp",
+    "category": "other",
+    "tags": [
+      "lamp"
+    ]
+  },
+  "lamp_off.png": {
+    "name": "Lamp Off",
+    "category": "other",
+    "tags": [
+      "lamp_off"
+    ]
+  },
+  "lamp_on.png": {
+    "name": "Lamp On",
+    "category": "other",
+    "tags": [
+      "lamp_on"
+    ]
+  },
+  "less.png": {
+    "name": "Decrease",
+    "category": "ui",
+    "tags": [
+      "less"
+    ]
+  },
+  "level100.png": {
+    "name": "Battery 100%",
+    "category": "ui",
+    "tags": [
+      "level100"
+    ]
+  },
+  "level25.png": {
+    "name": "Battery 25%",
+    "category": "ui",
+    "tags": [
+      "level25"
+    ]
+  },
+  "level50.png": {
+    "name": "Battery 50%",
+    "category": "ui",
+    "tags": [
+      "level50"
+    ]
+  },
+  "light.png": {
+    "name": "Light",
+    "category": "other",
+    "tags": [
+      "light"
+    ]
+  },
+  "lock-icon.png": {
+    "name": "Lock Icon",
+    "category": "other",
+    "tags": [
+      "lock-icon"
+    ]
+  },
+  "lock.png": {
+    "name": "Lock",
+    "category": "other",
+    "tags": [
+      "lock"
+    ]
+  },
+  "lock_lock.png": {
+    "name": "Lock Lock",
+    "category": "other",
+    "tags": [
+      "lock_lock"
+    ]
+  },
+  "lock_unlock.png": {
+    "name": "Lock Unlock",
+    "category": "other",
+    "tags": [
+      "lock_unlock"
+    ]
+  },
+  "low-battery.png": {
+    "name": "Low Battery Alert",
+    "category": "ui",
+    "tags": [
+      "low-battery"
+    ]
+  },
+  "menu.png": {
+    "name": "Menu",
+    "category": "other",
+    "tags": [
+      "menu"
+    ]
+  },
+  "menu_sleeptimer.png": {
+    "name": "Menu Sleeptimer",
+    "category": "other",
+    "tags": [
+      "menu_sleeptimer"
+    ]
+  },
+  "menubg.png": {
+    "name": "Menubg",
+    "category": "other",
+    "tags": [
+      "menubg"
+    ]
+  },
+  "minus_hover.png": {
+    "name": "Minus Hover",
+    "category": "other",
+    "tags": [
+      "minus_hover"
+    ]
+  },
+  "minus_normal.png": {
+    "name": "Minus Button",
+    "category": "ui",
+    "tags": [
+      "minus_normal"
+    ]
+  },
+  "more.png": {
+    "name": "Increase",
+    "category": "ui",
+    "tags": [
+      "more"
+    ]
+  },
+  "movie.png": {
+    "name": "Movie",
+    "category": "other",
+    "tags": [
+      "movie"
+    ]
+  },
+  "music.png": {
+    "name": "Music / Audio",
+    "category": "ui",
+    "tags": [
+      "music"
+    ]
+  },
+  "nest_away.png": {
+    "name": "Nest Thermostat (Away)",
+    "category": "home",
+    "tags": [
+      "nest_away"
+    ]
+  },
+  "nestprotect_off.png": {
+    "name": "Nestprotect Off",
+    "category": "other",
+    "tags": [
+      "nestprotect_off"
+    ]
+  },
+  "nestprotect_on.png": {
+    "name": "Nestprotect On",
+    "category": "other",
+    "tags": [
+      "nestprotect_on"
+    ]
+  },
+  "nofavoriteconfig.png": {
+    "name": "Nofavoriteconfig",
+    "category": "other",
+    "tags": [
+      "nofavoriteconfig"
+    ]
+  },
+  "nofavorites.png": {
+    "name": "Nofavorites",
+    "category": "other",
+    "tags": [
+      "nofavorites"
+    ]
+  },
+  "numpad.png": {
+    "name": "Numeric Keypad",
+    "category": "ui",
+    "tags": [
+      "numpad"
+    ]
+  },
+  "numpad_preview.png": {
+    "name": "Keypad Preview",
+    "category": "ui",
+    "tags": [
+      "numpad_preview"
+    ]
+  },
+  "pc.png": {
+    "name": "Computer / PC",
+    "category": "device",
+    "tags": [
+      "pc"
+    ]
+  },
+  "playpause.png": {
+    "name": "Playpause",
+    "category": "other",
+    "tags": [
+      "playpause"
+    ]
+  },
+  "plug_off.png": {
+    "name": "Smart Plug (Off)",
+    "category": "home",
+    "tags": [
+      "plug_off"
+    ]
+  },
+  "plug_on.png": {
+    "name": "Smart Plug (On)",
+    "category": "home",
+    "tags": [
+      "plug_on"
+    ]
+  },
+  "pluggroup_off.png": {
+    "name": "Pluggroup Off",
+    "category": "other",
+    "tags": [
+      "pluggroup_off"
+    ]
+  },
+  "pluggroup_on.png": {
+    "name": "Pluggroup On",
+    "category": "other",
+    "tags": [
+      "pluggroup_on"
+    ]
+  },
+  "plus_hover.png": {
+    "name": "Plus Hover",
+    "category": "other",
+    "tags": [
+      "plus_hover"
+    ]
+  },
+  "plus_normal.png": {
+    "name": "Plus Normal",
+    "category": "other",
+    "tags": [
+      "plus_normal"
+    ]
+  },
+  "power_off.png": {
+    "name": "Power Off",
+    "category": "other",
+    "tags": [
+      "power_off"
+    ]
+  },
+  "power_on.png": {
+    "name": "Power On",
+    "category": "other",
+    "tags": [
+      "power_on"
+    ]
+  },
+  "poweroff.png": {
+    "name": "Power Off All",
+    "category": "ui",
+    "tags": [
+      "poweroff"
+    ]
+  },
+  "presence_off.png": {
+    "name": "Presence Sensor (Away)",
+    "category": "home",
+    "tags": [
+      "presence_off"
+    ]
+  },
+  "presence_on.png": {
+    "name": "Presence Sensor (Present)",
+    "category": "home",
+    "tags": [
+      "presence_on"
+    ]
+  },
+  "ps.png": {
+    "name": "Sony PlayStation",
+    "category": "device",
+    "tags": [
+      "ps"
+    ]
+  },
+  "pull_down.png": {
+    "name": "Pull Down Sheet",
+    "category": "ui",
+    "tags": [
+      "pull_down"
+    ]
+  },
+  "pull_up.png": {
+    "name": "Pull Up Sheet",
+    "category": "ui",
+    "tags": [
+      "pull_up"
+    ]
+  },
+  "pulldown_arrow.png": {
+    "name": "Pulldown Arrow",
+    "category": "other",
+    "tags": [
+      "pulldown_arrow"
+    ]
+  },
+  "pullup_arrow.png": {
+    "name": "Pullup Arrow",
+    "category": "other",
+    "tags": [
+      "pullup_arrow"
+    ]
+  },
+  "receiver.png": {
+    "name": "AV Receiver / Amplifier",
+    "category": "device",
+    "tags": [
+      "receiver"
+    ]
+  },
+  "red.png": {
+    "name": "Red",
+    "category": "other",
+    "tags": [
+      "red"
+    ]
+  },
+  "roku.png": {
+    "name": "Roku",
+    "category": "other",
+    "tags": [
+      "roku"
+    ]
+  },
+  "scene-default_hops.png": {
+    "name": "Scene Default Hops",
+    "category": "other",
+    "tags": [
+      "scene-default_hops"
+    ]
+  },
+  "scene-default_jrf.png": {
+    "name": "Scene Default Jrf",
+    "category": "other",
+    "tags": [
+      "scene-default_jrf"
+    ]
+  },
+  "scene_icon.png": {
+    "name": "Smart Scene",
+    "category": "home",
+    "tags": [
+      "scene_icon"
+    ]
+  },
+  "sensor_off.png": {
+    "name": "Motion Sensor (Idle)",
+    "category": "home",
+    "tags": [
+      "sensor_off"
+    ]
+  },
+  "sensor_on.png": {
+    "name": "Motion Sensor (Triggered)",
+    "category": "home",
+    "tags": [
+      "sensor_on"
+    ]
+  },
+  "separator.png": {
+    "name": "Separator",
+    "category": "other",
+    "tags": [
+      "separator"
+    ]
+  },
+  "sequence.png": {
+    "name": "Sequence",
+    "category": "other",
+    "tags": [
+      "sequence"
+    ]
+  },
+  "settings.png": {
+    "name": "Settings",
+    "category": "ui",
+    "tags": [
+      "settings"
+    ]
+  },
+  "shield.png": {
+    "name": "NVIDIA Shield TV",
+    "category": "device",
+    "tags": [
+      "shield"
+    ]
+  },
+  "slidelock.png": {
+    "name": "Slide to Unlock",
+    "category": "ui",
+    "tags": [
+      "slidelock"
+    ]
+  },
+  "slideunlock.png": {
+    "name": "Slideunlock",
+    "category": "other",
+    "tags": [
+      "slideunlock"
+    ]
+  },
+  "sonos.png": {
+    "name": "Sonos Speaker",
+    "category": "device",
+    "tags": [
+      "sonos"
+    ]
+  },
+  "switch.png": {
+    "name": "Nintendo Switch",
+    "category": "device",
+    "tags": [
+      "switch"
+    ]
+  },
+  "text_btn_hover.png": {
+    "name": "Text Btn Hover",
+    "category": "other",
+    "tags": [
+      "text_btn_hover"
+    ]
+  },
+  "thermostat_big.png": {
+    "name": "Thermostat Big",
+    "category": "other",
+    "tags": [
+      "thermostat_big"
+    ]
+  },
+  "thermostat_off.png": {
+    "name": "Thermostat (Idle)",
+    "category": "home",
+    "tags": [
+      "thermostat_off"
+    ]
+  },
+  "thermostat_on.png": {
+    "name": "Thermostat (Active)",
+    "category": "home",
+    "tags": [
+      "thermostat_on"
+    ]
+  },
+  "tick.png": {
+    "name": "Tick Mark",
+    "category": "ui",
+    "tags": [
+      "tick"
+    ]
+  },
+  "tips.png": {
+    "name": "Tips",
+    "category": "other",
+    "tags": [
+      "tips"
+    ]
+  },
+  "toolbarBG.png": {
+    "name": "Toolbarbg",
+    "category": "other",
+    "tags": [
+      "toolbarbg"
+    ]
+  },
+  "toolbarBGwithBlackLine.png": {
+    "name": "Toolbarbgwithblackline",
+    "category": "other",
+    "tags": [
+      "toolbarbgwithblackline"
+    ]
+  },
+  "toolbarBlackLine.png": {
+    "name": "Toolbarblackline",
+    "category": "other",
+    "tags": [
+      "toolbarblackline"
+    ]
+  },
+  "tv.png": {
+    "name": "Television / Smart TV",
+    "category": "device",
+    "tags": [
+      "tv"
+    ]
+  },
+  "usb.png": {
+    "name": "Usb",
+    "category": "other",
+    "tags": [
+      "usb"
+    ]
+  },
+  "watchtv.png": {
+    "name": "Watch TV",
+    "category": "device",
+    "tags": [
+      "watchtv"
+    ]
+  },
+  "waterheater_off.png": {
+    "name": "Water Heater (Off)",
+    "category": "home",
+    "tags": [
+      "waterheater_off"
+    ]
+  },
+  "white_line.png": {
+    "name": "White Line",
+    "category": "other",
+    "tags": [
+      "white_line"
+    ]
+  },
+  "wiihome.png": {
+    "name": "Nintendo Wii Home",
+    "category": "ui",
+    "tags": [
+      "wiihome"
+    ]
+  },
+  "xbox.png": {
+    "name": "Microsoft Xbox",
+    "category": "device",
+    "tags": [
+      "xbox"
+    ]
+  }
+}

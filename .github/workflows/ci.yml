@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-version-sync:
+    name: Check Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify Version Sync
+        run: |
+          python scripts/bump_version.py --sync
+          git diff --exit-code || (echo "Version numbers out of sync! Run 'python scripts/bump_version.py --sync'" && exit 1)
+
+  build-webui:
+    name: Build WebUI & Validate Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'android-app/package-lock.json'
+      - name: Install dependencies
+        working-directory: android-app
+        run: npm ci
+      - name: Compile frontend bundle
+        working-directory: android-app
+        run: npm run build
+      - name: Verify WebUI build output
+        run: |
+          test -f android-app/dist/index.html
+          test -d android-app/dist/assets
+
+  build-elite:
+    name: Compile Elite ARM Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
+      - name: Compile codex_elite
+        run: |
+          mkdir -p elite/bin
+          arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o elite/bin/codex_elite -lpthread -lm
+          arm-linux-gnueabi-gcc -static -Os -s -o elite/bin/codex_sync payload/source/codex_sync.c
+          file elite/bin/codex_elite
+          ls -lh elite/bin/codex_elite elite/bin/codex_sync
+
+  build-hub:
+    name: Compile Hub MIPS Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MIPS GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mips-linux-gnu libc6-dev-mips-cross
+      - name: Compile Hub MIPS Binaries
+        run: |
+          chmod +x build/compile_all.sh
+          ./build/compile_all.sh hub
+          file payload/bin/codex_daemon payload/bin/codex_rf
+          ls -lh payload/bin/codex_* payload/bin/register_ehci payload/bin/mknod

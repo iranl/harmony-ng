@@ -1,0 +1,221 @@
+diff --git a/src/btstack_run_loop.c b/src/btstack_run_loop.c
+index caba7f4..225e803 100644
+--- a/src/btstack_run_loop.c
++++ b/src/btstack_run_loop.c
+@@ -91,6 +91,7 @@ bool btstack_run_loop_base_remove_timer(btstack_timer_source_t * timer){
+ }
+ 
+ void btstack_run_loop_base_add_timer(btstack_timer_source_t * timer){
++    btstack_run_loop_base_remove_timer(timer);
+     btstack_linked_item_t *it;
+     for (it = (btstack_linked_item_t *) &btstack_run_loop_base_timers; it->next ; it = it->next){
+         btstack_timer_source_t * next = (btstack_timer_source_t *) it->next;
+diff --git a/src/classic/hid_device.c b/src/classic/hid_device.c
+index aa0052f..ac51747 100644
+--- a/src/classic/hid_device.c
++++ b/src/classic/hid_device.c
+@@ -91,7 +91,10 @@ static int  (*hci_device_get_report)   (uint16_t hid_cid, hid_report_type_t repo
+ static void (*hci_device_set_report)   (uint16_t hid_cid, hid_report_type_t report_type, int report_size, uint8_t * report) = dummy_set_report;
+ static void (*hci_device_report_data)  (uint16_t hid_cid, hid_report_type_t report_type, uint16_t report_id, int report_size, uint8_t * report) = dummy_report_data;
+ 
+-static hid_device_t    hid_device_singleton;
++#ifndef MAX_NR_HID_DEVICES
++#define MAX_NR_HID_DEVICES 4
++#endif
++static hid_device_t    hid_devices[MAX_NR_HID_DEVICES];
+ 
+ static bool            hid_device_boot_protocol_mode_supported;
+ static const uint8_t * hid_device_descriptor;
+@@ -134,17 +137,22 @@ static uint16_t hid_device_get_next_cid(void){
+     return hid_device_cid;
+ }
+ 
+-// TODO: store hid device connection into list
+ static hid_device_t * hid_device_get_instance_for_l2cap_cid(uint16_t cid){
+-    if ((hid_device_singleton.control_cid == cid) || (hid_device_singleton.interrupt_cid == cid)){
+-        return &hid_device_singleton;
++    int i;
++    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
++        if ((hid_devices[i].control_cid == cid) || (hid_devices[i].interrupt_cid == cid)){
++            return &hid_devices[i];
++        }
+     }
+     return NULL;
+ }
+ 
+ static hid_device_t * hid_device_get_instance_for_hid_cid(uint16_t hid_cid){
+-    if (hid_device_singleton.cid == hid_cid){
+-        return &hid_device_singleton;
++    int i;
++    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
++        if (hid_devices[i].cid == hid_cid){
++            return &hid_devices[i];
++        }
+     }
+     return NULL;
+ }
+@@ -158,15 +166,29 @@ static void hid_device_setup_instance(hid_device_t *hid_device, const uint8_t *b
+ }
+ 
+ static hid_device_t * hid_device_provide_instance_for_bd_addr(bd_addr_t bd_addr){
+-    if (!hid_device_singleton.cid){
+-        hid_device_setup_instance(&hid_device_singleton, bd_addr);
++    int i;
++    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
++        if (hid_devices[i].cid && (memcmp(hid_devices[i].bd_addr, bd_addr, 6) == 0)) {
++            return &hid_devices[i];
++        }
++    }
++    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
++        if (!hid_devices[i].cid) {
++            hid_device_setup_instance(&hid_devices[i], bd_addr);
++            return &hid_devices[i];
++        }
+     }
+-    return &hid_device_singleton;
++    return NULL;
+ }
+ 
+ static hid_device_t * hid_device_create_instance(void){
+-
+-    return &hid_device_singleton;
++    int i;
++    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
++        if (!hid_devices[i].cid) {
++            return &hid_devices[i];
++        }
++    }
++    return NULL;
+ }
+ 
+ void hid_create_sdp_record(uint8_t *service, uint32_t service_record_handle, const hid_sdp_record_t * params){
+@@ -696,6 +718,11 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t * pack
+                             // report error for outgoing connection
+                             hid_device_emit_connected_event(device, status);
+                         }
++                        device->control_cid = 0;
++                        device->interrupt_cid = 0;
++                        device->con_handle = HCI_CON_HANDLE_INVALID;
++                        device->connected = 0;
++                        device->cid = 0;
+                         return;
+                     }
+ 
+@@ -720,6 +747,15 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t * pack
+                     // connect HID Interrupt for outgoing
+                     if ((device->incoming == 0) && (psm == PSM_HID_CONTROL)){
+                         status = l2cap_create_channel(packet_handler, device->bd_addr, PSM_HID_INTERRUPT, l2cap_max_mtu(), &device->interrupt_cid);
++                        if (status != ERROR_CODE_SUCCESS) {
++                            hid_device_emit_connected_event(device, status);
++                            if (device->control_cid) l2cap_disconnect(device->control_cid);
++                            device->control_cid = 0;
++                            device->interrupt_cid = 0;
++                            device->con_handle = HCI_CON_HANDLE_INVALID;
++                            device->connected = 0;
++                            device->cid = 0;
++                        }
+                         break;
+                     }
+ 
+@@ -864,7 +900,7 @@ void hid_device_deinit(void){
+     hci_device_set_report = NULL;
+     hci_device_report_data = NULL;
+ 
+-    (void) memset(&hid_device_singleton, 0, sizeof(hid_device_t));
++    (void) memset(hid_devices, 0, sizeof(hid_devices));
+ 
+     hid_device_boot_protocol_mode_supported = false;
+     hid_device_descriptor = NULL;
+@@ -949,19 +985,32 @@ void hid_device_send_control_message(uint16_t hid_cid, const uint8_t * message,
+  * @result status
+  */
+ uint8_t hid_device_connect(bd_addr_t addr, uint16_t * hid_cid){
+-    hid_device_t * hid_device = hid_device_create_instance();
++    hid_device_t * hid_device = hid_device_provide_instance_for_bd_addr(addr);
+     if (!hid_device){
+         log_error("hid_device_connect: could not create a hid device instace");
+         return BTSTACK_MEMORY_ALLOC_FAILED; 
+     }
++    if (hid_device->connected) {
++        if (hid_cid) *hid_cid = hid_device->cid;
++        return ERROR_CODE_SUCCESS;
++    }
++    if (hid_device->control_cid != 0) {
++        if (hid_cid) *hid_cid = hid_device->cid;
++        return ERROR_CODE_SUCCESS;
++    }
+ 
+     // setup instance
+     hid_device_setup_instance(hid_device, addr);
+-    *hid_cid = hid_device->cid;
++    if (hid_cid) *hid_cid = hid_device->cid;
+ 
+     // create l2cap control using fixed HID L2CAP PSM
+     log_info("Create outgoing HID Control");
+     uint8_t status = l2cap_create_channel(packet_handler, hid_device->bd_addr, PSM_HID_CONTROL, l2cap_max_mtu(), &hid_device->control_cid);
++    if (status != ERROR_CODE_SUCCESS) {
++        hid_device->control_cid = 0;
++        hid_device->cid = 0;
++        if (hid_cid) *hid_cid = 0;
++    }
+     return status;
+ }
+ 
+diff --git a/src/hci.c b/src/hci.c
+index 5bf52b0..6fa9354 100644
+--- a/src/hci.c
++++ b/src/hci.c
+@@ -2455,16 +2455,8 @@ static void hci_initializing_run(void){
+         case HCI_INIT_LE_SET_EVENT_MASK:
+             if (hci_le_supported()){
+                 hci_stack->substate = HCI_INIT_W4_LE_SET_EVENT_MASK;
+-#ifdef ENABLE_SM_REPLAY_TEST
+-                // SM Replay Test have been recorded with
+-                hci_send_cmd(&hci_le_set_event_mask, 0xfffffdff, 0x0007);
+-#else
+-#ifdef ENABLE_LE_ENHANCED_CONNECTION_COMPLETE_EVENT
+-                hci_send_cmd(&hci_le_set_event_mask, 0xffffffff, 0x7ffd07); // all events from core v6.2
+-#else
+-                hci_send_cmd(&hci_le_set_event_mask, 0xfffffdff, 0x7ffc07); // all events from core v6.2 without LE Enhanced Connection Complete
+-#endif
+-#endif
++                // CSR8811 (Bluetooth 4.0) only accepts mask bits 0..4 (0x1F)
++                hci_send_cmd(&hci_le_set_event_mask, 0x0000001f, 0x0000);
+                 break;
+             }
+ #endif
+@@ -8249,6 +8241,7 @@ static bool hci_run_general_pending_commands(void){
+         }
+ 
+         if ((connection->bonding_flags & (BONDING_DISCONNECT_DEDICATED_DONE | BONDING_DEDICATED_DEFER_DISCONNECT)) == BONDING_DISCONNECT_DEDICATED_DONE){
++            printf("[BTstack HCI] Disconnect triggered: BONDING_DISCONNECT_DEDICATED_DONE (handle=0x%04x)\n", connection->con_handle);
+             connection->bonding_flags &= ~BONDING_DISCONNECT_DEDICATED_DONE;
+             connection->bonding_flags |= BONDING_EMIT_COMPLETE_ON_DISCONNECT;
+             connection->state = SENT_DISCONNECT;
+diff --git a/src/l2cap.c b/src/l2cap.c
+index eb6aa39..79d8cc9 100644
+--- a/src/l2cap.c
++++ b/src/l2cap.c
+@@ -2574,10 +2574,13 @@ static void l2cap_handle_remote_supported_features_received(l2cap_channel_t * ch
+         //   disconnect the ACL link with error code 0x05 - Authentication Failure.
+ 
+         // => Disconnect if l2cap request received in mode 4 and ssp supported, non-sdp psm, not encrypted, no link key available
++        hci_connection_t * conn = hci_connection_for_handle(channel->con_handle);
++        bool has_link_key = (conn && conn->link_key_type != INVALID_LINK_KEY);
+         if ((gap_get_security_mode() == GAP_SECURITY_MODE_4)
+         && gap_ssp_supported_on_both_sides(channel->con_handle)
+         && (channel->psm != PSM_SDP)
+-        && (gap_encryption_key_size(channel->con_handle) == 0)){
++        && (gap_encryption_key_size(channel->con_handle) == 0)
++        && !has_link_key){
+             hci_disconnect_security_block(channel->con_handle);
+             return;
+         }
+@@ -3006,6 +3009,7 @@ static void l2cap_check_classic_timeout(hci_con_handle_t handle){
+     if (!hci_can_send_command_packet_now()) {
+         return;
+     }
++    printf("[BTstack L2CAP] Disconnect triggered: l2cap_check_classic_timeout (handle=0x%04x)\n", handle);
+     hci_send_cmd(&hci_disconnect, handle, 0x13); // remote closed connection
+ }
+ 

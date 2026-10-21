@@ -1,0 +1,261 @@
+name: Release Build & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.3.0)'
+        required: false
+        default: ''
+      bump:
+        description: 'Semver bump type (patch, minor, major)'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-version:
+    name: Prepare Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Determine Version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ github.event.inputs.version }}" ]; then
+              TARGET_VER="${{ github.event.inputs.version }}"
+            else
+              TARGET_VER=$(python scripts/bump_version.py --bump ${{ github.event.inputs.bump }} | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+            fi
+            python scripts/bump_version.py --version "$TARGET_VER"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore(release): bump version to v$TARGET_VER" || true
+            git tag "v$TARGET_VER" || true
+            git push origin "v$TARGET_VER" || true
+            git push origin HEAD:${{ github.ref }} || true
+            echo "version=$TARGET_VER" >> $GITHUB_OUTPUT
+          else
+            TAG_VER="${GITHUB_REF#refs/tags/v}"
+            python scripts/bump_version.py --version "$TAG_VER"
+            echo "version=$TAG_VER" >> $GITHUB_OUTPUT
+          fi
+
+  build-webui:
+    name: Build WebUI & Gzip Assets
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync Version
+        run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'android-app/package-lock.json'
+      - name: Build Web Bundle
+        working-directory: android-app
+        run: |
+          npm ci
+          npm run build
+      - name: Sync to payload/www & Gzip
+        run: |
+          mkdir -p payload/www
+          cp -rf android-app/dist/* payload/www/
+          python build/gzip_assets.py payload/www
+      - name: Archive WebUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-assets
+          path: payload/www/
+
+  build-elite:
+    name: Build Elite ARM Binaries
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync Version
+        run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Install ARM Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
+      - name: Compile Elite Binaries
+        run: |
+          mkdir -p build/output/elite
+          arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source \
+            payload/source/codex_elite.c payload/source/cJSON.c \
+            -o build/output/elite/codex_elite -lpthread -lm
+          arm-linux-gnueabi-gcc -static -Os -s \
+            payload/source/codex_sync.c \
+            -o build/output/elite/codex_sync
+          cd build/output/elite && gzip -c -9 codex_elite > codex_elite.gz
+          ls -lh build/output/elite
+      - name: Archive Elite Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: elite-binaries
+          path: build/output/elite/
+
+  build-hub:
+    name: Build Hub MIPS Binaries
+    needs: prepare-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync Version
+        run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Install MIPS Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mips-linux-gnu libc6-dev-mips-cross
+      - name: Compile Hub Binaries
+        run: |
+          chmod +x build/compile_all.sh
+          ./build/compile_all.sh hub
+          mkdir -p build/output/hub
+          cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/mknod build/output/hub/
+          cd build/output/hub && gzip -c -9 codex_daemon > codex_daemon.gz
+          ls -lh build/output/hub
+      - name: Archive Hub Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: hub-binaries
+          path: build/output/hub/
+
+  build-android:
+    name: Build Android APK
+    needs: [prepare-version, build-webui]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync Version
+        run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'android-app/package-lock.json'
+      - name: Build Web Bundle & Sync Capacitor
+        working-directory: android-app
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+      - name: Build Android APKs via Gradle
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease
+      - name: Collect APKs
+        run: |
+          mkdir -p build/output/apk
+          cp -f android-app/android/app/build/outputs/apk/debug/*.apk build/output/apk/harmony-hub-debug.apk || true
+          cp -f android-app/android/app/build/outputs/apk/release/*.apk build/output/apk/harmony-hub-release-unsigned.apk || true
+      - name: Archive Android APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: build/output/apk/
+
+  publish-release:
+    name: Package and Publish GitHub Release
+    needs: [prepare-version, build-webui, build-elite, build-hub, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      - name: Package Release Assets
+        run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          mkdir -p release_assets
+          
+          # 1. Package Elite Tarball
+          if [ -d artifacts/elite-binaries ]; then
+            tar -czvf "release_assets/harmony-elite-v${VERSION}.tar.gz" -C artifacts/elite-binaries .
+            cp -f artifacts/elite-binaries/codex_elite.gz "release_assets/codex_elite_v${VERSION}.gz"
+          fi
+
+          # 1b. Package Hub Tarball
+          if [ -d artifacts/hub-binaries ]; then
+            tar -czvf "release_assets/harmony-hub-v${VERSION}.tar.gz" -C artifacts/hub-binaries .
+            cp -f artifacts/hub-binaries/codex_daemon.gz "release_assets/codex_daemon_v${VERSION}.gz"
+          fi
+          
+          # 2. Package WebUI Bundle
+          if [ -d artifacts/webui-assets ]; then
+            tar -czvf "release_assets/harmony-webui-v${VERSION}.tar.gz" -C artifacts/webui-assets .
+          fi
+          
+          # 3. Copy APKs
+          if [ -d artifacts/android-apks ]; then
+            cp -f artifacts/android-apks/*.apk release_assets/
+          fi
+          
+          # 4. Generate SHA256 checksums
+          cd release_assets
+          sha256sum * > sha256sums.txt
+          cat sha256sums.txt
+          ls -lh
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          gh release create "v${VERSION}" release_assets/* \
+            --title "HarmonyNG v${VERSION}" \
+            --notes "### HarmonyNG Release v${VERSION}"
+
+      - name: Publish to OTA Branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          python scripts/publish_ota.py --version "$VERSION" --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota

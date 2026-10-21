@@ -1,0 +1,20 @@
+* text=auto
+
+*.md text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.lua text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+payload/scripts/* text eol=lf
+payload/bin/FILES text eol=lf
+payload/bin/MANIFEST.txt text eol=lf
+
+*.ps1 text eol=crlf
+
+payload/bin/codex_* binary
+payload/bin/dropbearmulti binary
+payload/bin/register_ehci binary
+payload/modules/*.ko binary
+tools/unbrick_recovery/** binary
+*.cmd text eol=crlf

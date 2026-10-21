@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harmony Hub Codex API — Swagger UI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5/favicon-32x32.png">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .topbar-custom {
+      background: #1a1e24;
+      color: #fff;
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+    }
+    .topbar-brand svg {
+      width: 24px;
+      height: 24px;
+      fill: #49cc90;
+    }
+    .topbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .topbar-label {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .hub-ip-input {
+      background: #2d3748;
+      border: 1px solid #4a5568;
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      width: 200px;
+      font-family: monospace;
+    }
+    .hub-ip-input:focus {
+      border-color: #49cc90;
+    }
+    .btn-apply {
+      background: #49cc90;
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-apply:hover {
+      background: #3bb67e;
+    }
+    .mixed-content-banner {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 10px 20px;
+      font-size: 13px;
+      color: #92400e;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .mixed-content-banner a {
+      color: #b45309;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+    .banner-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      color: #92400e;
+    }
+    #swagger-ui {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .swagger-ui .topbar {
+      display: none !important;
+    }
+    .swagger-ui .info {
+      margin: 24px 0 16px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar-custom">
+    <div class="topbar-brand">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+      <span>Harmony Hub Codex API</span>
+    </div>
+    <div class="topbar-controls">
+      <span class="topbar-label">Target Hub URL:</span>
+      <input type="text" id="hub-url-input" class="hub-ip-input" value="http://harmony.local:8089" placeholder="http://<hub-ip>:8089" />
+      <button class="btn-apply" id="apply-hub-btn">Set Active Server</button>
+    </div>
+  </div>
+
+  <div id="mixed-content-warning" class="mixed-content-banner" style="display: none;">
+    <div>
+      <strong>⚠️ Testing against a local HTTP hub from HTTPS (GitHub Pages):</strong>
+      Web browsers block HTTP requests from HTTPS sites (Mixed Content). To execute "Try it out" calls against your local Hub directly:
+      allow <em>Insecure content</em> in your browser's site settings for this domain, or run Swagger UI locally over HTTP.
+    </div>
+    <button class="banner-close" onclick="document.getElementById('mixed-content-warning').style.display='none'">&times;</button>
+  </div>
+
+  <div id="swagger-ui"></div>
+
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    if (window.location.protocol === 'https:') {
+      document.getElementById('mixed-content-warning').style.display = 'flex';
+    }
+
+    const savedHubUrl = localStorage.getItem('codex_hub_url') || 'http://harmony.local:8089';
+    document.getElementById('hub-url-input').value = savedHubUrl;
+
+    let ui;
+
+    function initSwagger(hubUrl) {
+      ui = SwaggerUIBundle({
+        url: './openapi.yaml',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: 'StandaloneLayout',
+        tryItOutEnabled: true,
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        filter: true,
+        onComplete: function() {
+          if (hubUrl) {
+            updateServerUrl(hubUrl);
+          }
+        }
+      });
+    }
+
+    function updateServerUrl(url) {
+      const serverSelect = document.querySelector('.servers select');
+      if (serverSelect) {
+        let matched = false;
+        for (let i = 0; i < serverSelect.options.length; i++) {
+          if (serverSelect.options[i].value.includes(url) || serverSelect.options[i].text.includes(url)) {
+            serverSelect.selectedIndex = i;
+            matched = true;
+            break;
+          }
+        }
+        serverSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    document.getElementById('apply-hub-btn').addEventListener('click', () => {
+      let target = document.getElementById('hub-url-input').value.trim();
+      if (!target.startsWith('http://') && !target.startsWith('https://')) {
+        target = 'http://' + target;
+      }
+      document.getElementById('hub-url-input').value = target;
+      localStorage.setItem('codex_hub_url', target);
+      updateServerUrl(target);
+    });
+
+    document.getElementById('hub-url-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('apply-hub-btn').click();
+      }
+    });
+
+    window.onload = () => {
+      initSwagger(savedHubUrl);
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,1658 @@
+openapi: 3.1.0
+info:
+  title: Harmony Hub Control (Codex) API
+  version: 1.3.0
+  description: |
+    REST and WebSocket API for the open-source **Harmony Hub Codex** firmware and **Elite Remote** RF daemon.
+    
+    Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `codex_rf` daemon on port `8092`.
+    
+    ### Testing Locally
+    Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
+    *Default Hub IP*: `harmony.local:8089`
+servers:
+  - url: http://{hubIp}:8089
+    description: Configurable Harmony Hub IP
+    variables:
+      hubIp:
+        default: 192.168.1.100
+        description: IP address or hostname of Harmony Hub
+  - url: http://harmony.local:8089
+    description: Default Hub IP
+  - url: http://harmony.local:8089
+    description: mDNS Hostname
+  - url: http://127.0.0.1:8089
+    description: Localhost / SSH Tunnel
+tags:
+  - name: System & Status
+    description: Hub health, system telemetry, diagnostics, and settings
+  - name: Activities
+    description: Activity state machine, sequences, and orchestrator control
+  - name: Devices & Commands
+    description: Device inventory, IR/BT key management, and batch operations
+  - name: Hardware & IR
+    description: Direct IR blasting, Pronto hex transmission, and button pulses
+  - name: Bluetooth HID
+    description: Bluetooth host pairing, connection management, and BLE remotes
+  - name: RF & Elite Remote
+    description: CC2544 2.4GHz RF transceiver and Harmony Elite remote management
+  - name: Network & MQTT
+    description: Wi-Fi, USB Ethernet, and MQTT broker configuration
+  - name: Updates & Maintenance
+    description: OTA software upgrades and system actions
+  - name: Backup & Restore
+    description: Configuration bundle export and atomic import
+
+paths:
+  /health:
+    get:
+      tags:
+        - System & Status
+      summary: Health check
+      description: Returns service status of codex_daemon.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              example:
+                status: ok
+                service: codex_daemon
+
+  /api/status:
+    get:
+      tags:
+        - System & Status
+      summary: High-level hub status
+      description: Returns active activity, state machine status, uptime, and MQTT connection.
+      responses:
+        '200':
+          description: Status retrieved
+          content:
+            application/json:
+              example:
+                ok: true
+                hub_name: Living Room Hub
+                firmware: 4.15.600
+                activity: "-1"
+                state: 0
+                busy: false
+                ip: 192.168.1.100
+                total_kb: 5120
+                free_kb: 1372
+                uptime_sec: 10421
+                mqtt:
+                  connected: true
+                  host: 192.168.1.50
+                  port: 1883
+                  base_topic: harmony/hub
+
+  /api/system-info:
+    get:
+      tags:
+        - System & Status
+      summary: Linux system telemetry
+      description: Returns CPU load, memory usage, uptime, and kernel details.
+      responses:
+        '200':
+          description: System info
+          content:
+            application/json:
+              example:
+                uptime: "1d 4h 12m (101520s)"
+                load: "0.12 0.08 0.05"
+                kernel: "Linux version 3.3.8 (mips Atheros AR9344)"
+                memory: "Total: 128 MB, Free: 48 MB (Avail: 72 MB)"
+                network: "=== Network Interfaces (/proc/net/dev) ===\n..."
+
+  /api/disk-space:
+    get:
+      tags:
+        - System & Status
+      summary: Storage partition status
+      responses:
+        '200':
+          description: Storage partition details
+          content:
+            application/json:
+              example:
+                ok: true
+                partitions:
+                  - mount: /data
+                    total_kb: 5120
+                    used_kb: 3748
+                    free_kb: 1372
+                    percent_used: 73
+
+  /api/network-status:
+    get:
+      tags:
+        - Network & MQTT
+      summary: Network interfaces and carrier status
+      description: Details Ethernet, Wi-Fi, MAC, IP, and default routing interface.
+      responses:
+        '200':
+          description: Network status
+          content:
+            application/json:
+              example:
+                ok: true
+                usb_host_mode: true
+                active_interface: eth0
+                connection_type: "Dual (Ethernet Active + Wi-Fi Standby)"
+                mode: ethernet
+                ip: 192.168.1.100
+                netmask: 255.255.255.0
+                mac: 02:00:00:00:00:01
+                gateway: 192.168.1.1
+                eth_present: true
+                eth_carrier: true
+                eth_interface: eth0
+                wifi_connected: true
+                wifi_ssid: ExampleSSID
+
+  /api/services:
+    get:
+      tags:
+        - System & Status
+      summary: Background daemons status
+      responses:
+        '200':
+          description: Service running states
+          content:
+            application/json:
+              example:
+                ok: true
+                rf_enabled: true
+                rf_running: true
+                bt_enabled: true
+                bt_running: true
+
+  /api/services/rf-toggle:
+    post:
+      tags:
+        - System & Status
+      summary: Toggle CC2544 RF daemon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enable:
+                  type: boolean
+              required: [enable]
+            example:
+              enable: true
+      responses:
+        '200':
+          description: Service toggled
+          content:
+            application/json:
+              example:
+                ok: true
+                rf_enabled: true
+
+  /api/services/bt-toggle:
+    post:
+      tags:
+        - System & Status
+      summary: Toggle BTstack daemon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enable:
+                  type: boolean
+              required: [enable]
+            example:
+              enable: true
+      responses:
+        '200':
+          description: Service toggled
+          content:
+            application/json:
+              example:
+                ok: true
+                bt_running: true
+
+  /api/logs:
+    get:
+      tags:
+        - System & Status
+      summary: Hub log tail
+      parameters:
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [daemon, btstack, rf, system, network]
+            default: daemon
+          description: Target log stream
+      responses:
+        '200':
+          description: Recent log output
+          content:
+            application/json:
+              example:
+                ok: true
+                source: daemon
+                log: "[INFO] Codex daemon listening on port 8089\n..."
+
+  /api/icons:
+    get:
+      tags:
+        - System & Status
+      summary: Available PNG icon names
+      responses:
+        '200':
+          description: Array of icon filenames
+          content:
+            application/json:
+              example:
+                - tv.png
+                - receiver.png
+                - gamepad.png
+                - apple_tv.png
+
+  /api/settings:
+    get:
+      tags:
+        - System & Status
+      summary: Global hub settings
+      responses:
+        '200':
+          description: Hub configuration
+          content:
+            application/json:
+              example:
+                ok: true
+                hub_name: Living Room Hub
+                bt_auto_reconnect: true
+                bt_reconnect_duration_sec: 30
+                bt_reconnect_delay_sec: 5
+                dry_run: false
+                ntp_server: pool.ntp.org
+                timezone: Europe/Amsterdam
+                led_mode: always_on
+    post:
+      tags:
+        - System & Status
+      summary: Save global hub settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hub_name: {type: string}
+                bt_auto_reconnect: {type: boolean}
+                bt_reconnect_duration_sec: {type: integer}
+                bt_reconnect_delay_sec: {type: integer}
+                dry_run: {type: boolean}
+                ntp_server: {type: string}
+                timezone: {type: string}
+                led_mode: {type: string}
+            example:
+              hub_name: Living Room Hub
+              bt_auto_reconnect: true
+              bt_reconnect_duration_sec: 30
+              bt_reconnect_delay_sec: 5
+              dry_run: false
+              ntp_server: pool.ntp.org
+              timezone: Europe/Amsterdam
+              led_mode: always_on
+      responses:
+        '200':
+          description: Settings saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/system-action:
+    post:
+      tags:
+        - Updates & Maintenance
+      summary: Execute system maintenance action
+      description: Reboot the hub, run factory reset, or send raw MQTT messages.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [reboot, factory_reset, mqtt_publish]
+                confirm:
+                  type: string
+                  description: Required confirmation string ('RESET') for factory_reset
+                topic:
+                  type: string
+                  description: MQTT topic for mqtt_publish action
+                payload:
+                  type: string
+                  description: MQTT payload for mqtt_publish action
+                retain:
+                  type: boolean
+              required: [action]
+            examples:
+              reboot:
+                value: {action: reboot}
+              factoryReset:
+                value: {action: factory_reset, confirm: RESET}
+              mqttPublish:
+                value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
+      responses:
+        '200':
+          description: Action accepted
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Rebooting hub now
+
+  /api/inventory:
+    get:
+      tags:
+        - Devices & Commands
+      summary: Get device inventory
+      description: Returns configured devices and command profiles.
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              example:
+                devices:
+                  - id: "70321456"
+                    name: LG OLED TV
+                    type: Television
+                    manufacturer: LG
+                    model: OLED65C2
+                    controlPort: 0
+                    mqttTopic: home/livingroom/tv
+                    mqttEnabled: true
+                    mqttPulse: 100
+                    commands:
+                      - name: PowerToggle
+                        raw: "0000 006d 0022 0002 0155 00aa ..."
+                        port: 7
+                        repeats: 3
+
+  /api/device-save:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Save or update device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                name: {type: string}
+                type: {type: string}
+                manufacturer: {type: string}
+                model: {type: string}
+                controlPort: {type: integer}
+                mqttTopic: {type: string}
+                mqttEnabled: {type: boolean}
+                mqttPulse: {type: integer}
+              required: [deviceId, name]
+            example:
+              deviceId: "70321456"
+              name: LG OLED TV
+              type: Television
+              manufacturer: LG
+              model: OLED65C2
+              controlPort: 0
+              mqttTopic: home/livingroom/tv
+              mqttEnabled: true
+              mqttPulse: 100
+      responses:
+        '200':
+          description: Device saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/device-delete:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Delete device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+              required: [deviceId]
+            example:
+              deviceId: "70321456"
+      responses:
+        '200':
+          description: Device deleted
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/device-commands:
+    get:
+      tags:
+        - Devices & Commands
+      summary: Get all commands for a device
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "70321456"
+      responses:
+        '200':
+          description: Commands list
+          content:
+            application/json:
+              example:
+                ok: true
+                commands:
+                  - name: PowerToggle
+                    raw: "0000 006d 0022 0002 0155 00aa ..."
+                    port: 7
+                    repeats: 3
+
+  /api/command-save:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Save command for device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                name: {type: string}
+                raw: {type: string}
+                port: {type: integer, default: 7}
+                repeats: {type: integer, default: 1}
+              required: [deviceId, name, raw]
+            example:
+              deviceId: "70321456"
+              name: VolumeUp
+              raw: "0000 006d 0022 0002 0155 00aa ..."
+              port: 7
+              repeats: 2
+      responses:
+        '200':
+          description: Command saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/command-delete:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Delete command from device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                command: {type: string}
+              required: [deviceId, command]
+            example:
+              deviceId: "70321456"
+              command: VolumeUp
+      responses:
+        '200':
+          description: Command deleted
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/commands-batch:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Batch import commands
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                commands:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: {type: string}
+                      raw: {type: string}
+                      port: {type: integer}
+                      repeats: {type: integer}
+                    required: [name, raw]
+              required: [deviceId, commands]
+            example:
+              deviceId: "70321456"
+              commands:
+                - name: PowerOn
+                  raw: "0000 006d ..."
+                  port: 7
+                  repeats: 3
+                - name: PowerOff
+                  raw: "0000 006d ..."
+                  port: 7
+                  repeats: 3
+      responses:
+        '200':
+          description: Commands imported
+          content:
+            application/json:
+              example:
+                ok: true
+                count: 2
+
+  /api/device-mqtt-test:
+    post:
+      tags:
+        - Devices & Commands
+      summary: Test device MQTT command pulse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                command: {type: string}
+                topic: {type: string}
+                pulseMs: {type: integer}
+              required: [deviceId]
+            example:
+              deviceId: "70321456"
+              command: PowerToggle
+              topic: home/livingroom/tv
+              pulseMs: 500
+      responses:
+        '200':
+          description: MQTT publish success
+          content:
+            application/json:
+              example:
+                ok: true
+                pulseMs: 500
+                topic: home/livingroom/tv/command
+                message: MQTT test publish sent
+
+  /api/activities:
+    get:
+      tags:
+        - Activities
+      summary: List all activities
+      responses:
+        '200':
+          description: Activity list and current state
+          content:
+            application/json:
+              example:
+                activities:
+                  - id: "123456"
+                    name: Watch TV
+                    type: Custom
+                    icon: tv.png
+                    order: 1
+                currentId: "-1"
+                state: 0
+
+  /api/activity:
+    get:
+      tags:
+        - Activities
+      summary: Current activity and state
+      responses:
+        '200':
+          description: Current activity ID and orchestrator state
+          content:
+            application/json:
+              example:
+                activity: "-1"
+                state: 0
+                busy: false
+    post:
+      tags:
+        - Activities
+      summary: Start or switch activity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                activity: {type: string}
+                dry_run: {type: boolean, default: false}
+              required: [activity]
+            example:
+              activity: "123456"
+              dry_run: false
+      responses:
+        '200':
+          description: Transition initiated
+          content:
+            application/json:
+              example:
+                success: true
+                state: starting
+        '409':
+          description: Orchestrator is busy transitioning another activity
+
+  /api/poweroff:
+    post:
+      tags:
+        - Activities
+      summary: Stop activity and power off
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dry_run: {type: boolean, default: false}
+            example:
+              dry_run: false
+      responses:
+        '200':
+          description: Power-off sequence initiated
+          content:
+            application/json:
+              example:
+                success: true
+                state: stopping
+
+  /api/activity-cancel:
+    post:
+      tags:
+        - Activities
+      summary: Force reset orchestrator interlock
+      description: Cancels stalled activity transitions and resets orchestrator to idle.
+      responses:
+        '200':
+          description: Interlock reset
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/activity-save:
+    post:
+      tags:
+        - Activities
+      summary: Save activity definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string}
+                name: {type: string}
+                type: {type: string}
+                icon: {type: string}
+                order: {type: integer}
+                startSequence: {type: array}
+                stopSequence: {type: array}
+              required: [id, name]
+            example:
+              id: "123456"
+              name: Watch TV
+              type: Custom
+              icon: tv.png
+              order: 1
+              startSequence:
+                - type: Command
+                  deviceId: "70321456"
+                  command: PowerOn
+                - type: Delay
+                  delay: 1500
+              stopSequence:
+                - type: Command
+                  deviceId: "70321456"
+                  command: PowerOff
+      responses:
+        '200':
+          description: Activity saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/activity-delete:
+    post:
+      tags:
+        - Activities
+      summary: Delete activity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: {type: string}
+              required: [id]
+            example:
+              id: "123456"
+      responses:
+        '200':
+          description: Activity deleted
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/activity-test-sequence:
+    post:
+      tags:
+        - Activities
+      summary: Test sequence execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                steps:
+                  type: array
+              required: [steps]
+            example:
+              steps:
+                - type: Command
+                  deviceId: "70321456"
+                  command: PowerToggle
+                - type: Delay
+                  delay: 500
+      responses:
+        '200':
+          description: Sequence test completed
+          content:
+            application/json:
+              example:
+                ok: true
+                executed: 2
+
+  /api/sync:
+    post:
+      tags:
+        - Activities
+      summary: Reload configuration from flash
+      responses:
+        '200':
+          description: Configurations reloaded
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/ir-send:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Transmit IR code or device command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                command: {type: string}
+                pronto: {type: string}
+                port: {type: integer, default: 7}
+                repeats: {type: integer, default: 1}
+            examples:
+              byDevice:
+                value:
+                  deviceId: "70321456"
+                  command: PowerToggle
+              byPronto:
+                value:
+                  pronto: "0000 006d 0022 0002 0155 00aa ..."
+                  port: 7
+                  repeats: 3
+      responses:
+        '200':
+          description: IR command transmitted
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/pronto-blast:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Raw Pronto IR blaster burst
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pronto: {type: string}
+                ports: {type: integer, default: 7}
+                repeats: {type: integer, default: 3}
+              required: [pronto]
+            example:
+              pronto: "0000 006d 0022 0002 0155 00aa ..."
+              ports: 7
+              repeats: 3
+      responses:
+        '200':
+          description: Blaster burst sent
+          content:
+            application/json:
+              example:
+                success: true
+
+  /api/button-press:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Automated button pulse over MQTT & hardware
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                command: {type: string}
+                pulseMs: {type: integer, default: 100}
+              required: [command]
+            example:
+              deviceId: "70321456"
+              command: VolumeUp
+              pulseMs: 100
+      responses:
+        '200':
+          description: Button pulse dispatched
+          content:
+            application/json:
+              example:
+                ok: true
+                pulseMs: 100
+                topic: harmony/hub/button/70321456/VolumeUp
+                reply: ok
+
+  /api/bt-status:
+    get:
+      tags:
+        - Bluetooth HID
+      summary: Bluetooth stack and pairing status
+      responses:
+        '200':
+          description: BT connection state
+          content:
+            application/json:
+              example:
+                ok: true
+                running: true
+                connected: true
+                target: "AA:BB:CC:DD:EE:FF"
+                devices:
+                  - bdaddr: "AA:BB:CC:DD:EE:FF"
+                    name: Apple TV
+
+  /api/bt-pairing:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Trigger Bluetooth HID keyboard pairing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enable: {type: boolean}
+                name: {type: string, default: "Harmony Keyboard"}
+                deviceId: {type: string}
+              required: [enable, deviceId]
+            example:
+              enable: true
+              name: Harmony Keyboard
+              deviceId: "70321456"
+      responses:
+        '200':
+          description: Pairing mode toggled
+          content:
+            application/json:
+              example:
+                ok: true
+                pairing: true
+
+  /api/bt-connect:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Connect to Bluetooth host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bdaddr: {type: string}
+              required: [bdaddr]
+            example:
+              bdaddr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Connection initiated
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/bt-disconnect:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Disconnect Bluetooth host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bdaddr: {type: string}
+              required: [bdaddr]
+            example:
+              bdaddr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Disconnected
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/bt-link-device:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Link device profile to Bluetooth MAC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                bdaddr: {type: string}
+              required: [deviceId, bdaddr]
+            example:
+              deviceId: "70321456"
+              bdaddr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Device linked
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/remote-status:
+    get:
+      tags:
+        - Bluetooth HID
+      summary: BLE remote connection status
+      responses:
+        '200':
+          description: Remote link state
+          content:
+            application/json:
+              example:
+                ok: true
+                running: true
+                connected: true
+                bdaddr: "11:22:33:44:55:66"
+                name: Homatics B25
+
+  /api/remote-scan:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Scan for BLE remotes
+      responses:
+        '200':
+          description: Scan started
+          content:
+            application/json:
+              example:
+                ok: true
+                state: scanning
+                message: Bluetooth remote scan started
+
+  /api/remote-pair:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Pair BLE remote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bdaddr: {type: string}
+              required: [bdaddr]
+            example:
+              bdaddr: "11:22:33:44:55:66"
+      responses:
+        '200':
+          description: Pair command issued
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Pair command issued to BTstack
+
+  /api/remote-mapping:
+    get:
+      tags:
+        - Bluetooth HID
+      summary: Get BLE remote button bindings
+      responses:
+        '200':
+          description: Mapping JSON
+          content:
+            application/json:
+              example:
+                ok: true
+                remote:
+                  name: Homatics B25
+                  bdaddr: "11:22:33:44:55:66"
+                activities: {}
+
+  /api/remote-mapping-save:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Save BLE remote button bindings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: Mapping saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/rf:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: CC2544 RF subsystem status
+      description: Proxied to codex_rf (port 8092). Returns remote RF addresses and active slots.
+      responses:
+        '200':
+          description: RF status
+          content:
+            application/json:
+              example:
+                ok: true
+                running: true
+                state: running
+                connected: true
+                pairing_active: false
+                paired: true
+                rf_address: 00000000
+                hub_rf_address: 00000000
+                slots:
+                  - slot: 1
+                    active: true
+                    address: 00000000
+                    rf_address: 00000000
+                  - slot: 2
+                    active: false
+                    address: None
+                    rf_address: None
+
+  /api/rf/pair:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Start RF pairing beacon
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Pairing started
+          content:
+            application/json:
+              example:
+                status: pairing_started
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Start RF pairing beacon (POST)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Pairing started
+          content:
+            application/json:
+              example:
+                status: pairing_started
+
+  /api/rf/stop-pair:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Stop RF pairing mode
+      responses:
+        '200':
+          description: Pairing stopped
+          content:
+            application/json:
+              example:
+                status: pairing_stopped
+
+  /api/rf/unpair:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Unpair remote slot
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Slot unpaired
+          content:
+            application/json:
+              example:
+                status: unpaired
+
+  /api/rf/remote-config:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Get Elite remote configuration
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Remote settings
+          content:
+            application/json:
+              example:
+                slot: 1
+                brightness: 3
+                timeout: 120
+                touchEnabled: true
+                gyroEnabled: true
+                gyroRate: 25
+                btnBacklight: 1
+                nightStart: 22
+                nightEnd: 7
+                navToggleKey: 139
+                navToggleMode: 1
+                confirmActivity: false
+                touchSensitivity: 2
+                remoteMode: 0
+                usbEth: false
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Save and push Elite remote configuration
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brightness: {type: integer, default: 3}
+                timeout: {type: integer, default: 120}
+                touchEnabled: {type: boolean, default: true}
+                gyroEnabled: {type: boolean, default: true}
+                gyroRate: {type: integer, default: 25}
+                btnBacklight: {type: integer, default: 1}
+                nightStart: {type: integer, default: 22}
+                nightEnd: {type: integer, default: 7}
+                navToggleKey: {type: integer, default: 139}
+                navToggleMode: {type: integer, default: 1}
+                confirmActivity: {type: boolean, default: false}
+                touchSensitivity: {type: integer, default: 2}
+                remoteMode: {type: integer, default: 0}
+                usbEth: {type: boolean, default: false}
+            example:
+              brightness: 3
+              timeout: 120
+              touchEnabled: true
+              gyroEnabled: true
+              gyroRate: 25
+              btnBacklight: 1
+              nightStart: 22
+              nightEnd: 7
+              navToggleKey: 139
+              navToggleMode: 1
+              confirmActivity: false
+              touchSensitivity: 2
+              remoteMode: 0
+              usbEth: false
+      responses:
+        '200':
+          description: Saved and pushed over RF
+          content:
+            application/json:
+              example:
+                status: saved_and_pushed
+                ok: true
+
+  /api/rf/push-config:
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Trigger OTA config sync to remote
+      responses:
+        '200':
+          description: OTA config push started
+          content:
+            application/json:
+              example:
+                status: push_started
+
+  /api/rf/sync:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Resync current activity to remote display
+      responses:
+        '200':
+          description: Activity synced
+          content:
+            application/json:
+              example:
+                status: synced
+
+  /api/rf/ota-status:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Elite remote firmware update status
+      responses:
+        '200':
+          description: Remote OTA transfer status
+          content:
+            application/json:
+              example:
+                in_progress: false
+                slot: 1
+                status: 0
+                sent_bytes: 0
+                total_bytes: 0
+                sent_chunks: 0
+                total_chunks: 0
+                error: ""
+
+  /api/rf/ota-start:
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Start Elite remote firmware update over RF
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Remote update started
+          content:
+            application/json:
+              example:
+                status: started
+                ok: true
+        '409':
+          description: Update already in progress
+
+  /api/elite-mapping:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Get Harmony Elite button mapping
+      responses:
+        '200':
+          description: Mapping array
+          content:
+            application/json:
+              example:
+                ok: true
+                mappings: []
+
+  /api/elite-mapping-save:
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Save Harmony Elite button mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/mqtt-status:
+    get:
+      tags:
+        - Network & MQTT
+      summary: MQTT client connection state
+      responses:
+        '200':
+          description: Broker connection metadata
+          content:
+            application/json:
+              example:
+                ok: true
+                connected: true
+                host: 192.168.1.50
+                port: 1883
+                username: homeassistant
+                clientId: harmony_hub
+                baseTopic: harmony/hub
+
+  /api/mqtt-save:
+    post:
+      tags:
+        - Network & MQTT
+      summary: Configure MQTT broker connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: {type: boolean}
+                host: {type: string}
+                port: {type: integer, default: 1883}
+                username: {type: string}
+                password: {type: string}
+                baseTopic: {type: string, default: "harmony/hub"}
+                clientId: {type: string}
+              required: [host]
+            example:
+              enabled: true
+              host: 192.168.1.50
+              port: 1883
+              username: homeassistant
+              password: password
+              baseTopic: harmony/hub
+              clientId: harmony_hub
+      responses:
+        '200':
+          description: MQTT settings saved
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/wifi-save:
+    post:
+      tags:
+        - Network & MQTT
+      summary: Save Wi-Fi credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ssid: {type: string}
+                password: {type: string}
+                apply: {type: string, default: "apply"}
+              required: [ssid]
+            example:
+              ssid: MyWiFiNetwork
+              password: SecretPassword
+              apply: apply
+      responses:
+        '200':
+          description: Wi-Fi updated
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Wi-Fi settings saved
+
+  /api/ethernet-save:
+    post:
+      tags:
+        - Network & MQTT
+      summary: Configure USB Ethernet adapter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eth_mode: {type: string, enum: [dhcp, static], default: dhcp}
+                eth_ip: {type: string}
+                eth_netmask: {type: string, default: 255.255.255.0}
+                eth_gateway: {type: string}
+                eth_dns: {type: string}
+                apply: {type: string, default: "apply"}
+            example:
+              eth_mode: dhcp
+              eth_ip: 192.168.1.100
+              eth_netmask: 255.255.255.0
+              eth_gateway: 192.168.1.1
+              eth_dns: 192.168.1.1
+              apply: apply
+      responses:
+        '200':
+          description: Ethernet configuration saved
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Ethernet configuration saved
+
+  /api/update-status:
+    get:
+      tags:
+        - Updates & Maintenance
+      summary: Firmware & software version details
+      responses:
+        '200':
+          description: Version metadata
+          content:
+            application/json:
+              example:
+                ok: true
+                current_version: 1.0.4
+                version: 1.0.4
+                local_version: "v1.0.4 (a1b2c3d)"
+                remote_version: v1.0.4
+                commit: a1b2c3d
+                build_time: "Oct 21 2026 13:00:00"
+                fw_version: 4.15.600
+                firmware: 4.15.600
+                rf_version: "0x20 CC2544"
+                bt_version: "BTstack v1.5 (UART)"
+                arch: "mips (AR9344)"
+                update_available: false
+
+  /api/update-check:
+    get:
+      tags:
+        - Updates & Maintenance
+      summary: Check online for firmware updates
+      responses:
+        '200':
+          description: Check result
+          content:
+            application/json:
+              example:
+                ok: true
+                current_version: 1.0.4
+                message: Hub binaries and WebUI are up to date (v1.0.4).
+                has_update: false
+
+  /api/update-apply:
+    post:
+      tags:
+        - Updates & Maintenance
+      summary: Trigger OTA update application
+      responses:
+        '200':
+          description: Update started in background
+          content:
+            application/json:
+              example:
+                ok: true
+                status: applying
+                message: Software update triggered. Hub services restarting in background.
+
+  /export/{target}:
+    get:
+      tags:
+        - Backup & Restore
+      summary: Export configuration bundle or table
+      parameters:
+        - name: target
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [bundle, devices, activities, settings, mqtt, network, wifi, bluetooth, bt_remote_map, elite_remote_map, ui_remote_layout, auth, hub_id]
+          example: bundle
+      responses:
+        '200':
+          description: Configuration snapshot
+          content:
+            application/json:
+              example:
+                version: 1
+                timestamp: 1792584000
+                devices: {...}
+                activities: {...}
+                settings: {...}
+
+  /import:
+    post:
+      tags:
+        - Backup & Restore
+      summary: Import configuration bundle or section
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target: {type: string, default: "bundle"}
+                payload: {type: object}
+              required: [target, payload]
+            example:
+              target: bundle
+              payload:
+                devices: {...}
+                activities: {...}
+                settings: {...}
+      responses:
+        '200':
+          description: Configuration imported and applied
+          content:
+            application/json:
+              example:
+                ok: true

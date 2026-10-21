@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /data/codex/bin/dropbearkey "$@"

