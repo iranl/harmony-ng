@@ -19,19 +19,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIPS_SEARCH_PATHS = [
+    REPO_ROOT / "artifacts" / "hub-binaries",
+    REPO_ROOT / "build" / "output" / "hub",
     REPO_ROOT / "build" / "output",
     REPO_ROOT / "artifacts" / "mips-binaries",
     REPO_ROOT / "payload" / "bin",
 ]
 ARM_SEARCH_PATHS = [
+    REPO_ROOT / "artifacts" / "elite-binaries",
     REPO_ROOT / "build" / "output" / "elite",
     REPO_ROOT / "build" / "output",
-    REPO_ROOT / "artifacts" / "elite-binaries",
     REPO_ROOT / "elite" / "bin",
 ]
 WWW_SEARCH_PATHS = [
-    REPO_ROOT / "payload" / "www",
     REPO_ROOT / "artifacts" / "webui-assets",
+    REPO_ROOT / "payload" / "www",
     REPO_ROOT / "android-app" / "dist",
 ]
 VERSION_FILE = REPO_ROOT / "VERSION"
@@ -106,6 +108,8 @@ def package_ota(output_dir: Path, version: str):
     arm_target.mkdir(parents=True, exist_ok=True)
     for bname in ELITE_BINARIES:
         src = find_candidate_file(bname, ARM_SEARCH_PATHS)
+        if (not src or not src.exists()) and bname == "codex_elite.ota.gz":
+            src = find_candidate_file("codex_elite.gz", ARM_SEARCH_PATHS)
         if src and src.exists():
             dst = arm_target / bname
             import shutil
@@ -145,13 +149,6 @@ def package_ota(output_dir: Path, version: str):
     else:
         print("[-] Warning: No built WebUI bundle found with index.html")
 
-    md5, sha = get_file_hashes(www_tar)
-    manifest_files["www.tar.gz"] = {
-        "size": www_tar.stat().st_size,
-        "md5": md5,
-        "sha256": sha
-    }
-
     # 5. Manifest.json
     manifest = {
         "version": version,
@@ -167,8 +164,11 @@ def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, 
 
     with tempfile.TemporaryDirectory() as tmp_git:
         tmp_path = Path(tmp_git)
-        # Initialize bare repository
-        subprocess.run(["git", "init"], cwd=tmp_path, check=True)
+        # Initialize repository on target branch
+        subprocess.run(["git", "init", "-b", branch], cwd=tmp_path, check=True)
+        # Configure author identity for newly initialized repo
+        subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=tmp_path, check=True)
         # Copy staging contents
         for item in staging_dir.iterdir():
             if item.is_dir():
@@ -176,18 +176,14 @@ def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, 
             else:
                 shutil.copy2(item, tmp_path / item.name)
 
-        subprocess.run(["git", "checkout", "-b", branch], cwd=tmp_path, check=True)
         subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
         subprocess.run(["git", "commit", "-m", f"OTA Release v{version} (single squashed commit)"], cwd=tmp_path, check=True)
 
         if remote_url:
             print(f"[*] Force-pushing to {remote_url} branch {branch}...")
             subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=tmp_path, check=True)
-            res = subprocess.run(["git", "push", "-f", "origin", branch], cwd=tmp_path)
-            if res.returncode == 0:
-                print(f"[+] Successfully pushed single-commit OTA release to {remote_url}:{branch}!")
-            else:
-                print(f"[-] Push failed with code {res.returncode}")
+            subprocess.run(["git", "push", "-f", "origin", branch], cwd=tmp_path, check=True)
+            print(f"[+] Successfully pushed single-commit OTA release to {remote_url}:{branch}!")
         else:
             print(f"[+] Single-commit git repository created locally in staging for branch '{branch}'.")
             print("    To push to GitHub, run with --remote <url> or git push -f.")

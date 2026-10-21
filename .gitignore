@@ -22,6 +22,9 @@ scratch/
 scratch_*
 *.ko
 *.bin
+*.jks
+*.keystore
+*.base64.txt
 build/ota_staging/
 payload/www/assets/icons/
 
