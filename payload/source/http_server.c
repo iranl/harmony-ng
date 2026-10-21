@@ -4436,7 +4436,7 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddStringToObject(hj, "status", "ok");
         cJSON_AddStringToObject(hj, "service", "codex_daemon");
         cJSON_AddStringToObject(hj, "version", CODEX_VERSION);
-        cJSON_AddStringToObject(hj, "min_app_version", CODEX_VERSION);
+        cJSON_AddStringToObject(hj, "min_app_version", "1.3.0");
         cJSON_AddNumberToObject(hj, "api_version", 2);
         send_cjson_resp(client_fd, 200, hj);
         cJSON_Delete(hj);

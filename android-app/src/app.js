@@ -2150,7 +2150,7 @@ class HarmonyApp {
     try {
       const health = await this.client.getHealth();
       if (health && health.min_app_version) {
-        if (this.isVersionOlder(APP_VERSION, health.min_app_version)) {
+        if (this.isNative && this.isVersionOlder(APP_VERSION, health.min_app_version)) {
           this.showOutdatedAppModal(health.min_app_version, APP_VERSION);
         }
       }
@@ -2188,9 +2188,13 @@ class HarmonyApp {
             The connected hub requires a newer version of the Android App. Please update your app.
           </p>
           <div class="muted mini" style="margin-bottom:16px;">
-            Current App: <strong>v${curVer}</strong> • Required: <strong>v${minVer}+</strong>
+            Current: <strong>v${curVer}</strong> • Required: <strong>v${minVer}+</strong>
           </div>
-          <button type="button" class="btn btn-primary" onclick="window.location.reload()">Reload / Check Again</button>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button type="button" class="btn btn-primary" onclick="window.location.reload(true)">Reload</button>
+            <button type="button" class="btn btn-secondary" onclick="if(window.caches){caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n)))).finally(()=>location.reload(true))}else{location.reload(true)}">Clear Cache</button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('outdatedAppModal').remove()">Continue Anyway</button>
+          </div>
         </div>
       `;
       document.body.appendChild(modal);
