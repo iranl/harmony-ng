@@ -56,7 +56,7 @@ echo "[3/5] Querying remote checksums & syncing binaries to /data/codex/bin/..."
 ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
     "mkdir -p /data/codex/bin /data/codex/www/assets /data/codex/config; rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/codex/bin/check_space 2>/dev/null || true"
 
-REMOTE_MD5_LIST=$(ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /data/codex/www/assets/icons/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
+REMOTE_MD5_LIST=$(ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
 
 deploy_file_if_changed() {
     local src="$1"
@@ -74,6 +74,9 @@ deploy_file_if_changed() {
         return 0
     fi
     echo "    -> Uploading $fname (local: $local_md5 != remote: ${remote_md5:-missing})..."
+    local ddir
+    ddir=$(dirname "$dst")
+    ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "mkdir -p '$ddir' 2>/dev/null || true"
     scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
 }

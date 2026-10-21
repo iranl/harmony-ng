@@ -63,7 +63,7 @@ def main() -> None:
     args = parser.parse_args()
 
     target = f"{args.user}@{args.ip}"
-    ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
     if args.key and args.key.is_file():
         ssh_opts.extend(["-i", str(args.key)])
 
@@ -121,7 +121,7 @@ def main() -> None:
     # 2. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/* /data/bin/* /etc/init.d/rcS.local 2>/dev/null || true"])
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/codex_elite /data/codex_sync /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
     if md5_res.returncode == 0 and md5_res.stdout:
         for line in md5_res.stdout.strip().splitlines():
             parts = line.strip().split()
