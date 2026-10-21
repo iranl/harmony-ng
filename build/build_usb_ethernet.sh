@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TOOLCHAIN="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
 KERNEL_DIR="${KERNEL_DIR:-/home/yr/linux-2.6.31.14}"
-OUT_DIR="$REPO_ROOT/payload/modules/usb_net"
+OUT_DIR="$REPO_ROOT/payload/modules"
 
 if [ ! -d "$KERNEL_DIR" ]; then
     echo "Error: Kernel tree not found at $KERNEL_DIR" >&2

@@ -4,92 +4,89 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 
 ---
 
-## 1. Prerequisites
+## 1. Prerequisites & Getting the Files
 
+### Hardware & Driver Requirements
 - **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010).
-- **Cable**: Direct Micro-USB cable connected directly to the remote's port (NOT the charging cradle base).
+- **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **RNDIS Network Driver**: Installed on host PC (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **SSH Client**: OpenSSH (`ssh` in PowerShell/Terminal) or PuTTY.
+- **Python 3**: Installed on host PC (`pip install pyusb`).
+
+### Choose Your Installation Method
+
+#### Option A: Release Bundle (Recommended — No Compilation)
+1. Download `harmony-elite-v*.zip` (Windows) or `harmony-elite-v*.tar.gz` (Linux/macOS) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases).
+2. Extract the archive into a folder on your PC.
+3. Open a terminal in the extracted folder. All required binaries (`codex_elite`, `dropbearmulti_musl`, `b64dec_tiny`), scripts, and deployment tools are pre-packaged and ready to run.
+
+#### Option B: From Git Repository (Developers)
+```bash
+git clone https://github.com/iranl/harmony-ng.git
+cd harmony-ng
+
+# Compile ARM userspace binaries
+./build/compile_all.sh elite
+```
 
 ---
 
-## 2. Flash Storage Architecture & Memory Footprint
+## 2. Step-by-Step USB Rooting Options (Touchscreen NOT Required)
 
-Unlike the Hub's compact 16 MB NOR flash, the Harmony Elite features a **128 MB NAND Flash** paired with 64 MB mobile DDR RAM:
+Choose whichever method best fits your remote. None of them require a functioning touchscreen.
 
-| Partition | Mount Point | Filesystem | Total Size | Available Space | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `nand0,0` | `/` (root) | SquashFS | 16.0 MB | 0 KB (Read-Only) | Contains kernel 2.6.31-arm and base userspace. |
-| `nand0,1` | `/data` | JFFS2/UBIFS | 64.0 MB | **~32.0 MB Free** | Generous writable partition. |
-| `nand0,2` | `/opt` | SquashFS/JFFS2 | 32.0 MB | ~8.0 MB Free | Stock Lua UI (`luadraws`) and HBUS binaries. |
+### Method A: Direct USB HID Staging (Recommended — Fully Automated)
+*Requires zero button pressing or touchscreen interaction.*
 
-### Flash Capacity Analysis
-- `codex_elite` binary: **~718 KB**
-- Enhanced `busybox` (ARM): **~2.1 MB**
-- **Conclusion**: The entire custom payload consumes less than **3 MB** out of the 32 MB free on `/data`. Flash exhaustion is not an issue on the Elite remote.
+1. Connect the remote directly to your host PC via Micro-USB.
+2. Run the automated USB HID root tool:
+   ```bash
+   python tools/root_remote_usb.py
+   ```
+   *(Or `python tools/root_remote_usb.py --pubkey ~/.ssh/id_rsa.pub` to inject a custom public key).*
+3. The tool injects Dropbear SSH, disables the hardware watchdog, and reboots the remote.
+4. Remote boots with Dropbear SSH listening on `192.168.2.1:22`.
 
 ---
 
-## 3. Step-by-Step USB Rooting Options (Touchscreen NOT Required)
-
-If your Elite remote is on stock firmware with SSH disabled, choose any of the three available methods. None of them require a functioning touchscreen.
-
-### Method A: Hardware Recovery Mode (Recommended for Broken Screens)
+### Method B: Hardware Recovery Mode (Recommended for Broken Screens)
 *Works regardless of touchscreen condition or firmware state.*
 
 1. Ensure the remote is charged to at least 50%.
-2. Disconnect the remote from the USB cable and charging cradle.
-3. Press and hold both the **Menu** and **Mute** buttons simultaneously for **15 seconds**.
-   - *(Alternative combo for stubborn firmware: Hold the physical **Off** button while inserting the Micro-USB cable).*
-4. The remote screen will flash and display the USB connection gear icon.
-5. Release the buttons. The remote boots into the RNDIS USB gadget mode.
-6. Configure static IP on your host PC:
+2. Disconnect the remote from USB and cradle.
+3. Press and hold both **Menu** and **Mute** buttons simultaneously for **15 seconds**.
+   *(Alternative combo: Hold the physical **Off** button while plugging in the Micro-USB cable).*
+4. The remote screen flashes and displays the USB connection gear icon.
+5. Configure static IP on your host PC's RNDIS adapter:
    - **IP Address**: `192.168.2.2`
    - **Subnet Mask**: `255.255.255.0`
    - **Default Gateway**: `192.168.2.1`
-7. Test network link:
-   ```bash
-   ping 192.168.2.1
-   ```
-8. Deploy custom runtime and persistence:
+6. Run the setup script:
    ```bash
    python elite/setup_remote.py --step 2
-   # Or directly:
-   python elite/deploy_elite.py
    ```
 
-### Method B: Physical Keypad Debug Menu (No Touchscreen Needed)
+---
+
+### Method C: Physical Keypad Debug Menu
 *Works on running stock remotes when screen displays but touch digitizer is broken.*
 
 1. With the remote powered on and connected via Micro-USB to PC:
 2. On the physical keypad, press simultaneously:
    **`>>` (Fast Forward) + `Stop` + `Red button`**
 3. The developer/debug menu opens on the remote screen.
-4. Use the physical **Direction Down / Direction Up** navigation pad to highlight **"Enable USB Ethernet"** (or "USB Ethernet: ON").
+4. Use the physical **Direction Down / Up** navigation pad to highlight **"Enable USB Ethernet"**.
 5. Press the physical **Center / OK** button to activate.
-6. A new USB Ethernet adapter appears on your PC. Configure static IP `192.168.2.2/24`.
-7. Run the automated installer:
+6. Configure host PC static IP `192.168.2.2/24` and run:
    ```bash
    python elite/setup_remote.py
    ```
 
-### Method C: Direct USB HID Staging (`root_remote_usb.py`)
-*Fully automated script over USB HID (no buttons or touchscreen).*
-
-1. Plug the remote via Micro-USB directly into PC.
-2. Run the dedicated USB HID root tool:
-   ```bash
-   python tools/root_remote_usb.py
-   ```
-3. The tool writes the ARM Dropbear multi-call payload to `/sys/dropbear`, arms `/tde/enable`, and sends `/sys/reboot`.
-4. Remote reboots into rooted mode with Dropbear SSH online on `192.168.2.1:22`.
-
 ---
 
-## 4. Create Golden Remote Backup (Mandatory!)
+## 3. Create Stock Remote Backup (Recommended)
 
-Before modifying any stock files or stopping stock services, create a complete backup:
+Before modifying flash contents, save a complete backup of stock Lua scripts and configuration:
 
 ```bash
 # On host PC:
@@ -99,121 +96,91 @@ ssh root@192.168.2.1 "tar -czf - /data /opt/luadraws /etc 2>/dev/null" > backups
 
 ---
 
-## 5. Deploying HarmonyNG Firmware
+## 4. Deploy HarmonyNG Firmware
 
-You can deploy automatically using the deployment script:
-```bash
-# Standard user deployment (uses stock BusyBox):
-python elite/deploy_elite.py --ip 192.168.2.1
-# Or PowerShell:
+Run the deployment script to push `codex_elite` (touch UI & framebuffer engine) to the remote:
+
+### On Windows (PowerShell):
+```powershell
+# From repo root:
 .\elite\deploy_elite.ps1 -Ip 192.168.2.1
 
-# Developer / Debug mode (installs extended BusyBox to /data/busybox):
-python elite/deploy_elite.py --ip 192.168.2.1 --debug-busybox
-# Or PowerShell:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -DebugBusybox
+# Or from extracted release zip:
+.\deploy_elite.ps1 -Ip 192.168.2.1
 ```
 
-Or copy manually:
-1. Build or locate the pre-compiled ARM binary:
-   ```bash
-   ./build/compile_all.sh elite
-   ```
-   *(Pre-built static binary resides at `elite/bin/codex_elite`)*.
+### On Linux / macOS / Windows (Python):
+```bash
+# From repo root:
+python elite/deploy_elite.py --ip 192.168.2.1
 
-2. Copy the binary to `/data/`:
-   ```bash
-   scp elite/bin/codex_elite root@192.168.2.1:/data/codex_elite
-   ssh root@192.168.2.1 "chmod +x /data/codex_elite"
-   # Optional: Only copy extended BusyBox if debugging
-   # scp elite/bin/busybox root@192.168.2.1:/data/busybox
-   ```
+# Or from extracted release zip:
+python deploy_elite.py --ip 192.168.2.1
+```
 
-3. Update `/data/init.sh` to stop the stock monolithic Lua UI and launch HarmonyNG (`codex_elite`):
-   ```bash
-   cat << 'EOF' > /data/init.sh
-   #!/bin/sh
-   # Terminate stock Lua UI to release framebuffer and /dev/rfspi
-   killall -9 luadraws 2>/dev/null || true
-   
-   # Start dropbear SSH daemon
-   if ! pidof dropbear >/dev/null; then
-       /usr/sbin/dropbear -p 22 -B
-   fi
+The script:
+1. Copies `codex_elite` to `/data/codex_elite`.
+2. Installs safe startup persistence into `/etc/init.d/rcS.local`.
+3. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`.
+4. Starts `codex_elite` with immediate vector graphics rendering.
 
-   # Start HarmonyNG custom firmware
-   /data/codex_elite >/dev/null 2>&1 &
-   EOF
-   chmod +x /data/init.sh
-   ```
+---
 
-4. Launch HarmonyNG manually for the first run:
-   ```bash
-   ssh root@192.168.2.1
-   killall -9 luadraws 2>/dev/null || true
-   /data/codex_elite &
-   ```
+## 5. RF Pairing with Harmony Hub
+
+1. On the Elite remote touch screen, tap the **Settings** dock icon.
+2. Select **RF Pairing Menu** -> **Start Pairing to Hub**.
+3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), navigate to **Harmony Elite Remote** and click **Start Hub Pairing Mode**.
+4. Within 5 seconds, the Hub and remote exchange RF security tokens, the status badge turns green, and activities and button maps synchronize automatically over 2.4 GHz RF.
 
 ---
 
 ## 6. Battery Life & Power Optimization Settings
 
-The custom `codex_elite` firmware includes power management settings to extend battery life:
+The custom `codex_elite` firmware includes power management settings to maximize battery life:
 
 1. **Button Backlight Control**:
-   - Navigate to the **Settings** tab on the Elite touch screen.
-   - Tap **Button Backlight**:
+   - In **Settings** on the touch screen, tap **Button Backlight**:
      - `OFF`: Always keeps physical keypad LEDs off (maximum battery savings).
-     - `ON`: Always illuminates keypads on remote pickup or button press.
-     - `NIGHT`: Automatically turns off button backlights between **22:00 and 07:00** (configurable window) while keeping screen backlight active when touched.
+     - `ON`: Illuminates keypads on remote pickup or button press.
+     - `NIGHT`: Automatically turns off button backlights between **22:00 and 07:00** while keeping the screen active on touch.
 2. **Gyroscope Poll Rate**:
-   - Stock Harmony firmware queries the LIS3DH I2C accelerometer at 50 Hz, constantly waking the DaVinci CPU.
-   - Tap **Gyro Poll Rate** in Settings to select:
-     - `10 Hz` (**Recommended**): Drops pickup power consumption by over 60% while detecting remote lift gestures.
+   - Tap **Gyro Poll Rate** in Settings:
+     - `10 Hz` (**Recommended**): Cuts pickup standby power by over 60% while detecting lift gestures.
      - `25 Hz`: Balanced response.
      - `50 Hz`: High sensitivity.
-3. Settings are saved to `/data/codex_elite.conf`.
 
 ---
 
-## 7. RF Pairing with Harmony Hub
+## 7. Factory Reset & Reverting to Stock Firmware
 
-1. On the Elite remote touch screen, open the **Settings** dock.
-2. Select **RF Pairing Menu** -> **Start Pairing to Hub**.
-3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), go to **Harmony Elite Remote** and click **Start Hub Pairing Mode**.
-4. Within 5 seconds, the Hub and remote exchange RF tokens, the top badge shows a teal link, and current activities and button maps sync automatically.
+To completely remove HarmonyNG software and revert the Elite remote to official Logitech stock firmware:
 
----
-
-## 8. Factory Reset & Reverting to Stock Firmware
-
-To completely remove HarmonyNG software and revert the Elite remote (or Hub) to official Logitech stock firmware:
-
-### Using the Dedicated Factory Reset Tool
 ```bash
-# Revert Elite Remote:
+# Using Python:
 python tools/factory_reset.py --target elite --elite-ip 192.168.2.1
 
-# Revert Harmony Hub:
-python tools/factory_reset.py --target hub --hub-ip <HUB_IP>
-
-# Revert both Hub and Remote:
-python tools/factory_reset.py --target all
-```
-
-### Using Deployment Scripts
-```bash
-# PowerShell:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -FactoryReset
-.\deploy_hub.ps1 -HubIp <HUB_IP> -FactoryReset
-
-# Python:
+# Or using deployment script:
 python elite/deploy_elite.py --ip 192.168.2.1 --factory-reset
+
+# Or using PowerShell:
+.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -FactoryReset
 ```
 
-### What Factory Reset Does:
-1. **Restores original startup scripts**: Replaces `/etc/init.d/rcS.local` with the stock backup (`/data/stock_backup/rcS.local.orig`) or removes it if stock had none.
-2. **Restores stock daemon execution permissions**: Runs `chmod +x` on `/usr/bin/watchdog`, `/usr/bin/usbhid`, `/usr/bin/hal`, `/opt/luaworks/luaworks`, and `/opt/luadraws/luadraws`.
-3. **Purges all custom binaries and configs**: Deletes `/data/codex_*`, `/data/dropbear*`, `/etc/nowatchdog`, `/data/reboot_counter`, and Dropbear symlinks.
-4. **Reboots cleanly** into official Logitech stock software.
+---
 
+## Appendix: Flash Storage Architecture & Memory Footprint
+
+> [!NOTE]
+> Provided for reference. The Elite remote features generous NAND capacity and flash wear is not an issue.
+
+The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
+
+| Partition | Mount Point | Filesystem | Total Size | Available Space | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `nand0,0` | `/` (root) | SquashFS | 16.0 MB | 0 KB (Read-Only) | Kernel 2.6.31-arm and base rootfs. |
+| `nand0,1` | `/data` | JFFS2/UBIFS | 64.0 MB | **~32 MB Free** | Generous writable partition. |
+| `nand0,2` | `/opt` | SquashFS/JFFS2 | 32.0 MB | ~8 MB Free | Stock Lua UI (`luadraws`) and HBUS binaries. |
+
+- `codex_elite` binary: **~718 KB**
+- Total HarmonyNG footprint on `/data`: **< 3 MB** out of 32 MB free space.

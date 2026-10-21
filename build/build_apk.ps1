@@ -9,7 +9,7 @@ Write-Host "============================================================" -Foreg
 Write-Host "  Building Harmony Remote Android APK" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
-$RepoRoot = $PSScriptRoot
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $AndroidAppDir = Join-Path $RepoRoot "android-app"
 $AndroidDir = Join-Path $AndroidAppDir "android"
 $OutputDir = Join-Path $RepoRoot "build\output"

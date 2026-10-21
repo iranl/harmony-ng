@@ -4,6 +4,19 @@ Independent, open-source local control firmware and companion suite for the **Lo
 
 ---
 
+## 🚀 Quick Start & Installation
+
+Setting up HarmonyNG takes just a few minutes. Pre-built release bundles containing all binaries, modules, scripts, and deployment tools are ready on the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) — **no compilation required**.
+
+| Target | Installation Guide | Requirements |
+| :--- | :--- | :--- |
+| **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub, Micro-USB cable, PC (Windows, macOS, or Linux) |
+| **Harmony Elite 950** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Elite Remote, Micro-USB cable, PC |
+| **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
+| **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
+
+---
+
 ## Architecture Overview
 
 ```
@@ -87,11 +100,15 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 ```text
 .
 ├── android-app/            # Modern client SPA & Android Capacitor project
-├── build/                  # Cross-compilation toolchains and build scripts
+├── build/                  # Cross-compilation toolchains, build, and deploy scripts
 │   ├── cc2544/             # GPLv2 kernel driver for CC2544 RF transceiver
 │   ├── patches/            # BTstack patches
+│   ├── build_apk.ps1       # Android APK build and package script
 │   ├── build_btstack.sh    # MIPS32 BTstack cross-compilation script
-│   └── compile_all.sh      # Master Hub userspace binary build script
+│   ├── build_webui.ps1     # Frontend Vite builder and gzip compressor
+│   ├── compile_all.sh      # Master Hub userspace binary build script
+│   ├── deploy_hub.ps1      # Hub deployment script (PowerShell)
+│   └── deploy_hub.sh       # Hub deployment script (Bash)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
@@ -103,11 +120,13 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
 ├── elite/                  # Elite 950 remote userspace binaries and deployment tools
 │   ├── bootstrap_serial.py # Hardware serial bootstrap
-│   ├── deploy_elite.py     # Remote SSH deployment script
+│   ├── deploy_elite.ps1    # Remote deployment script (PowerShell)
+│   ├── deploy_elite.py     # Remote deployment script (Python)
 │   ├── setup_remote.py     # Multi-step remote provisioning tool
 │   └── rcS.local           # Elite safe-boot script with panic recovery
 ├── payload/
 │   ├── bin/                # Target MIPS executables for Hub
+│   ├── modules/            # USB Ethernet kernel drivers (r8152, asix, cdc_ether, etc.)
 │   ├── scripts/            # Hub startup (init.sh), network manager, recovery AP
 │   └── source/             # Clean-room native C source code
 │       ├── codex_daemon.c  # Hub micro-daemon and master select() loop

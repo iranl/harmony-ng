@@ -5,10 +5,10 @@ BIN_DIR="/data/codex/bin"
 
 load_mod() {
   mod="$1"
-  if [ -f "$MODULES_DIR/usb_net/$mod" ]; then
-    insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
-  elif [ -f "$MODULES_DIR/$mod" ]; then
+  if [ -f "$MODULES_DIR/$mod" ]; then
     insmod "$MODULES_DIR/$mod" 2>/dev/null || true
+  elif [ -f "$MODULES_DIR/usb_net/$mod" ]; then
+    insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
   fi
 }
 

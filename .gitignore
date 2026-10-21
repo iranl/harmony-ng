@@ -21,6 +21,7 @@ scratch/
 /test_*
 scratch_*
 *.ko
+!payload/modules/*.ko
 *.bin
 *.jks
 *.keystore
@@ -33,5 +34,6 @@ payload/bin/*
 !payload/bin/.gitkeep
 elite/bin/*
 !elite/bin/.gitkeep
+!elite/bin/dropbearmulti_musl
 payload/www/*
 !payload/www/.gitkeep

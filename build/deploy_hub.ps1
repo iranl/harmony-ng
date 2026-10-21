@@ -20,17 +20,19 @@ param(
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PayloadDir = Join-Path $ScriptDir "payload"
+$RepoRoot = Split-Path -Parent $ScriptDir
+$PayloadDir = Join-Path $RepoRoot "payload"
 $BinDir = Join-Path $PayloadDir "bin"
 $ScriptsDir = Join-Path $PayloadDir "scripts"
+$ModulesDir = Join-Path $PayloadDir "modules"
 $WwwDir = Join-Path $PayloadDir "www"
 
-# Local Development (Option A): Fallback to build/output or android-app/dist if payload directories are empty
-if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $ScriptDir "build\output\codex_daemon"))) {
-    $BinDir = Join-Path $ScriptDir "build\output"
+# Local Development: Fallback to build/output or android-app/dist if payload directories are empty
+if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\codex_daemon"))) {
+    $BinDir = Join-Path $RepoRoot "build\output"
 }
-if (-not (Test-Path (Join-Path $WwwDir "index.html")) -and (Test-Path (Join-Path $ScriptDir "android-app\dist\index.html"))) {
-    $WwwDir = Join-Path $ScriptDir "android-app\dist"
+if (-not (Test-Path (Join-Path $WwwDir "index.html")) -and (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html"))) {
+    $WwwDir = Join-Path $RepoRoot "android-app\dist"
 }
 
 $Target = "root@$HubIp"
@@ -177,10 +179,22 @@ foreach ($s in $scripts) {
     Deploy-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/codex/$($s.Name)" -Perm "755" | Out-Null
 }
 
+# 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
+if (Test-Path $ModulesDir) {
+    $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File
+    if ($modFiles) {
+        Write-Host "[*] Syncing USB Ethernet kernel modules (/cache/modules)..." -ForegroundColor Yellow
+        & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
+        foreach ($m in $modFiles) {
+            Deploy-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
+        }
+    }
+}
+
 # 3. Upload Web UI static bundle (gzip assets, only when MD5 differs)
 if (Test-Path $WwwDir) {
     Write-Host "[*] Building & compressing Web UI assets with build_webui.ps1..." -ForegroundColor Yellow
-    $buildScript = Join-Path $ScriptDir "build\build_webui.ps1"
+    $buildScript = Join-Path $ScriptDir "build_webui.ps1"
     if (Test-Path $buildScript) {
         & powershell -ExecutionPolicy Bypass -File $buildScript
     }

@@ -100,6 +100,27 @@ export PATH=/cache/bin:/cache:/data/codex/bin:\$PATH
 EOF
 chmod 644 \"\$prof\" 2>/dev/null || true; done"
 
+# Deploy payload scripts
+SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
+if [ -d "$SCRIPTS_DIR" ]; then
+    echo "[*] Syncing startup & network scripts to /data/codex/..."
+    for sc in "$SCRIPTS_DIR"/*; do
+        [ -f "$sc" ] || continue
+        deploy_file_if_changed "$sc" "/data/codex/$(basename "$sc")" 755
+    done
+fi
+
+# Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
+MODULES_DIR="$REPO_ROOT/payload/modules"
+if [ -d "$MODULES_DIR" ]; then
+    echo "[*] Syncing USB Ethernet kernel modules to /cache/modules/..."
+    ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
+    for mod in "$MODULES_DIR"/*.ko; do
+        [ -f "$mod" ] || continue
+        deploy_file_if_changed "$mod" "/cache/modules/$(basename "$mod")" 644
+    done
+fi
+
 
 # 4. Deploy WebUI to /data/codex/www/
 echo "[4/5] Syncing WebUI to /data/codex/www/ (MD5 check)..."
