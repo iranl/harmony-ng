@@ -152,7 +152,7 @@ jobs:
           ./build/compile_all.sh hub
           ./build/compile_all.sh btstack || true
           mkdir -p build/output/hub
-          cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/mknod build/output/hub/
+          cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           [ -f payload/bin/busybox ] && cp -f payload/bin/busybox build/output/hub/ || true
           [ -f tools/bin/dropbearmulti_mips ] && cp -f tools/bin/dropbearmulti_mips build/output/hub/dropbearmulti || true
           (cd build/output/hub && gzip -c -9 codex_daemon > codex_daemon.gz)

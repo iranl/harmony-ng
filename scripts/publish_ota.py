@@ -49,6 +49,7 @@ HUB_BINARIES = [
     "codex_sync",
     "mknod",
     "register_ehci",
+    "eth_fix",
 ]
 
 ELITE_BINARIES = [

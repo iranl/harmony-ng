@@ -74,4 +74,4 @@ jobs:
           chmod +x build/compile_all.sh
           ./build/compile_all.sh hub
           file payload/bin/codex_daemon payload/bin/codex_rf
-          ls -lh payload/bin/codex_* payload/bin/register_ehci payload/bin/mknod
+          ls -lh payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod

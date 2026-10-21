@@ -82,5 +82,25 @@ else
   echo "[USB_ETH] No USB device detected yet on port 1-1"
 fi
 
+# Wait briefly for network interface creation and apply MIPS checksum/TSO fix
+for i in 1 2 3; do
+  for ifpath in /sys/class/net/eth* /sys/class/net/usb*; do
+    [ -d "$ifpath" ] || continue
+    ifname="${ifpath##*/}"
+    case "$ifname" in
+      eth0|eth1|wifi0|ath0|lo) ;;
+      *)
+        if [ -x "$BIN_DIR/eth_fix" ]; then
+          "$BIN_DIR/eth_fix" "$ifname" >/dev/null 2>&1 || true
+        elif [ -x /usr/sbin/eth_fix ]; then
+          /usr/sbin/eth_fix "$ifname" >/dev/null 2>&1 || true
+        fi
+        break 2
+        ;;
+    esac
+  done
+  sleep 1
+done
+
 echo "[USB_ETH] Done! Active USB drivers:"
 lsmod | grep -e r8152 -e asix -e cdc_ether -e smsc95xx -e dm9601 -e rtl8150 -e usbnet -e ehci_hcd

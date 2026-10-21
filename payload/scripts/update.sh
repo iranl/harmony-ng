@@ -150,7 +150,7 @@ do_apply() {
       done
 
       # C. Secondary binaries & BusyBox -> /cache/bin/
-      for b in codex_rf register_ehci busybox; do
+      for b in codex_rf register_ehci eth_fix busybox; do
         if [ -f "$TMPDIR/pkg/bin/$b" ]; then
           chmod 755 "$TMPDIR/pkg/bin/$b"
           cp -f "$TMPDIR/pkg/bin/$b" "/cache/bin/$b" 2>/dev/null || true
@@ -222,7 +222,7 @@ do_apply() {
       fi
     done
 
-    for b in codex_rf register_ehci; do
+    for b in codex_rf register_ehci eth_fix; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/cache/bin/$b"

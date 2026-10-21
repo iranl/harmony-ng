@@ -78,7 +78,7 @@ deploy_file_if_changed() {
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
 }
 
-for bin in codex_daemon codex_rf codex_sntp codex_btstack codex_sync codex_dhcpd codex_portal mknod register_ehci; do
+for bin in codex_daemon codex_rf codex_sntp codex_btstack codex_sync codex_dhcpd codex_portal mknod register_ehci eth_fix; do
     if [ -f "$BIN_DIR/$bin" ]; then
         deploy_file_if_changed "$BIN_DIR/$bin" "/data/codex/bin/$bin" 755
     fi
