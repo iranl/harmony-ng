@@ -46,8 +46,8 @@ configure_arp_isolation() {
   echo 1 > /proc/sys/net/ipv4/conf/default/arp_ignore 2>/dev/null || true
   echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce 2>/dev/null || true
   echo 2 > /proc/sys/net/ipv4/conf/default/arp_announce 2>/dev/null || true
-  echo 2 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true
-  echo 2 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true
+  echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true
+  echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true
 }
 
 find_eth_interface() {
@@ -260,7 +260,7 @@ monitor_wifi() {
     ping_check_cycle=0
     gw=$(route -n 2>/dev/null | awk '$1=="0.0.0.0" && $8=="ath0" {print $2}')
     if [ -n "$gw" ]; then
-      if ping "$gw" 2>/dev/null | grep -q 'is alive'; then
+      if ping -c 1 -W 2 "$gw" >/dev/null 2>&1; then
         gw_seen=1
         gw_fail_count=0
       else
@@ -356,6 +356,7 @@ migrate_to_ethernet() {
 
   # Assign IP to Ethernet
   ifconfig "$eth_if" "$target_ip" netmask "$target_mask" up >> "$LOG" 2>&1
+  ethtool -K "$eth_if" rx off tx off tso off gso off 2>/dev/null || true
 
   # Explicitly configure default route
   route del default 2>/dev/null || true

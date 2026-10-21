@@ -21,9 +21,18 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BIN_DIR="$REPO_ROOT/payload/bin"
-WWW_DIR="$REPO_ROOT/payload/www"
+if [ -d "$SCRIPT_DIR/bin" ]; then
+    BIN_DIR="$SCRIPT_DIR/bin"
+    WWW_DIR="$SCRIPT_DIR/www"
+    SCRIPTS_DIR="$SCRIPT_DIR/scripts"
+    MODULES_DIR="$SCRIPT_DIR/modules"
+else
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    BIN_DIR="$REPO_ROOT/payload/bin"
+    WWW_DIR="$REPO_ROOT/payload/www"
+    SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
+    MODULES_DIR="$REPO_ROOT/payload/modules"
+fi
 
 echo "=== Harmony Hub Codex Firmware Deployment ==="
 echo "Target Hub: $HUB_HOST"
@@ -84,24 +93,9 @@ if [ -f "$BIN_DIR/busybox" ]; then
 fi
 # Ensure root profile uses extended BusyBox in cache if present
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-    "for prof in /root/.profile /home/root/.profile; do mkdir -p \"\$(dirname \"\$prof\")\" 2>/dev/null; cat <<'EOF' > \"\$prof\"
-BB_PATH=\"\"
-if [ -x /cache/bin/busybox ]; then
-    BB_PATH=/cache/bin/busybox
-elif [ -x /cache/busybox ]; then
-    BB_PATH=/cache/busybox
-fi
-if [ -t 0 ] && [ -n \"\$BB_PATH\" ] && [ -z \"\$BB_EXTENDED\" ]; then
-    export BB_EXTENDED=1
-    export PATH=/cache/bin:/data/codex/bin:\$PATH
-    exec \"\$BB_PATH\" sh -l
-fi
-export PATH=/cache/bin:/data/codex/bin:\$PATH
-EOF
-chmod 644 \"\$prof\" 2>/dev/null || true; done"
+    "for prof in /root/.profile /home/root/.profile; do mkdir -p \"\$(dirname \"\$prof\")\" 2>/dev/null; printf \"BB_PATH=\\\"\\\"\n[ -x /cache/bin/busybox ] && BB_PATH=/cache/bin/busybox\n[ -x /cache/busybox ] && BB_PATH=/cache/busybox\nif [ -t 0 ] && [ -n \\\"\\\$BB_PATH\\\" ] && [ -z \\\"\\\$BB_EXTENDED\\\" ]; then\n  export BB_EXTENDED=1\n  export PATH=/cache/bin:/data/codex/bin:\\\$PATH\n  exec \\\"\\\$BB_PATH\\\" sh -l\nfi\nexport PATH=/cache/bin:/data/codex/bin:\\\$PATH\n\" > \"\$prof\"; chmod 644 \"\$prof\" 2>/dev/null || true; done"
 
 # Deploy payload scripts
-SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
 if [ -d "$SCRIPTS_DIR" ]; then
     echo "[*] Syncing startup & network scripts to /data/codex/..."
     for sc in "$SCRIPTS_DIR"/*; do
@@ -111,7 +105,6 @@ if [ -d "$SCRIPTS_DIR" ]; then
 fi
 
 # Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
-MODULES_DIR="$REPO_ROOT/payload/modules"
 if [ -d "$MODULES_DIR" ]; then
     echo "[*] Syncing USB Ethernet kernel modules to /cache/modules/..."
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
@@ -120,7 +113,6 @@ if [ -d "$MODULES_DIR" ]; then
         deploy_file_if_changed "$mod" "/cache/modules/$(basename "$mod")" 644
     done
 fi
-
 
 # 4. Deploy WebUI to /cache/www/ (preserves critical /data flash)
 echo "[4/5] Syncing WebUI to /cache/www/ (MD5 check)..."

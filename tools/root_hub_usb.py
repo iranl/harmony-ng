@@ -2,11 +2,12 @@
 """Logitech Harmony Hub USB Root & Persistence Tool.
 
 Permanently roots a stock or factory-reset Logitech Harmony Hub over USB HID:
+- Automatically verifies Hub Wi-Fi connectivity and LAN reachability (port 8088)
+- Forces Wi-Fi configuration if not already connected
 - Installs MIPS Dropbear multi-call SSH server to /data/dropbearmulti
 - Configures authorized_keys with your SSH public key
 - Enables TDE gate (/etc/tdeenable) so Dropbear starts on every boot
 - Disables hardware watchdog (/etc/nowatchdog)
-- Optionally provisions Wi-Fi over USB HID
 
 Requires NO Logitech cloud, NO Harmony app, NO XMPP, and NO hub_id.
 
@@ -19,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import os
 import pathlib
@@ -71,8 +73,9 @@ if [ ! -r /etc/dropbear/dropbear_rsa_host_key ]; then
     /data/dropbearmulti dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
 fi
 
-# Phase 6: Start Dropbear SSH daemon
-exec /data/dropbearmulti dropbear -R -p 0.0.0.0:22 "$@"
+# Phase 6: Start Dropbear SSH daemon in background and let rcS continue
+/data/dropbearmulti dropbear -R -p 0.0.0.0:22 "$@"
+exit 0
 """
 
 
@@ -129,7 +132,6 @@ def build_payload(pubkey_str: str) -> bytes:
     dropbear_path = find_dropbear_binary()
     mips_binary = dropbear_path.read_bytes()
 
-    # Template offset placeholder format
     dummy_offset = b"00000000"
     base_script = BOOTSTRAP_SCRIPT_TEMPLATE.replace(b"%PUBKEY%", pubkey_str.strip().encode("ascii"))
     template = base_script.replace(b"%OFFSET%", dummy_offset)
@@ -142,18 +144,79 @@ def build_payload(pubkey_str: str) -> bytes:
     return script + mips_binary
 
 
+def check_tcp_port(ip: str, port: int, timeout_s: float = 1.0) -> bool:
+    """Check if a TCP port is open."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout_s)
+        res = s.connect_ex((ip, port))
+        s.close()
+        return res == 0
+    except Exception:
+        return False
+
+
+def get_local_subnets() -> list[str]:
+    """Discover local IPv4 /24 subnet prefixes (e.g. ['10.234.234', '192.168.1'])."""
+    subnets: set[str] = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        if not local_ip.startswith("127.") and not local_ip.startswith("169.254."):
+            subnets.add(".".join(local_ip.split(".")[:3]))
+    except Exception:
+        pass
+
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if not ip.startswith("127.") and not ip.startswith("169.254."):
+                subnets.add(".".join(ip.split(".")[:3]))
+    except Exception:
+        pass
+
+    return sorted(list(subnets))
+
+
+def scan_subnet_for_port(subnet_prefix: str, port: int = 8088, timeout_s: float = 0.25) -> list[str]:
+    """Scan all 254 hosts in a /24 subnet for open TCP port."""
+    def check_ip(ip: str) -> str | None:
+        if check_tcp_port(ip, port, timeout_s):
+            return ip
+        return None
+
+    ips = [f"{subnet_prefix}.{i}" for i in range(1, 255)]
+    found: list[str] = []
+    with ThreadPoolExecutor(max_workers=64) as executor:
+        futures = [executor.submit(check_ip, ip) for ip in ips]
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                found.append(res)
+    return found
+
+
+def find_hub_lan_ip(preferred_ip: str | None = None, port: int = 8088) -> str | None:
+    """Verify preferred_ip or scan local subnets for Hub on port 8088."""
+    if preferred_ip and check_tcp_port(preferred_ip, port, timeout_s=1.5):
+        return preferred_ip
+
+    subnets = get_local_subnets()
+    print(f"[*] Scanning local subnet(s) {subnets} for Hub on port {port}...")
+    for sub in subnets:
+        found = scan_subnet_for_port(sub, port)
+        if found:
+            return found[0]
+    return None
+
+
 def wait_for_ssh(ip: str, port: int = 22, timeout_s: int = 60) -> bool:
     """Check if SSH port is reachable."""
     t_end = time.time() + timeout_s
     while time.time() < t_end:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1.0)
-        try:
-            s.connect((ip, port))
-            s.close()
+        if check_tcp_port(ip, port, timeout_s=1.0):
             return True
-        except Exception:
-            pass
         time.sleep(1.0)
         print(".", end="", flush=True)
     return False
@@ -175,7 +238,7 @@ def main() -> None:
     print("=" * 70)
 
     # 1. Connect to Hub over USB HID
-    print(f"[*] Searching for Harmony Hub over USB HID (046D:C129)...")
+    print("[*] Searching for Harmony Hub over USB HID (046D:C129)...")
     hid = HarmonyHid(pid=HUB_PID)
     if not hid.open():
         print("[-] Error: Harmony Hub not detected on USB.")
@@ -183,37 +246,97 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        # 2. Wi-Fi Provisioning
-        if args.wifi_ssid:
-            wifi_pass = args.wifi_pass
-            if wifi_pass is None and args.wifi_enc.upper() not in ("NONE", "OPEN"):
+        # 2. Check Wi-Fi Connection Status over USB HID
+        print("[*] Checking Hub Wi-Fi connection over USB HID...")
+        wifi_status = hid.get_wifi_status()
+        conn_status = wifi_status.get("connect_status", "").lower()
+        hub_ip = wifi_status.get("ip_address", "").strip()
+        ssid = wifi_status.get("ssid", "").strip()
+
+        is_connected = conn_status == "connected" and hub_ip and hub_ip != "0.0.0.0"
+
+        # Force Wi-Fi setup if disconnected or if explicit SSID passed
+        if not is_connected or args.wifi_ssid:
+            if not is_connected:
+                print(f"[-] Hub is NOT connected to Wi-Fi (status: '{conn_status or 'disconnected'}').")
+                print("    [!] A verified Wi-Fi connection to your network is REQUIRED before rooting.")
+                print("        This prevents lockout by ensuring the Hub is reachable over SSH.")
+
+            target_ssid = args.wifi_ssid
+            if not target_ssid:
+                target_ssid = input("\nEnter Wi-Fi SSID (2.4 GHz): ").strip()
+                while not target_ssid:
+                    target_ssid = input("SSID cannot be empty. Enter Wi-Fi SSID: ").strip()
+
+            target_pass = args.wifi_pass
+            if target_pass is None and args.wifi_enc.upper() not in ("NONE", "OPEN"):
                 import getpass
-                wifi_pass = getpass.getpass(f"Enter Wi-Fi password for '{args.wifi_ssid}': ")
-            print(f"[*] Provisioning Wi-Fi SSID '{args.wifi_ssid}' over USB HID...")
-            if hid.provision_wifi(args.wifi_ssid, wifi_pass or "", args.wifi_enc):
-                print("[+] Wi-Fi credentials accepted by Hub.")
+                print("Note: If password contains special characters (like $), interactive prompt preserves them literally.")
+                target_pass = getpass.getpass(f"Enter Wi-Fi password for '{target_ssid}': ")
+
+            print(f"[*] Provisioning Wi-Fi SSID '{target_ssid}' over USB HID...")
+            if not hid.provision_wifi(target_ssid, target_pass or "", args.wifi_enc):
+                print("[-] Error: Failed to send Wi-Fi credentials over USB HID.")
+                sys.exit(1)
+
+            print("[+] Wi-Fi credentials accepted by Hub.")
+            print(f"[*] Waiting for Hub to connect to '{target_ssid}' (up to 40s)...")
+            t_deadline = time.time() + 40
+            is_connected = False
+            while time.time() < t_deadline:
+                time.sleep(2)
+                wifi_status = hid.get_wifi_status()
+                conn_status = wifi_status.get("connect_status", "").lower()
+                hub_ip = wifi_status.get("ip_address", "").strip()
+                ssid = wifi_status.get("ssid", "").strip()
+                if conn_status == "connected" and hub_ip and hub_ip != "0.0.0.0":
+                    is_connected = True
+                    print(f"\n[+] Wi-Fi connected! SSID='{ssid}', IP={hub_ip}")
+                    break
+                print(".", end="", flush=True)
+
+            if not is_connected:
+                print(f"\n[-] ERROR: Hub failed to connect to Wi-Fi within 40s (status: '{conn_status}').")
+                print("[-] ROOTING ABORTED: Will NOT install Dropbear or arm boot trigger without Wi-Fi.")
+                sys.exit(1)
+        else:
+            print(f"[+] Wi-Fi already connected: SSID='{ssid}', IP={hub_ip}")
+
+        # 3. LAN Reachability & Port 8088 Scan
+        print(f"[*] Verifying LAN reachability on {hub_ip}...")
+        lan_ip = None
+        if check_tcp_port(hub_ip, 8088, timeout_s=2.0):
+            print(f"[+] Hub verified on LAN at {hub_ip}:8088 (stock Luaworks active).")
+            lan_ip = hub_ip
+        elif check_tcp_port(hub_ip, 22, timeout_s=2.0):
+            print(f"[+] Hub verified on LAN at {hub_ip}:22 (Dropbear SSH active).")
+            lan_ip = hub_ip
+        else:
+            print(f"[*] Direct probe to {hub_ip} did not respond. Scanning local network for port 8088...")
+            discovered = find_hub_lan_ip(preferred_ip=args.hub_ip or hub_ip, port=8088)
+            if not discovered:
+                discovered = find_hub_lan_ip(preferred_ip=args.hub_ip or hub_ip, port=22)
+            if discovered:
+                print(f"[+] Discovered Hub on LAN at {discovered}!")
+                lan_ip = discovered
             else:
-                print("[-] Warning: Wi-Fi provisioning command failed.")
+                print(f"[-] ERROR: Hub Wi-Fi reports IP {hub_ip}, but Hub is NOT reachable from this PC on the local network.")
+                print("    Ensure this PC and the Hub are on the same Wi-Fi network/subnet and AP isolation is OFF.")
+                print("[-] ROOTING ABORTED: Will NOT install Dropbear or arm boot trigger without verified LAN reachability.")
+                sys.exit(1)
 
         if args.wifi_only:
             if not args.no_reboot:
                 print("[*] Sending reboot command to /sys/reboot...")
                 try:
                     hid.reboot()
-                    print("[+] Hub is rebooting to connect to Wi-Fi!")
+                    print("[+] Hub is rebooting to finalize Wi-Fi!")
                 except Exception:
                     pass
-                if args.hub_ip:
-                    print(f"[*] Waiting for Dropbear SSH on {args.hub_ip}:22...")
-                    if wait_for_ssh(args.hub_ip, 22, timeout_s=60):
-                        print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {args.hub_ip}:22!")
-                    else:
-                        print(f"\n[-] Timed out waiting for SSH on {args.hub_ip}.")
-                else:
-                    print("\n[+] Wi-Fi configuration complete! Hub is joining your network.")
+                print(f"\n[+] Wi-Fi configuration complete! Hub IP: {lan_ip}")
             return
 
-        # 3. Resolve SSH Public Key & Build Self-Extracting Payload
+        # 4. Resolve SSH Public Key & Build Self-Extracting Payload
         pub_path, pub_str = resolve_ssh_key(args.pubkey)
         print(f"[+] Authorized public key: {pub_str.split()[0]} {pub_str.split()[-1]}")
 
@@ -248,13 +371,14 @@ def main() -> None:
             except Exception:
                 pass
 
-            if args.hub_ip:
-                print(f"[*] Waiting for Dropbear SSH on {args.hub_ip}:22...")
-                if wait_for_ssh(args.hub_ip, 22, timeout_s=60):
-                    print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {args.hub_ip}:22!")
-                    print(f"    Connect: ssh -i {pub_path.with_suffix('')} root@{args.hub_ip}")
+            target_verify_ip = lan_ip or args.hub_ip or hub_ip
+            if target_verify_ip:
+                print(f"[*] Waiting for Dropbear SSH on {target_verify_ip}:22...")
+                if wait_for_ssh(target_verify_ip, 22, timeout_s=60):
+                    print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {target_verify_ip}:22!")
+                    print(f"    Connect: ssh -i {pub_path.with_suffix('')} root@{target_verify_ip}")
                 else:
-                    print(f"\n[-] Timed out waiting for SSH on {args.hub_ip}.")
+                    print(f"\n[-] Timed out waiting for SSH on {target_verify_ip}.")
             else:
                 print("\n[+] Setup complete! Dropbear SSH will start on port 22 on your LAN IP.")
         else:

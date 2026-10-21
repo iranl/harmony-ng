@@ -20,19 +20,28 @@ param(
 
 $ErrorActionPreference = "Continue"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = Split-Path -Parent $ScriptDir
-$PayloadDir = Join-Path $RepoRoot "payload"
-$BinDir = Join-Path $PayloadDir "bin"
-$ScriptsDir = Join-Path $PayloadDir "scripts"
-$ModulesDir = Join-Path $PayloadDir "modules"
-$WwwDir = Join-Path $PayloadDir "www"
 
-# Local Development: Fallback to build/output or android-app/dist if payload directories are empty
-if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\codex_daemon"))) {
-    $BinDir = Join-Path $RepoRoot "build\output"
-}
-if (-not (Test-Path (Join-Path $WwwDir "index.html")) -and (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html"))) {
-    $WwwDir = Join-Path $RepoRoot "android-app\dist"
+# Support running directly from extracted release archive or from repo build/ directory
+if (Test-Path (Join-Path $ScriptDir "bin")) {
+    $BinDir = Join-Path $ScriptDir "bin"
+    $ScriptsDir = Join-Path $ScriptDir "scripts"
+    $ModulesDir = Join-Path $ScriptDir "modules"
+    $WwwDir = Join-Path $ScriptDir "www"
+} else {
+    $RepoRoot = Split-Path -Parent $ScriptDir
+    $PayloadDir = Join-Path $RepoRoot "payload"
+    $BinDir = Join-Path $PayloadDir "bin"
+    $ScriptsDir = Join-Path $PayloadDir "scripts"
+    $ModulesDir = Join-Path $PayloadDir "modules"
+    $WwwDir = Join-Path $PayloadDir "www"
+
+    # Local Development: Fallback to build/output or android-app/dist if payload directories are empty
+    if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\codex_daemon"))) {
+        $BinDir = Join-Path $RepoRoot "build\output"
+    }
+    if (-not (Test-Path (Join-Path $WwwDir "index.html")) -and (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html"))) {
+        $WwwDir = Join-Path $RepoRoot "android-app\dist"
+    }
 }
 
 $Target = "root@$HubIp"
@@ -154,21 +163,7 @@ if (Test-Path $bb) {
     }
 }
 # Ensure root profile uses extended BusyBox in cache if present
-$profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; cat <<''EOF'' > "$prof"
-BB_PATH=""
-if [ -x /cache/bin/busybox ]; then
-    BB_PATH=/cache/bin/busybox
-elif [ -x /cache/busybox ]; then
-    BB_PATH=/cache/busybox
-fi
-if [ -t 0 ] && [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
-    export BB_EXTENDED=1
-    export PATH=/cache/bin:/data/codex/bin:$PATH
-    exec "$BB_PATH" sh -l
-fi
-export PATH=/cache/bin:/data/codex/bin:$PATH
-EOF
-chmod 644 "$prof" 2>/dev/null || true; done'
+$profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
 & ssh @sshArgs $Target "$profCmd"
 
 
@@ -216,8 +211,13 @@ if (Test-Path $WwwDir) {
         & ssh @sshArgs $Target $pruneCmd
     }
     # Upload icons archive to /data/codex/icons.tar.gz (served on-demand from RAM tmpfs)
-    $iconsTar = Join-Path $RootDir "build\icons.tar.gz"
-    if (Test-Path $iconsTar) {
+    $iconsTar = $null
+    if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
+        $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
+    } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
+        $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
+    }
+    if ($iconsTar -and (Test-Path $iconsTar)) {
         Deploy-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/data/codex/icons.tar.gz" -Perm "644" | Out-Null
     }
     # Prune individual icons directory on flash to preserve JFFS2 partition space

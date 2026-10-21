@@ -157,6 +157,8 @@ if sys.platform == "win32":
     hid_dll.HidD_GetHidGuid.argtypes = [ctypes.c_void_p]
     hid_dll.HidD_FlushQueue.restype = wintypes.BOOL
     hid_dll.HidD_FlushQueue.argtypes = [wintypes.HANDLE]
+    hid_dll.HidD_SetNumInputBuffers.restype = wintypes.BOOL
+    hid_dll.HidD_SetNumInputBuffers.argtypes = [wintypes.HANDLE, wintypes.ULONG]
 
     # Kernel32 prototypes
     kernel32.CreateFileW.restype = wintypes.HANDLE
@@ -227,6 +229,25 @@ class WinHidDevice:
         self.read_event = read_event
         self.write_event = write_event
         self.path = path
+        if sys.platform == "win32":
+            try:
+                hid_dll.HidD_SetNumInputBuffers(self.handle, 64)
+                hid_dll.HidD_FlushQueue(self.handle)
+            except Exception:
+                pass
+
+    def drain(self, max_reports: int = 16, timeout_ms: int = 50) -> None:
+        """Drain any stale input reports from buffer."""
+        if sys.platform == "win32":
+            try:
+                hid_dll.HidD_FlushQueue(self.handle)
+            except Exception:
+                pass
+        while max_reports > 0:
+            rep = self.read_report(timeout_ms)
+            if not rep:
+                break
+            max_reports -= 1
 
     def write_report(self, data: bytes) -> bool:
         """Write a 65-byte report (0x00 + 64 bytes)."""
@@ -237,29 +258,40 @@ class WinHidDevice:
         else:
             raise ValueError(f"Invalid report size: {len(data)}")
 
-        ov = OVERLAPPED()
-        ov.hEvent = self.write_event
-        kernel32.ResetEvent(self.write_event)
+        for attempt in range(2):
+            ov = OVERLAPPED()
+            ov.hEvent = self.write_event
+            kernel32.ResetEvent(self.write_event)
 
-        written = wintypes.DWORD()
-        res = kernel32.WriteFile(
-            self.handle,
-            buf,
-            len(buf),
-            ctypes.byref(written),
-            ctypes.byref(ov),
-        )
-        if not res:
-            err = kernel32.GetLastError()
-            if err == 997:  # ERROR_IO_PENDING
-                wait = kernel32.WaitForSingleObject(self.write_event, 5000)
-                if wait != WAIT_OBJECT_0:
-                    kernel32.CancelIo(self.handle)
+            written = wintypes.DWORD()
+            res = kernel32.WriteFile(
+                self.handle,
+                buf,
+                len(buf),
+                ctypes.byref(written),
+                ctypes.byref(ov),
+            )
+            if not res:
+                err = kernel32.GetLastError()
+                if err == 997:  # ERROR_IO_PENDING
+                    wait = kernel32.WaitForSingleObject(self.write_event, 5000)
+                    if wait != WAIT_OBJECT_0:
+                        kernel32.CancelIo(self.handle)
+                        if attempt == 0:
+                            time.sleep(0.05)
+                            continue
+                        return False
+                    kernel32.GetOverlappedResult(self.handle, ctypes.byref(ov), ctypes.byref(written), False)
+                elif err == 995:  # ERROR_OPERATION_ABORTED
+                    if attempt == 0:
+                        time.sleep(0.05)
+                        continue
                     return False
-                kernel32.GetOverlappedResult(self.handle, ctypes.byref(ov), ctypes.byref(written), False)
-            else:
-                return False
-        return written.value == len(buf)
+                else:
+                    return False
+            if written.value == len(buf):
+                return True
+        return False
 
     def read_report(self, timeout_ms: int = 5000) -> bytes:
         """Read a 65-byte report, returns 64-byte payload without report ID."""
@@ -284,6 +316,8 @@ class WinHidDevice:
                     kernel32.CancelIo(self.handle)
                     return b""
                 kernel32.GetOverlappedResult(self.handle, ctypes.byref(ov), ctypes.byref(read), False)
+            elif err == 995:  # ERROR_OPERATION_ABORTED
+                return b""
             else:
                 return b""
 
@@ -601,6 +635,67 @@ class HarmonyHid:
         finally:
             self.close_file(handle_id)
 
+    def open_file_read(self, remote_path: str, timeout_ms: int = 15000) -> tuple[int, int]:
+        """Open a file for reading via command 0x01 ('R'). Returns (handle_id, file_size)."""
+        params = [encode_param_string(remote_path), encode_param_string("R")]
+        resp = self.command(0x01, params, timeout_ms)
+        if not resp or resp[0] != 0xFF or resp[1] != 0x01:
+            raise RuntimeError(f"Open read '{remote_path}' failed: response {resp.hex() if resp else 'timeout'}")
+
+        handle_id = resp[5] if len(resp) >= 6 else resp[2]
+        file_size = int.from_bytes(resp[7:11], "big") if len(resp) >= 11 else 0
+        return handle_id, file_size
+
+    def read_file_chunks(
+        self,
+        handle_id: int,
+        size: int,
+        packets_per_read: int = 50,
+        timeout_ms: int = 15000,
+        progress_callback=None,
+    ) -> bytes:
+        """Read data chunks via command 0x04."""
+        data = bytearray()
+        while len(data) < size:
+            wanted = min(size - len(data), packets_per_read * 62)
+            seq = self._next_seq()
+            params = [encode_param_byte(handle_id), encode_param_byte(packets_per_read)]
+            cmd_frame = build_primary_frames(0x04, seq, params)[0]
+            if not self.dev.write_report(cmd_frame):
+                break
+
+            chunk_received = bytearray()
+            t_end = time.time() + (timeout_ms / 1000.0)
+            while time.time() < t_end and len(chunk_received) < wanted:
+                rep = self.dev.read_report(int(max(10, (t_end - time.time()) * 1000)))
+                if not rep:
+                    continue
+                if rep[0] == 0xFF:
+                    continue
+                if rep[0] == 0xFE:
+                    break
+                pkt_len = rep[1] & 0x3F
+                if pkt_len == 0:
+                    pkt_len = min(62, wanted - len(chunk_received))
+                take = min(pkt_len, wanted - len(chunk_received))
+                chunk_received.extend(rep[2 : 2 + take])
+
+            if not chunk_received:
+                break
+            data.extend(chunk_received)
+            if progress_callback:
+                progress_callback(len(data), size)
+
+        return bytes(data)
+
+    def read_file(self, remote_path: str, packets_per_read: int = 50, timeout_ms: int = 15000) -> bytes:
+        """Complete workflow: open read -> read chunks -> close."""
+        handle_id, size = self.open_file_read(remote_path, timeout_ms)
+        try:
+            return self.read_file_chunks(handle_id, size, packets_per_read, timeout_ms)
+        finally:
+            self.close_file(handle_id)
+
     # --------------------------------------------------------------------------
     # Specialized Hub / Elite Actions
     # --------------------------------------------------------------------------
@@ -624,3 +719,17 @@ class HarmonyHid:
         """Provision Wi-Fi directly over USB HID."""
         payload = f"ssid,{ssid}\npassword,{password}\nencryption,{encryption}\n".encode("utf-8")
         return self.write_simple("/sys/wifi/connect", payload)
+
+    def get_wifi_status(self) -> dict[str, str]:
+        """Query Wi-Fi status over USB HID, returning parsed key-value dict."""
+        try:
+            raw = self.read_file("/sys/wifi/connect")
+            text = raw.decode("utf-8", errors="replace")
+            info: dict[str, str] = {}
+            for line in text.splitlines():
+                if "," in line:
+                    k, v = line.split(",", 1)
+                    info[k.strip()] = v.strip()
+            return info
+        except Exception:
+            return {}

@@ -6499,9 +6499,14 @@ class HarmonyApp {
       const activeIfEl = document.getElementById('netActiveIf');
       if (activeIfEl) {
         if (st.eth_present && st.wifi_connected) {
-          activeIfEl.textContent = (st.eth_carrier)
-            ? `${st.active_interface} (Ethernet Active + Wi-Fi Standby)`
-            : `${st.active_interface} (Wi-Fi Active + Ethernet Standby)`;
+          const isEthActive = (st.active_interface === st.eth_interface) || (st.mode === 'ethernet');
+          if (isEthActive) {
+            activeIfEl.textContent = `${st.active_interface} (Ethernet Active + Wi-Fi Standby)`;
+          } else {
+            activeIfEl.textContent = (st.eth_carrier)
+              ? `${st.active_interface} (Wi-Fi Active + Ethernet Linking)`
+              : `${st.active_interface} (Wi-Fi Active + Ethernet Standby)`;
+          }
         } else {
           activeIfEl.textContent = st.active_interface || 'none';
         }
