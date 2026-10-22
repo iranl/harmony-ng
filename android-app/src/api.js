@@ -20,17 +20,24 @@ export class HarmonyClient {
       this.baseUrl = '';
       this.wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/`;
     } else {
-      const host = this.hub.host || '127.0.0.1';
-      const port = this.hub.port || 8089;
-      this.baseUrl = `http://${host}:${port}`;
-      this.wsUrl = `ws://${host}:${this.hub.wsPort || port}/`;
+      const host = this.hub.host;
+      if (host) {
+        const port = this.hub.port || 8089;
+        this.baseUrl = `http://${host}:${port}`;
+        this.wsUrl = `ws://${host}:${this.hub.wsPort || port}/`;
+      } else {
+        this.baseUrl = '';
+        this.wsUrl = '';
+      }
     }
     this.authHeader = (this.hub.username && this.hub.password)
       ? `Basic ${btoa(`${this.hub.username}:${this.hub.password}`)}`
       : null;
 
-    if (!this.ws || this.ws.readyState >= 2) {
+    if (this.wsUrl && (!this.ws || this.ws.readyState >= 2)) {
       this.connectWebSocket(true);
+    } else if (!this.wsUrl) {
+      this.disconnectWebSocket();
     }
   }
 
@@ -58,14 +65,19 @@ export class HarmonyClient {
           if (data && this.onWsMessage) {
             this.onWsMessage(data);
           }
-        } catch {}
+        } catch (err) {
+          /* Malformed WS frame ignored */
+        }
       };
-      this.ws.onerror = () => {};
+      this.ws.onerror = () => {
+        if (this.onWsStatus) this.onWsStatus(false);
+      };
       this.ws.onclose = () => {
         if (this.onWsStatus) this.onWsStatus(false);
         this.scheduleWsReconnect();
       };
-    } catch {
+    } catch (err) {
+      if (this.onWsStatus) this.onWsStatus(false);
       this.scheduleWsReconnect();
     }
   }
@@ -87,7 +99,9 @@ export class HarmonyClient {
         this.ws.onclose = null;
         this.ws.onerror = null;
         this.ws.close();
-      } catch {}
+      } catch (err) {
+        /* Socket close error ignored */
+      }
       this.ws = null;
     }
   }
@@ -121,7 +135,8 @@ export class HarmonyClient {
       let j;
       try {
         j = JSON.parse(text);
-      } catch {
+      } catch (err) {
+        /* Non-JSON response body */
         j = null;
       }
 
@@ -166,7 +181,7 @@ export class HarmonyClient {
     });
   }
 
-  async postJson(path, data = {}) {
+  async postJson(path, data = {}, extraOpts = {}) {
     return this.request(path, {
       method: 'POST',
       headers: {
@@ -174,17 +189,69 @@ export class HarmonyClient {
         'Accept': 'application/json, text/plain, */*',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      ...extraOpts
     });
   }
 
   async testConnection() {
     try {
-      const data = await this.request('/api/inventory', { timeout: 4000 });
+      if (!this.baseUrl && !this.hub.host) {
+        return { ok: false, error: 'No hub configured' };
+      }
+      const data = await this.getHealth();
       return { ok: true, data };
     } catch (err) {
-      return { ok: false, error: err.message };
+      /* Health probe failed, fall back to /api/status */
+      try {
+        const data = await this.request('/api/status', { timeout: 3000 });
+        return { ok: true, data };
+      } catch (innerErr) {
+        return { ok: false, error: innerErr.message };
+      }
     }
+  }
+
+  static async checkHubHealth(host, port = 8089, timeout = 1500) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const res = await fetch(`http://${host}:${port}/health`, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json, text/plain, */*' }
+      });
+      clearTimeout(timer);
+      if (!res.ok) return { ok: false };
+      const data = await res.json().catch(() => null);
+      if (data && (data.service === 'codex_daemon' || data.status === 'ok')) {
+        return { ok: true, data };
+      }
+      return { ok: res.status === 200, data };
+    } catch (err) {
+      clearTimeout(timer);
+      return { ok: false };
+    }
+  }
+
+  static async fetchHubName(host, port = 8089, timeout = 2000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const res = await fetch(`http://${host}:${port}/api/status`, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.hub_name) return data.hub_name;
+      }
+    } catch {
+      clearTimeout(timer);
+    }
+    return `Harmony Hub (${host})`;
   }
 
   isWsConnected() {
@@ -196,7 +263,7 @@ export class HarmonyClient {
     try {
       this.ws.send(JSON.stringify(data));
       return true;
-    } catch {
+    } catch (err) {
       return false;
     }
   }
@@ -206,7 +273,7 @@ export class HarmonyClient {
       if (!this.isWsConnected()) {
         return reject(new Error('WS offline'));
       }
-      const msgId = this.wsMsgSeq++;
+      const msgId = ++this.wsMsgSeq > 0x7FFFFFFF ? (this.wsMsgSeq = 1) : this.wsMsgSeq;
       const timer = setTimeout(() => {
         this.wsPendingReqs.delete(msgId);
         reject(new Error('WS timeout'));
@@ -224,6 +291,31 @@ export class HarmonyClient {
       }
     });
   }
+
+  async ping(timeout = 3000) {
+    return new Promise((resolve, reject) => {
+      if (!this.isWsConnected()) {
+        return reject(new Error('WS offline'));
+      }
+      const msgId = this.wsMsgSeq++;
+      const timer = setTimeout(() => {
+        this.wsPendingReqs.delete(msgId);
+        reject(new Error('Ping timeout'));
+      }, timeout);
+      this.wsPendingReqs.set(msgId, (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      });
+      try {
+        this.ws.send(JSON.stringify({ action: 'ping', msgId }));
+      } catch (err) {
+        clearTimeout(timer);
+        this.wsPendingReqs.delete(msgId);
+        reject(err);
+      }
+    });
+  }
+
 
   /* Core Inventory & Activities */
   async getInventory() {
@@ -257,9 +349,14 @@ export class HarmonyClient {
           btHost: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
           bt_host: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
           BTAddress: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
-          btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : -1,
-          btReconnectDuration: dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : 0,
-          btReconnectDelay: dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : -1,
+          btAutoReconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : -1),
+          bt_auto_reconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : -1),
+          btReconnectDuration: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
+          bt_reconnect_duration_sec: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
+          btReconnectDelay: dev.bt_reconnect_delay_sec !== undefined ? Number(dev.bt_reconnect_delay_sec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : (dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1)),
+          bt_reconnect_delay_sec: dev.bt_reconnect_delay_sec !== undefined ? Number(dev.bt_reconnect_delay_sec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : (dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1)),
+          bt_trigger_device_id: dev.bt_trigger_device_id || dev.btTriggerDeviceId || '',
+          bt_trigger_command_name: dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '',
           powerOnSequence: dev.powerOnSequence || dev.PowerOnActions || [],
           powerOffSequence: dev.powerOffSequence || dev.PowerOffActions || [],
           isBt: isBt,
@@ -444,7 +541,9 @@ export class HarmonyClient {
       try {
         await this.sendWsCommand('send_command', { deviceId: String(deviceId), command: String(command) });
         return { ok: true, ws: true };
-      } catch {}
+      } catch (err) {
+        /* WS command failed, fall back to HTTP */
+      }
     }
     return this.postJson('/api/ir-send', {
       deviceId: String(deviceId),
@@ -715,6 +814,14 @@ export class HarmonyClient {
     return this.postForm('/ethernet', data);
   }
 
+  async scanWifi() {
+    return this.request('/api/wifi-scan');
+  }
+
+  async testWifi(data) {
+    return this.postForm('/api/wifi-test', data);
+  }
+
   async saveWifi(data) {
     return this.postForm('/wifi', data);
   }
@@ -728,12 +835,12 @@ export class HarmonyClient {
     return this.request(`/export/${target}`);
   }
 
-  async restoreBackup(target, payload) {
+  async restoreBackup(target, payload, restoreNetwork = false) {
     let parsed = payload;
     if (typeof payload === 'string') {
       try { parsed = JSON.parse(payload); } catch {}
     }
-    return this.postJson('/import', { target, payload: parsed });
+    return this.postJson('/import', { target, payload: parsed, restore_network: !!restoreNetwork }, { timeout: 30000 });
   }
 
   /* System & Maintenance */
@@ -818,10 +925,6 @@ export class HarmonyClient {
 
   async getIcons() {
     return this.request('/api/icons');
-  }
-
-  async getBtStatus() {
-    return this.request('/api/bt-status');
   }
 
   async getStatus() {

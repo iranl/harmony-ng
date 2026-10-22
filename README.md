@@ -144,8 +144,9 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       └── hub_portal.c    # Wi-Fi recovery captive portal
 └── tools/
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
+    ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
     ├── extract_remote_icons.py # Elite icon extractor and WebUI deployment tool
-    ├── root_hub_usb.py     # USB HID root unlock tool for Hub
+    ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup
     ├── root_remote_usb.py  # USB HID root unlock tool for Elite remote
     └── unbrick_recovery/   # SPI flash and Dropbear emergency recovery tools
 ```

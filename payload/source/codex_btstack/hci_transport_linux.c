@@ -97,32 +97,7 @@ static void hci_transport_linux_process_read(btstack_data_source_t * ds) {
         return;
     }
     if (bytes_read > 1) {
-        if (is_debug_log_enabled()) {
-            uint8_t ptype = hci_packet[0];
-            if (ptype == HCI_EVENT_PKT) {
-                uint8_t evt = hci_packet[1];
-                // Filter LE advertising report (0x3e subevent 0x02) to avoid log spam
-                if (evt != 0x3e || (bytes_read > 3 && hci_packet[3] != 0x02)) {
-                    char hex[64] = "";
-                    for (int i = 0; i < bytes_read && i < 16; i++) {
-                        sprintf(hex + strlen(hex), "%02x ", hci_packet[i]);
-                    }
-                    char m[128];
-                    snprintf(m, sizeof(m), "HCI RX EVT: 0x%02x [%s]", evt, hex);
-                    codex_log_debug(m);
-                }
-            } else if (ptype == HCI_ACLDATA_PKT) {
-                uint16_t h = (hci_packet[1] | (hci_packet[2] << 8)) & 0x0fff;
-                uint16_t cid = bytes_read > 8 ? (hci_packet[7] | (hci_packet[8] << 8)) : 0;
-                char hex[64] = "";
-                for (int i = 0; i < bytes_read && i < 20; i++) {
-                    sprintf(hex + strlen(hex), "%02x ", hci_packet[i]);
-                }
-                char m[140];
-                snprintf(m, sizeof(m), "HCI RX ACL: h=0x%04x cid=0x%04x [%s]", h, cid, hex);
-                codex_log_debug(m);
-            }
-        }
+
         if (hci_transport_linux_packet_handler) {
             hci_transport_linux_packet_handler(hci_packet[0], &hci_packet[1], (uint16_t)(bytes_read - 1));
         }
@@ -237,24 +212,6 @@ static int hci_transport_linux_send_packet(uint8_t packet_type, uint8_t * packet
     uint32_t  buffer_size = (uint32_t)size + 1;
     buffer[0] = packet_type;
 
-    if (is_debug_log_enabled()) {
-        if (packet_type == HCI_COMMAND_PKT && size >= 2) {
-            uint16_t op = packet[0] | (packet[1] << 8);
-            char m[128];
-            snprintf(m, sizeof(m), "HCI TX CMD: opcode=0x%04x len=%d (p0=0x%02x, p1=0x%02x, p2=0x%02x)",
-                     op, size, packet[0], packet[1], size > 2 ? packet[2] : 0);
-            codex_log_debug(m);
-        } else if (packet_type == HCI_ACLDATA_PKT) {
-            uint16_t h = (packet[0] | (packet[1] << 8)) & 0x0fff;
-            char hex[64] = "";
-            for (int i = 0; i < size && i < 20; i++) {
-                sprintf(hex + strlen(hex), "%02x ", packet[i]);
-            }
-            char m[140];
-            snprintf(m, sizeof(m), "HCI TX ACL: h=0x%04x [%s]", h, hex);
-            codex_log_debug(m);
-        }
-    }
 
     int written = write(hci_socket, buffer, buffer_size);
     if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {

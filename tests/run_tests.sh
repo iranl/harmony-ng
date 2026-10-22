@@ -121,6 +121,53 @@ run_api_tests() {
         exit 1
     fi
 
+    # Test 6: GET /api/wifi-scan
+    echo -n "Test 6: GET /api/wifi-scan (Wi-Fi scanning) ... "
+    SCAN_RESP=$(curl -s "http://127.0.0.1:$TEST_PORT/api/wifi-scan")
+    if echo "$SCAN_RESP" | grep -q '"ok":true' && echo "$SCAN_RESP" | grep -q '"networks":'; then
+        echo "PASS"
+    else
+        echo "FAIL: $SCAN_RESP"
+        exit 1
+    fi
+
+    # Test 7: POST /api/wifi-test (Empty SSID validation)
+    echo -n "Test 7: POST /api/wifi-test (Validation on empty SSID) ... "
+    BAD_TEST_RESP=$(curl -s -w "\n%{http_code}" -X POST "http://127.0.0.1:$TEST_PORT/api/wifi-test" \
+        -H "Content-Type: application/json" \
+        -d '{"ssid":""}')
+    HTTP_CODE=$(echo "$BAD_TEST_RESP" | tail -n1)
+    if [ "$HTTP_CODE" -eq 400 ]; then
+        echo "PASS"
+    else
+        echo "FAIL (HTTP $HTTP_CODE): $BAD_TEST_RESP"
+        exit 1
+    fi
+
+    # Test 8: POST /api/wifi-test (Valid test connection in test harness)
+    echo -n "Test 8: POST /api/wifi-test (Valid test connection) ... "
+    GOOD_TEST_RESP=$(curl -s -X POST "http://127.0.0.1:$TEST_PORT/api/wifi-test" \
+        -H "Content-Type: application/json" \
+        -d '{"ssid":"TestMeshNetwork","password":"SecretPassword123"}')
+    if echo "$GOOD_TEST_RESP" | grep -q '"ok":true'; then
+        echo "PASS"
+    else
+        echo "FAIL: $GOOD_TEST_RESP"
+        exit 1
+    fi
+
+    # Test 9: POST /api/wifi-save (Save Wi-Fi settings without force apply)
+    echo -n "Test 9: POST /api/wifi-save (Safe Wi-Fi config save) ... "
+    SAVE_RESP=$(curl -s -X POST "http://127.0.0.1:$TEST_PORT/api/wifi-save" \
+        -H "Content-Type: application/json" \
+        -d '{"ssid":"NewHomeWiFi","password":"NewPassword456","apply":"save"}')
+    if echo "$SAVE_RESP" | grep -q '"ok":true'; then
+        echo "PASS"
+    else
+        echo "FAIL: $SAVE_RESP"
+        exit 1
+    fi
+
     echo "=============================================="
     echo "  ALL TESTS PASSED SUCCESSFULLY!              "
     echo "=============================================="

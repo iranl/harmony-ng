@@ -99,6 +99,19 @@
     </div>
   </header>
 
+  <!-- Hub Updating Blocking Overlay (Blocks all usage while software update and reboot is underway) -->
+  <div id="hubUpdatingOverlay" class="hub-updating-overlay" style="display: none;">
+    <div class="hub-updating-card">
+      <div class="updating-spinner-ring"></div>
+      <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;">Hub Software Update</h3>
+      <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;">Hub is updated and is rebooting. Please wait...</p>
+      <div class="updating-progress-badge">
+        <span class="updating-pulse-dot"></span>
+        <span id="hubUpdatingStatusText">Applying update...</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Hub Software Update Available Banner (Global across all views) -->
   <div id="hubUpdateBanner" class="hub-update-banner" style="display: none;">
     <div class="update-banner-content">
@@ -1125,11 +1138,14 @@
               </div>
 
               <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
-                <label for="curDevBtAutoReconnect"
-                  style="cursor: pointer; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px;">
-                  <input type="checkbox" id="curDevBtAutoReconnect" style="width: 14px; height: 14px;">
-                  <span>Auto-reconnect Bluetooth on command</span>
-                </label>
+                <div>
+                  <label class="mini muted" for="curDevBtAutoReconnect">Bluetooth Auto-Reconnect</label>
+                  <select id="curDevBtAutoReconnect" class="form-control form-control-sm">
+                    <option value="-1">Inherit Global Setting</option>
+                    <option value="1">Enabled (Always Reconnect)</option>
+                    <option value="0">Disabled (Never Reconnect)</option>
+                  </select>
+                </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
                   <div>
                     <label class="mini muted" for="curDevBtDuration">Duration (s)</label>
@@ -1148,6 +1164,13 @@
                     <span>⏱</span>
                     <span>Auto-Detect Bluetooth Connect Delay...</span>
                   </button>
+                </div>
+                <div style="margin-top: 6px;">
+                  <label class="mini muted" for="curDevBtTriggerCmd">Trigger Reconnect on Command</label>
+                  <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
+                    <option value="">None (Activity Start Only)</option>
+                  </select>
+                  <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp; window whenever this command executes (e.g. smart socket PowerOn).</div>
                 </div>
               </div>
             </div>
@@ -1675,6 +1698,15 @@
             <div>
               <strong style="font-size: 13px;">Auto Reconnect on Activity</strong>
               <div class="muted mini">Connect automatically when activity starts</div>
+            </div>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="btBootReconnectToggle" checked
+              style="width: 18px; height: 18px; accent-color: var(--accent);">
+            <div>
+              <strong style="font-size: 13px;">Auto Reconnect on Hub Boot</strong>
+              <div class="muted mini">Connect to paired Bluetooth devices on startup</div>
             </div>
           </label>
 
@@ -3094,15 +3126,25 @@ harmony_send_command:
         </form>
       </div>
 
-      <!-- Wi-Fi Settings Card (NO Wi-Fi scanning, as requested) -->
+      <!-- Wi-Fi Settings Card with Network Scanning & Safe Test-Before-Switch -->
       <div class="card">
-        <h3 style="font-size: 15px; margin-bottom: 6px;">Wi-Fi Connection</h3>
-        <div class="help">Enter Wi-Fi network credentials. Serves as wireless connection or automatic fallback when
-          Ethernet is disconnected.</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+          <div>
+            <h3 style="font-size: 15px; margin-bottom: 6px;">Wi-Fi Connection</h3>
+            <div class="help">Enter Wi-Fi network credentials. Serves as wireless connection or automatic fallback when Ethernet is disconnected.</div>
+          </div>
+          <button type="button" id="btnWifiScan" class="btn btn-xs btn-ghost" style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 8px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+            <span id="btnWifiScanText">Scan Networks</span>
+          </button>
+        </div>
 
         <form id="wifiForm" onsubmit="return false;" style="margin-top: 10px;">
           <label for="wifiSsidInput">Wi-Fi Network Name (SSID)</label>
-          <input id="wifiSsidInput" name="ssid" class="form-control" required placeholder="Network Name">
+          <div style="position: relative;">
+            <input id="wifiSsidInput" name="ssid" class="form-control" required placeholder="Network Name" autocomplete="off">
+            <div id="wifiScanDropdown" class="wifi-scan-dropdown" style="display: none;"></div>
+          </div>
 
           <label for="wifiPskInput">Password</label>
           <input id="wifiPskInput" name="password" type="password" class="form-control"
@@ -3123,12 +3165,11 @@ harmony_send_command:
             </label>
           </div>
 
-          <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px;">
-            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="save">Save Wi-Fi</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reconfigure">Save &
-              Apply</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot">Save &
-              Reboot</button>
+          <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <button type="button" class="btn btn-sm btn-ghost" id="btnWifiTest">Test Connection</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="save">Save Wi-Fi</button>
+            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="reconfigure">Save & Apply</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot">Save & Reboot</button>
             <span id="wifiSaveStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3212,6 +3253,13 @@ harmony_send_command:
                 placeholder="Paste JSON or config payload here..."></textarea>
             </div>
           </details>
+
+          <div style="margin-top: 10px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
+              <input id="restoreNetworkCheckbox" type="checkbox" style="margin: 0;">
+              <span>Restore network &amp; Wi-Fi configuration (Leave unchecked to keep current connection)</span>
+            </label>
+          </div>
 
           <div class="actions" style="margin-top: 12px;">
             <button id="btnRestoreBackup" type="button" class="btn btn-sm btn-primary">Restore Backup</button>
@@ -3597,8 +3645,25 @@ harmony_send_command:
           <h2 data-i18n="multi_hub">Hub Management</h2>
           <div class="section-lead" data-i18n="hubs_lead">Configure multiple Harmony Hubs and switch between them.</div>
         </div>
-        <div class="actions" style="margin-top: 0;">
-          <button type="button" id="btnAddHub" class="btn btn-sm btn-primary" data-i18n="add_hub">+ Add Hub</button>
+        <div class="actions" style="margin-top: 0; display: flex; gap: 8px;">
+          <button type="button" id="btnScanHubs" class="btn btn-sm btn-secondary" style="display: flex; align-items: center; gap: 6px;">
+            <span id="scanHubsIcon">🔍</span>
+            <span id="scanHubsLabel">Scan Network</span>
+          </button>
+          <button type="button" id="btnAddHub" class="btn btn-sm btn-primary" data-i18n="add_hub">+ Add Hub Manually</button>
+        </div>
+      </div>
+
+      <div id="hubScanStatusBox" class="card" style="display: none; margin-bottom: 14px; background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div id="hubScanSpinner" class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
+            <div>
+              <div id="hubScanTitle" style="font-size: 13px; font-weight: 600;">Scanning network for Harmony Hubs on port 8089...</div>
+              <div id="hubScanSub" class="muted mini">Checking /health endpoint across local subnets</div>
+            </div>
+          </div>
+          <button type="button" id="btnStopScan" class="btn btn-xs btn-ghost">Cancel</button>
         </div>
       </div>
 

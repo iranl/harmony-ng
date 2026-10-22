@@ -4,6 +4,17 @@ This guide documents the complete hardware and software procedure for recovering
 
 ---
 
+> [!IMPORTANT]
+> ### ⚠️ Factory Reset is ALWAYS Preferred Above Serial Console Recovery
+> **Do NOT open the Hub casing or solder UART wires unless a hardware factory reset fails!**
+> 
+> - **Zero Risk & No Disassembly**: The Hub's read-only factory filesystem (`mtd3`, SquashFS) is physically immutable. Custom software, boot scripts (`rcS.local`), and configuration files only live on the writable UnionFS overlay (`mtd4` /mnt/data and `mtd5` /cache).
+> - **Instant Recovery**: Performing a **Hardware Factory Reset** (holding the Pair/Reset button while plugging USB into your PC) completely wipes corrupted writable partitions back to pristine factory state in 30 seconds.
+> - **Automated Re-Root & Full Configuration Restore**: After factory resetting, you can immediately restore your Hub with full configuration intact using `python tools/restore_stock.py`, or re-root offline over USB HID in 60 seconds using `python tools/root_hub_usb.py`.
+> - **Serial Console UART Recovery** (Sections 2–8 below) is an emergency last-resort procedure intended solely for rare bootloader (U-Boot) corruption or hardware diagnostic debugging.
+
+---
+
 ## 0. Overview & Architecture
 
 ### The Hardware
@@ -23,22 +34,74 @@ The Hub boots with a UnionFS overlay where `/` is composed of:
 none on / type unionfs (rw,dirs=/mnt/data=rw:/mnt/root=ro)
 ```
 - Any file modified in `/etc`, `/usr`, or `/data` is stored on `/mnt/data`.
-- If an init script (such as `/etc/init.d/rcS`) is corrupted, the original untouched factory copy still exists in the read-only SquashFS `/mnt/root/etc/init.d/rcS`.
-- The factory reset function simply wipes `/mnt/data`.
+- If an init script (such as `/etc/init.d/rcS` or `/etc/init.d/rcS.local`) is corrupted or causes a panic loop, the original untouched factory copy still exists in the read-only SquashFS `/mnt/root/etc/init.d/rcS`.
+- The factory reset function simply formats and wipes `/mnt/data` and `/cache`, instantly reverting all modifications to stock.
 
 ### Why the Stock Firmware Blocks Root Without Cloud
 When a hub is factory reset, `/data/resources/Context.json` is erased. In this state, Logitech's stock daemon (`luaworks`) on port 8088 rejects all local WebSocket connections with `401 Wrong hubId` because no account or device profile has been loaded yet. 
-**With UART hardware access, you can bypass the entire cloud provisioning step** and directly install persistent SSH into the system overlay.
+**Our USB HID root tools bypass the entire cloud provisioning step** and directly install persistent SSH into the system overlay over USB without needing serial console access.
 
 ---
 
-## 1. Complete U-Boot Reset to Unbrick the Hub and Reconnect to Wi-Fi
+## 1. Hardware Factory Reset via Pair Button (Preferred Method)
 
-1. Press and hold the Reset button on the hub then plug in the USB power cable.
-2. The red LED on the front of the hub should blink repeatedly for 30–60 seconds.
-3. This resets the Hub to its factory default state.
-4. Connect the Hub to a USB port on your computer using the micro USB cable.
-5. Use `python tools/harmony_hid.py --provision-wifi` or `python tools/root_hub_usb.py` to configure Wi-Fi credentials offline over USB.
+To revert any changes, fix a boot-loop, or recover an unresponsive Hub without opening the case:
+
+### Step 1.1: Initiate Factory Reset
+1. **Unplug the micro-USB cable** from the rear of the Harmony Hub (Hub powered OFF).
+2. Locate the circular **Pair/Reset** button on the back panel (next to the micro-USB port and 3.5mm IR blaster jacks).
+3. **Press and hold down the Pair/Reset button**.
+4. While keeping the button pressed down firmly, **plug the micro-USB cable into a USB port on your PC** (or USB power adapter).
+5. **Continue holding the Pair/Reset button for 15 to 20 seconds**.
+6. Observe the front status LED:
+   - The LED will initially turn off or flash briefly.
+   - Once the front LED begins **flashing red rapidly**, release the Pair/Reset button.
+7. The Hub will execute U-Boot factory recovery:
+   - Formats and clears the JFFS2 writable overlay partitions (`/data` and `/cache`).
+   - Removes all custom daemons (`codex_daemon`, `codex_rf`), startup scripts, and Dropbear keys.
+   - Preserves the untouched, read-only factory SquashFS filesystem.
+   - Automatically reboots into clean Logitech factory firmware (~30–45 seconds).
+8. Factory reset is complete when the front LED transitions to a **slow, steady red pulse** (indicating unconfigured factory state, waiting for setup).
+
+### Step 1.2: Post-Reset Recovery Options
+
+After the factory reset completes, choose one of two paths:
+
+#### Option A: Return to Stock with Full Configuration Restored (All-In-One Script)
+If you previously backed up your Hub or gained root using `tools/root_hub_usb.py` (which creates an automatic stock backup of `/cache` and `/data`), restore your original configuration, Wi-Fi credentials, activities, and devices in a single command:
+
+```bash
+# All-in-one restore (gains root over USB, stops daemons, restores /cache and /data, syncs, reboots)
+python tools/restore_stock.py
+
+# Optional: To return to 100% pure factory stock with Dropbear SSH removed:
+python tools/restore_stock.py --pure-stock
+```
+
+The script automatically:
+1. Connects to the Hub over USB HID (`046D:C129`).
+2. Configures Wi-Fi credentials over USB if needed.
+3. Stages the Dropbear payload to `/sys/dropbear` and boots into root SSH.
+4. Kills all running processes except Dropbear to release flash file locks.
+5. Transfers and extracts your backed-up `/cache` and `/data` partitions.
+6. Safely flushes eraseblock buffers (`sync; sync; sleep 2; verify /bin/sh -c 'true'`).
+7. Reboots the Hub into fully configured stock Logitech firmware.
+
+#### Option B: Re-Root and Deploy HarmonyNG
+If you wish to reinstall HarmonyNG after a clean reset:
+
+```bash
+# 1. Provision Wi-Fi and gain root over USB (with automatic stock backup):
+python tools/root_hub_usb.py --wifi-ssid "YourNetwork" --wifi-pass "YourPassword"
+
+# 2. Deploy HarmonyNG firmware:
+# Windows (PowerShell):
+.\build\deploy_hub.ps1 -HubIp <HUB_IP>
+# Linux / macOS (Bash):
+./build/deploy_hub.sh <HUB_IP>
+```
+
+---
 
 ## 2. Hardware Preparation & UART Pinout
 

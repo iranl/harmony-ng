@@ -34,21 +34,23 @@ mkdir -p "$BIN" "$OUT"
 
 cd "$REPO_ROOT"
 CFLAGS="-Os -static -s -DNDEBUG"
+COMPAT_SRC=""
+
 TARGET="${1:-all}"
 
 build_dhcpd() {
     echo "[-] Building codex_dhcpd..."
-    "$CC" $CFLAGS -o "$BIN/codex_dhcpd" payload/source/hub_dhcpd.c
+    "$CC" $CFLAGS -o "$BIN/codex_dhcpd" payload/source/hub_dhcpd.c $COMPAT_SRC
 }
 
 build_portal() {
     echo "[-] Building codex_portal..."
-    "$CC" $CFLAGS -o "$BIN/codex_portal" payload/source/hub_portal.c
+    "$CC" $CFLAGS -o "$BIN/codex_portal" payload/source/hub_portal.c $COMPAT_SRC
 }
 
 build_sntp() {
     echo "[-] Building codex_sntp..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_sntp" payload/source/codex_sntp_main.c payload/source/codex_ntp.c
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_sntp" payload/source/codex_sntp_main.c payload/source/codex_ntp.c $COMPAT_SRC
 }
 
 build_daemon() {
@@ -65,22 +67,23 @@ build_daemon() {
         payload/source/ws_server.c \
         payload/source/http_server.c \
         payload/source/mqtt_client.c \
-        payload/source/codex_ntp.c -lm
+        payload/source/codex_ntp.c \
+        $COMPAT_SRC -lpthread -lm
 }
 
 build_register_ehci() {
     echo "[-] Building register_ehci..."
-    "$CC" $CFLAGS -o "$BIN/register_ehci" payload/source/register_ehci.c
+    "$CC" $CFLAGS -o "$BIN/register_ehci" payload/source/register_ehci.c $COMPAT_SRC
 }
 
 build_eth_fix() {
     echo "[-] Building eth_fix..."
-    "$CC" $CFLAGS -o "$BIN/eth_fix" payload/source/eth_fix.c
+    "$CC" $CFLAGS -o "$BIN/eth_fix" payload/source/eth_fix.c $COMPAT_SRC
 }
 
 build_mknod() {
     echo "[-] Building mknod..."
-    "$CC" $CFLAGS -o "$BIN/mknod" payload/source/mknod.c
+    "$CC" $CFLAGS -o "$BIN/mknod" payload/source/mknod.c $COMPAT_SRC
 }
 
 
@@ -91,12 +94,12 @@ build_btstack() {
 
 build_sync() {
     echo "[-] Building codex_sync..."
-    "$CC" $CFLAGS -o "$BIN/codex_sync" payload/source/codex_sync.c
+    "$CC" $CFLAGS -o "$BIN/codex_sync" payload/source/codex_sync.c $COMPAT_SRC
 }
 
 build_rf() {
     echo "[-] Building codex_rf..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_rf" payload/source/codex_rf.c payload/source/cJSON.c -lpthread -lm
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_rf" payload/source/codex_rf.c payload/source/cJSON.c $COMPAT_SRC -lpthread -lm
 }
 
 build_elite() {

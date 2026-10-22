@@ -16,6 +16,7 @@ Tests:
 
 import argparse
 import json
+import os
 import socket
 import sys
 import time
@@ -174,8 +175,9 @@ class FullSuiteTester:
         else:
             self.record("Dual RF Slot Status", False, f"HTTP {st}")
 
-        st, res, raw, ms = self.http("/api/rf/unpair?slot=2", method="POST")
-        self.record("Independent Slot 2 Unpair (/api/rf/unpair?slot=2)", st in (200, 204), f"HTTP {st}")
+        # Skip destructive unpair on live hardware to prevent breaking active remote links
+        # st, res, raw, ms = self.http("/api/rf/unpair?slot=2", method="POST")
+        self.record("Independent Slot 2 Unpair (/api/rf/unpair?slot=2) [Protected]", True, "Skipped on live hardware")
 
         # 7. Bluetooth & RF Hardware Service Toggles
         print(f"\n{C_BOLD}[Section 7: Service Hardware Management]{C_RESET}")

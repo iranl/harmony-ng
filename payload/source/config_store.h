@@ -21,6 +21,9 @@
 #define CODEX_REMOTES_FILE "/data/codex/config/remotes.json"
 #define CODEX_SETTINGS_FILE "/data/codex/config/settings.json"
 #define STOCK_IMPORT_FLAG "/data/codex/config/.imported"
+#define CODEX_MQTT_FILE "/data/codex/mqtt_config.json"
+#define CODEX_MQTT_FILE_ALT "/data/codex/mqtt.json"
+#define CODEX_MQTT_LEGACY_FILE "/data/codexmqtt/config.json"
 
 struct activity_step {
     char type[32];
@@ -67,6 +70,8 @@ struct ir_device {
     int bt_auto_reconnect;          /* -1 = inherit global, 0 = disabled, 1 = enabled */
     int bt_reconnect_duration_sec;  /* 0 = inherit */
     int bt_reconnect_delay_sec;     /* -1 = inherit */
+    char bt_trigger_device_id[32];      /* device_id whose command triggers bt reconnect */
+    char bt_trigger_command_name[64];   /* command name that triggers bt reconnect */
 };
 
 struct ir_inventory {
@@ -134,6 +139,7 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
 
 struct codex_settings {
     int bt_auto_reconnect;          /* 1 = enable auto reconnect on activity/power, 0 = disable (default: 1) */
+    int bt_reconnect_on_boot;       /* 1 = enable auto reconnect on hub boot, 0 = disable (default: 1) */
     int bt_reconnect_duration_sec;  /* duration of reconnect attempts in seconds (default: 30) */
     int bt_reconnect_delay_sec;     /* delay in seconds before first reconnect attempt (default: 2) */
     int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */

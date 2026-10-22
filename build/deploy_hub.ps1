@@ -92,7 +92,7 @@ if ($FactoryReset) {
         exit 1
     }
     Write-Host "[*] Reverting Hub to stock (preserving config files)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true; rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true; mkdir -p /data/codex_p 2>/dev/null; cp -rf /data/codex/config/* /data/codex_p/ 2>/dev/null || true; rm -rf /data/codex/bin /data/codex/www /data/codex-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; rm -f /data/codex/*.conf /data/codex/current_activity /data/codex/config_version 2>/dev/null || true; mkdir -p /data/codex/config 2>/dev/null; cp -rf /data/codex_p/* /data/codex/config/ 2>/dev/null; rm -rf /data/codex_p 2>/dev/null; sync 2>/dev/null || true; reboot -f 2>/dev/null &"
+    & ssh @sshArgs $Target "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true; rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true; mkdir -p /data/codex_p 2>/dev/null; cp -rf /data/codex/config/* /data/codex_p/ 2>/dev/null || true; cp -f /data/codex/mqtt_config.json /data/codex_p/ 2>/dev/null || true; rm -rf /data/codex/bin /data/codex/www /data/codex-backups /data/codexmqtt /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; rm -f /data/codex/*.conf /data/codex/current_activity /data/codex/config_version 2>/dev/null || true; mkdir -p /data/codex/config 2>/dev/null; cp -rf /data/codex_p/* /data/codex/config/ 2>/dev/null; [ -f /data/codex_p/mqtt_config.json ] && cp -f /data/codex_p/mqtt_config.json /data/codex/mqtt_config.json 2>/dev/null || true; rm -rf /data/codex_p 2>/dev/null; /data/codex/bin/codex_sync 2>/dev/null || sync 2>/dev/null || true; reboot -f 2>/dev/null &"
     Write-Host "[+] Factory reset complete! Hub is rebooting into stock firmware (configs preserved)." -ForegroundColor Green
     exit 0
 }
@@ -159,7 +159,7 @@ if (Test-Path $bb) {
     & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
     $changed = Deploy-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
     if ($changed) {
-        $bbCmd = 'ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true'
+        $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true'
         & ssh @sshArgs $Target "$bbCmd"
     }
 }
@@ -211,7 +211,7 @@ if (Test-Path $WwwDir) {
         $pruneCmd = "if [ -d /cache/www/assets ]; then cd /cache/www/assets && for f in index-*.js* index-*.css* web-*.js*; do [ -f `"`$f`" ] || continue; case `"`$f`" in $activeCases) ;; *) rm -f `"`$f`" ;; esac; done; fi"
         & ssh @sshArgs $Target $pruneCmd
     }
-    # Upload icons archive to /data/codex/icons.tar.gz (served on-demand from RAM tmpfs)
+    # Upload icons archive to /cache/icons.tar.gz (preserve /data space) and symlink to /data/codex/icons.tar.gz
     $iconsTar = $null
     if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
         $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
@@ -219,7 +219,8 @@ if (Test-Path $WwwDir) {
         $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
     }
     if ($iconsTar -and (Test-Path $iconsTar)) {
-        Deploy-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/data/codex/icons.tar.gz" -Perm "644" | Out-Null
+        Deploy-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
+        & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
     }
     # Prune individual icons directory on flash to preserve JFFS2 partition space
     & ssh @sshArgs $Target "rm -rf /cache/www/assets/icons 2>/dev/null; chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
@@ -232,8 +233,9 @@ if (Test-Path $rcsSrc) {
     Deploy-HubFileIfChanged -LocalFile $rcsSrc -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
 }
 
-# 5. Reboot Hub cleanly
-Write-Host "[*] Rebooting Hub..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &"
+# 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
+Write-Host "[*] Verifying system shell and flushing NOR flash buffers..." -ForegroundColor Yellow
+$verifyCmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/codex/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/safe_reboot.sh /data/codex/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 1; /data/codex/bin/codex_sync 2>/dev/null || true; sleep 2; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/codex/bin/codex_sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &'
+& ssh @sshArgs $Target "$verifyCmd"
 
-Write-Host "[+] Deployment complete! Hub is rebooting." -ForegroundColor Green
+Write-Host "[+] Deployment complete! Hub is rebooting safely." -ForegroundColor Green

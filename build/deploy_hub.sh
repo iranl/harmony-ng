@@ -141,14 +141,16 @@ while IFS= read -r -d '' wfile; do
 done < <(find "$WWW_DIR" -type f -print0)
 
 if [ -f "$REPO_ROOT/build/icons.tar.gz" ]; then
-    deploy_file_if_changed "$REPO_ROOT/build/icons.tar.gz" "/data/codex/icons.tar.gz" 644
+    deploy_file_if_changed "$REPO_ROOT/build/icons.tar.gz" "/cache/icons.tar.gz" 644
+    ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
+        "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
 fi
 
 ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 
-# 5. Reboot Hub cleanly
-echo "[5/5] Rebooting Hub..."
+# 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
+echo "[5/5] Verifying system shell and flushing NOR flash buffers..."
 ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-    "sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &"
+    'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/codex/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/safe_reboot.sh /data/codex/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 1; /data/codex/bin/codex_sync 2>/dev/null || true; sleep 2; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/codex/bin/codex_sync 2>/dev/null || true; (sleep 1 && reboot -f) >/dev/null 2>&1 &'
 
-echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting. ==="
+echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting safely. ==="

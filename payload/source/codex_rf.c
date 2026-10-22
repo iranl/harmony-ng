@@ -565,27 +565,20 @@ static void *dispatch_worker(void *arg) {
         }
         pthread_mutex_unlock(&g_rf_q_mutex);
 
-        if (has_event) {
-            if (ev.kind == RF_EV_DEVICE_CMD) {
-                char body[256];
-                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                         ev.param1, ev.param2);
-                http_post_local(WEBUI_PORT, "/api/ir-send", body);
-            } else if (ev.kind == RF_EV_ACTIVITY) {
-                dispatch_activity_to_daemon(ev.param1);
-            } else {
-                dispatch_elite_button(ev.slot, ev.param1, ev.param2);
-            }
+        if (!has_event) {
+            usleep(20000); /* 20ms sleep */
+            continue;
+        }
+
+        if (ev.kind == RF_EV_DEVICE_CMD) {
+            char body[256];
+            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
+                     ev.param1, ev.param2);
+            http_post_local(WEBUI_PORT, "/api/ir-send", body);
+        } else if (ev.kind == RF_EV_ACTIVITY) {
+            dispatch_activity_to_daemon(ev.param1);
         } else {
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_nsec += 20000000L; /* 20ms */
-            if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
-            pthread_mutex_lock(&g_rf_q_mutex);
-            if (g_rf_q_head == g_rf_q_tail && g_running) {
-                pthread_cond_timedwait(&g_rf_q_cond, &g_rf_q_mutex, &ts);
-            }
-            pthread_mutex_unlock(&g_rf_q_mutex);
+            dispatch_elite_button(ev.slot, ev.param1, ev.param2);
         }
     }
     return NULL;
@@ -1467,14 +1460,14 @@ static void *config_push_worker(void *arg) {
                             if (local_count == 0) {
                                 strncpy(local_steps[0].act_id, act_id, 11);
                                 if (strcmp(act_id, "-1") == 0) {
-                                    strcpy(local_steps[0].name, "Power Off");
+                                    strncpy(local_steps[0].name, "Power Off", sizeof(local_steps[0].name) - 1);
                                     local_steps[0].delay_ms = 1500;
                                     local_count = 1;
                                 } else {
-                                    strcpy(local_steps[0].name, "Power On");
+                                    strncpy(local_steps[0].name, "Power On", sizeof(local_steps[0].name) - 1);
                                     local_steps[0].delay_ms = 2500;
                                     strncpy(local_steps[1].act_id, act_id, 11);
-                                    strcpy(local_steps[1].name, "Set Inputs");
+                                    strncpy(local_steps[1].name, "Set Inputs", sizeof(local_steps[1].name) - 1);
                                     local_steps[1].delay_ms = 1500;
                                     local_count = 2;
                                 }
@@ -2265,6 +2258,8 @@ static void *rx_worker(void *arg) {
             if (errno == EINTR) continue;
             perror("read /dev/rfspi");
             usleep(100000);
+        } else {
+            usleep(50000);
         }
     }
     return NULL;
@@ -2306,11 +2301,11 @@ static void *pairing_timeout_worker(void *arg) {
 }
 
 static void start_pairing_mode(int slot) {
-    (void)slot;
     if (g_pairing_mode) return;
     uint8_t duration_sec = 0x1E; /* 30 seconds lock duration (matches stock hal_hub) */
-    uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x00, duration_sec};
-    printf("[*] Opening pairing lock (duration=%ds)...\n", duration_sec);
+    uint8_t target_slot = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
+    uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, target_slot, duration_sec};
+    printf("[*] Opening pairing lock (slot=%d, duration=%ds)...\n", target_slot, duration_sec);
     rf_write_cmd(open_lock, sizeof(open_lock));
     g_pairing_mode = true;
 

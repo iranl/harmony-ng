@@ -26,6 +26,16 @@ export let stockIconsAvailable = false;
 export const failedIconUrls = new Set();
 const iconNameCache = new Map();
 
+export function escapeHtml(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function autoInvertDarkIcon(img) {
   if (!img) return;
   img.classList.add('invert-white');
@@ -55,7 +65,7 @@ export function showToast(message, type = 'info', duration = 3500) {
     iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
   }
 
-  toast.innerHTML = `${iconSvg}<div class="toast-content">${String(message || '').replace(/\n/g, '<br>')}</div>`;
+  toast.innerHTML = `${iconSvg}<div class="toast-content">${escapeHtml(message).replace(/\n/g, '<br>')}</div>`;
   container.appendChild(toast);
 
   requestAnimationFrame(() => toast.classList.add('toast-show'));
@@ -390,6 +400,7 @@ class HarmonyApp {
     this.b25SelectedBtn = 'power';
     this.eliteMapData = { remote: { name: 'Harmony Elite' }, activities: {} };
     this.eliteSelectedBtn = 'Select';
+    this.eliteSelectedActivityId = '-1';
     this.kbMods = { ctrl: false, shift: false, alt: false, win: false };
     this.labQueue = [];
     this.labRunning = false;
@@ -866,9 +877,13 @@ class HarmonyApp {
   }
 
   setHubStatus(online) {
+    const wasOnline = this.isHubOnline;
     this.isHubOnline = Boolean(online);
     if (online) {
       this.consecutiveFailures = 0;
+      if (this.activitiesData) this.activitiesData.isOffline = false;
+    } else {
+      if (this.activitiesData) this.activitiesData.isOffline = true;
     }
     const dot = document.getElementById('activeHubStatusDot');
     const hubBtn = document.getElementById('hubSelectorBtn');
@@ -903,6 +918,62 @@ class HarmonyApp {
       this.ensureAutoReconnect();
     } else {
       this.stopAutoReconnect();
+    }
+
+    if (wasOnline !== this.isHubOnline) {
+      this.updateActivityBanner();
+      if (this.currentTab === 'activity-remote') this.renderActivityRemote();
+      else if (this.currentTab === 'overview') this.loadDashboard();
+      else if (this.currentTab === 'activities') this.loadActivitiesView();
+    }
+  }
+
+  startHealthMonitoring() {
+    if (this._healthTimer) clearInterval(this._healthTimer);
+    this._healthTimer = setInterval(() => {
+      this.pollHubHealth(false);
+    }, 15000);
+  }
+
+  async pollHubHealth(force = false) {
+    if (this.isScanningNetwork || this.isReconnecting) return;
+    if (!this.activeHub || !this.activeHub.host) {
+      if (this.isHubOnline) this.setHubStatus(false);
+      return;
+    }
+
+    // 1. If WebSocket is connected, WebSocket is active and pushes events in real-time
+    if (this.client.isWsConnected()) {
+      this.recordSuccess();
+      if (!this.isHubOnline) this.setHubStatus(true);
+      return;
+    }
+
+    // 2. Fallback to HTTP /health only when WS is disconnected
+    try {
+      const health = await this.client.getHealth();
+      if (health && (health.status === 'ok' || health.service === 'codex_daemon')) {
+        const wasOffline = !this.isHubOnline;
+        this.recordSuccess();
+
+        if (wasOffline) {
+          this.setHubStatus(true);
+          if (!this.inventory?.devices?.length) {
+            await this.refreshData();
+          }
+        }
+
+        this.client.connectWebSocket();
+      } else {
+        throw new Error('Health check returned non-ok');
+      }
+    } catch (err) {
+      this.recordFailure(err);
+      if (force || this.consecutiveFailures >= 2) {
+        if (this.isHubOnline) {
+          this.setHubStatus(false);
+        }
+      }
     }
   }
 
@@ -1023,19 +1094,34 @@ class HarmonyApp {
     };
     this.client.onWsStatus = (online) => {
       if (online) {
+        this.recordSuccess();
         this.setHubStatus(true);
-        this.refreshActivityState().then(() => {
-          this.updateActivityBanner();
-          if (this.currentTab === 'activity-remote') this.renderActivityRemote();
-        });
+        if (!this.inventory?.devices?.length) {
+          this.refreshData();
+        }
       } else {
-        this.refreshActivityState();
+        this.pollHubHealth(true);
       }
     };
   }
 
   async init() {
     setLanguage(getInitialLanguage());
+    this.startHealthMonitoring();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this.activeHub && this.activeHub.host) {
+          this.pollHubHealth(true);
+        }
+      });
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => {
+        if (this.activeHub && this.activeHub.host) {
+          this.pollHubHealth(true);
+        }
+      });
+    }
     if (this.isNative) {
       document.body.classList.add('is-native');
       const pill = document.getElementById('hubStatusPill');
@@ -1416,9 +1502,18 @@ class HarmonyApp {
       const pod = parseInt(document.getElementById('devPowerOnDelay')?.value, 10);
       const pao = document.getElementById('devIsPowerAlwaysOn')?.checked ? 1 : 0;
       const btHost = document.getElementById('curDevBtHost')?.value.trim();
-      const btAutoRec = document.getElementById('curDevBtAutoReconnect')?.checked ? 1 : 0;
+      const btAutoRecVal = parseInt(document.getElementById('curDevBtAutoReconnect')?.value, 10);
+      const btAutoRec = isNaN(btAutoRecVal) ? -1 : btAutoRecVal;
       const btDur = parseInt(document.getElementById('curDevBtDuration')?.value, 10);
       const btDly = parseInt(document.getElementById('curDevBtDelay')?.value, 10);
+      const btTrigVal = document.getElementById('curDevBtTriggerCmd')?.value || '';
+      let btTrigDevId = '';
+      let btTrigCmdName = '';
+      if (btTrigVal && btTrigVal.includes(':')) {
+        const parts = btTrigVal.split(':');
+        btTrigDevId = parts[0];
+        btTrigCmdName = parts.slice(1).join(':');
+      }
 
       const stat = document.getElementById('devEditStatus');
       if (stat) stat.textContent = 'Saving...';
@@ -1438,8 +1533,15 @@ class HarmonyApp {
           isPowerAlwaysOn: pao,
           bt_host: btHost || undefined,
           bt_auto_reconnect: btAutoRec,
-          bt_reconnect_duration_sec: isNaN(btDur) ? undefined : btDur,
-          bt_reconnect_delay_sec: isNaN(btDly) ? undefined : btDly
+          btAutoReconnect: btAutoRec,
+          bt_reconnect_duration_sec: isNaN(btDur) ? 0 : btDur,
+          btReconnectDurationSec: isNaN(btDur) ? 0 : btDur,
+          bt_reconnect_delay_sec: isNaN(btDly) ? -1 : btDly,
+          btReconnectDelaySec: isNaN(btDly) ? -1 : btDly,
+          bt_trigger_device_id: btTrigDevId,
+          bt_trigger_command_name: btTrigCmdName,
+          btTriggerDeviceId: btTrigDevId,
+          btTriggerCommandName: btTrigCmdName
         });
         if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
         await this.refreshData();
@@ -1678,9 +1780,16 @@ class HarmonyApp {
       const port = Number(document.getElementById('editCmdPort')?.value) || 0;
       const stat = document.getElementById('cmdEditStatus');
       if (!name) return alert('Enter command name');
+
       if (stat) stat.textContent = 'Saving changes...';
       try {
-        const payloadData = { deviceId: devId, name, oldName, raw, mode };
+        const payloadData = {
+          deviceId: devId,
+          name,
+          oldName,
+          raw,
+          mode
+        };
         if (mode !== 'bt' && mode !== 'mqtt') {
           payloadData.repeats = repeats;
           payloadData.port = port;
@@ -1870,7 +1979,8 @@ class HarmonyApp {
         if (btnId) this.selectEliteButton(btnId, true);
       });
     });
-    document.getElementById('eliteActivitySelect')?.addEventListener('change', () => {
+    document.getElementById('eliteActivitySelect')?.addEventListener('change', (e) => {
+      this.eliteSelectedActivityId = e.target.value;
       this.updateEliteButtonStates();
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
       this.renderEliteScreenButtons();
@@ -1934,6 +2044,14 @@ class HarmonyApp {
     });
     document.querySelectorAll('.btn-save-wifi').forEach(b => {
       b.addEventListener('click', () => this.saveWifiConfig(b.getAttribute('data-apply')));
+    });
+    document.getElementById('btnWifiScan')?.addEventListener('click', () => this.scanWifiNetworks());
+    document.getElementById('btnWifiTest')?.addEventListener('click', () => this.testWifiConfig());
+    document.addEventListener('click', (e) => {
+      const dd = document.getElementById('wifiScanDropdown');
+      if (dd && dd.style.display !== 'none' && !e.target.closest('#wifiScanDropdown') && !e.target.closest('#btnWifiScan')) {
+        dd.style.display = 'none';
+      }
     });
 
     // Backup & Restore Actions
@@ -2220,38 +2338,38 @@ class HarmonyApp {
         if (hubs && hubs.length > 0) saved = hubs[0];
       }
 
-      if (saved) {
+      if (saved && saved.host && saved.host !== 'localhost' && saved.host !== '127.0.0.1') {
         this.activeHub = saved;
-        if (!saved.host || saved.host === 'localhost') {
-          setTimeout(() => {
-            this.switchTab('hubs');
-            this.openAddHubModal(saved);
-          }, 300);
-        }
       } else {
-        this.activeHub = {
-          id: 'hub_default',
-          name: 'Harmony Hub',
-          host: '',
-          port: 8089,
-          wsPort: 8089
-        };
-        await saveHub(this.activeHub);
-        await setActiveHubId(this.activeHub.id);
-        setTimeout(() => {
-          this.switchTab('hubs');
-          this.openAddHubModal(this.activeHub);
-        }, 300);
+        // Do NOT create a default device for localhost
+        this.activeHub = null;
       }
     }
 
     const lbl = document.getElementById('activeHubLabel');
-    if (lbl) lbl.textContent = this.activeHub.name || 'Harmony Hub';
     const ovLbl = document.getElementById('ovActiveHubLabel');
+
+    if (!this.activeHub || !this.activeHub.host) {
+      if (lbl) lbl.textContent = 'No Hub Selected';
+      if (ovLbl) ovLbl.textContent = 'Active: None';
+      this.client.updateHub(null);
+      this.setHubStatus(false);
+      this.activitiesData = { activities: [], currentId: '-1', currentName: 'No Hub', isOffline: true };
+      this.inventory = { devices: [] };
+      this.updateActivityBanner();
+      if (this.isNative) {
+        setTimeout(() => this.scanNetwork(true), 400);
+      }
+      return;
+    }
+
+    if (lbl) lbl.textContent = this.activeHub.name || 'Harmony Hub';
     if (ovLbl) ovLbl.textContent = `Active: ${this.activeHub.name || this.activeHub.host}`;
     this.client.updateHub(this.activeHub);
     await this.checkHealthAndVersion();
     await this.refreshData();
+    this.switchTab(this.currentTab, false);
+    this.startHealthMonitoring();
   }
 
   async refreshData() {
@@ -2304,10 +2422,15 @@ class HarmonyApp {
     } catch (err) {
       console.warn('Failed to load hub data:', err);
       this.recordFailure(err);
+      this.activitiesData = { activities: [], currentId: '-1', currentName: 'Offline', isOffline: true };
+      this.inventory = { devices: [] };
     }
     this.updateActivityBanner();
     this.checkBanners();
-    this.switchTab(this.currentTab);
+    if (this.currentTab === 'overview') this.loadDashboard();
+    else if (this.currentTab === 'activity-remote') this.renderActivityRemote();
+    else if (this.currentTab === 'activities') this.loadActivitiesView();
+    else if (this.currentTab === 'control') this.renderControlView();
   }
 
   async refreshActivityState() {
@@ -2522,7 +2645,7 @@ class HarmonyApp {
     listEl.innerHTML = acts.map(a => {
       const isActive = !isOff && String(a.id) === curId;
       const isTarget = isTransitioning && String(a.id) === String(this.activitiesData?.transitionTarget);
-      return `<button type="button" class="btn btn-xs ${isActive ? 'btn-primary' : 'btn-secondary'} banner-activity-btn ${isActive ? 'active' : ''} ${isTarget ? 'btn-switching' : ''}" data-act-id="${a.id}" ${isTransitioning ? 'disabled style="opacity:0.6;"' : ''}>${getActivityIconSvg(a.icon, a.type, 13)}${a.name || a.label}</button>`;
+      return `<button type="button" class="btn btn-xs ${isActive ? 'btn-primary' : 'btn-secondary'} banner-activity-btn ${isActive ? 'active' : ''} ${isTarget ? 'btn-switching' : ''}" data-act-id="${a.id}" ${isTransitioning ? 'disabled style="opacity:0.6;"' : ''}>${getActivityIconSvg(a.icon, a.type, 13)}${escapeHtml(a.name || a.label)}</button>`;
     }).join('');
 
     listEl.querySelectorAll('.banner-activity-btn').forEach(btn => {
@@ -2540,6 +2663,33 @@ class HarmonyApp {
   async renderActivityRemote() {
     const cont = document.getElementById('activityRemoteContainer');
     if (!cont) return;
+
+    if (!this.activeHub || !this.activeHub.host) {
+      cont.innerHTML = `
+        <div class="card" style="text-align: center; padding: 36px 16px;">
+          <div style="font-size: 36px; margin-bottom: 8px;">🔍</div>
+          <h3 style="font-size: 16px; margin-bottom: 8px;">No Harmony Hub Configured</h3>
+          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Scan your network for Hubs or add one manually to start using the remote.</p>
+          <div style="display: flex; gap: 8px; justify-content: center;">
+            <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.scanNetwork(true)">Scan Network</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.harmonyApp && window.harmonyApp.switchTab('hubs')">Manage Hubs</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (!this.isHubOnline) {
+      cont.innerHTML = `
+        <div class="card" style="text-align: center; padding: 36px 16px;">
+          <div style="font-size: 36px; margin-bottom: 8px;">📡</div>
+          <h3 style="font-size: 16px; margin-bottom: 8px; color: var(--danger);">Hub Connection Lost</h3>
+          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Unable to reach Harmony Hub at ${escapeHtml(this.activeHub.host)}. Checking health and reconnecting...</p>
+          <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.pollHubHealth(true)">Retry Connection</button>
+        </div>
+      `;
+      return;
+    }
 
     const curId = String(this.activitiesData.currentId || '-1');
     const curName = (this.activitiesData.currentName || '').toLowerCase().replace(/[\s_-]/g, '');
@@ -2916,18 +3066,36 @@ class HarmonyApp {
       const partDevIds = (act?.deviceIds || act?.devices || []).map(String);
       chkCont.innerHTML = `
         <div id="actDevOrderedList" class="queue-list" style="min-height: 40px; max-height: 180px; margin-bottom: 6px;"></div>
-        <div style="display: flex; gap: 6px; align-items: center; margin-top: 4px;">
-          <select id="actAddDevSelect" class="form-control" style="flex: 1;">
-            ${(this.inventory.devices || []).map(d => `<option value="${d.id}">${d.name || d.model || d.id}</option>`).join('')}
-          </select>
+        <div id="actAddDevControls" style="display: flex; gap: 6px; align-items: center; margin-top: 4px;">
+          <select id="actAddDevSelect" class="form-control" style="flex: 1;"></select>
           <button type="button" id="actAddDevBtn" class="btn btn-xs btn-secondary">+ Add Device</button>
         </div>
         <div class="muted mini" style="margin-top: 4px;">Start/Stop Order: Devices power ON in order (#1..#N) and power OFF in reverse.</div>
       `;
 
       const listWrap = document.getElementById('actDevOrderedList');
+      const addControls = document.getElementById('actAddDevControls');
       const addSel = document.getElementById('actAddDevSelect');
       const addBtn = document.getElementById('actAddDevBtn');
+
+      const refreshAddDevControls = () => {
+        if (!addControls || !addSel) return;
+        const currentDevIds = new Set(
+          Array.from(listWrap.querySelectorAll('.act-dev-row')).map(r => String(r.dataset.devId))
+        );
+        const availableDevices = (this.inventory.devices || []).filter(
+          d => !currentDevIds.has(String(d.id))
+        );
+        if (!availableDevices.length) {
+          addControls.style.display = 'none';
+          addSel.innerHTML = '';
+        } else {
+          addControls.style.display = 'flex';
+          addSel.innerHTML = availableDevices.map(
+            d => `<option value="${d.id}">${d.name || d.model || d.id}</option>`
+          ).join('');
+        }
+      };
 
       const renderDevRow = (did) => {
         const placeholder = listWrap.querySelector('.no-devs-msg');
@@ -2968,6 +3136,7 @@ class HarmonyApp {
           if (!listWrap.querySelectorAll('.act-dev-row').length) {
             listWrap.innerHTML = '<div class="muted mini no-devs-msg" style="padding: 8px;">No participating devices configured.</div>';
           }
+          refreshAddDevControls();
         });
         listWrap.appendChild(row);
         updateDevNums();
@@ -2985,6 +3154,7 @@ class HarmonyApp {
       } else {
         partDevIds.forEach(did => renderDevRow(did));
       }
+      refreshAddDevControls();
 
       if (addBtn) {
         addBtn.addEventListener('click', () => {
@@ -2993,6 +3163,7 @@ class HarmonyApp {
           const exists = Array.from(listWrap.querySelectorAll('.act-dev-row')).some(r => r.dataset.devId === String(val));
           if (exists) return alert('Device already added to order.');
           renderDevRow(val);
+          refreshAddDevControls();
         });
       }
     }
@@ -3639,9 +3810,53 @@ class HarmonyApp {
         }).catch(() => {});
       }
 
-      if (btAutoRec) btAutoRec.checked = dev.bt_auto_reconnect !== false && dev.btAutoReconnect !== false;
-      if (btDur) btDur.value = dev.bt_reconnect_duration_sec !== undefined ? dev.bt_reconnect_duration_sec : (dev.btReconnectDurationSec || '');
-      if (btDly) btDly.value = dev.bt_reconnect_delay_sec !== undefined ? dev.bt_reconnect_delay_sec : (dev.btReconnectDelaySec || '');
+      if (btAutoRec) {
+        let recVal = -1;
+        if (dev.bt_auto_reconnect !== undefined && dev.bt_auto_reconnect !== null) {
+          recVal = Number(dev.bt_auto_reconnect);
+        } else if (dev.btAutoReconnect !== undefined && dev.btAutoReconnect !== null) {
+          recVal = Number(dev.btAutoReconnect);
+        }
+        btAutoRec.value = String(recVal);
+      }
+      if (btDur) {
+        const dVal = dev.bt_reconnect_duration_sec !== undefined ? dev.bt_reconnect_duration_sec : (dev.btReconnectDurationSec !== undefined ? dev.btReconnectDurationSec : (dev.btReconnectDuration || 0));
+        btDur.value = dVal > 0 ? dVal : '';
+      }
+      if (btDly) {
+        const dVal = dev.bt_reconnect_delay_sec !== undefined ? dev.bt_reconnect_delay_sec : (dev.btReconnectDelaySec !== undefined ? dev.btReconnectDelaySec : (dev.btReconnectDelay !== undefined ? dev.btReconnectDelay : -1));
+        btDly.value = dVal >= 0 ? dVal : '';
+      }
+      const btTrigSel = document.getElementById('curDevBtTriggerCmd');
+      if (btTrigSel) {
+        let html = '<option value="">None (Activity Start Only)</option>';
+        const allDevs = this.devices || [];
+        allDevs.forEach(d => {
+          const cmds = d.commands || [];
+          if (cmds.length > 0) {
+            html += `<optgroup label="${this.escapeHtml(d.name || d.id || 'Device')}">`;
+            cmds.forEach(c => {
+              const cName = typeof c === 'string' ? c : (c.name || c.Name || '');
+              if (cName) {
+                const val = `${d.id}:${cName}`;
+                html += `<option value="${this.escapeHtml(val)}">${this.escapeHtml(cName)}</option>`;
+              }
+            });
+            html += `</optgroup>`;
+          }
+        });
+        btTrigSel.innerHTML = html;
+
+        const currentTrigDev = dev.bt_trigger_device_id || dev.btTriggerDeviceId || '';
+        const currentTrigCmd = dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '';
+        if (currentTrigDev && currentTrigCmd) {
+          btTrigSel.value = `${currentTrigDev}:${currentTrigCmd}`;
+        } else if (currentTrigCmd && currentTrigCmd.includes(':')) {
+          btTrigSel.value = currentTrigCmd;
+        } else {
+          btTrigSel.value = '';
+        }
+      }
     }
 
     const setInputVal = (id, val, defVal = '') => {
@@ -3823,6 +4038,7 @@ class HarmonyApp {
 
     document.getElementById('editCmdRepeats').value = c.repeats || 3;
     document.getElementById('editCmdPort').value = String(c.port || 0);
+
     const stat = document.getElementById('cmdEditStatus');
     if (stat) stat.textContent = '';
 
@@ -4836,9 +5052,11 @@ class HarmonyApp {
       const s = await this.client.getSettings();
       if (!s) return;
       const toggle = document.getElementById('btAutoReconnectToggle');
+      const bootToggle = document.getElementById('btBootReconnectToggle');
       const dur = document.getElementById('btReconnectDuration');
       const del = document.getElementById('btReconnectDelay');
       if (toggle) toggle.checked = !!s.bt_auto_reconnect;
+      if (bootToggle) bootToggle.checked = s.bt_reconnect_on_boot !== undefined ? !!s.bt_reconnect_on_boot : true;
       if (dur && s.bt_reconnect_duration_sec !== undefined) dur.value = s.bt_reconnect_duration_sec;
       if (del && s.bt_reconnect_delay_sec !== undefined) del.value = s.bt_reconnect_delay_sec;
     } catch (e) {
@@ -4848,6 +5066,7 @@ class HarmonyApp {
 
   async saveBluetoothSupervisionSettings() {
     const toggle = document.getElementById('btAutoReconnectToggle');
+    const bootToggle = document.getElementById('btBootReconnectToggle');
     const dur = document.getElementById('btReconnectDuration');
     const del = document.getElementById('btReconnectDelay');
     const stat = document.getElementById('btSettingsStatus');
@@ -4855,6 +5074,7 @@ class HarmonyApp {
     try {
       const payload = {
         bt_auto_reconnect: toggle ? (toggle.checked ? 1 : 0) : 1,
+        bt_reconnect_on_boot: bootToggle ? (bootToggle.checked ? 1 : 0) : 1,
         bt_reconnect_duration_sec: dur ? parseInt(dur.value, 10) || 45 : 45,
         bt_reconnect_delay_sec: del ? parseInt(del.value, 10) || 5 : 5
       };
@@ -5519,9 +5739,14 @@ class HarmonyApp {
     }
 
     const sel = document.getElementById('eliteActivitySelect');
+    const prevActVal = this.eliteSelectedActivityId || sel?.value || '-1';
     if (sel) {
       sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
         (this.activitiesData.activities || []).map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+      if (prevActVal && (prevActVal === '-1' || (this.activitiesData.activities || []).some(a => String(a.id) === String(prevActVal)))) {
+        sel.value = prevActVal;
+      }
+      this.eliteSelectedActivityId = sel.value;
     }
     const tgtDev = document.getElementById('eliteTargetDevice');
     const presetDev = document.getElementById('elitePresetDevice');
@@ -5596,6 +5821,10 @@ class HarmonyApp {
     if (lbl) lbl.textContent = btnId;
 
     const actSel = document.getElementById('eliteActivitySelect');
+    if (actSel && this.eliteSelectedActivityId && actSel.value !== this.eliteSelectedActivityId) {
+      actSel.value = this.eliteSelectedActivityId;
+    }
+    const actId = this.eliteSelectedActivityId || actSel?.value || '-1';
     const actName = actSel ? actSel.options[actSel.selectedIndex]?.text || 'Off / Idle' : 'Off / Idle';
     const modalActLbl = document.getElementById('eliteModalActivityName');
     if (modalActLbl) modalActLbl.textContent = actName;
@@ -5604,7 +5833,6 @@ class HarmonyApp {
     if (this.eliteRemoteMode === 1) {
       mapping = this.eliteDirectData?.buttons?.[btnId];
     } else {
-      const actId = actSel?.value || '-1';
       mapping = this.eliteMapData?.activities?.[actId]?.[btnId];
     }
 
@@ -5716,7 +5944,7 @@ class HarmonyApp {
         this.eliteDirectData.buttons[this.eliteSelectedBtn] = mapObj;
       }
     } else {
-      const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
       if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
 
@@ -5737,7 +5965,7 @@ class HarmonyApp {
         delete this.eliteDirectData.buttons[this.eliteSelectedBtn];
       }
     } else {
-      const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (this.eliteMapData.activities?.[actId]) {
         delete this.eliteMapData.activities[actId][this.eliteSelectedBtn];
       }
@@ -5753,7 +5981,7 @@ class HarmonyApp {
     if (this.eliteRemoteMode === 1) {
       actMap = this.eliteDirectData?.buttons || {};
     } else {
-      const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       actMap = this.eliteMapData?.activities?.[actId] || {};
     }
     document.querySelectorAll('.elite-hotspot').forEach(b => {
@@ -5813,7 +6041,7 @@ class HarmonyApp {
 
   autoMapElitePreset() {
     const devId = document.getElementById('elitePresetDevice')?.value;
-    const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
     if (!devId) return alert('Select target device first.');
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
     if (!dev || !dev.commands) return alert('Device has no commands.');
@@ -5878,7 +6106,7 @@ class HarmonyApp {
       }
       sbtns = this.eliteDirectData[pKey];
     } else {
-      const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
       if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
       const actObj = this.eliteMapData.activities[actId];
@@ -6015,7 +6243,7 @@ class HarmonyApp {
       }
       sbtns = this.eliteDirectData[pKey];
     } else {
-      const actId = document.getElementById('eliteActivitySelect')?.value || '-1';
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
       if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
       const actObj = this.eliteMapData.activities[actId];
@@ -6394,16 +6622,37 @@ class HarmonyApp {
     } catch {}
   }
 
+  showUpdatingOverlay(statusText = 'Applying update and preparing reboot...') {
+    this.isUpdating = true;
+    const overlay = document.getElementById('hubUpdatingOverlay');
+    if (overlay) overlay.style.display = 'flex';
+    const stEl = document.getElementById('hubUpdatingStatusText');
+    if (stEl) stEl.textContent = statusText;
+  }
+
+  hideUpdatingOverlay() {
+    this.isUpdating = false;
+    const overlay = document.getElementById('hubUpdatingOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
   async checkBanners() {
     try {
-      // 1. Hub software update available
+      // 0. Hub software update in progress
       const updateStat = await this.client.getUpdateStatus().catch(() => null);
+      if (updateStat?.updating) {
+        this.showUpdatingOverlay('Hub software update is running in background...');
+      } else if (this.isUpdating && !this.pollTimerActive) {
+        this.hideUpdatingOverlay();
+      }
+
+      // 1. Hub software update available
       const hubBanner = document.getElementById('hubUpdateBanner');
       if (hubBanner) {
         const localVer = updateStat?.current_version || updateStat?.version || '';
         const hasOnlineUpdate = Boolean(this.onlineVersion && localVer && this.isVersionOlder(localVer, this.onlineVersion));
         const isUpdateAvail = Boolean(updateStat?.update_available || hasOnlineUpdate);
-        if (isUpdateAvail) {
+        if (isUpdateAvail && !updateStat?.updating) {
           hubBanner.style.display = 'flex';
           const title = document.getElementById('hubUpdateTitle');
           const desc = document.getElementById('hubUpdateDesc');
@@ -6621,22 +6870,177 @@ class HarmonyApp {
     }
   }
 
-  async saveWifiConfig(applyMode = 'save') {
+  escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async scanWifiNetworks() {
+    const btn = document.getElementById('btnWifiScan');
+    const btnText = document.getElementById('btnWifiScanText');
+    const dropdown = document.getElementById('wifiScanDropdown');
     const status = document.getElementById('wifiSaveStatus');
+    if (!dropdown) return;
+
+    const originalText = btnText ? btnText.textContent : 'Scan Networks';
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = 'Scanning...';
+    if (status) status.innerHTML = '<span class="subtle">Scanning 2.4GHz channels...</span>';
+
+    try {
+      const res = await this.client.scanWifi();
+      const networks = (res && res.networks) ? res.networks : [];
+      if (networks.length === 0) {
+        dropdown.innerHTML = '<div style="padding:12px; font-size:12px; color:var(--text-dim); text-align:center;">No networks found</div>';
+        dropdown.style.display = 'block';
+        if (status) status.textContent = '';
+        return;
+      }
+
+      let html = '';
+      networks.forEach(net => {
+        const rawSsid = net.ssid || '';
+        const safeSsid = this.escapeHtml(rawSsid);
+        const sig = Number(net.signal) || -80;
+        let bars = '●○○○';
+        if (sig >= -55) bars = '●●●●';
+        else if (sig >= -68) bars = '●●●○';
+        else if (sig >= -78) bars = '●●○○';
+
+        const secBadge = this.escapeHtml(net.security || 'WPA2');
+        const isOpen = secBadge.toLowerCase() === 'open';
+
+        html += `
+          <div class="wifi-scan-item" data-ssid="${safeSsid}" data-open="${isOpen ? 1 : 0}">
+            <div class="wifi-scan-info">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0; color:var(--accent);">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+              </svg>
+              <span class="wifi-scan-ssid">${safeSsid}</span>
+            </div>
+            <div class="wifi-scan-meta">
+              <span class="wifi-scan-badge">${secBadge}</span>
+              <span class="wifi-scan-signal" title="${sig} dBm (Ch ${net.channel || '?'})">${bars}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      dropdown.innerHTML = html;
+      dropdown.style.display = 'block';
+      if (status) status.textContent = '';
+
+      dropdown.querySelectorAll('.wifi-scan-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const ssid = item.getAttribute('data-ssid');
+          const isOpen = item.getAttribute('data-open') === '1';
+          const input = document.getElementById('wifiSsidInput');
+          if (input) {
+            input.value = ssid;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          const openChk = document.getElementById('wifiOpen');
+          if (openChk) openChk.checked = isOpen;
+
+          const passInput = document.getElementById('wifiPskInput');
+          if (passInput) {
+            if (isOpen) {
+              passInput.value = '';
+              passInput.disabled = true;
+            } else {
+              passInput.disabled = false;
+              passInput.focus();
+            }
+          }
+          dropdown.style.display = 'none';
+        });
+      });
+    } catch (err) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Scan error: ${err.message}</span>`;
+    } finally {
+      if (btn) btn.disabled = false;
+      if (btnText) btnText.textContent = originalText;
+    }
+  }
+
+  async testWifiConfig() {
+    const status = document.getElementById('wifiSaveStatus');
+    const ssid = document.getElementById('wifiSsidInput')?.value.trim();
+    if (!ssid) {
+      if (status) status.innerHTML = '<span style="color:var(--danger)">Please enter an SSID first</span>';
+      return;
+    }
+
     const data = {
-      apply: applyMode,
-      ssid: document.getElementById('wifiSsidInput')?.value.trim(),
+      ssid: ssid,
       password: document.getElementById('wifiPskInput')?.value,
       keep_password: document.getElementById('wifiKeepPass')?.checked ? 1 : 0,
       hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
       open: document.getElementById('wifiOpen')?.checked ? 1 : 0
     };
+
+    const testBtn = document.getElementById('btnWifiTest');
+    if (testBtn) testBtn.disabled = true;
+
     try {
-      if (status) status.textContent = 'Saving Wi-Fi...';
-      await this.client.saveWifi(data);
-      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (status) status.innerHTML = '<span class="subtle">Testing Wi-Fi connection with AP (10-15s)...</span>';
+      const res = await this.client.testWifi(data);
+      if (res && res.ok) {
+        if (status) status.innerHTML = '<span style="color:var(--success); font-weight:600;">Connection test passed!</span>';
+      } else {
+        const errMsg = (res && res.error) ? res.error : 'Connection test failed';
+        if (status) status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${errMsg}</span>`;
+      }
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger); font-weight:600;">Test failed: ${err.message}</span>`;
+    } finally {
+      if (testBtn) testBtn.disabled = false;
+    }
+  }
+
+  async saveWifiConfig(applyMode = 'save') {
+    const status = document.getElementById('wifiSaveStatus');
+    const ssid = document.getElementById('wifiSsidInput')?.value.trim();
+    if (!ssid) {
+      if (status) status.innerHTML = '<span style="color:var(--danger)">Please enter an SSID</span>';
+      return;
+    }
+
+    const data = {
+      apply: applyMode,
+      ssid: ssid,
+      password: document.getElementById('wifiPskInput')?.value,
+      keep_password: document.getElementById('wifiKeepPass')?.checked ? 1 : 0,
+      hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
+      open: document.getElementById('wifiOpen')?.checked ? 1 : 0
+    };
+
+    const isApplying = (applyMode === 'reconfigure' || applyMode === 'reboot' || applyMode === 'apply');
+
+    try {
+      if (status) {
+        status.innerHTML = isApplying
+          ? '<span class="subtle">Testing connection before switching...</span>'
+          : '<span class="subtle">Saving Wi-Fi...</span>';
+      }
+      const res = await this.client.saveWifi(data);
+      if (res && res.ok === false) {
+        throw new Error(res.error || 'Failed to save Wi-Fi');
+      }
+      if (status) {
+        status.innerHTML = isApplying
+          ? '<span style="color:var(--success); font-weight:600;">Wi-Fi verified & applied!</span>'
+          : '<span style="color:var(--success); font-weight:600;">Wi-Fi settings saved!</span>';
+      }
+    } catch (err) {
+      if (status) {
+        status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${err.message}</span>`;
+      }
     }
   }
 
@@ -6671,12 +7075,16 @@ class HarmonyApp {
   async restoreBackupPayload() {
     const target = document.getElementById('backupTarget')?.value;
     const payload = document.getElementById('backupPayload')?.value.trim();
+    const restoreNet = !!document.getElementById('restoreNetworkCheckbox')?.checked;
     const status = document.getElementById('backupImportStatus');
     if (!payload) return alert('Enter backup payload to restore.');
-    if (!await showConfirm(`Restore ${target} from payload?`, { title: 'Restore Backup', okText: 'Restore' })) return;
+    const confirmMsg = restoreNet ?
+      `Restore ${target} from payload INCLUDING network/Wi-Fi settings?\nWARNING: If network configuration differs, Hub may become unreachable.` :
+      `Restore ${target} from payload? (Active network & Wi-Fi settings will be safely preserved)`;
+    if (!await showConfirm(confirmMsg, { title: 'Restore Backup', okText: 'Restore' })) return;
     try {
       if (status) status.textContent = 'Restoring...';
-      await this.client.restoreBackup(target, payload);
+      await this.client.restoreBackup(target, payload, restoreNet);
       if (status) status.innerHTML = '<span style="color:var(--success)">Restored!</span>';
       alert('Restore complete. Reboot hub if necessary.');
       await this.refreshData();
@@ -6937,26 +7345,54 @@ class HarmonyApp {
     const log = document.getElementById('updateLog');
     if (!await showConfirm(t('update_confirm', 'Download and apply update? Hub services will restart.'), { title: 'Software Update', okText: 'Update' })) return;
     try {
-      if (log) log.textContent = t('update_applying', 'Applying software update...');
-      const res = await this.client.applyUpdate(token, repo);
-      if (log) log.textContent = (res.message || 'Update applied successfully!') + '\nDownloading and applying update in background...\nHub services will restart in ~15-30 seconds.';
+      this.showUpdatingOverlay('Hub is downloading and applying software update...');
+      if (log) log.textContent = t('update_applying', 'Applying software update...\nHub is downloading package and will reboot automatically.');
 
+      await this.client.applyUpdate(token, repo);
+
+      const statusEl = document.getElementById('hubUpdatingStatusText');
+      if (statusEl) statusEl.textContent = 'Hub is updated and is rebooting...';
+      if (log) log.textContent = 'Hub is updated and is rebooting. Please wait for reconnection...';
+
+      this.pollTimerActive = true;
       let attempts = 0;
+      let sawDrop = false;
+
       const pollTimer = setInterval(async () => {
         attempts++;
-        if (attempts > 20) {
+        if (attempts > 60) {
           clearInterval(pollTimer);
-          if (log) log.textContent += '\nUpdate timeout. Please refresh the page.';
+          this.pollTimerActive = false;
+          this.hideUpdatingOverlay();
+          if (log) log.textContent += '\nUpdate wait timed out. Please refresh the page.';
           return;
         }
+
         try {
           const stat = await this.client.getUpdateStatus();
-          clearInterval(pollTimer);
-          if (log) log.textContent = `Update complete! Hub is now running ${stat.local_version || ('v' + stat.current_version)}.\nStatus: ${stat.update_available ? '⚠️ Update available' : '✓ Up to date'}`;
-        } catch (_) {}
+          if (!stat || stat.updating) {
+            sawDrop = true;
+            if (statusEl) statusEl.textContent = 'Hub is rebooting...';
+            return;
+          }
+          if (sawDrop || attempts >= 5) {
+            clearInterval(pollTimer);
+            this.pollTimerActive = false;
+            this.hideUpdatingOverlay();
+            if (log) log.textContent = `Hub is updated and reboot complete!\nVersion: v${stat.current_version || stat.version || ''}`;
+            showToast('Hub is updated and reboot complete!', 'success', 5000);
+            await this.refreshData();
+          }
+        } catch (_) {
+          sawDrop = true;
+          if (statusEl) statusEl.textContent = 'Hub is rebooting... Reconnecting...';
+        }
       }, 3000);
     } catch (err) {
+      this.pollTimerActive = false;
+      this.hideUpdatingOverlay();
       if (log) log.textContent = t('update_failed', 'Install failed: ') + err.message;
+      showToast('Install failed: ' + err.message, 'error');
     }
   }
 
@@ -6971,6 +7407,10 @@ class HarmonyApp {
   }
 
   async rebootHub() {
+    if (this.isUpdating) {
+      showToast('Manual reboot blocked: software update is currently in progress.', 'warning');
+      return;
+    }
     if (!await showConfirm(t('reboot_confirm', 'Are you sure you want to reboot the Harmony Hub?'), { title: 'Reboot Hub', okText: 'Reboot' })) return;
     try {
       await this.client.rebootHub();
@@ -7045,6 +7485,9 @@ class HarmonyApp {
     const list = document.getElementById('hubsList');
     if (!list) return;
 
+    document.getElementById('btnScanHubs')?.addEventListener('click', () => this.scanNetwork(false));
+    document.getElementById('btnStopScan')?.addEventListener('click', () => this.stopNetworkScan());
+
     const hubs = await getSavedHubs();
     if (!hubs.length) {
       list.innerHTML = '<div class="muted" style="padding: 16px;">No saved hubs yet. Click "+ Add Hub".</div>';
@@ -7099,8 +7542,181 @@ class HarmonyApp {
   }
 
   openAddHubModal() {
-    const defaultHost = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+    const defaultHost = (typeof window !== 'undefined' && window.location && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') ? window.location.hostname : '';
     this.openEditHubModal({ id: 'hub_' + Date.now(), name: 'Harmony Hub', host: defaultHost, port: 8089, wsPort: 8089 }, false);
+  }
+
+  async scanNetwork(autoSelect = false) {
+    if (this.isScanningNetwork) return;
+    this.isScanningNetwork = true;
+
+    const box = document.getElementById('hubScanStatusBox');
+    const title = document.getElementById('hubScanTitle');
+    const sub = document.getElementById('hubScanSub');
+    const btnScan = document.getElementById('btnScanHubs');
+    const btnLabel = document.getElementById('scanHubsLabel');
+    const btnIcon = document.getElementById('scanHubsIcon');
+
+    if (box) box.style.display = 'block';
+    if (btnScan) btnScan.disabled = true;
+    if (btnLabel) btnLabel.textContent = 'Scanning...';
+    if (btnIcon) btnIcon.textContent = '⏳';
+
+    this._cancelScan = false;
+
+    const subnets = new Set();
+
+    // 1. Current host from browser URL / WebView hostname
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      const host = window.location.hostname;
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.startsWith('127.')) {
+        const parts = host.split('.');
+        subnets.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+      }
+    }
+
+    // 2. Active or previously configured hubs
+    if (this.activeHub && this.activeHub.host && /^\d+\.\d+\.\d+\.\d+$/.test(this.activeHub.host)) {
+      if (!this.activeHub.host.startsWith('127.')) {
+        const parts = this.activeHub.host.split('.');
+        subnets.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+      }
+    }
+    const saved = await getSavedHubs();
+    for (const h of saved) {
+      if (h.host && /^\d+\.\d+\.\d+\.\d+$/.test(h.host) && !h.host.startsWith('127.')) {
+        const parts = h.host.split('.');
+        subnets.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+      }
+    }
+
+    // 3. Local interface IPs detected via WebRTC
+    try {
+      const localIps = await this.detectLocalIps();
+      for (const ip of localIps) {
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(ip) && !ip.startsWith('127.')) {
+          const parts = ip.split('.');
+          subnets.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+        }
+      }
+    } catch {}
+
+    // 4. Fallback only if no network subnet could be detected (e.g. localhost file:// with no saved hubs)
+    if (subnets.size === 0) {
+      subnets.add('192.168.1');
+    }
+
+    let foundCount = 0;
+    const subnetList = Array.from(subnets);
+
+    for (const subnet of subnetList) {
+      if (this._cancelScan) break;
+      if (title) title.textContent = `Scanning ${subnet}.1 – ${subnet}.254 on port 8089...`;
+      if (sub) sub.textContent = `Checking /health endpoint (${foundCount} found so far)`;
+
+      const ips = [];
+      for (let i = 1; i <= 254; i++) {
+        ips.push(`${subnet}.${i}`);
+      }
+
+      const concurrency = 35;
+      for (let i = 0; i < ips.length; i += concurrency) {
+        if (this._cancelScan) break;
+        const batch = ips.slice(i, i + concurrency);
+        await Promise.all(batch.map(async (ip) => {
+          if (this._cancelScan) return;
+          const res = await HarmonyClient.checkHubHealth(ip, 8089, 1400);
+          if (res.ok) {
+            const hubName = await HarmonyClient.fetchHubName(ip, 8089, 1800);
+            const hubId = 'hub_' + ip.replace(/\./g, '_');
+            const foundHub = {
+              id: hubId,
+              name: hubName,
+              host: ip,
+              port: 8089,
+              wsPort: 8089
+            };
+            await saveHub(foundHub);
+            foundCount++;
+
+            showToast(`Found Harmony Hub: ${hubName} (${ip})`, 'success', 3000);
+            await this.renderHubsList();
+
+            if (autoSelect || !this.activeHub || !this.activeHub.host) {
+              await setActiveHubId(hubId);
+              await this.loadActiveHub();
+            }
+          }
+        }));
+      }
+
+      if (foundCount > 0 && subnetList.indexOf(subnet) === 0) {
+        break;
+      }
+    }
+
+    this.isScanningNetwork = false;
+    if (box) box.style.display = 'none';
+    if (btnScan) btnScan.disabled = false;
+    if (btnLabel) btnLabel.textContent = 'Scan Network';
+    if (btnIcon) btnIcon.textContent = '🔍';
+
+    if (foundCount > 0) {
+      showToast(`Network scan complete! Added ${foundCount} Harmony Hub(s).`, 'success');
+      await this.renderHubsList();
+    } else if (!this._cancelScan) {
+      showToast('Scan complete. No Harmony Hubs found on port 8089. You can add one manually.', 'warning');
+      if (!this.activeHub || !this.activeHub.host) {
+        this.switchTab('hubs');
+      }
+    }
+  }
+
+  stopNetworkScan() {
+    this._cancelScan = true;
+    const box = document.getElementById('hubScanStatusBox');
+    if (box) box.style.display = 'none';
+    const btnScan = document.getElementById('btnScanHubs');
+    if (btnScan) btnScan.disabled = false;
+    const btnLabel = document.getElementById('scanHubsLabel');
+    if (btnLabel) btnLabel.textContent = 'Scan Network';
+    const btnIcon = document.getElementById('scanHubsIcon');
+    if (btnIcon) btnIcon.textContent = '🔍';
+  }
+
+  async detectLocalIps() {
+    const ips = [];
+    if (typeof RTCPeerConnection === 'undefined') return ips;
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          try { pc.close(); } catch {}
+          resolve();
+        }, 1200);
+
+        pc.onicecandidate = (e) => {
+          if (!e || !e.candidate || !e.candidate.candidate) return;
+          const m = e.candidate.candidate.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+          if (m && !m[0].startsWith('127.')) {
+            ips.push(m[0]);
+          }
+        };
+
+        pc.onicegatheringstatechange = () => {
+          if (pc.iceGatheringState === 'complete') {
+            clearTimeout(timer);
+            try { pc.close(); } catch {}
+            resolve();
+          }
+        };
+      });
+    } catch {}
+    return ips;
   }
 
   openEditHubModal(h, isEdit = true) {
@@ -7168,5 +7784,6 @@ class HarmonyApp {
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = new HarmonyApp();
+  window.harmonyApp = app;
   app.init();
 });

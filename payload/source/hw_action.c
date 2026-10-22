@@ -2,6 +2,8 @@
 #include "resource_cache.h"
 #include "ir_encoder.h"
 #include "ir_i2s.h"
+#include "config_store.h"
+#include "codex_bt_common.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -129,6 +131,103 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
 
     ir_free_encoded(bin);
     return ret;
+}
+
+static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
+    if (!devs || !executed_cmd || !executed_cmd[0]) return;
+
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, devs) {
+        cJSON *dev = cJSON_GetObjectItemCaseSensitive(item, "Device");
+        if (!dev) dev = item;
+
+        int is_bt = 0;
+        cJSON *j_trans = cJSON_GetObjectItemCaseSensitive(dev, "transport");
+        if (!j_trans) j_trans = cJSON_GetObjectItemCaseSensitive(dev, "Transport");
+        if (j_trans && cJSON_IsNumber(j_trans) && (int)j_trans->valuedouble == 32) is_bt = 1;
+        cJSON *j_isbt = cJSON_GetObjectItemCaseSensitive(dev, "isBt");
+        if (j_isbt && cJSON_IsTrue(j_isbt)) is_bt = 1;
+        if (!is_bt) continue;
+
+        cJSON *j_rec = cJSON_GetObjectItemCaseSensitive(dev, "bt_auto_reconnect");
+        if (!j_rec) j_rec = cJSON_GetObjectItemCaseSensitive(dev, "btAutoReconnect");
+        if (j_rec) {
+            int rec_val = cJSON_IsNumber(j_rec) ? (int)j_rec->valuedouble : (cJSON_IsBool(j_rec) ? (cJSON_IsTrue(j_rec) ? 1 : 0) : atoi(j_rec->valuestring));
+            if (rec_val == 0) continue;
+        }
+
+        cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_device_id");
+        if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerDeviceId");
+        const char *trig_did = (j_trig_dev && cJSON_IsString(j_trig_dev)) ? j_trig_dev->valuestring : "";
+
+        cJSON *j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command_name");
+        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommandName");
+        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command");
+        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommand");
+        const char *trig_cmd = (j_trig_cmd && cJSON_IsString(j_trig_cmd)) ? j_trig_cmd->valuestring : "";
+        if (!trig_cmd[0]) continue;
+
+        char trig_did_buf[64] = {0};
+        char trig_cmd_buf[64] = {0};
+        const char *colon = strchr(trig_cmd, ':');
+        if (colon && !trig_did[0]) {
+            size_t did_len = (size_t)(colon - trig_cmd);
+            if (did_len >= sizeof(trig_did_buf)) did_len = sizeof(trig_did_buf) - 1;
+            strncpy(trig_did_buf, trig_cmd, did_len);
+            trig_did = trig_did_buf;
+            strncpy(trig_cmd_buf, colon + 1, sizeof(trig_cmd_buf) - 1);
+            trig_cmd = trig_cmd_buf;
+        }
+
+        if (strcasecmp(executed_cmd, trig_cmd) != 0) continue;
+
+        if (trig_did && trig_did[0]) {
+            int match_dev = 0;
+            if (executed_dev_id && (strcmp(executed_dev_id, trig_did) == 0 || strcasecmp(executed_dev_id, trig_did) == 0)) match_dev = 1;
+            if (!match_dev && executed_dev_name && (strcmp(executed_dev_name, trig_did) == 0 || strcasecmp(executed_dev_name, trig_did) == 0)) match_dev = 1;
+            if (!match_dev) continue;
+        }
+
+        char target_bdaddr[32] = {0};
+        cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
+        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bt_host");
+        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+        if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && codex_valid_bdaddr(j_bta->valuestring)) {
+            strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
+        }
+
+        struct codex_settings g_settings;
+        config_store_get_settings(&g_settings);
+
+        int dur = 0;
+        cJSON *jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
+        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
+        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDuration");
+        if (jd_dur && cJSON_IsNumber(jd_dur) && jd_dur->valueint > 0) dur = jd_dur->valueint;
+        if (dur <= 0) dur = g_settings.bt_reconnect_duration_sec > 0 ? g_settings.bt_reconnect_duration_sec : 30;
+
+        int dly = -1;
+        cJSON *jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
+        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
+        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelay");
+        if (jd_dly && cJSON_IsNumber(jd_dly) && jd_dly->valueint >= 0) dly = jd_dly->valueint;
+        if (dly < 0) dly = g_settings.bt_reconnect_delay_sec >= 0 ? g_settings.bt_reconnect_delay_sec : 2;
+
+        char sh_cmd[256];
+        if (target_bdaddr[0]) {
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &", target_bdaddr, dur, dly);
+        } else {
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &", dur, dly);
+        }
+        system(sh_cmd);
+
+        if (dly == 0) {
+            char cmd[128];
+            if (target_bdaddr[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", target_bdaddr, dur);
+            else snprintf(cmd, sizeof(cmd), "connect_host %d\n", dur);
+            codex_send_btstack_cmd(cmd);
+        }
+    }
 }
 
 int hw_device_command_send(const char *device_id, const char *command) {
@@ -295,6 +394,8 @@ int hw_device_command_send(const char *device_id, const char *command) {
     if (!target_cmd) {
         return -6;
     }
+
+    check_and_trigger_bt_reconnect_for_command(devs, device_id, dev_name, command);
 
     char keycode_str[4096] = {0};
     cJSON *j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "keyCode");

@@ -36,16 +36,18 @@ chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoo
 echo "[*] Preserving user configuration directory (/data/codex/config)..."
 mkdir -p /data/codex_preserved_config 2>/dev/null || true
 cp -rf /data/codex/config/* /data/codex_preserved_config/ 2>/dev/null || true
+cp -f /data/codex/mqtt_config.json /data/codex_preserved_config/ 2>/dev/null || true
 
 echo "[*] Removing Codex binaries and temporary state..."
 rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true
-rm -rf /data/codex/bin /data/codex/www /data/codex-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true
+rm -rf /data/codex/bin /data/codex/www /data/codex-backups /data/codexmqtt /cache/*.log /cache/crashlog-*.json 2>/dev/null || true
 rm -f /data/codex/*.conf /data/codex/current_activity /data/codex/config_version 2>/dev/null || true
 
 
 echo "[*] Restoring preserved configuration for future re-install..."
 mkdir -p /data/codex/config 2>/dev/null || true
 cp -rf /data/codex_preserved_config/* /data/codex/config/ 2>/dev/null || true
+[ -f /data/codex_preserved_config/mqtt_config.json ] && cp -f /data/codex_preserved_config/mqtt_config.json /data/codex/mqtt_config.json 2>/dev/null || true
 rm -rf /data/codex_preserved_config 2>/dev/null || true
 
 echo "[*] Syncing filesystems..."

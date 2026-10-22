@@ -19,6 +19,7 @@ node_modules/
 *.ps1xml
 scratch/
 /test_*
+*.pcap*
 scratch_*
 *.ko
 !payload/modules/*.ko

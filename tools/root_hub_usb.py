@@ -24,9 +24,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
@@ -157,7 +159,7 @@ def check_tcp_port(ip: str, port: int, timeout_s: float = 1.0) -> bool:
 
 
 def get_local_subnets() -> list[str]:
-    """Discover local IPv4 /24 subnet prefixes (e.g. ['10.234.234', '192.168.1'])."""
+    """Discover local IPv4 /24 subnet prefixes (e.g. ['192.168.1'])."""
     subnets: set[str] = set()
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -222,6 +224,118 @@ def wait_for_ssh(ip: str, port: int = 22, timeout_s: int = 60) -> bool:
     return False
 
 
+def find_busybox_binary() -> pathlib.Path | None:
+    """Find MIPS BusyBox binary with tar support."""
+    candidates = [
+        SCRIPT_DIR / "bin" / "busybox",
+        REPO_DIR / "payload" / "bin" / "busybox",
+        REPO_DIR / "bin" / "busybox",
+        SCRIPT_DIR.parent / "payload" / "bin" / "busybox",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib.Path | None:
+    """Auto backup entire /cache and /data partitions over SSH to local backups/ directory."""
+    print("\n[*] Starting automated stock backup of entire /cache and /data partitions...")
+    backup_dir = REPO_DIR / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"stock_hub_backup_{timestamp}.tar.gz"
+    latest_path = backup_dir / "stock_hub_backup_latest.tar.gz"
+    golden_path = backup_dir / "golden_hub_backup.tar.gz"
+
+    ssh_opts = [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=NUL" if sys.platform == "win32" else "/dev/null",
+        "-o", "LogLevel=ERROR",
+        "-o", "ConnectTimeout=10",
+    ]
+    if priv_key_path.is_file():
+        ssh_opts.extend(["-i", str(priv_key_path)])
+
+    target = f"root@{hub_ip}"
+
+    # Determine busybox command on Hub (check if /cache/bin/busybox or /data/codex/bin/busybox exists)
+    chk_cmd = ["ssh"] + ssh_opts + [
+        target,
+        "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; elif [ -x /data/codex/bin/busybox ]; then echo /data/codex/bin/busybox; elif [ -x /tmp/busybox ]; then echo /tmp/busybox; else echo ''; fi",
+    ]
+    res = subprocess.run(chk_cmd, capture_output=True, text=True)
+    bb_bin = res.stdout.strip()
+    uploaded_temp_bb = False
+
+    if not bb_bin:
+        local_bb = find_busybox_binary()
+        if not local_bb:
+            print("[-] Error: BusyBox binary with tar support not found locally. Cannot take stock backup.")
+            return None
+        print(f"[*] Staging temporary BusyBox ({local_bb.stat().st_size:,} bytes) to Hub /tmp/busybox...")
+        try:
+            with open(local_bb, "rb") as f_in:
+                subprocess.run(
+                    ["ssh"] + ssh_opts + [target, "cat > /tmp/busybox && chmod 755 /tmp/busybox"],
+                    input=f_in.read(),
+                    check=True,
+                    timeout=30,
+                )
+            bb_bin = "/tmp/busybox"
+            uploaded_temp_bb = True
+            print("[+] Staged /tmp/busybox successfully.")
+        except Exception as e:
+            print(f"[-] Failed to stage BusyBox on Hub: {e}")
+            return None
+
+    # Stream tarball from Hub
+    print(f"[*] Streaming entire /cache and /data partitions to {backup_path.name}...")
+    tar_cmd = f"{bb_bin} tar -czf - /cache /data 2>/dev/null"
+    try:
+        t0 = time.time()
+        with open(backup_path, "wb") as f_out:
+            proc = subprocess.Popen(
+                ["ssh"] + ssh_opts + [target, tar_cmd],
+                stdout=f_out,
+                stderr=subprocess.PIPE,
+            )
+            proc.wait(timeout=180)
+            if proc.returncode not in (0, 1):
+                print(f"[-] Tar process exited with code {proc.returncode}")
+
+        if not backup_path.is_file() or backup_path.stat().st_size < 1000:
+            print(f"[-] Backup file is empty or corrupted ({backup_path.stat().st_size if backup_path.is_file() else 0} bytes).")
+            backup_path.unlink(missing_ok=True)
+            return None
+
+        with tarfile.open(backup_path, "r:gz") as tar:
+            members = tar.getnames()
+
+        elapsed = time.time() - t0
+        size_mb = backup_path.stat().st_size / (1024 * 1024)
+        print(f"[+] Stock backup verified successfully! ({size_mb:.2f} MB, {len(members)} entries in {elapsed:.1f}s)")
+        print(f"    Saved to: {backup_path}")
+
+        # Update latest and golden
+        shutil.copyfile(backup_path, latest_path)
+        print(f"    Updated: {latest_path.name}")
+        if not golden_path.is_file():
+            shutil.copyfile(backup_path, golden_path)
+            print(f"    Created golden baseline: {golden_path.name}")
+
+    except Exception as e:
+        print(f"[-] Stock backup failed: {e}")
+        backup_path.unlink(missing_ok=True)
+        return None
+    finally:
+        if uploaded_temp_bb:
+            subprocess.run(["ssh"] + ssh_opts + [target, "rm -f /tmp/busybox"], capture_output=True)
+
+    return backup_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Logitech Harmony Hub USB Root & Persistence Tool")
     parser.add_argument("--pubkey", help="Path to SSH public key to authorize")
@@ -231,6 +345,7 @@ def main() -> None:
     parser.add_argument("--wifi-only", action="store_true", help="Only configure Wi-Fi and reboot without restaging Dropbear")
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address to verify SSH after reboot")
     parser.add_argument("--no-reboot", action="store_true", help="Do not reboot Hub after staging Dropbear")
+    parser.add_argument("--no-backup", action="store_true", help="Skip automatic stock backup on gaining root")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -376,7 +491,10 @@ def main() -> None:
                 print(f"[*] Waiting for Dropbear SSH on {target_verify_ip}:22...")
                 if wait_for_ssh(target_verify_ip, 22, timeout_s=60):
                     print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {target_verify_ip}:22!")
-                    print(f"    Connect: ssh -i {pub_path.with_suffix('')} root@{target_verify_ip}")
+                    priv_key_file = pub_path.with_suffix('')
+                    print(f"    Connect: ssh -i {priv_key_file} root@{target_verify_ip}")
+                    if not args.no_backup:
+                        backup_stock_partitions(target_verify_ip, priv_key_file)
                 else:
                     print(f"\n[-] Timed out waiting for SSH on {target_verify_ip}.")
             else:

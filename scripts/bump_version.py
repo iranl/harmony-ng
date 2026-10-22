@@ -18,9 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 VERSION_FILE = REPO_ROOT / "VERSION"
-HTTP_SERVER_C = REPO_ROOT / "payload" / "source" / "http_server.c"
-CODEX_DAEMON_C = REPO_ROOT / "payload" / "source" / "codex_daemon.c"
-CODEX_ELITE_C = REPO_ROOT / "payload" / "source" / "codex_elite.c"
+CODEX_VERSION_H = REPO_ROOT / "payload" / "source" / "codex_version.h"
 APP_JS = REPO_ROOT / "android-app" / "src" / "app.js"
 PACKAGE_JSON = REPO_ROOT / "android-app" / "package.json"
 BUILD_GRADLE = REPO_ROOT / "android-app" / "android" / "app" / "build.gradle"
@@ -66,25 +64,11 @@ def sync_all(new_version, increment_vc=False):
     VERSION_FILE.write_text(new_version.strip() + "\n", encoding="utf-8")
     print(f"[+] Updated VERSION -> {new_version}")
 
-    # 2. http_server.c
+    # 2. codex_version.h
     update_file(
-        HTTP_SERVER_C,
+        CODEX_VERSION_H,
         r'#define\s+CODEX_VERSION\s+"[^"]+"',
         f'#define CODEX_VERSION "{new_version}"'
-    )
-
-    # 2b. codex_daemon.c
-    update_file(
-        CODEX_DAEMON_C,
-        r'#define\s+CODEX_VERSION\s+"[^"]+"',
-        f'#define CODEX_VERSION "{new_version}"'
-    )
-
-    # 2c. codex_elite.c
-    update_file(
-        CODEX_ELITE_C,
-        r'#define\s+CODEX_ELITE_VERSION\s+"[^"]+"',
-        f'#define CODEX_ELITE_VERSION "{new_version}"'
     )
 
     # 3. app.js

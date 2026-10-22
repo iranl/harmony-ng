@@ -29,8 +29,8 @@
 #include "stb_image.h"
 
 #include "font_aa.h"
+#include "codex_version.h"
 
-#define CODEX_ELITE_VERSION "1.7.1"
 #define FB_DEV              "/dev/fb0"
 #define FB_BLANK_SYSFS      "/sys/class/graphics/fb0/blank"
 #define BACKLIGHT_SYSFS     "/sys/class/backlight/ap3156_backlight/brightness"
@@ -475,9 +475,9 @@ static void load_rf_config(void) {
             g_activity_count++;
         }
         if (g_activity_count < MAX_ACTIVITIES) {
-            strcpy(g_activities[g_activity_count].id, "-1");
-            strcpy(g_activities[g_activity_count].name, "Power Off");
-            strcpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png");
+            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
+            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
+            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
             g_activity_count++;
         }
     }
@@ -520,10 +520,10 @@ static int g_act_trigger_count = 0;
 
 static void init_act_triggers(void) {
     g_act_trigger_count = 1;
-    strcpy(g_act_triggers[0].button_name, "PwrOff");
+    strncpy(g_act_triggers[0].button_name, "PwrOff", sizeof(g_act_triggers[0].button_name) - 1);
     g_act_triggers[0].rf_key_code = 0x01EC;
     g_act_triggers[0].atype = 0x03;
-    strcpy(g_act_triggers[0].target_act_id, "-1");
+    strncpy(g_act_triggers[0].target_act_id, "-1", sizeof(g_act_triggers[0].target_act_id) - 1);
 }
 
 static bool g_gyro_enabled = true;
@@ -795,6 +795,25 @@ static void clearpad_wake(bool full_reset) {
     }
 }
 
+/* Synaptics Clearpad Hardware Sleep (turns off capacitive matrix and ADC scanning) */
+static void clearpad_sleep(void) {
+    int fd = open("/dev/i2c-1", O_RDWR);
+    if (fd >= 0) {
+        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
+            union i2c_smbus_data data;
+            struct i2c_smbus_ioctl_data args;
+
+            /* Write 0x01 (Sleep Mode) to F01 Control register 0x35 */
+            data.byte = 0x01;
+            args.read_write = I2C_SMBUS_WRITE;
+            args.command = 0x35;
+            args.size = I2C_SMBUS_BYTE_DATA;
+            args.data = &data;
+            ioctl(fd, I2C_SMBUS, &args);
+        }
+        close(fd);
+    }
+}
 
 /* Power Debug Logging Infrastructure (/tmp/power_debug.log & /data/power_debug.log) */
 #define POWER_LOG_TMP   "/tmp/power_debug.log"
@@ -856,12 +875,12 @@ static void get_cpu_freq_status(char *out, size_t max_len) {
     char gov[32] = "N/A";
     FILE *fc = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
     if (fc) {
-        if (fscanf(fc, "%31s", cur_freq) != 1) strcpy(cur_freq, "err");
+        if (fscanf(fc, "%31s", cur_freq) != 1) strncpy(cur_freq, "err", sizeof(cur_freq) - 1);
         fclose(fc);
     }
     FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "r");
     if (fg) {
-        if (fscanf(fg, "%31s", gov) != 1) strcpy(gov, "err");
+        if (fscanf(fg, "%31s", gov) != 1) strncpy(gov, "err", sizeof(gov) - 1);
         fclose(fg);
     }
     snprintf(out, max_len, "gov=%.16s, cur=%.16s", gov, cur_freq);
@@ -943,7 +962,8 @@ static void fb_set_blank(bool blank) {
     int blank_res = -1;
     int fd = open(FB_BLANK_SYSFS, O_WRONLY);
     if (fd >= 0) {
-        const char *val = blank ? "1\n" : "0\n";
+        /* da8xx_lcdc driver supports FB_BLANK_POWERDOWN (4) and FB_BLANK_UNBLANK (0) */
+        const char *val = blank ? "4\n" : "0\n";
         blank_res = (int)write(fd, val, strlen(val));
         close(fd);
     }
@@ -956,6 +976,7 @@ static void fb_set_blank(bool blank) {
         set_backlight_level(g_brightness_val);
         clearpad_wake(sleep_sec >= 10);
         read_elite_battery();
+        g_screen_dirty = true;
         log_power_debug("=== WAKING FROM STANDBY (Screen Active) ===\n");
         log_power_debug("  Slept for: %llu seconds | Backlight: %d | Battery: %dmV, %d%% (%s, chg=%d)\n",
                         (unsigned long long)sleep_sec, g_brightness_val,
@@ -965,6 +986,7 @@ static void fb_set_blank(bool blank) {
         s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
         set_cpu_freq_standby(true);
+        clearpad_sleep();
         read_elite_battery();
         bool usb_plug = is_usb_hardware_connected();
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
@@ -1903,9 +1925,9 @@ static void load_activities(void) {
             if (strcmp(g_activities[i].id, "-1") == 0) { has_power_off = true; break; }
         }
         if (!has_power_off && g_activity_count < MAX_ACTIVITIES) {
-            strcpy(g_activities[g_activity_count].id, "-1");
-            strcpy(g_activities[g_activity_count].name, "Power Off");
-            strcpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png");
+            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
+            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
+            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
             g_activity_count++;
         }
     }
@@ -1955,10 +1977,10 @@ static uint16_t linux_to_harmony_rf_key(int code) {
         case 401: return 0x01F4; /* KEY_BLUE -> Blue */
 
         /* Home Automation */
-        case 148: return 0x0FF2; /* KEY_PROG1 -> Ha1 (Light On) */
-        case 202: return 0x0FF3; /* KEY_PROG3 -> Ha2 (Light Off) */
-        case 149: return 0x0FF4; /* KEY_PROG2 -> Ha3 (Socket On) */
-        case 203: return 0x0FF5; /* KEY_PROG4 -> Ha4 (Socket Off) */
+        case 148: return 0x0FF2; /* KEY_PROG1 -> Light On */
+        case 149: return 0x0FF3; /* KEY_PROG2 -> Light Off */
+        case 202: return 0x0FF4; /* KEY_PROG3 -> Plug On */
+        case 203: return 0x0FF5; /* KEY_PROG4 -> Plug Off */
         case 78:  return 0x0FF0; /* KEY_KPPLUS -> RockerUp */
         case 74:  return 0x0FF1; /* KEY_KPMINUS -> RockerDown */
 
@@ -2070,13 +2092,23 @@ static void rf_send_full_sync_request(void) {
 /* Wake CC2544 radio and re-sync with Hub */
 static void rf_wake_and_reconnect(void) {
     if (g_rf_fd < 0) return;
-    /* Dongle Active Sync pulse to re-align FHSS channel hopping with Hub */
-    uint8_t pkt_dongle0[10] = {0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t pkt_dongle1[10] = {0x12, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    if (write(g_rf_fd, pkt_dongle0, sizeof(pkt_dongle0)) < 0) {}
-    if (write(g_rf_fd, pkt_dongle1, sizeof(pkt_dongle1)) < 0) {}
-    usleep(5000);
-    /* Send activity sync query to re-establish active session */
+
+    /* 1. Wake CC2544 and restore continuous listening mode: 20 20 00 ... (matches hot_set_powermode 0x20) */
+    uint8_t pkt_power[7] = {0x20, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
+    if (write(g_rf_fd, pkt_power, sizeof(pkt_power)) < 0) {}
+    usleep(15000);
+
+    /* 2. Re-enable extended frames (matches stock hal_remote libhal_rf_hid_write) */
+    uint8_t pkt_ext[7] = {0x10, 0xFF, 0x80, 0xFD, 0x01, 0x00, 0x00};
+    if (write(g_rf_fd, pkt_ext, sizeof(pkt_ext)) < 0) {}
+    usleep(15000);
+
+    /* 3. Active Dongle Sync Pulse (10 bytes) to re-align FHSS channel hopping with Hub */
+    uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
+    usleep(20000);
+
+    /* 4. Send activity sync query to re-establish active session */
     rf_send_sync_query();
 }
 
@@ -2476,9 +2508,9 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                     g_activity_count++;
                 }
                 if (g_activity_count < MAX_ACTIVITIES) {
-                    strcpy(g_activities[g_activity_count].id, "-1");
-                    strcpy(g_activities[g_activity_count].name, "Power Off");
-                    strcpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png");
+                    strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
+                    strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
+                    strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
                     g_activity_count++;
                 }
                 g_screen_dirty = true;
@@ -3087,7 +3119,8 @@ static void render_header(void) {
     if (tm_info) {
         strftime(time_str, sizeof(time_str), "%H:%M", tm_info);
     } else {
-        strcpy(time_str, "12:00");
+        strncpy(time_str, "12:00", sizeof(time_str) - 1);
+        time_str[sizeof(time_str) - 1] = '\0';
     }
     fb_draw_text_aa(FB_WIDTH - 84, 9, time_str, RGB_WHITE, &g_font_main);
 
@@ -3395,7 +3428,7 @@ static void render_switching_view(void) {
             strncpy(target_steps[count].act_id, g_active_activity_id, sizeof(target_steps[count].act_id) - 1);
             target_steps[count].step_idx = 0x80;
             target_steps[count].delay_ms = 1500;
-            strcpy(target_steps[count].name, "Power Off Old");
+            strncpy(target_steps[count].name, "Power Off Old", sizeof(target_steps[count].name) - 1);
             count++;
         }
     }
@@ -3411,7 +3444,7 @@ static void render_switching_view(void) {
     int current_step_idx = 1;
     char current_step_name[32] = "Configuring devices";
     if (strcmp(g_switching_target_id, "-1") == 0) {
-        strcpy(current_step_name, "Powering off all devices");
+        strncpy(current_step_name, "Powering off all devices", sizeof(current_step_name) - 1);
     }
 
     if (count > 0) {
@@ -4378,6 +4411,22 @@ static void *gyro_watcher(void *arg) {
             continue;
         }
 
+        uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
+        if (standby_s >= 1800) {
+            /* Deep Standby (>30m): suspend gyro I2C polling completely */
+            if (gyro_fd >= 0) { close(gyro_fd); gyro_fd = -1; }
+            static uint64_t s_last_deep_log_ms = 0;
+            uint64_t now_ms = get_monotonic_ms();
+            if (now_ms - s_last_deep_log_ms > 3600000) {
+                s_last_deep_log_ms = now_ms;
+                log_power_debug("[*] Deep Standby: >30m sleep, gyro polling suspended (wake via physical button)\n");
+            }
+            usleep(1000000);
+            has_baseline = false;
+            stationary_count = 0;
+            continue;
+        }
+
         /* Screen is off (standby). Keep fd open across iterations to eliminate syscalls */
         if (gyro_fd < 0) {
             gyro_fd = open(GYRO_XYZ_SYS, O_RDONLY);
@@ -4389,8 +4438,15 @@ static void *gyro_watcher(void *arg) {
             lseek(gyro_fd, 0, SEEK_SET);
         }
 
-        /* Adaptive polling: 5Hz (200ms) when stationary to reduce CPU wakeups, 25Hz (40ms) when moving */
-        useconds_t sleep_us = (stationary_count > 10) ? 200000 : 40000;
+        /* Adaptive polling:
+         * 0-5m standby: 200ms (5Hz) when stationary, 40ms when moving.
+         * 5-30m standby: 1000ms (1Hz) when stationary, 50ms when moving. */
+        useconds_t sleep_us;
+        if (standby_s >= 300) {
+            sleep_us = (stationary_count > 10) ? 1000000 : 50000;
+        } else {
+            sleep_us = (stationary_count > 10) ? 200000 : 40000;
+        }
         usleep(sleep_us);
 
         char buf[64];
@@ -4436,6 +4492,14 @@ static volatile sig_atomic_t g_wake_requested = 0;
 static void sig_wake_handler(int sig) {
     (void)sig;
     g_wake_requested = 1;
+}
+
+static void sig_deep_sleep_handler(int sig) {
+    (void)sig;
+    fb_set_blank(true);
+    uint64_t now_ms = get_monotonic_ms();
+    s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
+    log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2 (standby_s > 1800)\n");
 }
 
 /* Power / Timeout Watcher Thread */
@@ -4873,7 +4937,7 @@ static void handle_navigation_key(int code, int value) {
             render_screen();
             break;
 
-        case 149: /* KEY_PROG2 (Ha3 / Socket On -> Left / Prev Tab) */
+        case 149: /* KEY_PROG2 (Light Off -> Left / Prev Tab) */
             if ((g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) && g_settings_dirty) {
                 g_settings_dirty = false;
             }
@@ -4991,7 +5055,7 @@ static void handle_navigation_key(int code, int value) {
             break;
 
         case 158: /* KEY_BACK */
-        case 202: /* KEY_PROG3 (Ha2 / Light Off -> Back / Cancel) */
+        case 202: /* KEY_PROG3 (Plug On -> Back / Cancel) */
             if (g_current_view == VIEW_PAIRING) {
                 if (g_unpair_confirm_active) {
                     g_unpair_confirm_active = false;
@@ -5070,6 +5134,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     signal(SIGUSR1, sig_wake_handler);
+    signal(SIGUSR2, sig_deep_sleep_handler);
 
     printf("[+] Starting Harmony Elite Custom Interface (codex_elite)...\n");
 
@@ -5248,7 +5313,7 @@ int main(int argc, char **argv) {
             FD_SET(g_btn_fd, &rfds);
             if (g_btn_fd > max_fd) max_fd = g_btn_fd;
         }
-        if (g_touch_fd >= 0) {
+        if (g_touch_fd >= 0 && g_screen_on) {
             FD_SET(g_touch_fd, &rfds);
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
@@ -5258,7 +5323,8 @@ int main(int argc, char **argv) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
-            tv.tv_sec = 2;
+            uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
+            tv.tv_sec = (standby_s >= 1800) ? 30 : 5;
             tv.tv_usec = 0;
         }
         int sel = select(max_fd + 1, &rfds, NULL, NULL, &tv);
@@ -5411,6 +5477,14 @@ int main(int argc, char **argv) {
             render_screen();
         }
 
+        /* Check for external pairing trigger */
+        if (access("/tmp/trigger_rf_pair", F_OK) == 0) {
+            unlink("/tmp/trigger_rf_pair");
+            printf("[*] External trigger: starting RF pairing...\n");
+            rf_start_pairing();
+            g_screen_dirty = true;
+        }
+
         /* 1. Physical Buttons (event0) */
         if (g_btn_fd >= 0 && FD_ISSET(g_btn_fd, &rfds)) {
             struct input_event ev;
@@ -5476,7 +5550,7 @@ int main(int argc, char **argv) {
                         }
                     }
 
-                    /* Bottom Navigation Buttons: 78=RockerUp, 74=RockerDown, 149=Ha3, 203=Ha4, 148=Ha1, 202=Ha2 */
+                    /* Bottom Navigation Buttons: 78=RockerUp, 74=RockerDown, 149=LightOff, 203=PlugOff, 148=LightOn, 202=PlugOn */
                     bool is_bottom_nav_key = (ev.code == 78 || ev.code == 74 || ev.code == 149 ||
                                               ev.code == 203 || ev.code == 148 || ev.code == 202);
                     bool is_confirm_pending = (g_confirm_pending_idx >= 0 || g_confirm_pending_rf_code != 0 || g_unpair_confirm_active);

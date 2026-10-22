@@ -33,12 +33,17 @@ async function prefRemove(key) {
 
 export async function getSavedHubs() {
   const hubs = await prefGet(HUBS_KEY);
-  return Array.isArray(hubs) ? hubs : [];
+  if (!Array.isArray(hubs)) return [];
+  // Filter out any invalid, empty, or legacy localhost hubs
+  return hubs.filter(h => h && h.host && h.host !== 'localhost' && h.host !== '127.0.0.1');
 }
 
 export async function saveHub(hub) {
+  if (!hub || !hub.host || hub.host === 'localhost' || hub.host === '127.0.0.1') {
+    return await getSavedHubs();
+  }
   const hubs = await getSavedHubs();
-  const index = hubs.findIndex(h => h.id === hub.id);
+  const index = hubs.findIndex(h => h.id === hub.id || h.host === hub.host);
   if (index >= 0) {
     hubs[index] = { ...hubs[index], ...hub };
   } else {
@@ -73,9 +78,14 @@ export async function setActiveHubId(hubId) {
 
 export async function getActiveHub() {
   const id = await getActiveHubId();
-  if (!id) return null;
   const hubs = await getSavedHubs();
-  return hubs.find(h => h.id === id) || hubs[0] || null;
+  if (id) {
+    const found = hubs.find(h => h.id === id);
+    if (found && found.host && found.host !== 'localhost' && found.host !== '127.0.0.1') {
+      return found;
+    }
+  }
+  return (hubs[0] && hubs[0].host && hubs[0].host !== 'localhost' && hubs[0].host !== '127.0.0.1') ? hubs[0] : null;
 }
 
 export async function getRemoteLayout(scope, targetId) {

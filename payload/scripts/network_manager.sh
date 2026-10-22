@@ -2,7 +2,7 @@
 # Codex Network Manager - Ethernet / USB Host & Wi-Fi supervisor
 # Handles 15s USB gadget safety boot, Ethernet initialization, and Wi-Fi fallback.
 
-PATH=/data/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/cache/bin:/data/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CONF=/data/codex/ethernet.conf
 WPA_CONF=/etc/wpa_supplicant.ath0.conf
 [ -f "$WPA_CONF" ] || WPA_CONF=/etc/wpa_supplicant.conf
@@ -250,7 +250,19 @@ monitor_wifi() {
 
   # 4. Check IP address on ath0
   wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
+  cur_state=$(cat "$STATE_FILE" 2>/dev/null)
   if [ -z "$wifi_ip" ]; then
+    case "$cur_state" in
+      *:wifi-fallback:*)
+        target_ip="${ETH_IP:-$canonical_ip}"
+        if [ -n "$target_ip" ]; then
+          log "Restoring fallback static IP $target_ip on ath0..."
+          ifconfig ath0 "$target_ip" netmask "${ETH_NETMASK:-255.255.255.0}" up 2>/dev/null || true
+          send_garp "ath0" "$target_ip"
+          return 0
+        fi
+        ;;
+    esac
     dhcp_fail_count=$(expr "$dhcp_fail_count" + 1 2>/dev/null || echo 1)
     if ! pidof udhcpc >/dev/null 2>&1 || [ "$dhcp_fail_count" -ge 2 ]; then
       log "ath0 has no IP (fail count: $dhcp_fail_count), requesting DHCP lease..."
@@ -263,7 +275,6 @@ monitor_wifi() {
   fi
 
   dhcp_fail_count=0
-  cur_state=$(cat "$STATE_FILE" 2>/dev/null)
   case "$cur_state" in
     *:wifi-fallback:*) ;;
     *) echo "ath0:wifi:$wifi_ip" > "$STATE_FILE" ;;
@@ -275,34 +286,50 @@ monitor_wifi() {
     ping_check_cycle=0
     gw=$(route -n 2>/dev/null | awk '$1=="0.0.0.0" && $8=="ath0" {print $2}')
     if [ -n "$gw" ]; then
-      if ping -c 1 -W 2 "$gw" >/dev/null 2>&1; then
+      if ping -c 1 "$gw" >/dev/null 2>&1; then
         gw_seen=1
         gw_fail_count=0
       else
-        if [ "$gw_seen" = "1" ]; then
-          gw_fail_count=$(expr "$gw_fail_count" + 1 2>/dev/null || echo 1)
-          log "Gateway $gw ping failed ($gw_fail_count/5)"
-          if [ "$gw_fail_count" -eq 3 ]; then
-            log "Gateway unreachable for 3 checks. Restarting DHCP on ath0..."
+        case "$cur_state" in
+          *:wifi-fallback:*)
+            # In static fallback mode, gateway might be unreachable (switch off); do not restart DHCP or reassociate
+            ;;
+          *)
+            if [ "$gw_seen" = "1" ]; then
+              gw_fail_count=$(expr "$gw_fail_count" + 1 2>/dev/null || echo 1)
+              log "Gateway $gw ping failed ($gw_fail_count/5)"
+              if [ "$gw_fail_count" -eq 3 ]; then
+                log "Gateway unreachable for 3 checks. Restarting DHCP on ath0..."
+                kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
+                rm -f /var/run/udhcpc.ath0.pid
+                udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
+              elif [ "$gw_fail_count" -ge 5 ]; then
+                log "Gateway unreachable for 5 checks. Reassociating Wi-Fi..."
+                wpa_cli -i ath0 reassociate >/dev/null 2>&1 || true
+                gw_fail_count=0
+              fi
+            fi
+            ;;
+        esac
+      fi
+    else
+      case "$cur_state" in
+        *:wifi-fallback:*)
+          gw=$(get_current_gw)
+          [ -z "$gw" ] && [ -n "$target_ip" ] && gw=$(echo "$target_ip" | sed 's/\.[0-9]*$/.1/')
+          [ -n "$gw" ] && route add default gw "$gw" dev ath0 2>/dev/null || true
+          ;;
+        *)
+          no_gw_count=$(expr "$no_gw_count" + 1 2>/dev/null || echo 1)
+          if [ "$no_gw_count" -ge 2 ]; then
+            log "ath0 has IP $wifi_ip but no default gateway. Restarting DHCP..."
             kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
             rm -f /var/run/udhcpc.ath0.pid
             udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
-          elif [ "$gw_fail_count" -ge 5 ]; then
-            log "Gateway unreachable for 5 checks. Reassociating Wi-Fi..."
-            wpa_cli -i ath0 reassociate >/dev/null 2>&1 || true
-            gw_fail_count=0
+            no_gw_count=0
           fi
-        fi
-      fi
-    else
-      no_gw_count=$(expr "$no_gw_count" + 1 2>/dev/null || echo 1)
-      if [ "$no_gw_count" -ge 2 ]; then
-        log "ath0 has IP $wifi_ip but no default gateway. Restarting DHCP..."
-        kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
-        rm -f /var/run/udhcpc.ath0.pid
-        udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
-        no_gw_count=0
-      fi
+          ;;
+      esac
     fi
   fi
 }
@@ -518,6 +545,15 @@ run_monitor() {
             fi
             ;;
           *)
+            # If ETH_FALLBACK_WIFI=1 and static IP configured, ensure ath0 has the fallback IP
+            target_ip="${ETH_IP:-$canonical_ip}"
+            if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$target_ip" ]; then
+              cur_wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
+              if [ "$cur_wifi_ip" != "$target_ip" ]; then
+                log "Ethernet carrier 0: migrating ath0 ($cur_wifi_ip) to fallback IP $target_ip..."
+                migrate_to_wifi "$cur_eth" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
+              fi
+            fi
             # Wi-Fi active: verify default gateway route is present
             if ! route -n 2>/dev/null | grep -q '^0\.0\.0\.0'; then
               gw=$(get_current_gw)
@@ -604,7 +640,13 @@ do_boot() {
     has_eth=1
     stop_recovery_ap 2>/dev/null || true
   else
-    log "No USB Ethernet adapter found on boot; running on Wi-Fi."
+    log "No active USB Ethernet link on boot; evaluating Wi-Fi fallback."
+    cur_eth=$(find_eth_interface)
+    if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$ETH_IP" ]; then
+      log "ETH_FALLBACK_WIFI active: assigning static fallback IP $ETH_IP to ath0..."
+      migrate_to_wifi "$cur_eth" "$ETH_IP" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
+      has_wifi=1
+    fi
   fi
 
   # If both Wi-Fi and Ethernet are offline AND Wi-Fi has no credentials, activate recovery AP

@@ -7,6 +7,7 @@
 #include "cJSON.h"
 #include "resource_cache.h"
 #include "config_store.h"
+#include "codex_bt_common.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -25,11 +26,51 @@
 #include <time.h>
 #include <dirent.h>
 
-#define CODEX_VERSION "1.7.1"
+#include "codex_version.h"
 #ifndef CODEX_COMMIT
 #define CODEX_COMMIT "dev"
 #endif
-#define HTTP_REQ_BUF_SIZE 4096
+#define HTTP_REQ_BUF_SIZE 8192
+
+static FILE *open_mqtt_config_read(void) {
+    FILE *f = fopen(CODEX_MQTT_FILE, "r");
+    if (!f && access(CODEX_MQTT_FILE_ALT, F_OK) == 0) f = fopen(CODEX_MQTT_FILE_ALT, "r");
+    if (!f && access(CODEX_MQTT_LEGACY_FILE, F_OK) == 0) f = fopen(CODEX_MQTT_LEGACY_FILE, "r");
+    return f;
+}
+
+static int is_safe_param(const char *str, const char *allowed_extra) {
+    if (!str) return 0;
+    while (*str) {
+        if (!isalnum((unsigned char)*str) && !strchr(allowed_extra, *str)) return 0;
+        str++;
+    }
+    return 1;
+}
+
+static int is_safe_ipv4(const char *ip) {
+    if (!ip || !*ip) return 0;
+    int dots = 0;
+    for (const char *p = ip; *p; p++) {
+        if (*p == '.') dots++;
+        else if (!isdigit((unsigned char)*p)) return 0;
+    }
+    return (dots == 3);
+}
+
+static void escape_wpa_str(const char *src, char *dst, size_t dst_len) {
+    if (!src || !dst || dst_len == 0) return;
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j + 2 < dst_len; i++) {
+        char c = src[i];
+        if (c == '\r' || c == '\n') continue;
+        if (c == '"' || c == '\\') {
+            dst[j++] = '\\';
+        }
+        dst[j++] = c;
+    }
+    dst[j] = '\0';
+}
 
 #define MAX_PENDING_PULSES 8
 struct pending_pulse {
@@ -208,6 +249,302 @@ static void get_wifi_ssid(char *ssid_out, size_t ssid_len) {
     }
 }
 
+static void get_current_wifi_psk(char *psk_out, size_t psk_len) {
+    if (!psk_out || !psk_len) return;
+    psk_out[0] = '\0';
+    FILE *f = fopen("/etc/wpa_supplicant.conf", "r");
+    if (!f) f = fopen("/etc/wpa_supplicant.ath0.conf", "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = strstr(line, "psk=");
+        if (p) {
+            p += 4;
+            while (*p == ' ' || *p == '\t' || *p == '"') p++;
+            char *end = p;
+            while (*end && *end != '"' && *end != '\r' && *end != '\n') end++;
+            size_t len = (size_t)(end - p);
+            if (len >= psk_len) len = psk_len - 1;
+            strncpy(psk_out, p, len);
+            psk_out[len] = '\0';
+            break;
+        }
+    }
+    fclose(f);
+}
+
+static int freq_to_channel(int freq) {
+    if (freq == 2484) return 14;
+    if (freq >= 2412 && freq <= 2472) return (freq - 2407) / 5;
+    if (freq >= 5170 && freq <= 5825) return (freq - 5000) / 5;
+    return 0;
+}
+
+static void parse_wifi_security(const char *flags, char *sec, size_t sec_len) {
+    if (!flags || !sec || sec_len == 0) return;
+    if (strstr(flags, "WPA2") && strstr(flags, "WPA-")) {
+        strncpy(sec, "WPA/WPA2", sec_len - 1);
+    } else if (strstr(flags, "WPA3")) {
+        strncpy(sec, "WPA3", sec_len - 1);
+    } else if (strstr(flags, "WPA2")) {
+        strncpy(sec, "WPA2", sec_len - 1);
+    } else if (strstr(flags, "WPA")) {
+        strncpy(sec, "WPA", sec_len - 1);
+    } else if (strstr(flags, "WEP")) {
+        strncpy(sec, "WEP", sec_len - 1);
+    } else {
+        strncpy(sec, "Open", sec_len - 1);
+    }
+    sec[sec_len - 1] = '\0';
+}
+
+#define MAX_SCAN_APS 64
+struct wifi_ap_entry {
+    char bssid[32];
+    int frequency;
+    int channel;
+    int signal;
+    char flags[128];
+    char security[32];
+    char ssid[64];
+};
+
+static int scan_wifi_networks(cJSON *out_array) {
+    if (!out_array) return 0;
+    system("/usr/sbin/wpa_cli -i ath0 scan >/dev/null 2>&1");
+    usleep(1200000);
+
+    FILE *f = popen("/usr/sbin/wpa_cli -i ath0 scan_results 2>/dev/null", "r");
+    if (!f) return 0;
+
+    struct wifi_ap_entry aps[MAX_SCAN_APS];
+    int count = 0;
+    char line[256];
+
+    while (fgets(line, sizeof(line), f)) {
+        char *nl = strchr(line, '\r'); if (nl) *nl = '\0';
+        nl = strchr(line, '\n'); if (nl) *nl = '\0';
+        if (!line[0] || line[0] == 'b') continue;
+
+        char *bssid = line;
+        char *t1 = strchr(bssid, '\t');
+        if (!t1) continue;
+        *t1 = '\0';
+
+        char *freq_str = t1 + 1;
+        char *t2 = strchr(freq_str, '\t');
+        if (!t2) continue;
+        *t2 = '\0';
+
+        char *sig_str = t2 + 1;
+        char *t3 = strchr(sig_str, '\t');
+        if (!t3) continue;
+        *t3 = '\0';
+
+        char *flags = t3 + 1;
+        char *t4 = strchr(flags, '\t');
+        char *ssid = t4 ? t4 + 1 : "";
+        if (t4) *t4 = '\0';
+
+        if (!ssid[0]) continue;
+
+        int freq = atoi(freq_str);
+        int sig = atoi(sig_str);
+        int chan = freq_to_channel(freq);
+
+        int existing_idx = -1;
+        for (int i = 0; i < count; i++) {
+            if (strcmp(aps[i].ssid, ssid) == 0) {
+                existing_idx = i;
+                break;
+            }
+        }
+
+        if (existing_idx >= 0) {
+            if (sig > aps[existing_idx].signal) {
+                aps[existing_idx].signal = sig;
+                aps[existing_idx].frequency = freq;
+                aps[existing_idx].channel = chan;
+                strncpy(aps[existing_idx].bssid, bssid, sizeof(aps[existing_idx].bssid) - 1);
+                aps[existing_idx].bssid[sizeof(aps[existing_idx].bssid) - 1] = '\0';
+                strncpy(aps[existing_idx].flags, flags, sizeof(aps[existing_idx].flags) - 1);
+                aps[existing_idx].flags[sizeof(aps[existing_idx].flags) - 1] = '\0';
+                parse_wifi_security(flags, aps[existing_idx].security, sizeof(aps[existing_idx].security));
+            }
+        } else if (count < MAX_SCAN_APS) {
+            strncpy(aps[count].ssid, ssid, sizeof(aps[count].ssid) - 1);
+            aps[count].ssid[sizeof(aps[count].ssid) - 1] = '\0';
+            strncpy(aps[count].bssid, bssid, sizeof(aps[count].bssid) - 1);
+            aps[count].bssid[sizeof(aps[count].bssid) - 1] = '\0';
+            aps[count].frequency = freq;
+            aps[count].channel = chan;
+            aps[count].signal = sig;
+            strncpy(aps[count].flags, flags, sizeof(aps[count].flags) - 1);
+            aps[count].flags[sizeof(aps[count].flags) - 1] = '\0';
+            parse_wifi_security(flags, aps[count].security, sizeof(aps[count].security));
+            count++;
+        }
+    }
+    pclose(f);
+
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = i + 1; j < count; j++) {
+            if (aps[j].signal > aps[i].signal) {
+                struct wifi_ap_entry tmp = aps[i];
+                aps[i] = aps[j];
+                aps[j] = tmp;
+            }
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "ssid", aps[i].ssid);
+        cJSON_AddStringToObject(item, "bssid", aps[i].bssid);
+        cJSON_AddNumberToObject(item, "signal", aps[i].signal);
+        cJSON_AddNumberToObject(item, "channel", aps[i].channel);
+        cJSON_AddNumberToObject(item, "frequency", aps[i].frequency);
+        cJSON_AddStringToObject(item, "security", aps[i].security);
+        cJSON_AddStringToObject(item, "flags", aps[i].flags);
+        cJSON_AddItemToArray(out_array, item);
+    }
+    return count;
+}
+
+static int test_wifi_connection(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len) {
+    if (!ssid || !ssid[0]) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "SSID cannot be empty");
+        return -1;
+    }
+
+    FILE *f_ping = popen("/usr/sbin/wpa_cli -i ath0 ping 2>/dev/null", "r");
+    if (!f_ping) {
+        return 0;
+    }
+    char ping_buf[32] = {0};
+    if (fgets(ping_buf, sizeof(ping_buf), f_ping) == NULL || strstr(ping_buf, "PONG") == NULL) {
+        pclose(f_ping);
+#ifdef TEST_HARNESS
+        return 0;
+#else
+        if (access("/usr/sbin/wpa_cli", X_OK) != 0) return 0;
+        if (err_msg && err_len) snprintf(err_msg, err_len, "wpa_supplicant is not running on ath0");
+        return -1;
+#endif
+    }
+    pclose(f_ping);
+
+    int current_net_id = -1;
+    FILE *f_list = popen("/usr/sbin/wpa_cli -i ath0 list_networks 2>/dev/null", "r");
+    if (f_list) {
+        char line[128];
+        while (fgets(line, sizeof(line), f_list)) {
+            if (strstr(line, "[CURRENT]")) {
+                current_net_id = atoi(line);
+                break;
+            }
+        }
+        pclose(f_list);
+    }
+
+    FILE *f_add = popen("/usr/sbin/wpa_cli -i ath0 add_network 2>/dev/null", "r");
+    if (!f_add) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "Failed to create test network in wpa_supplicant");
+        return -1;
+    }
+    char id_buf[32] = {0};
+    if (!fgets(id_buf, sizeof(id_buf), f_add)) {
+        pclose(f_add);
+        if (err_msg && err_len) snprintf(err_msg, err_len, "Failed to allocate network ID");
+        return -1;
+    }
+    pclose(f_add);
+    int test_net_id = atoi(id_buf);
+    if (test_net_id < 0) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "Invalid network ID returned");
+        return -1;
+    }
+
+    char esc_ssid[128] = {0};
+    char esc_psk[128] = {0};
+    escape_wpa_str(ssid, esc_ssid, sizeof(esc_ssid));
+    if (psk) escape_wpa_str(psk, esc_psk, sizeof(esc_psk));
+
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d ssid '\"%s\"' >/dev/null 2>&1", test_net_id, esc_ssid);
+    system(cmd);
+
+    if (is_open) {
+        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d key_mgmt NONE >/dev/null 2>&1", test_net_id);
+        system(cmd);
+    } else {
+        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d psk '\"%s\"' >/dev/null 2>&1", test_net_id, esc_psk);
+        system(cmd);
+    }
+
+    if (hidden) {
+        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d scan_ssid 1 >/dev/null 2>&1", test_net_id);
+        system(cmd);
+    }
+
+    if (current_net_id >= 0) {
+        snprintf(cmd, sizeof(cmd),
+            "(sleep 20 && /usr/sbin/wpa_cli -i ath0 select_network %d && /usr/sbin/wpa_cli -i ath0 remove_network %d) >/dev/null 2>&1 &",
+            current_net_id, test_net_id);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+            "(sleep 20 && /usr/sbin/wpa_cli -i ath0 remove_network %d) >/dev/null 2>&1 &",
+            test_net_id);
+    }
+    system(cmd);
+
+    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 enable_network %d >/dev/null 2>&1", test_net_id);
+    system(cmd);
+    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 select_network %d >/dev/null 2>&1", test_net_id);
+    system(cmd);
+
+    int connected = 0;
+    for (int t = 0; t < 12; t++) {
+        sleep(1);
+        FILE *f_st = popen("/usr/sbin/wpa_cli -i ath0 status 2>/dev/null", "r");
+        if (f_st) {
+            char st_line[128];
+            int is_completed = 0;
+            int wrong_key = 0;
+            while (fgets(st_line, sizeof(st_line), f_st)) {
+                if (strstr(st_line, "wpa_state=COMPLETED")) is_completed = 1;
+                if (strstr(st_line, "WRONG_KEY") || strstr(st_line, "auth_failures")) wrong_key = 1;
+            }
+            pclose(f_st);
+            if (wrong_key) {
+                if (err_msg && err_len) snprintf(err_msg, err_len, "Incorrect Wi-Fi password");
+                break;
+            }
+            if (is_completed) {
+                connected = 1;
+                break;
+            }
+        }
+    }
+
+    if (!connected) {
+        if (err_msg && err_len && !err_msg[0]) {
+            snprintf(err_msg, err_len, "Connection timed out (AP unreachable or handshake failed)");
+        }
+        if (current_net_id >= 0) {
+            snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 select_network %d >/dev/null 2>&1", current_net_id);
+            system(cmd);
+        }
+        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 remove_network %d >/dev/null 2>&1", test_net_id);
+        system(cmd);
+        return -1;
+    }
+
+    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 remove_network %d >/dev/null 2>&1", test_net_id);
+    system(cmd);
+    return 0;
+}
+
 
 int http_server_init(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
@@ -321,6 +658,14 @@ static int write_file_content(const char *filepath, const char *content) {
 
 static int write_file_atomic(const char *filepath, const char *content, size_t len) {
     if (!filepath || !content) return -1;
+    char dpath[512];
+    strncpy(dpath, filepath, sizeof(dpath) - 1);
+    dpath[sizeof(dpath) - 1] = '\0';
+    char *slash = strrchr(dpath, '/');
+    if (slash && slash != dpath) {
+        *slash = '\0';
+        mkdir(dpath, 0755);
+    }
     char tmp[512];
     snprintf(tmp, sizeof(tmp), "%s.new", filepath);
     FILE *f = fopen(tmp, "w");
@@ -420,6 +765,52 @@ static uint32_t crc32_simple(const unsigned char *buf, size_t len) {
     return ~crc;
 }
 
+static int check_http_auth(const char *req) {
+    FILE *f = fopen("/data/codex/webui_auth.conf", "r");
+    if (!f) return 1; /* Auth not configured -> allow */
+
+    char expected[256] = {0};
+    int has_cred = 0;
+    while (fgets(expected, sizeof(expected), f)) {
+        char *nl = strchr(expected, '\n'); if (nl) *nl = '\0';
+        nl = strchr(expected, '\r'); if (nl) *nl = '\0';
+        char *p = expected;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p && *p != '#') {
+            memmove(expected, p, strlen(p) + 1);
+            has_cred = 1;
+            break;
+        }
+    }
+    fclose(f);
+
+    if (!has_cred || !expected[0]) return 1; /* Empty file -> allow */
+
+    const char *hdr = strcasestr(req, "Authorization:");
+    if (!hdr) return 0;
+    hdr += 14;
+    while (*hdr == ' ' || *hdr == '\t') hdr++;
+    if (strncasecmp(hdr, "Basic ", 6) != 0) return 0;
+    hdr += 6;
+    while (*hdr == ' ' || *hdr == '\t') hdr++;
+
+    char b64[128] = {0};
+    int bi = 0;
+    while (*hdr && *hdr != '\r' && *hdr != '\n' && *hdr != ' ' && bi < (int)sizeof(b64) - 1) {
+        b64[bi++] = *hdr++;
+    }
+    b64[bi] = '\0';
+
+    size_t dlen = 0;
+    unsigned char *decoded = b64_decode(b64, &dlen);
+    if (!decoded) return 0;
+    decoded[dlen] = '\0';
+
+    int matched = (strcmp((char *)decoded, expected) == 0);
+    free(decoded);
+    return matched;
+}
+
 static cJSON *sanitize_activity_steps_array(const cJSON *arr) {
     cJSON *out = cJSON_CreateArray();
     if (!out) return NULL;
@@ -439,7 +830,7 @@ static cJSON *sanitize_activity_steps_array(const cJSON *arr) {
         char sd_str[32] = {0};
         if (sdid && cJSON_IsNumber(sdid)) snprintf(sd_str, sizeof(sd_str), "%ld", (long)sdid->valuedouble);
         else if (sdid && cJSON_IsString(sdid) && sdid->valuestring) strncpy(sd_str, sdid->valuestring, sizeof(sd_str) - 1);
-        if (!sd_str[0]) strcpy(sd_str, "0");
+        if (!sd_str[0]) strncpy(sd_str, "0", sizeof(sd_str) - 1);
 
         const cJSON *scmd = cJSON_GetObjectItemCaseSensitive(it, "command");
         if (!scmd) scmd = cJSON_GetObjectItemCaseSensitive(it, "CommandName");
@@ -563,7 +954,7 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
     } else if (dev_id && dev_id[0]) {
         strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
     } else {
-        strcpy(dev_name, "device");
+        strncpy(dev_name, "device", sizeof(dev_name) - 1);
     }
 
     char base_topic[128] = "harmony/hub";
@@ -573,7 +964,7 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
     char topic_pattern[256] = "{root}/button/{device}/{command}";
     int pulse_ms = 1000;
 
-    FILE *f = fopen("/data/codexmqtt/config.json", "r");
+    FILE *f = open_mqtt_config_read();
     if (f) {
         fseek(f, 0, SEEK_END);
         long fsz = ftell(f);
@@ -773,6 +1164,7 @@ static void ensure_icons_extracted(void) {
         mkdir("/tmp/www/assets", 0755);
         char cmd[512];
         snprintf(cmd, sizeof(cmd),
+            "export PATH=/cache/bin:/data/codex/bin:$PATH; "
             "tar -xzf \"%s\" -C /tmp/www/assets/ 2>/dev/null && "
             "for d in /tmp/www/assets/icons/*/; do "
             "  if [ -d \"$d\" ]; then "
@@ -789,7 +1181,8 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
 
     char rel_path[256];
     if (strcmp(path, "/") == 0 || path[0] == '\0') {
-        strcpy(rel_path, "/index.html");
+        strncpy(rel_path, "/index.html", sizeof(rel_path) - 1);
+        rel_path[sizeof(rel_path) - 1] = '\0';
     } else {
         strncpy(rel_path, path, sizeof(rel_path) - 1);
         rel_path[sizeof(rel_path) - 1] = '\0';
@@ -851,7 +1244,8 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
             f = fopen(idx_raw, "rb");
         }
         if (f) {
-            strcpy(rel_path, "/index.html");
+            strncpy(rel_path, "/index.html", sizeof(rel_path) - 1);
+            rel_path[sizeof(rel_path) - 1] = '\0';
         }
     }
 
@@ -957,10 +1351,11 @@ void http_handle_client(int client_fd) {
     /* Check Content-Length for large bodies (e.g. backup restore) */
     char *hdr_end = strstr(init_buf, "\r\n\r\n");
     if (hdr_end) {
-        char *cl_pos = strstr(init_buf, "Content-Length:");
-        if (!cl_pos) cl_pos = strstr(init_buf, "content-length:");
+        char *cl_pos = strcasestr(init_buf, "Content-Length:");
         if (cl_pos && cl_pos < hdr_end) {
-            long cl = atol(cl_pos + 15);
+            cl_pos += 15;
+            while (*cl_pos == ' ' || *cl_pos == '\t') cl_pos++;
+            long cl = atol(cl_pos);
             size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
             size_t body_recvd = (size_t)n - hdr_len;
             if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
@@ -997,6 +1392,41 @@ static void http_process_request(int client_fd, const char *req) {
     const char *body = strstr(req, "\r\n\r\n");
     if (body) body += 4;
 
+    /* Handle CORS preflight OPTIONS requests */
+    if (strcmp(method, "OPTIONS") == 0) {
+        const char *opt_resp =
+            "HTTP/1.1 204 No Content\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n\r\n";
+        send(client_fd, opt_resp, strlen(opt_resp), 0);
+        close(client_fd);
+        return;
+    }
+
+    /* Check HTTP Basic authentication for API and management routes */
+    if (strncmp(clean_path, "/api/", 5) == 0 || strcmp(clean_path, "/wifi") == 0 ||
+        strcmp(clean_path, "/ethernet") == 0 || strcmp(clean_path, "/import") == 0 ||
+        strncmp(clean_path, "/export/", 8) == 0 || strncmp(clean_path, "/ir/", 4) == 0 ||
+        strncmp(clean_path, "/bt/", 4) == 0) {
+        if (!check_http_auth(req)) {
+            const char *unauth =
+                "HTTP/1.1 401 Unauthorized\r\n"
+                "WWW-Authenticate: Basic realm=\"Harmony Hub Codex\"\r\n"
+                "Content-Type: application/json\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
+                "Content-Length: 35\r\n"
+                "Connection: close\r\n\r\n"
+                "{\"ok\":false,\"error\":\"Unauthorized\"}";
+            send(client_fd, unauth, strlen(unauth), 0);
+            close(client_fd);
+            return;
+        }
+    }
+
     /* Static file server: if GET or HEAD and not an /api/ or /ws route, serve from /data/codex/www */
     if ((strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) && strncmp(clean_path, "/api/", 5) != 0 && strcmp(clean_path, "/ws") != 0 && strcmp(clean_path, "/health") != 0 && strncmp(clean_path, "/export/", 8) != 0) {
         if (serve_static_file(client_fd, req, clean_path)) {
@@ -1021,6 +1451,7 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddStringToObject(st, "ip", local_ip);
         cJSON_AddNumberToObject(st, "total_kb", 5120);
         cJSON_AddNumberToObject(st, "free_kb", 1372);
+        cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
 
         FILE *uf = fopen("/proc/uptime", "r");
         if (uf) {
@@ -1080,7 +1511,7 @@ static void http_process_request(int client_fd, const char *req) {
         int en = mconn || (mhost[0] != '\0');
         int keepalive = 60, ha_disc = 1, bt_events = 0;
 
-        FILE *f = fopen("/data/codexmqtt/config.json", "r");
+        FILE *f = open_mqtt_config_read();
         if (f) {
             fseek(f, 0, SEEK_END);
             long sz = ftell(f);
@@ -1802,6 +2233,19 @@ static void http_process_request(int client_fd, const char *req) {
         return;
     }
 
+    /* Route: GET /api/wifi-scan or GET /api/wifi/scan */
+    if ((strcmp(clean_path, "/api/wifi-scan") == 0 || strcmp(clean_path, "/api/wifi/scan") == 0) && strcmp(method, "GET") == 0) {
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON *networks = cJSON_CreateArray();
+        scan_wifi_networks(networks);
+        cJSON_AddItemToObject(resp, "networks", networks);
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return;
+    }
+
     if (strcmp(clean_path, "/api/update-status") == 0 && strcmp(method, "GET") == 0) {
         char fw_str[128] = "4.15.600";
         FILE *vf = fopen("/etc/version", "r");
@@ -1846,6 +2290,7 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddStringToObject(st, "bt_version", "BTstack v1.5 (UART)");
         cJSON_AddStringToObject(st, "arch", "mips (AR9344)");
         cJSON_AddBoolToObject(st, "update_available", has_update);
+        cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
@@ -1874,6 +2319,9 @@ static void http_process_request(int client_fd, const char *req) {
             }
             cJSON_Delete(p);
         }
+
+        if (repo[0] && !is_safe_param(repo, "/.:-_@~")) repo[0] = '\0';
+        if (token[0] && !is_safe_param(token, "-_")) token[0] = '\0';
 
         if (client_remote_ver[0]) {
             char clean_ver[64] = {0};
@@ -1963,6 +2411,12 @@ static void http_process_request(int client_fd, const char *req) {
             }
             cJSON_Delete(p);
         }
+
+        if (repo[0] && !is_safe_param(repo, "/.:-_@~")) repo[0] = '\0';
+        if (token[0] && !is_safe_param(token, "-_")) token[0] = '\0';
+
+        FILE *uf = fopen("/tmp/hub_updating.flag", "w");
+        if (uf) fclose(uf);
 
         char cmd[512] = {0};
         snprintf(cmd, sizeof(cmd),
@@ -2573,7 +3027,9 @@ static void http_process_request(int client_fd, const char *req) {
             cJSON_Delete(req_j);
         }
 
-        if (!dev_name[0] && dev_id[0]) strcpy(dev_name, dev_id);
+        if (!dev_name[0] && dev_id[0]) {
+            strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
+        }
 
         char final_topic[256] = {0};
         int final_pulse_ms = 0;
@@ -2709,8 +3165,8 @@ static void http_process_request(int client_fd, const char *req) {
         }
 
         if (!dev_name[0]) {
-            if (dev_id[0]) strcpy(dev_name, dev_id);
-            else strcpy(dev_name, "device");
+            if (dev_id[0]) strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
+            else strncpy(dev_name, "device", sizeof(dev_name) - 1);
         }
 
         char final_topic[256] = {0};
@@ -2741,7 +3197,7 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON *params = parse_request_params(body);
         if (params) {
             cJSON *cfg = NULL;
-            FILE *f = fopen("/data/codexmqtt/config.json", "r");
+            FILE *f = open_mqtt_config_read();
             if (f) {
                 fseek(f, 0, SEEK_END);
                 long sz = ftell(f);
@@ -2760,7 +3216,15 @@ static void http_process_request(int client_fd, const char *req) {
             if (!cfg) cfg = cJSON_CreateObject();
 
             cJSON *p_en = cJSON_GetObjectItemCaseSensitive(params, "enabled");
-            if (p_en) cJSON_ReplaceItemInObject(cfg, "enabled", cJSON_CreateBool(cJSON_IsTrue(p_en) || (cJSON_IsNumber(p_en) && p_en->valueint > 0) || (cJSON_IsString(p_en) && strcmp(p_en->valuestring, "1") == 0)));
+            if (p_en) {
+                int is_en = (cJSON_IsTrue(p_en) ||
+                             (cJSON_IsNumber(p_en) && p_en->valueint > 0) ||
+                             (cJSON_IsString(p_en) && (strcmp(p_en->valuestring, "1") == 0 || strcasecmp(p_en->valuestring, "true") == 0)));
+                cJSON_DeleteItemFromObject(cfg, "enabled");
+                cJSON_AddBoolToObject(cfg, "enabled", is_en);
+            } else if (!cJSON_GetObjectItemCaseSensitive(cfg, "enabled")) {
+                cJSON_AddBoolToObject(cfg, "enabled", 1);
+            }
 
             cJSON *p_host = cJSON_GetObjectItemCaseSensitive(params, "host");
             if (p_host && cJSON_IsString(p_host) && p_host->valuestring) {
@@ -2866,8 +3330,9 @@ static void http_process_request(int client_fd, const char *req) {
 
             char *out_json = cJSON_Print(cfg);
             if (out_json) {
-                system("mkdir -p /data/codexmqtt 2>/dev/null");
-                write_file_content("/data/codexmqtt/config.json", out_json);
+                write_file_content(CODEX_MQTT_FILE, out_json);
+                unlink(CODEX_MQTT_LEGACY_FILE);
+                rmdir("/data/codexmqtt");
                 free(out_json);
             }
             cJSON_Delete(cfg);
@@ -2886,36 +3351,146 @@ static void http_process_request(int client_fd, const char *req) {
         }
     }
 
+    /* Route: POST /api/wifi-test */
+    if (strcmp(clean_path, "/api/wifi-test") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        if (params) {
+            cJSON *p_ssid = cJSON_GetObjectItemCaseSensitive(params, "ssid");
+            cJSON *p_pass = cJSON_GetObjectItemCaseSensitive(params, "password");
+            cJSON *p_open = cJSON_GetObjectItemCaseSensitive(params, "open");
+            cJSON *p_hid = cJSON_GetObjectItemCaseSensitive(params, "hidden");
+            cJSON *p_keep = cJSON_GetObjectItemCaseSensitive(params, "keep_password");
+
+            const char *raw_ssid = (p_ssid && cJSON_IsString(p_ssid)) ? p_ssid->valuestring : "";
+            char pass_buf[128] = {0};
+            int is_open = (p_open && ((cJSON_IsBool(p_open) && cJSON_IsTrue(p_open)) || (cJSON_IsNumber(p_open) && p_open->valueint == 1) || (cJSON_IsString(p_open) && strcmp(p_open->valuestring, "1") == 0)));
+            int is_hidden = (p_hid && ((cJSON_IsBool(p_hid) && cJSON_IsTrue(p_hid)) || (cJSON_IsNumber(p_hid) && p_hid->valueint == 1) || (cJSON_IsString(p_hid) && strcmp(p_hid->valuestring, "1") == 0)));
+            int keep_pass = (p_keep && ((cJSON_IsBool(p_keep) && cJSON_IsTrue(p_keep)) || (cJSON_IsNumber(p_keep) && p_keep->valueint == 1) || (cJSON_IsString(p_keep) && strcmp(p_keep->valuestring, "1") == 0)));
+
+            if (p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
+                strncpy(pass_buf, p_pass->valuestring, sizeof(pass_buf) - 1);
+            } else if (keep_pass && !is_open) {
+                get_current_wifi_psk(pass_buf, sizeof(pass_buf));
+            }
+
+            char err_buf[256] = {0};
+            int res = test_wifi_connection(raw_ssid, pass_buf, is_open, is_hidden, err_buf, sizeof(err_buf));
+            cJSON_Delete(params);
+
+            cJSON *resp = cJSON_CreateObject();
+            if (res == 0) {
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddStringToObject(resp, "message", "Wi-Fi test connection successful");
+                send_cjson_resp(client_fd, 200, resp);
+            } else {
+                cJSON_AddBoolToObject(resp, "ok", 0);
+                cJSON_AddStringToObject(resp, "error", err_buf[0] ? err_buf : "Wi-Fi test connection failed");
+                send_cjson_resp(client_fd, 400, resp);
+            }
+            cJSON_Delete(resp);
+            close(client_fd);
+            return;
+        }
+    }
+
     /* Route: POST /wifi or POST /api/wifi-save */
     if ((strcmp(clean_path, "/wifi") == 0 || strcmp(clean_path, "/api/wifi-save") == 0) && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         if (params) {
             cJSON *p_ssid = cJSON_GetObjectItemCaseSensitive(params, "ssid");
             cJSON *p_pass = cJSON_GetObjectItemCaseSensitive(params, "password");
-            if (p_ssid && cJSON_IsString(p_ssid) && p_ssid->valuestring[0]) {
+            cJSON *p_open = cJSON_GetObjectItemCaseSensitive(params, "open");
+            cJSON *p_hid = cJSON_GetObjectItemCaseSensitive(params, "hidden");
+            cJSON *p_keep = cJSON_GetObjectItemCaseSensitive(params, "keep_password");
+            cJSON *p_force = cJSON_GetObjectItemCaseSensitive(params, "force");
+            cJSON *p_app = cJSON_GetObjectItemCaseSensitive(params, "apply");
+
+            const char *raw_ssid = (p_ssid && cJSON_IsString(p_ssid)) ? p_ssid->valuestring : "";
+            if (raw_ssid[0]) {
+                char esc_ssid[128] = {0};
+                char esc_pass[128] = {0};
+                escape_wpa_str(raw_ssid, esc_ssid, sizeof(esc_ssid));
+
+                int is_open = (p_open && ((cJSON_IsBool(p_open) && cJSON_IsTrue(p_open)) || (cJSON_IsNumber(p_open) && p_open->valueint == 1) || (cJSON_IsString(p_open) && strcmp(p_open->valuestring, "1") == 0)));
+                int is_hidden = (p_hid && ((cJSON_IsBool(p_hid) && cJSON_IsTrue(p_hid)) || (cJSON_IsNumber(p_hid) && p_hid->valueint == 1) || (cJSON_IsString(p_hid) && strcmp(p_hid->valuestring, "1") == 0)));
+                int keep_pass = (p_keep && ((cJSON_IsBool(p_keep) && cJSON_IsTrue(p_keep)) || (cJSON_IsNumber(p_keep) && p_keep->valueint == 1) || (cJSON_IsString(p_keep) && strcmp(p_keep->valuestring, "1") == 0)));
+                int force_save = (p_force && ((cJSON_IsBool(p_force) && cJSON_IsTrue(p_force)) || (cJSON_IsNumber(p_force) && p_force->valueint == 1) || (cJSON_IsString(p_force) && strcmp(p_force->valuestring, "1") == 0)));
+
+                const char *app_mode = (p_app && cJSON_IsString(p_app)) ? p_app->valuestring : "save";
+                int should_apply = (strcmp(app_mode, "reconfigure") == 0 || strcmp(app_mode, "apply") == 0 || strcmp(app_mode, "1") == 0 || strcmp(app_mode, "reboot") == 0);
+
+                if (p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
+                    escape_wpa_str(p_pass->valuestring, esc_pass, sizeof(esc_pass));
+                } else if (keep_pass && !is_open) {
+                    get_current_wifi_psk(esc_pass, sizeof(esc_pass));
+                }
+
+                /* Test connection before switching settings unless forced or save-only */
+                if (should_apply && !force_save) {
+                    char err_buf[256] = {0};
+                    int res = test_wifi_connection(raw_ssid, esc_pass, is_open, is_hidden, err_buf, sizeof(err_buf));
+                    if (res != 0) {
+                        cJSON_Delete(params);
+                        cJSON *resp = cJSON_CreateObject();
+                        cJSON_AddBoolToObject(resp, "ok", 0);
+                        char full_err[300];
+                        snprintf(full_err, sizeof(full_err), "Wi-Fi test connection failed: %s. Settings not changed.", err_buf[0] ? err_buf : "handshake timeout");
+                        cJSON_AddStringToObject(resp, "error", full_err);
+                        send_cjson_resp(client_fd, 400, resp);
+                        cJSON_Delete(resp);
+                        close(client_fd);
+                        return;
+                    }
+                }
+
                 char wpa_buf[1024];
-                snprintf(wpa_buf, sizeof(wpa_buf),
-                    "ctrl_interface=/var/run/wpa_supplicant\n"
-                    "update_config=1\n\n"
-                    "network={\n"
-                    "\tssid=\"%s\"\n"
-                    "\tpsk=\"%s\"\n"
-                    "}\n",
-                    p_ssid->valuestring,
-                    (p_pass && cJSON_IsString(p_pass)) ? p_pass->valuestring : "");
+                if (is_open) {
+                    snprintf(wpa_buf, sizeof(wpa_buf),
+                        "ctrl_interface=/var/run/wpa_supplicant\n"
+                        "update_config=1\n\n"
+                        "network={\n"
+                        "\tssid=\"%s\"\n"
+                        "\tkey_mgmt=NONE\n"
+                        "%s"
+                        "}\n",
+                        esc_ssid,
+                        is_hidden ? "\tscan_ssid=1\n" : "");
+                } else {
+                    snprintf(wpa_buf, sizeof(wpa_buf),
+                        "ctrl_interface=/var/run/wpa_supplicant\n"
+                        "update_config=1\n\n"
+                        "network={\n"
+                        "\tssid=\"%s\"\n"
+                        "\tpsk=\"%s\"\n"
+                        "%s"
+                        "}\n",
+                        esc_ssid, esc_pass,
+                        is_hidden ? "\tscan_ssid=1\n" : "");
+                }
+
                 write_file_content("/etc/wpa_supplicant.conf", wpa_buf);
                 write_file_content("/etc/wpa_supplicant.ath0.conf", wpa_buf);
 
-                cJSON *p_app = cJSON_GetObjectItemCaseSensitive(params, "apply");
-                if (p_app && cJSON_IsString(p_app) && (strcmp(p_app->valuestring, "apply") == 0 || strcmp(p_app->valuestring, "1") == 0)) {
-                    system("killall -HUP wpa_supplicant 2>/dev/null &");
+                if (strcmp(app_mode, "reboot") == 0) {
+                    system("/data/codex/bin/safe_reboot.sh 2>/dev/null || /data/codex/safe_reboot.sh 2>/dev/null || (killall -9 codex_rf codex_btstack 2>/dev/null; /data/codex/bin/codex_sync 2>/dev/null; sleep 2; reboot -f) &");
+                } else if (should_apply) {
+                    system("/usr/sbin/wpa_cli -i ath0 reconfigure 2>/dev/null || killall -HUP wpa_supplicant 2>/dev/null &");
                 }
+
+                cJSON_Delete(params);
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddStringToObject(resp, "message", should_apply ? "Wi-Fi settings verified and applied" : "Wi-Fi settings saved");
+                send_cjson_resp(client_fd, 200, resp);
+                cJSON_Delete(resp);
+                close(client_fd);
+                return;
             }
             cJSON_Delete(params);
             cJSON *resp = cJSON_CreateObject();
-            cJSON_AddBoolToObject(resp, "ok", 1);
-            cJSON_AddStringToObject(resp, "message", "Wi-Fi settings saved");
-            send_cjson_resp(client_fd, 200, resp);
+            cJSON_AddBoolToObject(resp, "ok", 0);
+            cJSON_AddStringToObject(resp, "error", "Missing or empty SSID");
+            send_cjson_resp(client_fd, 400, resp);
             cJSON_Delete(resp);
             close(client_fd);
             return;
@@ -2935,19 +3510,39 @@ static void http_process_request(int client_fd, const char *req) {
             cJSON *p_gw = cJSON_GetObjectItemCaseSensitive(params, "eth_gateway");
             cJSON *p_dns = cJSON_GetObjectItemCaseSensitive(params, "eth_dns");
 
+            int eth_en = 1;
+            if (p_en) {
+                if (cJSON_IsBool(p_en)) eth_en = cJSON_IsTrue(p_en);
+                else if (cJSON_IsNumber(p_en)) eth_en = (p_en->valueint != 0);
+                else if (cJSON_IsString(p_en)) eth_en = (strcmp(p_en->valuestring, "0") != 0 && strcasecmp(p_en->valuestring, "false") != 0);
+            }
+            int eth_fb = 1;
+            if (p_fb) {
+                if (cJSON_IsBool(p_fb)) eth_fb = cJSON_IsTrue(p_fb);
+                else if (cJSON_IsNumber(p_fb)) eth_fb = (p_fb->valueint != 0);
+                else if (cJSON_IsString(p_fb)) eth_fb = (strcmp(p_fb->valuestring, "0") != 0 && strcasecmp(p_fb->valuestring, "false") != 0);
+            }
+
+            const char *mode_val = (p_mode && cJSON_IsString(p_mode) && strcasecmp(p_mode->valuestring, "static") == 0) ? "static" : "dhcp";
+            const char *raw_ip = (p_ip && cJSON_IsString(p_ip)) ? p_ip->valuestring : "";
+            const char *raw_mask = (p_mask && cJSON_IsString(p_mask)) ? p_mask->valuestring : "255.255.255.0";
+            const char *raw_gw = (p_gw && cJSON_IsString(p_gw)) ? p_gw->valuestring : "";
+            const char *raw_dns = (p_dns && cJSON_IsString(p_dns)) ? p_dns->valuestring : "";
+
+            const char *valid_ip = is_safe_ipv4(raw_ip) ? raw_ip : "";
+            const char *valid_mask = is_safe_ipv4(raw_mask) ? raw_mask : "255.255.255.0";
+            const char *valid_gw = is_safe_ipv4(raw_gw) ? raw_gw : "";
+            const char *valid_dns = (is_safe_param(raw_dns, ". ,") && strlen(raw_dns) < 64) ? raw_dns : "";
+
             snprintf(conf_buf, sizeof(conf_buf),
-                "ETH_ENABLED=1\n"
-                "ETH_FALLBACK_WIFI=1\n"
+                "ETH_ENABLED=%d\n"
+                "ETH_FALLBACK_WIFI=%d\n"
                 "ETH_MODE=\"%s\"\n"
                 "ETH_IP=\"%s\"\n"
                 "ETH_NETMASK=\"%s\"\n"
                 "ETH_GATEWAY=\"%s\"\n"
                 "ETH_DNS=\"%s\"\n",
-                (p_mode && cJSON_IsString(p_mode)) ? p_mode->valuestring : "dhcp",
-                (p_ip && cJSON_IsString(p_ip)) ? p_ip->valuestring : "",
-                (p_mask && cJSON_IsString(p_mask)) ? p_mask->valuestring : "255.255.255.0",
-                (p_gw && cJSON_IsString(p_gw)) ? p_gw->valuestring : "",
-                (p_dns && cJSON_IsString(p_dns)) ? p_dns->valuestring : "");
+                eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns);
 
             write_file_content("/data/codex/ethernet.conf", conf_buf);
 
@@ -2973,6 +3568,16 @@ static void http_process_request(int client_fd, const char *req) {
         if (params) {
             cJSON *p_act = cJSON_GetObjectItemCaseSensitive(params, "action");
             if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "reboot") == 0) {
+                if (access("/tmp/hub_updating.flag", F_OK) == 0) {
+                    cJSON_Delete(params);
+                    cJSON *resp = cJSON_CreateObject();
+                    cJSON_AddBoolToObject(resp, "ok", 0);
+                    cJSON_AddStringToObject(resp, "error", "Software update in progress. Manual reboot blocked.");
+                    send_cjson_resp(client_fd, 409, resp);
+                    cJSON_Delete(resp);
+                    close(client_fd);
+                    return;
+                }
                 cJSON_Delete(params);
                 cJSON *resp = cJSON_CreateObject();
                 cJSON_AddBoolToObject(resp, "ok", 1);
@@ -2980,7 +3585,8 @@ static void http_process_request(int client_fd, const char *req) {
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);
-                system("reboot 2>/dev/null &");
+                sync();
+                system("/data/codex/bin/safe_reboot.sh 2>/dev/null || /data/codex/safe_reboot.sh 2>/dev/null || (killall -9 codex_rf codex_btstack 2>/dev/null; /data/codex/bin/codex_sync 2>/dev/null; sleep 2; reboot -f) 2>/dev/null &");
                 return;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "factory_reset") == 0) {
                 cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
@@ -3049,7 +3655,7 @@ static void http_process_request(int client_fd, const char *req) {
                 { "activities", "/data/codex/config/activities.json", NULL },
                 { "settings", "/data/codex/config/settings.json", NULL },
 
-                { "mqtt", "/data/codexmqtt/config.json", NULL },
+                { "mqtt", CODEX_MQTT_FILE, CODEX_MQTT_LEGACY_FILE },
                 { "network", "/data/codex/ethernet.conf", NULL },
                 { "wifi", "/etc/wpa_supplicant.conf", NULL },
                 { "bluetooth", "/data/codex/bt_devices.json", NULL },
@@ -3141,7 +3747,12 @@ static void http_process_request(int client_fd, const char *req) {
             file_to_send = "/data/codex/config/settings.json";
             download_name = "settings.json";
         }
-        else if (strcmp(tgt, "mqtt") == 0) { file_to_send = "/data/codexmqtt/config.json"; download_name = "mqtt_config.json"; }
+        else if (strcmp(tgt, "mqtt") == 0) {
+            file_to_send = CODEX_MQTT_FILE;
+            if (access(file_to_send, F_OK) != 0 && access(CODEX_MQTT_FILE_ALT, F_OK) == 0) file_to_send = CODEX_MQTT_FILE_ALT;
+            else if (access(file_to_send, F_OK) != 0 && access(CODEX_MQTT_LEGACY_FILE, F_OK) == 0) file_to_send = CODEX_MQTT_LEGACY_FILE;
+            download_name = "mqtt_config.json";
+        }
         else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) {
             file_to_send = "/data/codex/ethernet.conf";
             download_name = "ethernet.conf";
@@ -3213,6 +3824,9 @@ static void http_process_request(int client_fd, const char *req) {
             cJSON *p_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");
             const char *tgt = p_tgt ? (cJSON_IsString(p_tgt) ? p_tgt->valuestring : "") : "";
 
+            cJSON *p_net = cJSON_GetObjectItemCaseSensitive(params, "restore_network");
+            int allow_network = (p_net && (cJSON_IsTrue(p_net) || (cJSON_IsNumber(p_net) && p_net->valueint > 0)));
+
             if (strcmp(tgt, "bundle") == 0) {
                 cJSON *bundle = NULL;
                 if (p_pay && cJSON_IsString(p_pay)) bundle = cJSON_Parse(p_pay->valuestring);
@@ -3220,27 +3834,45 @@ static void http_process_request(int client_fd, const char *req) {
                 else bundle = params;
 
                 if (bundle) {
-                    static const struct { const char *key; const char *path; } b_files[] = {
-                        { "devices", "/data/codex/config/devices.json" },
-                        { "activities", "/data/codex/config/activities.json" },
-                        { "settings", "/data/codex/config/settings.json" },
-                        { "mqtt", "/data/codexmqtt/config.json" },
-                        { "network", "/data/codex/ethernet.conf" },
-                        { "wifi", "/etc/wpa_supplicant.conf" },
-                        { "bluetooth", "/data/codex/bt_devices.json" },
-                        { "bt_remote_map", "/data/codex/bt_remote_map.json" },
-                        { "elite_remote_map", "/data/codex/elite_remote_map.json" },
-                        { "ui_remote_layout", "/data/codex/web_remote_layouts.json" },
-                        { "auth", "/data/codex/webui_auth.conf" },
-                        { "hub_id", "/data/codex/hub_id" },
-                        { NULL, NULL }
+                    static const struct { const char *key; const char *path; int is_net; } b_files[] = {
+                        { "devices", "/data/codex/config/devices.json", 0 },
+                        { "activities", "/data/codex/config/activities.json", 0 },
+                        { "settings", "/data/codex/config/settings.json", 0 },
+                        { "mqtt", CODEX_MQTT_FILE, 0 },
+                        { "network", "/data/codex/ethernet.conf", 1 },
+                        { "wifi", "/etc/wpa_supplicant.conf", 1 },
+                        { "bluetooth", "/data/codex/bt_devices.json", 0 },
+                        { "bt_remote_map", "/data/codex/bt_remote_map.json", 0 },
+                        { "elite_remote_map", "/data/codex/elite_remote_map.json", 0 },
+                        { "ui_remote_layout", "/data/codex/web_remote_layouts.json", 0 },
+                        { "auth", "/data/codex/webui_auth.conf", 0 },
+                        { "hub_id", "/data/codex/hub_id", 0 },
+                        { NULL, NULL, 0 }
                     };
 
                     for (int i = 0; b_files[i].key; i++) {
+                        if (b_files[i].is_net && !allow_network) {
+                            continue; /* Never wipe active network / Wi-Fi credentials unless explicitly enabled */
+                        }
                         cJSON *sec = cJSON_GetObjectItemCaseSensitive(bundle, b_files[i].key);
                         if (sec) {
+                            if (strcmp(b_files[i].key, "mqtt") == 0 && cJSON_IsObject(sec)) {
+                                if (!cJSON_GetObjectItemCaseSensitive(sec, "enabled")) {
+                                    cJSON *h = cJSON_GetObjectItemCaseSensitive(sec, "host");
+                                    if (!h) {
+                                        cJSON *bk = cJSON_GetObjectItemCaseSensitive(sec, "broker");
+                                        if (bk) h = cJSON_GetObjectItemCaseSensitive(bk, "host");
+                                    }
+                                    if (h && cJSON_IsString(h) && h->valuestring && h->valuestring[0]) {
+                                        cJSON_AddBoolToObject(sec, "enabled", 1);
+                                    }
+                                }
+                            }
                             if (cJSON_IsString(sec)) {
                                 write_file_atomic(b_files[i].path, sec->valuestring, strlen(sec->valuestring));
+                                if (strcmp(b_files[i].key, "wifi") == 0) {
+                                    write_file_atomic("/etc/wpa_supplicant.ath0.conf", sec->valuestring, strlen(sec->valuestring));
+                                }
                             } else {
                                 char *pstr = cJSON_PrintUnformatted(sec);
                                 if (pstr) {
@@ -3256,11 +3888,13 @@ static void http_process_request(int client_fd, const char *req) {
                         size_t klen = 0;
                         unsigned char *raw_keys = b64_decode(j_keys->valuestring, &klen);
                         if (raw_keys) {
+                            write_file_atomic("/data/codex/btstack_keys.tlv", (const char *)raw_keys, klen);
                             write_file_atomic("/data/codex/btstack_keys.bin", (const char *)raw_keys, klen);
                             free(raw_keys);
                         }
                     }
 
+                    sync();
                     invalidate_device_list_cache();
                     config_store_init();
                     notify_rf_push_config();
@@ -3272,7 +3906,7 @@ static void http_process_request(int client_fd, const char *req) {
                 if (strcmp(tgt, "devices") == 0) file_to_write = "/data/codex/config/devices.json";
                 else if (strcmp(tgt, "activities") == 0) file_to_write = "/data/codex/config/activities.json";
                 else if (strcmp(tgt, "settings") == 0) file_to_write = "/data/codex/config/settings.json";
-                else if (strcmp(tgt, "mqtt") == 0) file_to_write = "/data/codexmqtt/config.json";
+                else if (strcmp(tgt, "mqtt") == 0) file_to_write = CODEX_MQTT_FILE;
                 else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) file_to_write = "/data/codex/ethernet.conf";
                 else if (strcmp(tgt, "wifi") == 0) file_to_write = "/etc/wpa_supplicant.conf";
                 else if (strcmp(tgt, "bluetooth") == 0) file_to_write = "/data/codex/bt_devices.json";
@@ -4264,31 +4898,67 @@ static void http_process_request(int client_fd, const char *req) {
                     cJSON_AddStringToObject(found_dev, "BTAddress", j_bthost->valuestring);
                 }
 
-                cJSON *j_btrec = cJSON_GetObjectItemCaseSensitive(p, "btAutoReconnect");
-                if (!j_btrec) j_btrec = cJSON_GetObjectItemCaseSensitive(p, "bt_auto_reconnect");
+                cJSON *j_btrec = cJSON_GetObjectItemCaseSensitive(p, "bt_auto_reconnect");
+                if (!j_btrec) j_btrec = cJSON_GetObjectItemCaseSensitive(p, "btAutoReconnect");
                 if (j_btrec) {
-                    int val = cJSON_IsTrue(j_btrec) || (cJSON_IsNumber(j_btrec) && j_btrec->valuedouble > 0) || (cJSON_IsString(j_btrec) && (strcmp(j_btrec->valuestring, "1") == 0 || strcasecmp(j_btrec->valuestring, "true") == 0));
+                    int val = -1;
+                    if (cJSON_IsNumber(j_btrec)) val = (int)j_btrec->valuedouble;
+                    else if (cJSON_IsBool(j_btrec)) val = cJSON_IsTrue(j_btrec) ? 1 : 0;
+                    else if (cJSON_IsString(j_btrec)) val = atoi(j_btrec->valuestring);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_auto_reconnect");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btAutoReconnect");
-                    cJSON_AddBoolToObject(found_dev, "bt_auto_reconnect", val);
+                    cJSON_AddNumberToObject(found_dev, "bt_auto_reconnect", val);
+                    cJSON_AddNumberToObject(found_dev, "btAutoReconnect", val);
                 }
 
-                cJSON *j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDurationSec");
-                if (!j_btdur) j_btdur = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
+                cJSON *j_btdur = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
+                if (!j_btdur) j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDurationSec");
+                if (!j_btdur) j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDuration");
                 if (j_btdur) {
                     int val = cJSON_IsNumber(j_btdur) ? (int)j_btdur->valuedouble : atoi(j_btdur->valuestring);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_reconnect_duration_sec");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDurationSec");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDuration");
                     cJSON_AddNumberToObject(found_dev, "bt_reconnect_duration_sec", val);
+                    cJSON_AddNumberToObject(found_dev, "btReconnectDurationSec", val);
                 }
 
-                cJSON *j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelaySec");
-                if (!j_btdly) j_btdly = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_delay_sec");
+                cJSON *j_btdly = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_delay_sec");
+                if (!j_btdly) j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelaySec");
+                if (!j_btdly) j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelay");
                 if (j_btdly) {
                     int val = cJSON_IsNumber(j_btdly) ? (int)j_btdly->valuedouble : atoi(j_btdly->valuestring);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_reconnect_delay_sec");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDelaySec");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDelay");
                     cJSON_AddNumberToObject(found_dev, "bt_reconnect_delay_sec", val);
+                    cJSON_AddNumberToObject(found_dev, "btReconnectDelaySec", val);
+                }
+
+                cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_device_id");
+                if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(p, "btTriggerDeviceId");
+                if (j_trig_dev && cJSON_IsString(j_trig_dev)) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_device_id");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerDeviceId");
+                    if (j_trig_dev->valuestring[0]) {
+                        cJSON_AddStringToObject(found_dev, "bt_trigger_device_id", j_trig_dev->valuestring);
+                        cJSON_AddStringToObject(found_dev, "btTriggerDeviceId", j_trig_dev->valuestring);
+                    }
+                }
+
+                cJSON *j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_command_name");
+                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "btTriggerCommandName");
+                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_command");
+                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "btTriggerCommand");
+                if (j_trig_cmd && cJSON_IsString(j_trig_cmd)) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_command_name");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerCommandName");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_command");
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerCommand");
+                    if (j_trig_cmd->valuestring[0]) {
+                        cJSON_AddStringToObject(found_dev, "bt_trigger_command_name", j_trig_cmd->valuestring);
+                        cJSON_AddStringToObject(found_dev, "btTriggerCommandName", j_trig_cmd->valuestring);
+                    }
                 }
 
                 cJSON *j_po = cJSON_GetObjectItemCaseSensitive(p, "powerOnSequence");
@@ -4403,6 +5073,7 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
         cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
+        cJSON_AddBoolToObject(resp, "bt_reconnect_on_boot", s.bt_reconnect_on_boot);
         cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
         cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
@@ -4425,6 +5096,11 @@ static void http_process_request(int client_fd, const char *req) {
             if (item) {
                 if (cJSON_IsBool(item)) s.bt_auto_reconnect = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.bt_auto_reconnect = (int)item->valuedouble;
+            }
+            item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_on_boot");
+            if (item) {
+                if (cJSON_IsBool(item)) s.bt_reconnect_on_boot = cJSON_IsTrue(item) ? 1 : 0;
+                else if (cJSON_IsNumber(item)) s.bt_reconnect_on_boot = (int)item->valuedouble;
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
             if (item && cJSON_IsNumber(item)) s.bt_reconnect_duration_sec = (int)item->valuedouble;
@@ -4464,12 +5140,54 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
         cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
+        cJSON_AddBoolToObject(resp, "bt_reconnect_on_boot", s.bt_reconnect_on_boot);
         cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
         cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : "always_on");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: POST /api/bt/reconnect or POST /bt/reconnect */
+    if ((strcmp(clean_path, "/api/bt/reconnect") == 0 || strcmp(clean_path, "/bt/reconnect") == 0) && strcmp(method, "POST") == 0) {
+        cJSON *p = body ? parse_request_params(body) : NULL;
+        char tgt[64] = {0};
+        int dur = 30;
+        int dly = 0;
+        if (p) {
+            cJSON *jt = cJSON_GetObjectItemCaseSensitive(p, "target");
+            if (!jt) jt = cJSON_GetObjectItemCaseSensitive(p, "bdaddr");
+            if (!jt) jt = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
+            if (jt && cJSON_IsString(jt) && jt->valuestring) strncpy(tgt, jt->valuestring, sizeof(tgt) - 1);
+
+            cJSON *jdur = cJSON_GetObjectItemCaseSensitive(p, "duration");
+            if (jdur && cJSON_IsNumber(jdur) && jdur->valueint > 0) dur = jdur->valueint;
+
+            cJSON *jdly = cJSON_GetObjectItemCaseSensitive(p, "delay");
+            if (jdly && cJSON_IsNumber(jdly) && jdly->valueint >= 0) dly = jdly->valueint;
+            cJSON_Delete(p);
+        }
+        char sh_cmd[256];
+        if (tgt[0]) {
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &", tgt, dur, dly);
+        } else {
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &", dur, dly);
+        }
+        system(sh_cmd);
+        if (dly == 0) {
+            char cmd[128];
+            if (tgt[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", tgt, dur);
+            else snprintf(cmd, sizeof(cmd), "connect_host %d\n", dur);
+            codex_send_btstack_cmd(cmd);
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "message", "Bluetooth reconnect triggered");
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

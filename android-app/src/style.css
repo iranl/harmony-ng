@@ -2794,6 +2794,32 @@ select {
     margin: 8px auto 2px;
     flex-shrink: 0;
   }
+  .modal-sheet-footer {
+    padding-bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 16px));
+  }
+}
+
+/* Custom Confirmation Modal - Always centered vertically and horizontally */
+#confirmModal.modal-sheet-backdrop {
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 20px !important;
+}
+
+#confirmModal .modal-sheet-dialog {
+  max-width: 380px !important;
+  width: calc(100% - 32px) !important;
+  max-height: 80vh !important;
+  border-radius: 16px !important;
+  border: 1px solid var(--border) !important;
+  margin: auto !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75) !important;
+  animation: modalFadeIn 0.2s ease-out !important;
+  transform: none !important;
+}
+
+#confirmModal .sheet-drag-handle {
+  display: none !important;
 }
 
 /* 4. Streamlined Sequence Step Rows & Badges */
@@ -2935,7 +2961,7 @@ select {
 }
 @media (max-width: 600px) {
   .toast-container {
-    bottom: calc(var(--safe-bottom) + 16px);
+    bottom: max(56px, calc(env(safe-area-inset-bottom, 0px) + 56px)) !important;
     right: 16px;
     left: 16px;
     width: auto;
@@ -3111,3 +3137,139 @@ select {
   flex: 1.2;
   min-width: 85px;
 }
+
+/* Fullscreen Blocking Hub Updating Overlay */
+.hub-updating-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(10, 14, 23, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.hub-updating-card {
+  background: var(--bg-card, #1e2538);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 36px 28px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.75), 0 0 30px rgba(56, 189, 248, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.updating-spinner-ring {
+  width: 52px;
+  height: 52px;
+  border: 4px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent, #38bdf8);
+  border-radius: 50%;
+  animation: updatingSpin 1s linear infinite;
+  margin-bottom: 6px;
+}
+@keyframes updatingSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.updating-progress-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--accent, #38bdf8);
+  font-weight: 500;
+  margin-top: 4px;
+}
+.updating-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent, #38bdf8);
+  box-shadow: 0 0 8px var(--accent, #38bdf8);
+  animation: pulseDot 1.4s infinite ease-in-out;
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.7); }
+}
+
+/* Wi-Fi Scan Dropdown & Elements */
+.wifi-scan-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-card, #161f2e);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.16));
+  border-radius: var(--radius-sm, 8px);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-top: 4px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+.wifi-scan-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+}
+.wifi-scan-item:last-child {
+  border-bottom: none;
+}
+.wifi-scan-item:hover {
+  background: var(--bg-card-hover, #1f2c42);
+}
+.wifi-scan-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wifi-scan-ssid {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-main, #ffffff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wifi-scan-meta {
+  font-size: 11px;
+  color: var(--text-dim, #9ca3af);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.wifi-scan-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted, #d1d5db);
+}
+.wifi-scan-signal {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #38bdf8);
+}
+

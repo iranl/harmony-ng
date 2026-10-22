@@ -5,11 +5,20 @@ Safely wipes all custom Codex runtime files, removes persistence scripts,
 restores original stock configuration files and permissions, and reboots
 the device(s) back into official Logitech stock firmware.
 
+Hardware Factory Reset Alternative (No SSH Required):
+    To revert any changes without SSH, perform a hardware factory reset:
+    1. Unplug micro-USB cable from Hub.
+    2. Press and hold the 'Pair/Reset' button on the back of the Hub.
+    3. Plug micro-USB into PC while holding the button for 15-20 seconds.
+    4. Release when the front LED flashes red rapidly.
+    5. After factory reset, restore your original stock configuration using:
+       python tools/restore_stock.py
+
 Usage:
     python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
     python tools/factory_reset.py --target elite [--elite-ip 192.168.2.1]
     python tools/factory_reset.py --target all
-    python tools/factory_reset.py --target hub --force
+    python tools/factory_reset.py --restore-backup
 """
 
 from __future__ import annotations
@@ -84,7 +93,7 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
         # 4. Remove watchdog neuter and custom binaries
         (
             "rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true; "
-            "rm -rf /data/codex /data/codex-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; "
+            "rm -rf /data/codex /data/codexmqtt /data/codex-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; "
             "echo '  + Removed all Codex binaries, scripts, and temporary state'"
         ),
 
@@ -178,8 +187,21 @@ def main() -> None:
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
     parser.add_argument("--elite-ip", default=DEFAULT_ELITE_IP, help=f"Elite IP address (default: {DEFAULT_ELITE_IP})")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
+    parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
     args = parser.parse_args()
+
+    if args.restore_backup:
+        restore_script = SCRIPT_DIR / "restore_stock.py"
+        restore_cmd = [sys.executable, str(restore_script)]
+        if args.restore_backup != "latest":
+            restore_cmd.extend(["--backup", args.restore_backup])
+        if args.force:
+            restore_cmd.append("--force")
+        if args.hub_ip and args.hub_ip != DEFAULT_HUB_IP:
+            restore_cmd.extend(["--hub-ip", args.hub_ip])
+        print(f"[*] Delegating to all-in-one restore tool: {' '.join(restore_cmd)}")
+        sys.exit(subprocess.run(restore_cmd).returncode)
 
     print("=" * 70)
     print(" HARMONY SYSTEM FACTORY RESET & STOCK RESTORATION TOOL")

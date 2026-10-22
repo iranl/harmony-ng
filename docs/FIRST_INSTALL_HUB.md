@@ -60,6 +60,7 @@ The tool automatically:
 4. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
 5. Sends reboot signal to `/sys/reboot`.
 6. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
+7. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar.gz` and `backups/stock_hub_backup_latest.tar.gz`.
 
 ### Step 2.3: Verify SSH Access
 Test SSH connectivity over your local network:
@@ -71,10 +72,15 @@ exit
 
 ---
 
-## 3. Create Stock Backup (Optional)
+## 3. Stock Backup & Recovery Safety
 
-Before modifying flash contents, create a safety archive of your original stock certificates, Wi-Fi configs, and factory state:
+When rooting via `tools/root_hub_usb.py`, a complete backup of your Hub's stock state (entire `/cache` and `/data` partitions) is automatically saved to:
+```text
+backups/stock_hub_backup_<timestamp>.tar.gz
+backups/stock_hub_backup_latest.tar.gz
+```
 
+You can also run manual backups at any time:
 ```bash
 # Windows (PowerShell):
 bash build/backup_hub.sh <YOUR_HUB_IP>
@@ -82,9 +88,8 @@ bash build/backup_hub.sh <YOUR_HUB_IP>
 # Linux / macOS:
 ./build/backup_hub.sh <YOUR_HUB_IP>
 ```
-*(If working inside an extracted release zip, run `backup_hub.sh <YOUR_HUB_IP>` directly).*
 
-The backup archive is saved to `backups/golden_hub_backup.tar.gz`.
+This archive preserves your stock Logitech pairings, Wi-Fi configuration, device profiles, and certificates. You can restore from it at any time using `python tools/restore_stock.py`.
 
 ---
 
@@ -127,5 +132,32 @@ The installer automatically:
    ```
 2. Use the header language selector for English, Deutsch, Français, Nederlands, or Español.
 3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
+
+---
+
+## 6. Factory Reset & Returning to Stock
+
+If you ever wish to revert any changes, test official firmware, or recover from an unexpected state:
+
+### Hardware Factory Reset (Zero-Disassembly Method)
+1. **Unplug the micro-USB cable** from the back of the Hub.
+2. **Press and hold the Pair/Reset button** on the rear of the Hub.
+3. While holding the button, **plug the micro-USB cable into your PC**.
+4. Keep holding for **15–20 seconds** until the front LED flashes red rapidly, then release.
+5. The Hub formats the writable overlay (`/data` and `/cache`) and reboots to pristine stock SquashFS firmware (~30–45s).
+6. When complete, the front LED pulses red slowly.
+
+### Restore Stock with Full Configuration
+To restore all your original Wi-Fi settings, devices, and activities from your automatic backup:
+
+```bash
+# All-in-one restoration:
+python tools/restore_stock.py
+
+# Or restore pure stock with SSH removed:
+python tools/restore_stock.py --pure-stock
+```
+
+This automated tool gains root over USB HID, terminates background processes, extracts your backed-up `/cache` and `/data` partitions, flushes SPI flash, and cleanly reboots back into your configured stock Logitech system.
 
 ---

@@ -754,6 +754,49 @@ static void migrate_stock_activities(void) {
     printf("[+] Migrated stock ActivityList.json -> %s\n", CODEX_ACTIVITIES_FILE);
 }
 
+struct id_pair {
+    char old_id[32];
+    char new_id[8];
+};
+
+static void remap_activity_refs_in_json(cJSON *node, const struct id_pair *pairs, int pair_count, int *changed) {
+    if (!node) return;
+    if (cJSON_IsObject(node)) {
+        cJSON *child = NULL;
+        cJSON_ArrayForEach(child, node) {
+            if (child->string && (strcmp(child->string, "activityId") == 0 ||
+                strcmp(child->string, "targetActivity") == 0 ||
+                strcmp(child->string, "activity") == 0)) {
+                if (cJSON_IsString(child) && child->valuestring) {
+                    for (int i = 0; i < pair_count; i++) {
+                        if (strcmp(child->valuestring, pairs[i].old_id) == 0) {
+                            cJSON_SetValuestring(child, pairs[i].new_id);
+                            if (changed) *changed = 1;
+                            break;
+                        }
+                    }
+                } else if (cJSON_IsNumber(child)) {
+                    for (int i = 0; i < pair_count; i++) {
+                        if (atoi(pairs[i].old_id) == child->valueint) {
+                            child->valueint = atoi(pairs[i].new_id);
+                            child->valuedouble = (double)child->valueint;
+                            if (changed) *changed = 1;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                remap_activity_refs_in_json(child, pairs, pair_count, changed);
+            }
+        }
+    } else if (cJSON_IsArray(node)) {
+        cJSON *elem = NULL;
+        cJSON_ArrayForEach(elem, node) {
+            remap_activity_refs_in_json(elem, pairs, pair_count, changed);
+        }
+    }
+}
+
 static void migrate_activity_ids_to_short(cJSON *root) {
     if (!root) return;
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
@@ -780,10 +823,7 @@ static void migrate_activity_ids_to_short(cJSON *root) {
 
     printf("[*] Migrating activity IDs to short format (1, 2, 3...)\n");
 
-    struct id_pair {
-        char old_id[32];
-        char new_id[8];
-    } map[32];
+    struct id_pair map[32];
     int map_count = 0;
     int next_id = 1;
 
@@ -822,11 +862,10 @@ static void migrate_activity_ids_to_short(cJSON *root) {
             fclose(cf);
             for (int i = 0; i < map_count; i++) {
                 if (strcmp(cur_id, map[i].old_id) == 0) {
-                    FILE *wf = fopen("/data/codex/current_activity", "w");
-                    if (wf) {
-                        fputs(map[i].new_id, wf);
-                        fclose(wf);
-                    }
+                    char new_act_buf[16];
+                    snprintf(new_act_buf, sizeof(new_act_buf), "%s\n", map[i].new_id);
+                    write_file_atomic("/data/codex/current_activity", new_act_buf);
+                    sync();
                     break;
                 }
             }
@@ -847,9 +886,9 @@ static void migrate_activity_ids_to_short(cJSON *root) {
             cJSON *mroot = cJSON_Parse(mraw);
             free(mraw);
             if (mroot) {
+                int changed = 0;
                 cJSON *macts = cJSON_GetObjectItemCaseSensitive(mroot, "activities");
                 if (macts && cJSON_IsObject(macts)) {
-                    int changed = 0;
                     for (int mi = 0; mi < map_count; mi++) {
                         cJSON *entry = cJSON_DetachItemFromObject(macts, map[mi].old_id);
                         if (entry) {
@@ -857,13 +896,14 @@ static void migrate_activity_ids_to_short(cJSON *root) {
                             changed = 1;
                         }
                     }
-                    if (changed) {
-                        char *mout = cJSON_Print(mroot);
-                        if (mout) {
-                            write_file_atomic(map_files[fi], mout);
-                            free(mout);
-                            printf("[*] Remapped activities in %s\n", map_files[fi]);
-                        }
+                }
+                remap_activity_refs_in_json(mroot, map, map_count, &changed);
+                if (changed) {
+                    char *mout = cJSON_Print(mroot);
+                    if (mout) {
+                        write_file_atomic(map_files[fi], mout);
+                        free(mout);
+                        printf("[*] Remapped activities and button actions in %s\n", map_files[fi]);
                     }
                 }
                 cJSON_Delete(mroot);
@@ -1021,7 +1061,7 @@ static void parse_steps(const cJSON *arr, const char *dev_id, struct activity_st
         if (type && cJSON_IsString(type) && type->valuestring) {
             strncpy(steps[cnt].type, type->valuestring, sizeof(steps[cnt].type) - 1);
         } else {
-            strcpy(steps[cnt].type, "IRCommand");
+            strncpy(steps[cnt].type, "IRCommand", sizeof(steps[cnt].type) - 1);
         }
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "Delay");
         if (del && cJSON_IsNumber(del)) steps[cnt].delay_ms = del->valueint;
@@ -1089,12 +1129,47 @@ int load_ir_inventory(struct ir_inventory *inv) {
             if (!pao) pao = cJSON_GetObjectItemCaseSensitive(d, "is_power_always_on");
             dev->is_power_always_on = (pao && (cJSON_IsTrue(pao) || (cJSON_IsNumber(pao) && pao->valueint > 0))) ? 1 : 0;
 
-            const cJSON *bar = cJSON_GetObjectItemCaseSensitive(d, "btAutoReconnect");
-            dev->bt_auto_reconnect = (bar && cJSON_IsNumber(bar)) ? bar->valueint : -1;
-            const cJSON *brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDuration");
+            const cJSON *bar = cJSON_GetObjectItemCaseSensitive(d, "bt_auto_reconnect");
+            if (!bar) bar = cJSON_GetObjectItemCaseSensitive(d, "btAutoReconnect");
+            if (bar) {
+                if (cJSON_IsNumber(bar)) dev->bt_auto_reconnect = bar->valueint;
+                else if (cJSON_IsBool(bar)) dev->bt_auto_reconnect = cJSON_IsTrue(bar) ? 1 : 0;
+                else dev->bt_auto_reconnect = -1;
+            } else {
+                dev->bt_auto_reconnect = -1;
+            }
+
+            const cJSON *brdur = cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_duration_sec");
+            if (!brdur) brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDurationSec");
+            if (!brdur) brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDuration");
             dev->bt_reconnect_duration_sec = (brdur && cJSON_IsNumber(brdur)) ? brdur->valueint : 0;
-            const cJSON *brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelay");
+
+            const cJSON *brdel = cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_delay_sec");
+            if (!brdel) brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelaySec");
+            if (!brdel) brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelay");
             dev->bt_reconnect_delay_sec = (brdel && cJSON_IsNumber(brdel)) ? brdel->valueint : -1;
+
+            const cJSON *j_btd = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_device_id");
+            if (!j_btd) j_btd = cJSON_GetObjectItemCaseSensitive(d, "btTriggerDeviceId");
+            if (j_btd && cJSON_IsString(j_btd) && j_btd->valuestring) {
+                strncpy(dev->bt_trigger_device_id, j_btd->valuestring, sizeof(dev->bt_trigger_device_id) - 1);
+            }
+            const cJSON *j_btc = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_command_name");
+            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "btTriggerCommandName");
+            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_command");
+            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "btTriggerCommand");
+            if (j_btc && cJSON_IsString(j_btc) && j_btc->valuestring) {
+                const char *colon = strchr(j_btc->valuestring, ':');
+                if (colon && !dev->bt_trigger_device_id[0]) {
+                    size_t did_len = (size_t)(colon - j_btc->valuestring);
+                    if (did_len >= sizeof(dev->bt_trigger_device_id)) did_len = sizeof(dev->bt_trigger_device_id) - 1;
+                    strncpy(dev->bt_trigger_device_id, j_btc->valuestring, did_len);
+                    dev->bt_trigger_device_id[did_len] = '\0';
+                    strncpy(dev->bt_trigger_command_name, colon + 1, sizeof(dev->bt_trigger_command_name) - 1);
+                } else {
+                    strncpy(dev->bt_trigger_command_name, j_btc->valuestring, sizeof(dev->bt_trigger_command_name) - 1);
+                }
+            }
 
             const cJSON *po = cJSON_GetObjectItemCaseSensitive(d, "powerOnSequence");
             if (!po) po = cJSON_GetObjectItemCaseSensitive(d, "PowerOnActions");
@@ -1299,15 +1374,15 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
         if (type && cJSON_IsString(type) && type->valuestring) {
             strncpy(st->type, type->valuestring, sizeof(st->type) - 1);
         } else if (ttype && cJSON_IsString(ttype) && ttype->valuestring) {
-            if (strstr(ttype->valuestring, "Delay")) strcpy(st->type, "Delay");
-            else if (strstr(ttype->valuestring, "Switched")) strcpy(st->type, "Switched");
-            else strcpy(st->type, "IRCommand");
+            if (strstr(ttype->valuestring, "Delay")) strncpy(st->type, "Delay", sizeof(st->type) - 1);
+            else if (strstr(ttype->valuestring, "Switched")) strncpy(st->type, "Switched", sizeof(st->type) - 1);
+            else strncpy(st->type, "IRCommand", sizeof(st->type) - 1);
         } else {
-            strcpy(st->type, "IRCommand");
+            strncpy(st->type, "IRCommand", sizeof(st->type) - 1);
         }
         if (strcasecmp(st->type, "Switched") == 0 || strcasecmp(st->type, "ActivitySwitched") == 0 || strcasecmp(st->command, "Switched") == 0) {
-            strcpy(st->type, "Switched");
-            if (!st->command[0]) strcpy(st->command, "Switched");
+            strncpy(st->type, "Switched", sizeof(st->type) - 1);
+            if (!st->command[0]) strncpy(st->command, "Switched", sizeof(st->command) - 1);
         }
 
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "Duration");
@@ -1327,12 +1402,12 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
 int load_activity_inventory(struct activity_inventory *inv) {
     if (!inv) return -1;
     memset(inv, 0, sizeof(*inv));
-    strcpy(inv->current_id, "-1");
-    strcpy(inv->current_name, "PowerOff");
+    strncpy(inv->current_id, "-1", sizeof(inv->current_id) - 1);
+    strncpy(inv->current_name, "PowerOff", sizeof(inv->current_name) - 1);
 
     FILE *cf = fopen("/data/codex/current_activity", "r");
     if (cf) {
-        if (fscanf(cf, "%31s", inv->current_id) != 1) strcpy(inv->current_id, "-1");
+        if (fscanf(cf, "%31s", inv->current_id) != 1) strncpy(inv->current_id, "-1", sizeof(inv->current_id) - 1);
         fclose(cf);
     }
 
@@ -1365,7 +1440,7 @@ int load_activity_inventory(struct activity_inventory *inv) {
             if (name && cJSON_IsString(name) && name->valuestring) {
                 strncpy(act->name, name->valuestring, sizeof(act->name) - 1);
             } else if (id == -1) {
-                strcpy(act->name, "PowerOff");
+                strncpy(act->name, "PowerOff", sizeof(act->name) - 1);
             }
             const cJSON *type = cJSON_GetObjectItemCaseSensitive(a, "type");
             if (!type) type = cJSON_GetObjectItemCaseSensitive(a, "Type");
@@ -1534,6 +1609,7 @@ int load_bt_inventory(struct bt_inventory *inv) {
 int config_store_get_settings(struct codex_settings *settings) {
     if (!settings) return -1;
     settings->bt_auto_reconnect = 1;
+    settings->bt_reconnect_on_boot = 1;
     settings->bt_reconnect_duration_sec = 30;
     settings->bt_reconnect_delay_sec = 2;
     settings->dry_run = 0;
@@ -1552,6 +1628,10 @@ int config_store_get_settings(struct codex_settings *settings) {
     cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "bt_auto_reconnect");
     if (item && cJSON_IsBool(item)) settings->bt_auto_reconnect = cJSON_IsTrue(item) ? 1 : 0;
     else if (item && cJSON_IsNumber(item)) settings->bt_auto_reconnect = (int)item->valuedouble;
+
+    item = cJSON_GetObjectItemCaseSensitive(root, "bt_reconnect_on_boot");
+    if (item && cJSON_IsBool(item)) settings->bt_reconnect_on_boot = cJSON_IsTrue(item) ? 1 : 0;
+    else if (item && cJSON_IsNumber(item)) settings->bt_reconnect_on_boot = (int)item->valuedouble;
 
     item = cJSON_GetObjectItemCaseSensitive(root, "bt_reconnect_duration_sec");
     if (item && cJSON_IsNumber(item)) settings->bt_reconnect_duration_sec = (int)item->valuedouble;
@@ -1597,6 +1677,7 @@ int config_store_save_settings(const struct codex_settings *settings) {
     if (!root) return -1;
 
     cJSON_AddBoolToObject(root, "bt_auto_reconnect", settings->bt_auto_reconnect ? 1 : 0);
+    cJSON_AddBoolToObject(root, "bt_reconnect_on_boot", settings->bt_reconnect_on_boot ? 1 : 0);
     cJSON_AddNumberToObject(root, "bt_reconnect_duration_sec", settings->bt_reconnect_duration_sec);
     cJSON_AddNumberToObject(root, "bt_reconnect_delay_sec", settings->bt_reconnect_delay_sec);
     cJSON_AddBoolToObject(root, "dry_run", settings->dry_run ? 1 : 0);

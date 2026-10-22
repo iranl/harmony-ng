@@ -1484,6 +1484,64 @@ paths:
               example:
                 ok: true
 
+  /api/wifi-scan:
+    get:
+      tags:
+        - Network & MQTT
+      summary: Scan for available 2.4GHz Wi-Fi networks
+      responses:
+        '200':
+          description: List of discovered Wi-Fi access points
+          content:
+            application/json:
+              example:
+                ok: true
+                networks:
+                  - ssid: MyWiFiNetwork
+                    bssid: "7c:10:c9:b6:ae:58"
+                    signal: -45
+                    channel: 1
+                    frequency: 2412
+                    security: WPA2
+                    flags: "[WPA2-PSK-CCMP][ESS]"
+
+  /api/wifi-test:
+    post:
+      tags:
+        - Network & MQTT
+      summary: Test Wi-Fi association without saving configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ssid: {type: string}
+                password: {type: string}
+                open: {type: integer, default: 0}
+                hidden: {type: integer, default: 0}
+                keep_password: {type: integer, default: 0}
+              required: [ssid]
+            example:
+              ssid: MyWiFiNetwork
+              password: SecretPassword
+      responses:
+        '200':
+          description: Wi-Fi connection test succeeded
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Wi-Fi test connection successful
+        '400':
+          description: Wi-Fi connection test failed
+          content:
+            application/json:
+              example:
+                ok: false
+                error: "Authentication failed: incorrect Wi-Fi password"
+
   /api/wifi-save:
     post:
       tags:

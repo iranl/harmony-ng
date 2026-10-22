@@ -138,24 +138,48 @@ All application messages are encapsulated in the payload section of Report `0x12
 ### 5.1 Message Type Definitions
 | Type Code | Constant | Direction | Description |
 | :---: | :--- | :---: | :--- |
-| `0x01` | `RF_MSG_BUTTON_PRESS` | Remote -> Hub | Physical button press event |
-| `0x02` | `RF_MSG_BUTTON_RELEASE` | Remote -> Hub | Physical button release event |
 | `0x0A` | `RF_MSG_ACTIVITY_SYNC` | Hub -> Remote | Current active activity state notification |
-| `0x0B` | `RF_MSG_ACTIVITY_START` | Remote -> Hub | Request to switch active activity |
-| `0x0C` | `RF_MSG_DEVICE_CMD` | Remote -> Hub | Direct device / screen command execution |
+| `0x0B` | `RF_MSG_ACTIVITY_LIST_CHUNK` | Hub -> Remote | Activity list sync item chunk (ACK'd) |
+| `0x0C` | `RF_MSG_DEVICE_LIST_CHUNK` | Hub -> Remote | Device list sync item chunk (ACK'd) |
+| `0x0D` | `RF_MSG_BUTTON_LIST_CHUNK` | Hub -> Remote | Screen button list sync chunk (ACK'd) |
+| `0x0E` | `RF_MSG_SETTINGS_PUSH` | Hub -> Remote | Remote display, timeout, and sensor settings push (ACK'd) |
+| `0x0F` | `RF_MSG_CONFIG_END` | Hub -> Remote | End config sync transaction (ACK'd) |
 | `0x10` | `RF_MSG_TIME_SYNC` | Hub -> Remote | Epoch time, timezone, and Hub RF address sync |
-| `0x11` | `RF_MSG_CONFIG_START` | Hub -> Remote | Start config sync transaction |
-| `0x12` | `RF_MSG_ACTIVITY_LIST_CHUNK` | Hub -> Remote | Activity list sync item chunk |
-| `0x13` | `RF_MSG_DEVICE_LIST_CHUNK` | Hub -> Remote | Device list sync item chunk |
-| `0x14` | `RF_MSG_BUTTON_LIST_CHUNK` | Hub -> Remote | Screen button list sync chunk |
-| `0x15` | `RF_MSG_STEP_LIST_CHUNK` | Hub -> Remote | Activity macro step list chunk |
-| `0x16` | `RF_MSG_SETTINGS_PUSH` | Hub -> Remote | Brightness, timeout, sensor settings push |
-| `0x17` | `RF_MSG_SYNC_REQUEST` | Remote -> Hub | Request current activity (`0x01`) or full config (`0x02`) |
-| `0x18` | `RF_MSG_CONFIG_END` | Hub -> Remote | End config sync transaction |
-| `0xFE` | `RF_MSG_PING` | Both | Keepalive / ping query |
-| `0xFF` | `RF_MSG_ACK` | Both | Application-level acknowledgment |
+| `0x11` | `RF_MSG_STEP_LIST_CHUNK` | Hub -> Remote | Activity macro step list chunk (ACK'd) |
+| `0x14` | `RF_MSG_BUTTON_PRESS` | Remote -> Hub | Physical button press/release event |
+| `0x15` | `RF_MSG_ACTIVITY_REQUEST` | Remote -> Hub | Request to switch active activity |
+| `0x16` | `RF_MSG_DEVICE_CMD_REQUEST` | Remote -> Hub | Request direct device command execution |
+| `0x17` | `RF_MSG_SYNC_REQUEST` | Remote -> Hub | Request quick state sync (`0x01`) or full config (`0x02`) |
+| `0x18` | `RF_MSG_BATTERY_STATUS` | Remote -> Hub | Remote battery percentage, voltage (mV), and charging flag |
+| `0x19` | `RF_MSG_REMOTE_CONFIG_BACKUP` | Remote -> Hub | Remote settings backup push to Hub |
+| `0x1A` | `RF_MSG_VERSION_REPORT` | Remote -> Hub | Remote software and config version report |
+| `0x1E` | `RF_MSG_ACK` | Both | Application-level acknowledgment (by SEQ) |
+| `0x1F` | `RF_MSG_PING` | Both | Keepalive / ping query |
+| `0x22` | `RF_MSG_OTA_START` | Hub -> Remote | Start OTA binary update (size, chunks) |
+| `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | 24-byte binary payload chunk |
+| `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | OTA block completion ACK |
+| `0x25` | `RF_MSG_OTA_END` | Hub -> Remote | OTA transfer complete and checksum verify |
 
 ### 5.2 Key Payload Structures
+
+#### `RF_MSG_SETTINGS_PUSH` (`0x0E`) & `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
+Both frames use a 17-byte standardized configuration payload:
+- `payload[0]`: Display Brightness (1–5)
+- `payload[1]`: Screen Timeout low byte (seconds)
+- `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
+- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU)
+- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press)
+- `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
+- `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)
+- `payload[8]`: Config Version counter
+- `payload[9]`: Touch Sensitivity (`1` Low, `2` Normal, `3` High)
+- `payload[10]`: Remote Mode (`0` Activity, `1` Direct Device)
+- `payload[11]`: Gyro/Tilt Wake Enabled (`0x01` on, `0x00` off)
+- `payload[12]`: Gyro Sample Rate in Hz (`10`, `25`, `50`)
+- `payload[13]`: Button Backlight Mode (`0` Off, `1` On, `2` Night Schedule)
+- `payload[14]`: Night Schedule Start Hour (`0` to `23`)
+- `payload[15]`: Night Schedule End Hour (`0` to `23`)
+- `payload[16]`: Screen Timeout high byte (seconds)
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:
@@ -174,11 +198,17 @@ All application messages are encapsulated in the payload section of Report `0x12
   - `payload[20]`: Config version number.
   - `payload[21..24]`: Hub's 4-byte RF address.
 
-#### `RF_MSG_BUTTON_PRESS` (`0x01`)
+#### `RF_MSG_BUTTON_PRESS` (`0x14`)
 - Remote transmits on key events:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
   - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
   - `payload[3..14]`: Short button name string (up to 12 chars).
+
+#### `RF_MSG_BATTERY_STATUS` (`0x18`)
+- Remote transmits battery status:
+  - `payload[0]`: Battery percentage (0–100%).
+  - `payload[1]`: Charging flag (`0x01` charging, `0x00` discharging).
+  - `payload[2..3]`: Voltage in millivolts (16-bit unsigned little-endian).
 
 ---
 

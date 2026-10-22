@@ -9,7 +9,7 @@
  *  - Emits events to /tmp/bt_remote_events.log and status to /tmp/codex_btstack_status.json
  *  - Dispatches actions according to /data/codex/bt_remote_map.json
  */
-
+#define _GNU_SOURCE
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -376,11 +376,11 @@ static int get_pinned_target(bd_addr_t addr) {
 }
 
 static int get_pinned_host_target(bd_addr_t addr) {
-    const char *files[] = {"/data/codex/bthid_host_target", "/data/codex/bthid_target", NULL};
+    const char *files[] = {"/data/codex/bthid_host_target", "/data/codex/bthid_target", "/data/codex/bt-devices.json", "/data/codex/config/devices.json", "/data/codex/devices.json", NULL};
     for (int fi = 0; files[fi]; fi++) {
         FILE *f = fopen(files[fi], "r");
         if (!f) continue;
-        char buf[512];
+        char buf[4096];
         size_t rn = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         buf[rn] = 0;
@@ -389,11 +389,33 @@ static int get_pinned_host_target(bd_addr_t addr) {
                 char mac[18];
                 strncpy(mac, p, 17);
                 mac[17] = 0;
-                if (parse_bd_addr(mac, addr)) return 1;
+                if (parse_bd_addr(mac, addr) && !is_null_bd_addr(addr)) return 1;
             }
         }
     }
     return 0;
+}
+
+static int is_boot_reconnect_enabled(void) {
+    const char *files[] = {"/data/codex/config/settings.json", "/data/codex/settings.json", NULL};
+    for (int fi = 0; files[fi]; fi++) {
+        FILE *f = fopen(files[fi], "r");
+        if (!f) continue;
+        char buf[2048];
+        size_t rn = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[rn] = 0;
+        char *p = strstr(buf, "\"bt_reconnect_on_boot\"");
+        if (p) {
+            p = strchr(p, ':');
+            if (p) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (strncmp(p, "false", 5) == 0 || strncmp(p, "0", 1) == 0) return 0;
+                if (strncmp(p, "true", 4) == 0 || strncmp(p, "1", 1) == 0) return 1;
+            }
+        }
+    }
+    return 1; /* Default enabled */
 }
 
 static void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
@@ -2046,7 +2068,7 @@ static void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel
     const uint8_t *val = gatt_event_notification_get_value(packet);
     if (!val || val_len == 0) return;
 
-    if (is_debug_log_enabled()) {
+    if (access(BT_DEBUG_FLAG, F_OK) == 0) {
         char hex_buf[128];
         int hpos = snprintf(hex_buf, sizeof(hex_buf), "GATT notify len=%u: ", val_len);
         for (uint16_t i = 0; i < val_len && i < 16; i++) {
@@ -2156,7 +2178,7 @@ static void handle_gatt_client_event(uint8_t packet_type, uint16_t channel, uint
         case GATTSERVICE_SUBEVENT_HID_REPORT: {
             const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
             uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
-            if (is_debug_log_enabled()) {
+            if (access(BT_DEBUG_FLAG, F_OK) == 0) {
                 char hex_buf[128];
                 int hpos = snprintf(hex_buf, sizeof(hex_buf), "HID report len=%u: ", report_len);
                 for (uint16_t i = 0; i < report_len && i < 16; i++) {
@@ -2226,19 +2248,28 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                 char cur_act[64] = "-1";
                 read_current_activity(cur_act, sizeof(cur_act));
-                if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                int boot_rec_enabled = is_boot_reconnect_enabled();
+                if (boot_rec_enabled) {
                     bd_addr_t tgt;
                     if (get_pinned_host_target(tgt)) {
                         char bmsg[128];
-                        snprintf(bmsg, sizeof(bmsg), "Boot reconnect: active activity %s detected, reconnecting to %s",
-                                 cur_act, bd_addr_to_str(tgt));
+                        snprintf(bmsg, sizeof(bmsg), "Boot reconnect: reconnecting to host %s (activity=%s)",
+                                 bd_addr_to_str(tgt), cur_act);
                         log_msg(bmsg);
+                        start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+                    } else {
+                        log_msg("Boot reconnect: initiating connect to configured BT hosts");
+                        try_connect_host();
+                    }
+                } else if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    bd_addr_t tgt;
+                    if (get_pinned_host_target(tgt)) {
                         start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
                     } else {
                         try_connect_host();
                     }
                 } else {
-                    log_msg("Boot: Activity is PowerOff, suppressing auto-reconnect to BT hosts");
+                    log_msg("Boot: Auto-reconnect on boot disabled, suppressing auto-reconnect to BT hosts");
                 }
             }
             break;

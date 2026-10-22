@@ -4,7 +4,7 @@ trap '' HUP
 LOG=/tmp/codex-init.log
 
 sync_fs() {
-  sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true
+  /data/codex/bin/codex_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
 echo "$(date) codex init start: $1" >> "$LOG"
@@ -80,6 +80,14 @@ for _mod in /data/codex/modules/*.ko; do
   [ -f "/data/codex/modules/usb_net/$_b" ] && rm -f "$_mod"
 done
 
+# Migrate MQTT config to main /data/codex directory
+if [ -f /data/codexmqtt/config.json ]; then
+  if [ ! -f /data/codex/mqtt_config.json ]; then
+    cp -f /data/codexmqtt/config.json /data/codex/mqtt_config.json 2>/dev/null || true
+  fi
+  rm -rf /data/codexmqtt 2>/dev/null || true
+fi
+
 # Migrate WebUI from /data/codex/www to /cache/www to preserve critical /data flash space
 if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
   mkdir -p /cache/www 2>/dev/null
@@ -116,21 +124,15 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
   done
 ) &
 
-# 3. Dropbear SSH Server & Shell Profile & Extended BusyBox
+# 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
+rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
-  if [ ! -f /bin/busybox.stock ]; then
-    cp /bin/busybox /bin/busybox.stock 2>/dev/null || true
-  fi
-  ln -sf /cache/bin/busybox /bin/busybox 2>/dev/null || true
-  ln -sf /cache/bin/busybox /usr/bin/busybox 2>/dev/null || true
-  ln -sf /cache/bin/busybox /bin/sh 2>/dev/null || true
-  ln -sf /cache/bin/busybox /bin/ash 2>/dev/null || true
+  /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
   ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
-  for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df wc diff patch; do
-    ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
-    ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
-  done
 fi
+ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
+ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true
+[ -f /data/codex/bin/safe_reboot.sh ] && chmod +x /data/codex/bin/safe_reboot.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
 cat <<'EOF' > /etc/profile.d/00-codex.sh

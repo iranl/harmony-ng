@@ -26,8 +26,9 @@
 #include "codex_ntp.h"
 #include "cJSON.h"
 
+#include "codex_version.h"
+
 #define PID_FILE "/tmp/codex_daemon.pid"
-#define CODEX_VERSION "1.7.1"
 
 static char g_ntp_server[128] = "pool.ntp.org";
 static volatile int g_running = 1;
@@ -86,23 +87,59 @@ void daemon_get_mqtt_info(char *host, size_t hlen, int *port, char *base, size_t
 
 /* Load MQTT settings from persistent configuration */
 static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *pass) {
-    FILE *f = fopen("/data/codexmqtt/config.json", "r");
+    const char *cfg_path = CODEX_MQTT_FILE;
+    FILE *f = fopen(cfg_path, "r");
+    if (!f) {
+        if (access(CODEX_MQTT_FILE_ALT, F_OK) == 0) {
+            cfg_path = CODEX_MQTT_FILE_ALT;
+            f = fopen(cfg_path, "r");
+        } else if (access(CODEX_MQTT_LEGACY_FILE, F_OK) == 0) {
+            cfg_path = CODEX_MQTT_LEGACY_FILE;
+            f = fopen(cfg_path, "r");
+        }
+    }
     if (!f) return 0;
     char buf[4096] = {0};
     size_t rd = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[rd] = '\0';
 
+    /* If loaded from legacy path, migrate to CODEX_MQTT_FILE */
+    if (strcmp(cfg_path, CODEX_MQTT_LEGACY_FILE) == 0 && access(CODEX_MQTT_FILE, F_OK) != 0) {
+        FILE *wf = fopen(CODEX_MQTT_FILE, "w");
+        if (wf) {
+            fputs(buf, wf);
+            fclose(wf);
+            unlink(CODEX_MQTT_LEGACY_FILE);
+            rmdir("/data/codexmqtt");
+            printf("[+] Migrated MQTT configuration to %s\n", CODEX_MQTT_FILE);
+        }
+    }
+
     cJSON *root = cJSON_Parse(buf);
     if (!root) return 0;
 
-    cJSON *j_en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
-    if (!j_en || !cJSON_IsTrue(j_en)) {
-        cJSON_Delete(root);
-        return 0;
-    }
-
     cJSON *broker = cJSON_GetObjectItemCaseSensitive(root, "broker");
+    cJSON *j_en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    if (!j_en && broker) j_en = cJSON_GetObjectItemCaseSensitive(broker, "enabled");
+
+    if (j_en) {
+        int is_disabled = (cJSON_IsFalse(j_en) ||
+                           (cJSON_IsNumber(j_en) && j_en->valueint == 0) ||
+                           (cJSON_IsString(j_en) && (strcmp(j_en->valuestring, "0") == 0 || strcasecmp(j_en->valuestring, "false") == 0)));
+        if (is_disabled) {
+            cJSON_Delete(root);
+            return 0;
+        }
+    } else {
+        /* If enabled field is omitted, enable if a broker host is configured */
+        cJSON *j_h = cJSON_GetObjectItemCaseSensitive(root, "host");
+        if (!j_h && broker) j_h = cJSON_GetObjectItemCaseSensitive(broker, "host");
+        if (!j_h || !cJSON_IsString(j_h) || !j_h->valuestring || !j_h->valuestring[0]) {
+            cJSON_Delete(root);
+            return 0;
+        }
+    }
 
     /* Host */
     cJSON *j_host = cJSON_GetObjectItemCaseSensitive(root, "host");
@@ -127,7 +164,8 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
         strncpy(cid, j_cid->valuestring, 63);
         cid[63] = '\0';
     } else {
-        strcpy(cid, "harmony-local-mqtt");
+        strncpy(cid, "harmony-local-mqtt", sizeof(cid) - 1);
+        cid[sizeof(cid) - 1] = '\0';
     }
     strncpy(g_mqtt_cid, cid, sizeof(g_mqtt_cid) - 1);
 
@@ -151,7 +189,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     if (j_bt && cJSON_IsString(j_bt) && j_bt->valuestring && j_bt->valuestring[0]) {
         strncpy(g_mqtt_base_topic, j_bt->valuestring, sizeof(g_mqtt_base_topic) - 1);
     } else {
-        strcpy(g_mqtt_base_topic, "harmony/hub");
+        strncpy(g_mqtt_base_topic, "harmony/hub", sizeof(g_mqtt_base_topic) - 1);
     }
 
     /* DiscoveryPrefix */
@@ -159,7 +197,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     if (j_dp && cJSON_IsString(j_dp) && j_dp->valuestring && j_dp->valuestring[0]) {
         strncpy(g_mqtt_discovery_prefix, j_dp->valuestring, sizeof(g_mqtt_discovery_prefix) - 1);
     } else {
-        strcpy(g_mqtt_discovery_prefix, "homeassistant");
+        strncpy(g_mqtt_discovery_prefix, "homeassistant", sizeof(g_mqtt_discovery_prefix) - 1);
     }
 
     /* Name */
@@ -167,7 +205,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     if (j_name && cJSON_IsString(j_name) && j_name->valuestring && j_name->valuestring[0]) {
         strncpy(g_mqtt_name, j_name->valuestring, sizeof(g_mqtt_name) - 1);
     } else {
-        strcpy(g_mqtt_name, "Harmony Hub");
+        strncpy(g_mqtt_name, "Harmony Hub", sizeof(g_mqtt_name) - 1);
     }
 
     /* haDiscovery */
@@ -467,7 +505,8 @@ static cJSON *create_ha_origin_obj(const char *ip) {
     if (ip && ip[0]) {
         snprintf(sup, sizeof(sup), "http://%s:8080/", ip);
     } else {
-        strcpy(sup, "http://harmony-hub.local:8080/");
+        strncpy(sup, "http://harmony-hub.local:8080/", sizeof(sup) - 1);
+        sup[sizeof(sup) - 1] = '\0';
     }
     cJSON_AddStringToObject(orig, "support_url", sup);
     return orig;
@@ -512,8 +551,8 @@ static void publish_mqtt_state_ex(int force) {
             }
         }
         if (!found) {
-            strcpy(act_name, "PowerOff");
-            strcpy(actual_cur_id, "-1");
+            strncpy(act_name, "PowerOff", sizeof(act_name) - 1);
+            strncpy(actual_cur_id, "-1", sizeof(actual_cur_id) - 1);
             is_on = 0;
         }
     }
@@ -1526,10 +1565,10 @@ int main(int argc, char **argv) {
                 if (cfd >= 0) {
                     fcntl(cfd, F_SETFD, FD_CLOEXEC);
                     struct timeval to;
-                    to.tv_sec = 1;
+                    to.tv_sec = 10;
                     to.tv_usec = 0;
                     setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
-                    to.tv_sec = 2;
+                    to.tv_sec = 10;
                     to.tv_usec = 0;
                     setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
                     int nodelay = 1;

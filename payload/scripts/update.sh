@@ -106,6 +106,7 @@ EOF
 }
 
 do_apply() {
+  touch /tmp/hub_updating.flag 2>/dev/null || true
   echo "[*] Starting software update from ${REPO}..."
   LOCAL_VER=$(get_local_version)
   
@@ -132,6 +133,20 @@ do_apply() {
   echo "[*] Checking for unified Hub package (hub_ota.tar.gz)..."
   if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3; then
     echo "[+] Downloaded unified OTA package to RAM ($TMPDIR/hub_ota.tar.gz)."
+
+    # Verify MD5 checksum if available from remote
+    if download_retry "${REPO}/hub_ota.tar.gz.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2 || \
+       download_retry "${REPO}/hub_ota.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2; then
+      EXPECTED_MD5=$(awk '{print $1}' "$TMPDIR/hub_ota.tar.gz.md5" | tr -d '\r\n ')
+      ACTUAL_MD5=$($MD5SUM "$TMPDIR/hub_ota.tar.gz" 2>/dev/null | awk '{print $1}')
+      if [ -n "$EXPECTED_MD5" ] && [ "$EXPECTED_MD5" != "$ACTUAL_MD5" ]; then
+        echo "[-] Checksum mismatch for hub_ota.tar.gz (expected $EXPECTED_MD5, got $ACTUAL_MD5)"
+        rm -rf "$TMPDIR" 2>/dev/null
+        return 1
+      fi
+      echo "[+] MD5 checksum verified successfully ($ACTUAL_MD5)."
+    fi
+
     mkdir -p "$TMPDIR/pkg" 2>/dev/null
     if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
       echo "[*] Extracting package to flash partitions..."
@@ -159,20 +174,11 @@ do_apply() {
         fi
       done
 
-      # D. Link extended BusyBox to /bin/busybox and core tools
+      # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
+      rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
       if [ -x /cache/bin/busybox ]; then
-        if [ ! -f /bin/busybox.stock ]; then
-          cp /bin/busybox /bin/busybox.stock 2>/dev/null || true
-        fi
-        ln -sf /cache/bin/busybox /bin/busybox 2>/dev/null || true
-        ln -sf /cache/bin/busybox /usr/bin/busybox 2>/dev/null || true
-        ln -sf /cache/bin/busybox /bin/sh 2>/dev/null || true
-        ln -sf /cache/bin/busybox /bin/ash 2>/dev/null || true
+        /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
         ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
-        for _tool in grep sed awk tar head tail which find xargs tr cut sort uniq du df wc diff patch; do
-          ln -sf /cache/bin/busybox "/usr/bin/$_tool" 2>/dev/null || true
-          ln -sf /cache/bin/busybox "/bin/$_tool" 2>/dev/null || true
-        done
       fi
 
       # E. WebUI -> /cache/www/ (clean old hashed assets first to prevent flash fill-up)
@@ -192,10 +198,12 @@ do_apply() {
         echo "[+] WebUI bundle updated in /cache/www (raw files pruned, .gz preserved)."
       fi
 
-      # F. Icons archive -> /data/codex/icons.tar.gz
+      # F. Icons archive -> /cache/icons.tar.gz
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
-        cp -f "$TMPDIR/pkg/icons.tar.gz" /data/codex/icons.tar.gz 2>/dev/null || true
-        echo "[+] Icons archive updated in /data/codex/icons.tar.gz."
+        cp -f "$TMPDIR/pkg/icons.tar.gz" /cache/icons.tar.gz 2>/dev/null || true
+        rm -f /data/codex/icons.tar.gz 2>/dev/null || true
+        ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null || true
+        echo "[+] Icons archive updated in /cache/icons.tar.gz (symlinked)."
       fi
 
       OTA_BUNDLE_OK=1

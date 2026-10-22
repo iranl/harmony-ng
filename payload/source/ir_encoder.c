@@ -349,7 +349,7 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     } else {
         /* Raw hex or unknown format, fallback */
         strncpy(hex, keycode, sizeof(hex) - 1);
-        strcpy(proto, "NEC");
+        strncpy(proto, "NEC", sizeof(proto) - 1);
     }
 
     if (!hex[0]) return -3;

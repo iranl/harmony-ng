@@ -163,6 +163,7 @@ Returns global hub settings from `/data/codex/config/settings.json`.
     "ok": true,
     "hub_name": "Living Room Hub",
     "bt_auto_reconnect": true,
+    "bt_reconnect_on_boot": true,
     "bt_reconnect_duration_sec": 30,
     "bt_reconnect_delay_sec": 5,
     "dry_run": false,
@@ -179,6 +180,7 @@ Updates global hub settings.
   {
     "hub_name": "Living Room Hub",
     "bt_auto_reconnect": true,
+    "bt_reconnect_on_boot": true,
     "bt_reconnect_duration_sec": 30,
     "bt_reconnect_delay_sec": 5,
     "dry_run": false,
@@ -188,6 +190,18 @@ Updates global hub settings.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+
+#### `POST /api/bt/reconnect` or `POST /bt/reconnect`
+Triggers on-demand Bluetooth host reconnection supervision.
+- **Request Body (optional)**:
+  ```json
+  {
+    "target": "XX:XX:XX:XX:XX:XX",
+    "duration": 30,
+    "delay": 2
+  }
+  ```
+- **Response `200 OK`**: `{"ok": true, "message": "Bluetooth reconnect triggered"}`
 
 ### 1.10 System Actions
 #### `POST /api/system-action` or `POST /system`
@@ -803,18 +817,59 @@ Configures hub MQTT broker credentials, port, and base topic.
 #### `GET /api/mqtt-status`
 Queries current MQTT connection state and parameters.
 
-### 8.2 Wi-Fi Configuration
-#### `POST /api/wifi-save` or `POST /wifi`
-Updates `/etc/wpa_supplicant.conf` and optionally signals `wpa_supplicant`.
+### 8.2 Wi-Fi Scanning & Configuration
+#### `GET /api/wifi-scan`
+Scans for nearby 2.4GHz Wi-Fi networks via `wpa_cli -i ath0 scan` and returns deduplicated APs sorted by signal strength.
+- **Response `200 OK`**:
+  ```json
+  {
+    "ok": true,
+    "networks": [
+      {
+        "ssid": "MyHomeNetwork",
+        "bssid": "7c:10:c9:b6:ae:58",
+        "signal": -45,
+        "channel": 1,
+        "frequency": 2412,
+        "security": "WPA2",
+        "flags": "[WPA2-PSK-CCMP][ESS]"
+      }
+    ]
+  }
+  ```
+
+#### `POST /api/wifi-test`
+Tests connection to an AP in memory without modifying `/etc/wpa_supplicant.conf`. Protected by an automatic 20-second watchdog rollback to ensure the Hub never gets locked out if authentication fails.
 - **Request Body**:
   ```json
   {
     "ssid": "MyWiFiNetwork",
     "password": "WiFiPassword",
-    "apply": "apply"
+    "open": 0,
+    "hidden": 0,
+    "keep_password": 0
   }
   ```
-- **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi settings saved"}`
+- **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi test connection successful"}`
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Authentication failed: incorrect Wi-Fi password"}`
+
+#### `POST /api/wifi-save` or `POST /wifi`
+Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.
+When `apply` is `reconfigure`, `apply`, or `reboot`, the Hub automatically runs an in-memory association test first. If the test connection fails, the switch is rejected and existing settings are preserved.
+- **Request Body**:
+  ```json
+  {
+    "ssid": "MyWiFiNetwork",
+    "password": "WiFiPassword",
+    "apply": "reconfigure",
+    "keep_password": 1,
+    "open": 0,
+    "hidden": 0,
+    "force": 0
+  }
+  ```
+- **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi settings verified and applied"}`
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Wi-Fi test connection failed: Connection timed out. Settings not changed."}`
 
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
