@@ -2,6 +2,23 @@
 
 Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub** and **Harmony Elite 950** handheld remote. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
 
+<div align="center">
+  <table>
+    <tr>
+      <td width="65%" align="center">
+        <b>Harmony Hub Web UI & Companion App</b><br>
+        <i>Autonomous local control console (REST & WebSockets)</i><br><br>
+        <img src="docs/images/hub_webui.png" alt="Harmony Hub Web UI" width="100%">
+      </td>
+      <td width="35%" align="center">
+        <b>Harmony Elite 950 Handheld Remote</b><br>
+        <i>Real-time native framebuffer UI (240x320 RGB565)</i><br><br>
+        <img src="docs/images/elite_remote.png" alt="Harmony Elite Remote Interface" width="220px">
+      </td>
+    </tr>
+  </table>
+</div>
+
 ---
 
 ## 🚀 Quick Start & Installation
