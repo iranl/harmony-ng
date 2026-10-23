@@ -31,16 +31,41 @@ cd harmony-ng
 
 ---
 
-## 2. Automated USB Rooting
+## 2. Automated USB HID Rooting & Firmware Update
 
-1. Connect the remote directly to your host PC via Micro-USB.
-2. Run the automated USB HID root tool:
+> [!IMPORTANT]
+> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.330** for Elite / 950). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
+
+1. Connect the remote directly to your host PC via Micro-USB (bottom port).
+2. Run the automated all-in-one setup tool:
    ```bash
-   python tools/root_remote_usb.py
+   python elite/setup_remote.py
    ```
-   *(Or `python tools/root_remote_usb.py --pubkey ~/.ssh/id_rsa.pub` to inject a custom public key).*
-3. The tool injects Dropbear SSH, disables the hardware watchdog, and reboots the remote.
-4. Remote boots with Dropbear SSH listening on `192.168.2.1:22`.
+   *(Or `python tools/root_remote_usb.py`)*
+
+The tool automatically:
+1. Connects to the remote over USB HID (`046D:C12B`).
+2. **Checks Firmware Version**: Queries `/sys/sysinfo` and compares with Logitech update servers. If the remote is not on latest v4.15.330, it prompts:
+   ```text
+   [!] Elite Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
+   [?] Download and install latest official firmware (4.15.330) first? (y/N):
+   ```
+   If confirmed, it downloads `elite_99_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
+3. Stages the self-extracting ARM Dropbear payload to `/sys/dropbear`.
+4. Arms persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
+5. Sends reboot signal to `/sys/reboot`.
+6. Remote boots with Dropbear SSH listening on `192.168.2.1:22`.
+
+> [!TIP]
+> You can also check, download, or flash Elite firmware and extract UI icons at any time with the standalone tool:
+> ```bash
+> # Check or flash firmware directly:
+> python tools/harmony_firmware.py check elite
+> python tools/harmony_firmware.py flash elite
+>
+> # Extract all 1,350 official icons for the Hub Web UI:
+> python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
+> ```
 
 ---
 

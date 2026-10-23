@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,6 +126,12 @@ void mqtt_disconnect(void) {
     }
 }
 
+static volatile int s_connecting = 0;
+
+int mqtt_is_connecting(void) {
+    return s_connecting;
+}
+
 int mqtt_connect(void) {
     mqtt_disconnect();
 
@@ -138,24 +146,49 @@ int mqtt_connect(void) {
         memcpy(&saddr.sin_addr, he->h_addr_list[0], sizeof(saddr.sin_addr));
     }
 
-    g_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (g_fd < 0) return -1;
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return -1;
 
-    /* 2-second connect timeout */
+    /* Set 64KB send buffer to absorb burst discovery publishes without drop */
+    int sndbuf = 65536;
+    setsockopt(sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
+    int nodelay = 1;
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    /* Non-blocking connect with 2-second timeout */
+    int sock_flags = fcntl(sock, F_GETFL, 0);
+    if (sock_flags >= 0) fcntl(sock, F_SETFL, sock_flags | O_NONBLOCK);
+
+    int rc = connect(sock, (struct sockaddr *)&saddr, sizeof(saddr));
+    if (rc < 0) {
+        if (errno != EINPROGRESS) {
+            close(sock);
+            return -1;
+        }
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(sock, &wfds);
+        struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+        int sel = select(sock + 1, NULL, &wfds, NULL, &tv);
+        if (sel <= 0) {
+            close(sock);
+            return -1;
+        }
+        int err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
+            close(sock);
+            return -1;
+        }
+    }
+
+    if (sock_flags >= 0) fcntl(sock, F_SETFL, sock_flags & ~O_NONBLOCK);
     struct timeval tv;
     tv.tv_sec = 2;
     tv.tv_usec = 0;
-    setsockopt(g_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-    setsockopt(g_fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
-
-    if (connect(g_fd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
-        close(g_fd);
-        g_fd = -1;
-        return -1;
-    }
-
-    setsockopt(g_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-    setsockopt(g_fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
 
     /* Build MQTT 3.1.1 CONNECT packet */
     uint8_t var_hdr[] = {
@@ -231,24 +264,23 @@ int mqtt_connect(void) {
     }
 
     size_t total_len = (size_t)(p - pkt);
-    if (send(g_fd, pkt, total_len, 0) != (ssize_t)total_len) {
-        close(g_fd);
-        g_fd = -1;
+    if (send(sock, pkt, total_len, 0) != (ssize_t)total_len) {
+        close(sock);
         return -1;
     }
 
     /* Read CONNACK */
     uint8_t ack[4];
-    if (recv(g_fd, ack, 4, 0) != 4 || ack[0] != 0x20 || ack[3] != 0x00) {
-        close(g_fd);
-        g_fd = -1;
+    if (recv(sock, ack, 4, 0) != 4 || ack[0] != 0x20 || ack[3] != 0x00) {
+        close(sock);
         return -1;
     }
 
     /* Switch to non-blocking */
-    int f = fcntl(g_fd, F_GETFL, 0);
-    fcntl(g_fd, F_SETFL, f | O_NONBLOCK);
+    int f = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, f | O_NONBLOCK);
 
+    g_fd = sock;
     g_connected = 1;
     g_last_ping = time(NULL);
 
@@ -262,6 +294,30 @@ int mqtt_connect(void) {
         mqtt_subscribe(g_subs[i].topic, g_subs[i].cb, g_subs[i].user_data);
     }
 
+    return 0;
+}
+
+static void *mqtt_async_connect_worker(void *arg) {
+    (void)arg;
+    mqtt_connect();
+    s_connecting = 0;
+    return NULL;
+}
+
+int mqtt_connect_async(void) {
+    if (s_connecting || mqtt_is_connected()) return 0;
+    s_connecting = 1;
+
+    pthread_t tid;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&tid, &attr, mqtt_async_connect_worker, NULL) != 0) {
+        s_connecting = 0;
+        pthread_attr_destroy(&attr);
+        return -1;
+    }
+    pthread_attr_destroy(&attr);
     return 0;
 }
 

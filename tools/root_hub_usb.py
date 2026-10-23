@@ -346,6 +346,7 @@ def main() -> None:
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address to verify SSH after reboot")
     parser.add_argument("--no-reboot", action="store_true", help="Do not reboot Hub after staging Dropbear")
     parser.add_argument("--no-backup", action="store_true", help="Skip automatic stock backup on gaining root")
+    parser.add_argument("--skip-fw-check", action="store_true", help="Skip firmware version check and upgrade prompt")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -361,6 +362,55 @@ def main() -> None:
         sys.exit(1)
 
     try:
+        # Check firmware version
+        if not args.skip_fw_check:
+            sysinfo = hid.get_sysinfo()
+            current_fw = sysinfo.get("fw_ver") or sysinfo.get("version") or sysinfo.get("fw_version")
+            if current_fw:
+                print(f"[*] Hub reports firmware version: {current_fw}")
+                try:
+                    from tools.harmony_firmware import (
+                        query_latest_firmware,
+                        DEFAULT_HUB_SKIN,
+                        download_file,
+                        parse_hfw2_bundle,
+                        flash_firmware,
+                    )
+                    res = query_latest_firmware(DEFAULT_HUB_SKIN)
+                    if res and res.get("Id"):
+                        latest_fw = res["Id"]
+                        if current_fw != latest_fw:
+                            print(f"\n[!] Hub firmware is {current_fw}, but latest official firmware is {latest_fw}.")
+                            ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
+                            if ans.strip().lower() == "y":
+                                fw_dir = REPO_DIR / "firmware"
+                                fw_file = fw_dir / f"hub_{DEFAULT_HUB_SKIN}_{latest_fw}.hfw2"
+                                if not fw_file.is_file():
+                                    if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
+                                        print("[-] Firmware download failed. Proceeding with current firmware...")
+                                if fw_file.is_file():
+                                    bundle = parse_hfw2_bundle(fw_file)
+                                    print("[*] Installing latest firmware over USB HID...")
+                                    hid.close()
+                                    if flash_firmware(bundle, target_device="hub", skip_confirm=True):
+                                        print("[*] Waiting 30s for Hub to complete reboot and flash...")
+                                        time.sleep(15)
+                                        t_reconnect = time.time() + 60
+                                        hid = HarmonyHid(pid=HUB_PID)
+                                        while time.time() < t_reconnect:
+                                            if hid.open():
+                                                print("\n[+] Hub re-enumerated on USB after firmware upgrade!")
+                                                break
+                                            time.sleep(2)
+                                            print(".", end="", flush=True)
+                                        else:
+                                            print("\n[-] Timed out waiting for Hub to re-enumerate on USB after upgrade.")
+                                            sys.exit(1)
+                        else:
+                            print(f"[+] Hub is running the latest official firmware ({latest_fw}).")
+                except Exception as e:
+                    print(f"[-] Firmware version check failed ({e}), continuing...")
+
         # 2. Check Wi-Fi Connection Status over USB HID
         print("[*] Checking Hub Wi-Fi connection over USB HID...")
         wifi_status = hid.get_wifi_status()

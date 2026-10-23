@@ -733,3 +733,76 @@ class HarmonyHid:
             return info
         except Exception:
             return {}
+
+    def get_sysinfo(self) -> dict[str, str]:
+        """Query /sys/sysinfo or /rf/deviceinfo returning parsed properties."""
+        for path in ("/sys/sysinfo", "/rf/deviceinfo"):
+            try:
+                raw = self.read_file(path)
+                if not raw:
+                    continue
+                text = raw.decode("utf-8", errors="replace")
+                info: dict[str, str] = {}
+                tokens = []
+                for chunk in text.split("\x00"):
+                    for line in chunk.splitlines():
+                        line = line.strip()
+                        if line:
+                            tokens.append(line)
+                for item in tokens:
+                    if "," in item:
+                        k, v = item.split(",", 1)
+                    elif "=" in item:
+                        k, v = item.split("=", 1)
+                    elif " " in item:
+                        k, v = item.split(" ", 1)
+                    else:
+                        continue
+                    info[k.strip()] = v.strip()
+                if info:
+                    return info
+            except Exception:
+                continue
+        return {}
+
+    def reset_filesystem(self, timeout_ms: int = 5000) -> bool:
+        """Reset USB file system state on device via cmd 0xFF 0x66."""
+        resp = self.command(0xFF, [encode_param_byte(0x66)], timeout_ms=timeout_ms)
+        return bool(resp and resp[0] == 0xFF and resp[1] == 0xFF)
+
+    def finalize_reset(self, timeout_ms: int = 5000) -> bool:
+        """Trigger device reboot into bootloader flasher via cmd 0xFF 0x00."""
+        try:
+            self.command(0xFF, [encode_param_byte(0x00)], timeout_ms=timeout_ms)
+            return True
+        except Exception:
+            return True  # Device frequently disconnects USB immediately on reboot
+
+    def verify_checksum(
+        self,
+        handle_id: int,
+        expected_md5: str,
+        length: int,
+        offset: int = 0,
+        seed: int = 0,
+        checksum_type: str = "MD5",
+        timeout_ms: int = 30000,
+    ) -> tuple[bool, str]:
+        """Verify firmware checksum on device handle via cmd 0x06."""
+        params = [
+            encode_param_byte(handle_id),
+            encode_param_byte(0x01),
+            encode_param_string(checksum_type),
+            encode_param_word_be(seed),
+            encode_param_dword_be(offset),
+            encode_param_dword_be(length),
+            encode_param_string(expected_md5),
+        ]
+        resp = self.command(0x06, params, timeout_ms=timeout_ms)
+        if not resp:
+            return False, "timeout"
+        if b"m\x00" in resp or ord("m") in resp[4:10]:
+            return True, "match"
+        if b"u\x00" in resp or ord("u") in resp[4:10]:
+            return True, "bootloader_handoff"
+        return False, f"status_{resp.hex()}"

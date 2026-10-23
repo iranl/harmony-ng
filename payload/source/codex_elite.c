@@ -82,6 +82,7 @@ typedef enum {
 static ui_view_t g_current_view = VIEW_ACTIVITIES;
 static int g_remote_mode = 0;         /* 0 = Activities, 1 = Direct Device Mode */
 static void rf_send_full_sync_request(void);
+static void rf_wake_and_reconnect(void);
 
 /* Activity item */
 typedef struct {
@@ -976,6 +977,7 @@ static void fb_set_blank(bool blank) {
         set_backlight_level(g_brightness_val);
         clearpad_wake(sleep_sec >= 10);
         read_elite_battery();
+        rf_wake_and_reconnect();
         g_screen_dirty = true;
         log_power_debug("=== WAKING FROM STANDBY (Screen Active) ===\n");
         log_power_debug("  Slept for: %llu seconds | Backlight: %d | Battery: %dmV, %d%% (%s, chg=%d)\n",
@@ -2092,42 +2094,39 @@ static void rf_send_full_sync_request(void) {
 /* Wake CC2544 radio and re-sync with Hub */
 static void rf_wake_and_reconnect(void) {
     if (g_rf_fd < 0) return;
-
-    /* 1. Wake CC2544 and restore continuous listening mode: 20 20 00 ... (matches hot_set_powermode 0x20) */
-    uint8_t pkt_power[7] = {0x20, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
-    if (write(g_rf_fd, pkt_power, sizeof(pkt_power)) < 0) {}
-    usleep(15000);
-
-    /* 2. Re-enable extended frames (matches stock hal_remote libhal_rf_hid_write) */
-    uint8_t pkt_ext[7] = {0x10, 0xFF, 0x80, 0xFD, 0x01, 0x00, 0x00};
-    if (write(g_rf_fd, pkt_ext, sizeof(pkt_ext)) < 0) {}
-    usleep(15000);
-
-    /* 3. Active Dongle Sync Pulse (10 bytes) to re-align FHSS channel hopping with Hub */
-    uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
-    usleep(20000);
-
-    /* 4. Send activity sync query to re-establish active session */
+    /* Dongle Active Sync pulses (matches stock hal_remote) */
+    uint8_t pkt_dongle0[10] = {0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    uint8_t pkt_dongle1[10] = {0x12, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    pthread_mutex_lock(&g_rf_write_mutex);
+    if (write(g_rf_fd, pkt_dongle0, sizeof(pkt_dongle0)) < 0) {}
+    if (write(g_rf_fd, pkt_dongle1, sizeof(pkt_dongle1)) < 0) {}
+    pthread_mutex_unlock(&g_rf_write_mutex);
+    usleep(5000);
+    /* Send activity sync query to re-establish active session */
     rf_send_sync_query();
 }
 
-/* Worker thread: initiates pairing mode once, then monitors progress */
+/* Worker thread: initiates pairing mode and retries command every second matching stock pairing.lua */
 static void *rf_pairing_worker(void *arg) {
     (void)arg;
-    uint8_t pkt_pair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x01, 0x00};
-    printf("[*] Sending RF Pairing Command to CC2544 (10 FF 80 B2 01 01 00)...\n");
-    if (write(g_rf_fd, pkt_pair, sizeof(pkt_pair)) < 0) {
-        perror("write pkt_pair");
-    }
-
     int attempts = 0;
     while (g_running && g_pairing_state == 1 && attempts < 30) {
+        uint8_t pkt_pair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x01, 0x00};
+        pthread_mutex_lock(&g_rf_write_mutex);
+        if (write(g_rf_fd, pkt_pair, sizeof(pkt_pair)) < 0) {
+            perror("write pkt_pair");
+        }
+        pthread_mutex_unlock(&g_rf_write_mutex);
+
         sleep(1);
         attempts++;
         if (g_pairing_state != 1) break;
-        uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
+
+        /* Query paired Hub info on pipe 0x20 */
+        uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x20, 0x00, 0x00};
+        pthread_mutex_lock(&g_rf_write_mutex);
         if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
+        pthread_mutex_unlock(&g_rf_write_mutex);
     }
     if (g_pairing_state == 1) {
         printf("[-] Pairing timed out after 30s\n");
@@ -2168,33 +2167,31 @@ static void rf_unpair(void) {
     g_rf_link_connected = false;
 
     printf("[*] Unpairing & removing bonding: entering test mode and clearing CC2544 stored device pipes...\n");
+    pthread_mutex_lock(&g_rf_write_mutex);
 
-    /* 1. Enter Test Mode: 10 FF 80 D0 01 00 00 (matches stock hal_remote FUN_0001a1b4) */
+    /* 1. Enter Test Mode: 10 FF 80 D0 01 00 00 (matches stock hal_remote 0x1a1b4) */
     uint8_t enter_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x01, 0x00, 0x00};
     if (write(g_rf_fd, enter_test, sizeof(enter_test)) < 0) {}
-    usleep(50000);
+    usleep(100000);
 
     /* 2. Clear pipe 0x20: 11 FF 82 B5 20 00 ... */
     uint8_t clr_pipe20[20] = {0x11, 0xFF, 0x82, 0xB5, 0x20, 0};
     if (write(g_rf_fd, clr_pipe20, sizeof(clr_pipe20)) < 0) {}
-    usleep(50000);
+    usleep(100000);
 
     /* 3. Clear pipe 0x30: 11 FF 82 B5 30 00 ... */
     uint8_t clr_pipe30[20] = {0x11, 0xFF, 0x82, 0xB5, 0x30, 0};
     if (write(g_rf_fd, clr_pipe30, sizeof(clr_pipe30)) < 0) {}
-    usleep(50000);
+    usleep(100000);
 
     /* 4. Disable Test Mode: 10 FF 80 D0 00 00 00 */
     uint8_t exit_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x00, 0x00, 0x00};
     if (write(g_rf_fd, exit_test, sizeof(exit_test)) < 0) {}
-    usleep(50000);
+    usleep(100000);
 
-    /* 5. Close pairing lock / reset CC2544 pairing state */
-    uint8_t close_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x02, 0x00, 0x00};
-    if (write(g_rf_fd, close_lock, sizeof(close_lock)) < 0) {}
-    usleep(50000);
+    pthread_mutex_unlock(&g_rf_write_mutex);
 
-    /* 6. Wipe custom config files (NEVER delete stock files in /data/resources/) */
+    /* 5. Wipe custom config files (NEVER delete stock files in /data/resources/) */
     unlink(RF_CONFIG_FILE);
     unlink(ACTIVITY_JSON_FILE);
 
@@ -2870,6 +2867,9 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             g_screen_dirty = true;
             break;
         }
+
+        case RF_MSG_ACK:
+            break;
 
         case RF_MSG_PING: {
             rf_frame_t ack;
@@ -5334,15 +5334,18 @@ int main(int argc, char **argv) {
         }
 
         /* Periodic Keepalive: send SYNC_REQUEST every 800ms while screen is awake to hold FHSS lock */
+        /* Periodic Keepalive: send SYNC_REQUEST every 800ms while screen is awake to hold FHSS lock */
         uint64_t now_ms = get_monotonic_ms();
-        if (g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && (now_ms - last_sync_query_ms >= 800)) {
+        bool has_paired_hub = (g_paired_hub_addr[0] != 0 || g_paired_hub_addr[1] != 0 ||
+                               g_paired_hub_addr[2] != 0 || g_paired_hub_addr[3] != 0);
+        if (g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && has_paired_hub && (now_ms - last_sync_query_ms >= 800)) {
             rf_send_sync_query();
             last_sync_query_ms = now_ms;
         }
 
-        /* Periodic Reconnect Pulse: if disconnected and screen awake, re-sync FHSS every 2000ms */
+        /* Periodic Reconnect Pulse: if disconnected, paired, and screen awake, re-sync FHSS every 2000ms */
         static uint64_t last_reconnect_pulse_ms = 0;
-        if (!g_rf_link_connected && g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && (now_ms - last_reconnect_pulse_ms >= 2000)) {
+        if (!g_rf_link_connected && g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && has_paired_hub && (now_ms - last_reconnect_pulse_ms >= 2000)) {
             rf_wake_and_reconnect();
             last_reconnect_pulse_ms = now_ms;
         }
@@ -5482,6 +5485,12 @@ int main(int argc, char **argv) {
             unlink("/tmp/trigger_rf_pair");
             printf("[*] External trigger: starting RF pairing...\n");
             rf_start_pairing();
+            g_screen_dirty = true;
+        }
+        if (access("/tmp/trigger_rf_unpair", F_OK) == 0) {
+            unlink("/tmp/trigger_rf_unpair");
+            printf("[*] External trigger: unpairing Remote & wiping bonding...\n");
+            rf_unpair();
             g_screen_dirty = true;
         }
 

@@ -309,3 +309,26 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
    - `Byte 14`: Night Start Hour (0–23)
    - `Byte 15`: Night End Hour (0–23)
    - `Byte 16`: Screen Timeout high byte (seconds)
+
+---
+
+## Official Firmware Management & Icon Extraction
+
+The custom firmware environment includes a clean-room HID flashing tool (`tools/harmony_firmware.py`) that queries official Logitech SUS update servers, downloads official signed firmware bundles (`.hfw2`), flashes devices over USB HID without Logitech software, and extracts all remote UI assets.
+
+### 1. Check & Flash Official Elite Firmware
+```bash
+# Query latest version from Logitech update servers:
+python tools/harmony_firmware.py check elite
+
+# Download and flash directly over USB HID:
+python tools/harmony_firmware.py flash elite
+```
+
+### 2. Extract Official Remote UI Icons for Hub Web UI
+The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python:
+
+```bash
+python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
+```
+The resulting `build/icons.tar.gz` (1.55 MB compressed) is automatically staged to `/cache/icons.tar.gz` during `deploy_hub.ps1` or `deploy_hub.sh`.

@@ -2302,10 +2302,10 @@ static void *pairing_timeout_worker(void *arg) {
 
 static void start_pairing_mode(int slot) {
     if (g_pairing_mode) return;
-    uint8_t duration_sec = 0x1E; /* 30 seconds lock duration (matches stock hal_hub) */
-    uint8_t target_slot = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
-    uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, target_slot, duration_sec};
-    printf("[*] Opening pairing lock (slot=%d, duration=%ds)...\n", target_slot, duration_sec);
+    (void)slot;
+    uint8_t duration_sec = 0x1E; /* 30 seconds lock duration (matches stock hal_hub libhal_rf_host_open_lock) */
+    uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x00, duration_sec};
+    printf("[*] Opening pairing lock (duration=%ds, 10 FF 80 B2 01 00 %02X)...\n", duration_sec, duration_sec);
     rf_write_cmd(open_lock, sizeof(open_lock));
     g_pairing_mode = true;
 

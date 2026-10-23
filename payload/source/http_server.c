@@ -311,8 +311,8 @@ struct wifi_ap_entry {
 
 static int scan_wifi_networks(cJSON *out_array) {
     if (!out_array) return 0;
-    system("/usr/sbin/wpa_cli -i ath0 scan >/dev/null 2>&1");
-    usleep(1200000);
+    system("/usr/sbin/wpa_cli -i ath0 scan >/dev/null 2>&1 &");
+    usleep(200000);
 
     FILE *f = popen("/usr/sbin/wpa_cli -i ath0 scan_results 2>/dev/null", "r");
     if (!f) return 0;

@@ -34,7 +34,10 @@ cd android-app && npm install && npm run build && cd ..
 
 ---
 
-## 2. Automated USB HID Rooting Procedure
+## 2. Automated USB HID Rooting & Firmware Update
+
+> [!IMPORTANT]
+> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.600** for Hub). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
 
 If your Hub is running stock firmware with SSH disabled, use this one-time automated USB HID rooting procedure.
 
@@ -55,12 +58,25 @@ python tools/root_hub_usb.py --wifi-ssid "YourNetworkName" --wifi-pass "YourPass
 
 The tool automatically:
 1. Detects the Harmony Hub on USB HID (`046D:C129`).
-2. Configures Wi-Fi credentials over USB HID if `--wifi-ssid` is supplied.
-3. Stages the self-extracting MIPS Dropbear payload to `/sys/dropbear`.
-4. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
-5. Sends reboot signal to `/sys/reboot`.
-6. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
-7. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar.gz` and `backups/stock_hub_backup_latest.tar.gz`.
+2. **Checks Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against the official Logitech SUS update servers. If the Hub is not running latest v4.15.600, it prompts:
+   ```text
+   [!] Hub firmware is 4.15.250, but latest official firmware is 4.15.600.
+   [?] Download and install latest official firmware (4.15.600) first? (y/N):
+   ```
+   If confirmed, it downloads `hub_97_4.15.600.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
+3. Configures Wi-Fi credentials over USB HID if `--wifi-ssid` is supplied.
+4. Stages the self-extracting MIPS Dropbear payload to `/sys/dropbear`.
+5. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
+6. Sends reboot signal to `/sys/reboot`.
+7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
+8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar.gz` and `backups/stock_hub_backup_latest.tar.gz`.
+
+> [!TIP]
+> You can also check, download, or flash Hub firmware at any time with the standalone tool:
+> ```bash
+> python tools/harmony_firmware.py check hub
+> python tools/harmony_firmware.py flash hub
+> ```
 
 ### Step 2.3: Verify SSH Access
 Test SSH connectivity over your local network:
@@ -120,7 +136,13 @@ The installer automatically:
 2. Installs `codex_daemon` (Hub micro-daemon) to `/data/codex/bin/`.
 3. Deploys startup scripts and USB Ethernet kernel drivers.
 4. Deploys the lightweight Web UI to `/data/codex/www/`.
-5. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
+5. **Auto-extracts Remote UI Icons**: If `build/icons.tar.gz` is not yet built, the script asks:
+   ```text
+   [?] build/icons.tar.gz not found on host.
+   Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)
+   ```
+   If confirmed, it downloads the official Elite firmware (`elite_99_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
+6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
 
 ---
 

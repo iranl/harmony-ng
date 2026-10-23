@@ -140,6 +140,16 @@ while IFS= read -r -d '' wfile; do
     deploy_file_if_changed "$wfile" "/cache/www/$rel" 644
 done < <(find "$WWW_DIR" -type f -print0)
 
+if [ ! -f "$REPO_ROOT/build/icons.tar.gz" ]; then
+    echo ""
+    echo "[?] build/icons.tar.gz not found on host."
+    read -p "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? [Y/n] " -r REPLY || true
+    if [ -z "$REPLY" ] || [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        echo "[*] Extracting remote UI icons and packaging build/icons.tar.gz..."
+        python3 "$REPO_ROOT/tools/harmony_firmware.py" extract-icons --archive "$REPO_ROOT/build/icons.tar.gz" || true
+    fi
+fi
+
 if [ -f "$REPO_ROOT/build/icons.tar.gz" ]; then
     deploy_file_if_changed "$REPO_ROOT/build/icons.tar.gz" "/cache/icons.tar.gz" 644
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \

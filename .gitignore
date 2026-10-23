@@ -24,6 +24,7 @@ scratch_*
 *.ko
 !payload/modules/*.ko
 *.bin
+*.hfw2
 *.jks
 *.keystore
 *.base64.txt
@@ -38,4 +39,4 @@ elite/bin/*
 !elite/bin/.gitkeep
 !elite/bin/dropbearmulti_musl
 payload/www/*
-!payload/www/.gitkeep
+!payload/www/.gitkeep

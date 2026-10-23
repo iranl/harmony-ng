@@ -1519,14 +1519,8 @@ int main(int argc, char **argv) {
         mqtt_set_lwt(g_status_topic, "offline", 1);
         mqtt_set_birth(g_status_topic, "online", 1);
 
-        if (mqtt_connect() == 0) {
-            printf("[+] Connected to MQTT broker %s:%d\n", g_mqtt_host, g_mqtt_port);
-            publish_ha_discovery();
-            subscribe_mqtt_topics();
-            publish_mqtt_state_ex(1);
-        } else {
-            printf("[*] Connecting to MQTT broker in background...\n");
-        }
+        printf("[*] Connecting to MQTT broker %s:%d in background...\n", g_mqtt_host, g_mqtt_port);
+        mqtt_connect_async();
     } else {
         printf("[*] MQTT disabled or config missing\n");
     }
@@ -1538,6 +1532,8 @@ int main(int argc, char **argv) {
 
     time_t last_mqtt_retry = 0;
     time_t last_state_poll = 0;
+    int last_mqtt_connected = 0;
+    int mqtt_retry_interval = 5;
 
     while (g_running) {
         fd_set rset;
@@ -1596,6 +1592,14 @@ int main(int argc, char **argv) {
         /* Tick MQTT client packet reader, keepalive, and periodic state poll */
         if (g_mqtt_enabled) {
             if (mqtt_is_connected()) {
+                if (!last_mqtt_connected) {
+                    last_mqtt_connected = 1;
+                    mqtt_retry_interval = 5;
+                    printf("[+] Connected to MQTT broker %s:%d\n", g_mqtt_host, g_mqtt_port);
+                    publish_ha_discovery();
+                    subscribe_mqtt_topics();
+                    publish_mqtt_state_ex(1);
+                }
                 mqtt_tick();
 
                 time_t now_tick = time(NULL);
@@ -1604,14 +1608,16 @@ int main(int argc, char **argv) {
                     publish_mqtt_state();
                 }
             } else {
+                if (last_mqtt_connected) {
+                    last_mqtt_connected = 0;
+                    printf("[-] MQTT connection lost, will reconnect with backoff...\n");
+                }
                 time_t now = time(NULL);
-                if (now - last_mqtt_retry >= 10) {
+                if (now - last_mqtt_retry >= mqtt_retry_interval) {
                     last_mqtt_retry = now;
-                    if (mqtt_connect() == 0) {
-                        printf("[+] Reconnected to MQTT broker %s:%d\n", g_mqtt_host, g_mqtt_port);
-                        publish_ha_discovery();
-                        subscribe_mqtt_topics();
-                        publish_mqtt_state_ex(1);
+                    if (!mqtt_is_connecting()) {
+                        mqtt_connect_async();
+                        mqtt_retry_interval = (mqtt_retry_interval * 2 > 60) ? 60 : (mqtt_retry_interval * 2);
                     }
                 }
             }

@@ -231,7 +231,7 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = 22, timeout_s: int = 60) -> bo
 # STEP 1: Stage Dropbear & Enable Debug Mode over USB HID
 # ==============================================================================
 
-def step1_enable_usb_debug(pubkey_str: str) -> bool:
+def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool:
     print("\n" + "=" * 70)
     print(" [STEP 1/2] STAGING DROPBEAR SSH OVER USB HID")
     print("=" * 70)
@@ -254,6 +254,56 @@ def step1_enable_usb_debug(pubkey_str: str) -> bool:
         return False
 
     try:
+        # 1. Firmware version check against official Logitech update servers
+        if not skip_fw_check:
+            print("[*] Checking Elite Remote firmware version over USB HID...")
+            try:
+                sysinfo = hid.get_sysinfo()
+                current_fw = sysinfo.get("sw_version", "")
+                if current_fw:
+                    print(f"[*] Remote reports firmware version: {current_fw}")
+                    from tools.harmony_firmware import (
+                        query_latest_firmware,
+                        DEFAULT_ELITE_SKIN,
+                        download_file,
+                        parse_hfw2_bundle,
+                        flash_firmware,
+                    )
+                    res = query_latest_firmware(DEFAULT_ELITE_SKIN)
+                    if res and res.get("Id"):
+                        latest_fw = res["Id"]
+                        if current_fw != latest_fw:
+                            print(f"\n[!] Elite Remote firmware is {current_fw}, but latest official firmware is {latest_fw}.")
+                            ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
+                            if ans.strip().lower() == "y":
+                                fw_dir = REPO_DIR / "firmware"
+                                fw_file = fw_dir / f"elite_{DEFAULT_ELITE_SKIN}_{latest_fw}.hfw2"
+                                if not fw_file.is_file():
+                                    if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
+                                        print("[-] Firmware download failed. Proceeding with current firmware...")
+                                if fw_file.is_file():
+                                    bundle = parse_hfw2_bundle(fw_file)
+                                    print("[*] Installing latest firmware over USB HID...")
+                                    hid.close()
+                                    if flash_firmware(bundle, target_device="elite", skip_confirm=True):
+                                        print("[*] Waiting 30s for Remote to complete reboot and flash...")
+                                        time.sleep(15)
+                                        t_reconnect = time.time() + 60
+                                        hid = HarmonyHid(pid=ELITE_PID)
+                                        while time.time() < t_reconnect:
+                                            if hid.open():
+                                                print("\n[+] Remote re-enumerated on USB after firmware upgrade!")
+                                                break
+                                            time.sleep(2)
+                                            print(".", end="", flush=True)
+                                        else:
+                                            print("\n[-] Timed out waiting for Remote to re-enumerate on USB after upgrade.")
+                                            sys.exit(1)
+                        else:
+                            print(f"[+] Remote is running the latest official firmware ({latest_fw}).")
+            except Exception as e:
+                print(f"[-] Firmware version check failed ({e}), continuing...")
+
         payload = build_payload(pubkey_str)
         print(f"[+] Self-extracting ARM Dropbear payload built: {len(payload):,} bytes")
         print(f"[*] Staging Dropbear payload to /sys/dropbear ({len(payload):,} bytes)...")
@@ -572,6 +622,7 @@ def main():
     parser = argparse.ArgumentParser(description="Logitech Harmony Elite all-in-one setup tool.")
     parser.add_argument("--step", type=int, choices=[1, 2], help="Run step 1 or 2 individually.")
     parser.add_argument("--key", type=pathlib.Path, default=DEFAULT_KEY_PATH, help="Path to SSH key.")
+    parser.add_argument("--skip-fw-check", action="store_true", help="Skip checking for latest official Logitech firmware.")
     parser.add_argument("--factory-reset", action="store_true", help="Revert Harmony Elite to official stock firmware.")
     args = parser.parse_args()
 
@@ -611,7 +662,7 @@ def main():
     pub_str = pub_path.read_text(encoding="utf-8").strip()
 
     if args.step == 1:
-        if not step1_enable_usb_debug(pub_str):
+        if not step1_enable_usb_debug(pub_str, skip_fw_check=args.skip_fw_check):
             sys.exit(1)
         print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:22...")
         if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
@@ -641,12 +692,12 @@ def main():
         print(f"[+] Remote USB Ethernet already active at {REMOTE_IP}:{REMOTE_PORT}. Running Step 2...")
         if not step2_install_permanent_ssh(pub_path):
             print("[-] Step 2 failed.")
-            sys.exit(1)
-        print_success(priv_path)
+        else:
+            print_success(priv_path)
         return
 
     # Neither SSH nor HTTP active -> Stage Dropbear directly over USB HID and reboot
-    if not step1_enable_usb_debug(pub_str):
+    if not step1_enable_usb_debug(pub_str, skip_fw_check=args.skip_fw_check):
         print("[-] USB HID staging failed. Aborting.")
         sys.exit(1)
 

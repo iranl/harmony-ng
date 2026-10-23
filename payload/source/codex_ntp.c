@@ -119,21 +119,49 @@ time_t sntp_sync_time(const char *server, int apply) {
     return 0;
 }
 
+#include <pthread.h>
+
+static volatile int s_sntp_in_flight = 0;
+static char s_sntp_server[128] = {0};
+static time_t s_last_check = 0;
+static time_t s_last_success = 0;
+
+static void *sntp_worker_thread(void *arg) {
+    (void)arg;
+    time_t synced = sntp_sync_time(s_sntp_server, 1);
+    if (synced > 0) {
+        s_last_success = synced;
+    }
+    s_sntp_in_flight = 0;
+    return NULL;
+}
+
 void sntp_tick(const char *server) {
-    static time_t last_check = 0;
-    static time_t last_success = 0;
+    if (s_sntp_in_flight) return;
 
     time_t now = time(NULL);
-    if (now - last_check < 5) return; /* Rate-limit check */
+    if (now - s_last_check < 5) return;
 
     int needs_init = (now < MIN_VALID_EPOCH);
     time_t interval = needs_init ? RETRY_INTERVAL_SEC : RESYNC_INTERVAL_SEC;
 
-    if (last_success == 0 || (now - last_success >= interval) || (needs_init && (now - last_check >= RETRY_INTERVAL_SEC))) {
-        last_check = now;
-        time_t synced = sntp_sync_time(server, 1);
-        if (synced > 0) {
-            last_success = synced;
+    if (s_last_success == 0 || (now - s_last_success >= interval) || (needs_init && (now - s_last_check >= RETRY_INTERVAL_SEC))) {
+        s_last_check = now;
+        s_sntp_in_flight = 1;
+        if (server && server[0]) {
+            strncpy(s_sntp_server, server, sizeof(s_sntp_server) - 1);
+            s_sntp_server[sizeof(s_sntp_server) - 1] = '\0';
+        } else {
+            s_sntp_server[0] = '\0';
         }
+
+        pthread_t tid;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        if (pthread_create(&tid, &attr, sntp_worker_thread, NULL) != 0) {
+            s_sntp_in_flight = 0;
+        }
+        pthread_attr_destroy(&attr);
     }
 }

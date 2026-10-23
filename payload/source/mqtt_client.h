@@ -22,6 +22,12 @@ void mqtt_set_birth(const char *topic, const char *payload, int retain);
 /* Connect to configured broker (non-blocking / fast handshake) */
 int mqtt_connect(void);
 
+/* Check if connection attempt is in progress */
+int mqtt_is_connecting(void);
+
+/* Trigger background connection/reconnect thread */
+int mqtt_connect_async(void);
+
 /* Check if connection is active */
 int mqtt_is_connected(void);
 

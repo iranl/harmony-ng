@@ -10,6 +10,7 @@
 .PARAMETER DevMode
     Alias for DebugBusybox.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
 param(
     [string]$HubIp = "192.168.1.1",
     [string]$KeyPath = "",
@@ -19,7 +20,9 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
+$RepoRoot = Split-Path -Parent $ScriptDir
+$PayloadDir = Join-Path $RepoRoot "payload"
 
 # Support running directly from extracted release archive or from repo build/ directory
 if (Test-Path (Join-Path $ScriptDir "bin")) {
@@ -27,9 +30,9 @@ if (Test-Path (Join-Path $ScriptDir "bin")) {
     $ScriptsDir = Join-Path $ScriptDir "scripts"
     $ModulesDir = Join-Path $ScriptDir "modules"
     $WwwDir = Join-Path $ScriptDir "www"
-} else {
-    $RepoRoot = Split-Path -Parent $ScriptDir
-    $PayloadDir = Join-Path $RepoRoot "payload"
+    $PayloadDir = $ScriptDir
+}
+else {
     $BinDir = Join-Path $PayloadDir "bin"
     $ScriptsDir = Join-Path $PayloadDir "scripts"
     $ModulesDir = Join-Path $PayloadDir "modules"
@@ -39,8 +42,10 @@ if (Test-Path (Join-Path $ScriptDir "bin")) {
     if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\codex_daemon"))) {
         $BinDir = Join-Path $RepoRoot "build\output"
     }
-    if (-not (Test-Path (Join-Path $WwwDir "index.html")) -and (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html"))) {
-        $WwwDir = Join-Path $RepoRoot "android-app\dist"
+    if (-not (Test-Path (Join-Path $WwwDir "index.html.gz")) -and -not (Test-Path (Join-Path $WwwDir "index.html"))) {
+        if (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html")) {
+            $WwwDir = Join-Path $RepoRoot "android-app\dist"
+        }
     }
 }
 
@@ -48,14 +53,14 @@ $Target = "root@$HubIp"
 
 # Auto-detect SSH key if not specified
 if (-not $KeyPath) {
-    $candidates = @(
-        (Get-ChildItem -Path "$HOME\.ssh\harmony_owner_*" -File -ErrorAction SilentlyContinue | Select-Object -First 1).FullName,
-        (Get-ChildItem -Path "$HOME\.ssh\id_rsa" -File -ErrorAction SilentlyContinue | Select-Object -First 1).FullName,
-        (Get-ChildItem -Path "$HOME\.ssh\id_ed25519" -File -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+    $candFiles = @(
+        Get-ChildItem -Path "$HOME\.ssh\harmony_owner_*" -File -ErrorAction SilentlyContinue
+        Get-ChildItem -Path "$HOME\.ssh\id_rsa" -File -ErrorAction SilentlyContinue
+        Get-ChildItem -Path "$HOME\.ssh\id_ed25519" -File -ErrorAction SilentlyContinue
     )
-    foreach ($cand in $candidates) {
-        if ($cand -and (Test-Path $cand)) {
-            $KeyPath = $cand
+    foreach ($cand in $candFiles) {
+        if ($cand -and (Test-Path $cand.FullName)) {
+            $KeyPath = $cand.FullName
             break
         }
     }
@@ -122,7 +127,8 @@ if ($remoteMd5Raw) {
     }
 }
 
-function Deploy-HubFileIfChanged {
+function Install-HubFileIfChanged {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingBrokenHashAlgorithms', '')]
     param(
         [string]$LocalFile,
         [string]$RemoteFile,
@@ -142,22 +148,26 @@ function Deploy-HubFileIfChanged {
     & ssh @sshArgs $Target "chmod $Perm $tmpRemote 2>/dev/null; mv -f $tmpRemote $RemoteFile 2>/dev/null || true"
     return $true
 }
+Set-Alias Deploy-HubFileIfChanged Install-HubFileIfChanged
 
 # 1. Upload binaries (standard core binaries only)
 Write-Host "[*] Uploading native MIPS binaries (MD5 check)..." -ForegroundColor Yellow
-$bins = Get-ChildItem -Path $BinDir -File | Where-Object { 
+$bins = Get-ChildItem -Path $BinDir -File | Where-Object {
     $_.Name -notmatch '\.txt$|^FILES$' -and $_.Name -ne 'busybox'
 }
 foreach ($b in $bins) {
-    Deploy-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" | Out-Null
+    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" | Out-Null
 }
 
 # Extended BusyBox (default deployment)
+if ($DebugBusybox -or $DevMode) {
+    Write-Host "[*] Developer / Debug mode active." -ForegroundColor Cyan
+}
 $bb = Join-Path $BinDir "busybox"
 if (Test-Path $bb) {
     Write-Host "[*] Syncing extended BusyBox to /cache/bin/..." -ForegroundColor Yellow
     & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
-    $changed = Deploy-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
+    $changed = Install-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
     if ($changed) {
         $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true'
         & ssh @sshArgs $Target "$bbCmd"
@@ -167,12 +177,11 @@ if (Test-Path $bb) {
 $profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
 & ssh @sshArgs $Target "$profCmd"
 
-
 # 2. Upload scripts
 Write-Host "[*] Uploading scripts (MD5 check)..." -ForegroundColor Yellow
 $scripts = Get-ChildItem -Path $ScriptsDir -File
 foreach ($s in $scripts) {
-    Deploy-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/codex/$($s.Name)" -Perm "755" | Out-Null
+    Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/codex/$($s.Name)" -Perm "755" | Out-Null
 }
 
 # 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
@@ -182,7 +191,7 @@ if (Test-Path $ModulesDir) {
         Write-Host "[*] Syncing USB Ethernet kernel modules (/cache/modules)..." -ForegroundColor Yellow
         & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
         foreach ($m in $modFiles) {
-            Deploy-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
+            Install-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
         }
     }
 }
@@ -193,16 +202,17 @@ if (Test-Path $WwwDir) {
     $buildScript = Join-Path $ScriptDir "build_webui.ps1"
     if (Test-Path $buildScript) {
         & powershell -ExecutionPolicy Bypass -File $buildScript
+        $WwwDir = Join-Path $PayloadDir "www"
     }
     Write-Host "[*] Syncing Web UI static assets (/cache/www, MD5 check)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
+    & ssh @sshArgs $Target "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null; rm -f /cache/www/*.js /cache/www/*.css /cache/www/assets/*.js /cache/www/assets/*.css 2>/dev/null || true"
     $wwwFiles = Get-ChildItem -Path $WwwDir -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]icons([\\/]|$)' }
     $localRelNames = @()
     foreach ($f in $wwwFiles) {
         $relPath = $f.FullName.Substring($WwwDir.Length).TrimStart('\', '/') -replace '\\', '/'
         $remotePath = "/cache/www/$relPath"
         $localRelNames += $remotePath
-        Deploy-HubFileIfChanged -LocalFile $f.FullName -RemoteFile $remotePath -Perm "644" | Out-Null
+        Install-HubFileIfChanged -LocalFile $f.FullName -RemoteFile $remotePath -Perm "644" | Out-Null
     }
     # Prune orphaned bundles on Hub (prevent hash rotation accumulation)
     $activeAssetNames = $wwwFiles | Where-Object { $_.DirectoryName -match 'assets' } | ForEach-Object { $_.Name }
@@ -217,9 +227,22 @@ if (Test-Path $WwwDir) {
         $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
     } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
         $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
+    } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
+        Write-Host "`n[?] build/icons.tar.gz not found on host." -ForegroundColor Yellow
+        $resp = Read-Host "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)"
+        if ($resp -eq "" -or $resp.Trim().ToLower() -eq "y") {
+            Write-Host "[*] Extracting remote UI icons and packaging build/icons.tar.gz..." -ForegroundColor Cyan
+            $fwTool = Join-Path $RepoRoot "tools\harmony_firmware.py"
+            $archiveOut = Join-Path $RepoRoot "build\icons.tar.gz"
+            $pyCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" } else { "py" }
+            & $pyCmd $fwTool extract-icons --archive $archiveOut
+            if (Test-Path $archiveOut) {
+                $iconsTar = $archiveOut
+            }
+        }
     }
     if ($iconsTar -and (Test-Path $iconsTar)) {
-        Deploy-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
+        Install-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
         & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
     }
     # Prune individual icons directory on flash to preserve JFFS2 partition space
@@ -230,7 +253,7 @@ if (Test-Path $WwwDir) {
 $rcsSrc = Join-Path $ScriptsDir "rcS.local"
 if (Test-Path $rcsSrc) {
     Write-Host "[*] Linking startup script /etc/init.d/rcS.local (MD5 check)..." -ForegroundColor Yellow
-    Deploy-HubFileIfChanged -LocalFile $rcsSrc -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
+    Install-HubFileIfChanged -LocalFile $rcsSrc -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
 }
 
 # 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)

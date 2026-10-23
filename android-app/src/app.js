@@ -6524,7 +6524,7 @@ class HarmonyApp {
 
   async unpairRfSlot(slot) {
     const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
-    if (!await showConfirm(t('unpair_slot1', `Unpair ${slotName}?`), { title: 'Unpair Remote', okText: 'Unpair' })) return;
+    if (!await showConfirm(t(slot === 1 ? 'unpair_slot1' : 'unpair_slot2', `Unpair ${slotName}?`), { title: 'Unpair Remote', okText: 'Unpair' })) return;
     try {
       await this.client.unpairRfRemote(slot);
       await this.refreshRfStatus();

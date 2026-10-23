@@ -96,10 +96,10 @@ ensure_wifi() {
   wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
   if [ -z "$wifi_ip" ]; then
     log "Requesting DHCP lease on ath0..."
-    if ! pidof udhcpc >/dev/null 2>&1; then
+    if [ ! -f /var/run/udhcpc.ath0.pid ] || ! kill -0 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null; then
       udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
     fi
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    for i in 1 2 3 4 5 6 7 8 9 10; do
       wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
       [ -n "$wifi_ip" ] && break
       sleep 1
@@ -163,31 +163,49 @@ start_eth() {
     return 2
   fi
 
-  # Determine canonical static IP from config or current ath0
-  canonical_ip="$ETH_IP"
-  if [ -z "$canonical_ip" ]; then
-    canonical_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
-  fi
+  apply_eth_fix() {
+    local dev="$1"
+    [ -z "$dev" ] && return 0
+    if [ -x /data/codex/bin/eth_fix ]; then
+      /data/codex/bin/eth_fix "$dev" >> "$LOG" 2>&1 || true
+    elif [ -x /cache/bin/eth_fix ]; then
+      /cache/bin/eth_fix "$dev" >> "$LOG" 2>&1 || true
+    fi
+  }
 
-  target_ip="${ETH_IP:-$canonical_ip}"
-  if [ -n "$target_ip" ]; then
-    migrate_to_ethernet "$eth_if" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
+  apply_eth_fix "$eth_if"
+
+  if [ "$ETH_MODE" = "static" ] && [ -n "$ETH_IP" ]; then
+    log "Configuring static IP $ETH_IP on $eth_if..."
+    ifconfig "$eth_if" "$ETH_IP" netmask "${ETH_NETMASK:-255.255.255.0}" up >> "$LOG" 2>&1
+    apply_eth_fix "$eth_if"
+    route del default dev "$eth_if" 2>/dev/null || true
+    route del default dev ath0 2>/dev/null || true
+    if [ -n "$ETH_GATEWAY" ]; then
+      route add default gw "$ETH_GATEWAY" dev "$eth_if" >> "$LOG" 2>&1
+    fi
+    [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+    send_garp "$eth_if" "$ETH_IP"
+    echo "$eth_if:ethernet:$ETH_IP" > "$STATE_FILE"
+    stop_recovery_ap 2>/dev/null || true
+    log "Ethernet configured statically: $eth_if has IP $ETH_IP"
     return 0
   else
     # Pure DHCP mode
+    log "Requesting DHCP lease on $eth_if..."
+    kill -9 $(cat /var/run/udhcpc.$eth_if.pid 2>/dev/null) 2>/dev/null || true
     udhcpc -i "$eth_if" -p /var/run/udhcpc.$eth_if.pid -b -t 5 -T 3 >> "$LOG" 2>&1
-    for i in 1 2 3 4 5; do
+    for i in 1 2 3 4 5 6 7 8; do
       eth_ip=$(ifconfig "$eth_if" 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
       [ -n "$eth_ip" ] && break
       sleep 1
     done
     if [ -n "$eth_ip" ]; then
-      flush_iface_routes "ath0"
-      ifconfig ath0 0.0.0.0 2>/dev/null || true
-      [ -x /data/codex/bin/eth_fix ] && /data/codex/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
+      apply_eth_fix "$eth_if"
       route del default dev ath0 2>/dev/null || true
       send_garp "$eth_if" "$eth_ip"
       echo "$eth_if:ethernet:$eth_ip" > "$STATE_FILE"
+      stop_recovery_ap 2>/dev/null || true
       log "Ethernet connected via DHCP: $eth_if has IP $eth_ip"
       return 0
     else
@@ -407,7 +425,7 @@ migrate_to_ethernet() {
   fi
 
   # Explicitly configure default route
-  route del default 2>/dev/null || true
+  while route del default 2>/dev/null; do :; done
   if [ -n "$target_gw" ]; then
     route add default gw "$target_gw" dev "$eth_if" >> "$LOG" 2>&1
   fi
@@ -447,7 +465,7 @@ migrate_to_wifi() {
   ifconfig ath0 "$target_ip" netmask "$target_mask" up >> "$LOG" 2>&1
 
   # Explicitly configure default route
-  route del default 2>/dev/null || true
+  while route del default 2>/dev/null; do :; done
   if [ -n "$target_gw" ]; then
     route add default gw "$target_gw" dev ath0 >> "$LOG" 2>&1
   fi
