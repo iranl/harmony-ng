@@ -109,6 +109,14 @@ static void mark_remote_slot_active(uint8_t slot) {
     }
 }
 
+#define LOG_LEVEL_ERR   0
+#define LOG_LEVEL_WARN  1
+#define LOG_LEVEL_INFO  2
+#define LOG_LEVEL_DEBUG 3
+
+static int g_log_level = LOG_LEVEL_INFO;
+#define RF_LOG(level, fmt, ...) do { if (g_log_level >= (level)) { printf(fmt, ##__VA_ARGS__); fflush(stdout); } } while (0)
+
 static int g_nak_count = 0;
 static int g_backoff_ms = 0;
 #define NAK_BACKOFF_MAX_MS 5000
@@ -739,6 +747,49 @@ static void publish_remote_battery_mqtt(uint8_t slot, uint8_t pct, uint8_t chg, 
     close(s);
 }
 
+static void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
+    char diff[256] = {0};
+    int diff_len = 0;
+    cJSON *old_root = (old_json_str && *old_json_str) ? cJSON_Parse(old_json_str) : NULL;
+
+    const char *keys[] = {
+        "brightness", "timeout", "touch", "gyro", "nav_key", "nav_mode",
+        "btn_backlight", "night_start", "night_end", "remote_mode", "usbeth", "no_screen"
+    };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        cJSON *nitem = cJSON_GetObjectItem(norm, keys[i]);
+        if (!nitem) continue;
+        int nval = nitem->valueint;
+        int oval = -999;
+        if (old_root) {
+            cJSON *oitem = cJSON_GetObjectItem(old_root, keys[i]);
+            if (oitem) oval = oitem->valueint;
+        }
+        if (oval != nval && oval != -999) {
+            char chunk[64];
+            snprintf(chunk, sizeof(chunk), "%s%s: %d->%d", diff_len ? ", " : "", keys[i], oval, nval);
+            strncat(diff, chunk, sizeof(diff) - diff_len - 1);
+            diff_len = strlen(diff);
+        }
+    }
+    if (old_root) cJSON_Delete(old_root);
+
+    if (diff_len == 0) {
+        snprintf(diff, sizeof(diff), "Remote Slot %d settings modified", slot);
+    }
+
+    FILE *df = fopen("/data/codex/rf_sync_pending_details.json", "w");
+    if (df) {
+        fprintf(df, "{\"slot\":%d,\"diff\":\"%s\"}\n", slot, diff);
+        fclose(df);
+    }
+    FILE *flag = fopen("/data/codex/rf_sync_pending.flag", "w");
+    if (flag) {
+        fprintf(flag, "%ld\n", (long)time(NULL));
+        fclose(flag);
+    }
+}
+
 /* Save remote config backup to /data/codex/elite_slotN_config.json */
 static void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     if (slot < 1 || slot > 2) slot = 1;
@@ -828,7 +879,7 @@ static void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
 static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                        int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                        int remote_mode, int gyro_rate, int btn_backlight,
-                                       int night_start, int night_end, int usbeth) {
+                                       int night_start, int night_end, int usbeth, int no_screen) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
     rf_frame_t f;
     uint8_t payload[26] = {0};
@@ -849,7 +900,8 @@ static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, in
     payload[14] = (uint8_t)(night_end >= 0 && night_end <= 23 ? night_end : 7);
     payload[15] = (uint8_t)(usbeth ? 1 : 0);
     payload[16] = (uint8_t)g_config_version;
-    rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 17);
+    payload[17] = (uint8_t)(no_screen ? 1 : 0);
+    rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 18);
     rf_send_frame_acked(&f, 300);
 }
 
@@ -1593,6 +1645,10 @@ static void *config_push_worker(void *arg) {
                 if (!jne) jne = cJSON_GetObjectItem(sroot, "night_end");
                 cJSON *jue = cJSON_GetObjectItem(sroot, "usbEth");
                 if (!jue) jue = cJSON_GetObjectItem(sroot, "usbeth");
+                cJSON *jnscreen = cJSON_GetObjectItem(sroot, "noScreen");
+                if (!jnscreen) jnscreen = cJSON_GetObjectItem(sroot, "no_screen");
+                int no_screen = 0;
+                if (jnscreen) no_screen = cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0) ? 1 : 0;
 
                 if (jb) bright = jb->valueint;
                 if (jt) timeout = jt->valueint;
@@ -1609,7 +1665,7 @@ static void *config_push_worker(void *arg) {
                 if (jne && jne->valueint >= 0 && jne->valueint <= 23) night_end = jne->valueint;
                 if (jue) usbeth = cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0) ? 1 : 0;
                 cJSON_Delete(sroot);
-                rf_send_settings_push_slot(target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth);
+                rf_send_settings_push_slot(target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen);
                 usleep(15000);
             }
         }
@@ -1625,6 +1681,7 @@ static void *config_push_worker(void *arg) {
     printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
            act_count, dev_count, btn_count, total_step_count, g_config_version);
     unlink("/data/codex/rf_sync_pending.flag");
+    unlink("/data/codex/rf_sync_pending_details.json");
 
     pthread_mutex_unlock(&push_lock);
     return NULL;
@@ -1983,6 +2040,25 @@ static void handle_codex_frame(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_UNPAIR_NOTIFY: {
+            uint8_t slot = f->dev_slot & 0x0F;
+            if (slot < 1 || slot > 2) slot = 1;
+            RF_LOG(LOG_LEVEL_INFO, "[*] Codex UNPAIR_NOTIFY received from Remote Slot %d\n", slot);
+            uint8_t s = (slot == 2) ? 0x02 : 0x01;
+            uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00};
+            rf_write_cmd(unpair, sizeof(unpair));
+            g_paired_remotes[slot - 1].active = false;
+            memset(g_paired_remotes[slot - 1].rf_addr, 0, 4);
+            if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
+                g_has_paired_device = false;
+                memset(g_paired_addr, 0, sizeof(g_paired_addr));
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            break;
+        }
+
         case RF_MSG_PING: {
             rf_frame_t ack;
             rf_build_ack(&ack, f->dev_slot ? f->dev_slot : (g_remote_slot ? g_remote_slot : 0x01), f->seq, 0x00);
@@ -1991,7 +2067,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
         }
 
         default:
-            printf("[*] Codex RF unknown type 0x%02X\n", f->msg_type);
+            RF_LOG(LOG_LEVEL_DEBUG, "[*] Codex RF unknown type 0x%02X\n", f->msg_type);
             break;
     }
 }
@@ -2364,9 +2440,27 @@ static void *hub_button_worker(void *arg) {
 }
 
 static void unpair_device(int slot) {
+    /* Send RF notification to remote before unpairing so remote clears bonding */
+    rf_frame_t unpair_msg;
+    memset(&unpair_msg, 0, sizeof(unpair_msg));
+    unpair_msg.report_id = 0x20;
+    unpair_msg.sub_id = 0x12;
+    unpair_msg.msg_type = RF_MSG_UNPAIR_NOTIFY;
+    unpair_msg.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
+    unpair_msg.seq = g_tx_seq++;
+    if (slot == 1 || slot == 0) {
+        unpair_msg.dev_slot = 0x01;
+        rf_send_frame(&unpair_msg);
+    }
+    if (slot == 2 || slot == 0) {
+        unpair_msg.dev_slot = 0x02;
+        rf_send_frame(&unpair_msg);
+    }
+    usleep(30000); /* Allow RF frame transmission before hardware lock reset */
+
     uint8_t s = (slot == 2) ? 0x02 : ((slot == 1) ? 0x01 : 0x00);
-    uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00};
-    printf("[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
+    uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
+    RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
     rf_write_cmd(unpair, sizeof(unpair));
     if (slot == 1 || slot == 0) {
         g_paired_remotes[0].active = false;
@@ -2429,8 +2523,36 @@ static void *api_server_worker(void *arg) {
             } else if (strstr(buf, "GET /api/rf/unpair") == buf || strstr(buf, "POST /api/rf/unpair") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
                 unpair_device(slot);
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\"}";
+                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\",\"ok\":true}";
                 write(cli, res, strlen(res));
+            } else if (strstr(buf, "GET /api/rf/pull-config") == buf || strstr(buf, "POST /api/rf/pull-config") == buf) {
+                int slot = strstr(buf, "slot=2") ? 2 : 1;
+                rf_frame_t pull_frame;
+                memset(&pull_frame, 0, sizeof(pull_frame));
+                pull_frame.report_id = 0x20;
+                pull_frame.sub_id = 0x12;
+                pull_frame.dev_slot = (uint8_t)slot;
+                pull_frame.seq = g_tx_seq++;
+                pull_frame.hdr_flag = 0x50 | (pull_frame.seq & 0x0F);
+                pull_frame.msg_type = RF_MSG_CONFIG_PULL_REQ;
+                rf_send_frame(&pull_frame);
+                char res[128];
+                int rlen = snprintf(res, sizeof(res),
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
+                write(cli, res, rlen);
+            } else if (strstr(buf, "GET /api/rf/log-level") == buf || strstr(buf, "POST /api/rf/log-level") == buf) {
+                char *lp = strstr(buf, "level=");
+                if (lp) {
+                    int lvl = atoi(lp + 6);
+                    if (lvl >= 0 && lvl <= 3) {
+                        g_log_level = lvl;
+                        g_debug_logging = (g_log_level >= LOG_LEVEL_DEBUG);
+                    }
+                }
+                char res[128];
+                int rlen = snprintf(res, sizeof(res),
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"log_level\":%d,\"ok\":true}", g_log_level);
+                write(cli, res, rlen);
             } else if (strstr(buf, "GET /api/rf/send?hex=") == buf) {
                 char *hex = strstr(buf, "hex=") + 4;
                 char *end = strchr(hex, ' ');
@@ -2481,7 +2603,7 @@ static void *api_server_worker(void *arg) {
                     fclose(f);
                 } else {
                     snprintf(res_body, sizeof(res_body),
-                        "{\"slot\":%d,\"brightness\":3,\"timeout\":120,\"touchEnabled\":true,\"touch\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":1,\"btn_backlight\":1,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":false,\"confirm_act\":0,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0}",
+                        "{\"slot\":%d,\"brightness\":3,\"timeout\":120,\"touchEnabled\":true,\"touch\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":1,\"btn_backlight\":1,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":false,\"confirm_act\":0,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0}",
                         slot);
                 }
                 char header[256];
@@ -2522,6 +2644,8 @@ static void *api_server_worker(void *arg) {
                         if (!jne) jne = cJSON_GetObjectItem(root, "night_end");
                         cJSON *jue = cJSON_GetObjectItem(root, "usbEth");
                         if (!jue) jue = cJSON_GetObjectItem(root, "usbeth");
+                        cJSON *jnscreen = cJSON_GetObjectItem(root, "noScreen");
+                        if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
 
                         int bright = jb ? jb->valueint : 3;
                         int timeout = jt ? jt->valueint : 120;
@@ -2537,6 +2661,7 @@ static void *api_server_worker(void *arg) {
                         int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;
                         int night_end = (jne && jne->valueint >= 0 && jne->valueint <= 23) ? jne->valueint : 7;
                         int usbeth = (jue && (cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0))) ? 1 : 0;
+                        int no_screen = (jnscreen && (cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0))) ? 1 : 0;
 
                         /* Create normalized JSON root saving all fields */
                         cJSON *norm = cJSON_CreateObject();
@@ -2567,9 +2692,22 @@ static void *api_server_worker(void *arg) {
                         cJSON_AddNumberToObject(norm, "night_end", night_end);
                         cJSON_AddBoolToObject(norm, "usbEth", usbeth != 0);
                         cJSON_AddNumberToObject(norm, "usbeth", usbeth);
+                        cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
+                        cJSON_AddNumberToObject(norm, "no_screen", no_screen);
 
                         char path[64];
                         snprintf(path, sizeof(path), "/data/codex/elite_slot%d_config.json", slot);
+
+                        /* Read existing config to compute diff for pending push banner */
+                        char old_cfg[4096] = {0};
+                        FILE *cur_f = fopen(path, "r");
+                        if (cur_f) {
+                            size_t cr = fread(old_cfg, 1, sizeof(old_cfg) - 1, cur_f);
+                            old_cfg[cr] = '\0';
+                            fclose(cur_f);
+                        }
+                        record_config_diff(slot, old_cfg, norm);
+
                         char *norm_str = cJSON_Print(norm);
                         cJSON_Delete(norm);
                         if (norm_str) {
@@ -2582,7 +2720,7 @@ static void *api_server_worker(void *arg) {
                         }
                         rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
                                                    confirm_act, touch_sens, remote_mode, gyro_rate,
-                                                   btn_backlight, night_start, night_end, usbeth);
+                                                   btn_backlight, night_start, night_end, usbeth, no_screen);
                         cJSON_Delete(root);
                     }
                 }
@@ -2692,22 +2830,44 @@ static void *api_server_worker(void *arg) {
                 }
 
                 bool sync_pending = (access("/data/codex/rf_sync_pending.flag", F_OK) == 0);
+                int pending_slot = 1;
+                char pending_diff[256] = "Hub configuration changed. Push settings to sync.";
+                FILE *pdf = fopen("/data/codex/rf_sync_pending_details.json", "r");
+                if (pdf) {
+                    char dline[512] = {0};
+                    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+                        cJSON *pj = cJSON_Parse(dline);
+                        if (pj) {
+                            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+                            cJSON *pd = cJSON_GetObjectItem(pj, "diff");
+                            if (ps) pending_slot = ps->valueint;
+                            if (pd && pd->valuestring) snprintf(pending_diff, sizeof(pending_diff), "%s", pd->valuestring);
+                            cJSON_Delete(pj);
+                        }
+                    }
+                    fclose(pdf);
+                }
+
+                bool slot1_in_sync = (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
+                bool slot2_in_sync = (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
 
                 char body[2048];
                 int blen = snprintf(body, sizeof(body),
-                    "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,\"sync_pending\":%s,"
+                    "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
+                    "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
                     "\"slots\":["
-                    "{\"slot\":1,\"name\":\"%s\",\"active\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
-                    "{\"slot\":2,\"name\":\"%s\",\"active\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
+                    "{\"slot\":1,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
+                    "{\"slot\":2,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
                     "]}",
                     g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
                     hub_rf_str, hub_rf_str,
                     g_pairing_mode ? "true" : "false",
                     sync_pending ? "true" : "false",
-                    name1, g_paired_remotes[0].active ? "true" : "false", addr1_str, addr1_str,
+                    pending_slot, pending_diff, g_config_version,
+                    name1, g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
                     g_remote_versions[0].sw_version, g_remote_versions[0].config_version,
                     g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv,
-                    name2, g_paired_remotes[1].active ? "true" : "false", addr2_str, addr2_str,
+                    name2, g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
                     g_remote_versions[1].sw_version, g_remote_versions[1].config_version,
                     g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", g_remote_batteries[1].voltage_mv);
 
@@ -2744,7 +2904,10 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sig_handler);
 
     /* Load debug logging flag from persistent config */
-    if (access("/data/codex/debug_logging.conf", F_OK) == 0) g_debug_logging = 1;
+    if (access("/data/codex/debug_logging.conf", F_OK) == 0) {
+        g_debug_logging = 1;
+        g_log_level = LOG_LEVEL_DEBUG;
+    }
 
     printf("[+] Starting Harmony Hub RF Daemon (codex_rf)...\n");
 

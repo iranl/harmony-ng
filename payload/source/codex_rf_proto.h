@@ -27,6 +27,8 @@
 #define RF_MSG_BATTERY_STATUS      0x18  /* Battery percent, charging state, voltage */
 #define RF_MSG_REMOTE_CONFIG_BACKUP 0x19 /* Remote settings backup to Hub */
 #define RF_MSG_VERSION_REPORT      0x1A  /* Remote running software & config version */
+#define RF_MSG_UNPAIR_NOTIFY       0x1B  /* Hub <-> Remote: notify unpair before wiping bonding */
+#define RF_MSG_CONFIG_PULL_REQ     0x1C  /* Hub -> Remote: request remote's current config/settings */
 
 /* Bidirectional */
 #define RF_MSG_ACK                 0x1E  /* Acknowledge by SEQ */
@@ -76,13 +78,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
         if ((raw[4] & 0xE0) == 0x40 || (raw[4] & 0xE0) == 0x60) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
-                   (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_VERSION_REPORT) ||
+                   (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_CONFIG_PULL_REQ) ||
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[4];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
-               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_VERSION_REPORT) ||
+               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_CONFIG_PULL_REQ) ||
                (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
@@ -90,13 +92,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
         if ((raw[2] & 0xE0) == 0x40 || (raw[2] & 0xE0) == 0x60) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
-                   (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_VERSION_REPORT) ||
+                   (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_CONFIG_PULL_REQ) ||
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[2];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
-               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_VERSION_REPORT) ||
+               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_CONFIG_PULL_REQ) ||
                (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
