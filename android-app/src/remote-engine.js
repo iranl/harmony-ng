@@ -557,8 +557,8 @@ export class RemoteEngine {
       this.currentSubTab = 'remote';
     }
 
-    // Reset keyboard tab if bluetooth not available
-    if (this.currentSubTab === 'keyboard' && !this.hasBluetoothConnection()) {
+    // Reset keyboard / mouse tab if bluetooth not available
+    if ((this.currentSubTab === 'keyboard' || this.currentSubTab === 'mouse') && !this.hasBluetoothConnection()) {
       this.currentSubTab = 'remote';
     }
 
@@ -638,6 +638,9 @@ export class RemoteEngine {
         ${hasBt ? `
         <button type="button" class="subtab-btn ${this.currentSubTab === 'keyboard' ? 'active' : ''}" data-subtab="keyboard">
           Keyboard
+        </button>
+        <button type="button" class="subtab-btn ${this.currentSubTab === 'mouse' ? 'active' : ''}" data-subtab="mouse">
+          Mouse
         </button>
         ` : ''}
       </div>
@@ -721,6 +724,8 @@ export class RemoteEngine {
       root.appendChild(this.renderKeypadView());
     } else if (this.currentSubTab === 'keyboard') {
       root.appendChild(this.renderKeyboardView());
+    } else if (this.currentSubTab === 'mouse') {
+      root.appendChild(this.renderMouseView());
     }
 
     this.container.appendChild(root);
@@ -953,12 +958,18 @@ export class RemoteEngine {
     const devId = btDev ? btDev.id : null;
 
     view.innerHTML = `
-      <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
         <div class="keyboard-device-badge">
           <span class="bt-dot"></span>
           <span>Target: <strong>${devName}</strong></span>
         </div>
-        <button type="button" class="btn btn-xs btn-danger" id="kbReleaseAllBtn" title="Release all held Bluetooth keys">Release All</button>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">Keyboard</button>
+            <button type="button" class="btn btn-xs btn-ghost" id="kbSwitchToMouseBtn" style="border-radius:0;">Mouse</button>
+          </div>
+          <button type="button" class="btn btn-xs btn-danger" id="kbReleaseAllBtn" title="Release all held Bluetooth keys">Release All</button>
+        </div>
       </div>
 
       <div class="keyboard-card" style="margin-bottom:14px;">
@@ -1117,6 +1128,14 @@ export class RemoteEngine {
       }
     };
 
+    const switchToMouseBtn = view.querySelector('#kbSwitchToMouseBtn');
+    if (switchToMouseBtn) {
+      switchToMouseBtn.addEventListener('click', () => {
+        this.currentSubTab = 'mouse';
+        this.updateDOM();
+      });
+    }
+
     if (releaseAllBtn) {
       releaseAllBtn.addEventListener('click', async () => {
         await this.triggerHaptic();
@@ -1162,6 +1181,327 @@ export class RemoteEngine {
         setTimeout(() => btn.classList.remove('active-press'), 150);
         if (code) {
           await sendKey(code, fallback);
+        }
+      });
+    });
+
+    return view;
+  }
+
+  renderMouseView() {
+    const view = document.createElement('div');
+    view.className = 'keyboard-panel';
+
+    const btDev = this.getBluetoothDevice();
+    const devName = btDev ? (btDev.name || btDev.label || 'Bluetooth Device') : 'Bluetooth';
+    const devId = btDev ? btDev.id : null;
+    const btTarget = btDev ? (btDev.btMac || btDev.mac || btDev.addr || btDev.bt_mac || '') : '';
+
+    view.innerHTML = `
+      <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <div class="keyboard-device-badge">
+          <span class="bt-dot"></span>
+          <span>Target: <strong>${devName}</strong></span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+            <button type="button" class="btn btn-xs btn-ghost" id="mouseSwitchToKbBtn" style="border-radius:0;">Keyboard</button>
+            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">Mouse</button>
+          </div>
+          <select id="remoteMouseSpeed" class="form-control form-control-sm" style="font-size:11px; padding:2px 6px; width:72px;">
+            <option value="0.75">0.75x</option>
+            <option value="1.0" selected>1.0x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2.0">2.0x</option>
+            <option value="3.0">3.0x</option>
+          </select>
+          <button type="button" class="btn btn-xs btn-danger" id="mouseReleaseAllBtn" title="Release held mouse buttons">Release</button>
+        </div>
+      </div>
+
+      <div class="bt-touchpad-card" style="margin-bottom:14px;">
+        <div class="bt-touchpad-surface" id="remoteTouchpad" style="height:260px;">
+          <div class="bt-touchpad-hint">Touch &amp; Drag Trackpad<br><span style="font-size:11px; opacity:0.75;">Tap to click • Two fingers or right edge to scroll</span></div>
+          <div class="bt-touchpad-scroll-zone">
+            <span>▲</span>
+            <span>Scroll</span>
+            <span>▼</span>
+          </div>
+          <div class="bt-touchpad-ripple" id="remoteTouchpadRipple"></div>
+        </div>
+
+        <div class="bt-mouse-btn-bar">
+          <button type="button" class="bt-mouse-btn btn-primary" id="remoteBtnMouseLeft" data-btn="left">Left Click</button>
+          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseMiddle" data-btn="middle" style="font-size:11px;">Middle</button>
+          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseRight" data-btn="right">Right Click</button>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelUp" style="padding:4px 10px;">▲ Scroll Up</button>
+            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelDown" style="padding:4px 10px;">▼ Scroll Down</button>
+          </div>
+          <div class="mini subtle" id="remoteMouseCoords">dx: 0, dy: 0</div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:10px; margin-bottom:12px;">
+        <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">Quick Shortcuts</div>
+        <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;">
+          <button type="button" class="remote-btn kb-btn-action" data-code="escape" data-fallback="Back,Return,Exit" style="padding:8px 4px; font-size:11px;">Back</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="home" data-fallback="Home" style="padding:8px 4px; font-size:11px;">Home</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="play_pause" data-fallback="Play,Pause,Play/Pause" style="padding:8px 4px; font-size:11px;">⏯ Play</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="vol_down" data-fallback="VolumeDown" style="padding:8px 4px; font-size:11px;">🔉 Vol-</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="vol_up" data-fallback="VolumeUp" style="padding:8px 4px; font-size:11px;">🔊 Vol+</button>
+        </div>
+      </div>
+    `;
+
+    const switchToKbBtn = view.querySelector('#mouseSwitchToKbBtn');
+    if (switchToKbBtn) {
+      switchToKbBtn.addEventListener('click', () => {
+        this.currentSubTab = 'keyboard';
+        this.updateDOM();
+      });
+    }
+
+    const touchpad = view.querySelector('#remoteTouchpad');
+    const ripple = view.querySelector('#remoteTouchpadRipple');
+    const speedSel = view.querySelector('#remoteMouseSpeed');
+    const coordsEl = view.querySelector('#remoteMouseCoords');
+    const releaseBtn = view.querySelector('#mouseReleaseAllBtn');
+    const btnLeft = view.querySelector('#remoteBtnMouseLeft');
+    const btnMiddle = view.querySelector('#remoteBtnMouseMiddle');
+    const btnRight = view.querySelector('#remoteBtnMouseRight');
+    const btnWheelUp = view.querySelector('#remoteBtnWheelUp');
+    const btnWheelDown = view.querySelector('#remoteBtnWheelDown');
+
+    const getSpeed = () => Number(speedSel?.value) || 1.0;
+
+    const sendMouse = (payload) => {
+      if (this.client && typeof this.client.sendBtMouse === 'function') {
+        return this.client.sendBtMouse({ ...payload, target: btTarget });
+      }
+    };
+
+    if (releaseBtn) {
+      releaseBtn.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ action: 'up', button: 'left' });
+        sendMouse({ action: 'up', button: 'middle' });
+        sendMouse({ action: 'up', button: 'right' });
+        if (coordsEl) coordsEl.textContent = 'Released';
+      });
+    }
+
+    if (btnLeft) {
+      btnLeft.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ action: 'click', button: 'left' });
+      });
+    }
+
+    if (btnMiddle) {
+      btnMiddle.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ action: 'click', button: 'middle' });
+      });
+    }
+
+    if (btnRight) {
+      btnRight.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ action: 'click', button: 'right' });
+      });
+    }
+
+    if (btnWheelUp) {
+      btnWheelUp.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ wheel: 1 });
+      });
+    }
+
+    if (btnWheelDown) {
+      btnWheelDown.addEventListener('click', async () => {
+        await this.triggerHaptic();
+        sendMouse({ wheel: -1 });
+      });
+    }
+
+    if (touchpad) {
+      let touchStartX = 0, touchStartY = 0;
+      let lastX = 0, lastY = 0;
+      let touchStartTime = 0;
+      let totalDist = 0;
+      let isScrollZone = false;
+      let scrollAcc = 0;
+      let isMouseDown = false;
+
+      touchpad.addEventListener('touchstart', (e) => {
+        if (!e.touches.length) return;
+        const t = e.touches[0];
+        const rect = touchpad.getBoundingClientRect();
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        lastX = t.clientX;
+        lastY = t.clientY;
+        touchStartTime = Date.now();
+        totalDist = 0;
+        scrollAcc = 0;
+        isScrollZone = (t.clientX >= rect.right - 48);
+        touchpad.classList.add('touching');
+        if (ripple) {
+          ripple.style.left = `${t.clientX - rect.left}px`;
+          ripple.style.top = `${t.clientY - rect.top}px`;
+          ripple.style.display = 'block';
+        }
+      }, { passive: true });
+
+      touchpad.addEventListener('touchmove', (e) => {
+        if (!e.touches.length) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        const rect = touchpad.getBoundingClientRect();
+        const rawDx = t.clientX - lastX;
+        const rawDy = t.clientY - lastY;
+        lastX = t.clientX;
+        lastY = t.clientY;
+        totalDist += Math.hypot(rawDx, rawDy);
+
+        if (ripple) {
+          ripple.style.left = `${t.clientX - rect.left}px`;
+          ripple.style.top = `${t.clientY - rect.top}px`;
+        }
+
+        if (isScrollZone || e.touches.length >= 2) {
+          scrollAcc += rawDy;
+          if (Math.abs(scrollAcc) >= 14) {
+            const wheel = scrollAcc < 0 ? 1 : -1;
+            sendMouse({ wheel });
+            scrollAcc = 0;
+          }
+        } else {
+          const speed = getSpeed();
+          const dx = Math.max(-127, Math.min(127, Math.round(rawDx * speed)));
+          const dy = Math.max(-127, Math.min(127, Math.round(rawDy * speed)));
+          if (dx !== 0 || dy !== 0) {
+            sendMouse({ dx, dy });
+            if (coordsEl) coordsEl.textContent = `dx: ${dx}, dy: ${dy}`;
+          }
+        }
+      }, { passive: false });
+
+      touchpad.addEventListener('touchend', async () => {
+        touchpad.classList.remove('touching');
+        if (ripple) ripple.style.display = 'none';
+        const duration = Date.now() - touchStartTime;
+        if (duration < 250 && totalDist < 10) {
+          await this.triggerHaptic();
+          sendMouse({ action: 'click', button: 'left' });
+          if (coordsEl) coordsEl.textContent = 'Tap Click (Left)';
+        }
+      });
+
+      touchpad.addEventListener('touchcancel', () => {
+        touchpad.classList.remove('touching');
+        if (ripple) ripple.style.display = 'none';
+      });
+
+      // Desktop Mouse / Pointer support
+      touchpad.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isMouseDown = true;
+        const rect = touchpad.getBoundingClientRect();
+        lastX = e.clientX;
+        lastY = e.clientY;
+        touchStartTime = Date.now();
+        totalDist = 0;
+        scrollAcc = 0;
+        isScrollZone = (e.clientX >= rect.right - 48);
+        touchpad.classList.add('touching');
+        if (ripple) {
+          ripple.style.left = `${e.clientX - rect.left}px`;
+          ripple.style.top = `${e.clientY - rect.top}px`;
+          ripple.style.display = 'block';
+        }
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isMouseDown) return;
+        const rect = touchpad.getBoundingClientRect();
+        const rawDx = e.clientX - lastX;
+        const rawDy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        totalDist += Math.hypot(rawDx, rawDy);
+
+        if (ripple) {
+          ripple.style.left = `${Math.max(0, Math.min(rect.width, e.clientX - rect.left))}px`;
+          ripple.style.top = `${Math.max(0, Math.min(rect.height, e.clientY - rect.top))}px`;
+        }
+
+        if (isScrollZone) {
+          scrollAcc += rawDy;
+          if (Math.abs(scrollAcc) >= 14) {
+            const wheel = scrollAcc < 0 ? 1 : -1;
+            sendMouse({ wheel });
+            scrollAcc = 0;
+          }
+        } else {
+          const speed = getSpeed();
+          const dx = Math.max(-127, Math.min(127, Math.round(rawDx * speed)));
+          const dy = Math.max(-127, Math.min(127, Math.round(rawDy * speed)));
+          if (dx !== 0 || dy !== 0) {
+            sendMouse({ dx, dy });
+            if (coordsEl) coordsEl.textContent = `dx: ${dx}, dy: ${dy}`;
+          }
+        }
+      });
+
+      window.addEventListener('mouseup', async () => {
+        if (!isMouseDown) return;
+        isMouseDown = false;
+        touchpad.classList.remove('touching');
+        if (ripple) ripple.style.display = 'none';
+        const duration = Date.now() - touchStartTime;
+        if (duration < 250 && totalDist < 6) {
+          await this.triggerHaptic();
+          sendMouse({ action: 'click', button: 'left' });
+          if (coordsEl) coordsEl.textContent = 'Click (Left)';
+        }
+      });
+
+      touchpad.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const wheel = e.deltaY < 0 ? 1 : -1;
+        sendMouse({ wheel });
+      }, { passive: false });
+    }
+
+    // Quick shortcuts event delegation
+    view.querySelectorAll('.kb-btn-action').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = btn.getAttribute('data-code');
+        const fallback = btn.getAttribute('data-fallback') || '';
+        btn.classList.add('active-press');
+        setTimeout(() => btn.classList.remove('active-press'), 150);
+        await this.triggerHaptic();
+        let sent = false;
+        try {
+          if (this.client && typeof this.client.sendBtKey === 'function') {
+            await this.client.sendBtKey(code, 'tap');
+            sent = true;
+          }
+        } catch {
+          sent = false;
+        }
+        if (!sent && devId && fallback && this.onSendCallback) {
+          const patterns = fallback.split(',').map(s => s.trim());
+          const cmd = this.findCmdInDevice(devId, patterns);
+          if (cmd) {
+            this.onSendCallback(devId, cmd);
+          }
         }
       });
     });
