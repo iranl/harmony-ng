@@ -2,12 +2,16 @@
 
 This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`codex_elite`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010).
 
+> [!NOTE]
+> **Harmony Ultimate (Home) & Touch Compatibility**:
+> Harmony Ultimate (Home) and Harmony Touch share the same underlying hardware platform and USB interface. They **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
+
 ---
 
 ## 1. Prerequisites & Getting the Files
 
 ### Hardware & Driver Requirements
-- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010).
+- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), or Harmony Ultimate (Home) / Touch (*untested, try at own risk*).
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **RNDIS Network Driver**: Installed on host PC (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).

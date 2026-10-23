@@ -2,6 +2,7 @@ AGENTS.md
 .agents/
 dist/
 artifacts/
+firmware/
 release/
 data/
 background/

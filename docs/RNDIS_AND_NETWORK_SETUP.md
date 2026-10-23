@@ -32,7 +32,10 @@ The USB Ethernet gadget uses fixed IP subnets on each device:
 | Device | Device USB IP | Recommended Host PC IP | Subnet Mask | Gateway |
 | :--- | :--- | :--- | :--- | :--- |
 | **Harmony Hub** (Stock / Recovery) | `192.168.1.1` | `192.168.1.2` | `255.255.255.0` | `192.168.1.1` |
-| **Harmony Elite 950 Remote** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` | `192.168.2.1` |
+| **Harmony Elite 950 / Ultimate / Touch** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` | `192.168.2.1` |
+
+> [!NOTE]
+> Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling and network setup as Elite, but are currently untested, try at your own risk.
 
 ### Setting Host Static IP in Windows:
 1. Press `Win + R`, type `ncpa.cpl`, and press **Enter** to open Network Connections.

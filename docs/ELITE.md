@@ -1,5 +1,9 @@
 # Logitech Harmony Elite Remote Hacking & Support
 
+> [!NOTE]
+> **Hardware Family Compatibility**:
+> Harmony Ultimate (Home) and Harmony Touch share the same underlying architecture and USB PID (`046d:c12b`). They **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
+
 ## Serial Console & U-Boot (UART)
 Baud rate: `115200 8N1` on serial pad.
 

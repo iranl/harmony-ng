@@ -11,7 +11,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
 | **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub, Micro-USB cable, PC (Windows, macOS, or Linux) |
-| **Harmony Elite 950** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Elite Remote, Micro-USB cable, PC |
+| **Harmony Elite 950** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Elite Remote, Micro-USB cable, PC *(Ultimate/Touch should also work with same tooling, untested)* |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **USB Ethernet Setup** | [**USB Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | OTG Micro-USB Ethernet Adapter, RJ45 cable |
@@ -90,6 +90,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 
 1. **No Harmony Companion / Smart Control Remote Support (Yet)**:
    - Harmony Elite 950 handheld touchscreen remotes are fully supported via the CC2544 2.4GHz RF engine.
+   - Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
    - The button-only Harmony Companion and Smart Control remotes utilize a different RF pairing and payload handshake that is not yet implemented. Protocol contributions and pull requests are warmly welcomed!
 2. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
    - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on native hardware-direct IR (I2S DMA register pulsing) and Bluetooth HID control.
