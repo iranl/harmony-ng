@@ -61,30 +61,31 @@ Upon screen wake (`fb_set_blank(false)`), the Clearpad input event descriptor is
 
 ---
 
-## 3. Two-Stage Gyro Polling & Deep Standby (>30m)
+## 3. Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)
 
-The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. Stock firmware polls the sensor over I2C at 100 Hz. In `codex_elite`, motion polling uses a 3-tier power-saving schedule:
+The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `codex_elite`, motion wake is entirely **event-driven via hardware interrupt**:
 
-1. **Active / Recent Standby (0 - 5 min)**:
-   - Polling rate: **5 Hz (200 ms)** when stationary, **25 Hz (40 ms)** when moving.
-   - Sensor descriptor kept open across iterations to eliminate syscall overhead.
-2. **Extended Standby (5 - 30 min)**:
-   - Polling rate: throttled to **1 Hz (1,000 ms)** when stationary, **20 Hz (50 ms)** when moving.
-   - Reduces I2C traffic by 80% while preserving lift-to-wake responsiveness.
-3. **Deep Standby (> 30 min)**:
-   - Gyro I2C polling is **completely suspended (0 Hz)**.
-   - Sensor descriptor closed. Eliminates all 18,000 I2C reads/hour, saving ~4.0 mA.
+1. **Light Standby (0 - 30 min)**:
+   - Configures LIS3DH INT1 threshold (`int1_threshold=10`, `int1_duration=3`).
+   - Motion assertions route directly to Linux GPIO IRQ 108 (`/dev/input/event1`).
+   - Main event thread `select()` multiplexes `/dev/input/event1` with physical buttons.
+   - **Zero I2C bus transactions** while stationary (eliminates 18,000 I2C reads/hour, saving ~4.0 mA).
+   - Instantaneous wake on pickup when acceleration exceeds threshold.
+2. **Deep Standby (> 30 min)**:
+   - Accelerometer descriptor is removed from `select()` sets.
+   - Prevents accidental nudges from waking the remote during sleep.
    - **Wake Trigger**: Any physical keypad button instantly wakes the remote from Deep Standby.
 
 ---
 
-## 4. Main Event Loop Timeout Scaling
+## 4. Main Event Loop & Power Watcher Throttling
 
-The remote's UI and input dispatch thread runs an event-driven `select()` loop monitoring `/dev/input/event0` (physical buttons) and `/dev/rfspi`.
+The remote's UI and input dispatch thread runs an event-driven `select()` loop monitoring `/dev/input/event0` (physical buttons), `/dev/input/event1` (accelerometer motion interrupt), and `/dev/rfspi`.
 - When active: `select()` timeout is **100 ms**.
-- When in Light Standby (0 - 30 min): `select()` timeout scales to **5 seconds**.
+- When in Light Standby (0 - 30 min): `select()` timeout scales to **10 seconds**.
 - When in Deep Standby (> 30 min): `select()` timeout scales to **30 seconds**.
-This cuts unnecessary CPU context switches and timer wakeups to negligible levels, allowing the ARM9 core to stay in low-power Wait-For-Interrupt (WFI) idle.
+- Background `power_manager` sleeps for **10 seconds** in standby (reduced from 1s).
+- Battery voltage sampling (`read_elite_battery()`) throttles from every 60s to **300s (5 min)** in standby.
 
 ---
 
@@ -92,7 +93,7 @@ This cuts unnecessary CPU context switches and timer wakeups to negligible level
 
 | Standby State | Duration | Wake Triggers | Active Sensors |
 | :--- | :--- | :--- | :--- |
-| **Light Standby** | 0 – 30 minutes | • **Motion / Pickup** (LIS3DH accelerometer)<br>• **Any Physical Button** | Gyro (1–5 Hz) |
+| **Light Standby** | 0 – 30 minutes | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
 | **Deep Standby** | > 30 minutes | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.) | None (Hardware IRQ only) |
 
 *Note: Touchscreen glass tap does not wake the remote in either standby mode because Clearpad is powered down to prevent accidental activation.*

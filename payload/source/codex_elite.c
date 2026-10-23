@@ -38,8 +38,10 @@
 #define BTN_EVENT_DEV       "/dev/input/event0"
 #define GYRO_EVENT_DEV      "/dev/input/event1"
 #define TOUCH_EVENT_DEV     "/dev/input/event2"
-#define GYRO_DATA_RATE_SYS  "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/data_rate"
-#define GYRO_XYZ_SYS        "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/xyz"
+#define GYRO_DATA_RATE_SYS      "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/data_rate"
+#define GYRO_INT1_THRESHOLD_SYS "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_threshold"
+#define GYRO_INT1_DURATION_SYS  "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/int1_duration"
+#define GYRO_XYZ_SYS            "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0019/xyz"
 #define RFSPI_DEV                 "/dev/rfspi"
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
 #define STOCK_ACTIVITY_JSON_FILE  "/data/resources/ActivityList.json"
@@ -967,11 +969,14 @@ static uint64_t s_last_blank_time_ms = 0;
 
 static void fb_set_blank(bool blank) {
     int blank_res = -1;
+    if (g_fb_fd >= 0) {
+        blank_res = ioctl(g_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
+    }
     int fd = open(FB_BLANK_SYSFS, O_WRONLY);
     if (fd >= 0) {
         /* da8xx_lcdc driver supports FB_BLANK_POWERDOWN (4) and FB_BLANK_UNBLANK (0) */
         const char *val = blank ? "4\n" : "0\n";
-        blank_res = (int)write(fd, val, strlen(val));
+        write(fd, val, strlen(val));
         close(fd);
     }
     g_screen_on = !blank;
@@ -995,6 +1000,10 @@ static void fb_set_blank(bool blank) {
         set_backlight_level(0);
         set_cpu_freq_standby(true);
         clearpad_sleep();
+        if (g_gyro_fd >= 0) {
+            struct input_event ev[16];
+            while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
+        }
         read_elite_battery();
         bool usb_plug = is_usb_hardware_connected();
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
@@ -4505,15 +4514,8 @@ static void reset_idle_timer(void) {
     }
 }
 
-/* Motion / Gyro Watcher Thread (polls sysfs xyz delta) */
-static void *gyro_watcher(void *arg) {
-    (void)arg;
-    int last_x = 0, last_y = 0, last_z = 0;
-    bool has_baseline = false;
-    int gyro_fd = -1;
-    int stationary_count = 0;
-
-    /* Initialize accelerometer sampling */
+/* Accelerometer Hardware Motion Interrupt Initialization (INT1 / event1) */
+static void init_gyro_interrupt(void) {
     int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
     if (fdr >= 0) {
         char rstr[16];
@@ -4521,97 +4523,18 @@ static void *gyro_watcher(void *arg) {
         write(fdr, rstr, strlen(rstr));
         close(fdr);
     }
-
-    while (g_running) {
-        if (!g_gyro_enabled) {
-            if (gyro_fd >= 0) { close(gyro_fd); gyro_fd = -1; }
-            usleep(1000000);
-            continue;
-        }
-        if (g_screen_on) {
-            /* Screen is already awake - skip sysfs I/O, close fd, and sleep to save battery */
-            if (gyro_fd >= 0) { close(gyro_fd); gyro_fd = -1; }
-            usleep(500000);
-            has_baseline = false;
-            stationary_count = 0;
-            continue;
-        }
-
-        uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
-        if (standby_s >= 1800) {
-            /* Deep Standby (>30m): suspend gyro I2C polling completely */
-            if (gyro_fd >= 0) { close(gyro_fd); gyro_fd = -1; }
-            static uint64_t s_last_deep_log_ms = 0;
-            uint64_t now_ms = get_monotonic_ms();
-            if (now_ms - s_last_deep_log_ms > 3600000) {
-                s_last_deep_log_ms = now_ms;
-                log_power_debug("[*] Deep Standby: >30m sleep, gyro polling suspended (wake via physical button)\n");
-            }
-            usleep(1000000);
-            has_baseline = false;
-            stationary_count = 0;
-            continue;
-        }
-
-        /* Screen is off (standby). Keep fd open across iterations to eliminate syscalls */
-        if (gyro_fd < 0) {
-            gyro_fd = open(GYRO_XYZ_SYS, O_RDONLY);
-            if (gyro_fd < 0) {
-                usleep(200000);
-                continue;
-            }
-        } else {
-            lseek(gyro_fd, 0, SEEK_SET);
-        }
-
-        /* Adaptive polling:
-         * 0-5m standby: 200ms (5Hz) when stationary, 40ms when moving.
-         * 5-30m standby: 1000ms (1Hz) when stationary, 50ms when moving. */
-        useconds_t sleep_us;
-        if (standby_s >= 300) {
-            sleep_us = (stationary_count > 10) ? 1000000 : 50000;
-        } else {
-            sleep_us = (stationary_count > 10) ? 200000 : 40000;
-        }
-        usleep(sleep_us);
-
-        char buf[64];
-        ssize_t n = read(gyro_fd, buf, sizeof(buf) - 1);
-        if (n <= 0) {
-            close(gyro_fd);
-            gyro_fd = -1;
-            continue;
-        }
-
-        buf[n] = '\0';
-        int x = 0, y = 0, z = 0;
-        if (sscanf(buf, "%d %d %d", &x, &y, &z) == 3) {
-            if (!has_baseline) {
-                last_x = x; last_y = y; last_z = z;
-                has_baseline = true;
-                continue;
-            }
-            int dx = abs(x - last_x);
-            int dy = abs(y - last_y);
-            int dz = abs(z - last_z);
-            last_x = x; last_y = y; last_z = z;
-
-            if (dx > 50 || dy > 50 || dz > 50) {
-                /* Motion detected: ramp up to high rate */
-                stationary_count = 0;
-                if (!g_screen_on) {
-                    if (dx > 200 || dy > 200 || dz > 200) {
-                        printf("[*] Gyro wake gesture detected (dx=%d, dy=%d, dz=%d)\n", dx, dy, dz);
-                        reset_idle_timer();
-                    }
-                }
-            } else {
-                if (stationary_count <= 20) stationary_count++;
-            }
-        }
+    int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
+    if (fdt >= 0) {
+        write(fdt, "10\n", 3);
+        close(fdt);
     }
-    if (gyro_fd >= 0) close(gyro_fd);
-    return NULL;
+    int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
+    if (fdd >= 0) {
+        write(fdd, "3\n", 2);
+        close(fdd);
+    }
+    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=10, dur=3)\n",
+           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
 }
 
 static volatile sig_atomic_t g_wake_requested = 0;
@@ -4635,9 +4558,9 @@ static void *power_manager(void *arg) {
 
     while (g_running) {
         if (!g_screen_on) {
-            usleep(1000000); /* 1s sleep when screen blanked */
+            usleep(10000000); /* 10s sleep when screen blanked (was 1s) */
             uint64_t now_ms = get_monotonic_ms();
-            if (now_ms - last_standby_heartbeat_ms >= 60000) {
+            if (now_ms - last_standby_heartbeat_ms >= 300000) { /* 300s / 5m heartbeat (was 60s) */
                 last_standby_heartbeat_ms = now_ms;
                 read_elite_battery();
                 char cstat[96];
@@ -5424,8 +5347,11 @@ int main(int argc, char **argv) {
         }
 
         g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK);
-        if (g_gyro_fd >= 0 && !g_gyro_enabled) {
-            set_gyro_enabled(false);
+        if (g_gyro_fd >= 0) {
+            init_gyro_interrupt();
+            if (!g_gyro_enabled) {
+                set_gyro_enabled(false);
+            }
         }
     }
 
@@ -5503,9 +5429,8 @@ int main(int argc, char **argv) {
     printf("[+] Listening on %s for physical buttons...\n", BTN_EVENT_DEV);
 
     /* Background Threads */
-    pthread_t th_power, th_gyro, th_repeat;
+    pthread_t th_power, th_repeat;
     pthread_create(&th_power, NULL, power_manager, NULL);
-    pthread_create(&th_gyro, NULL, gyro_watcher, NULL);
     pthread_create(&th_repeat, NULL, key_repeat_thread, NULL);
 
     /* Initial Render */
@@ -5526,14 +5451,18 @@ int main(int argc, char **argv) {
             FD_SET(g_touch_fd, &rfds);
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
+        uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
+        if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && standby_s < 1800) {
+            FD_SET(g_gyro_fd, &rfds);
+            if (g_gyro_fd > max_fd) max_fd = g_gyro_fd;
+        }
 
         struct timeval tv;
         if (g_screen_on) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
-            uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
-            tv.tv_sec = (standby_s >= 1800) ? 30 : 5;
+            tv.tv_sec = (standby_s >= 1800) ? 30 : 10;
             tv.tv_usec = 0;
         }
         int sel = select(max_fd + 1, &rfds, NULL, NULL, &tv);
@@ -5923,6 +5852,18 @@ int main(int argc, char **argv) {
                         printf("[*] Touch DOWN latched on SYN at (%d, %d)\n", g_touch_down_x, g_touch_down_y);
                     }
                 }
+            }
+        }
+
+        /* 3. Accelerometer Hardware Motion Wake (event1 / INT1) */
+        if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
+            struct input_event ev[16];
+            ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
+            if (n > 0 && !g_screen_on && g_gyro_enabled && standby_s < 1800) {
+                log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
+                reset_idle_timer();
+                fb_set_blank(false);
+                render_screen();
             }
         }
     }

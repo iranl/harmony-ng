@@ -94,7 +94,7 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 | Standby Tier | Timeout Range | Hardware State | Wake Triggers |
 | :--- | :--- | :--- | :--- |
 | **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-50 Hz | N/A |
-| **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU @ 24 MHz WFI, Gyro throttled (5Hz 0-5m, 1Hz 5-30m) | • **Pickup / Motion** (LIS3DH accelerometer)<br>• **Any Physical Button** |
+| **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
 | **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
 
 > [!NOTE]
@@ -113,11 +113,13 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 ### Key Power Mechanisms in `codex_elite`
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
 2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
-3. **Two-Stage Gyro Polling & Suspension**:
-   - *0 - 5 min*: 5 Hz (200 ms) stationary, 25 Hz (40 ms) moving.
-   - *5 - 30 min*: 1 Hz (1,000 ms) stationary, 20 Hz (50 ms) moving.
-   - *> 30 min*: Gyro file descriptor closed; all 18,000 I2C transactions/hour eliminated (saves ~4.0 mA).
-4. **Event Loop Timeout Scaling**: The main `select()` event loop timeout scales from 100 ms (active) to 5 s (0-30m standby) to 30 s (>30m Deep Standby), minimizing context switches and timer wakeups.
+3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
+   - Configures LIS3DH hardware motion threshold (`int1_threshold=10`, `int1_duration=3`).
+   - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.
+   - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons during Light Standby (0-30m).
+   - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
+   - After 30 minutes (Deep Standby), `/dev/input/event1` is detached to prevent accidental motion wakes.
+4. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
 
 ---
 
