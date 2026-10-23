@@ -2420,7 +2420,7 @@ static void http_process_request(int client_fd, const char *req) {
 
         char cmd[512] = {0};
         snprintf(cmd, sizeof(cmd),
-            "nohup /bin/sh -c 'sleep 1; if [ -x /data/codex/update.sh ]; then /data/codex/update.sh apply \"%s\" \"%s\"; elif [ -x /data/codex/scripts/update.sh ]; then /data/codex/scripts/update.sh apply \"%s\" \"%s\"; else /data/codex/init.sh restart; fi' >/tmp/update_apply.log 2>&1 &",
+            "/bin/sh -c 'sleep 1; if [ -x /data/codex/update.sh ]; then /data/codex/update.sh apply \"%s\" \"%s\"; elif [ -x /data/codex/scripts/update.sh ]; then /data/codex/scripts/update.sh apply \"%s\" \"%s\"; else /data/codex/init.sh restart; fi' >/tmp/update_apply.log 2>&1 &",
             repo, token, repo, token);
         system(cmd);
 
