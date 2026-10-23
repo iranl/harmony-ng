@@ -86,6 +86,8 @@ fi
 # 5. Launch custom Elite runtime
 if [ -x /data/init.sh ]; then
     /data/init.sh &
+elif [ -x /data/codex_watchdog.sh ]; then
+    /data/codex_watchdog.sh &
 elif [ -x /data/codex_elite ]; then
     /data/codex_elite > /tmp/codex_elite.log 2>&1 &
 fi

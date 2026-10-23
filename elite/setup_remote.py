@@ -435,7 +435,7 @@ def update_ssh_config(key_path: pathlib.Path) -> None:
 # STEP 2: Install Dropbear & Persistence
 # ==============================================================================
 
-def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
+def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False) -> bool:
     print("\n" + "=" * 70)
     print(" [STEP 2/2] INSTALLING PERSISTENT DROPBEAR SSH & USB ETHERNET")
     print("=" * 70)
@@ -585,6 +585,15 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
             print(f"    -> {b}")
             subprocess.run(["scp"] + scp_opts + [str(src), f"{target}:/data/{b}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    # Upload codex_watchdog.sh supervisor script
+    watchdog_src = find_candidate([
+        REPO_DIR / "elite" / "codex_watchdog.sh",
+        SCRIPT_DIR / "codex_watchdog.sh",
+    ])
+    if watchdog_src.is_file():
+        print("[*] Uploading /data/codex_watchdog.sh supervisor script...")
+        subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/codex_watchdog.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
         REPO_DIR / "rcS.local",
@@ -595,8 +604,12 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
         print("[*] Uploading /etc/init.d/rcS.local (reboot counter & force USB Ethernet)...")
         subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Finalize permissions, symlinks, and launch codex_elite
-    print("[*] Finalizing permissions and starting codex_elite...")
+    if no_screen:
+        print("[*] Configuring No-Screen mode in /data/codex_elite.conf...")
+        subprocess.run(["ssh"] + ssh_opts + [target, "touch /data/codex_elite.conf; sed -i '/no_screen=/d' /data/codex_elite.conf 2>/dev/null; echo 'no_screen=1' >> /data/codex_elite.conf"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Finalize permissions, symlinks, and launch codex_elite (via watchdog if present)
+    print("[*] Finalizing permissions and starting codex_elite supervisor...")
     post_cmds = (
         "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/usbhid /usr/bin/watchdog 2>/dev/null || true; "
@@ -604,8 +617,8 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path) -> bool:
         "ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /data/dropbear 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /usr/sbin/dropbear 2>/dev/null || true; "
-        "killall -9 codex_elite 2>/dev/null || true; "
-        "/data/codex_elite > /tmp/codex_elite.log 2>&1 & "
+        "killall -9 codex_watchdog.sh codex_elite 2>/dev/null || true; "
+        "if [ -x /data/codex_watchdog.sh ]; then /data/codex_watchdog.sh > /dev/null 2>&1 & else /data/codex_elite > /tmp/codex_elite.log 2>&1 & fi; "
         "sleep 1; pidof codex_elite || echo 'offline'"
     )
     res = subprocess.run(["ssh"] + ssh_opts + [target, post_cmds], capture_output=True, text=True)
@@ -624,12 +637,15 @@ def main():
     parser.add_argument("--key", type=pathlib.Path, default=DEFAULT_KEY_PATH, help="Path to SSH key.")
     parser.add_argument("--skip-fw-check", action="store_true", help="Skip checking for latest official Logitech firmware.")
     parser.add_argument("--factory-reset", action="store_true", help="Revert Harmony Elite to official stock firmware.")
+    parser.add_argument("--no-screen", action="store_true", help="Install in no-screen mode (for remotes with broken screens).")
     args = parser.parse_args()
 
     print("=" * 70)
     print(" LOGITECH HARMONY ELITE / 950 - ALL-IN-ONE SETUP")
     if args.factory_reset:
         print(" MODE: FACTORY RESET & STOCK RESTORATION")
+    if args.no_screen:
+        print(" MODE: NO-SCREEN HEADLESS (PHYSICAL BUTTON FORWARDING)")
     print("=" * 70)
 
     if args.factory_reset:
@@ -642,7 +658,7 @@ def main():
             sys.exit(1)
         print("[*] Reverting remote to stock configuration...")
         revert_cmds = [
-            "killall -9 codex_elite 2>/dev/null || true",
+            "killall -9 codex_watchdog.sh codex_elite 2>/dev/null || true",
             "if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else rm -f /etc/init.d/rcS.local; fi",
             "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true",
             "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log 2>/dev/null || true",
@@ -677,7 +693,7 @@ def main():
         if not probe_remote():
             print(f"[-] Cannot reach {REMOTE_IP}:{REMOTE_PORT}. Ensure USB Ethernet is enabled.")
             sys.exit(1)
-        if not step2_install_permanent_ssh(pub_path):
+        if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
             sys.exit(1)
         print_success(priv_path)
         return
@@ -690,7 +706,7 @@ def main():
 
     if probe_remote():
         print(f"[+] Remote USB Ethernet already active at {REMOTE_IP}:{REMOTE_PORT}. Running Step 2...")
-        if not step2_install_permanent_ssh(pub_path):
+        if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
             print("[-] Step 2 failed.")
         else:
             print_success(priv_path)

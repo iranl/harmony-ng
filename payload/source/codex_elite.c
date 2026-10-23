@@ -81,6 +81,12 @@ typedef enum {
 
 static ui_view_t g_current_view = VIEW_ACTIVITIES;
 static int g_remote_mode = 0;         /* 0 = Activities, 1 = Direct Device Mode */
+static bool g_no_screen_mode = false;
+#define LOG_LEVEL_ERR   0
+#define LOG_LEVEL_WARN  1
+#define LOG_LEVEL_INFO  2
+#define LOG_LEVEL_DEBUG 3
+static int g_log_level = LOG_LEVEL_INFO;
 static void rf_send_full_sync_request(void);
 static void rf_wake_and_reconnect(void);
 
@@ -1142,6 +1148,8 @@ static void load_settings_conf(void) {
             else if (strcmp(key, "usbeth") == 0) g_usbeth_enabled = (val != 0);
             else if (strcmp(key, "power_debug") == 0) g_power_debug = (val != 0);
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
+            else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
+            else if (strcmp(key, "log_level") == 0) g_log_level = val;
             else if (strcmp(key, "tz") == 0) {
                 strncpy(g_timezone_str, sval, sizeof(g_timezone_str) - 1);
                 setenv("TZ", g_timezone_str, 1);
@@ -1150,6 +1158,9 @@ static void load_settings_conf(void) {
         }
     }
     fclose(f);
+    if (access("/data/debug_logging.conf", F_OK) == 0) {
+        g_log_level = LOG_LEVEL_DEBUG;
+    }
     if (!g_touch_enabled) {
         g_screen_nav_mode = true;
     }
@@ -1174,6 +1185,8 @@ static void save_settings_conf(void) {
     fprintf(f, "timeout=%d\n", g_timeout_seconds);
     fprintf(f, "brightness=%d\n", g_brightness_val);
     fprintf(f, "screen=1\n");
+    fprintf(f, "no_screen=%d\n", g_no_screen_mode ? 1 : 0);
+    fprintf(f, "log_level=%d\n", g_log_level);
     fprintf(f, "nav_key=%d\n", g_nav_toggle_key);
     fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
@@ -2051,10 +2064,12 @@ static int rf_send_frame(rf_frame_t *frame) {
     out[6] = frame->flags;
     memcpy(&out[7], frame->payload, 25);
 
-    printf("[*] RF TX (32 bytes Report 0x20): ");
-    for (int i = 0; i < 32; i++) printf("%02X ", out[i]);
-    printf("\n");
-    fflush(stdout);
+    if (g_log_level >= LOG_LEVEL_DEBUG) {
+        printf("[*] RF TX (32 bytes Report 0x20): ");
+        for (int i = 0; i < 32; i++) printf("%02X ", out[i]);
+        printf("\n");
+        fflush(stdout);
+    }
 
     pthread_mutex_lock(&g_rf_write_mutex);
     int ret = write(g_rf_fd, out, 32);
@@ -2163,6 +2178,18 @@ static void rf_stop_pairing(void) {
 /* Unpair from Hub: completely wipe bonding from CC2544 flash and clear local config */
 static void rf_unpair(void) {
     if (g_rf_fd < 0) return;
+
+    /* Notify Hub over RF before removing bonding */
+    rf_frame_t unpair_f;
+    memset(&unpair_f, 0, sizeof(unpair_f));
+    unpair_f.report_id = 0x20;
+    unpair_f.sub_id = 0x12;
+    unpair_f.msg_type = RF_MSG_UNPAIR_NOTIFY;
+    unpair_f.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
+    unpair_f.seq = g_tx_seq++;
+    rf_send_frame(&unpair_f);
+    usleep(30000);
+
     g_pairing_state = 0;
     g_rf_link_connected = false;
 
@@ -2680,17 +2707,35 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             if (f->payload[13] <= 23) g_night_start_hour = f->payload[13];
             if (f->payload[14] <= 23) g_night_end_hour = f->payload[14];
             g_usbeth_enabled = (f->payload[15] != 0);
+            bool prev_no_screen = g_no_screen_mode;
+            g_no_screen_mode = (f->payload[17] != 0);
 
-            set_backlight_level(g_brightness_val);
+            if (g_no_screen_mode) {
+                set_backlight_level(0);
+                g_screen_on = false;
+            } else {
+                g_screen_on = true;
+                set_backlight_level(g_brightness_val);
+            }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d\n",
                    g_brightness_val, g_touch_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
                    g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity, g_remote_mode,
-                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled);
+                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
-            render_screen();
+
+            if (prev_no_screen && !g_no_screen_mode && !g_fb_mem) {
+                /* Remote booted in headless mode; restart via watchdog to cleanly init framebuffer and touch */
+                printf("[*] Screen re-enabled from WebUI. Restarting codex_elite to initialize display...\n");
+                usleep(150000);
+                _exit(0);
+            }
+
+            if (!g_no_screen_mode) {
+                render_screen();
+            }
             break;
         }
 
@@ -2776,11 +2821,34 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             printf("[+] RF OTA END received! Received %u bytes (%u chunks). Verifying...\n",
                    g_ota_received_bytes, g_ota_received_chunks);
 
-            system("gzip -d -c /tmp/codex_elite.ota.gz > /data/codex_elite.new 2>/dev/null || cat /tmp/codex_elite.ota.gz > /data/codex_elite.new");
-            system("chmod +x /data/codex_elite.new");
+            // 1. Attempt extracting as tar package (bundle containing binary + scripts)
+            system("rm -rf /tmp/elite_ota_pkg && mkdir -p /tmp/elite_ota_pkg");
+            int tar_rc = system("tar -xzf /tmp/codex_elite.ota.gz -C /tmp/elite_ota_pkg 2>/dev/null || "
+                                "/data/busybox tar -xzf /tmp/codex_elite.ota.gz -C /tmp/elite_ota_pkg 2>/dev/null || "
+                                "/bin/busybox tar -xzf /tmp/codex_elite.ota.gz -C /tmp/elite_ota_pkg 2>/dev/null");
+
+            bool is_pkg = false;
+            char bin_path[128] = {0};
+
+            if (tar_rc == 0) {
+                if (access("/tmp/elite_ota_pkg/codex_elite", F_OK) == 0) {
+                    strcpy(bin_path, "/tmp/elite_ota_pkg/codex_elite");
+                    is_pkg = true;
+                } else if (access("/tmp/elite_ota_pkg/bin/codex_elite", F_OK) == 0) {
+                    strcpy(bin_path, "/tmp/elite_ota_pkg/bin/codex_elite");
+                    is_pkg = true;
+                }
+            }
+
+            // Fallback: legacy raw gzipped binary
+            if (!is_pkg) {
+                system("gzip -d -c /tmp/codex_elite.ota.gz > /data/codex_elite.new 2>/dev/null || cat /tmp/codex_elite.ota.gz > /data/codex_elite.new");
+                strcpy(bin_path, "/data/codex_elite.new");
+            }
+            system("chmod +x /tmp/elite_ota_pkg/codex_elite /data/codex_elite.new 2>/dev/null || true");
 
             bool valid_elf = false;
-            FILE *felf = fopen("/data/codex_elite.new", "rb");
+            FILE *felf = fopen(bin_path, "rb");
             if (felf) {
                 uint8_t hdr[4] = {0};
                 if (fread(hdr, 1, 4, felf) == 4) {
@@ -2793,8 +2861,31 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
 
             rf_frame_t ack;
             if (valid_elf) {
-                printf("[+] ELF header verified! Replacing /data/codex_elite...\n");
-                system("cp -f /data/codex_elite /data/codex_elite.bak 2>/dev/null; mv -f /data/codex_elite.new /data/codex_elite; rm -f /tmp/codex_elite.ota.gz");
+                printf("[+] ELF header verified! Replacing binary and installing scripts...\n");
+                system("cp -f /data/codex_elite /data/codex_elite.bak 2>/dev/null");
+
+                if (is_pkg) {
+                    // Install scripts from package
+                    if (access("/tmp/elite_ota_pkg/rcS.local", F_OK) == 0) {
+                        system("cp -f /tmp/elite_ota_pkg/rcS.local /etc/init.d/rcS.local && chmod 755 /etc/init.d/rcS.local");
+                        system("cp -f /tmp/elite_ota_pkg/rcS.local /data/rcS.local 2>/dev/null && chmod 755 /data/rcS.local 2>/dev/null || true");
+                    }
+                    if (access("/tmp/elite_ota_pkg/codex_watchdog.sh", F_OK) == 0) {
+                        system("cp -f /tmp/elite_ota_pkg/codex_watchdog.sh /data/codex_watchdog.sh && chmod 755 /data/codex_watchdog.sh");
+                    }
+                    if (access("/tmp/elite_ota_pkg/factory_reset.sh", F_OK) == 0) {
+                        system("cp -f /tmp/elite_ota_pkg/factory_reset.sh /data/factory_reset.sh && chmod 755 /data/factory_reset.sh");
+                    }
+                    system("for s in /tmp/elite_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/$(basename \"$s\")\"; done 2>/dev/null || true");
+                    char cp_cmd[256];
+                    snprintf(cp_cmd, sizeof(cp_cmd), "mv -f %s /data/codex_elite && chmod 755 /data/codex_elite", bin_path);
+                    system(cp_cmd);
+                } else {
+                    system("mv -f /data/codex_elite.new /data/codex_elite && chmod 755 /data/codex_elite");
+                }
+
+                system("rm -rf /tmp/elite_ota_pkg /tmp/codex_elite.ota.gz /data/codex_elite.new 2>/dev/null || true");
+
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
                 rf_send_frame(&ack);
 
@@ -2806,7 +2897,7 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 exit(0);
             } else {
                 printf("[-] OTA ELF verification failed! Corrupted transfer.\n");
-                system("rm -f /data/codex_elite.new /tmp/codex_elite.ota.gz");
+                system("rm -rf /tmp/elite_ota_pkg /data/codex_elite.new /tmp/codex_elite.ota.gz 2>/dev/null || true");
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x05);
                 rf_send_frame(&ack);
                 g_is_ota_updating = false;
@@ -2868,6 +2959,35 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_UNPAIR_NOTIFY: {
+            printf("[*] Remote: received UNPAIR_NOTIFY from Hub! Unpairing...\n");
+            g_pairing_state = 0;
+            g_rf_link_connected = false;
+            pthread_mutex_lock(&g_rf_write_mutex);
+            uint8_t enter_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x01, 0x00, 0x00};
+            if (write(g_rf_fd, enter_test, sizeof(enter_test)) < 0) {}
+            usleep(50000);
+            uint8_t clr_pipe20[20] = {0x11, 0xFF, 0x82, 0xB5, 0x20, 0};
+            if (write(g_rf_fd, clr_pipe20, sizeof(clr_pipe20)) < 0) {}
+            usleep(50000);
+            uint8_t clr_pipe30[20] = {0x11, 0xFF, 0x82, 0xB5, 0x30, 0};
+            if (write(g_rf_fd, clr_pipe30, sizeof(clr_pipe30)) < 0) {}
+            usleep(50000);
+            uint8_t exit_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x00, 0x00, 0x00};
+            if (write(g_rf_fd, exit_test, sizeof(exit_test)) < 0) {}
+            pthread_mutex_unlock(&g_rf_write_mutex);
+            show_notice("Hub unpaired this remote", 4000);
+            g_current_view = VIEW_PAIRING;
+            g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_CONFIG_PULL_REQ: {
+            printf("[*] Remote: received CONFIG_PULL_REQ from Hub, sending config backup...\n");
+            send_remote_config_backup_rf();
+            break;
+        }
+
         case RF_MSG_ACK:
             break;
 
@@ -2879,7 +2999,9 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
         }
 
         default:
-            printf("[*] Remote: unknown Codex frame type 0x%02X\n", f->msg_type);
+            if (g_log_level >= LOG_LEVEL_DEBUG) {
+                printf("[*] Remote: unknown Codex frame type 0x%02X\n", f->msg_type);
+            }
             break;
     }
 }
@@ -2929,9 +3051,13 @@ static void *rf_rx_worker(void *arg) {
                     }
                 }
             }
-            printf("[*] Remote RF CC2544 Link Status: %s (byte4=0x%02X byte5=0x%02X byte6=0x%02X, connected=%d)\n",
-                   cc2544_lost ? "LOST" : "ESTABLISHED", pkt[4], pkt[5], pkt[6], g_rf_link_connected);
-            fflush(stdout);
+            static bool s_prev_cc2544_lost = true;
+            if (cc2544_lost != s_prev_cc2544_lost || g_log_level >= LOG_LEVEL_DEBUG) {
+                s_prev_cc2544_lost = cc2544_lost;
+                printf("[*] Remote RF CC2544 Link Status: %s (byte4=0x%02X byte5=0x%02X byte6=0x%02X, connected=%d)\n",
+                       cc2544_lost ? "LOST" : "ESTABLISHED", pkt[4], pkt[5], pkt[6], g_rf_link_connected);
+                fflush(stdout);
+            }
         }
 
         /* Pipe Device Info replies (11 FF 83 B5 <pipe> <data...>) */
@@ -5115,8 +5241,70 @@ static int find_touchscreen_fd(void) {
     return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK);
 }
 
+static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
+    (void)ucontext;
+    /* 1. Hardware fail-safe: immediately turn off backlight and button LEDs */
+    int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
+    if (bfd >= 0) {
+        write(bfd, "0\n", 2);
+        close(bfd);
+    }
+    int lfd = open("/sys/class/leds/tps6507x:white/brightness", O_WRONLY);
+    if (lfd >= 0) {
+        write(lfd, "0\n", 2);
+        close(lfd);
+    }
+
+    /* 2. Log crash diagnostic info to /data/codex_crash.log */
+    FILE *cf = fopen("/data/codex_crash.log", "a");
+    if (cf) {
+        time_t now = time(NULL);
+        char tbuf[32] = {0};
+        struct tm *tm = localtime(&now);
+        if (tm) strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", tm);
+        else snprintf(tbuf, sizeof(tbuf), "epoch=%ld", (long)now);
+
+        const char *signame = "UNKNOWN";
+        if (sig == SIGSEGV) signame = "SIGSEGV (Segmentation Fault)";
+        else if (sig == SIGBUS) signame = "SIGBUS (Bus Error)";
+        else if (sig == SIGABRT) signame = "SIGABRT (Abort)";
+        else if (sig == SIGFPE) signame = "SIGFPE (Floating Point Exception)";
+        else if (sig == SIGILL) signame = "SIGILL (Illegal Instruction)";
+
+        void *fault_addr = info ? info->si_addr : NULL;
+        int code = info ? info->si_code : 0;
+
+        fprintf(cf, "=== CRASH %s ===\n", tbuf);
+        fprintf(cf, "Signal: %d (%s), Code: %d, Fault Addr: %p\n", sig, signame, code, fault_addr);
+        fprintf(cf, "State: act='%s', view=%d, screen_on=%d, no_screen=%d, rf_conn=%d, slot=%d\n",
+                g_active_activity_id, g_current_view, g_screen_on ? 1 : 0, g_no_screen_mode ? 1 : 0,
+                g_rf_link_connected ? 1 : 0, g_remote_slot);
+        fprintf(cf, "Uptime mono: %llums\n", (unsigned long long)get_monotonic_ms());
+
+        FILE *sf = fopen("/proc/self/status", "r");
+        if (sf) {
+            char sline[128];
+            while (fgets(sline, sizeof(sline), sf)) {
+                if (strncmp(sline, "VmPeak:", 7) == 0 ||
+                    strncmp(sline, "VmSize:", 7) == 0 ||
+                    strncmp(sline, "VmRSS:", 6) == 0 ||
+                    strncmp(sline, "Threads:", 8) == 0) {
+                    fputs(sline, cf);
+                }
+            }
+            fclose(sf);
+        }
+        fprintf(cf, "========================================\n\n");
+        fflush(cf);
+        fclose(cf);
+    }
+
+    sync();
+    _exit(128 + sig);
+}
+
 int main(int argc, char **argv) {
-    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
     /* Enforce single instance to prevent duplicate access to devices */
@@ -5135,6 +5323,17 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sig_handler);
     signal(SIGUSR1, sig_wake_handler);
     signal(SIGUSR2, sig_deep_sleep_handler);
+
+    /* Setup crash signal handlers */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = crash_sig_handler;
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGFPE, &sa, NULL);
+    sigaction(SIGILL, &sa, NULL);
 
     printf("[+] Starting Harmony Elite Custom Interface (codex_elite)...\n");
 
@@ -5164,9 +5363,17 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "--no-gyro") == 0)  g_gyro_enabled = false;
         if (strcmp(argv[i], "--blank") == 0)    g_screen_on = false;
         if (strcmp(argv[i], "--pair") == 0)     do_pairing = true;
+        if (strcmp(argv[i], "--no-screen") == 0) g_no_screen_mode = true;
     }
 
-    if (!g_touch_enabled) {
+    if (g_no_screen_mode) {
+        printf("[+] NO-SCREEN MODE ACTIVE: Headless physical button remote, screen & touch disabled\n");
+        g_screen_on = false;
+        g_touch_enabled = false;
+        g_gyro_enabled = false;
+        int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
+        if (bfd >= 0) { write(bfd, "0\n", 2); close(bfd); }
+    } else if (!g_touch_enabled) {
         g_screen_nav_mode = true;
         show_notice("Screen nav moved to bottom buttons", 4000);
     }
@@ -5178,46 +5385,48 @@ int main(int argc, char **argv) {
     }
     printf("[+] Loaded %d activities (has_hub_config=%d)\n", g_activity_count, g_has_hub_config);
 
-    /* 1. Open Framebuffer */
-    g_fb_fd = open(FB_DEV, O_RDWR);
-    if (g_fb_fd >= 0) {
-        struct fb_fix_screeninfo finfo;
-        struct fb_var_screeninfo vinfo;
-        if (ioctl(g_fb_fd, FBIOGET_FSCREENINFO, &finfo) == 0 &&
-            ioctl(g_fb_fd, FBIOGET_VSCREENINFO, &vinfo) == 0) {
-            g_fb_size = finfo.smem_len;
-            g_fb_mem = (uint16_t *)mmap(NULL, g_fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
-            if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
+    if (!g_no_screen_mode) {
+        /* 1. Open Framebuffer */
+        g_fb_fd = open(FB_DEV, O_RDWR);
+        if (g_fb_fd >= 0) {
+            struct fb_fix_screeninfo finfo;
+            struct fb_var_screeninfo vinfo;
+            if (ioctl(g_fb_fd, FBIOGET_FSCREENINFO, &finfo) == 0 &&
+                ioctl(g_fb_fd, FBIOGET_VSCREENINFO, &vinfo) == 0) {
+                g_fb_size = finfo.smem_len;
+                g_fb_mem = (uint16_t *)mmap(NULL, g_fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
+                if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
 
-            /* Switch active display to buffer 0 */
-            vinfo.xoffset = 0;
-            vinfo.yoffset = 0;
-            ioctl(g_fb_fd, FBIOPAN_DISPLAY, &vinfo);
-        } else {
-            g_fb_mem = (uint16_t *)mmap(NULL, FB_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
-            if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
+                /* Switch active display to buffer 0 */
+                vinfo.xoffset = 0;
+                vinfo.yoffset = 0;
+                ioctl(g_fb_fd, FBIOPAN_DISPLAY, &vinfo);
+            } else {
+                g_fb_mem = (uint16_t *)mmap(NULL, FB_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
+                if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
+            }
         }
-    }
 
-    fb_set_blank(!g_screen_on);
-    reset_idle_timer();
-    load_wallpaper_asset();
+        fb_set_blank(!g_screen_on);
+        reset_idle_timer();
+        load_wallpaper_asset();
 
-    /* 2. Initialize and Open Touch and Gyro nodes */
-    clearpad_hw_init();
-    g_touch_fd = find_touchscreen_fd();
-    if (g_touch_fd < 0) {
-        perror("[-] Failed to open touchscreen node");
-    } else {
-        printf("[+] Opened touchscreen fd=%d\n", g_touch_fd);
-    }
-    if (g_touch_fd >= 0 && !g_touch_enabled) {
-        set_touch_enabled(false);
-    }
+        /* 2. Initialize and Open Touch and Gyro nodes */
+        clearpad_hw_init();
+        g_touch_fd = find_touchscreen_fd();
+        if (g_touch_fd < 0) {
+            perror("[-] Failed to open touchscreen node");
+        } else {
+            printf("[+] Opened touchscreen fd=%d\n", g_touch_fd);
+        }
+        if (g_touch_fd >= 0 && !g_touch_enabled) {
+            set_touch_enabled(false);
+        }
 
-    g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK);
-    if (g_gyro_fd >= 0 && !g_gyro_enabled) {
-        set_gyro_enabled(false);
+        g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        if (g_gyro_fd >= 0 && !g_gyro_enabled) {
+            set_gyro_enabled(false);
+        }
     }
 
     /* 3. Open RF SPI */
@@ -5503,6 +5712,16 @@ int main(int argc, char **argv) {
 
                     /* If activity switch, config sync, or OTA is in progress, lock physical inputs */
                     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) continue;
+
+                    /* No-screen mode: ignore capacitive screen keys and forward physical buttons directly */
+                    if (g_no_screen_mode) {
+                        if (ev.code == 102 || ev.code == 364) continue;
+                        uint16_t rfk = linux_to_harmony_rf_key(ev.code);
+                        if (rfk != 0) {
+                            rf_send_button_event(rfk, ev.value);
+                        }
+                        continue;
+                    }
 
                     /* Capacitive buttons: 364=Activities, 102=Devices (never forward over RF) */
                     if (ev.code == 102 || ev.code == 364) {
