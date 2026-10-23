@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import gzip
 import hashlib
 import os
 import pathlib
@@ -78,14 +79,15 @@ def find_latest_stock_backup(specified_path: str | None = None) -> pathlib.Path:
     if not BACKUP_DIR.is_dir():
         raise FileNotFoundError(f"Backup directory does not exist: {BACKUP_DIR}")
 
-    # Check preferred candidates in order
-    latest_link = BACKUP_DIR / "stock_hub_backup_latest.tar.gz"
-    if latest_link.is_file():
-        return latest_link
+    # Check preferred candidates in order (.tar preferred, fallback to .tar.gz)
+    for ext in ("tar", "tar.gz"):
+        latest_link = BACKUP_DIR / f"stock_hub_backup_latest.{ext}"
+        if latest_link.is_file():
+            return latest_link
 
     # Search for timestamped stock backups
     stock_backups = sorted(
-        [p for p in BACKUP_DIR.glob("stock_hub_backup_*.tar.gz") if p.is_file()],
+        [p for p in BACKUP_DIR.glob("stock_hub_backup_*.*") if p.is_file() and p.name.endswith((".tar", ".tar.gz"))],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -93,13 +95,14 @@ def find_latest_stock_backup(specified_path: str | None = None) -> pathlib.Path:
         return stock_backups[0]
 
     # Fallback to golden backup if present
-    golden = BACKUP_DIR / "golden_hub_backup.tar.gz"
-    if golden.is_file():
-        return golden
+    for ext in ("tar", "tar.gz"):
+        golden = BACKUP_DIR / f"golden_hub_backup.{ext}"
+        if golden.is_file():
+            return golden
 
-    # Fallback to any hub_backup_*.tar.gz
+    # Fallback to any hub_backup_*.tar*
     other_backups = sorted(
-        [p for p in BACKUP_DIR.glob("hub_backup_*.tar.gz") if p.is_file()],
+        [p for p in BACKUP_DIR.glob("hub_backup_*.*") if p.is_file() and p.name.endswith((".tar", ".tar.gz"))],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -116,7 +119,7 @@ def validate_backup_archive(archive_path: pathlib.Path) -> list[str]:
     if not archive_path.is_file() or archive_path.stat().st_size < 1000:
         raise ValueError(f"Backup archive {archive_path} is empty or invalid.")
 
-    with tarfile.open(archive_path, "r:gz") as tar:
+    with tarfile.open(archive_path, "r:*") as tar:
         names = tar.getnames()
 
     has_data = any(n == "data" or n.startswith("data/") or n == "/data" or n.startswith("/data/") for n in names)
@@ -300,18 +303,21 @@ def restore_stock_configuration(
     # Clean old transient files in /cache
     run_ssh_cmd(target, "rm -rf /cache/* 2>/dev/null || true", ssh_opts)
 
-    # Stream and extract backup archive to /
+    # Stream and extract backup archive to / (plain tar, no gzip on Hub)
     print(f"    + Extracting {backup_file.name} ({backup_file.stat().st_size / (1024*1024):.2f} MB) to Hub root filesystem...")
     t0 = time.time()
-    extract_cmd = f"{bb_bin} tar -xzf - -C /"
+    extract_cmd = f"{bb_bin} tar -xf - -C /"
 
-    with open(backup_file, "rb") as f_in:
+    open_func = gzip.open if backup_file.name.endswith(".gz") else open
+    with open_func(backup_file, "rb") as f_in:
         proc = subprocess.Popen(
             ["ssh"] + ssh_opts + [target, extract_cmd],
-            stdin=f_in,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        shutil.copyfileobj(f_in, proc.stdin)
+        proc.stdin.close()
         stdout, stderr = proc.communicate(timeout=180)
         if proc.returncode != 0:
             print(f"[-] Warning: Tar exited with code {proc.returncode}: {stderr.decode('utf-8', errors='ignore').strip()}")

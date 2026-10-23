@@ -245,9 +245,9 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    backup_path = backup_dir / f"stock_hub_backup_{timestamp}.tar.gz"
-    latest_path = backup_dir / "stock_hub_backup_latest.tar.gz"
-    golden_path = backup_dir / "golden_hub_backup.tar.gz"
+    backup_path = backup_dir / f"stock_hub_backup_{timestamp}.tar"
+    latest_path = backup_dir / "stock_hub_backup_latest.tar"
+    golden_path = backup_dir / "golden_hub_backup.tar"
 
     ssh_opts = [
         "-o", "StrictHostKeyChecking=no",
@@ -290,9 +290,9 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
             print(f"[-] Failed to stage BusyBox on Hub: {e}")
             return None
 
-    # Stream tarball from Hub
+    # Stream tarball from Hub (plain tar, no gzip)
     print(f"[*] Streaming entire /cache and /data partitions to {backup_path.name}...")
-    tar_cmd = f"{bb_bin} tar -czf - /cache /data 2>/dev/null"
+    tar_cmd = f"{bb_bin} tar -cf - /cache /data 2>/dev/null"
     try:
         t0 = time.time()
         with open(backup_path, "wb") as f_out:
@@ -310,7 +310,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
             backup_path.unlink(missing_ok=True)
             return None
 
-        with tarfile.open(backup_path, "r:gz") as tar:
+        with tarfile.open(backup_path, "r:*") as tar:
             members = tar.getnames()
 
         elapsed = time.time() - t0
