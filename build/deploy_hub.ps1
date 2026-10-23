@@ -159,6 +159,16 @@ foreach ($b in $bins) {
     Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" | Out-Null
 }
 
+# 1b. Upload Elite RF OTA image to /cache/codex_elite.ota.gz if available
+$eliteOtaSrc = Join-Path $RepoRoot "elite\bin\codex_elite.ota.gz"
+if (-not (Test-Path $eliteOtaSrc)) {
+    $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\codex_elite.ota.gz"
+}
+if (Test-Path $eliteOtaSrc) {
+    Write-Host "[*] Syncing Elite RF OTA image (/cache/codex_elite.ota.gz)..." -ForegroundColor Yellow
+    Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/codex_elite.ota.gz" -Perm "644" | Out-Null
+}
+
 # Extended BusyBox (default deployment)
 if ($DebugBusybox -or $DevMode) {
     Write-Host "[*] Developer / Debug mode active." -ForegroundColor Cyan
