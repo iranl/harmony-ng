@@ -326,7 +326,7 @@ python tools/harmony_firmware.py flash elite
 ```
 
 ### 2. Extract Official Remote UI Icons for Hub Web UI
-The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python:
+The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python, without requiring an Elite remote connected over USB or SSH:
 
 ```bash
 python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz

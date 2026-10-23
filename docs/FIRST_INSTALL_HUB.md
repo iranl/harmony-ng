@@ -69,7 +69,7 @@ The tool automatically:
 5. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
 6. Sends reboot signal to `/sys/reboot`.
 7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
-8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar.gz` and `backups/stock_hub_backup_latest.tar.gz`.
+8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
 
 > [!TIP]
 > You can also check, download, or flash Hub firmware at any time with the standalone tool:
@@ -92,9 +92,12 @@ exit
 
 When rooting via `tools/root_hub_usb.py`, a complete backup of your Hub's stock state (entire `/cache` and `/data` partitions) is automatically saved to:
 ```text
-backups/stock_hub_backup_<timestamp>.tar.gz
-backups/stock_hub_backup_latest.tar.gz
+backups/stock_hub_backup_<timestamp>.tar
+backups/stock_hub_backup_latest.tar
 ```
+
+> [!NOTE]
+> **No gzip compression**: Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). The embedded BusyBox on the Hub has limited RAM and flash bandwidth; omitting gzip avoids CPU exhaustion and out-of-memory kernel panics during tar extraction.
 
 You can also run manual backups at any time:
 ```bash
@@ -176,10 +179,13 @@ To restore all your original Wi-Fi settings, devices, and activities from your a
 # All-in-one restoration:
 python tools/restore_stock.py
 
+# Or specify a custom backup file:
+python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
+
 # Or restore pure stock with SSH removed:
 python tools/restore_stock.py --pure-stock
 ```
 
-This automated tool gains root over USB HID, terminates background processes, extracts your backed-up `/cache` and `/data` partitions, flushes SPI flash, and cleanly reboots back into your configured stock Logitech system.
+This automated tool gains root over USB HID, terminates background processes, extracts your backed-up `/cache` and `/data` partitions (plain uncompressed tar stream, no gzip on Hub), flushes SPI flash, and cleanly reboots back into your configured stock Logitech system.
 
 ---

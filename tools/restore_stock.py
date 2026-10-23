@@ -14,7 +14,7 @@ Automated 5-Step Pipeline:
 
 Usage:
     python tools/restore_stock.py
-    python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar.gz
+    python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
     python tools/restore_stock.py --wifi-ssid "MyNetwork" --wifi-pass "Secret123"
     python tools/restore_stock.py --pure-stock   # Completely removes Dropbear SSH
     python tools/restore_stock.py --force        # Bypass confirmation prompt

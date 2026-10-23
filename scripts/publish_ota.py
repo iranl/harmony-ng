@@ -108,6 +108,25 @@ def package_ota(output_dir: Path, version: str):
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)
     for bname in ELITE_BINARIES:
+        if bname == "codex_elite.ota.gz":
+            elite_bin = find_candidate_file("codex_elite", ARM_SEARCH_PATHS)
+            if elite_bin and elite_bin.is_file():
+                ota_tar = arm_target / "codex_elite.ota.gz"
+                print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
+                with tarfile.open(ota_tar, "w:gz") as tar:
+                    tar.add(elite_bin, arcname="codex_elite")
+                    for sf in ["rcS.local", "codex_watchdog.sh", "factory_reset.sh"]:
+                        sp = REPO_ROOT / "elite" / sf
+                        if sp.is_file():
+                            tar.add(sp, arcname=sf)
+                md5, sha = get_file_hashes(ota_tar)
+                manifest_files[f"bin/arm/{bname}"] = {
+                    "size": ota_tar.stat().st_size,
+                    "md5": md5,
+                    "sha256": sha
+                }
+                continue
+
         src = find_candidate_file(bname, ARM_SEARCH_PATHS)
         if (not src or not src.exists()) and bname == "codex_elite.ota.gz":
             src = find_candidate_file("codex_elite.gz", ARM_SEARCH_PATHS)

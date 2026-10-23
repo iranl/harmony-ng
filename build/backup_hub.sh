@@ -6,7 +6,7 @@ HUB_USER="root"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKUP_DIR="$REPO_ROOT/backups"
-GOLDEN_FILE="$BACKUP_DIR/golden_hub_backup.tar.gz"
+GOLDEN_FILE="$BACKUP_DIR/golden_hub_backup.tar"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p "$BACKUP_DIR"
@@ -26,11 +26,11 @@ if ! ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST
     exit 0
 fi
 
-# 1. Golden backup: First ever backup kept permanently for pristine restore
+# 1. Golden backup: First ever backup kept permanently for pristine restore (plain tar, no gzip)
 if [ ! -f "$GOLDEN_FILE" ]; then
     echo "[*] Creating GOLDEN initial backup of Hub stock state..."
     ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-        "$TAR_CMD -cf - /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" | gzip > "$GOLDEN_FILE" || {
+        "$TAR_CMD -cf - /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$GOLDEN_FILE" || {
         echo "[!] Golden backup failed to download"
         rm -f "$GOLDEN_FILE"
     }
@@ -41,11 +41,11 @@ else
     echo "[+] Golden backup already exists: $GOLDEN_FILE"
 fi
 
-# 2. Rolling backup: includes /data/codex and configs
-NEW_BACKUP="$BACKUP_DIR/hub_backup_${TIMESTAMP}.tar.gz"
+# 2. Rolling backup: includes /data/codex and configs (plain tar, no gzip)
+NEW_BACKUP="$BACKUP_DIR/hub_backup_${TIMESTAMP}.tar"
 echo "[*] Creating rolling backup..."
 ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
-    "$TAR_CMD -cf - /data/codex /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" | gzip > "$NEW_BACKUP" || {
+    "$TAR_CMD -cf - /data/codex /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$NEW_BACKUP" || {
     echo "[!] Rolling backup failed"
     rm -f "$NEW_BACKUP"
     exit 1
@@ -57,7 +57,7 @@ fi
 
 # 3. Rotate: Retain only 5 newest rolling backups
 echo "[*] Rotating backups (keeping newest 5)..."
-find "$BACKUP_DIR" -maxdepth 1 -name "hub_backup_*.tar.gz" -type f | sort -r | sed -e '1,5d' | xargs -r rm -f
+find "$BACKUP_DIR" -maxdepth 1 -name "hub_backup_*.tar" -type f | sort -r | sed -e '1,5d' | xargs -r rm -f
 
 echo "[+] Active backups in $BACKUP_DIR:"
 ls -lh "$BACKUP_DIR"

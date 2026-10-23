@@ -68,11 +68,14 @@ To revert any changes, fix a boot-loop, or recover an unresponsive Hub without o
 After the factory reset completes, choose one of two paths:
 
 #### Option A: Return to Stock with Full Configuration Restored (All-In-One Script)
-If you previously backed up your Hub or gained root using `tools/root_hub_usb.py` (which creates an automatic stock backup of `/cache` and `/data`), restore your original configuration, Wi-Fi credentials, activities, and devices in a single command:
+If you previously backed up your Hub or gained root using `tools/root_hub_usb.py` (which creates an automatic stock backup of `/cache` and `/data` in plain `.tar` format), restore your original configuration, Wi-Fi credentials, activities, and devices in a single command:
 
 ```bash
 # All-in-one restore (gains root over USB, stops daemons, restores /cache and /data, syncs, reboots)
 python tools/restore_stock.py
+
+# Or specify a custom backup file:
+python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
 
 # Optional: To return to 100% pure factory stock with Dropbear SSH removed:
 python tools/restore_stock.py --pure-stock
@@ -83,7 +86,7 @@ The script automatically:
 2. Configures Wi-Fi credentials over USB if needed.
 3. Stages the Dropbear payload to `/sys/dropbear` and boots into root SSH.
 4. Kills all running processes except Dropbear to release flash file locks.
-5. Transfers and extracts your backed-up `/cache` and `/data` partitions.
+5. Transfers and extracts your backed-up `/cache` and `/data` partitions (plain uncompressed tar, no gzip on Hub).
 6. Safely flushes eraseblock buffers (`sync; sync; sleep 2; verify /bin/sh -c 'true'`).
 7. Reboots the Hub into fully configured stock Logitech firmware.
 

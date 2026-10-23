@@ -144,9 +144,9 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       └── hub_portal.c    # Wi-Fi recovery captive portal
 └── tools/
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
+    ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
-    ├── extract_remote_icons.py # Elite icon extractor and WebUI deployment tool
-    ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup
+    ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
     ├── root_remote_usb.py  # USB HID root unlock tool for Elite remote
     └── unbrick_recovery/   # SPI flash and Dropbear emergency recovery tools
 ```
@@ -172,35 +172,39 @@ npm run build
 
 ---
 
-## Extracting & Syncing Elite Remote Icons
+## Extracting Official Remote UI Icons
 
-The Harmony Elite remote stores hundreds of official Logitech PNG icons in its onboard firmware (`/opt/luadraws/appscommon/asset/`). You can extract all used or stock icons from your Elite remote and push them directly to the Harmony Hub WebUI in a single command.
+The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing an Elite remote connected over USB or transferring files over SSH.
 
-### Prerequisites
-- Connect your Harmony Elite remote via USB to your computer (default IP: `192.168.2.1`).
-- Ensure the Harmony Hub is reachable on your network (specify `--hub <HUB_IP>`).
+### Automated Extraction During Hub Deployment
+When running `./build/deploy_hub.ps1` or `./build/deploy_hub.sh`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_99_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
 
-### Running the Utility
-Using Python (Cross-platform Windows / macOS / Linux):
+### Standalone Extraction Using Python
+You can also extract icons or build the WebUI archive manually at any time on any platform (Windows, macOS, Linux):
+
 ```bash
-# Extract used icons and push directly to Hub WebUI in one go:
-python tools/extract_remote_icons.py --remote 192.168.2.1 --hub <HUB_IP> --used-only
+# Extract all 1,350 official icons and build the Hub WebUI archive:
+python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 
-# Extract full stock icon library and deploy to Hub:
-python tools/extract_remote_icons.py --remote 192.168.2.1 --hub <HUB_IP>
-```
-
-Using Bash / WSL:
-```bash
-# Extract and push directly to Hub:
-./build/extract_elite_icons.sh 192.168.2.1 <HUB_IP>
+# Or extract raw PNG icons into a custom directory:
+python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icons
 ```
 
 ### How It Works
-1. Connects to the Elite remote over SSH and indexes available PNG icons across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
-2. Matches icons referenced in your `ActivityList.json`, `DeviceList.json`, and UI configuration.
-3. Downloads the matching icons to `payload/www/assets/icons/` locally.
-4. Compresses the icon set and uploads it directly to the Hub's `/data/codex/www/assets/icons/` directory in one quick stream, making them instantly available in the Hub WebUI.
+1. Downloads official Elite firmware bundle (`elite_99_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
+2. Unpacks the internal SquashFS root filesystem using Python.
+3. Indexes and extracts all 1,347+ PNG assets across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
+4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon dynamically unpacks icons into `/tmp/www/assets/icons` on first request.
+
+---
+
+## Backup & Restoration Safety (No Gzip)
+
+All Hub partition backups and stock configuration restores (`tools/root_hub_usb.py`, `tools/restore_stock.py`, `build/backup_hub.sh`) use **plain uncompressed tar archives** (`.tar`, not `.tar.gz`).
+
+- **Why no gzip?** Embedded MIPS BusyBox has limited RAM and flash bandwidth. Streaming uncompressed tar avoids CPU exhaustion, reduces write cycles, and prevents out-of-memory kernel panics during recovery.
+- **Stock Backup Location**: `backups/stock_hub_backup_<timestamp>.tar` (and `backups/stock_hub_backup_latest.tar`).
+- **Restoration**: `python tools/restore_stock.py` restores `/cache` and `/data` cleanly and reboots into configured stock firmware.
 
 
 ---

@@ -153,8 +153,12 @@ do_apply() {
       echo "[*] Extracting package to flash partitions..."
       # A. Scripts -> /data/codex/
       if [ -d "$TMPDIR/pkg/scripts" ]; then
-        cp -f "$TMPDIR/pkg/scripts/"*.sh /data/codex/ 2>/dev/null || true
-        chmod 755 /data/codex/*.sh 2>/dev/null || true
+        cp -rf "$TMPDIR/pkg/scripts/"* /data/codex/ 2>/dev/null || true
+        chmod 755 /data/codex/*.sh /data/codex/rcS.local /data/codex/dropbear* 2>/dev/null || true
+        if [ -f /data/codex/rcS.local ]; then
+          cp -f /data/codex/rcS.local /etc/init.d/rcS.local 2>/dev/null || true
+          chmod 755 /etc/init.d/rcS.local 2>/dev/null || true
+        fi
       fi
 
       # B. Primary binaries -> /data/codex/bin/

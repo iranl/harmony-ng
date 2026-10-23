@@ -132,7 +132,12 @@ jobs:
           if [ -f build/output/elite/busybox ]; then
             cp -f build/output/elite/busybox build/output/elite/mknod
           fi
-          (cd build/output/elite && gzip -c -9 codex_elite > codex_elite.gz && cp -f codex_elite.gz codex_elite.ota.gz)
+          (cd build/output/elite && gzip -c -9 codex_elite > codex_elite.gz)
+          mkdir -p build/output/elite/pkg
+          cp -f build/output/elite/codex_elite build/output/elite/pkg/
+          cp -f elite/rcS.local elite/codex_watchdog.sh elite/factory_reset.sh build/output/elite/pkg/ 2>/dev/null || true
+          tar -czf build/output/elite/codex_elite.ota.gz -C build/output/elite/pkg .
+          rm -rf build/output/elite/pkg
           ls -lh build/output/elite
       - name: Archive Elite Binaries
         uses: actions/upload-artifact@v4

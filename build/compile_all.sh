@@ -104,10 +104,17 @@ build_rf() {
 
 build_elite() {
     echo "[-] Building codex_elite (ARM)..."
-    mkdir -p "$REPO_ROOT/elite/bin"
+    mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
     arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/codex_elite" -lpthread -lm
     echo "[-] Building codex_sync (ARM)..."
     arm-linux-gnueabi-gcc -static -Os -s -o "$REPO_ROOT/elite/bin/codex_sync" payload/source/codex_sync.c
+    echo "[-] Packaging codex_elite.ota.gz (binary + scripts)..."
+    mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
+    cp -f "$REPO_ROOT/elite/bin/codex_elite" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
+    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/codex_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
+    tar -czf "$REPO_ROOT/elite/bin/codex_elite.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
+    cp -f "$REPO_ROOT/elite/bin/codex_elite.ota.gz" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 
 

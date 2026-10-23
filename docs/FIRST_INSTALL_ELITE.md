@@ -63,7 +63,7 @@ The tool automatically:
 > python tools/harmony_firmware.py check elite
 > python tools/harmony_firmware.py flash elite
 >
-> # Extract all 1,350 official icons for the Hub Web UI:
+> # Extract all 1,350 official icons directly from firmware bundle (no remote connection needed):
 > python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 > ```
 
@@ -74,10 +74,13 @@ The tool automatically:
 Before modifying flash contents, save a complete backup of stock Lua scripts and configuration:
 
 ```bash
-# On host PC:
+# On host PC (plain uncompressed tar, no gzip):
 mkdir -p backups/elite
-ssh root@192.168.2.1 "tar -czf - /data /opt/luadraws /etc 2>/dev/null" > backups/elite/golden_elite_backup.tar.gz
+ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/elite/golden_elite_backup.tar
 ```
+
+> [!NOTE]
+> Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
 
 ---
 
