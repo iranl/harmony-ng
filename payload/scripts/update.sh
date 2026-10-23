@@ -107,10 +107,11 @@ EOF
 
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
+  TMPDIR="/tmp/ota_update"
+  trap 'rm -f /tmp/hub_updating.flag; rm -rf "$TMPDIR" 2>/dev/null' EXIT INT TERM
   echo "[*] Starting software update from ${REPO}..."
   LOCAL_VER=$(get_local_version)
   
-  TMPDIR="/tmp/ota_update"
   rm -rf "$TMPDIR" 2>/dev/null
   mkdir -p "$TMPDIR"
 
@@ -250,7 +251,13 @@ do_apply() {
     echo "[+] Elite remote OTA package cached (/cache/codex_elite.ota.gz)."
   fi
 
-  # 5. Record new version
+  # 5. Check if update succeeded before recording version
+  if [ "$OTA_BUNDLE_OK" != "1" ] && [ ! -s "$TMPDIR/VERSION" ]; then
+    echo "[-] Software update failed: could not download packages."
+    return 1
+  fi
+
+  # 6. Record new version
   echo "$NEW_VER" > /data/codex/VERSION
   echo "$NEW_VER" > /etc/codex_version 2>/dev/null || true
   echo "$NEW_VER" > /data/codex/latest_version

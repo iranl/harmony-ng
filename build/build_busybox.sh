@@ -40,6 +40,19 @@ build_mips() {
     sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
+
+    # Enable built-in TLS & HTTPS for wget
+    sed -i 's/.*CONFIG_TLS.*/CONFIG_TLS=y/' .config
+    sed -i 's/.*CONFIG_FEATURE_WGET_HTTPS.*/CONFIG_FEATURE_WGET_HTTPS=y/' .config
+
+    # Prune unused bulky applets to keep binary size compact
+    for opt in CONFIG_BC CONFIG_DC CONFIG_DPKG CONFIG_DPKG_DEB CONFIG_RPM \
+               CONFIG_FDISK CONFIG_HTTPD CONFIG_TELNETD CONFIG_TFTP CONFIG_TFTPD \
+               CONFIG_FTPD CONFIG_LPD CONFIG_CHAT CONFIG_CONSPY CONFIG_UBIATTACH \
+               CONFIG_UBIDETACH CONFIG_UBIMKVOL CONFIG_UBIRMVOL CONFIG_UBIRSVOL \
+               CONFIG_UBIRENAME CONFIG_RX CONFIG_ZCIP; do
+        sed -i "s/^${opt}=y/# ${opt} is not set/" .config
+    done
     scripts/kconfig/conf -D .config Config.in
 
     make -j"$(nproc)" CROSS_COMPILE="mips-buildroot-linux-uclibc-" busybox
