@@ -652,6 +652,10 @@ export class HarmonyClient {
     return this.request('/api/rf/push-config', { method: 'POST' });
   }
 
+  async pullRfConfig(slot = 1) {
+    return this.request(`/api/rf/pull-config?slot=${slot}`, { method: 'POST' });
+  }
+
   async getRfOtaStatus() {
     return this.request('/api/rf/ota-status');
   }

@@ -2013,10 +2013,12 @@ class HarmonyApp {
     document.getElementById('rfUnpairSlot1Btn')?.addEventListener('click', () => this.unpairRfSlot(1));
     document.getElementById('rfConfigSlot1Btn')?.addEventListener('click', () => this.openRfConfigModal(1));
     document.getElementById('rfRefreshSlot1Btn')?.addEventListener('click', () => this.refreshRfStatus());
+    document.getElementById('rfPullSlot1Btn')?.addEventListener('click', () => this.pullConfigFromRemote(1));
     document.getElementById('rfPairSlot2Btn')?.addEventListener('click', () => this.pairRfRemote(2));
     document.getElementById('rfUnpairSlot2Btn')?.addEventListener('click', () => this.unpairRfSlot(2));
     document.getElementById('rfConfigSlot2Btn')?.addEventListener('click', () => this.openRfConfigModal(2));
     document.getElementById('rfRefreshSlot2Btn')?.addEventListener('click', () => this.refreshRfStatus());
+    document.getElementById('rfPullSlot2Btn')?.addEventListener('click', () => this.pullConfigFromRemote(2));
     document.getElementById('rfStopPairBtn')?.addEventListener('click', () => this.stopPairRfRemote());
     document.getElementById('rfUnpairBtn')?.addEventListener('click', () => this.unpairRfRemote());
     document.getElementById('rfRefreshBtn')?.addEventListener('click', () => this.refreshRfStatus());
@@ -2146,8 +2148,6 @@ class HarmonyApp {
     document.getElementById('btnOvRebootHub')?.addEventListener('click', () => this.rebootHub());
     document.getElementById('btnAddHub')?.addEventListener('click', () => this.openAddHubModal());
     document.getElementById('btnRefreshDisk')?.addEventListener('click', () => this.refreshDiskSpace());
-    document.getElementById('rfUnpairSlot1Btn')?.addEventListener('click', () => this.unpairRfSlot(1));
-    document.getElementById('rfUnpairSlot2Btn')?.addEventListener('click', () => this.unpairRfSlot(2));
 
     // Icon Browse Buttons & Live Preview Updates
     document.getElementById('btnBrowseActIcons')?.addEventListener('click', () => this.openIconPicker('actEditIcon', 'actIconPreviewBadge'));
@@ -5740,10 +5740,15 @@ class HarmonyApp {
 
     const sel = document.getElementById('eliteActivitySelect');
     const prevActVal = this.eliteSelectedActivityId || sel?.value || '-1';
+    const filteredActs = (this.activitiesData.activities || []).filter(a => {
+      const idStr = String(a.id);
+      const name = String(a.name || a.label || '').toLowerCase().replace(/\s+/g, '');
+      return idStr !== '-1' && name !== 'poweroff';
+    });
     if (sel) {
       sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
-        (this.activitiesData.activities || []).map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
-      if (prevActVal && (prevActVal === '-1' || (this.activitiesData.activities || []).some(a => String(a.id) === String(prevActVal)))) {
+        filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+      if (prevActVal && (prevActVal === '-1' || filteredActs.some(a => String(a.id) === String(prevActVal)))) {
         sel.value = prevActVal;
       }
       this.eliteSelectedActivityId = sel.value;
@@ -5754,7 +5759,7 @@ class HarmonyApp {
     const devs = this.inventory.devices || [];
     if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
     if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
-    if (tgtAct) tgtAct.innerHTML = (this.activitiesData.activities || []).map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+    if (tgtAct) tgtAct.innerHTML = filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
 
     this.eliteRemoteMode = 0;
     this.eliteDirectPage = 1;
@@ -6120,12 +6125,11 @@ class HarmonyApp {
     if (preview) {
       if (sbtns.length === 0) {
         preview.innerHTML = `
-          <div class="elite-screen-tile">Button 1</div>
-          <div class="elite-screen-tile">Button 2</div>
-          <div class="elite-screen-tile">Button 3</div>
-          <div class="elite-screen-tile">Button 4</div>
-          <div class="elite-screen-tile">Button 5</div>
-          <div class="elite-screen-tile">Button 6</div>
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90px;color:#64748b;font-size:8px;text-align:center;padding:12px 4px;gap:4px;">
+            <span style="font-size:12px;opacity:0.6;">📱</span>
+            <span>No Screen Buttons</span>
+            <span style="font-size:7px;opacity:0.7;">Add buttons below</span>
+          </div>
         `;
       } else {
         preview.innerHTML = sbtns.slice(0, 6).map((b, idx) => {
@@ -6315,7 +6319,17 @@ class HarmonyApp {
           }
         }
         if (ver1) ver1.textContent = s1.sw_version || 'Unknown';
-        if (cfgVer1) cfgVer1.textContent = s1.config_version ? `v${s1.config_version}` : '--';
+        if (cfgVer1) {
+          if (!s1Active) {
+            cfgVer1.textContent = '--';
+          } else {
+            const cVer = s1.config_version ? `v${s1.config_version}` : 'v0';
+            const inSync = s1.in_sync !== false;
+            const bCls = inSync ? 'ok' : 'warn';
+            const bTxt = inSync ? 'IN SYNC' : `OUT OF SYNC (Hub: v${st.hub_config_version || 0})`;
+            cfgVer1.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
+          }
+        }
         if (otaWrap1) {
           const latestElite = this.latestEliteVersion || '1.3.0';
           const needsOta = s1Active && s1.sw_version && s1.sw_version !== 'unknown' && this.isVersionOlder(s1.sw_version, latestElite);
@@ -6346,7 +6360,17 @@ class HarmonyApp {
           }
         }
         if (ver2) ver2.textContent = s2.sw_version || 'Unknown';
-        if (cfgVer2) cfgVer2.textContent = s2.config_version ? `v${s2.config_version}` : '--';
+        if (cfgVer2) {
+          if (!s2Active) {
+            cfgVer2.textContent = '--';
+          } else {
+            const cVer = s2.config_version ? `v${s2.config_version}` : 'v0';
+            const inSync = s2.in_sync !== false;
+            const bCls = inSync ? 'ok' : 'warn';
+            const bTxt = inSync ? 'IN SYNC' : `OUT OF SYNC (Hub: v${st.hub_config_version || 0})`;
+            cfgVer2.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
+          }
+        }
         if (otaWrap2) {
           const latestElite = this.latestEliteVersion || '1.3.0';
           const needsOta = s2Active && s2.sw_version && s2.sw_version !== 'unknown' && this.isVersionOlder(s2.sw_version, latestElite);
@@ -6395,7 +6419,10 @@ class HarmonyApp {
         const touchSens = cfg.touch_sensitivity || cfg.touchSensitivity || 2;
         document.getElementById('rfCfgTouchSens').value = String(touchSens);
 
-        const remoteMode = typeof cfg.remote_mode !== 'undefined' ? cfg.remote_mode : (cfg.remoteMode || 0);
+        let remoteMode = typeof cfg.remote_mode !== 'undefined' ? cfg.remote_mode : (cfg.remoteMode || 0);
+        if (cfg.no_screen || cfg.noScreen) {
+          remoteMode = 2;
+        }
         document.getElementById('rfCfgRemoteMode').value = String(remoteMode);
 
         const navKey = cfg.nav_key || cfg.navToggleKey || 139;
@@ -6441,7 +6468,7 @@ class HarmonyApp {
     const timeout = parseInt(document.getElementById('rfCfgTimeout')?.value || '120', 10);
     const touch = parseInt(document.getElementById('rfCfgTouch')?.value || '1', 10);
     const touch_sensitivity = parseInt(document.getElementById('rfCfgTouchSens')?.value || '2', 10);
-    const remote_mode = parseInt(document.getElementById('rfCfgRemoteMode')?.value || '0', 10);
+    let remote_mode = parseInt(document.getElementById('rfCfgRemoteMode')?.value || '0', 10);
     const nav_key = parseInt(document.getElementById('rfCfgNavKey')?.value || '139', 10);
     const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '0', 10);
     const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '0', 10);
@@ -6451,6 +6478,22 @@ class HarmonyApp {
     const night_start = parseInt(document.getElementById('rfCfgNightStart')?.value || '22', 10);
     const night_end = parseInt(document.getElementById('rfCfgNightEnd')?.value || '7', 10);
     const usbeth = parseInt(document.getElementById('rfCfgUsbEth')?.value || '0', 10);
+
+    let no_screen = 0;
+    if (remote_mode === 2) {
+      const confirm1 = await showConfirm(
+        'WARNING: You are enabling No-Screen Mode. This disables the LCD display, touch digitizer, and backlight to conserve power on remotes with physically broken screens. Physical buttons will continue controlling the Hub. Continue?',
+        { title: 'Enable No-Screen Mode', okText: 'I Understand, Continue', danger: true }
+      );
+      if (!confirm1) return;
+      const confirm2 = await showConfirm(
+        'CONFIRM BLACK SCREEN: The remote screen and backlight will turn off immediately upon receiving this configuration. Are you sure?',
+        { title: 'Confirm Black Screen', okText: 'Yes, Disable Screen', danger: true }
+      );
+      if (!confirm2) return;
+      no_screen = 1;
+      remote_mode = 0;
+    }
 
     const payload = {
       slot: slot,
@@ -6479,7 +6522,9 @@ class HarmonyApp {
       night_end: night_end,
       nightEnd: night_end,
       usbeth: usbeth,
-      usbEth: usbeth === 1
+      usbEth: usbeth === 1,
+      no_screen: no_screen,
+      noScreen: no_screen === 1
     };
 
     const saveBtn = document.getElementById('rfConfigSaveBtn');
@@ -6504,6 +6549,18 @@ class HarmonyApp {
     }
   }
 
+  async pullConfigFromRemote(slot) {
+    const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
+    if (!await showConfirm(`Pull configuration from Remote in ${slotName} to Hub? This will overwrite the Hub's saved remote configuration with what is currently running on the remote.`, { title: `Pull Config (${slotName})`, okText: 'Pull Config', danger: false })) return;
+    try {
+      await this.client.pullRfConfig(slot);
+      alert(`Config pull requested from Remote (${slotName}). Wait a few seconds for remote to reply and check sync status.`);
+      setTimeout(() => this.refreshRfStatus(), 3000);
+    } catch (err) {
+      alert(t('error', 'Error') + ': ' + err.message);
+    }
+  }
+
   async pairRfRemote(slot = 0) {
     try {
       await this.client.pairRfRemote(slot);
@@ -6524,7 +6581,8 @@ class HarmonyApp {
 
   async unpairRfSlot(slot) {
     const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
-    if (!await showConfirm(t(slot === 1 ? 'unpair_slot1' : 'unpair_slot2', `Unpair ${slotName}?`), { title: 'Unpair Remote', okText: 'Unpair' })) return;
+    const msg = `Are you sure you want to unpair Remote in ${slotName}? Both Hub and remote will remove RF bonding.`;
+    if (!await showConfirm(msg, { title: `Unpair ${slotName}`, okText: `Unpair ${slotName}` })) return;
     try {
       await this.client.unpairRfRemote(slot);
       await this.refreshRfStatus();
@@ -6670,6 +6728,14 @@ class HarmonyApp {
       if (syncBanner) {
         if (rfStat && rfStat.sync_pending) {
           syncBanner.style.display = 'flex';
+          const title = document.getElementById('remoteSyncTitle');
+          const desc = document.getElementById('remoteSyncDesc');
+          const slotLabel = rfStat.sync_pending_slot ? `Remote Slot ${rfStat.sync_pending_slot}` : 'Paired Remotes';
+          if (title) title.textContent = `Remote Settings Pending Push (${slotLabel})`;
+          if (desc) {
+            const diffInfo = rfStat.sync_pending_diff ? `Pending changes: ${rfStat.sync_pending_diff}` : 'Hub configuration changed. Push settings to synchronize remote.';
+            desc.textContent = diffInfo;
+          }
         } else {
           syncBanner.style.display = 'none';
         }
