@@ -1045,6 +1045,7 @@ paths:
       tags:
         - Bluetooth HID
       summary: BLE remote connection status
+      description: Returns connection state of the paired BLE remote (e.g. Homatics B25). When a BLE remote is sleeping, the first button press wakes its radio (showing a red light on B25) and drops; the second button registers after the remote reconnects to the Hub.
       responses:
         '200':
           description: Remote link state

@@ -663,6 +663,10 @@ Associates a logical device ID with a paired Bluetooth MAC address.
 #### `GET /api/remote-status` or `GET /api/remote-pair-status`
 Returns status of connected Bluetooth BLE remote (e.g. Homatics B25).
 
+> [!NOTE]
+> **Sleeping BLE Remotes & First Button Press**:
+> When a BLE remote (such as the Homatics B25) enters low-power sleep mode, the first button press wakes up the remote's radio rather than transmitting a keycode. On the Homatics B25, this initial wake press drops the command and flashes the red indicator light. The second button press will register and execute normally once the BLE remote finishes reconnecting to the Harmony Hub.
+
 #### `POST /api/remote-scan`
 Initiates Bluetooth scan for nearby BLE remotes.
 

@@ -578,6 +578,23 @@ export class HarmonyClient {
     return this.postJson('/api/bt-text', { text: String(text), target: String(target) });
   }
 
+  async sendBtMouse({ dx = 0, dy = 0, buttons = 0, wheel = 0, action = '', button = '', target = '' } = {}) {
+    const payload = {
+      action: 'bt_mouse',
+      dx: Number(dx) || 0,
+      dy: Number(dy) || 0,
+      buttons: Number(buttons) || 0,
+      wheel: Number(wheel) || 0,
+      mouseAction: String(action || ''),
+      button: String(button || ''),
+      target: String(target || '')
+    };
+    if (this.sendWs(payload)) {
+      return { ok: true, ws: true };
+    }
+    return this.postJson('/api/bt-mouse', payload);
+  }
+
   async runBtScript(script, delay = 35) {
     return this.postJson('/api/bt-script', { script: String(script), delay: Number(delay) || 35 });
   }

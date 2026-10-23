@@ -185,6 +185,35 @@ static const uint8_t hid_descriptor_composite[] = {
     0x75, 0x10,                    //   Report Size (16)
     0x95, 0x01,                    //   Report Count (1)
     0x81, 0x00,                    //   Input (Data, Array) - 16-bit Consumer Code
+    0xc0,                          // End Collection
+
+    // Report ID 3: Mouse (Buttons + Relative dX, dY + Wheel)
+    0x05, 0x01,                    // Usage Page (Generic Desktop)
+    0x09, 0x02,                    // Usage (Mouse)
+    0xa1, 0x01,                    // Collection (Application)
+    0x85, 0x03,                    //   Report ID (3)
+    0x09, 0x01,                    //   Usage (Pointer)
+    0xa1, 0x00,                    //   Collection (Physical)
+    0x05, 0x09,                    //     Usage Page (Button)
+    0x19, 0x01,                    //     Usage Minimum (Button 1)
+    0x29, 0x03,                    //     Usage Maximum (Button 3: Left, Right, Middle)
+    0x15, 0x00,                    //     Logical Minimum (0)
+    0x25, 0x01,                    //     Logical Maximum (1)
+    0x95, 0x03,                    //     Report Count (3)
+    0x75, 0x01,                    //     Report Size (1)
+    0x81, 0x02,                    //     Input (Data, Variable, Absolute) - 3 Buttons
+    0x95, 0x01,                    //     Report Count (1)
+    0x75, 0x05,                    //     Report Size (5)
+    0x81, 0x03,                    //     Input (Constant, Variable, Absolute) - Padding
+    0x05, 0x01,                    //     Usage Page (Generic Desktop)
+    0x09, 0x30,                    //     Usage (X)
+    0x09, 0x31,                    //     Usage (Y)
+    0x09, 0x38,                    //     Usage (Wheel)
+    0x15, 0x81,                    //     Logical Minimum (-127)
+    0x25, 0x7f,                    //     Logical Maximum (127)
+    0x75, 0x08,                    //     Report Size (8)
+    0x95, 0x03,                    //     Report Count (3)
+    0x81, 0x06,                    //     Input (Data, Variable, Relative) - dX, dY, Wheel
     0xc0                           // End Collection
 };
 
@@ -935,6 +964,7 @@ static uint8_t g_host_pending_release_type = 0; // 1 = keyboard, 2 = consumer, 3
 static uint8_t g_host_custom_release_buf[16];
 static int     g_host_custom_release_len = 0;
 static int     g_host_send_hold_mode = 0;
+static uint8_t g_host_mouse_buttons = 0;
 
 static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
@@ -948,6 +978,10 @@ static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
         hid_device_send_interrupt_message(cid, release, sizeof(release));
     } else if (g_host_pending_release_type == 3 && g_host_custom_release_len > 0) {
         hid_device_send_interrupt_message(cid, g_host_custom_release_buf, g_host_custom_release_len);
+    } else if (g_host_pending_release_type == 4) {
+        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
+        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+        g_host_mouse_buttons = 0;
     }
     g_host_pending_release_type = 0;
 }
@@ -991,6 +1025,14 @@ static void send_host_release_all(void) {
                 hid_device_send_interrupt_message(g_hosts[i].hid_cid, g_host_custom_release_buf, g_host_custom_release_len);
             }
         }
+    } else if (prev_type == 4 || g_host_mouse_buttons != 0) {
+        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
+        for (int i = 0; i < MAX_HOST_CONNS; i++) {
+            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
+                hid_device_send_interrupt_message(g_hosts[i].hid_cid, mrelease, sizeof(mrelease));
+            }
+        }
+        g_host_mouse_buttons = 0;
     } else {
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < MAX_HOST_CONNS; i++) {
@@ -1003,6 +1045,52 @@ static void send_host_release_all(void) {
         btstack_run_loop_set_timer(&g_host_crelease_timer, 20);
         btstack_run_loop_add_timer(&g_host_crelease_timer);
     }
+    if (g_host_mouse_buttons != 0) {
+        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
+        for (int i = 0; i < MAX_HOST_CONNS; i++) {
+            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
+                hid_device_send_interrupt_message(g_hosts[i].hid_cid, mrelease, sizeof(mrelease));
+            }
+        }
+        g_host_mouse_buttons = 0;
+    }
+}
+
+static void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
+    uint16_t cid = get_target_host_hid_cid();
+    if (cid == 0) {
+        if (!g_host_reconnect_active) {
+            bd_addr_t tgt;
+            if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
+                start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
+            } else if (get_pinned_host_target(tgt)) {
+                start_host_reconnect(tgt, 20);
+            } else {
+                try_connect_host();
+            }
+        }
+        return;
+    }
+    uint8_t report[6] = {0xa1, 0x03, buttons, (uint8_t)dx, (uint8_t)dy, (uint8_t)wheel};
+    hid_device_send_interrupt_message(cid, report, sizeof(report));
+    g_keys_sent++;
+    update_bthid_status();
+}
+
+static void send_host_mouse_click(uint8_t button) {
+    uint16_t cid = get_target_host_hid_cid();
+    if (cid == 0) return;
+    if (g_host_pending_release_type != 0) {
+        btstack_run_loop_remove_timer(&g_host_key_release_timer);
+        host_key_release_timer_handler(NULL);
+    }
+    g_host_mouse_buttons |= button;
+    send_host_mouse_report(g_host_mouse_buttons, 0, 0, 0);
+    g_host_pending_release_type = 4;
+    btstack_run_loop_remove_timer(&g_host_key_release_timer);
+    btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
+    btstack_run_loop_set_timer(&g_host_key_release_timer, 40);
+    btstack_run_loop_add_timer(&g_host_key_release_timer);
 }
 
 static void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
@@ -1329,6 +1417,48 @@ static void poll_bthid_fifo(void) {
                 if (sscanf(line + 9, "%x", &ccode) == 1) {
                     send_host_consumer_report((uint16_t)ccode);
                 }
+            } else if (strncmp(line, "MOUSE ", 6) == 0) {
+                int btn = 0, dx = 0, dy = 0, wheel = 0;
+                int n = sscanf(line + 6, "%d %d %d %d", &btn, &dx, &dy, &wheel);
+                if (n >= 3) {
+                    g_host_mouse_buttons = (uint8_t)btn;
+                    send_host_mouse_report(g_host_mouse_buttons, (int8_t)dx, (int8_t)dy, (int8_t)wheel);
+                }
+            } else if (strncmp(line, "MOUSE_MOVE ", 11) == 0) {
+                int dx = 0, dy = 0;
+                if (sscanf(line + 11, "%d %d", &dx, &dy) == 2) {
+                    send_host_mouse_report(g_host_mouse_buttons, (int8_t)dx, (int8_t)dy, 0);
+                }
+            } else if (strncmp(line, "MOUSE_CLICK ", 12) == 0) {
+                const char *p = line + 12;
+                while (*p == ' ') p++;
+                uint8_t b = 1;
+                if (strcasecmp(p, "right") == 0 || strcmp(p, "2") == 0) b = 2;
+                else if (strcasecmp(p, "middle") == 0 || strcmp(p, "3") == 0) b = 4;
+                send_host_mouse_click(b);
+            } else if (strncmp(line, "MOUSE_DOWN ", 11) == 0) {
+                const char *p = line + 11;
+                while (*p == ' ') p++;
+                uint8_t b = 1;
+                if (strcasecmp(p, "right") == 0 || strcmp(p, "2") == 0) b = 2;
+                else if (strcasecmp(p, "middle") == 0 || strcmp(p, "3") == 0) b = 4;
+                else if (atoi(p) > 0) b = (uint8_t)atoi(p);
+                g_host_mouse_buttons |= b;
+                send_host_mouse_report(g_host_mouse_buttons, 0, 0, 0);
+            } else if (strncmp(line, "MOUSE_UP ", 9) == 0) {
+                const char *p = line + 9;
+                while (*p == ' ') p++;
+                uint8_t b = 1;
+                if (strcasecmp(p, "right") == 0 || strcmp(p, "2") == 0) b = 2;
+                else if (strcasecmp(p, "middle") == 0 || strcmp(p, "3") == 0) b = 4;
+                else if (atoi(p) > 0) b = (uint8_t)atoi(p);
+                g_host_mouse_buttons &= ~b;
+                send_host_mouse_report(g_host_mouse_buttons, 0, 0, 0);
+            } else if (strncmp(line, "MOUSE_WHEEL ", 12) == 0) {
+                int w = 0;
+                if (sscanf(line + 12, "%d", &w) == 1) {
+                    send_host_mouse_report(g_host_mouse_buttons, 0, 0, (int8_t)w);
+                }
             } else if (strncmp(line, "RAW ", 4) == 0) {
                 uint8_t raw[16];
                 int rlen = parse_hex_bytes(line + 4, raw, sizeof(raw));
@@ -1366,7 +1496,7 @@ static void poll_bthid_fifo(void) {
                     g_keys_sent++;
                     update_bthid_status();
                 }
-            } else if ((strncasecmp(line, "A101", 4) == 0 || strncasecmp(line, "A102", 4) == 0) && strlen(line) >= 8) {
+            } else if ((strncasecmp(line, "A101", 4) == 0 || strncasecmp(line, "A102", 4) == 0 || strncasecmp(line, "A103", 4) == 0) && strlen(line) >= 8) {
                 // Single hex report
                 uint8_t rep[16];
                 int rlen = parse_hex_bytes(line, rep, sizeof(rep));
@@ -1385,6 +1515,12 @@ static void poll_bthid_fifo(void) {
                         btstack_run_loop_add_timer(&g_host_key_release_timer);
                     } else if (rep[1] == 0x02 && (rep[2] != 0 || rep[3] != 0)) {
                         g_host_pending_release_type = 2;
+                        btstack_run_loop_remove_timer(&g_host_key_release_timer);
+                        btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
+                        btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
+                        btstack_run_loop_add_timer(&g_host_key_release_timer);
+                    } else if (rep[1] == 0x03 && rlen > 2 && rep[2] != 0) {
+                        g_host_pending_release_type = 4;
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
                         btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
@@ -1425,7 +1561,7 @@ static void execute_btstack_cmd(const char *cmd_in) {
             gap_set_local_name(g_host_name);
         }
         g_host_pairing = true;
-        gap_set_class_of_device(0x002540); // Keyboard
+        gap_set_class_of_device(0x0025C0); // Combo: Keyboard + Pointing Device
         gap_connectable_control(1);
         gap_discoverable_control(1);
         char msg[128];
@@ -2230,7 +2366,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                 // Classic GAP configuration
                 gap_set_local_name(g_host_name);
-                gap_set_class_of_device(0x002540); // Peripheral: Keyboard
+                gap_set_class_of_device(0x0025C0); // Peripheral: Keyboard + Pointing Device
                 gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH | LM_LINK_POLICY_ENABLE_SNIFF_MODE);
                 gap_set_allow_role_switch(true);
                 gap_ssp_set_enable(1);
@@ -2818,7 +2954,7 @@ int main(int argc, const char *argv[]) {
     // 7a. HID Device SDP record
     memset(hid_service_buffer, 0, sizeof(hid_service_buffer));
     hid_sdp_record_t hid_params = {
-        .hid_device_subclass = 0x2540,
+        .hid_device_subclass = 0x25C0,
         .hid_country_code = 33, // US
         .hid_virtual_cable = 0,
         .hid_remote_wake = 1,

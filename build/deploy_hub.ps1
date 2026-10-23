@@ -113,10 +113,10 @@ Write-Host "[*] Stopping existing daemons (killall -9)..." -ForegroundColor Yell
 Write-Host "[*] Ensuring remote directories..." -ForegroundColor Yellow
 & ssh @sshArgs $Target "mkdir -p /data/codex/bin /data/codex/www /data/codex/www/assets /etc/init.d /cache/www/assets/icons; [ -L /data/codex/www/assets/icons ] || ln -s /cache/www/assets/icons /data/codex/www/assets/icons"
 
-& ssh @sshArgs $Target "rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true"
+& ssh @sshArgs $Target "rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/codex/*.new /data/codex/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true"
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/codex_elite.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -132,7 +132,8 @@ function Install-HubFileIfChanged {
     param(
         [string]$LocalFile,
         [string]$RemoteFile,
-        [string]$Perm = "755"
+        [string]$Perm = "755",
+        [switch]$UseAtomicNew
     )
     if (-not (Test-Path $LocalFile)) { return $false }
     $localMd5 = (Get-FileHash -Algorithm MD5 $LocalFile).Hash.ToLower()
@@ -143,9 +144,23 @@ function Install-HubFileIfChanged {
         return $false
     }
     Write-Host "    -> Uploading $fileName (local: $localMd5 != remote: $(if ($remoteMd5) { $remoteMd5 } else { 'missing' }))" -ForegroundColor Yellow
-    $tmpRemote = "$RemoteFile.new"
-    & scp @scpArgs $LocalFile "${Target}:${tmpRemote}" | Out-Null
-    & ssh @sshArgs $Target "chmod $Perm $tmpRemote 2>/dev/null; mv -f $tmpRemote $RemoteFile 2>/dev/null || true"
+    if ($UseAtomicNew) {
+        $tmpRemote = "$RemoteFile.new"
+        & scp @scpArgs $LocalFile "${Target}:${tmpRemote}"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    [-] Upload failed for $fileName! Cleaning up temp file." -ForegroundColor Red
+            & ssh @sshArgs $Target "rm -f $tmpRemote 2>/dev/null"
+            return $false
+        }
+        & ssh @sshArgs $Target "chmod $Perm $tmpRemote 2>/dev/null; mv -f $tmpRemote $RemoteFile 2>/dev/null || true"
+    } else {
+        & scp @scpArgs $LocalFile "${Target}:${RemoteFile}"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    [-] Upload failed for $fileName!" -ForegroundColor Red
+            return $false
+        }
+        & ssh @sshArgs $Target "chmod $Perm $RemoteFile 2>/dev/null || true"
+    }
     return $true
 }
 Set-Alias Deploy-HubFileIfChanged Install-HubFileIfChanged
@@ -153,10 +168,10 @@ Set-Alias Deploy-HubFileIfChanged Install-HubFileIfChanged
 # 1. Upload binaries (standard core binaries only)
 Write-Host "[*] Uploading native MIPS binaries (MD5 check)..." -ForegroundColor Yellow
 $bins = Get-ChildItem -Path $BinDir -File | Where-Object {
-    $_.Name -notmatch '\.txt$|^FILES$' -and $_.Name -ne 'busybox'
+    $_.Name -notmatch '^\.|\.txt$|^FILES$' -and $_.Name -ne 'busybox'
 }
 foreach ($b in $bins) {
-    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" | Out-Null
+    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" -UseAtomicNew | Out-Null
 }
 
 # 1b. Upload Elite RF OTA image to /cache/codex_elite.ota.gz if available
@@ -189,7 +204,7 @@ $profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirna
 
 # 2. Upload scripts
 Write-Host "[*] Uploading scripts (MD5 check)..." -ForegroundColor Yellow
-$scripts = Get-ChildItem -Path $ScriptsDir -File
+$scripts = Get-ChildItem -Path $ScriptsDir -File | Where-Object { $_.Name -notmatch '^\.' }
 foreach ($s in $scripts) {
     Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/codex/$($s.Name)" -Perm "755" | Out-Null
 }
@@ -232,28 +247,34 @@ if (Test-Path $WwwDir) {
         & ssh @sshArgs $Target $pruneCmd
     }
     # Upload icons archive to /cache/icons.tar.gz (preserve /data space) and symlink to /data/codex/icons.tar.gz
-    $iconsTar = $null
-    if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
-        $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
-    } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
-        $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
-    } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
-        Write-Host "`n[?] build/icons.tar.gz not found on host." -ForegroundColor Yellow
-        $resp = Read-Host "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)"
-        if ($resp -eq "" -or $resp.Trim().ToLower() -eq "y") {
-            Write-Host "[*] Extracting remote UI icons and packaging build/icons.tar.gz..." -ForegroundColor Cyan
-            $fwTool = Join-Path $RepoRoot "tools\harmony_firmware.py"
-            $archiveOut = Join-Path $RepoRoot "build\icons.tar.gz"
-            $pyCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" } else { "py" }
-            & $pyCmd $fwTool extract-icons --archive $archiveOut
-            if (Test-Path $archiveOut) {
-                $iconsTar = $archiveOut
+    $hasRemoteIcons = $remoteHashes.ContainsKey("/cache/icons.tar.gz")
+    if ($hasRemoteIcons) {
+        Write-Host "    -> icons.tar.gz (present on Hub - skipped)" -ForegroundColor DarkGray
+        & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+    } else {
+        $iconsTar = $null
+        if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
+            $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
+        } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
+            $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
+        } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
+            Write-Host "`n[?] build/icons.tar.gz not found on host." -ForegroundColor Yellow
+            $resp = Read-Host "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)"
+            if ($resp -eq "" -or $resp.Trim().ToLower() -eq "y") {
+                Write-Host "[*] Extracting remote UI icons and packaging build/icons.tar.gz..." -ForegroundColor Cyan
+                $fwTool = Join-Path $RepoRoot "tools\harmony_firmware.py"
+                $archiveOut = Join-Path $RepoRoot "build\icons.tar.gz"
+                $pyCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" } else { "py" }
+                & $pyCmd $fwTool extract-icons --archive $archiveOut
+                if (Test-Path $archiveOut) {
+                    $iconsTar = $archiveOut
+                }
             }
         }
-    }
-    if ($iconsTar -and (Test-Path $iconsTar)) {
-        Install-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
-        & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+        if ($iconsTar -and (Test-Path $iconsTar)) {
+            Install-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
+            & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+        }
     }
     # Prune individual icons directory on flash to preserve JFFS2 partition space
     & ssh @sshArgs $Target "rm -rf /cache/www/assets/icons 2>/dev/null; chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"

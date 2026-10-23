@@ -3273,3 +3273,114 @@ select {
   color: var(--accent, #38bdf8);
 }
 
+/* Bluetooth Touchpad / Virtual Mouse */
+.bt-touchpad-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bt-touchpad-surface {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  background: radial-gradient(circle at center, rgba(14, 165, 233, 0.05) 0%, rgba(15, 23, 42, 0.65) 100%), var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  overflow: hidden;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bt-touchpad-surface:active {
+  cursor: grabbing;
+  border-color: var(--accent);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5), 0 0 12px rgba(14, 165, 233, 0.2);
+}
+
+.bt-touchpad-scroll-zone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 100%;
+  border-left: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  pointer-events: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  user-select: none;
+}
+
+.bt-touchpad-hint {
+  position: absolute;
+  top: 50%;
+  left: calc(50% - 24px);
+  transform: translate(-50%, -50%);
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+  text-align: center;
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.bt-touchpad-surface.touching .bt-touchpad-hint {
+  opacity: 0;
+}
+
+.bt-touchpad-ripple {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.25);
+  border: 2px solid var(--accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  display: none;
+}
+
+.bt-mouse-btn-bar {
+  display: grid;
+  grid-template-columns: 1fr 64px 1fr;
+  gap: 8px;
+}
+
+.bt-mouse-btn {
+  padding: 12px 8px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.bt-mouse-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent);
+}
+
+.bt-mouse-btn:active, .bt-mouse-btn.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  transform: scale(0.97);
+}
+
+

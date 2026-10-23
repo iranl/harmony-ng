@@ -1920,6 +1920,64 @@ static void http_process_request(int client_fd, const char *req) {
         return;
     }
 
+    /* Route: POST /api/bt-mouse or /api/v1/bt/mouse */
+    if ((strcmp(clean_path, "/api/bt-mouse") == 0 || strcmp(clean_path, "/api/v1/bt/mouse") == 0) && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        int dx = 0, dy = 0, buttons = 0, wheel = 0;
+        char action[32] = {0};
+        char button[32] = {0};
+        char target[32] = {0};
+        if (params) {
+            cJSON *j_dx = cJSON_GetObjectItem(params, "dx");
+            if (j_dx && cJSON_IsNumber(j_dx)) dx = j_dx->valueint;
+            cJSON *j_dy = cJSON_GetObjectItem(params, "dy");
+            if (j_dy && cJSON_IsNumber(j_dy)) dy = j_dy->valueint;
+            cJSON *j_btn = cJSON_GetObjectItem(params, "buttons");
+            if (j_btn && cJSON_IsNumber(j_btn)) buttons = j_btn->valueint;
+            cJSON *j_wh = cJSON_GetObjectItem(params, "wheel");
+            if (j_wh && cJSON_IsNumber(j_wh)) wheel = j_wh->valueint;
+            cJSON *j_act = cJSON_GetObjectItem(params, "action");
+            if (j_act && cJSON_IsString(j_act)) strncpy(action, j_act->valuestring, sizeof(action) - 1);
+            cJSON *j_bname = cJSON_GetObjectItem(params, "button");
+            if (j_bname && cJSON_IsString(j_bname)) strncpy(button, j_bname->valuestring, sizeof(button) - 1);
+            cJSON *j_tgt = cJSON_GetObjectItem(params, "target");
+            if (j_tgt && cJSON_IsString(j_tgt)) strncpy(target, j_tgt->valuestring, sizeof(target) - 1);
+            cJSON_Delete(params);
+        }
+        int ok = 0;
+        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
+        if (bfd >= 0) {
+            if (target[0]) {
+                char thdr[64];
+                snprintf(thdr, sizeof(thdr), "TARGET %s\n", target);
+                write(bfd, thdr, strlen(thdr));
+            }
+            char pipe_cmd[128];
+            if (strcasecmp(action, "click") == 0) {
+                const char *b = button[0] ? button : "left";
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", b);
+            } else if (strcasecmp(action, "down") == 0) {
+                const char *b = button[0] ? button : "left";
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", b);
+            } else if (strcasecmp(action, "up") == 0) {
+                const char *b = button[0] ? button : "left";
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", b);
+            } else if (strcasecmp(action, "wheel") == 0) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
+            } else {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
+            }
+            if (write(bfd, pipe_cmd, strlen(pipe_cmd)) > 0) ok = 1;
+            close(bfd);
+        }
+        cJSON *st = cJSON_CreateObject();
+        cJSON_AddBoolToObject(st, "ok", ok);
+        send_cjson_resp(client_fd, 200, st);
+        cJSON_Delete(st);
+        close(client_fd);
+        return;
+    }
+
 
     /* Route: GET /api/logs */
     if (strcmp(clean_path, "/api/logs") == 0 && strcmp(method, "GET") == 0) {

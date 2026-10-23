@@ -1776,7 +1776,19 @@
           </div>
         </div>
 
-        <!-- Full QWERTY Virtual Keyboard Scroll Panel -->
+        <!-- Mode Switcher: Keyboard vs Touchpad -->
+        <div style="display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <button type="button" id="tabBtKeyboard" class="btn btn-xs btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>⌨️</span> <span>Keyboard & D-Pad</span>
+          </button>
+          <button type="button" id="tabBtMouse" class="btn btn-xs btn-ghost" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🖱️</span> <span>Virtual Mouse & Touchpad</span>
+          </button>
+        </div>
+
+        <!-- Virtual Keyboard Container -->
+        <div id="btKeyboardContainer">
+          <!-- Full QWERTY Virtual Keyboard Scroll Panel -->
         <div class="kb-panel" style="margin-bottom: 12px;">
           <!-- Row 1: Esc + F1-F12 -->
           <div class="kb-row">
@@ -1916,6 +1928,51 @@
           </div>
         </div>
       </div>
+
+      <!-- Virtual Mouse / Touchpad Panel -->
+      <div id="btMouseContainer" class="bt-touchpad-card" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: -4px;">
+          <div class="mini muted">Drag to move pointer • Tap for Left Click • Right strip to scroll</div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="mini muted">Speed:</span>
+            <select id="btMouseSpeedSelect" class="form-control form-control-sm" style="font-size: 11px; padding: 2px 6px; width: 68px;">
+              <option value="0.75">0.75x</option>
+              <option value="1.0" selected>1.0x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2.0">2.0x</option>
+              <option value="3.0">3.0x</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Touchpad Surface -->
+        <div id="btTouchpad" class="bt-touchpad-surface">
+          <div class="bt-touchpad-hint">Touch & Drag Trackpad</div>
+          <div class="bt-touchpad-scroll-zone">
+            <span>▲</span>
+            <span style="writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 1px; font-size: 9px; opacity: 0.6;">SCROLL</span>
+            <span>▼</span>
+          </div>
+          <div id="btTouchpadRipple" class="bt-touchpad-ripple"></div>
+        </div>
+
+        <!-- Physical Mouse Buttons -->
+        <div class="bt-mouse-btn-bar">
+          <button type="button" id="btnMouseLeft" class="bt-mouse-btn" data-btn="left">Left Click</button>
+          <button type="button" id="btnMouseMiddle" class="bt-mouse-btn" data-btn="middle" style="font-size: 11px;">Middle</button>
+          <button type="button" id="btnMouseRight" class="bt-mouse-btn" data-btn="right">Right Click</button>
+        </div>
+
+        <!-- Scroll & Quick Buttons -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <div style="display: flex; gap: 6px;">
+            <button type="button" id="btnMouseWheelUp" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▲ Scroll Up</button>
+            <button type="button" id="btnMouseWheelDown" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▼ Scroll Down</button>
+          </div>
+          <div class="mini subtle" id="btMouseCoords">dx: 0, dy: 0</div>
+        </div>
+      </div>
+    </div>
 
       <!-- Type Text & Script Studio -->
       <details class="card" style="margin-top: 14px;" open>

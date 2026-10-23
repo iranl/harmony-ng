@@ -78,6 +78,37 @@ Harmony Hub also accepts built-in connection keywords:
 
 ---
 
-## 4. Official Specification Reference
+## 4. Mouse & Pointer Controls (Report ID `0x03`)
+Hub presents a composite HID device: Keyboard (Report 1), Consumer (Report 2), and Mouse (Report 3).
+
+### Direct FIFO Commands (`/tmp/bthid_input`)
+- `MOUSE <btn_mask> <dx> <dy> [wheel]` — Send pointer move or click (`btn_mask`: bit 0=Left, bit 1=Right, bit 2=Middle).
+- `MOUSE_MOVE <dx> <dy>` — Move relative pointer coordinates (-127 to 127).
+- `MOUSE_CLICK <left|right|middle>` — Quick button tap with auto-release after 40ms.
+- `MOUSE_DOWN <left|right|middle>` — Hold mouse button down.
+- `MOUSE_UP <left|right|middle>` — Release mouse button.
+- `MOUSE_WHEEL <steps>` — Vertical scroll wheel step (+1 up, -1 down).
+
+### HTTP & WebSocket API
+- **HTTP**: `POST /api/bt-mouse` with JSON:
+  ```json
+  {"dx": 10, "dy": -5, "buttons": 0, "wheel": 0, "action": "move"}
+  ```
+- **WebSocket**: `{ "action": "bt_mouse", "dx": 10, "dy": -5, "mouseAction": "move" }`
+
+---
+
+## 5. Physical BLE Remotes (e.g. Homatics B25)
+Harmony Hub also operates as a BLE central host to receive inputs from paired physical Bluetooth Low Energy remotes (such as the Homatics B25), mapping physical buttons to activities and device commands.
+
+> [!NOTE]
+> **Sleep & Wake Reconnection**:
+> When a BLE remote is in low-power sleep mode, the first button press wakes up the remote's radio and initiates reconnection to the Harmony Hub. On the Homatics B25, this first press will be dropped and show a red light indicator. The second button press will register and execute normally once the BLE remote finishes reconnecting.
+
+---
+
+## 6. Official Specification Reference
 For a complete list of all 65,536 HID usage definitions across all pages, consult the official standard:
 - [USB Implementers Forum: HID Usage Tables v1.5](https://usb.org/document-library/hid-usage-tables-15)
+
+

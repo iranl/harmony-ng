@@ -1452,6 +1452,60 @@ static void handle_ws_client_message(int cfd) {
             free(str);
         }
     }
+    else if (strcmp(action, "bt_mouse") == 0) {
+        cJSON *dx_j = cJSON_GetObjectItemCaseSensitive(root, "dx");
+        cJSON *dy_j = cJSON_GetObjectItemCaseSensitive(root, "dy");
+        cJSON *btn_j = cJSON_GetObjectItemCaseSensitive(root, "buttons");
+        cJSON *wh_j = cJSON_GetObjectItemCaseSensitive(root, "wheel");
+        cJSON *act_j = cJSON_GetObjectItemCaseSensitive(root, "mouseAction");
+        if (!act_j) act_j = cJSON_GetObjectItemCaseSensitive(root, "action");
+        cJSON *bname_j = cJSON_GetObjectItemCaseSensitive(root, "button");
+        cJSON *tgt_j = cJSON_GetObjectItemCaseSensitive(root, "target");
+        if (!tgt_j) tgt_j = cJSON_GetObjectItemCaseSensitive(root, "bdaddr");
+
+        int dx = (dx_j && cJSON_IsNumber(dx_j)) ? dx_j->valueint : 0;
+        int dy = (dy_j && cJSON_IsNumber(dy_j)) ? dy_j->valueint : 0;
+        int buttons = (btn_j && cJSON_IsNumber(btn_j)) ? btn_j->valueint : 0;
+        int wheel = (wh_j && cJSON_IsNumber(wh_j)) ? wh_j->valueint : 0;
+        const char *act = (act_j && cJSON_IsString(act_j)) ? act_j->valuestring : "";
+        const char *bname = (bname_j && cJSON_IsString(bname_j)) ? bname_j->valuestring : "left";
+        const char *tgt = (tgt_j && cJSON_IsString(tgt_j)) ? tgt_j->valuestring : "";
+
+        int ok = 0;
+        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
+        if (bfd >= 0) {
+            if (tgt[0]) {
+                char thdr[64];
+                snprintf(thdr, sizeof(thdr), "TARGET %s\n", tgt);
+                write(bfd, thdr, strlen(thdr));
+            }
+            char pipe_cmd[128];
+            if (strcasecmp(act, "click") == 0) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", bname[0] ? bname : "left");
+            } else if (strcasecmp(act, "down") == 0) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", bname[0] ? bname : "left");
+            } else if (strcasecmp(act, "up") == 0) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", bname[0] ? bname : "left");
+            } else if (strcasecmp(act, "wheel") == 0) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
+            } else {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
+            }
+            if (write(bfd, pipe_cmd, strlen(pipe_cmd)) > 0) ok = 1;
+            close(bfd);
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "ack");
+        cJSON_AddStringToObject(resp, "action", "bt_mouse");
+        cJSON_AddBoolToObject(resp, "ok", ok);
+        if (msg_id) cJSON_AddNumberToObject(resp, "msgId", msg_id);
+        char *str = cJSON_PrintUnformatted(resp);
+        cJSON_Delete(resp);
+        if (str) {
+            ws_send_text(cfd, str);
+            free(str);
+        }
+    }
 
     cJSON_Delete(root);
 }

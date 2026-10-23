@@ -1914,6 +1914,9 @@ class HarmonyApp {
     });
     document.getElementById('btSaveSettingsBtn')?.addEventListener('click', () => this.saveBluetoothSupervisionSettings());
 
+    // Bluetooth Virtual Mouse & Touchpad
+    this.setupBtTouchpad();
+
     // Harmony Archive IR Database Search
     this.setupHarmonyArchiveSearch();
 
@@ -5145,6 +5148,215 @@ class HarmonyApp {
           alert('Delete failed: ' + e.message);
         }
       });
+    });
+  }
+
+  setupBtTouchpad() {
+    const tabKb = document.getElementById('tabBtKeyboard');
+    const tabMouse = document.getElementById('tabBtMouse');
+    const kbCont = document.getElementById('btKeyboardContainer');
+    const mouseCont = document.getElementById('btMouseContainer');
+    const touchpad = document.getElementById('btTouchpad');
+    const ripple = document.getElementById('btTouchpadRipple');
+    const speedSel = document.getElementById('btMouseSpeedSelect');
+    const coordsEl = document.getElementById('btMouseCoords');
+
+    if (tabKb && tabMouse && kbCont && mouseCont) {
+      tabKb.addEventListener('click', () => {
+        tabKb.className = 'btn btn-xs btn-primary';
+        tabMouse.className = 'btn btn-xs btn-ghost';
+        kbCont.style.display = 'block';
+        mouseCont.style.display = 'none';
+      });
+      tabMouse.addEventListener('click', () => {
+        tabMouse.className = 'btn btn-xs btn-primary';
+        tabKb.className = 'btn btn-xs btn-ghost';
+        kbCont.style.display = 'none';
+        mouseCont.style.display = 'flex';
+      });
+    }
+
+    if (!touchpad) return;
+
+    let touchStartX = 0, touchStartY = 0;
+    let lastX = 0, lastY = 0;
+    let touchStartTime = 0;
+    let totalDist = 0;
+    let isScrollZone = false;
+    let scrollAcc = 0;
+    let isMouseDown = false;
+
+    const getSpeed = () => Number(speedSel?.value) || 1.0;
+    const getTarget = () => (document.getElementById('btTargetHostSelect')?.value || '').trim();
+
+    // Touch events for mobile / Android / Capacitor
+    touchpad.addEventListener('touchstart', (e) => {
+      if (!e.touches.length) return;
+      const t = e.touches[0];
+      const rect = touchpad.getBoundingClientRect();
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      lastX = t.clientX;
+      lastY = t.clientY;
+      touchStartTime = Date.now();
+      totalDist = 0;
+      scrollAcc = 0;
+
+      isScrollZone = (t.clientX >= rect.right - 48);
+
+      touchpad.classList.add('touching');
+      if (ripple) {
+        ripple.style.left = `${t.clientX - rect.left}px`;
+        ripple.style.top = `${t.clientY - rect.top}px`;
+        ripple.style.display = 'block';
+      }
+    }, { passive: true });
+
+    touchpad.addEventListener('touchmove', (e) => {
+      if (!e.touches.length) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const rect = touchpad.getBoundingClientRect();
+      const rawDx = t.clientX - lastX;
+      const rawDy = t.clientY - lastY;
+      lastX = t.clientX;
+      lastY = t.clientY;
+      totalDist += Math.hypot(rawDx, rawDy);
+
+      if (ripple) {
+        ripple.style.left = `${t.clientX - rect.left}px`;
+        ripple.style.top = `${t.clientY - rect.top}px`;
+      }
+
+      const tgt = getTarget();
+      if (isScrollZone || e.touches.length >= 2) {
+        scrollAcc += rawDy;
+        if (Math.abs(scrollAcc) >= 14) {
+          const wheel = scrollAcc < 0 ? 1 : -1;
+          this.client.sendBtMouse({ wheel, target: tgt });
+          scrollAcc = 0;
+        }
+      } else {
+        const speed = getSpeed();
+        const dx = Math.max(-127, Math.min(127, Math.round(rawDx * speed)));
+        const dy = Math.max(-127, Math.min(127, Math.round(rawDy * speed)));
+        if (dx !== 0 || dy !== 0) {
+          this.client.sendBtMouse({ dx, dy, target: tgt });
+          if (coordsEl) coordsEl.textContent = `dx: ${dx}, dy: ${dy}`;
+        }
+      }
+    }, { passive: false });
+
+    touchpad.addEventListener('touchend', () => {
+      touchpad.classList.remove('touching');
+      if (ripple) ripple.style.display = 'none';
+
+      const duration = Date.now() - touchStartTime;
+      if (duration < 280 && totalDist < 8) {
+        const tgt = getTarget();
+        this.remoteEngine.triggerHaptic();
+        this.client.sendBtMouse({ action: 'click', button: 'left', target: tgt });
+      }
+    });
+
+    touchpad.addEventListener('touchcancel', () => {
+      touchpad.classList.remove('touching');
+      if (ripple) ripple.style.display = 'none';
+    });
+
+    // Mouse drag events for desktop
+    touchpad.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isMouseDown = true;
+      const rect = touchpad.getBoundingClientRect();
+      touchStartX = e.clientX;
+      touchStartY = e.clientY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      touchStartTime = Date.now();
+      totalDist = 0;
+      scrollAcc = 0;
+      isScrollZone = (e.clientX >= rect.right - 48);
+
+      touchpad.classList.add('touching');
+      if (ripple) {
+        ripple.style.left = `${e.clientX - rect.left}px`;
+        ripple.style.top = `${e.clientY - rect.top}px`;
+        ripple.style.display = 'block';
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isMouseDown) return;
+      const rawDx = e.clientX - lastX;
+      const rawDy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      totalDist += Math.hypot(rawDx, rawDy);
+
+      const rect = touchpad.getBoundingClientRect();
+      if (ripple) {
+        ripple.style.left = `${Math.max(0, Math.min(rect.width, e.clientX - rect.left))}px`;
+        ripple.style.top = `${Math.max(0, Math.min(rect.height, e.clientY - rect.top))}px`;
+      }
+
+      const tgt = getTarget();
+      if (isScrollZone) {
+        scrollAcc += rawDy;
+        if (Math.abs(scrollAcc) >= 16) {
+          const wheel = scrollAcc < 0 ? 1 : -1;
+          this.client.sendBtMouse({ wheel, target: tgt });
+          scrollAcc = 0;
+        }
+      } else {
+        const speed = getSpeed();
+        const dx = Math.max(-127, Math.min(127, Math.round(rawDx * speed)));
+        const dy = Math.max(-127, Math.min(127, Math.round(rawDy * speed)));
+        if (dx !== 0 || dy !== 0) {
+          this.client.sendBtMouse({ dx, dy, target: tgt });
+          if (coordsEl) coordsEl.textContent = `dx: ${dx}, dy: ${dy}`;
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (!isMouseDown) return;
+      isMouseDown = false;
+      touchpad.classList.remove('touching');
+      if (ripple) ripple.style.display = 'none';
+
+      const duration = Date.now() - touchStartTime;
+      if (duration < 280 && totalDist < 8 && e.target === touchpad) {
+        const tgt = getTarget();
+        this.client.sendBtMouse({ action: 'click', button: 'left', target: tgt });
+      }
+    });
+
+    touchpad.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const tgt = getTarget();
+      const wheel = e.deltaY < 0 ? 1 : -1;
+      this.client.sendBtMouse({ wheel, target: tgt });
+    }, { passive: false });
+
+    // Click & scroll button handlers
+    document.getElementById('btnMouseLeft')?.addEventListener('click', () => {
+      this.remoteEngine.triggerHaptic();
+      this.client.sendBtMouse({ action: 'click', button: 'left', target: getTarget() });
+    });
+    document.getElementById('btnMouseRight')?.addEventListener('click', () => {
+      this.remoteEngine.triggerHaptic();
+      this.client.sendBtMouse({ action: 'click', button: 'right', target: getTarget() });
+    });
+    document.getElementById('btnMouseMiddle')?.addEventListener('click', () => {
+      this.remoteEngine.triggerHaptic();
+      this.client.sendBtMouse({ action: 'click', button: 'middle', target: getTarget() });
+    });
+    document.getElementById('btnMouseWheelUp')?.addEventListener('click', () => {
+      this.client.sendBtMouse({ wheel: 1, target: getTarget() });
+    });
+    document.getElementById('btnMouseWheelDown')?.addEventListener('click', () => {
+      this.client.sendBtMouse({ wheel: -1, target: getTarget() });
     });
   }
 
