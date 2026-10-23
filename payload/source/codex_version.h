@@ -1,7 +1,7 @@
 #ifndef CODEX_VERSION_H
 #define CODEX_VERSION_H
 
-#define CODEX_VERSION "1.8.1"
+#define CODEX_VERSION "1.8.2"
 #define CODEX_ELITE_VERSION CODEX_VERSION
 
 #endif /* CODEX_VERSION_H */
