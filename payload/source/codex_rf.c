@@ -2344,8 +2344,8 @@ static void *rx_worker(void *arg) {
 static void set_hub_led(int state) {
     int fd = open("/sys/class/input/input0/led", O_WRONLY);
     if (fd >= 0) {
-        /* On Harmony Hub Atheros input0: bit 0 (1) is Red, bit 1 (2) is Green, 0 is Off */
-        const char *val = (state == 0) ? "0\n" : (state == 1 ? "1\n" : "2\n");
+        /* On Harmony Hub Atheros input0: 0 is Off, 1 is Solid Red, 2 is Fast Blink, 3 is Slow Blink */
+        const char *val = (state == 0) ? "0\n" : "1\n";
         ssize_t w = write(fd, val, strlen(val));
         (void)w;
         close(fd);
@@ -2360,7 +2360,7 @@ static void *led_blink_worker(void *arg) {
         state = !state;
         usleep(250000);
     }
-    set_hub_led(2); /* Solid Green when ready */
+    set_hub_led(1); /* Solid Red when ready */
     return NULL;
 }
 

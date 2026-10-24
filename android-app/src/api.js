@@ -948,6 +948,15 @@ export class HarmonyClient {
     return this.request('/api/icons');
   }
 
+  async getIconsArchive() {
+    const url = this.buildUrl('/api/icons/archive');
+    const headers = {};
+    if (this.authHeader) headers['Authorization'] = this.authHeader;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.arrayBuffer();
+  }
+
   async getStatus() {
     return this.request('/api/status');
   }

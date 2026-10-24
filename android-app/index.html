@@ -3455,12 +3455,12 @@ harmony_send_command:
         </div>
         <div class="row" style="margin-top: 10px;">
           <div>
-            <label for="hubLedModeSelect">Hub Front LED Light</label>
+            <label for="hubLedModeSelect">Hub Front LED</label>
             <select id="hubLedModeSelect" class="form-control">
-              <option value="always_on" selected>Always On (Solid Green - Recommended)</option>
-              <option value="red">Solid Red</option>
-              <option value="amber">Solid Amber / Orange</option>
-              <option value="always_off">Always Off (Stealth Mode)</option>
+              <option value="always_on" selected>Always On</option>
+              <option value="always_off">Always Off</option>
+              <option value="flashing_slow">Flashing Slow</option>
+              <option value="flashing_fast">Flashing Fast</option>
             </select>
           </div>
         </div>
@@ -3616,6 +3616,32 @@ harmony_send_command:
           </div>
           <pre id="updateLog" class="mini" style="margin-top: 8px; max-height: 120px;">Ready.</pre>
         </form>
+      </div>
+
+      <!-- Icon Pack & Cache Management -->
+      <div class="card" style="margin-bottom: 14px;">
+        <h3 style="font-size: 15px; margin-bottom: 6px;">Official Elite Icon Pack & Cache</h3>
+        <div class="help">Logitech Harmony Elite remote icon set (~828 device, activity and button glyphs). Can load dynamically from Hub or download for complete offline availability.</div>
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <span id="iconCacheStatusBadge" class="badge">Checking cache...</span>
+            <span id="iconCacheDetail" class="subtle mini" style="margin-left: 8px;"></span>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="btnSyncIconsHub" type="button" class="btn btn-sm btn-primary">Sync from Hub</button>
+            <button id="btnSyncIconsOta" type="button" class="btn btn-sm btn-secondary">Download from OTA</button>
+            <button id="btnClearIconCache" type="button" class="btn btn-sm btn-ghost">Clear Cache</button>
+          </div>
+        </div>
+        <div id="iconSyncProgressWrap" style="display: none; margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
+            <span id="iconSyncStatusText" class="subtle">Extracting icons...</span>
+            <span id="iconSyncPct" style="font-weight: 600; color: var(--accent);">0%</span>
+          </div>
+          <div style="width: 100%; height: 6px; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
+            <div id="iconSyncProgressBar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+          </div>
+        </div>
       </div>
 
       <!-- System Actions (Rediscover, Reboot & Stock Revert) -->

@@ -146,7 +146,7 @@ struct codex_settings {
     char hub_name[64];              /* Custom hub name (default: "Harmony Hub") */
     char ntp_server[128];           /* Custom NTP server hostname/IP (default: empty = use pools) */
     char timezone[64];             /* Timezone string e.g. "CET-1CEST,M3.5.0,M10.5.0/3" (default: empty) */
-    char led_mode[32];              /* "always_on", "always_off", "auto" (default: "always_on") */
+    char led_mode[32];              /* "always_on", "always_off", "flashing_slow", "flashing_fast" (default: "always_on") */
 };
 
 int config_store_init(void);

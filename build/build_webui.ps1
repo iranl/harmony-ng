@@ -41,6 +41,12 @@ Copy-Item -Recurse -Force (Join-Path $DistDir "*") $WwwDir
 if (Test-Path (Join-Path $AppDir "favicon.png")) {
     Copy-Item -Force (Join-Path $AppDir "favicon.png") (Join-Path $WwwDir "favicon.png")
 }
+# Flash safety: Icons live in /cache/icons.tar.gz and are unpacked to /tmp/www on Hub.
+# Never copy individual icon files into payload/www flash partition.
+$PayloadIconsDir = Join-Path $AssetsDir "icons"
+if (Test-Path $PayloadIconsDir) {
+    Remove-Item -Recurse -Force $PayloadIconsDir
+}
 
 # 3. Gzip compress assets for embedded HTTP server
 Write-Host "[*] Gzipping assets (.gz) for fast embedded delivery..." -ForegroundColor Yellow

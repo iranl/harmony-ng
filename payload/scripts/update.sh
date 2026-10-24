@@ -273,9 +273,20 @@ do_apply() {
   # 7. Sync filesystem
   sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
 
-  echo "[+] Update to v${NEW_VER} applied successfully. Rebooting Hub..."
-  sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
-  (sleep 2 && reboot -f) >/dev/null 2>&1 &
+  echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
+  if [ -x /data/codex/safe_reboot.sh ]; then
+    /data/codex/safe_reboot.sh &
+  elif [ -x /data/codex/scripts/safe_reboot.sh ]; then
+    /data/codex/scripts/safe_reboot.sh &
+  else
+    killall -9 codex_rf codex_btstack codex_daemon 2>/dev/null || true
+    sleep 1
+    /data/codex/bin/codex_sync 2>/dev/null || sync 2>/dev/null || true
+    sleep 2
+    mount -o remount,ro /data 2>/dev/null || true
+    mount -o remount,ro /cache 2>/dev/null || true
+    (sleep 1 && reboot -f) >/dev/null 2>&1 &
+  fi
 }
 
 do_elite_ota() {

@@ -19,12 +19,28 @@ import {
 } from './irdb.js';
 import { t, setLanguage, getInitialLanguage } from './i18n.js';
 import iconMetadata from './icon-metadata.json';
+import {
+  initIconCache,
+  hasCachedIcon,
+  getCachedIconUrl,
+  cacheIconFromUrl,
+  syncIconsFromHub,
+  syncIconsFromOta,
+  getCachedIconsCount,
+  clearIconCache,
+  getAllCachedKeys
+} from './icon-cache.js';
 
 export const APP_VERSION = '1.10.0';
 
 export let stockIconsAvailable = false;
+export let stockIconBaseUrl = '';
 export const failedIconUrls = new Set();
 const iconNameCache = new Map();
+
+export function setStockIconBaseUrl(url) {
+  stockIconBaseUrl = (url || '').replace(/\/+$/, '');
+}
 
 export function escapeHtml(s) {
   if (!s) return '';
@@ -171,8 +187,17 @@ export function setStockIconsAvailable(avail) {
   stockIconsAvailable = !!avail;
 }
 
+if (typeof window !== 'undefined') {
+  window.__harmonyCacheIcon = (src) => {
+    if (!src || typeof src !== 'string' || src.startsWith('blob:') || src.startsWith('data:')) return;
+    const fn = src.split('/').pop().split('?')[0];
+    if (fn && fn.toLowerCase().endsWith('.png') && !hasCachedIcon(fn)) {
+      cacheIconFromUrl(fn, src).catch(() => {});
+    }
+  };
+}
+
 export function getStockIconUrl(iconKey, hint = '') {
-  if (!stockIconsAvailable) return '';
   if (!iconKey && !hint) return '';
   let fn = '';
   if (iconKey && typeof iconKey === 'string') {
@@ -193,14 +218,23 @@ export function getStockIconUrl(iconKey, hint = '') {
     else if (h.includes('switch') || h.includes('nintendo')) fn = 'switch.png';
   }
   if (!fn) return '';
-  const url = `/assets/icons/${fn}`;
+
+  // 1. Check local IndexedDB in-memory Blob URL cache first
+  const cachedUrl = getCachedIconUrl(fn);
+  if (cachedUrl) return cachedUrl;
+
+  // 2. If neither local cache nor remote hub has icons, skip
+  if (!stockIconsAvailable && !hasCachedIcon(fn)) return '';
+
+  const base = stockIconBaseUrl || '';
+  const url = base ? `${base}/assets/icons/${fn}` : `/assets/icons/${fn}`;
   if (failedIconUrls.has(url)) return '';
   return url;
 }
 
 function renderWithStockIconFallback(imgUrl, fallbackSvg, size) {
-  if (!stockIconsAvailable || !imgUrl || failedIconUrls.has(imgUrl)) return fallbackSvg;
-  return `<span class="stock-icon-wrap"><img src="${imgUrl}" class="stock-icon-img invert-white" loading="lazy" decoding="async" width="${size}" height="${size}" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
+  if (!imgUrl || failedIconUrls.has(imgUrl)) return fallbackSvg;
+  return `<span class="stock-icon-wrap"><img src="${imgUrl}" class="stock-icon-img invert-white" loading="lazy" decoding="async" width="${size}" height="${size}" onload="if(window.__harmonyCacheIcon)window.__harmonyCacheIcon(this.src)" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
 }
 
 export function getActivityIconSvg(iconKey, actType, size = 14) {
@@ -423,7 +457,15 @@ class HarmonyApp {
   async loadAvailableIcons(force = false) {
     if (!force && this.availableIcons && this.availableIcons.length > 0) return;
     try {
-      const icons = await this.client.getIcons();
+      let icons = [];
+      try {
+        icons = await this.client.getIcons();
+      } catch (e) {
+        console.warn('Could not query icons from Hub, checking local cache:', e);
+      }
+      if ((!icons || icons.length === 0) && getCachedIconsCount() > 0) {
+        icons = getAllCachedKeys();
+      }
       if (Array.isArray(icons) && icons.length > 0) {
         this.availableIcons = icons;
         this.iconCatalog = icons.map(fn => {
@@ -1150,7 +1192,17 @@ class HarmonyApp {
         if (this.currentTab === 'overview') this.loadDashboard();
       });
     }
+
+    try {
+      const cachedCount = await initIconCache();
+      if (cachedCount > 0) {
+        setStockIconsAvailable(true);
+      }
+    } catch (e) {
+      console.warn('Failed to initialize icon cache:', e);
+    }
     await this.loadActiveHub();
+    this.updateIconCacheUI();
   }
 
   bindEvents() {
@@ -2113,6 +2165,9 @@ class HarmonyApp {
     document.getElementById('updateCheck')?.addEventListener('click', () => this.checkSoftwareUpdate());
     document.getElementById('updateInstall')?.addEventListener('click', () => this.installSoftwareUpdate());
     document.getElementById('updateRefresh')?.addEventListener('click', () => this.showSoftwareVersions());
+    document.getElementById('btnSyncIconsHub')?.addEventListener('click', () => this.syncIconPack('hub'));
+    document.getElementById('btnSyncIconsOta')?.addEventListener('click', () => this.syncIconPack('ota'));
+    document.getElementById('btnClearIconCache')?.addEventListener('click', () => this.clearLocalIconCache());
     document.getElementById('btnRediscover')?.addEventListener('click', () => this.rediscoverMqtt());
     document.getElementById('btnRebootHub')?.addEventListener('click', () => this.rebootHub());
     this.setupFactoryResetModal();
@@ -2356,6 +2411,7 @@ class HarmonyApp {
       if (lbl) lbl.textContent = 'No Hub Selected';
       if (ovLbl) ovLbl.textContent = 'Active: None';
       this.client.updateHub(null);
+      setStockIconBaseUrl('');
       this.setHubStatus(false);
       this.activitiesData = { activities: [], currentId: '-1', currentName: 'No Hub', isOffline: true };
       this.inventory = { devices: [] };
@@ -2369,6 +2425,7 @@ class HarmonyApp {
     if (lbl) lbl.textContent = this.activeHub.name || 'Harmony Hub';
     if (ovLbl) ovLbl.textContent = `Active: ${this.activeHub.name || this.activeHub.host}`;
     this.client.updateHub(this.activeHub);
+    setStockIconBaseUrl(this.client.baseUrl);
     await this.checkHealthAndVersion();
     await this.refreshData();
     this.switchTab(this.currentTab, false);
@@ -2385,18 +2442,19 @@ class HarmonyApp {
       this.inventory = inv || { devices: [] };
       this.activitiesData = acts || { activities: [], currentId: '-1', currentName: 'PowerOff' };
 
+      const hasIcons = Boolean(stat?.has_icons || getCachedIconsCount() > 0);
+      const wasAvailable = stockIconsAvailable;
+      setStockIconsAvailable(hasIcons);
+      if (hasIcons && (!this.availableIcons || this.availableIcons.length === 0)) {
+        this.loadAvailableIcons();
+      }
+      if (!wasAvailable && hasIcons) {
+        if (this.currentTab === 'activity-remote') this.renderActivityRemote();
+        else if (this.currentTab === 'control') this.renderControlView();
+      }
+      this.updateIconCacheUI();
+
       if (stat) {
-        if (typeof stat.has_icons !== 'undefined') {
-          const wasAvailable = stockIconsAvailable;
-          setStockIconsAvailable(stat.has_icons);
-          if (stat.has_icons && (!this.availableIcons || this.availableIcons.length === 0)) {
-            this.loadAvailableIcons();
-          }
-          if (!wasAvailable && stat.has_icons) {
-            if (this.currentTab === 'activity-remote') this.renderActivityRemote();
-            else if (this.currentTab === 'control') this.renderControlView();
-          }
-        }
         if (stat.hub_name) {
           const lbl = document.getElementById('activeHubLabel');
           if (lbl) lbl.textContent = stat.hub_name;
@@ -7399,7 +7457,12 @@ class HarmonyApp {
           }
         }
         const ledSel = document.getElementById('hubLedModeSelect');
-        if (ledSel && st.led_mode) ledSel.value = st.led_mode;
+        if (ledSel && st.led_mode) {
+          let mode = st.led_mode;
+          if (mode === 'red') mode = 'always_on';
+          else if (mode === 'amber' || mode === 'orange') mode = 'flashing_slow';
+          ledSel.value = mode;
+        }
       }
     }).catch(() => {});
 
@@ -7408,6 +7471,96 @@ class HarmonyApp {
       this.refreshSystemInfo(),
       this.refreshLogs()
     ]);
+    this.updateIconCacheUI();
+  }
+
+  updateIconCacheUI() {
+    const badge = document.getElementById('iconCacheStatusBadge');
+    const detail = document.getElementById('iconCacheDetail');
+    if (!badge) return;
+
+    const count = getCachedIconsCount();
+    if (count > 0) {
+      badge.className = 'badge badge-success';
+      badge.style.background = 'rgba(16, 185, 129, 0.15)';
+      badge.style.color = '#10b981';
+      badge.textContent = `${count} Icons Cached`;
+      if (detail) detail.textContent = 'Offline icon pack ready';
+    } else if (stockIconsAvailable) {
+      badge.className = 'badge';
+      badge.style.background = 'rgba(59, 130, 246, 0.15)';
+      badge.style.color = 'var(--accent)';
+      badge.textContent = 'Streaming from Hub';
+      if (detail) detail.textContent = 'Hub icons active; sync recommended for offline use';
+    } else {
+      badge.className = 'badge';
+      badge.style.background = 'rgba(239, 68, 68, 0.15)';
+      badge.style.color = '#ef4444';
+      badge.textContent = 'No Icons Cached';
+      if (detail) detail.textContent = 'Sync from Hub or OTA mirror';
+    }
+  }
+
+  async syncIconPack(source = 'hub') {
+    const progressWrap = document.getElementById('iconSyncProgressWrap');
+    const statusText = document.getElementById('iconSyncStatusText');
+    const progressBar = document.getElementById('iconSyncProgressBar');
+    const pctLabel = document.getElementById('iconSyncPct');
+
+    if (progressWrap) progressWrap.style.display = 'block';
+    if (statusText) statusText.textContent = `Starting ${source === 'hub' ? 'Hub' : 'OTA'} icon sync...`;
+    if (progressBar) progressBar.style.width = '0%';
+    if (pctLabel) pctLabel.textContent = '0%';
+
+    const onProgress = (p) => {
+      const pct = p.percent || 0;
+      if (progressBar) progressBar.style.width = `${pct}%`;
+      if (pctLabel) pctLabel.textContent = `${pct}%`;
+      if (statusText) {
+        if (p.message) statusText.textContent = p.message;
+        else if (p.filename) statusText.textContent = `Caching ${p.filename} (${p.current}/${p.total})...`;
+      }
+    };
+
+    try {
+      let res;
+      if (source === 'hub') {
+        res = await syncIconsFromHub(this.client.baseUrl, this.client, onProgress);
+      } else {
+        res = await syncIconsFromOta(onProgress);
+      }
+      setStockIconsAvailable(true);
+      if (progressBar) progressBar.style.width = '100%';
+      if (pctLabel) pctLabel.textContent = '100%';
+      if (statusText) statusText.textContent = `Completed! ${res.count} icons cached locally.`;
+      showToast(`Successfully cached ${res.count} icons offline!`, 'success');
+      this.updateIconCacheUI();
+      await this.loadAvailableIcons(true);
+      if (this.currentTab === 'activity-remote') this.renderActivityRemote();
+      else if (this.currentTab === 'control') this.renderControlView();
+      setTimeout(() => {
+        if (progressWrap) progressWrap.style.display = 'none';
+      }, 4000);
+    } catch (err) {
+      console.error('Icon sync error:', err);
+      if (statusText) statusText.textContent = `Failed: ${err.message}`;
+      showToast(`Icon sync failed: ${err.message}`, 'error');
+      setTimeout(() => {
+        if (progressWrap) progressWrap.style.display = 'none';
+      }, 6000);
+    }
+  }
+
+  async clearLocalIconCache() {
+    const ok = await showConfirm('Clear local icon cache? Icons will need to be reloaded from the Hub.', {
+      title: 'Clear Icon Cache',
+      icon: '🗑️'
+    });
+    if (!ok) return;
+    await clearIconCache();
+    failedIconUrls.clear();
+    this.updateIconCacheUI();
+    showToast('Local icon cache cleared.', 'info');
   }
 
   async refreshServiceStatuses() {

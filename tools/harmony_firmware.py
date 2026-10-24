@@ -311,6 +311,7 @@ def extract_elite_icons(
     firmware_path: pathlib.Path,
     output_dir: pathlib.Path,
     archive_path: Optional[pathlib.Path] = None,
+    android_sync: bool = False,
 ) -> int:
     """Extract all icons from Elite .hfw2 -> ota-update.EzHex -> squashfs -> opt/luadraws."""
     seven_zip = find_7z_executable()
@@ -369,6 +370,15 @@ def extract_elite_icons(
             with tarfile.open(archive_path, "w:gz") as tar:
                 tar.add(consolidated_icons_dir, arcname="icons")
             print(f"[+] Successfully built: {archive_path} ({archive_path.stat().st_size:,} bytes)")
+
+        if android_sync:
+            android_icons_dir = REPO_DIR / "android-app" / "public" / "assets" / "icons"
+            android_icons_dir.mkdir(parents=True, exist_ok=True)
+            copied = 0
+            for png_file in consolidated_icons_dir.glob("*.png"):
+                shutil.copy2(png_file, android_icons_dir / png_file.name)
+                copied += 1
+            print(f"[+] Synced {copied} icons directly to Android app assets: {android_icons_dir}")
 
         return extracted_count
     finally:
@@ -532,6 +542,11 @@ def main():
         "--archive",
         help="Optional destination path to generate compressed icons.tar.gz archive directly",
     )
+    sub_icons.add_argument(
+        "--android",
+        action="store_true",
+        help="Also sync extracted icons directly to android-app/public/assets/icons/",
+    )
 
     # 4. flash / install
     sub_flash = subparsers.add_parser("flash", aliases=["install"], help="Flash firmware bundle directly over USB HID")
@@ -613,7 +628,7 @@ def main():
 
         out_dir = pathlib.Path(args.out_dir)
         arc_path = pathlib.Path(args.archive) if args.archive else None
-        extract_elite_icons(fw_path, out_dir, archive_path=arc_path)
+        extract_elite_icons(fw_path, out_dir, archive_path=arc_path, android_sync=args.android)
 
     # ACTION: flash / install
     elif args.action in ["flash", "install"]:

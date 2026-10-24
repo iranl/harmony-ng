@@ -1,1 +1,4 @@
 node_modules/
+dist/
+public/assets/icons/*
+!public/assets/icons/switch.png

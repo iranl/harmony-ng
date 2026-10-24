@@ -107,6 +107,20 @@ static void get_local_ip(int sock_fd, char *buf, size_t max_len) {
     buf[max_len - 1] = '\0';
 }
 
+static void get_disk_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
+    struct statvfs sv;
+    *total_kb = 5120;
+    *free_kb = 0;
+    if (statvfs("/data", &sv) == 0 && sv.f_frsize > 0) {
+        *total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
+        *free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
+    } else if (statvfs("/", &sv) == 0 && sv.f_frsize > 0) {
+        *total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
+        *free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
+    }
+}
+
+
 static void get_network_details(char *iface_out, size_t iface_len,
                                 char *gw_out, size_t gw_len,
                                 char *mask_out, size_t mask_len,
@@ -1290,15 +1304,16 @@ static void apply_hub_settings(const struct codex_settings *s) {
     /* 1. Hub LED */
     int lfd = open("/sys/class/input/input0/led", O_WRONLY);
     if (lfd >= 0) {
-        const char *val = "2\n";
+        const char *val = "1\n";
         if (strcasecmp(s->led_mode, "always_off") == 0 || strcasecmp(s->led_mode, "off") == 0) {
             val = "0\n";
-        } else if (strcasecmp(s->led_mode, "red") == 0) {
-            val = "1\n";
-        } else if (strcasecmp(s->led_mode, "amber") == 0 || strcasecmp(s->led_mode, "orange") == 0) {
+        } else if (strcasecmp(s->led_mode, "flashing_fast") == 0 || strcasecmp(s->led_mode, "fast") == 0) {
+            val = "2\n";
+        } else if (strcasecmp(s->led_mode, "flashing_slow") == 0 || strcasecmp(s->led_mode, "slow") == 0 ||
+                   strcasecmp(s->led_mode, "amber") == 0 || strcasecmp(s->led_mode, "orange") == 0) {
             val = "3\n";
         } else {
-            val = "2\n"; /* Solid Green */
+            val = "1\n"; /* Default: Solid Red (Always On) */
         }
         ssize_t w = write(lfd, val, strlen(val));
         (void)w;
@@ -1398,7 +1413,7 @@ static void http_process_request(int client_fd, const char *req) {
             "HTTP/1.1 204 No Content\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
-            "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
+            "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
             "Content-Length: 0\r\n"
             "Connection: close\r\n\r\n";
         send(client_fd, opt_resp, strlen(opt_resp), 0);
@@ -1417,7 +1432,7 @@ static void http_process_request(int client_fd, const char *req) {
                 "WWW-Authenticate: Basic realm=\"Harmony Hub Codex\"\r\n"
                 "Content-Type: application/json\r\n"
                 "Access-Control-Allow-Origin: *\r\n"
-                "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
+                "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
                 "Content-Length: 35\r\n"
                 "Connection: close\r\n\r\n"
                 "{\"ok\":false,\"error\":\"Unauthorized\"}";
@@ -1449,8 +1464,10 @@ static void http_process_request(int client_fd, const char *req) {
         char local_ip[64];
         get_local_ip(client_fd, local_ip, sizeof(local_ip));
         cJSON_AddStringToObject(st, "ip", local_ip);
-        cJSON_AddNumberToObject(st, "total_kb", 5120);
-        cJSON_AddNumberToObject(st, "free_kb", 1372);
+        uint64_t total_kb = 5120, free_kb = 0;
+        get_disk_space_kb(&total_kb, &free_kb);
+        cJSON_AddNumberToObject(st, "total_kb", (double)total_kb);
+        cJSON_AddNumberToObject(st, "free_kb", (double)free_kb);
         cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
 
         FILE *uf = fopen("/proc/uptime", "r");
@@ -1638,6 +1655,52 @@ static void http_process_request(int client_fd, const char *req) {
         }
         send_cjson_resp(client_fd, 200, arr);
         cJSON_Delete(arr);
+        close(client_fd);
+        return;
+    }
+
+    if ((strcmp(clean_path, "/api/icons/archive") == 0 || strcmp(clean_path, "/assets/icons.tar.gz") == 0) && (strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0)) {
+        const char *tar_path = NULL;
+        if (access("/cache/icons.tar.gz", F_OK) == 0) {
+            tar_path = "/cache/icons.tar.gz";
+        } else if (access("/data/codex/icons.tar.gz", F_OK) == 0) {
+            tar_path = "/data/codex/icons.tar.gz";
+        } else if (access("/cache/www/assets/icons.tar.gz", F_OK) == 0) {
+            tar_path = "/cache/www/assets/icons.tar.gz";
+        }
+        if (tar_path) {
+            FILE *tf = fopen(tar_path, "rb");
+            if (tf) {
+                fseek(tf, 0, SEEK_END);
+                long tsz = ftell(tf);
+                fseek(tf, 0, SEEK_SET);
+                char hdr[256];
+                int hlen = snprintf(hdr, sizeof(hdr),
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/gzip\r\n"
+                    "Content-Length: %ld\r\n"
+                    "Access-Control-Allow-Origin: *\r\n"
+                    "Cache-Control: public, max-age=604800, immutable\r\n"
+                    "Connection: close\r\n\r\n",
+                    tsz);
+                send(client_fd, hdr, (size_t)hlen, 0);
+                if (strcmp(method, "GET") == 0) {
+                    char buf[16384];
+                    size_t nr;
+                    while ((nr = fread(buf, 1, sizeof(buf), tf)) > 0) {
+                        if (send(client_fd, buf, nr, 0) < 0) break;
+                    }
+                }
+                fclose(tf);
+                close(client_fd);
+                return;
+            }
+        }
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddBoolToObject(err, "ok", 0);
+        cJSON_AddStringToObject(err, "error", "Icons archive not available");
+        send_cjson_resp(client_fd, 404, err);
+        cJSON_Delete(err);
         close(client_fd);
         return;
     }
@@ -2138,16 +2201,9 @@ static void http_process_request(int client_fd, const char *req) {
     if (strcmp(clean_path, "/api/disk-space") == 0 && strcmp(method, "GET") == 0) {
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
-        struct statvfs sv;
         uint64_t total_kb = 5120;
         uint64_t free_kb = 0;
-        if (statvfs("/data", &sv) == 0 && sv.f_frsize > 0) {
-            total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
-            free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
-        } else if (statvfs("/", &sv) == 0 && sv.f_frsize > 0) {
-            total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
-            free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
-        }
+        get_disk_space_kb(&total_kb, &free_kb);
         cJSON_AddNumberToObject(st, "total_kb", (double)total_kb);
         cJSON_AddNumberToObject(st, "free_kb", (double)free_kb);
 
