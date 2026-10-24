@@ -5233,7 +5233,6 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
         cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
-        cJSON_AddBoolToObject(resp, "bt_reconnect_on_boot", s.bt_reconnect_on_boot);
         cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
         cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
@@ -5256,11 +5255,6 @@ static void http_process_request(int client_fd, const char *req) {
             if (item) {
                 if (cJSON_IsBool(item)) s.bt_auto_reconnect = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.bt_auto_reconnect = (int)item->valuedouble;
-            }
-            item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_on_boot");
-            if (item) {
-                if (cJSON_IsBool(item)) s.bt_reconnect_on_boot = cJSON_IsTrue(item) ? 1 : 0;
-                else if (cJSON_IsNumber(item)) s.bt_reconnect_on_boot = (int)item->valuedouble;
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
             if (item && cJSON_IsNumber(item)) s.bt_reconnect_duration_sec = (int)item->valuedouble;
@@ -5300,7 +5294,6 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
         cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
-        cJSON_AddBoolToObject(resp, "bt_reconnect_on_boot", s.bt_reconnect_on_boot);
         cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
         cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);

@@ -139,7 +139,6 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
 
 struct codex_settings {
     int bt_auto_reconnect;          /* 1 = enable auto reconnect on activity/power, 0 = disable (default: 1) */
-    int bt_reconnect_on_boot;       /* 1 = enable auto reconnect on hub boot, 0 = disable (default: 1) */
     int bt_reconnect_duration_sec;  /* duration of reconnect attempts in seconds (default: 30) */
     int bt_reconnect_delay_sec;     /* delay in seconds before first reconnect attempt (default: 2) */
     int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */
