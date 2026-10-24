@@ -207,16 +207,53 @@ static void get_iface_ip_mask_mac(const char *ifname,
     close(sock);
 }
 
-static int find_usb_eth_interface(char *ifname_out, size_t ifname_len) {
+static int is_onboard_eth_device(const char *ifname) {
+    if (strcmp(ifname, "eth1") == 0) {
+        if (access("/usr/bin/network_switch.sh", F_OK) == 0) return 1;
+        FILE *f = fopen("/data/codex/skin", "r");
+        if (f) {
+            char buf[16] = {0};
+            if (fgets(buf, sizeof(buf), f) && strstr(buf, "115")) {
+                fclose(f);
+                return 1;
+            }
+            fclose(f);
+        }
+        char path[64];
+        snprintf(path, sizeof(path), "/sys/class/net/%s/carrier", ifname);
+        f = fopen(path, "r");
+        if (f) {
+            char c = fgetc(f);
+            fclose(f);
+            if (c == '1') return 1;
+        }
+    }
+    return 0;
+}
+
+static int find_usb_eth_interface_ex(char *ifname_out, size_t ifname_len, int *is_onboard_out) {
+    if (is_onboard_out) *is_onboard_out = 0;
+
+    // First check onboard eth1 (Harmony Pro 2400)
+    if (access("/sys/class/net/eth1", F_OK) == 0 && is_onboard_eth_device("eth1")) {
+        if (ifname_out && ifname_len) {
+            strncpy(ifname_out, "eth1", ifname_len - 1);
+            ifname_out[ifname_len - 1] = '\0';
+        }
+        if (is_onboard_out) *is_onboard_out = 1;
+        return 1;
+    }
+
     DIR *d = opendir("/sys/class/net");
     if (!d) return 0;
     struct dirent *de;
     int found = 0;
     while ((de = readdir(d)) != NULL) {
         if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-        if (strcmp(de->d_name, "eth0") == 0 || strcmp(de->d_name, "eth1") == 0 ||
-            strcmp(de->d_name, "lo") == 0 || strncmp(de->d_name, "ath", 3) == 0 ||
+        if (strcmp(de->d_name, "lo") == 0 || strncmp(de->d_name, "ath", 3) == 0 ||
             strncmp(de->d_name, "wifi", 4) == 0) continue;
+        // On standard Hub, ignore eth0/eth1 as they have no physical PHY
+        if (strcmp(de->d_name, "eth0") == 0 || strcmp(de->d_name, "eth1") == 0) continue;
         if (strncmp(de->d_name, "eth", 3) == 0 || strncmp(de->d_name, "usb", 3) == 0) {
             if (ifname_out && ifname_len) {
                 strncpy(ifname_out, de->d_name, ifname_len - 1);
@@ -228,6 +265,10 @@ static int find_usb_eth_interface(char *ifname_out, size_t ifname_len) {
     }
     closedir(d);
     return found;
+}
+
+static int find_usb_eth_interface(char *ifname_out, size_t ifname_len) {
+    return find_usb_eth_interface_ex(ifname_out, ifname_len, NULL);
 }
 
 static int get_iface_carrier(const char *ifname) {
@@ -2229,9 +2270,10 @@ static void http_process_request(int client_fd, const char *req) {
         int usb_host = get_usb_host_mode();
         cJSON_AddBoolToObject(st, "usb_host_mode", usb_host);
 
-        // Detect USB Ethernet
+        // Detect Ethernet (onboard GMAC eth1 on Pro 2400, or USB Ethernet adapter on Hub)
         char eth_if[32] = {0};
-        int eth_present = find_usb_eth_interface(eth_if, sizeof(eth_if));
+        int eth_onboard = 0;
+        int eth_present = find_usb_eth_interface_ex(eth_if, sizeof(eth_if), &eth_onboard);
         int eth_carrier = eth_present ? get_iface_carrier(eth_if) : 0;
         char eth_ip[32] = {0}, eth_mask[32] = {0}, eth_mac[32] = {0};
         if (eth_present) {
@@ -2257,18 +2299,21 @@ static void http_process_request(int client_fd, const char *req) {
 
         // Determine Connection Type
         const char *conn_type = "Disconnected";
+        const char *eth_type_name = eth_onboard ? "Onboard Ethernet" : "Ethernet";
         if (eth_carrier && eth_ip[0] && wifi_connected) {
-            conn_type = (strcmp(active_if, eth_if) == 0) ? "Dual (Ethernet Active + Wi-Fi Standby)" : "Dual (Wi-Fi Active + Ethernet Standby)";
+            conn_type = (strcmp(active_if, eth_if) == 0)
+                ? (eth_onboard ? "Dual (Onboard Ethernet Active + Wi-Fi Standby)" : "Dual (Ethernet Active + Wi-Fi Standby)")
+                : (eth_onboard ? "Dual (Wi-Fi Active + Onboard Ethernet Standby)" : "Dual (Wi-Fi Active + Ethernet Standby)");
         } else if (eth_carrier && eth_ip[0]) {
-            conn_type = "Ethernet";
+            conn_type = eth_onboard ? "Onboard Ethernet (PoE/RJ45)" : "Ethernet";
         } else if (wifi_connected && eth_carrier) {
-            conn_type = "Dual (Wi-Fi Active + Ethernet Link Up)";
+            conn_type = eth_onboard ? "Dual (Wi-Fi Active + Onboard Ethernet Link Up)" : "Dual (Wi-Fi Active + Ethernet Link Up)";
         } else if (wifi_connected && eth_present) {
-            conn_type = "Dual (Wi-Fi Active + Ethernet Standby)";
+            conn_type = eth_onboard ? "Dual (Wi-Fi Active + Onboard Ethernet Standby)" : "Dual (Wi-Fi Active + Ethernet Standby)";
         } else if (wifi_connected) {
             conn_type = "Wi-Fi";
         } else if (eth_carrier) {
-            conn_type = "Ethernet (Link Up, No IP)";
+            conn_type = eth_onboard ? "Onboard Ethernet (Link Up, No IP)" : "Ethernet (Link Up, No IP)";
         }
         cJSON_AddStringToObject(st, "connection_type", conn_type);
         cJSON_AddStringToObject(st, "mode", (strncmp(active_if, "eth", 3) == 0) ? "ethernet" : "wifi");
@@ -2289,6 +2334,7 @@ static void http_process_request(int client_fd, const char *req) {
 
         // Ethernet Specifics
         cJSON_AddBoolToObject(st, "eth_present", eth_present);
+        cJSON_AddBoolToObject(st, "eth_onboard", eth_onboard);
         cJSON_AddBoolToObject(st, "eth_carrier", eth_carrier);
         cJSON_AddStringToObject(st, "eth_interface", eth_if[0] ? eth_if : "none");
         cJSON_AddStringToObject(st, "eth_ip", eth_ip);

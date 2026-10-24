@@ -813,6 +813,7 @@ export class HarmonyClient {
       wifi_connected: data.wifi_connected !== undefined ? data.wifi_connected : true,
       usb_host_mode: data.usb_host_mode || false,
       eth_present: data.eth_present || false,
+      eth_onboard: data.eth_onboard || false,
       eth_carrier: data.eth_carrier || false,
       eth_interface: data.eth_interface || '',
       eth_ip: data.eth_ip || '',

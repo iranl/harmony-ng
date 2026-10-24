@@ -23,7 +23,10 @@ from typing import Optional, Tuple
 
 HARMONY_VID = 0x046D
 HUB_PID = 0xC129
+HUB_PRO_PID = 0xC132
 ELITE_PID = 0xC12B
+ALL_HUB_PIDS = (HUB_PID, HUB_PRO_PID)
+ALL_HARMONY_PIDS = (HUB_PID, HUB_PRO_PID, ELITE_PID)
 
 REPORT_SIZE = 65  # 1 byte report ID (0x00) + 64 bytes payload
 
@@ -372,7 +375,7 @@ def find_windows_device(target_pid: Optional[int] = None) -> Optional[str]:
                     if f"pid_{target_pid:04x}" in lower:
                         candidate_path = dev_path
                         break
-                elif f"pid_{HUB_PID:04x}" in lower or f"pid_{ELITE_PID:04x}" in lower:
+                elif any(f"pid_{p:04x}" in lower for p in ALL_HARMONY_PIDS):
                     candidate_path = dev_path
                     break
         idx += 1
@@ -434,7 +437,7 @@ def find_linux_device(target_pid: Optional[int] = None) -> Optional[str]:
                     vid = int(parts[1], 16)
                     pid = int(parts[2], 16)
                     if vid == HARMONY_VID:
-                        if (target_pid and pid == target_pid) or (not target_pid and pid in (HUB_PID, ELITE_PID)):
+                        if (target_pid and pid == target_pid) or (not target_pid and pid in ALL_HARMONY_PIDS):
                             return f"/dev/{os.path.basename(node)}"
         except Exception:
             continue

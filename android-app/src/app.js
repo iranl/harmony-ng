@@ -7115,9 +7115,13 @@ class HarmonyApp {
       // USB Controller Mode
       const usbEl = document.getElementById('netUsbMode');
       if (usbEl) {
-        usbEl.innerHTML = st.usb_host_mode
-          ? '<span style="color:var(--success); font-weight:600;">Host Mode (High-Speed 480Mbps active)</span>'
-          : '<span style="color:var(--text-muted);">Gadget Mode (USB Console/PC)</span>';
+        if (st.eth_onboard) {
+          usbEl.innerHTML = '<span style="color:var(--success); font-weight:600;">Gadget Mode (Native PC USB Control Active)</span>';
+        } else {
+          usbEl.innerHTML = st.usb_host_mode
+            ? '<span style="color:var(--success); font-weight:600;">Host Mode (High-Speed 480Mbps active)</span>'
+            : '<span style="color:var(--text-muted);">Gadget Mode (USB Console/PC)</span>';
+        }
       }
 
       // Ethernet Adapter Status
@@ -7125,11 +7129,13 @@ class HarmonyApp {
       if (ethEl) {
         if (st.eth_present) {
           const ifStr = st.eth_interface ? ` [${st.eth_interface}]` : '';
+          const devType = st.eth_onboard ? 'Onboard RJ45 / PoE' : '100Base-TX';
           if (st.eth_carrier) {
             const ipStr = st.eth_ip ? ` (IP: ${st.eth_ip})` : ' (Acquiring IP...)';
-            ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected (100Base-TX Link Up)${ifStr}</span>${ipStr}`;
+            ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected (${devType} Link Up)${ifStr}</span>${ipStr}`;
           } else {
-            ethEl.innerHTML = `<span style="color:var(--warning);">Adapter Detected${ifStr} (Cable Unplugged)</span>`;
+            const devLabel = st.eth_onboard ? 'Onboard RJ45 Port' : 'Adapter Detected';
+            ethEl.innerHTML = `<span style="color:var(--warning);">${devLabel}${ifStr} (Cable Unplugged)</span>`;
           }
         } else {
           ethEl.innerHTML = '<span style="color:var(--text-muted);">Not Detected</span>';

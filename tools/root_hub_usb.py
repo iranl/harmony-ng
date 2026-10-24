@@ -39,7 +39,7 @@ DROPBEAR_MIPS_PATH = BIN_DIR / "dropbearmulti_mips"
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from tools.harmony_hid import HarmonyHid, HUB_PID
+from tools.harmony_hid import HarmonyHid, HUB_PID, HUB_PRO_PID, ALL_HUB_PIDS
 
 
 BOOTSTRAP_SCRIPT_TEMPLATE = b"""#!/bin/sh
@@ -354,20 +354,37 @@ def main() -> None:
     print("=" * 70)
 
     # 1. Connect to Hub over USB HID
-    print("[*] Searching for Harmony Hub over USB HID (046D:C129)...")
-    hid = HarmonyHid(pid=HUB_PID)
-    if not hid.open():
+    print("[*] Searching for Harmony Hub over USB HID (046D:C129 / 046D:C132)...")
+    hid = None
+    connected_pid = None
+    for pid in ALL_HUB_PIDS:
+        candidate = HarmonyHid(pid=pid)
+        if candidate.open():
+            hid = candidate
+            connected_pid = pid
+            break
+
+    if not hid or not connected_pid:
         print("[-] Error: Harmony Hub not detected on USB.")
         print("    Ensure the Hub is connected via micro-USB and powered ON.")
         sys.exit(1)
+
+    dev_label = "Harmony Pro Hub (2400)" if connected_pid == HUB_PRO_PID else "Harmony Hub"
+    print(f"[+] Connected to {dev_label} (USB {connected_pid:04X})")
 
     try:
         # Check firmware version
         if not args.skip_fw_check:
             sysinfo = hid.get_sysinfo()
             current_fw = sysinfo.get("fw_ver") or sysinfo.get("version") or sysinfo.get("fw_version")
+            target_skin = 115 if connected_pid == HUB_PRO_PID else DEFAULT_HUB_SKIN
+            if sysinfo.get("skin"):
+                try:
+                    target_skin = int(sysinfo["skin"])
+                except ValueError:
+                    pass
             if current_fw:
-                print(f"[*] Hub reports firmware version: {current_fw}")
+                print(f"[*] Hub reports firmware version: {current_fw} (Skin {target_skin})")
                 try:
                     from tools.harmony_firmware import (
                         query_latest_firmware,
@@ -376,7 +393,7 @@ def main() -> None:
                         parse_hfw2_bundle,
                         flash_firmware,
                     )
-                    res = query_latest_firmware(DEFAULT_HUB_SKIN)
+                    res = query_latest_firmware(target_skin)
                     if res and res.get("Id"):
                         latest_fw = res["Id"]
                         if current_fw != latest_fw:
@@ -384,7 +401,7 @@ def main() -> None:
                             ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
                             if ans.strip().lower() == "y":
                                 fw_dir = REPO_DIR / "firmware"
-                                fw_file = fw_dir / f"hub_{DEFAULT_HUB_SKIN}_{latest_fw}.hfw2"
+                                fw_file = fw_dir / f"hub_{target_skin}_{latest_fw}.hfw2"
                                 if not fw_file.is_file():
                                     if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
                                         print("[-] Firmware download failed. Proceeding with current firmware...")
@@ -396,10 +413,15 @@ def main() -> None:
                                         print("[*] Waiting 30s for Hub to complete reboot and flash...")
                                         time.sleep(15)
                                         t_reconnect = time.time() + 60
-                                        hid = HarmonyHid(pid=HUB_PID)
                                         while time.time() < t_reconnect:
-                                            if hid.open():
-                                                print("\n[+] Hub re-enumerated on USB after firmware upgrade!")
+                                            for p in ALL_HUB_PIDS:
+                                                h_test = HarmonyHid(pid=p)
+                                                if h_test.open():
+                                                    hid = h_test
+                                                    connected_pid = p
+                                                    print(f"\n[+] Hub re-enumerated on USB (PID {p:04X}) after firmware upgrade!")
+                                                    break
+                                            if hid and hid.dev:
                                                 break
                                             time.sleep(2)
                                             print(".", end="", flush=True)

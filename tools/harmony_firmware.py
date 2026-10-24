@@ -53,7 +53,9 @@ from tools.harmony_hid import (
     HarmonyHid,
     HARMONY_VID,
     HUB_PID,
+    HUB_PRO_PID,
     ELITE_PID,
+    ALL_HUB_PIDS,
     encode_param_byte,
     encode_param_word_be,
     encode_param_dword_be,
@@ -399,11 +401,11 @@ def flash_firmware(
     """Flash firmware bundle directly to connected Hub or Elite Remote over USB HID."""
     # 1. Determine target PID
     if target_device.lower() == "hub":
-        target_pids = [HUB_PID]
+        target_pids = [HUB_PID, HUB_PRO_PID]
     elif target_device.lower() == "elite":
         target_pids = [ELITE_PID]
     else:
-        target_pids = [ELITE_PID, HUB_PID]
+        target_pids = [ELITE_PID, HUB_PID, HUB_PRO_PID]
 
     print("[*] Probing USB HID for connected Harmony device...")
     hid: Optional[HarmonyHid] = None
@@ -421,13 +423,18 @@ def flash_firmware(
         print("    Ensure device is plugged into USB and powered on.", file=sys.stderr)
         return False
 
-    dev_name = "Harmony Elite / Touch Remote" if connected_pid == ELITE_PID else "Harmony Hub"
+    if connected_pid == ELITE_PID:
+        dev_name = "Harmony Elite / Touch Remote"
+    elif connected_pid == HUB_PRO_PID:
+        dev_name = "Harmony Pro Hub (2400)"
+    else:
+        dev_name = "Harmony Hub"
     print(f"[+] Connected to {dev_name} (USB {HARMONY_VID:04X}:{connected_pid:04X})")
 
     # 2. Check intended skins
     if bundle.intended_skins:
         print(f"[*] Bundle intended skins: {bundle.intended_skins}")
-        if connected_pid == HUB_PID and not any(s in [97, 106, 109, 115] for s in bundle.intended_skins):
+        if connected_pid in (HUB_PID, HUB_PRO_PID) and not any(s in [97, 106, 109, 115] for s in bundle.intended_skins):
             print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate Hub compatibility!")
         elif connected_pid == ELITE_PID and not any(s in [99, 100, 102, 105, 108, 111, 112, 116] for s in bundle.intended_skins):
             print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate Elite compatibility!")
@@ -639,7 +646,7 @@ def main():
             # Auto-download for detected device
             print("[*] Auto-detecting connected Harmony USB device...")
             connected_pid = None
-            for pid in [ELITE_PID, HUB_PID]:
+            for pid in [ELITE_PID, HUB_PID, HUB_PRO_PID]:
                 test_hid = HarmonyHid(pid=pid)
                 if test_hid.open():
                     connected_pid = pid
@@ -650,9 +657,16 @@ def main():
                 print("[-] No Harmony device detected over USB. Specify --firmware manually or connect device.", file=sys.stderr)
                 sys.exit(1)
 
-            target = "elite" if connected_pid == ELITE_PID else "hub"
-            skin = DEFAULT_ELITE_SKIN if connected_pid == ELITE_PID else DEFAULT_HUB_SKIN
-            print(f"[+] Detected {target.upper()} remote/hub. Downloading latest official firmware...")
+            if connected_pid == ELITE_PID:
+                target = "elite"
+                skin = DEFAULT_ELITE_SKIN
+            elif connected_pid == HUB_PRO_PID:
+                target = "hub"
+                skin = 115
+            else:
+                target = "hub"
+                skin = DEFAULT_HUB_SKIN
+            print(f"[+] Detected {target.upper()} (Skin {skin}). Downloading latest official firmware...")
             res = query_latest_firmware(skin)
             if not res or not res.get("URI"):
                 print("[-] Failed to query latest firmware URL.", file=sys.stderr)

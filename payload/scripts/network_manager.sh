@@ -51,9 +51,27 @@ configure_arp_isolation() {
   echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true
 }
 
+is_onboard_eth() {
+  # Harmony Pro 2400 (Skin 115) has onboard physical GMAC Ethernet on eth1.
+  # On standard Hub, eth1 has no physical PHY/RJ45, so carrier is always 0.
+  if [ -d /sys/class/net/eth1 ]; then
+    [ -e /usr/bin/network_switch.sh ] && return 0
+    [ "$(cat /data/codex/skin 2>/dev/null)" = "115" ] && return 0
+    if [ -f /sys/class/net/eth1/carrier ] && [ "$(cat /sys/class/net/eth1/carrier 2>/dev/null)" = "1" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 find_eth_interface() {
-  # Ethernet on Harmony Hub is strictly USB-based.
-  # Ignore internal SoC eth0 and devboard eth1 (no physical ports).
+  # 1. Onboard physical Ethernet (Pro 2400 has physical eth1 port)
+  if is_onboard_eth; then
+    echo "eth1"
+    return 0
+  fi
+
+  # 2. USB-based Ethernet adapters (eth0, eth2, usb0, etc.)
   for ifpath in /sys/class/net/*; do
     [ -d "$ifpath" ] || continue
     ifname="${ifpath##*/}"
@@ -146,34 +164,41 @@ ensure_wifi() {
 }
 
 start_eth() {
-  log "Switching USB to host mode and loading drivers..."
-  if [ -x /data/codex/bin/start_usb_eth.sh ]; then
-    /data/codex/bin/start_usb_eth.sh >> "$LOG" 2>&1
-  elif [ -x /data/codex/start_usb_eth.sh ]; then
-    /data/codex/start_usb_eth.sh >> "$LOG" 2>&1
-  elif [ -x /usr/sbin/start_usb_eth.sh ]; then
-    /usr/sbin/start_usb_eth.sh >> "$LOG" 2>&1
+  eth_if=$(find_eth_interface)
+  if [ "$eth_if" = "eth1" ] && is_onboard_eth; then
+    log "Found onboard physical Ethernet interface: eth1"
+    configure_arp_isolation
+    ifconfig "$eth_if" up >> "$LOG" 2>&1
   else
-    log "Error: start_usb_eth.sh script not found!"
-    return 1
+    log "Switching USB to host mode and loading drivers..."
+    if [ -x /data/codex/bin/start_usb_eth.sh ]; then
+      /data/codex/bin/start_usb_eth.sh >> "$LOG" 2>&1
+    elif [ -x /data/codex/start_usb_eth.sh ]; then
+      /data/codex/start_usb_eth.sh >> "$LOG" 2>&1
+    elif [ -x /usr/sbin/start_usb_eth.sh ]; then
+      /usr/sbin/start_usb_eth.sh >> "$LOG" 2>&1
+    else
+      log "Error: start_usb_eth.sh script not found!"
+      return 1
+    fi
+
+    # Wait up to 8s for Ethernet interface to appear
+    eth_if=""
+    for i in 1 2 3 4 5 6 7 8; do
+      eth_if=$(find_eth_interface)
+      [ -n "$eth_if" ] && break
+      sleep 1
+    done
+
+    if [ -z "$eth_if" ]; then
+      log "No USB Ethernet adapter found on USB bus"
+      return 1
+    fi
+
+    log "Found USB Ethernet interface: $eth_if"
+    configure_arp_isolation
+    ifconfig "$eth_if" up >> "$LOG" 2>&1
   fi
-
-  # Wait up to 8s for Ethernet interface to appear
-  eth_if=""
-  for i in 1 2 3 4 5 6 7 8; do
-    eth_if=$(find_eth_interface)
-    [ -n "$eth_if" ] && break
-    sleep 1
-  done
-
-  if [ -z "$eth_if" ]; then
-    log "No USB Ethernet adapter found on USB bus"
-    return 1
-  fi
-
-  log "Found USB Ethernet interface: $eth_if"
-  configure_arp_isolation
-  ifconfig "$eth_if" up >> "$LOG" 2>&1
 
   # Check link/carrier (up to 5s)
   carrier_ok=0
@@ -188,8 +213,11 @@ start_eth() {
 
   if [ "$carrier_ok" != "1" ]; then
     log "Ethernet link down / cable unplugged on $eth_if"
+    echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
     return 2
   fi
+
+  echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
 
   apply_eth_fix() {
     local dev="$1"
@@ -245,12 +273,17 @@ start_eth() {
 
 stop_eth() {
   log "Stopping Ethernet..."
-  if [ -x /data/codex/bin/stop_usb_eth.sh ]; then
-    /data/codex/bin/stop_usb_eth.sh >> "$LOG" 2>&1
-  elif [ -x /data/codex/stop_usb_eth.sh ]; then
-    /data/codex/stop_usb_eth.sh >> "$LOG" 2>&1
-  elif [ -x /usr/sbin/stop_usb_eth.sh ]; then
-    /usr/sbin/stop_usb_eth.sh >> "$LOG" 2>&1
+  echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
+  if is_onboard_eth; then
+    ifconfig eth1 0.0.0.0 down 2>/dev/null || true
+  else
+    if [ -x /data/codex/bin/stop_usb_eth.sh ]; then
+      /data/codex/bin/stop_usb_eth.sh >> "$LOG" 2>&1
+    elif [ -x /data/codex/stop_usb_eth.sh ]; then
+      /data/codex/stop_usb_eth.sh >> "$LOG" 2>&1
+    elif [ -x /usr/sbin/stop_usb_eth.sh ]; then
+      /usr/sbin/stop_usb_eth.sh >> "$LOG" 2>&1
+    fi
   fi
 }
 
@@ -475,13 +508,16 @@ migrate_to_ethernet() {
   while route del default 2>/dev/null; do :; done
   if [ -n "$target_gw" ]; then
     route add default gw "$target_gw" dev "$eth_if" >> "$LOG" 2>&1
+    echo "$target_gw" > "/tmp/default_gw.$eth_if" 2>/dev/null || true
   fi
 
   # Restore DNS if configured
   [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+  [ -f /etc/resolv.conf ] && cp /etc/resolv.conf "/tmp/resolv.conf.$eth_if" 2>/dev/null || true
 
   configure_arp_isolation
   send_garp "$eth_if" "$target_ip"
+  echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
   echo "$eth_if:ethernet:$target_ip" > "$STATE_FILE"
   stop_recovery_ap 2>/dev/null || true
   log "Migration complete: Ethernet ($eth_if) active with IP $target_ip, GW $target_gw"
@@ -522,13 +558,16 @@ migrate_to_wifi() {
   while route del default 2>/dev/null; do :; done
   if [ -n "$target_gw" ]; then
     route add default gw "$target_gw" dev ath0 >> "$LOG" 2>&1
+    echo "$target_gw" > "/tmp/default_gw.ath0" 2>/dev/null || true
   fi
 
   # Restore DNS if configured
   [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+  [ -f /etc/resolv.conf ] && cp /etc/resolv.conf "/tmp/resolv.conf.ath0" 2>/dev/null || true
 
   configure_arp_isolation
   send_garp "ath0" "$target_ip"
+  echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
   echo "ath0:wifi-fallback:$target_ip" > "$STATE_FILE"
   log "Migration complete: Wi-Fi (ath0) active with IP $target_ip, GW $target_gw"
 }
@@ -544,6 +583,9 @@ run_monitor() {
 
   # Cache initial working gateway on startup
   get_current_gw >/dev/null 2>&1
+
+  # Ensure stock Pro 2400 network_switch.sh is not running to avoid route/DNS conflicts
+  killall -9 network_switch.sh 2>/dev/null || true
 
   while true; do
     sleep 3
@@ -568,6 +610,7 @@ run_monitor() {
       cur_state=$(cat "$STATE_FILE" 2>/dev/null)
 
       if [ "$carrier" = "1" ]; then
+        echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
         case "$cur_state" in
           "$cur_eth:ethernet:"*)
             # Already active on Ethernet; ensure ath0 has no lingering IP or subnet routes
@@ -579,7 +622,10 @@ run_monitor() {
             if ! route -n 2>/dev/null | grep -q '^0\.0\.0\.0'; then
               gw=$(get_current_gw)
               [ -z "$gw" ] && [ -n "$target_ip" ] && gw=$(echo "$target_ip" | sed 's/\.[0-9]*$/.1/')
-              [ -n "$gw" ] && route add default gw "$gw" dev "$cur_eth" 2>/dev/null || true
+              if [ -n "$gw" ]; then
+                route add default gw "$gw" dev "$cur_eth" 2>/dev/null || true
+                echo "$gw" > "/tmp/default_gw.$cur_eth" 2>/dev/null || true
+              fi
             fi
             ;;
           *)
@@ -597,6 +643,7 @@ run_monitor() {
               if [ -n "$e_ip" ]; then
                 route del default dev ath0 2>/dev/null || true
                 send_garp "$cur_eth" "$e_ip"
+                echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
                 echo "$cur_eth:ethernet:$e_ip" > "$STATE_FILE"
                 stop_recovery_ap 2>/dev/null || true
                 log "Ethernet connected via DHCP: $cur_eth has IP $e_ip"
@@ -606,6 +653,7 @@ run_monitor() {
         esac
       else
         # Carrier == 0 (Cable disconnected or switch powered down)
+        echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
         case "$cur_state" in
           "$cur_eth:ethernet:"*)
             target_ip="${ETH_IP:-$canonical_ip}"
@@ -698,6 +746,9 @@ do_boot() {
   log "Boot initialization started..."
   load_config
 
+  # Kill stock Pro 2400 network_switch.sh to avoid routing conflicts
+  killall -9 network_switch.sh 2>/dev/null || true
+
   # Kill any rogue udhcpc started by stock ifup -a
   if [ "$ETH_MODE" = "static" ]; then
     killall -9 udhcpc 2>/dev/null || true
@@ -710,15 +761,24 @@ do_boot() {
     has_wifi=1
   fi
 
-  # 2. Switch USB to Host mode and load Ethernet driver immediately (no gadget delay)
+  # 2. Initialize Ethernet (Onboard eth1 on Pro 2400, or USB Host mode on standard Hub)
   has_eth=0
-  log "Starting Ethernet (USB Host mode)..."
+  if is_onboard_eth; then
+    log "Starting Onboard Ethernet (eth1)..."
+  else
+    log "Starting Ethernet (USB Host mode)..."
+  fi
+
   if start_eth; then
-    log "USB Ethernet adapter initialized on boot."
+    if is_onboard_eth; then
+      log "Onboard Ethernet interface eth1 initialized on boot."
+    else
+      log "USB Ethernet adapter initialized on boot."
+    fi
     has_eth=1
     stop_recovery_ap 2>/dev/null || true
   else
-    log "No active USB Ethernet link on boot; evaluating Wi-Fi fallback."
+    log "No active Ethernet link on boot; evaluating Wi-Fi fallback."
     cur_eth=$(find_eth_interface)
     if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$ETH_IP" ]; then
       log "ETH_FALLBACK_WIFI active: assigning static fallback IP $ETH_IP to ath0..."
