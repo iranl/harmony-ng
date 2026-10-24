@@ -1538,36 +1538,47 @@ static void *config_push_worker(void *arg) {
                                 total_step_count++;
                             }
 
-                            /* Append stop/leave sequence delay step for this activity (tagged with step_idx = 0x80) */
+                            /* Append stop/leave sequence step(s) for this activity (tagged with step_idx & 0x80) */
                             if (total_step_count < 63 && strcmp(act_id, "-1") != 0) {
                                 cJSON *stop_seq = cJSON_GetObjectItem(act_obj, "stopSequence");
                                 if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "StopSequence");
                                 if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "LeaveActions");
-                                int stop_delay = 0;
+                                int stop_cnt = 0;
                                 if (stop_seq && cJSON_IsArray(stop_seq)) {
                                     cJSON *st_item = NULL;
                                     cJSON_ArrayForEach(st_item, stop_seq) {
+                                        if (total_step_count >= 63 || stop_cnt >= 8) break;
+                                        cJSON *cname = cJSON_GetObjectItem(st_item, "command");
+                                        if (!cname) cname = cJSON_GetObjectItem(st_item, "Command");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Delay");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Duration");
-                                        if (cdelay && cJSON_IsNumber(cdelay) && cdelay->valueint > 0) {
-                                            stop_delay += cdelay->valueint;
-                                        } else {
-                                            stop_delay += 250;
-                                        }
+                                        int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
+                                        if (d <= 0) d = 250;
+                                        if (d > 20000) d = 20000;
+
+                                        const char *nm = (cname && cJSON_IsString(cname) && cname->valuestring[0]) ? cname->valuestring : "Stop";
+                                        strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                        act_steps[total_step_count].act_id[11] = '\0';
+                                        strncpy(act_steps[total_step_count].name, nm, 15);
+                                        act_steps[total_step_count].name[15] = '\0';
+                                        act_steps[total_step_count].delay_ms = (uint16_t)d;
+                                        act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                        act_steps[total_step_count].total_steps = 1;
+                                        total_step_count++;
+                                        stop_cnt++;
                                     }
                                 }
-                                if (stop_delay <= 0) stop_delay = 1500;
-                                if (stop_delay > 20000) stop_delay = 20000;
-
-                                strncpy(act_steps[total_step_count].act_id, act_id, 11);
-                                act_steps[total_step_count].act_id[11] = '\0';
-                                strncpy(act_steps[total_step_count].name, "Power Off Old", 15);
-                                act_steps[total_step_count].name[15] = '\0';
-                                act_steps[total_step_count].delay_ms = (uint16_t)stop_delay;
-                                act_steps[total_step_count].step_idx = 0x80;
-                                act_steps[total_step_count].total_steps = 1;
-                                total_step_count++;
+                                if (stop_cnt == 0 && total_step_count < 63) {
+                                    strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                    act_steps[total_step_count].act_id[11] = '\0';
+                                    strncpy(act_steps[total_step_count].name, "Stop", 15);
+                                    act_steps[total_step_count].name[15] = '\0';
+                                    act_steps[total_step_count].delay_ms = 1500;
+                                    act_steps[total_step_count].step_idx = 0x80;
+                                    act_steps[total_step_count].total_steps = 1;
+                                    total_step_count++;
+                                }
                             }
                         }
                     }

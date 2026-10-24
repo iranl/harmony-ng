@@ -190,7 +190,7 @@ typedef struct {
     uint8_t step_idx;
     uint8_t total_steps;
     uint16_t delay_ms;
-    char name[16];
+    char name[32];
 } rf_act_step_t;
 
 static rf_act_step_t g_rf_steps[MAX_RF_STEPS];
@@ -2307,10 +2307,59 @@ static void rf_send_device_command(const char *dev_id, const char *cmd) {
     printf("[*] RF TX DEVICE_CMD: dev=%s cmd=%s\n", dev_id, cmd);
 }
 
+static int build_combined_activity_sequence(const char *from_id, const char *to_id,
+                                            rf_act_step_t *out_steps, int max_steps,
+                                            uint32_t *out_total_ms) {
+    int count = 0;
+    uint32_t total = 0;
+
+    /* Phase 1: Departing activity stop sequence */
+    if (from_id && from_id[0] && strcmp(from_id, "-1") != 0 && (!to_id || strcmp(from_id, to_id) != 0)) {
+        int found_stop = 0;
+        for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
+            if (strcmp(g_rf_steps[i].act_id, from_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
+                out_steps[count] = g_rf_steps[i];
+                if (strncmp(out_steps[count].name, "Power Off O", 11) == 0 ||
+                    strcmp(out_steps[count].name, "Power Off Old") == 0) {
+                    strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+                }
+                total += out_steps[count].delay_ms;
+                count++;
+                found_stop = 1;
+            }
+        }
+        if (!found_stop && count < max_steps) {
+            strncpy(out_steps[count].act_id, from_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].step_idx = 0x80;
+            out_steps[count].delay_ms = 1500;
+            strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+            total += 1500;
+            count++;
+        }
+    }
+
+    /* Phase 2: Entering activity start sequence (including Switched marker & tail steps) */
+    if (to_id && to_id[0]) {
+        for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
+            if (strcmp(g_rf_steps[i].act_id, to_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
+                out_steps[count] = g_rf_steps[i];
+                if (strcasecmp(out_steps[count].name, "Switched") == 0) {
+                    strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
+                }
+                total += out_steps[count].delay_ms;
+                count++;
+            }
+        }
+    }
+
+    if (total < 2000) total = 3500;
+    if (out_total_ms) *out_total_ms = total;
+    return count;
+}
+
 static void trigger_activity_switch(const char *id, const char *name) {
     if (!g_rf_link_connected) {
         printf("[!] Cannot switch activity '%s': Hub RF connection lost\n", name ? name : "");
-        /* Flash error in header and request sync */
         rf_send_sync_query();
         g_screen_dirty = true;
         render_screen();
@@ -2321,40 +2370,17 @@ static void trigger_activity_switch(const char *id, const char *name) {
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
     g_switching_start_ms = get_monotonic_ms();
 
+    rf_act_step_t combined_steps[32];
     uint32_t total_delay = 0;
-    int step_cnt = 0;
-
-    /* 1. Add departing activity stop delay if switching away from an active activity */
-    if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0 && strcmp(g_active_activity_id, g_switching_target_id) != 0) {
-        uint32_t stop_del = 0;
-        for (int i = 0; i < g_rf_step_count; i++) {
-            if (strcmp(g_rf_steps[i].act_id, g_active_activity_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
-                stop_del += g_rf_steps[i].delay_ms;
-            }
-        }
-        if (stop_del == 0) stop_del = 1500;
-        total_delay += stop_del;
-        step_cnt++;
-    }
-
-    /* 2. Add entering activity start steps delay */
-    for (int i = 0; i < g_rf_step_count; i++) {
-        if (strcmp(g_rf_steps[i].act_id, g_switching_target_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
-            total_delay += g_rf_steps[i].delay_ms;
-            step_cnt++;
-        }
-    }
-    if (step_cnt == 0 || total_delay < 2000) {
-        total_delay = 3500; /* sensible default */
-    }
+    int step_cnt = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
+                                                   combined_steps, 32, &total_delay);
     g_switching_total_ms = total_delay;
-    printf("[*] Starting activity switch to '%s' (%s): %d steps, %ums total delay\n",
+    printf("[*] Starting activity switch to '%s' (%s): %d combined steps (stop+start), %ums total delay\n",
            g_switching_target_name, g_switching_target_id, step_cnt, g_switching_total_ms);
 
     rf_send_activity_start(id ? id : "-1");
     render_screen();
 }
-
 
 static void trigger_activity_switch_external(const char *id, const char *name) {
     g_is_switching_activity = true;
@@ -2362,34 +2388,12 @@ static void trigger_activity_switch_external(const char *id, const char *name) {
     strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
     g_switching_start_ms = get_monotonic_ms();
 
+    rf_act_step_t combined_steps[32];
     uint32_t total_delay = 0;
-    int step_cnt = 0;
-
-    /* 1. Add departing activity stop delay if switching away from an active activity */
-    if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0 && strcmp(g_active_activity_id, g_switching_target_id) != 0) {
-        uint32_t stop_del = 0;
-        for (int i = 0; i < g_rf_step_count; i++) {
-            if (strcmp(g_rf_steps[i].act_id, g_active_activity_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
-                stop_del += g_rf_steps[i].delay_ms;
-            }
-        }
-        if (stop_del == 0) stop_del = 1500;
-        total_delay += stop_del;
-        step_cnt++;
-    }
-
-    /* 2. Add entering activity start steps delay */
-    for (int i = 0; i < g_rf_step_count; i++) {
-        if (strcmp(g_rf_steps[i].act_id, g_switching_target_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
-            total_delay += g_rf_steps[i].delay_ms;
-            step_cnt++;
-        }
-    }
-    if (step_cnt == 0 || total_delay < 2000) {
-        total_delay = 3500;
-    }
+    int step_cnt = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
+                                                   combined_steps, 32, &total_delay);
     g_switching_total_ms = total_delay;
-    printf("[*] External activity switch started for '%s' (%s): %d steps, %ums total delay\n",
+    printf("[*] External activity switch started for '%s' (%s): %d combined steps (stop+start), %ums total delay\n",
            g_switching_target_name, g_switching_target_id, step_cnt, g_switching_total_ms);
 
     g_screen_dirty = true;
@@ -2481,8 +2485,19 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
 
             uint64_t now_ms = get_monotonic_ms();
 
-            /* If remote is currently displaying the switching progress bar, and Hub confirms switch completion */
+            /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
             if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
+                uint64_t elapsed = now_ms - g_switching_start_ms;
+                /* If switch sequence timing is still in progress (e.g. Activity switched marker reached,
+                 * but warm-up delays or tail commands are still executing), update active ID but DO NOT unlock yet */
+                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
+                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+                if (elapsed + 500 < g_switching_total_ms) {
+                    printf("[*] Hub confirmed activity switched to '%s' (%s) at %llums/%ums; continuing tail steps\n",
+                           act_name, act_id, (unsigned long long)elapsed, g_switching_total_ms);
+                    g_screen_dirty = true;
+                    break;
+                }
                 printf("[*] Hub confirmed switch complete to '%s' (%s), unlocking screen\n", act_name, act_id);
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
@@ -2492,8 +2507,6 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 } else {
                     g_current_view = VIEW_ACTIVITIES;
                 }
-                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
-                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 g_selected_device_cmd = 0;
                 reset_idle_timer();
                 g_screen_dirty = true;
@@ -3551,36 +3564,13 @@ static void render_switching_view(void) {
         blit_png_file(FB_WIDTH - 20 - 52, card_y + 14, 44, 44, switch_icon);
     }
 
-    /* Filter steps: If leaving an active activity, prepend its power-off step */
-    rf_act_step_t target_steps[16];
-    int count = 0;
-    if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0 && strcmp(g_active_activity_id, g_switching_target_id) != 0) {
-        int found_stop = 0;
-        for (int i = 0; i < g_rf_step_count && count < 16; i++) {
-            if (strcmp(g_rf_steps[i].act_id, g_active_activity_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
-                target_steps[count] = g_rf_steps[i];
-                strncpy(target_steps[count].name, "Power Off Old", sizeof(target_steps[count].name) - 1);
-                count++;
-                found_stop = 1;
-                break;
-            }
-        }
-        if (!found_stop && count < 16) {
-            strncpy(target_steps[count].act_id, g_active_activity_id, sizeof(target_steps[count].act_id) - 1);
-            target_steps[count].step_idx = 0x80;
-            target_steps[count].delay_ms = 1500;
-            strncpy(target_steps[count].name, "Power Off Old", sizeof(target_steps[count].name) - 1);
-            count++;
-        }
-    }
-    for (int i = 0; i < g_rf_step_count && count < 16; i++) {
-        if (strcmp(g_rf_steps[i].act_id, g_switching_target_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
-            target_steps[count++] = g_rf_steps[i];
-        }
-    }
+    rf_act_step_t target_steps[32];
+    uint32_t calc_total_ms = 0;
+    int count = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
+                                                target_steps, 32, &calc_total_ms);
 
     uint64_t elapsed = get_monotonic_ms() - g_switching_start_ms;
-    uint32_t total_ms = (g_switching_total_ms > 0) ? g_switching_total_ms : 3500;
+    uint32_t total_ms = (g_switching_total_ms > 0) ? g_switching_total_ms : calc_total_ms;
 
     int current_step_idx = 1;
     char current_step_name[32] = "Configuring devices";
