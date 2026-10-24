@@ -197,10 +197,17 @@ def main() -> None:
         return
 
     # Connect to Remote over USB HID
-    print(f"[*] Searching for Harmony Elite Remote over USB HID (046D:C12B)...")
-    hid = HarmonyHid(pid=ELITE_PID)
-    if not hid.open():
-        print("[-] Elite Remote not detected on USB HID (046D:C12B).")
+    print(f"[*] Searching for Harmony Remote over USB HID...")
+    hid = None
+    for pid in (ELITE_PID, 0xC132):
+        h = HarmonyHid(pid=pid)
+        if h.open():
+            hid = h
+            print(f"[+] Detected Harmony Remote over USB HID (046D:{pid:04X})")
+            break
+
+    if not hid:
+        print("[-] Remote not detected on USB HID (046D:C12B / 046D:C132).")
         print("    Please connect remote via direct Micro-USB cable to PC.")
         sys.exit(1)
 

@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > **Hardware Family Compatibility**:
-> Harmony Ultimate (Home) and Harmony Touch share the same underlying architecture and USB PID (`046d:c12b`). They **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
+> The **Harmony Pro 2400 Remote** (Skin 116), Harmony Ultimate (Home), and Harmony Touch share the same underlying architecture (TI DaVinci ARM, CC2544 RF, ClearPad touch, 240x320 RGB565 LCD). Pro 2400 remote runs Dropbear SSH out of the box in stock firmware 10.0.215. All are supported using the same tooling and `codex_elite` binary (*untested on physical Pro 2400 remote hardware*).
 
 ## Serial Console & U-Boot (UART)
 Baud rate: `115200 8N1` on serial pad.

@@ -9,10 +9,15 @@ This guide covers setting up and configuring **high-speed USB Ethernet networkin
 Stock Logitech firmware permanently restricts the Harmony Hub to 2.4 GHz Wi-Fi (`ath0`). The internal Micro-USB port was only configured for USB Device Gadget mode.
 
 **HarmonyNG** introduces a dynamic USB host subsystem and network watchdog:
-- **On-Chip High-Speed USB Host**: Dynamically reconfigures the Atheros AR9344 SoC PHY register (`set_phy_host`) and attaches the dormant `ar7240-ehci.0` platform driver to provide true High-Speed (480 Mbps) USB 2.0 host functionality.
-- **Micro-USB OTG Power & Data**: Because the Hub is powered through its single Micro-USB port, an **OTG Ethernet adapter with an integrated power input cable** provides both 5V DC power to the Hub and a 10/100 Mbps RJ45 Ethernet port.
+- **Standard Harmony Hub (USB Host Mode)**:
+  - Dynamically reconfigures the Atheros AR9344 SoC PHY register (`set_phy_host`) and attaches the dormant `ar7240-ehci.0` platform driver to provide true High-Speed (480 Mbps) USB 2.0 host functionality.
+  - Requires an **OTG Micro-USB Ethernet Adapter with Power Cable** to provide both 5V DC power and a 10/100 Mbps RJ45 port.
+- **Harmony Hub Pro 2400 (Native Onboard RJ45 & PoE)**:
+  - Features a dedicated onboard Atheros GMAC interface (**`eth1`**) wired to a physical RJ45 port with 802.3af Power-over-Ethernet (PoE) hardware.
+  - **No USB Host Mode Required**: USB controller remains permanently in **USB Gadget Mode (`046D:C132`)**, allowing full PC USB HID control and console access simultaneously with active wired networking!
+  - `network_manager.sh` detects onboard `eth1` automatically, manages routing and DNS transitions, and keeps the stock Logitech HAL notified via `/tmp/eth_conn_pipe`.
 - **Automatic Hotplug & Dynamic Failover**: The built-in network monitor (`network_manager.sh`) checks Ethernet PHY carrier state every 3 seconds:
-  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth2` / `eth0`). Subnet routes and default gateway are switched to the wired interface.
+  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth1` on Pro 2400, or `eth2` / `eth0` on standard Hub). Subnet routes and default gateway are switched to the wired interface.
   - **Ethernet Disconnected (Cable Unplugged / Switch Off)**: Traffic automatically falls back to 2.4 GHz Wi-Fi (`ath0`) within 1–2 seconds without dropping daemon services or activities.
 - **Unified Static IP Handover**: When configured with a static IP, the Hub maintains the **exact same IP address** across both Ethernet and Wi-Fi. Upon link handover, gratuitous ARP frames (`arping -U -A`) notify your home router and switches instantly, keeping all open Home Assistant, MQTT, WebSocket, and REST connections alive with zero reconnection delay.
 - **MIPS Big-Endian Offload Correction (`eth_fix`)**: The Hub's MIPS 24Kc big-endian architecture causes hardware TX checksum corruption in vendor USB Ethernet drivers (such as Realtek `r8152.ko`). HarmonyNG includes a dedicated userspace helper ([`eth_fix`](../payload/source/eth_fix.c)) that automatically disables buggy hardware offloads via `SIOCETHTOOL` ioctl so that the Linux kernel computes 100% compliant TCP/UDP checksums in software.

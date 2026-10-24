@@ -1142,6 +1142,7 @@ static void load_settings_conf(void) {
         if (sscanf(line, "%63[^=]=%63[^\n\r]", key, sval) == 2) {
             int val = atoi(sval);
             if (strcmp(key, "touch") == 0) g_touch_enabled = (val != 0);
+            else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "remote_mode") == 0) g_remote_mode = (val == 1) ? 1 : 0;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
@@ -1184,6 +1185,7 @@ static void save_settings_conf(void) {
     FILE *f = fopen("/data/codex_elite.conf", "w");
     if (!f) return;
     fprintf(f, "touch=%d\n", g_touch_enabled ? 1 : 0);
+    fprintf(f, "cap_buttons=%d\n", g_cap_buttons_enabled ? 1 : 0);
     fprintf(f, "touch_sens=%d\n", g_touch_sensitivity);
     fprintf(f, "remote_mode=%d\n", g_remote_mode);
     fprintf(f, "gyro=%d\n", g_gyro_enabled ? 1 : 0);
@@ -1377,10 +1379,11 @@ static void send_remote_config_backup_rf(void) {
     payload[14] = (uint8_t)g_night_start_hour;
     payload[15] = (uint8_t)g_night_end_hour;
     payload[16] = (uint8_t)((g_timeout_seconds >> 8) & 0xFF);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 17);
+    payload[17] = (uint8_t)(g_cap_buttons_enabled ? 1 : 0);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 18);
     rf_send_frame(&f);
-    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d gyro=%d rate=%d timeout=%d\n",
-           g_remote_slot, g_brightness_val, g_touch_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds);
+    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d\n",
+           g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds);
 }
 
 static void send_version_report_rf(void) {
@@ -2718,6 +2721,8 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             g_usbeth_enabled = (f->payload[15] != 0);
             bool prev_no_screen = g_no_screen_mode;
             g_no_screen_mode = (f->payload[17] != 0);
+            if (f->payload[18] == 1) g_cap_buttons_enabled = true;
+            else if (f->payload[18] == 2) g_cap_buttons_enabled = false;
 
             if (g_no_screen_mode) {
                 set_backlight_level(0);
@@ -2727,8 +2732,8 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d\n",
-                   g_brightness_val, g_touch_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d\n",
+                   g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
                    g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity, g_remote_mode,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode);
             rf_frame_t ack;
@@ -3752,7 +3757,7 @@ static int get_settings_sub_count(void) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
         case SETTINGS_VIEW_ACTIVITIES: return 3;
         case SETTINGS_VIEW_DISPLAY:    return 5;
-        case SETTINGS_VIEW_TOUCH:      return 5;
+        case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 4;
         case SETTINGS_VIEW_SYSTEM:     return 7;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
@@ -3802,8 +3807,8 @@ static void execute_settings_action(int idx) {
             case 1:
                 g_timeout_seconds = (g_timeout_seconds == 10) ? 15 :
                                     ((g_timeout_seconds == 15) ? 30 :
-                                    ((g_timeout_seconds == 30) ? 60 :
-                                    ((g_timeout_seconds == 60) ? 120 : 10)));
+                                     ((g_timeout_seconds == 30) ? 60 :
+                                      ((g_timeout_seconds == 60) ? 120 : 10)));
                 save_settings_conf();
                 break;
             case 2:
@@ -3832,24 +3837,28 @@ static void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1:
-                cycle_touch_sensitivity();
+                g_cap_buttons_enabled = !g_cap_buttons_enabled;
                 save_settings_conf();
                 break;
             case 2:
-                cycle_nav_key();
+                cycle_touch_sensitivity();
                 save_settings_conf();
                 break;
             case 3:
-                cycle_nav_mode();
+                cycle_nav_key();
                 save_settings_conf();
                 break;
             case 4:
+                cycle_nav_mode();
+                save_settings_conf();
+                break;
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
         }
         return;
-    }
+    } }
 
     if (g_settings_subview == SETTINGS_VIEW_POWER) {
         switch (idx) {

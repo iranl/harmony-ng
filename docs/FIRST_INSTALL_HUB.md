@@ -1,17 +1,17 @@
 # Harmony Hub - First Time Installation & Setup Guide
 
-This guide walks you through rooting and installing **HarmonyNG** (`codex_daemon`) on a stock Logitech Harmony Hub (Model O-R0004).
+This guide walks you through rooting and installing **HarmonyNG** (`codex_daemon`) on a stock Logitech Harmony Hub (Standard Model O-R0004 or Harmony Pro 2400).
 
 ---
 
 ## 1. Prerequisites & Getting the Files
 
 ### Hardware & Network Requirements
-- **Harmony Hub** (Model O-R0004).
+- **Harmony Hub**: Standard Hub (Model O-R0004, USB `046D:C129`) or Harmony Pro 2400 (PoE/RJ45, USB `046D:C132`).
 - **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **Python 3**: Installed on host PC (no external libraries needed; uses standard library).
-- **Local Wi-Fi Network**: 2.4 GHz 802.11b/g/n (Harmony Hub connects via Wi-Fi).
+- **Local Network**: 2.4 GHz 802.11b/g/n Wi-Fi, or direct RJ45 Ethernet cable (Pro 2400).
 
 ### Choose Your Installation Method
 
@@ -37,19 +37,19 @@ cd android-app && npm install && npm run build && cd ..
 ## 2. Automated USB HID Rooting & Firmware Update
 
 > [!IMPORTANT]
-> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.600** for Hub). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
+> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.600** for standard Hub, or **v10.0.230** for Harmony Pro 2400). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
 
 If your Hub is running stock firmware with SSH disabled, use this one-time automated USB HID rooting procedure.
 
 ### Step 2.1: Connect Hub via Micro-USB
 1. Connect the Harmony Hub directly to your host PC using a standard Micro-USB data cable.
-2. The Hub powers on and enumerates on USB as `046D:C129` (Logitech Harmony Hub).
+2. The Hub powers on and enumerates on USB as `046D:C129` (Standard Hub) or `046D:C132` (Harmony Pro 2400).
 
 ### Step 2.2: Run Automated USB Root Tool
 Run the all-in-one root tool:
 
 ```bash
-# If your Hub is already connected to your Wi-Fi network:
+# If your Hub is already connected to your local network (Wi-Fi or Pro 2400 WiFi/Ethernet):
 python tools/root_hub_usb.py --hub-ip <YOUR_HUB_IP>
 
 # If your Hub is factory-reset or needs Wi-Fi credentials configured:
@@ -57,13 +57,13 @@ python tools/root_hub_usb.py --wifi-ssid "YourNetworkName" --wifi-pass "YourPass
 ```
 
 The tool automatically:
-1. Detects the Harmony Hub on USB HID (`046D:C129`).
-2. **Checks Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against the official Logitech SUS update servers. If the Hub is not running latest v4.15.600, it prompts:
+1. Detects the Harmony Hub on USB HID (`046D:C129` or `046D:C132`).
+2. **Checks Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against the official Logitech SUS update servers (v4.15.600 for standard Hub Skin 97, v10.0.230 for Pro 2400 Skin 115). If the Hub is not running latest firmware, it prompts:
    ```text
    [!] Hub firmware is 4.15.250, but latest official firmware is 4.15.600.
    [?] Download and install latest official firmware (4.15.600) first? (y/N):
    ```
-   If confirmed, it downloads `hub_97_4.15.600.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
+   If confirmed, it downloads the official firmware, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
 3. Configures Wi-Fi credentials over USB HID if `--wifi-ssid` is supplied.
 4. Stages the self-extracting MIPS Dropbear payload to `/sys/dropbear`.
 5. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.

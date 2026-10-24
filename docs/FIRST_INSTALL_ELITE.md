@@ -1,17 +1,19 @@
-# Harmony Elite 950 Remote - First Time Installation & Rooting Guide
+# Harmony Elite 950 & Pro 2400 Remote - First Time Installation & Rooting Guide
 
-This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`codex_elite`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010).
+This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`codex_elite`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010) and Harmony Pro 2400 Remote (Skin 116).
 
 > [!NOTE]
-> **Harmony Ultimate (Home) & Touch Compatibility**:
-> Harmony Ultimate (Home) and Harmony Touch share the same underlying hardware platform and USB interface. They **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
+> **Harmony Pro 2400 Remote, Ultimate (Home) & Touch Compatibility**:
+> Reverse engineering confirms the **Harmony Pro 2400 Remote** (Skin 116, firmware 10.0.215) belongs to the exact same hardware family (`hops`) as the Elite 950, sharing the same TI DaVinci ARM SoC, 240x320 RGB565 LCD (`/dev/fb0`), Synaptics ClearPad touch digitizer, keypad matrix, and CC2544 RF transceiver (Report `0x20`).
+>
+> On firmware 10.0.215, Dropbear SSH is **already enabled by default** in `/etc/init.d/rcS`. The Pro 2400 Remote, Harmony Ultimate (Home), and Harmony Touch are all supported by our tooling and custom firmware (untested on physical Pro 2400 hardware, try at own risk).
 
 ---
 
 ## 1. Prerequisites & Getting the Files
 
 ### Hardware & Driver Requirements
-- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), or Harmony Ultimate (Home) / Touch (*untested, try at own risk*).
+- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), Harmony Pro 2400 Remote (Skin 116), or Harmony Ultimate (Home) / Touch (*untested, try at own risk*).
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **RNDIS Network Driver**: Installed on host PC (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).

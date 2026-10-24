@@ -246,9 +246,16 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         print(f"[-] Error: Could not import tools.harmony_hid: {e}")
         return False
 
-    print("[*] Connecting to Harmony Remote over USB HID (046D:C12B)...")
-    hid = HarmonyHid(pid=ELITE_PID)
-    if not hid.open():
+    print("[*] Connecting to Harmony Remote over USB HID...")
+    hid = None
+    for pid in (ELITE_PID, 0xC132):
+        h = HarmonyHid(pid=pid)
+        if h.open():
+            hid = h
+            print(f"[+] Connected to Harmony Remote over USB HID (046D:{pid:04X})")
+            break
+
+    if not hid:
         print("[-] USB connection failed.")
         print("    Ensure remote is plugged in via USB and powered ON.")
         return False
@@ -256,12 +263,14 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
     try:
         # 1. Firmware version check against official Logitech update servers
         if not skip_fw_check:
-            print("[*] Checking Elite Remote firmware version over USB HID...")
+            print("[*] Checking Remote firmware version over USB HID...")
             try:
                 sysinfo = hid.get_sysinfo()
                 current_fw = sysinfo.get("sw_version", "")
+                remote_skin = sysinfo.get("skin", DEFAULT_ELITE_SKIN)
+                target_skin = 116 if remote_skin == 116 else DEFAULT_ELITE_SKIN
                 if current_fw:
-                    print(f"[*] Remote reports firmware version: {current_fw}")
+                    print(f"[*] Remote reports firmware version: {current_fw} (Skin: {remote_skin})")
                     from tools.harmony_firmware import (
                         query_latest_firmware,
                         DEFAULT_ELITE_SKIN,
@@ -269,7 +278,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                         parse_hfw2_bundle,
                         flash_firmware,
                     )
-                    res = query_latest_firmware(DEFAULT_ELITE_SKIN)
+                    res = query_latest_firmware(target_skin)
                     if res and res.get("Id"):
                         latest_fw = res["Id"]
                         if current_fw != latest_fw:
