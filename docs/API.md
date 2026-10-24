@@ -163,7 +163,6 @@ Returns global hub settings from `/data/codex/config/settings.json`.
     "ok": true,
     "hub_name": "Living Room Hub",
     "bt_auto_reconnect": true,
-    "bt_reconnect_on_boot": true,
     "bt_reconnect_duration_sec": 30,
     "bt_reconnect_delay_sec": 5,
     "dry_run": false,
@@ -180,7 +179,6 @@ Updates global hub settings.
   {
     "hub_name": "Living Room Hub",
     "bt_auto_reconnect": true,
-    "bt_reconnect_on_boot": true,
     "bt_reconnect_duration_sec": 30,
     "bt_reconnect_delay_sec": 5,
     "dry_run": false,
@@ -738,6 +736,7 @@ Saves remote preferences and transmits push packet to Elite over RF.
     "brightness": 3,
     "timeout": 120,
     "touchEnabled": true,
+    "capButtonsEnabled": true,
     "gyroEnabled": true,
     "gyroRate": 25,
     "btnBacklight": 1,

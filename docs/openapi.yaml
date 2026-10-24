@@ -1260,6 +1260,7 @@ paths:
                 brightness: 3
                 timeout: 120
                 touchEnabled: true
+                capButtonsEnabled: true
                 gyroEnabled: true
                 gyroRate: 25
                 btnBacklight: 1
@@ -1293,6 +1294,7 @@ paths:
                 brightness: {type: integer, default: 3}
                 timeout: {type: integer, default: 120}
                 touchEnabled: {type: boolean, default: true}
+                capButtonsEnabled: {type: boolean, default: true}
                 gyroEnabled: {type: boolean, default: true}
                 gyroRate: {type: integer, default: 25}
                 btnBacklight: {type: integer, default: 1}
@@ -1308,6 +1310,7 @@ paths:
               brightness: 3
               timeout: 120
               touchEnabled: true
+              capButtonsEnabled: true
               gyroEnabled: true
               gyroRate: 25
               btnBacklight: 1

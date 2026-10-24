@@ -103,8 +103,10 @@
   <div id="hubUpdatingOverlay" class="hub-updating-overlay" style="display: none;">
     <div class="hub-updating-card">
       <div class="updating-spinner-ring"></div>
-      <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;">Hub Software Update</h3>
-      <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;">Hub is updated and is rebooting. Please wait...</p>
+      <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;">Hub Software Update
+      </h3>
+      <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;">
+        Hub is updated and is rebooting. Please wait...</p>
       <div class="updating-progress-badge">
         <span class="updating-pulse-dot"></span>
         <span id="hubUpdatingStatusText">Applying update...</span>
@@ -1170,7 +1172,8 @@
                   <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
                     <option value="">None (Activity Start Only)</option>
                   </select>
-                  <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp; window whenever this command executes (e.g. smart socket PowerOn).</div>
+                  <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp;
+                    window whenever this command executes (e.g. smart socket PowerOn).</div>
                 </div>
               </div>
             </div>
@@ -1701,14 +1704,6 @@
             </div>
           </label>
 
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="btBootReconnectToggle" checked
-              style="width: 18px; height: 18px; accent-color: var(--accent);">
-            <div>
-              <strong style="font-size: 13px;">Auto Reconnect on Hub Boot</strong>
-              <div class="muted mini">Connect to paired Bluetooth devices on startup</div>
-            </div>
-          </label>
 
           <div>
             <label for="btReconnectDuration" style="font-size: 12px; font-weight: 600;">Supervision Duration
@@ -1777,11 +1772,14 @@
         </div>
 
         <!-- Mode Switcher: Keyboard vs Touchpad -->
-        <div style="display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
-          <button type="button" id="tabBtKeyboard" class="btn btn-xs btn-primary" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+        <div
+          style="display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <button type="button" id="tabBtKeyboard" class="btn btn-xs btn-primary"
+            style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
             <span>⌨️</span> <span>Keyboard & D-Pad</span>
           </button>
-          <button type="button" id="tabBtMouse" class="btn btn-xs btn-ghost" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <button type="button" id="tabBtMouse" class="btn btn-xs btn-ghost"
+            style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;">
             <span>🖱️</span> <span>Virtual Mouse & Touchpad</span>
           </button>
         </div>
@@ -1789,190 +1787,195 @@
         <!-- Virtual Keyboard Container -->
         <div id="btKeyboardContainer">
           <!-- Full QWERTY Virtual Keyboard Scroll Panel -->
-        <div class="kb-panel" style="margin-bottom: 12px;">
-          <!-- Row 1: Esc + F1-F12 -->
-          <div class="kb-row">
-            <button type="button" class="kb-key kb-15" data-key="escape">Esc</button>
-            <button type="button" class="kb-key" data-key="f1">F1</button><button type="button" class="kb-key"
-              data-key="f2">F2</button>
-            <button type="button" class="kb-key" data-key="f3">F3</button><button type="button" class="kb-key"
-              data-key="f4">F4</button>
-            <button type="button" class="kb-key" data-key="f5">F5</button><button type="button" class="kb-key"
-              data-key="f6">F6</button>
-            <button type="button" class="kb-key" data-key="f7">F7</button><button type="button" class="kb-key"
-              data-key="f8">F8</button>
-            <button type="button" class="kb-key" data-key="f9">F9</button><button type="button" class="kb-key"
-              data-key="f10">F10</button>
-            <button type="button" class="kb-key" data-key="f11">F11</button><button type="button" class="kb-key"
-              data-key="f12">F12</button>
-            <button type="button" class="kb-key" data-key="insert">Ins</button><button type="button" class="kb-key"
-              data-key="delete">Del</button>
-          </div>
-          <!-- Row 2: Numbers -->
-          <div class="kb-row">
-            <button type="button" class="kb-key" data-key="grave">`</button>
-            <button type="button" class="kb-key" data-key="1">1</button><button type="button" class="kb-key"
-              data-key="2">2</button>
-            <button type="button" class="kb-key" data-key="3">3</button><button type="button" class="kb-key"
-              data-key="4">4</button>
-            <button type="button" class="kb-key" data-key="5">5</button><button type="button" class="kb-key"
-              data-key="6">6</button>
-            <button type="button" class="kb-key" data-key="7">7</button><button type="button" class="kb-key"
-              data-key="8">8</button>
-            <button type="button" class="kb-key" data-key="9">9</button><button type="button" class="kb-key"
-              data-key="0">0</button>
-            <button type="button" class="kb-key" data-key="minus">-</button><button type="button" class="kb-key"
-              data-key="equal">=</button>
-            <button type="button" class="kb-key kb-2" data-key="backspace">⌫ Back</button>
-            <button type="button" class="kb-key" data-key="home">Home</button>
-          </div>
-          <!-- Row 3: QWERTY -->
-          <div class="kb-row">
-            <button type="button" class="kb-key kb-15" data-key="tab">Tab</button>
-            <button type="button" class="kb-key" data-key="q">Q</button><button type="button" class="kb-key"
-              data-key="w">W</button>
-            <button type="button" class="kb-key" data-key="e">E</button><button type="button" class="kb-key"
-              data-key="r">R</button>
-            <button type="button" class="kb-key" data-key="t">T</button><button type="button" class="kb-key"
-              data-key="y">Y</button>
-            <button type="button" class="kb-key" data-key="u">U</button><button type="button" class="kb-key"
-              data-key="i">I</button>
-            <button type="button" class="kb-key" data-key="o">O</button><button type="button" class="kb-key"
-              data-key="p">P</button>
-            <button type="button" class="kb-key" data-key="leftbracket">[</button><button type="button" class="kb-key"
-              data-key="rightbracket">]</button>
-            <button type="button" class="kb-key" data-key="backslash">\</button><button type="button" class="kb-key"
-              data-key="end">End</button>
-          </div>
-          <!-- Row 4: ASDF -->
-          <div class="kb-row">
-            <button type="button" class="kb-key kb-2" data-key="capslock">Caps</button>
-            <button type="button" class="kb-key" data-key="a">A</button><button type="button" class="kb-key"
-              data-key="s">S</button>
-            <button type="button" class="kb-key" data-key="d">D</button><button type="button" class="kb-key"
-              data-key="f">F</button>
-            <button type="button" class="kb-key" data-key="g">G</button><button type="button" class="kb-key"
-              data-key="h">H</button>
-            <button type="button" class="kb-key" data-key="j">J</button><button type="button" class="kb-key"
-              data-key="k">K</button>
-            <button type="button" class="kb-key" data-key="l">L</button><button type="button" class="kb-key"
-              data-key="semicolon">;</button>
-            <button type="button" class="kb-key" data-key="apostrophe">'</button>
-            <button type="button" class="kb-key kb-225" data-key="enter">Enter ↵</button>
-            <button type="button" class="kb-key" data-key="pageup">PgUp</button>
-          </div>
-          <!-- Row 5: ZXCV -->
-          <div class="kb-row">
-            <button type="button" class="kb-key kb-225 kb-mod" data-mod="shift">⇧ Shift</button>
-            <button type="button" class="kb-key" data-key="z">Z</button><button type="button" class="kb-key"
-              data-key="x">X</button>
-            <button type="button" class="kb-key" data-key="c">C</button><button type="button" class="kb-key"
-              data-key="v">V</button>
-            <button type="button" class="kb-key" data-key="b">B</button><button type="button" class="kb-key"
-              data-key="n">N</button>
-            <button type="button" class="kb-key" data-key="m">M</button><button type="button" class="kb-key"
-              data-key="comma">,</button>
-            <button type="button" class="kb-key" data-key="period">.</button><button type="button" class="kb-key"
-              data-key="slash">/</button>
-            <button type="button" class="kb-key kb-225 kb-mod" data-mod="shift">⇧ Shift</button>
-            <button type="button" class="kb-key" data-key="up">▲</button>
-            <button type="button" class="kb-key" data-key="pagedown">PgDn</button>
-          </div>
-          <!-- Row 6: Mods & Space -->
-          <div class="kb-row">
-            <button type="button" class="kb-key kb-15 kb-mod" data-mod="ctrl">Ctrl</button>
-            <button type="button" class="kb-key kb-125 kb-mod" data-mod="win">Win</button>
-            <button type="button" class="kb-key kb-125 kb-mod" data-mod="alt">Alt</button>
-            <button type="button" class="kb-key kb-sp" data-key="space">Space</button>
-            <button type="button" class="kb-key kb-125 kb-mod" data-mod="alt">Alt</button>
-            <button type="button" class="kb-key kb-125 kb-mod" data-mod="win">Win</button>
-            <button type="button" class="kb-key kb-15 kb-mod" data-mod="ctrl">Ctrl</button>
-            <button type="button" class="kb-key" data-key="left">◀</button>
-            <button type="button" class="kb-key" data-key="down">▼</button>
-            <button type="button" class="kb-key" data-key="right">▶</button>
-          </div>
-        </div>
-
-        <!-- D-Pad & Media Quick Controls -->
-        <div
-          style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px;">
-          <!-- D-Pad -->
-          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-            <div style="display: grid; grid-template-columns: repeat(3, 42px); gap: 4px;">
-              <div></div><button type="button" class="kb-key" data-key="up">▲</button>
-              <div></div>
+          <div class="kb-panel" style="margin-bottom: 12px;">
+            <!-- Row 1: Esc + F1-F12 -->
+            <div class="kb-row">
+              <button type="button" class="kb-key kb-15" data-key="escape">Esc</button>
+              <button type="button" class="kb-key" data-key="f1">F1</button><button type="button" class="kb-key"
+                data-key="f2">F2</button>
+              <button type="button" class="kb-key" data-key="f3">F3</button><button type="button" class="kb-key"
+                data-key="f4">F4</button>
+              <button type="button" class="kb-key" data-key="f5">F5</button><button type="button" class="kb-key"
+                data-key="f6">F6</button>
+              <button type="button" class="kb-key" data-key="f7">F7</button><button type="button" class="kb-key"
+                data-key="f8">F8</button>
+              <button type="button" class="kb-key" data-key="f9">F9</button><button type="button" class="kb-key"
+                data-key="f10">F10</button>
+              <button type="button" class="kb-key" data-key="f11">F11</button><button type="button" class="kb-key"
+                data-key="f12">F12</button>
+              <button type="button" class="kb-key" data-key="insert">Ins</button><button type="button" class="kb-key"
+                data-key="delete">Del</button>
+            </div>
+            <!-- Row 2: Numbers -->
+            <div class="kb-row">
+              <button type="button" class="kb-key" data-key="grave">`</button>
+              <button type="button" class="kb-key" data-key="1">1</button><button type="button" class="kb-key"
+                data-key="2">2</button>
+              <button type="button" class="kb-key" data-key="3">3</button><button type="button" class="kb-key"
+                data-key="4">4</button>
+              <button type="button" class="kb-key" data-key="5">5</button><button type="button" class="kb-key"
+                data-key="6">6</button>
+              <button type="button" class="kb-key" data-key="7">7</button><button type="button" class="kb-key"
+                data-key="8">8</button>
+              <button type="button" class="kb-key" data-key="9">9</button><button type="button" class="kb-key"
+                data-key="0">0</button>
+              <button type="button" class="kb-key" data-key="minus">-</button><button type="button" class="kb-key"
+                data-key="equal">=</button>
+              <button type="button" class="kb-key kb-2" data-key="backspace">⌫ Back</button>
+              <button type="button" class="kb-key" data-key="home">Home</button>
+            </div>
+            <!-- Row 3: QWERTY -->
+            <div class="kb-row">
+              <button type="button" class="kb-key kb-15" data-key="tab">Tab</button>
+              <button type="button" class="kb-key" data-key="q">Q</button><button type="button" class="kb-key"
+                data-key="w">W</button>
+              <button type="button" class="kb-key" data-key="e">E</button><button type="button" class="kb-key"
+                data-key="r">R</button>
+              <button type="button" class="kb-key" data-key="t">T</button><button type="button" class="kb-key"
+                data-key="y">Y</button>
+              <button type="button" class="kb-key" data-key="u">U</button><button type="button" class="kb-key"
+                data-key="i">I</button>
+              <button type="button" class="kb-key" data-key="o">O</button><button type="button" class="kb-key"
+                data-key="p">P</button>
+              <button type="button" class="kb-key" data-key="leftbracket">[</button><button type="button" class="kb-key"
+                data-key="rightbracket">]</button>
+              <button type="button" class="kb-key" data-key="backslash">\</button><button type="button" class="kb-key"
+                data-key="end">End</button>
+            </div>
+            <!-- Row 4: ASDF -->
+            <div class="kb-row">
+              <button type="button" class="kb-key kb-2" data-key="capslock">Caps</button>
+              <button type="button" class="kb-key" data-key="a">A</button><button type="button" class="kb-key"
+                data-key="s">S</button>
+              <button type="button" class="kb-key" data-key="d">D</button><button type="button" class="kb-key"
+                data-key="f">F</button>
+              <button type="button" class="kb-key" data-key="g">G</button><button type="button" class="kb-key"
+                data-key="h">H</button>
+              <button type="button" class="kb-key" data-key="j">J</button><button type="button" class="kb-key"
+                data-key="k">K</button>
+              <button type="button" class="kb-key" data-key="l">L</button><button type="button" class="kb-key"
+                data-key="semicolon">;</button>
+              <button type="button" class="kb-key" data-key="apostrophe">'</button>
+              <button type="button" class="kb-key kb-225" data-key="enter">Enter ↵</button>
+              <button type="button" class="kb-key" data-key="pageup">PgUp</button>
+            </div>
+            <!-- Row 5: ZXCV -->
+            <div class="kb-row">
+              <button type="button" class="kb-key kb-225 kb-mod" data-mod="shift">⇧ Shift</button>
+              <button type="button" class="kb-key" data-key="z">Z</button><button type="button" class="kb-key"
+                data-key="x">X</button>
+              <button type="button" class="kb-key" data-key="c">C</button><button type="button" class="kb-key"
+                data-key="v">V</button>
+              <button type="button" class="kb-key" data-key="b">B</button><button type="button" class="kb-key"
+                data-key="n">N</button>
+              <button type="button" class="kb-key" data-key="m">M</button><button type="button" class="kb-key"
+                data-key="comma">,</button>
+              <button type="button" class="kb-key" data-key="period">.</button><button type="button" class="kb-key"
+                data-key="slash">/</button>
+              <button type="button" class="kb-key kb-225 kb-mod" data-mod="shift">⇧ Shift</button>
+              <button type="button" class="kb-key" data-key="up">▲</button>
+              <button type="button" class="kb-key" data-key="pagedown">PgDn</button>
+            </div>
+            <!-- Row 6: Mods & Space -->
+            <div class="kb-row">
+              <button type="button" class="kb-key kb-15 kb-mod" data-mod="ctrl">Ctrl</button>
+              <button type="button" class="kb-key kb-125 kb-mod" data-mod="win">Win</button>
+              <button type="button" class="kb-key kb-125 kb-mod" data-mod="alt">Alt</button>
+              <button type="button" class="kb-key kb-sp" data-key="space">Space</button>
+              <button type="button" class="kb-key kb-125 kb-mod" data-mod="alt">Alt</button>
+              <button type="button" class="kb-key kb-125 kb-mod" data-mod="win">Win</button>
+              <button type="button" class="kb-key kb-15 kb-mod" data-mod="ctrl">Ctrl</button>
               <button type="button" class="kb-key" data-key="left">◀</button>
-              <button type="button" class="kb-key" style="font-weight: 700;" data-key="select">OK</button>
+              <button type="button" class="kb-key" data-key="down">▼</button>
               <button type="button" class="kb-key" data-key="right">▶</button>
-              <div></div><button type="button" class="kb-key" data-key="down">▼</button>
-              <div></div>
-            </div>
-            <div style="display: flex; gap: 4px;">
-              <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;" data-key="back">↩
-                Back</button>
-              <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;"
-                data-key="home">Home</button>
-              <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;"
-                data-key="menu">Menu</button>
             </div>
           </div>
 
-          <!-- Media Controls -->
-          <div style="display: grid; grid-template-columns: repeat(2, 68px); gap: 6px; align-content: center;">
-            <button type="button" class="kb-key" data-key="vol_up">Vol +</button>
-            <button type="button" class="kb-key" data-key="vol_down">Vol -</button>
-            <button type="button" class="kb-key" data-key="mute">Mute</button>
-            <button type="button" class="kb-key" data-key="play_pause">Play/Pause</button>
-            <button type="button" class="kb-key" data-key="rewind">◀◀ Rew</button>
-            <button type="button" class="kb-key" data-key="fastforward">Fwd ▶▶</button>
+          <!-- D-Pad & Media Quick Controls -->
+          <div
+            style="display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px;">
+            <!-- D-Pad -->
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+              <div style="display: grid; grid-template-columns: repeat(3, 42px); gap: 4px;">
+                <div></div><button type="button" class="kb-key" data-key="up">▲</button>
+                <div></div>
+                <button type="button" class="kb-key" data-key="left">◀</button>
+                <button type="button" class="kb-key" style="font-weight: 700;" data-key="select">OK</button>
+                <button type="button" class="kb-key" data-key="right">▶</button>
+                <div></div><button type="button" class="kb-key" data-key="down">▼</button>
+                <div></div>
+              </div>
+              <div style="display: flex; gap: 4px;">
+                <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;" data-key="back">↩
+                  Back</button>
+                <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;"
+                  data-key="home">Home</button>
+                <button type="button" class="kb-key" style="font-size: 11px; padding: 0 6px;"
+                  data-key="menu">Menu</button>
+              </div>
+            </div>
+
+            <!-- Media Controls -->
+            <div style="display: grid; grid-template-columns: repeat(2, 68px); gap: 6px; align-content: center;">
+              <button type="button" class="kb-key" data-key="vol_up">Vol +</button>
+              <button type="button" class="kb-key" data-key="vol_down">Vol -</button>
+              <button type="button" class="kb-key" data-key="mute">Mute</button>
+              <button type="button" class="kb-key" data-key="play_pause">Play/Pause</button>
+              <button type="button" class="kb-key" data-key="rewind">◀◀ Rew</button>
+              <button type="button" class="kb-key" data-key="fastforward">Fwd ▶▶</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Virtual Mouse / Touchpad Panel -->
+        <div id="btMouseContainer" class="bt-touchpad-card" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: -4px;">
+            <div class="mini muted">Drag to move pointer • Tap for Left Click • Right strip to scroll</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="mini muted">Speed:</span>
+              <select id="btMouseSpeedSelect" class="form-control form-control-sm"
+                style="font-size: 11px; padding: 2px 6px; width: 68px;">
+                <option value="0.75">0.75x</option>
+                <option value="1.0" selected>1.0x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2.0">2.0x</option>
+                <option value="3.0">3.0x</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Touchpad Surface -->
+          <div id="btTouchpad" class="bt-touchpad-surface">
+            <div class="bt-touchpad-hint">Touch & Drag Trackpad</div>
+            <div class="bt-touchpad-scroll-zone">
+              <span>▲</span>
+              <span
+                style="writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 1px; font-size: 9px; opacity: 0.6;">SCROLL</span>
+              <span>▼</span>
+            </div>
+            <div id="btTouchpadRipple" class="bt-touchpad-ripple"></div>
+          </div>
+
+          <!-- Physical Mouse Buttons -->
+          <div class="bt-mouse-btn-bar">
+            <button type="button" id="btnMouseLeft" class="bt-mouse-btn" data-btn="left">Left Click</button>
+            <button type="button" id="btnMouseMiddle" class="bt-mouse-btn" data-btn="middle"
+              style="font-size: 11px;">Middle</button>
+            <button type="button" id="btnMouseRight" class="bt-mouse-btn" data-btn="right">Right Click</button>
+          </div>
+
+          <!-- Scroll & Quick Buttons -->
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <div style="display: flex; gap: 6px;">
+              <button type="button" id="btnMouseWheelUp" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▲
+                Scroll Up</button>
+              <button type="button" id="btnMouseWheelDown" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▼
+                Scroll Down</button>
+            </div>
+            <div class="mini subtle" id="btMouseCoords">dx: 0, dy: 0</div>
           </div>
         </div>
       </div>
-
-      <!-- Virtual Mouse / Touchpad Panel -->
-      <div id="btMouseContainer" class="bt-touchpad-card" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: -4px;">
-          <div class="mini muted">Drag to move pointer • Tap for Left Click • Right strip to scroll</div>
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span class="mini muted">Speed:</span>
-            <select id="btMouseSpeedSelect" class="form-control form-control-sm" style="font-size: 11px; padding: 2px 6px; width: 68px;">
-              <option value="0.75">0.75x</option>
-              <option value="1.0" selected>1.0x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2.0">2.0x</option>
-              <option value="3.0">3.0x</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Touchpad Surface -->
-        <div id="btTouchpad" class="bt-touchpad-surface">
-          <div class="bt-touchpad-hint">Touch & Drag Trackpad</div>
-          <div class="bt-touchpad-scroll-zone">
-            <span>▲</span>
-            <span style="writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 1px; font-size: 9px; opacity: 0.6;">SCROLL</span>
-            <span>▼</span>
-          </div>
-          <div id="btTouchpadRipple" class="bt-touchpad-ripple"></div>
-        </div>
-
-        <!-- Physical Mouse Buttons -->
-        <div class="bt-mouse-btn-bar">
-          <button type="button" id="btnMouseLeft" class="bt-mouse-btn" data-btn="left">Left Click</button>
-          <button type="button" id="btnMouseMiddle" class="bt-mouse-btn" data-btn="middle" style="font-size: 11px;">Middle</button>
-          <button type="button" id="btnMouseRight" class="bt-mouse-btn" data-btn="right">Right Click</button>
-        </div>
-
-        <!-- Scroll & Quick Buttons -->
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-          <div style="display: flex; gap: 6px;">
-            <button type="button" id="btnMouseWheelUp" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▲ Scroll Up</button>
-            <button type="button" id="btnMouseWheelDown" class="btn btn-xs btn-secondary" style="padding: 6px 12px;">▼ Scroll Down</button>
-          </div>
-          <div class="mini subtle" id="btMouseCoords">dx: 0, dy: 0</div>
-        </div>
-      </div>
-    </div>
 
       <!-- Type Text & Script Studio -->
       <details class="card" style="margin-top: 14px;" open>
@@ -2507,6 +2510,13 @@
                 <select id="rfCfgTouch" class="form-control">
                   <option value="1">Enabled</option>
                   <option value="0">Disabled (Physical bottom buttons navigate UI)</option>
+                </select>
+              </div>
+              <div>
+                <label for="rfCfgCapButtons">Capacitive Buttons (Activities / Devices)</label>
+                <select id="rfCfgCapButtons" class="form-control">
+                  <option value="1">Enabled (Default)</option>
+                  <option value="0">Disabled</option>
                 </select>
               </div>
               <div>
@@ -3191,10 +3201,14 @@ harmony_send_command:
         <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
           <div>
             <h3 style="font-size: 15px; margin-bottom: 6px;">Wi-Fi Connection</h3>
-            <div class="help">Enter Wi-Fi network credentials. Serves as wireless connection or automatic fallback when Ethernet is disconnected.</div>
+            <div class="help">Enter Wi-Fi network credentials. Serves as wireless connection or automatic fallback when
+              Ethernet is disconnected.</div>
           </div>
-          <button type="button" id="btnWifiScan" class="btn btn-xs btn-ghost" style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 8px;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+          <button type="button" id="btnWifiScan" class="btn btn-xs btn-ghost"
+            style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 8px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
+            </svg>
             <span id="btnWifiScanText">Scan Networks</span>
           </button>
         </div>
@@ -3202,7 +3216,8 @@ harmony_send_command:
         <form id="wifiForm" onsubmit="return false;" style="margin-top: 10px;">
           <label for="wifiSsidInput">Wi-Fi Network Name (SSID)</label>
           <div style="position: relative;">
-            <input id="wifiSsidInput" name="ssid" class="form-control" required placeholder="Network Name" autocomplete="off">
+            <input id="wifiSsidInput" name="ssid" class="form-control" required placeholder="Network Name"
+              autocomplete="off">
             <div id="wifiScanDropdown" class="wifi-scan-dropdown" style="display: none;"></div>
           </div>
 
@@ -3228,8 +3243,10 @@ harmony_send_command:
           <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
             <button type="button" class="btn btn-sm btn-ghost" id="btnWifiTest">Test Connection</button>
             <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="save">Save Wi-Fi</button>
-            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="reconfigure">Save & Apply</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot">Save & Reboot</button>
+            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="reconfigure">Save &
+              Apply</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot">Save &
+              Reboot</button>
             <span id="wifiSaveStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3621,8 +3638,10 @@ harmony_send_command:
       <!-- Icon Pack & Cache Management -->
       <div class="card" style="margin-bottom: 14px;">
         <h3 style="font-size: 15px; margin-bottom: 6px;">Official Elite Icon Pack & Cache</h3>
-        <div class="help">Logitech Harmony Elite remote icon set (~828 device, activity and button glyphs). Can load dynamically from Hub or download for complete offline availability.</div>
-        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div class="help">Logitech Harmony Elite remote icon set (~828 device, activity and button glyphs). Can load
+          dynamically from Hub or download for complete offline availability.</div>
+        <div
+          style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
           <div>
             <span id="iconCacheStatusBadge" class="badge">Checking cache...</span>
             <span id="iconCacheDetail" class="subtle mini" style="margin-left: 8px;"></span>
@@ -3638,8 +3657,10 @@ harmony_send_command:
             <span id="iconSyncStatusText" class="subtle">Extracting icons...</span>
             <span id="iconSyncPct" style="font-weight: 600; color: var(--accent);">0%</span>
           </div>
-          <div style="width: 100%; height: 6px; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
-            <div id="iconSyncProgressBar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
+          <div
+            style="width: 100%; height: 6px; background: var(--bg-dark); border-radius: 3px; overflow: hidden; border: 1px solid var(--border);">
+            <div id="iconSyncProgressBar"
+              style="width: 0%; height: 100%; background: var(--accent); transition: width 0.2s ease;"></div>
           </div>
         </div>
       </div>
@@ -3732,20 +3753,24 @@ harmony_send_command:
           <div class="section-lead" data-i18n="hubs_lead">Configure multiple Harmony Hubs and switch between them.</div>
         </div>
         <div class="actions" style="margin-top: 0; display: flex; gap: 8px;">
-          <button type="button" id="btnScanHubs" class="btn btn-sm btn-secondary" style="display: flex; align-items: center; gap: 6px;">
+          <button type="button" id="btnScanHubs" class="btn btn-sm btn-secondary"
+            style="display: flex; align-items: center; gap: 6px;">
             <span id="scanHubsIcon">🔍</span>
             <span id="scanHubsLabel">Scan Network</span>
           </button>
-          <button type="button" id="btnAddHub" class="btn btn-sm btn-primary" data-i18n="add_hub">+ Add Hub Manually</button>
+          <button type="button" id="btnAddHub" class="btn btn-sm btn-primary" data-i18n="add_hub">+ Add Hub
+            Manually</button>
         </div>
       </div>
 
-      <div id="hubScanStatusBox" class="card" style="display: none; margin-bottom: 14px; background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.3);">
+      <div id="hubScanStatusBox" class="card"
+        style="display: none; margin-bottom: 14px; background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.3);">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
           <div style="display: flex; align-items: center; gap: 10px;">
             <div id="hubScanSpinner" class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></div>
             <div>
-              <div id="hubScanTitle" style="font-size: 13px; font-weight: 600;">Scanning network for Harmony Hubs on port 8089...</div>
+              <div id="hubScanTitle" style="font-size: 13px; font-weight: 600;">Scanning network for Harmony Hubs on
+                port 8089...</div>
               <div id="hubScanSub" class="muted mini">Checking /health endpoint across local subnets</div>
             </div>
           </div>

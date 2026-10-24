@@ -121,6 +121,7 @@ build_elite() {
 case "$TARGET" in
     elite)
         build_elite
+        exit 0
         ;;
     daemon)
         build_daemon
@@ -202,4 +203,4 @@ ls -l codex_btstack codex_dhcpd codex_portal codex_daemon codex_sntp codex_rf dr
 md5sum codex_btstack codex_dhcpd codex_portal codex_daemon codex_sntp codex_rf dropbearmulti register_ehci mknod >> MANIFEST.txt 2>/dev/null || true
 
 echo "=== Build finished successfully! ==="
-ls -lh "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/mknod
+ls -lh "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/mknod 2>/dev/null || true

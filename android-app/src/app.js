@@ -5113,11 +5113,9 @@ class HarmonyApp {
       const s = await this.client.getSettings();
       if (!s) return;
       const toggle = document.getElementById('btAutoReconnectToggle');
-      const bootToggle = document.getElementById('btBootReconnectToggle');
       const dur = document.getElementById('btReconnectDuration');
       const del = document.getElementById('btReconnectDelay');
       if (toggle) toggle.checked = !!s.bt_auto_reconnect;
-      if (bootToggle) bootToggle.checked = s.bt_reconnect_on_boot !== undefined ? !!s.bt_reconnect_on_boot : true;
       if (dur && s.bt_reconnect_duration_sec !== undefined) dur.value = s.bt_reconnect_duration_sec;
       if (del && s.bt_reconnect_delay_sec !== undefined) del.value = s.bt_reconnect_delay_sec;
     } catch (e) {
@@ -5127,7 +5125,6 @@ class HarmonyApp {
 
   async saveBluetoothSupervisionSettings() {
     const toggle = document.getElementById('btAutoReconnectToggle');
-    const bootToggle = document.getElementById('btBootReconnectToggle');
     const dur = document.getElementById('btReconnectDuration');
     const del = document.getElementById('btReconnectDelay');
     const stat = document.getElementById('btSettingsStatus');
@@ -5135,7 +5132,6 @@ class HarmonyApp {
     try {
       const payload = {
         bt_auto_reconnect: toggle ? (toggle.checked ? 1 : 0) : 1,
-        bt_reconnect_on_boot: bootToggle ? (bootToggle.checked ? 1 : 0) : 1,
         bt_reconnect_duration_sec: dur ? parseInt(dur.value, 10) || 45 : 45,
         bt_reconnect_delay_sec: del ? parseInt(del.value, 10) || 5 : 5
       };
@@ -6686,6 +6682,9 @@ class HarmonyApp {
         const touchVal = typeof cfg.touch !== 'undefined' ? cfg.touch : (typeof cfg.touchEnabled !== 'undefined' ? (cfg.touchEnabled ? 1 : 0) : 1);
         document.getElementById('rfCfgTouch').value = String(touchVal ? 1 : 0);
 
+        const capButtonsVal = typeof cfg.cap_buttons !== 'undefined' ? cfg.cap_buttons : (typeof cfg.capButtonsEnabled !== 'undefined' ? (cfg.capButtonsEnabled ? 1 : 0) : 1);
+        if (document.getElementById('rfCfgCapButtons')) document.getElementById('rfCfgCapButtons').value = String(capButtonsVal ? 1 : 0);
+
         const touchSens = cfg.touch_sensitivity || cfg.touchSensitivity || 2;
         document.getElementById('rfCfgTouchSens').value = String(touchSens);
 
@@ -6737,6 +6736,7 @@ class HarmonyApp {
     const bright = parseInt(document.getElementById('rfCfgBrightness')?.value || '3', 10);
     const timeout = parseInt(document.getElementById('rfCfgTimeout')?.value || '120', 10);
     const touch = parseInt(document.getElementById('rfCfgTouch')?.value || '1', 10);
+    const cap_buttons = parseInt(document.getElementById('rfCfgCapButtons')?.value || '1', 10);
     const touch_sensitivity = parseInt(document.getElementById('rfCfgTouchSens')?.value || '2', 10);
     let remote_mode = parseInt(document.getElementById('rfCfgRemoteMode')?.value || '0', 10);
     const nav_key = parseInt(document.getElementById('rfCfgNavKey')?.value || '139', 10);
@@ -6771,6 +6771,8 @@ class HarmonyApp {
       timeout: timeout,
       touch: touch,
       touchEnabled: touch === 1,
+      cap_buttons: cap_buttons,
+      capButtonsEnabled: cap_buttons === 1,
       touch_sensitivity: touch_sensitivity,
       touchSensitivity: touch_sensitivity,
       remote_mode: remote_mode,

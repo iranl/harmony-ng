@@ -512,6 +512,7 @@ static int g_selected_pair_opt = 0;
 #define PAIR_OPT_COUNT 2
 static volatile bool g_rf_link_connected = false;
 static bool g_touch_enabled = true;
+static bool g_cap_buttons_enabled = true;
 static int g_touch_sensitivity = 2;   /* 1 = Low, 2 = Normal, 3 = High */
 static uint64_t g_last_switch_completed_ms = 0;
 static char g_last_switch_target_id[16] = "";
@@ -3858,7 +3859,7 @@ static void execute_settings_action(int idx) {
             default: break;
         }
         return;
-    } }
+    }
 
     if (g_settings_subview == SETTINGS_VIEW_POWER) {
         switch (idx) {
@@ -4202,35 +4203,38 @@ static void render_settings_view(void) {
             break;
         }
         case SETTINGS_VIEW_TOUCH: {
-            const char *labels[5] = { "Touchscreen", "Touch Sensitivity", "Nav Toggle Button", "Nav Toggle Mode", "< Back" };
-            char values[5][32];
+            const char *labels[6] = { "Touchscreen", "Capacitive Buttons", "Touch Sensitivity", "Nav Toggle Button", "Nav Toggle Mode", "< Back" };
+            char values[6][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_touch_enabled ? "ON" : "OFF");
+            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_cap_buttons_enabled ? "ON" : "OFF");
             const char *sens_names[] = { "", "LOW", "NORMAL", "HIGH" };
             int s_idx = (g_touch_sensitivity >= 1 && g_touch_sensitivity <= 3) ? g_touch_sensitivity : 2;
-            snprintf(values[1], sizeof(values[1]), "[ %s ]", sens_names[s_idx]);
+            snprintf(values[2], sizeof(values[2]), "[ %s ]", sens_names[s_idx]);
             if (!g_touch_enabled) {
-                snprintf(values[2], sizeof(values[0]), "[ LOCKED ]");
-                snprintf(values[3], sizeof(values[0]), "[ LOCKED ]");
+                snprintf(values[3], sizeof(values[3]), "[ LOCKED ]");
+                snprintf(values[4], sizeof(values[4]), "[ LOCKED ]");
             } else {
-                snprintf(values[2], sizeof(values[0]), "[ %s ]", get_nav_key_name(g_nav_toggle_key));
-                snprintf(values[3], sizeof(values[0]), "[ %s ]", g_nav_toggle_mode == 0 ? "SHORT" : "LONG");
+                snprintf(values[3], sizeof(values[3]), "[ %s ]", get_nav_key_name(g_nav_toggle_key));
+                snprintf(values[4], sizeof(values[4]), "[ %s ]", g_nav_toggle_mode == 0 ? "SHORT" : "LONG");
             }
-            values[4][0] = '\0';
-            uint16_t cols[5] = {
+            values[5][0] = '\0';
+            uint16_t cols[6] = {
                 g_touch_enabled ? RGB_GREEN : RGB_RED,
+                g_cap_buttons_enabled ? RGB_GREEN : RGB_RED,
                 RGB_TEAL,
                 !g_touch_enabled ? RGB_TEXT_MUTED : RGB_TEAL,
                 !g_touch_enabled ? RGB_TEXT_MUTED : RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[5] = {
+            const char *icons[6] = {
                 "/opt/luadraws/appscommon/asset/gesture/hint.png",
+                "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/gesture/gesturehand.png",
                 "/opt/luadraws/appscommon/asset/edit/arrow.png",
                 "/opt/luadraws/appscommon/asset/edit/arrow.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("TOUCH", 5, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("TOUCH", 6, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_POWER: {
@@ -4928,7 +4932,7 @@ static void handle_navigation_key(int code, int value) {
 
     /* If a confirmation prompt is active, physical back/nav buttons cancel the prompt without switching screens */
     if (g_confirm_pending_idx >= 0 || g_confirm_pending_rf_code != 0 || g_unpair_confirm_active) {
-        if (code == 158 || code == 202 || code == 149 || code == 203 || code == 364 || code == 102) {
+        if (code == 158 || code == 202 || code == 149 || code == 203 || (g_cap_buttons_enabled && (code == 364 || code == 102))) {
             printf("[*] Confirm cancelled by back/nav key (code=%d)\n", code);
             g_confirm_pending_idx = -1;
             g_confirm_pending_deadline_ms = 0;
@@ -4943,6 +4947,7 @@ static void handle_navigation_key(int code, int value) {
 
     /* Capacitive touch buttons directly below screen: 364=Activities, 102=Devices */
     if (code == 364) { /* Left capacitive button directly below screen: always Activities */
+        if (!g_cap_buttons_enabled) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
         if (g_current_view == VIEW_ACTIVITIES) return;
         printf("[*] Capacitive key pressed: Activities (code=364)\n");
@@ -4951,6 +4956,7 @@ static void handle_navigation_key(int code, int value) {
         return;
     }
     if (code == 102) { /* Right capacitive button directly below screen: always Devices */
+        if (!g_cap_buttons_enabled) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
         if (g_current_view == VIEW_DEVICES) return;
         printf("[*] Capacitive key pressed: Devices (code=102)\n");
@@ -5334,6 +5340,7 @@ int main(int argc, char **argv) {
             g_screen_nav_mode = true;
         }
         if (strcmp(argv[i], "--no-gyro") == 0)  g_gyro_enabled = false;
+        if (strcmp(argv[i], "--no-cap") == 0)   g_cap_buttons_enabled = false;
         if (strcmp(argv[i], "--blank") == 0)    g_screen_on = false;
         if (strcmp(argv[i], "--pair") == 0)     do_pairing = true;
         if (strcmp(argv[i], "--no-screen") == 0) g_no_screen_mode = true;
@@ -5708,6 +5715,7 @@ int main(int argc, char **argv) {
 
                     /* Capacitive buttons: 364=Activities, 102=Devices (never forward over RF) */
                     if (ev.code == 102 || ev.code == 364) {
+                        if (!g_cap_buttons_enabled) continue;
                         printf("[*] Capacitive key pressed (event0): code=%d val=%d\n", ev.code, ev.value);
                         reset_idle_timer();
                         handle_navigation_key(ev.code, ev.value);
@@ -5856,6 +5864,7 @@ int main(int argc, char **argv) {
                 if (ev.type == EV_KEY) {
                     /* Capacitive buttons below screen: 364=Favorites/Activities, 102=Home/Devices */
                     if (ev.code == 102 || ev.code == 364) {
+                        if (!g_cap_buttons_enabled) continue;
                         printf("[*] Capacitive key pressed (event2): code=%d val=%d\n", ev.code, ev.value);
                         reset_idle_timer();
                         handle_navigation_key(ev.code, ev.value);
