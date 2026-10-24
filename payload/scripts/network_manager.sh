@@ -39,6 +39,7 @@ load_config() {
     done < "$CONF"
   fi
 }
+load_config
 
 configure_arp_isolation() {
   # Prevent ARP flux and broadcast loops when both eth and wifi are on same subnet
@@ -82,6 +83,7 @@ is_wifi_configured() {
 }
 
 ensure_wifi() {
+  load_config
   log "Ensuring Wi-Fi connection (ath0)..."
   if ! ifconfig ath0 >/dev/null 2>&1; then
     /sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
@@ -92,6 +94,32 @@ ensure_wifi() {
   fi
   ifconfig ath0 up 2>/dev/null || true
   
+  # If static IP is configured, NEVER run udhcpc
+  if [ "$ETH_MODE" = "static" ] && [ -n "$ETH_IP" ]; then
+    kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
+    rm -f /var/run/udhcpc.ath0.pid
+    cur_state=$(cat "$STATE_FILE" 2>/dev/null)
+    case "$cur_state" in
+      *:ethernet:*)
+        # Ethernet is active; keep ath0 at L2 standby without IP to avoid IP conflict
+        return 0
+        ;;
+      *)
+        wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
+        if [ "$wifi_ip" != "$ETH_IP" ]; then
+          log "Configuring static IP $ETH_IP on ath0..."
+          ifconfig ath0 "$ETH_IP" netmask "${ETH_NETMASK:-255.255.255.0}" up 2>/dev/null || true
+          [ -n "$ETH_GATEWAY" ] && route add default gw "$ETH_GATEWAY" dev ath0 2>/dev/null || true
+          [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
+          send_garp "ath0" "$ETH_IP"
+        fi
+        echo "ath0:wifi:$ETH_IP" > "$STATE_FILE"
+        stop_recovery_ap 2>/dev/null || true
+        return 0
+        ;;
+    esac
+  fi
+
   # Check if ath0 already has IP
   wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
   if [ -z "$wifi_ip" ]; then
@@ -270,9 +298,18 @@ monitor_wifi() {
   wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
   cur_state=$(cat "$STATE_FILE" 2>/dev/null)
   if [ -z "$wifi_ip" ]; then
+    target_ip="${ETH_IP:-$canonical_ip}"
+    if [ "$ETH_MODE" = "static" ] && [ -n "$target_ip" ]; then
+      log "Restoring static IP $target_ip on ath0..."
+      kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
+      rm -f /var/run/udhcpc.ath0.pid
+      ifconfig ath0 "$target_ip" netmask "${ETH_NETMASK:-255.255.255.0}" up 2>/dev/null || true
+      [ -n "$ETH_GATEWAY" ] && route add default gw "$ETH_GATEWAY" dev ath0 2>/dev/null || true
+      send_garp "ath0" "$target_ip"
+      return 0
+    fi
     case "$cur_state" in
       *:wifi-fallback:*)
-        target_ip="${ETH_IP:-$canonical_ip}"
         if [ -n "$target_ip" ]; then
           log "Restoring fallback static IP $target_ip on ath0..."
           ifconfig ath0 "$target_ip" netmask "${ETH_NETMASK:-255.255.255.0}" up 2>/dev/null || true
@@ -284,7 +321,7 @@ monitor_wifi() {
     dhcp_fail_count=$(expr "$dhcp_fail_count" + 1 2>/dev/null || echo 1)
     if ! pidof udhcpc >/dev/null 2>&1 || [ "$dhcp_fail_count" -ge 2 ]; then
       log "ath0 has no IP (fail count: $dhcp_fail_count), requesting DHCP lease..."
-      kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
+      kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
       rm -f /var/run/udhcpc.ath0.pid
       udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
       dhcp_fail_count=0
@@ -317,10 +354,15 @@ monitor_wifi() {
               gw_fail_count=$(expr "$gw_fail_count" + 1 2>/dev/null || echo 1)
               log "Gateway $gw ping failed ($gw_fail_count/5)"
               if [ "$gw_fail_count" -eq 3 ]; then
-                log "Gateway unreachable for 3 checks. Restarting DHCP on ath0..."
-                kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
-                rm -f /var/run/udhcpc.ath0.pid
-                udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
+                if [ "$ETH_MODE" = "static" ]; then
+                  log "Gateway unreachable. Static IP mode: preserving IP on ath0..."
+                  [ -n "$ETH_GATEWAY" ] && route add default gw "$ETH_GATEWAY" dev ath0 2>/dev/null || true
+                else
+                  log "Gateway unreachable for 3 checks. Restarting DHCP on ath0..."
+                  kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
+                  rm -f /var/run/udhcpc.ath0.pid
+                  udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
+                fi
               elif [ "$gw_fail_count" -ge 5 ]; then
                 log "Gateway unreachable for 5 checks. Reassociating Wi-Fi..."
                 wpa_cli -i ath0 reassociate >/dev/null 2>&1 || true
@@ -340,10 +382,15 @@ monitor_wifi() {
         *)
           no_gw_count=$(expr "$no_gw_count" + 1 2>/dev/null || echo 1)
           if [ "$no_gw_count" -ge 2 ]; then
-            log "ath0 has IP $wifi_ip but no default gateway. Restarting DHCP..."
-            kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall udhcpc 2>/dev/null || true
-            rm -f /var/run/udhcpc.ath0.pid
-            udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
+            if [ "$ETH_MODE" = "static" ] && [ -n "$ETH_GATEWAY" ]; then
+              log "Restoring default gateway $ETH_GATEWAY on ath0..."
+              route add default gw "$ETH_GATEWAY" dev ath0 2>/dev/null || true
+            else
+              log "ath0 has IP $wifi_ip but no default gateway. Restarting DHCP..."
+              kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
+              rm -f /var/run/udhcpc.ath0.pid
+              udhcpc -i ath0 -p /var/run/udhcpc.ath0.pid -b -t 5 -T 3 -A 15 >/dev/null 2>&1 &
+            fi
             no_gw_count=0
           fi
           ;;
@@ -451,6 +498,13 @@ migrate_to_wifi() {
   fi
 
   log "Migrating active connection to Wi-Fi (ath0): IP $target_ip, GW $target_gw..."
+
+  # Stop udhcpc on ath0 if running
+  if [ -f /var/run/udhcpc.ath0.pid ] || [ "$ETH_MODE" = "static" ]; then
+    kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || true
+    killall -9 udhcpc 2>/dev/null || true
+    rm -f /var/run/udhcpc.ath0.pid /var/run/udhcpc.*.pid
+  fi
 
   # Flush subnet routes and clear IP from Ethernet
   if [ -n "$eth_if" ]; then
@@ -644,6 +698,12 @@ do_boot() {
   log "Boot initialization started..."
   load_config
 
+  # Kill any rogue udhcpc started by stock ifup -a
+  if [ "$ETH_MODE" = "static" ]; then
+    killall -9 udhcpc 2>/dev/null || true
+    rm -f /var/run/udhcpc.*.pid
+  fi
+
   # 1. Initialize Wi-Fi immediately
   has_wifi=0
   if ensure_wifi; then
@@ -686,11 +746,21 @@ do_apply() {
   load_config
   stop_monitor
 
-  ensure_wifi
+  if [ "$ETH_MODE" = "static" ]; then
+    killall -9 udhcpc 2>/dev/null || true
+    rm -f /var/run/udhcpc.*.pid
+  fi
 
   cur_eth=$(find_eth_interface)
-  if [ -z "$cur_eth" ]; then
-    start_eth || true
+  if [ -n "$cur_eth" ]; then
+    cfile="/sys/class/net/$cur_eth/carrier"
+    if [ -f "$cfile" ] && [ "$(cat "$cfile" 2>/dev/null)" = "1" ]; then
+      start_eth || true
+    else
+      ensure_wifi
+    fi
+  else
+    ensure_wifi
   fi
 
   start_monitor

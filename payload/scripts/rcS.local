@@ -75,7 +75,12 @@ if [ -x /data/codex/init.sh ]; then
 	/data/codex/init.sh &
 fi
 
-# Initialize WLAN and wpa_supplicant (DHCP managed by ifup / network_manager)
+# Ensure ifup -a does not spawn an unmanaged rogue udhcpc on ath0
+if grep -q 'auto.*ath0' /etc/network/interfaces 2>/dev/null; then
+	sed -i 's/auto.*ath0/auto lo/' /etc/network/interfaces 2>/dev/null || true
+fi
+
+# Initialize WLAN and wpa_supplicant (Networking managed by network_manager)
 load_modules /etc/modules.wlan 2>/dev/null || true
 /sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
 /usr/sbin/wpa_supplicant -s -iath0 -c /etc/wpa_supplicant.conf &
