@@ -106,6 +106,7 @@ static int g_activity_count = 0;
 static int g_selected_activity = 0;
 static char g_active_activity_id[32] = "-1";
 static char g_active_activity_name[48] = "PowerOff";
+static bool g_initial_sync_received = false;
 static void reset_idle_timer(void);
 
 static uint64_t get_monotonic_ms(void) {
@@ -2513,11 +2514,28 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 break;
             }
 
+            if (!g_initial_sync_received) {
+                g_initial_sync_received = true;
+                printf("[*] Hub Initial Activity Sync: id=%s name=%s (already running, no switch overlay)\n", act_id, act_name);
+                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
+                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+                strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                g_last_switch_completed_ms = now_ms;
+                if (strcmp(act_id, "-1") != 0) {
+                    g_current_view = VIEW_DEVICES;
+                } else {
+                    g_current_view = VIEW_ACTIVITIES;
+                }
+                g_selected_device_cmd = 0;
+                reset_idle_timer();
+                g_screen_dirty = true;
+                break;
+            }
+
             if (strcmp(g_active_activity_id, act_id) != 0) {
-                bool is_initial_sync = (g_active_activity_id[0] == '\0');
-                printf("[*] Hub Activity Sync: id=%s name=%s (initial=%d)\n", act_id, act_name, is_initial_sync);
+                printf("[*] Hub Activity Sync: id=%s name=%s\n", act_id, act_name);
                 bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
-                if (!g_is_switching_activity && !is_recent_same_switch && !is_initial_sync) {
+                if (!g_is_switching_activity && !is_recent_same_switch) {
                     trigger_activity_switch_external(act_id, act_name);
                 }
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
