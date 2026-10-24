@@ -93,8 +93,9 @@ The remote's UI and input dispatch thread runs an event-driven `select()` loop m
 
 | Standby State | Duration | Wake Triggers | Active Sensors |
 | :--- | :--- | :--- | :--- |
+| **Docked / Charging** | Unlimited | • **Dock Connect / Disconnect** (cradle ↔ battery transition)<br>• **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 & TPS6507x PMIC (AC powered, no battery drain) |
 | **Light Standby** | 0 – 30 minutes | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
-| **Deep Standby** | > 30 minutes | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.) | None (Hardware IRQ only) |
+| **Deep Standby** | > 30 minutes | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.)<br>• **Placing on Dock** (cradle connect) | None (Hardware IRQ only) |
 
 *Note: Touchscreen glass tap does not wake the remote in either standby mode because Clearpad is powered down to prevent accidental activation.*
 

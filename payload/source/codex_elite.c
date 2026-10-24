@@ -4558,7 +4558,48 @@ static void *power_manager(void *arg) {
 
     while (g_running) {
         if (!g_screen_on) {
-            usleep(10000000); /* 10s sleep when screen blanked (was 1s) */
+            bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
+                              strcmp(g_battery_info.powersource, "usb") == 0 ||
+                              g_battery_info.charging);
+            if (is_docked) {
+                usleep(500000);  /* 500ms check when charging on dock (external power) */
+            } else {
+                usleep(10000000); /* 10s sleep when running on battery (preserve battery) */
+            }
+
+            /* Check for dock removal or attachment transition */
+            FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
+            if (fpsrc) {
+                char psrc[16] = {0};
+                if (fscanf(fpsrc, "%15s", psrc) == 1) {
+                    bool was_charging = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
+                                         strcmp(g_battery_info.powersource, "usb") == 0 ||
+                                         g_battery_info.charging);
+                    bool now_charging = (strcmp(psrc, "cradle") == 0 || strcmp(psrc, "usb") == 0);
+
+                    if (was_charging && !now_charging) {
+                        /* Removed from dock / disconnected charging */
+                        log_power_debug("[*] Dock disconnected (%s -> %s), waking display\n",
+                                        g_battery_info.powersource, psrc);
+                        printf("[*] Dock disconnected (%s -> %s), waking display\n",
+                               g_battery_info.powersource, psrc);
+                        s_last_batt_sample_ms = 0;
+                        read_elite_battery();
+                        g_wake_requested = 1;
+                    } else if (!was_charging && now_charging) {
+                        /* Placed on dock / connected charging */
+                        log_power_debug("[*] Dock connected (%s -> %s), waking display\n",
+                                        g_battery_info.powersource, psrc);
+                        printf("[*] Dock connected (%s -> %s), waking display\n",
+                               g_battery_info.powersource, psrc);
+                        s_last_batt_sample_ms = 0;
+                        read_elite_battery();
+                        g_wake_requested = 1;
+                    }
+                }
+                fclose(fpsrc);
+            }
+
             uint64_t now_ms = get_monotonic_ms();
             if (now_ms - last_standby_heartbeat_ms >= 300000) { /* 300s / 5m heartbeat (was 60s) */
                 last_standby_heartbeat_ms = now_ms;
@@ -5452,7 +5493,11 @@ int main(int argc, char **argv) {
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
         uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
-        if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && standby_s < 1800) {
+        bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
+                          strcmp(g_battery_info.powersource, "usb") == 0 ||
+                          g_battery_info.charging);
+        bool allow_gyro_wake = (standby_s < 1800 || is_docked);
+        if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
             FD_SET(g_gyro_fd, &rfds);
             if (g_gyro_fd > max_fd) max_fd = g_gyro_fd;
         }
@@ -5462,7 +5507,7 @@ int main(int argc, char **argv) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
-            tv.tv_sec = (standby_s >= 1800) ? 30 : 10;
+            tv.tv_sec = (!is_docked && standby_s >= 1800) ? 30 : 10;
             tv.tv_usec = 0;
         }
         int sel = select(max_fd + 1, &rfds, NULL, NULL, &tv);
@@ -5859,7 +5904,11 @@ int main(int argc, char **argv) {
         if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
-            if (n > 0 && !g_screen_on && g_gyro_enabled && standby_s < 1800) {
+            bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
+                              strcmp(g_battery_info.powersource, "usb") == 0 ||
+                              g_battery_info.charging);
+            bool allow_gyro_wake = (standby_s < 1800 || is_docked);
+            if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
                 reset_idle_timer();
                 fb_set_blank(false);
