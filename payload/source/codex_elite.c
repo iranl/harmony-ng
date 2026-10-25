@@ -502,13 +502,17 @@ typedef enum {
     SETTINGS_VIEW_POWER,
     SETTINGS_VIEW_SYSTEM,
     SETTINGS_VIEW_FACTORY_RESET,
-    SETTINGS_VIEW_REBOOT
+    SETTINGS_VIEW_REBOOT,
+    SETTINGS_VIEW_SUSPEND
 } settings_subview_t;
 
 static settings_subview_t g_settings_subview = SETTINGS_VIEW_CATEGORIES;
 static int g_selected_category = 0;
 static int g_selected_sub_item = 0;
 static int g_factory_reset_stage = 0; /* 0 = prompt/cancel, 1 = are you sure */
+static uint64_t g_suspend_countdown_start_ms = 0;
+static void enter_kernel_suspend(void);
+static void trigger_manual_suspend_to_ram(void);
 static int g_selected_pair_opt = 0;
 #define PAIR_OPT_COUNT 2
 static volatile bool g_rf_link_connected = false;
@@ -3845,9 +3849,10 @@ static int get_settings_sub_count(void) {
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 4;
-        case SETTINGS_VIEW_SYSTEM:     return 7;
+        case SETTINGS_VIEW_SYSTEM:     return 8;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
+        case SETTINGS_VIEW_SUSPEND:       return 2;
         default: return 0;
     }
 }
@@ -4011,15 +4016,20 @@ static void execute_settings_action(int idx) {
                 }
                 break;
             case 4:
-                g_settings_subview = SETTINGS_VIEW_REBOOT;
+                g_settings_subview = SETTINGS_VIEW_SUSPEND;
+                g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
                 break;
             case 5:
+                g_settings_subview = SETTINGS_VIEW_REBOOT;
+                g_selected_sub_item = 0;
+                break;
+            case 6:
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
                 break;
-            case 6:
+            case 7:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -4027,10 +4037,24 @@ static void execute_settings_action(int idx) {
         return;
     }
 
+    if (g_settings_subview == SETTINGS_VIEW_SUSPEND) {
+        if (idx == 0) {
+            g_suspend_countdown_start_ms = 0;
+            g_settings_subview = SETTINGS_VIEW_SYSTEM;
+            g_selected_sub_item = 4;
+        } else if (idx == 1) {
+            g_suspend_countdown_start_ms = 0;
+            trigger_manual_suspend_to_ram();
+            g_settings_subview = SETTINGS_VIEW_SYSTEM;
+            g_selected_sub_item = 4;
+        }
+        return;
+    }
+
     if (g_settings_subview == SETTINGS_VIEW_REBOOT) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = 5;
         } else if (idx == 1) {
             execute_remote_reboot();
         }
@@ -4041,7 +4065,7 @@ static void execute_settings_action(int idx) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
             g_factory_reset_stage = 0;
-            g_selected_sub_item = 5;
+            g_selected_sub_item = 6;
         } else if (idx == 1) {
             if (g_factory_reset_stage == 0) {
                 g_factory_reset_stage = 1;
@@ -4237,6 +4261,76 @@ static void render_settings_reboot(void) {
     }
 }
 
+static void trigger_manual_suspend_to_ram(void) {
+    read_elite_battery();
+    if (strcmp(g_battery_info.powersource, "usb") == 0) {
+        show_notice("Unplug USB first!", 2500);
+        render_screen();
+        return;
+    }
+    printf("[*] Manual Suspend to RAM initiated from Settings\n");
+    show_notice("Suspending system...", 1200);
+    render_screen();
+    usleep(400000);
+    fb_set_blank(true);
+    enter_kernel_suspend();
+}
+
+static void render_settings_suspend(void) {
+    render_header();
+
+    /* Warning card */
+    int card_y = 38;
+    int card_h = 130;
+    fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
+    fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_TEAL);
+
+    fb_draw_text_aa(16, card_y + 10, "SUSPEND TO RAM", RGB_TEAL, &g_font_title);
+    fb_draw_text_aa(16, card_y + 34, "Suspends Linux kernel to RAM.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(16, card_y + 54, "Wakes on motion or button.", RGB_WHITE, &g_font_main);
+
+    uint64_t now_ms = get_monotonic_ms();
+    uint64_t elapsed_s = (g_suspend_countdown_start_ms > 0 && now_ms >= g_suspend_countdown_start_ms) ?
+                         (now_ms - g_suspend_countdown_start_ms) / 1000 : 0;
+    int remain_s = (elapsed_s < 10) ? (int)(10 - elapsed_s) : 0;
+
+    read_elite_battery();
+    bool on_usb = (strcmp(g_battery_info.powersource, "usb") == 0);
+
+    if (on_usb) {
+        fb_draw_text_aa(16, card_y + 78, "Notice: Unplug USB to suspend!", RGB_YELLOW, &g_font_main);
+        fb_draw_text_aa(16, card_y + 100, "(USB charging rejects RAM sleep)", RGB_TEXT_MUTED, &g_font_main);
+    } else {
+        char cdown[48];
+        snprintf(cdown, sizeof(cdown), "Suspending in %d seconds...", remain_s);
+        fb_draw_text_aa(16, card_y + 78, cdown, RGB_GREEN, &g_font_title);
+        fb_draw_text_aa(16, card_y + 104, "Put remote down on table.", RGB_TEAL, &g_font_main);
+    }
+
+    /* Option Buttons */
+    int btn_y = card_y + card_h + 10;
+    int btn_h = 38;
+    int spacing = 8;
+
+    const char *btn_labels[2] = {
+        "CANCEL - STAY AWAKE",
+        "SUSPEND TO RAM NOW"
+    };
+
+    for (int i = 0; i < 2; i++) {
+        int y = btn_y + i * (btn_h + spacing);
+        bool is_sel = (i == g_selected_sub_item);
+        uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
+        uint16_t border = is_sel ? (i == 1 ? RGB_TEAL : RGB_RED) : (i == 1 ? RGB_CARD_BORDER : 0x2945);
+        uint16_t text_col = (i == 1) ? (is_sel ? RGB_TEAL : RGB_GREEN) : (is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
+
+        fb_fill_rect(8, y, FB_WIDTH - 16, btn_h, bg);
+        fb_draw_rect(8, y, FB_WIDTH - 16, btn_h, border);
+        int tw = fb_text_width_aa(btn_labels[i], &g_font_title);
+        fb_draw_text_aa((FB_WIDTH - tw) / 2, y + 10, btn_labels[i], text_col, &g_font_title);
+    }
+}
+
 /* Render Settings View (Hierarchical Submenus) */
 static void render_settings_view(void) {
     switch (g_settings_subview) {
@@ -4346,9 +4440,9 @@ static void render_settings_view(void) {
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[7] = { "Software Version", "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
-            char values[7][32];
-            uint16_t cols[7];
+            const char *labels[8] = { "Software Version", "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Suspend to RAM", "Reboot Remote", "Factory Reset", "< Back" };
+            char values[8][32];
+            uint16_t cols[8];
 
             snprintf(values[0], sizeof(values[0]), "v" CODEX_ELITE_VERSION);
             cols[0] = RGB_GREEN;
@@ -4369,26 +4463,32 @@ static void render_settings_view(void) {
             cols[2] = g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED;
             snprintf(values[3], sizeof(values[3]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
             cols[3] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
-            snprintf(values[4], sizeof(values[4]), "[ REBOOT ]");
-            cols[4] = RGB_YELLOW;
-            snprintf(values[5], sizeof(values[5]), "[ REVERT ]");
-            cols[5] = RGB_RED;
-            values[6][0] = '\0';
-            cols[6] = RGB_CYAN;
-            const char *icons[7] = {
+            snprintf(values[4], sizeof(values[4]), "[ SLEEP ]");
+            cols[4] = RGB_TEAL;
+            snprintf(values[5], sizeof(values[5]), "[ REBOOT ]");
+            cols[5] = RGB_YELLOW;
+            snprintf(values[6], sizeof(values[6]), "[ REVERT ]");
+            cols[6] = RGB_RED;
+            values[7][0] = '\0';
+            cols[7] = RGB_CYAN;
+            const char *icons[8] = {
                 "/opt/luadraws/appscommon/asset/footer/settings.png",
                 "/opt/luadraws/appscommon/asset/header/usb.png",
                 "/opt/luadraws/appscommon/asset/header/charging.png",
                 "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
+                "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
                 "/opt/luadraws/appscommon/asset/home/power_icon.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("SYSTEM", 7, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("SYSTEM", 8, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_REBOOT:
             render_settings_reboot();
+            break;
+        case SETTINGS_VIEW_SUSPEND:
+            render_settings_suspend();
             break;
         case SETTINGS_VIEW_FACTORY_RESET:
             render_settings_factory_reset();
@@ -5021,7 +5121,7 @@ static void handle_screen_touch_tap(int x, int y) {
                     return;
                 }
             }
-        } else if (g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_REBOOT) {
+        } else if (g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
             int card_y = 38;
             int card_h = 130;
             int btn_y = card_y + card_h + 10;
@@ -5192,14 +5292,17 @@ static void handle_navigation_key(int code, int value) {
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
             } else if (g_current_view == VIEW_SETTINGS) {
-                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
+                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
+                    bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
-                    g_selected_sub_item = was_reboot ? 4 : 5;
+                    g_suspend_countdown_start_ms = 0;
+                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
+                    g_suspend_countdown_start_ms = 0;
                 } else {
                     g_current_view = VIEW_DEVICES;
                 }
@@ -5229,6 +5332,7 @@ static void handle_navigation_key(int code, int value) {
                 if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
+                    g_suspend_countdown_start_ms = 0;
                 } else {
                     g_current_view = VIEW_ACTIVITIES;
                 }
@@ -5311,14 +5415,17 @@ static void handle_navigation_key(int code, int value) {
                     g_selected_sub_item = 3;
                 }
             } else if (g_current_view == VIEW_SETTINGS) {
-                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET) {
+                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
+                    bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
-                    g_selected_sub_item = was_reboot ? 4 : 5;
+                    g_suspend_countdown_start_ms = 0;
+                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
+                    g_suspend_countdown_start_ms = 0;
                 } else {
                     g_current_view = VIEW_DEVICES;
                 }
@@ -5815,6 +5922,24 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* Manual Suspend-to-RAM 10s countdown */
+        if (g_screen_on && g_current_view == VIEW_SETTINGS && g_settings_subview == SETTINGS_VIEW_SUSPEND && g_suspend_countdown_start_ms > 0) {
+            uint64_t elapsed_s = (now_ms - g_suspend_countdown_start_ms) / 1000;
+            if (elapsed_s >= 10) {
+                g_suspend_countdown_start_ms = 0;
+                trigger_manual_suspend_to_ram();
+                g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                g_selected_sub_item = 4;
+                g_screen_dirty = true;
+            } else {
+                static uint64_t s_last_cd_render = 0;
+                if (now_ms - s_last_cd_render >= 200) {
+                    g_screen_dirty = true;
+                    s_last_cd_render = now_ms;
+                }
+            }
+        }
+
         /* Render Screen only when dirty to prevent flicker and waste */
         if (g_screen_dirty && g_screen_on) {
             render_screen();
@@ -5914,8 +6039,10 @@ int main(int argc, char **argv) {
                     bool is_bottom_nav_key = (ev.code == 78 || ev.code == 74 || ev.code == 149 ||
                                               ev.code == 203 || ev.code == 148 || ev.code == 202);
                     bool is_confirm_pending = (g_confirm_pending_idx >= 0 || g_confirm_pending_rf_code != 0 || g_unpair_confirm_active);
+                    bool is_in_settings = (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING);
 
-                    if ((is_bottom_nav_key && (!g_touch_enabled || g_screen_nav_mode || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) ||
+                    if ((is_bottom_nav_key && (!g_touch_enabled || g_screen_nav_mode || is_in_settings)) ||
+                        (is_in_settings && ev.code == 158) ||
                         (is_confirm_pending && (is_bottom_nav_key || ev.code == 158))) {
                         /* Screen Navigation or Confirm cancellation: bottom buttons and Back control screen */
                         handle_navigation_key(ev.code, ev.value);
@@ -6063,7 +6190,6 @@ int main(int argc, char **argv) {
         if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
-            bool is_docked = is_elite_docked();
             bool allow_gyro_wake = true;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
