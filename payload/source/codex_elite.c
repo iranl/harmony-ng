@@ -828,7 +828,6 @@ static void clearpad_sleep(void) {
 
 /* Power Debug Logging Infrastructure (/tmp/power_debug.log & /data/power_debug.log) */
 #define POWER_LOG_TMP   "/tmp/power_debug.log"
-#define POWER_LOG_FLASH "/data/power_debug.log"
 
 static pthread_mutex_t g_power_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool g_power_debug = false;
@@ -857,26 +856,12 @@ static void log_power_debug(const char *fmt, ...) {
     printf("[PWR %s] %s", time_buf, msg);
     fflush(stdout);
 
-    /* Write to /tmp/power_debug.log (RAM tmpfs) */
+    /* Write exclusively to /tmp/power_debug.log (RAM tmpfs - zero flash wear) */
     FILE *ftmp = fopen(POWER_LOG_TMP, "a");
     if (ftmp) {
         fprintf(ftmp, "[%s mono=%llums] %s", time_buf, (unsigned long long)get_monotonic_ms(), msg);
         fflush(ftmp);
         fclose(ftmp);
-    }
-
-    /* Mirror major events and periodic checkpoints to flash (/data/power_debug.log) */
-    static uint64_t s_last_flash_log_ms = 0;
-    uint64_t mono = get_monotonic_ms();
-    if (strstr(msg, "STANDBY") || strstr(msg, "WAKING") || strstr(msg, "reboot") ||
-        strstr(msg, "Ethernet") || strstr(msg, "INIT") || (mono - s_last_flash_log_ms >= 300000)) {
-        s_last_flash_log_ms = mono;
-        FILE *fdata = fopen(POWER_LOG_FLASH, "a");
-        if (fdata) {
-            fprintf(fdata, "[%s mono=%llums] %s", time_buf, (unsigned long long)mono, msg);
-            fflush(fdata);
-            fclose(fdata);
-        }
     }
     pthread_mutex_unlock(&g_power_log_mutex);
 }
@@ -978,6 +963,8 @@ static bool is_night_time(void) {
 }
 
 static uint64_t s_last_blank_time_ms = 0;
+static uint64_t s_last_wake_ms = 0;
+static uint64_t s_last_reconnect_ms = 0;
 
 static void fb_set_blank(bool blank) {
     int blank_res = -1;
@@ -995,6 +982,7 @@ static void fb_set_blank(bool blank) {
     uint64_t now_ms = get_monotonic_ms();
 
     if (g_screen_on) {
+        s_last_wake_ms = now_ms;
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
@@ -2192,6 +2180,7 @@ static void rf_send_full_sync_request(void) {
 /* Wake CC2544 radio and re-sync with Hub */
 static void rf_wake_and_reconnect(void) {
     if (g_rf_fd < 0) return;
+    s_last_reconnect_ms = get_monotonic_ms();
     /* Dongle Active Sync pulse (matches stock hal_remote & AGENTS.md Rule 3) */
     uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
@@ -2382,7 +2371,7 @@ static int build_combined_activity_sequence(const char *from_id, const char *to_
     uint32_t total = 0;
 
     /* Phase 1: Departing activity stop sequence */
-    if (from_id && from_id[0] && strcmp(from_id, "-1") != 0 && (!to_id || strcmp(from_id, to_id) != 0)) {
+    if (from_id && from_id[0] && (!to_id || strcmp(from_id, to_id) != 0)) {
         int found_stop = 0;
         for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
             if (strcmp(g_rf_steps[i].act_id, from_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
@@ -2390,13 +2379,15 @@ static int build_combined_activity_sequence(const char *from_id, const char *to_
                 if (strncmp(out_steps[count].name, "Power Off O", 11) == 0 ||
                     strcmp(out_steps[count].name, "Power Off Old") == 0) {
                     strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+                } else if (strcasecmp(out_steps[count].name, "Switched") == 0) {
+                    strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
                 }
                 total += out_steps[count].delay_ms;
                 count++;
                 found_stop = 1;
             }
         }
-        if (!found_stop && count < max_steps) {
+        if (!found_stop && count < max_steps && strcmp(from_id, "-1") != 0) {
             strncpy(out_steps[count].act_id, from_id, sizeof(out_steps[count].act_id) - 1);
             out_steps[count].step_idx = 0x80;
             out_steps[count].delay_ms = 1500;
@@ -2581,9 +2572,20 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 break;
             }
 
-            if (!g_initial_sync_received) {
+            if (g_initial_sync_received && strcmp(g_active_activity_id, act_id) == 0) {
+                break;
+            }
+
+            uint8_t is_query_reply = f->payload[24];
+            uint64_t time_since_wake = (s_last_wake_ms > 0) ? (now_ms - s_last_wake_ms) : 999999;
+            uint64_t time_since_reconnect = (s_last_reconnect_ms > 0) ? (now_ms - s_last_reconnect_ms) : 999999;
+            bool is_wake_or_reconnect = (time_since_wake < 6000 || time_since_reconnect < 6000);
+            bool is_state_catchup = (!g_initial_sync_received || is_query_reply == 0x01 || is_wake_or_reconnect);
+
+            if (is_state_catchup) {
                 g_initial_sync_received = true;
-                printf("[*] Hub Initial Activity Sync: id=%s name=%s (already running, no switch overlay)\n", act_id, act_name);
+                printf("[*] Hub Activity Sync (catch-up: wake=%llums rec=%llums qreply=%d): id=%s name=%s (already running, no switch overlay)\n",
+                       (unsigned long long)time_since_wake, (unsigned long long)time_since_reconnect, is_query_reply, act_id, act_name);
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
@@ -2599,18 +2601,16 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 break;
             }
 
-            if (strcmp(g_active_activity_id, act_id) != 0) {
-                printf("[*] Hub Activity Sync: id=%s name=%s\n", act_id, act_name);
-                bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
-                if (!g_is_switching_activity && !is_recent_same_switch) {
-                    trigger_activity_switch_external(act_id, act_name);
-                }
-                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
-                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
-                g_selected_device_cmd = 0;
-                reset_idle_timer();
-                g_screen_dirty = true;
+            printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
+            bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
+            if (!g_is_switching_activity && !is_recent_same_switch) {
+                trigger_activity_switch_external(act_id, act_name);
             }
+            strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
+            strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+            g_selected_device_cmd = 0;
+            reset_idle_timer();
+            g_screen_dirty = true;
             break;
         }
 
@@ -4622,15 +4622,15 @@ static void init_gyro_interrupt(void) {
     }
     int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
     if (fdt >= 0) {
-        write(fdt, "10\n", 3);
+        write(fdt, "3\n", 2);
         close(fdt);
     }
     int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
     if (fdd >= 0) {
-        write(fdd, "3\n", 2);
+        write(fdd, "1\n", 2);
         close(fdd);
     }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=10, dur=3)\n",
+    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=3, dur=1)\n",
            g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
 }
 
@@ -4645,7 +4645,55 @@ static void sig_deep_sleep_handler(int sig) {
     fb_set_blank(true);
     uint64_t now_ms = get_monotonic_ms();
     s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
-    log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2 (standby_s > 1800)\n");
+    log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2\n");
+}
+
+/* Kernel Suspend-to-RAM (mem) Coordination */
+static void enter_kernel_suspend(void) {
+    /* Only suspend to RAM on pure battery; never on USB */
+    read_elite_battery();
+    if (strcmp(g_battery_info.powersource, "battery") != 0) {
+        return;
+    }
+
+    /* Arm MSP430 wake timer (3600 seconds) */
+    int mfd = open("/sys/bus/i2c/devices/1-0034/wakeup", O_WRONLY);
+    if (mfd >= 0) {
+        write(mfd, "3600\n", 5);
+        close(mfd);
+    }
+
+    log_power_debug("[*] Entering kernel Suspend-to-RAM (echo mem > /sys/power/state)...\n");
+    int fd = open("/sys/power/state", O_WRONLY);
+    if (fd >= 0) {
+        ssize_t w = write(fd, "mem\n", 4);
+        close(fd);
+        if (w < 0) {
+            log_power_debug("[-] Kernel suspend returned error: %s\n", strerror(errno));
+            usleep(5000000); /* Back off if suspend rejected */
+            return;
+        }
+    }
+    log_power_debug("[*] Resumed from kernel Suspend-to-RAM!\n");
+
+    /* Check wake reason from MSP430 */
+    FILE *fev = fopen("/sys/bus/i2c/devices/1-0034/wakeup_event", "r");
+    if (fev) {
+        char wev[32] = {0};
+        if (fscanf(fev, "%31s", wev) == 1) {
+            log_power_debug("[*] Kernel resume wakeup_event: %s\n", wev);
+            if (strcmp(wev, "alarm") != 0) {
+                /* Woke from key, tilt, or cradle transition -> request display wake */
+                g_wake_requested = 1;
+            }
+        }
+        fclose(fev);
+    } else {
+        g_wake_requested = 1;
+    }
+
+    /* Re-synchronize CC2544 FHSS with Hub */
+    rf_wake_and_reconnect();
 }
 
 /* Power / Timeout Watcher Thread */
@@ -4659,7 +4707,14 @@ static void *power_manager(void *arg) {
             if (is_docked) {
                 usleep(500000);  /* 500ms check when charging on dock (external power) */
             } else {
-                usleep(10000000); /* 10s sleep when running on battery (preserve battery) */
+                read_elite_battery();
+                if (strcmp(g_battery_info.powersource, "battery") == 0) {
+                    /* Enter kernel Suspend-to-RAM on battery */
+                    enter_kernel_suspend();
+                    usleep(100000);
+                } else {
+                    usleep(10000000); /* 10s sleep when on USB (preserve USB dev connection) */
+                }
             }
 
             /* Check for dock removal or attachment transition */
@@ -5596,7 +5651,7 @@ int main(int argc, char **argv) {
         }
         uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
         bool is_docked = is_elite_docked();
-        bool allow_gyro_wake = (standby_s < 1800 || is_docked);
+        bool allow_gyro_wake = true;
         if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
             FD_SET(g_gyro_fd, &rfds);
             if (g_gyro_fd > max_fd) max_fd = g_gyro_fd;
@@ -6009,7 +6064,7 @@ int main(int argc, char **argv) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
             bool is_docked = is_elite_docked();
-            bool allow_gyro_wake = (standby_s < 1800 || is_docked);
+            bool allow_gyro_wake = true;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
                 reset_idle_timer();

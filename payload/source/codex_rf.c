@@ -920,23 +920,24 @@ static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, in
 }
 
 /* Send Codex Activity Sync frame to a specific slot */
-static void rf_send_codex_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot) {
+static void rf_send_codex_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
 
     char act_name[24] = {0};
     get_activity_name_by_id(act_id, act_name, sizeof(act_name));
 
     rf_frame_t f;
-    uint8_t payload[26] = {0};
+    uint8_t payload[25] = {0};
     if (strlen(act_id) <= 2 || strcmp(act_id, "-1") == 0) {
         strncpy((char *)&payload[0], act_id, 3);
-        strncpy((char *)&payload[3], act_name, 22);
+        strncpy((char *)&payload[3], act_name, 21);
     } else {
         strncpy((char *)&payload[0], act_id, 10);
-        strncpy((char *)&payload[10], act_name, 15);
+        strncpy((char *)&payload[10], act_name, 14);
     }
+    payload[24] = is_query_reply; /* 1 = reply to SYNC_REQUEST (steady-state catchup), 0 = live transition */
 
-    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_ACTIVITY_SYNC, seq, 0, payload, 26);
+    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_ACTIVITY_SYNC, seq, 0, payload, 25);
     rf_send_frame(&f);
 }
 
@@ -946,7 +947,7 @@ static void rf_send_codex_activity_sync_seq(const char *act_id, uint8_t seq) {
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
-            rf_send_codex_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot);
+            rf_send_codex_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot, 0x00);
             usleep(10000);
         }
     }
@@ -1557,7 +1558,7 @@ static void *config_push_worker(void *arg) {
                             }
 
                             /* Append stop/leave sequence step(s) for this activity (tagged with step_idx & 0x80) */
-                            if (total_step_count < 63 && strcmp(act_id, "-1") != 0) {
+                            if (total_step_count < 63) {
                                 cJSON *stop_seq = cJSON_GetObjectItem(act_obj, "stopSequence");
                                 if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "StopSequence");
                                 if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "LeaveActions");
@@ -1568,26 +1569,33 @@ static void *config_push_worker(void *arg) {
                                         if (total_step_count >= 63 || stop_cnt >= 8) break;
                                         cJSON *cname = cJSON_GetObjectItem(st_item, "command");
                                         if (!cname) cname = cJSON_GetObjectItem(st_item, "Command");
+                                        cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
+                                        if (!ctype) ctype = cJSON_GetObjectItem(st_item, "Type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Delay");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Duration");
                                         int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
-                                        if (d <= 0) d = 250;
-                                        if (d > 20000) d = 20000;
 
-                                        const char *nm = (cname && cJSON_IsString(cname) && cname->valuestring[0]) ? cname->valuestring : "Stop";
-                                        strncpy(act_steps[total_step_count].act_id, act_id, 11);
-                                        act_steps[total_step_count].act_id[11] = '\0';
-                                        strncpy(act_steps[total_step_count].name, nm, 15);
-                                        act_steps[total_step_count].name[15] = '\0';
-                                        act_steps[total_step_count].delay_ms = (uint16_t)d;
-                                        act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
-                                        act_steps[total_step_count].total_steps = 1;
-                                        total_step_count++;
-                                        stop_cnt++;
+                                        if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
+                                            if (d <= 0) d = 250;
+                                            if (d > 20000) d = 20000;
+                                            strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                            act_steps[total_step_count].act_id[11] = '\0';
+                                            strncpy(act_steps[total_step_count].name, cname->valuestring, 15);
+                                            act_steps[total_step_count].name[15] = '\0';
+                                            act_steps[total_step_count].delay_ms = (uint16_t)d;
+                                            act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                            act_steps[total_step_count].total_steps = 1;
+                                            total_step_count++;
+                                            stop_cnt++;
+                                        } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
+                                            if (total_step_count > 0 && stop_cnt > 0 && d > 0) {
+                                                act_steps[total_step_count - 1].delay_ms += (uint16_t)d;
+                                            }
+                                        }
                                     }
                                 }
-                                if (stop_cnt == 0 && total_step_count < 63) {
+                                if (stop_cnt == 0 && total_step_count < 63 && strcmp(act_id, "-1") != 0) {
                                     strncpy(act_steps[total_step_count].act_id, act_id, 11);
                                     act_steps[total_step_count].act_id[11] = '\0';
                                     strncpy(act_steps[total_step_count].name, "Stop", 15);
@@ -2050,7 +2058,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
 
             char cur[32] = "-1";
             get_current_activity(cur, sizeof(cur));
-            rf_send_codex_activity_sync_slot(cur, f->seq, slot);
+            rf_send_codex_activity_sync_slot(cur, f->seq, slot, 0x01);
 
             if (req_type == 0x02) {
                 usleep(50000);
