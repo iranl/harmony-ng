@@ -7,6 +7,7 @@ over raw USB HID without third-party dependencies.
 Supported OS:
 - Windows: Native ctypes (setupapi.dll + hid.dll + kernel32.dll)
 - Linux: Native /dev/hidraw* with standard ioctl
+- macOS: Native ctypes (IOKit.framework + CoreFoundation.framework)
 
 License: MIT (Harmony Hub Control Project)
 """
@@ -445,6 +446,322 @@ def find_linux_device(target_pid: Optional[int] = None) -> Optional[str]:
 
 
 # ==============================================================================
+# macOS IOKit Transport (ctypes)
+# ==============================================================================
+
+if sys.platform == "darwin":
+    import ctypes.util
+    import queue
+    import threading
+
+    def _load_framework(name: str):
+        path = f"/System/Library/Frameworks/{name}.framework/{name}"
+        try:
+            return ctypes.cdll.LoadLibrary(path)
+        except OSError:
+            lib_name = ctypes.util.find_library(name)
+            if lib_name:
+                return ctypes.cdll.LoadLibrary(lib_name)
+            raise
+
+    iokit = _load_framework("IOKit")
+    cf = _load_framework("CoreFoundation")
+
+    # CoreFoundation prototypes
+    cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+    cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    cf.CFNumberGetValue.restype = ctypes.c_bool
+    cf.CFNumberGetValue.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p]
+    cf.CFSetGetCount.restype = ctypes.c_long
+    cf.CFSetGetCount.argtypes = [ctypes.c_void_p]
+    cf.CFSetGetValues.restype = None
+    cf.CFSetGetValues.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    cf.CFRetain.restype = ctypes.c_void_p
+    cf.CFRetain.argtypes = [ctypes.c_void_p]
+    cf.CFRelease.restype = None
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    cf.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+    cf.CFRunLoopGetCurrent.argtypes = []
+    cf.CFRunLoopStop.restype = None
+    cf.CFRunLoopStop.argtypes = [ctypes.c_void_p]
+    cf.CFRunLoopRunInMode.restype = ctypes.c_int32
+    cf.CFRunLoopRunInMode.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_bool]
+
+    def _cf_string(s: str) -> int:
+        return cf.CFStringCreateWithCString(None, s.encode("utf-8"), 0x08000100)
+
+    try:
+        kCFRunLoopDefaultMode = ctypes.c_void_p.in_dll(cf, "kCFRunLoopDefaultMode").value
+    except Exception:
+        kCFRunLoopDefaultMode = _cf_string("kCFRunLoopDefaultMode")
+
+    CF_STR_VENDOR_ID = _cf_string("VendorID")
+    CF_STR_PRODUCT_ID = _cf_string("ProductID")
+
+    def _get_cf_int(val_ref) -> Optional[int]:
+        if not val_ref:
+            return None
+        val = ctypes.c_int32()
+        if cf.CFNumberGetValue(val_ref, 3, ctypes.byref(val)):
+            return val.value
+        return None
+
+    # IOKit prototypes
+    iokit.IOHIDManagerCreate.restype = ctypes.c_void_p
+    iokit.IOHIDManagerCreate.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOHIDManagerSetDeviceMatching.restype = None
+    iokit.IOHIDManagerSetDeviceMatching.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    iokit.IOHIDManagerOpen.restype = ctypes.c_int32
+    iokit.IOHIDManagerOpen.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOHIDManagerClose.restype = ctypes.c_int32
+    iokit.IOHIDManagerClose.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOHIDManagerCopyDevices.restype = ctypes.c_void_p
+    iokit.IOHIDManagerCopyDevices.argtypes = [ctypes.c_void_p]
+
+    iokit.IOHIDDeviceOpen.restype = ctypes.c_int32
+    iokit.IOHIDDeviceOpen.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOHIDDeviceClose.restype = ctypes.c_int32
+    iokit.IOHIDDeviceClose.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOHIDDeviceGetProperty.restype = ctypes.c_void_p
+    iokit.IOHIDDeviceGetProperty.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    iokit.IOHIDDeviceSetReport.restype = ctypes.c_int32
+    iokit.IOHIDDeviceSetReport.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_long,
+        ctypes.c_char_p,
+        ctypes.c_long,
+    ]
+
+    IO_HID_REPORT_CALLBACK = ctypes.CFUNCTYPE(
+        None,
+        ctypes.c_void_p,
+        ctypes.c_int32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_long,
+    )
+
+    iokit.IOHIDDeviceRegisterInputReportCallback.restype = None
+    iokit.IOHIDDeviceRegisterInputReportCallback.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_long,
+        IO_HID_REPORT_CALLBACK,
+        ctypes.c_void_p,
+    ]
+    iokit.IOHIDDeviceScheduleWithRunLoop.restype = None
+    iokit.IOHIDDeviceScheduleWithRunLoop.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    iokit.IOHIDDeviceUnscheduleFromRunLoop.restype = None
+    iokit.IOHIDDeviceUnscheduleFromRunLoop.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+
+
+class MacHidDevice:
+    def __init__(self, manager: int, dev_ref: int):
+        self.manager = manager
+        self.dev_ref = dev_ref
+        import queue
+        import threading
+        self.queue: queue.Queue[bytes] = queue.Queue()
+        self.run_loop = None
+        self.running = False
+        self.thread: Optional[threading.Thread] = None
+        self.ready_event = threading.Event()
+        self.report_buf = (ctypes.c_uint8 * 256)()
+
+        def _cb(context, result, sender, report_type, report_id, report_ptr, report_length):
+            if result != 0 or not report_ptr or report_length <= 0:
+                return
+            data = ctypes.string_at(report_ptr, report_length)
+            if len(data) >= 65 and data[0] == 0:
+                clean = data[1:65]
+            else:
+                clean = data[:64]
+            self.queue.put(clean)
+
+        self._c_callback = IO_HID_REPORT_CALLBACK(_cb)
+        iokit.IOHIDDeviceRegisterInputReportCallback(
+            self.dev_ref,
+            self.report_buf,
+            len(self.report_buf),
+            self._c_callback,
+            None,
+        )
+
+        self.running = True
+        self.thread = threading.Thread(target=self._run_loop_worker, daemon=True)
+        self.thread.start()
+        self.ready_event.wait(timeout=2.0)
+
+    def _run_loop_worker(self):
+        self.run_loop = cf.CFRunLoopGetCurrent()
+        cf.CFRetain(self.run_loop)
+        iokit.IOHIDDeviceScheduleWithRunLoop(
+            self.dev_ref,
+            self.run_loop,
+            kCFRunLoopDefaultMode,
+        )
+        self.ready_event.set()
+        while self.running:
+            cf.CFRunLoopRunInMode(kCFRunLoopDefaultMode, ctypes.c_double(0.1), True)
+
+        try:
+            iokit.IOHIDDeviceUnscheduleFromRunLoop(
+                self.dev_ref,
+                self.run_loop,
+                kCFRunLoopDefaultMode,
+            )
+        except Exception:
+            pass
+        if self.run_loop:
+            cf.CFRelease(self.run_loop)
+            self.run_loop = None
+
+    def drain(self, max_reports: int = 16, timeout_ms: int = 50) -> None:
+        """Drain any stale input reports from buffer."""
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
+        while max_reports > 0:
+            rep = self.read_report(timeout_ms)
+            if not rep:
+                break
+            max_reports -= 1
+
+    def write_report(self, data: bytes) -> bool:
+        if len(data) == 64:
+            report_id = 0
+            payload = data
+        elif len(data) == 65:
+            report_id = data[0]
+            payload = data[1:] if report_id == 0 else data
+        else:
+            raise ValueError(f"Invalid report size: {len(data)}")
+
+        res = iokit.IOHIDDeviceSetReport(
+            self.dev_ref,
+            1,  # kIOHIDReportTypeOutput
+            report_id,
+            payload,
+            len(payload),
+        )
+        if res != 0:
+            res = iokit.IOHIDDeviceSetReport(
+                self.dev_ref,
+                2,  # kIOHIDReportTypeFeature fallback
+                report_id,
+                payload,
+                len(payload),
+            )
+        return res == 0
+
+    def read_report(self, timeout_ms: int = 5000) -> bytes:
+        timeout_sec = max(0.001, timeout_ms / 1000.0)
+        try:
+            return self.queue.get(timeout=timeout_sec)
+        except Exception:
+            return b""
+
+    def close(self) -> None:
+        self.running = False
+        if self.run_loop:
+            try:
+                cf.CFRunLoopStop(self.run_loop)
+            except Exception:
+                pass
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+            self.thread = None
+
+        if self.dev_ref:
+            try:
+                iokit.IOHIDDeviceRegisterInputReportCallback(
+                    self.dev_ref,
+                    self.report_buf,
+                    len(self.report_buf),
+                    IO_HID_REPORT_CALLBACK(),
+                    None,
+                )
+            except Exception:
+                pass
+            try:
+                iokit.IOHIDDeviceClose(self.dev_ref, 0)
+            except Exception:
+                pass
+            try:
+                cf.CFRelease(self.dev_ref)
+            except Exception:
+                pass
+            self.dev_ref = None
+
+        if self.manager:
+            try:
+                iokit.IOHIDManagerClose(self.manager, 0)
+            except Exception:
+                pass
+            try:
+                cf.CFRelease(self.manager)
+            except Exception:
+                pass
+            self.manager = None
+
+
+def find_darwin_device(target_pid: Optional[int] = None) -> tuple[Optional[int], Optional[int]]:
+    """Scan macOS IOHIDManager for matching Logitech vendor/product."""
+    mgr = iokit.IOHIDManagerCreate(None, 0)
+    if not mgr:
+        return None, None
+    iokit.IOHIDManagerSetDeviceMatching(mgr, None)
+    if iokit.IOHIDManagerOpen(mgr, 0) != 0:
+        cf.CFRelease(mgr)
+        return None, None
+
+    dev_set = iokit.IOHIDManagerCopyDevices(mgr)
+    matched_device = None
+    if dev_set:
+        count = cf.CFSetGetCount(dev_set)
+        if count > 0:
+            dev_array = (ctypes.c_void_p * count)()
+            cf.CFSetGetValues(dev_set, dev_array)
+            for d in dev_array:
+                if not d:
+                    continue
+                vid_ref = iokit.IOHIDDeviceGetProperty(d, CF_STR_VENDOR_ID)
+                pid_ref = iokit.IOHIDDeviceGetProperty(d, CF_STR_PRODUCT_ID)
+                vid = _get_cf_int(vid_ref)
+                pid = _get_cf_int(pid_ref)
+                if vid == HARMONY_VID:
+                    if target_pid:
+                        if pid == target_pid:
+                            matched_device = d
+                            break
+                    elif pid in ALL_HARMONY_PIDS:
+                        matched_device = d
+                        break
+        cf.CFRelease(dev_set)
+
+    if matched_device:
+        cf.CFRetain(matched_device)
+        return mgr, matched_device
+
+    iokit.IOHIDManagerClose(mgr, 0)
+    cf.CFRelease(mgr)
+    return None, None
+
+
+# ==============================================================================
 # High-Level Harmony HID Bridge
 # ==============================================================================
 
@@ -484,6 +801,19 @@ class HarmonyHid:
                 return True
             except OSError:
                 return False
+        elif sys.platform == "darwin":
+            mgr, dev_ref = find_darwin_device(self.pid)
+            if not dev_ref:
+                return False
+            ret = iokit.IOHIDDeviceOpen(dev_ref, 0)
+            if ret != 0:
+                if mgr:
+                    iokit.IOHIDManagerClose(mgr, 0)
+                    cf.CFRelease(mgr)
+                cf.CFRelease(dev_ref)
+                return False
+            self.dev = MacHidDevice(mgr, dev_ref)
+            return True
         else:
             raise NotImplementedError(f"Unsupported OS: {sys.platform}")
 
