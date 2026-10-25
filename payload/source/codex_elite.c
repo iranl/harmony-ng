@@ -897,8 +897,18 @@ static void get_cpu_freq_status(char *out, size_t max_len) {
     snprintf(out, max_len, "gov=%.16s, cur=%.16s", gov, cur_freq);
 }
 
+static inline bool is_elite_docked(void) {
+    return (strcmp(g_battery_info.powersource, "cradle") == 0 ||
+            strcmp(g_battery_info.powersource, "usb") == 0 ||
+            g_battery_info.charging);
+}
+
 /* DaVinci DM365 CPU Frequency Scaling (456MHz active / 96MHz standby) */
 static void set_cpu_freq_standby(bool standby) {
+    if (standby && is_elite_docked()) {
+        log_power_debug("CPU scale -> STANDBY bypassed (docked/charging: holding 456MHz)\n");
+        return;
+    }
     char before[96];
     get_cpu_freq_status(before, sizeof(before));
     if (standby) {
@@ -1007,7 +1017,7 @@ static void fb_set_blank(bool blank) {
             while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
         }
         read_elite_battery();
-        bool usb_plug = is_usb_hardware_connected();
+        bool usb_plug = (strcmp(g_battery_info.powersource, "usb") == 0);
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
         log_power_debug("  fb_blank=%d, bl=0 | USB Eth: cfg=%d, cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
                         blank_res, g_usbeth_enabled, usb_plug,
@@ -1049,6 +1059,55 @@ static void set_gyro_enabled(bool enable) {
 
 static char g_timezone_str[48] = "CET-1CEST,M3.5.0,M10.5.0/3";
 
+typedef struct {
+    const char *prefix;
+    const char *full_tz;
+} tz_mapping_t;
+
+static const tz_mapping_t g_tz_mappings[] = {
+    { "CET-1CEST",      "CET-1CEST,M3.5.0,M10.5.0/3" },
+    { "GMT0BST",        "GMT0BST,M3.5.0/1,M10.5.0" },
+    { "WET0WEST",       "WET0WEST,M3.5.0/1,M10.5.0" },
+    { "EET-2EEST",      "EET-2EEST,M3.5.0/3,M10.5.0/4" },
+    { "EST5EDT",        "EST5EDT,M3.2.0,M11.1.0" },
+    { "CST6CDT",        "CST6CDT,M3.2.0,M11.1.0" },
+    { "MST7MDT",        "MST7MDT,M3.2.0,M11.1.0" },
+    { "PST8PDT",        "PST8PDT,M3.2.0,M11.1.0" },
+    { "AKST9AKDT",      "AKST9AKDT,M3.2.0,M11.1.0" },
+    { "NST3:30NDT",     "NST3:30NDT,M3.2.0,M11.1.0" },
+    { "AST4ADT",        "AST4ADT,M3.2.0,M11.1.0" },
+    { "AEST-10AEDT",    "AEST-10AEDT,M10.1.0,M4.1.0/3" },
+    { "ACST-9:30ACDT",  "ACST-9:30ACDT,M10.1.0,M4.1.0/3" },
+    { "NZST-12NZDT",    "NZST-12NZDT,M9.5.0,M4.1.0/3" },
+};
+
+static void expand_timezone(const char *in, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    if (!in || !in[0]) {
+        snprintf(out, out_sz, "CET-1CEST,M3.5.0,M10.5.0/3");
+        return;
+    }
+    const char *c1 = strchr(in, ',');
+    if (c1 && strchr(c1 + 1, ',')) {
+        strncpy(out, in, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    for (size_t i = 0; i < sizeof(g_tz_mappings) / sizeof(g_tz_mappings[0]); i++) {
+        if (strncmp(in, g_tz_mappings[i].prefix, strlen(g_tz_mappings[i].prefix)) == 0) {
+            strncpy(out, g_tz_mappings[i].full_tz, out_sz - 1);
+            out[out_sz - 1] = '\0';
+            return;
+        }
+    }
+    if (!strchr(in, ',')) {
+        strncpy(out, in, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    snprintf(out, out_sz, "CET-1CEST,M3.5.0,M10.5.0/3");
+}
+
 static void set_msp430_rtc(uint32_t epoch_sec) {
     FILE *f = fopen("/sys/bus/i2c/devices/1-0034/time", "w");
     if (!f) return;
@@ -1064,13 +1123,19 @@ static void sync_time_from_rtc(void) {
             char *nl = strchr(tz, '\n'); if (nl) *nl = '\0';
             char *cr = strchr(tz, '\r'); if (cr) *cr = '\0';
             if (tz[0] && strstr(tz, "EST5EDT") == NULL) {
-                strncpy(g_timezone_str, tz, sizeof(g_timezone_str) - 1);
+                expand_timezone(tz, g_timezone_str, sizeof(g_timezone_str));
             }
         }
         fclose(ftz);
     }
+    expand_timezone(g_timezone_str, g_timezone_str, sizeof(g_timezone_str));
     setenv("TZ", g_timezone_str, 1);
     tzset();
+    ftz = fopen("/etc/TZ", "w");
+    if (ftz) {
+        fprintf(ftz, "%s\n", g_timezone_str);
+        fclose(ftz);
+    }
 
     FILE *f = fopen("/sys/bus/i2c/devices/1-0034/time", "r");
     if (!f) return;
@@ -1162,8 +1227,9 @@ static void load_settings_conf(void) {
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
+            else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
-                strncpy(g_timezone_str, sval, sizeof(g_timezone_str) - 1);
+                expand_timezone(sval, g_timezone_str, sizeof(g_timezone_str));
                 setenv("TZ", g_timezone_str, 1);
                 tzset();
             }
@@ -1205,6 +1271,7 @@ static void save_settings_conf(void) {
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "usbeth=%d\n", g_usbeth_enabled ? 1 : 0);
     fprintf(f, "power_debug=%d\n", g_power_debug ? 1 : 0);
+    fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;
@@ -1219,6 +1286,7 @@ static bool is_usb_hardware_connected(void) {
         char psrc[16] = {0};
         if (fscanf(fp, "%15s", psrc) == 1) {
             fclose(fp);
+            strncpy(g_battery_info.powersource, psrc, sizeof(g_battery_info.powersource) - 1);
             return (strcmp(psrc, "usb") == 0);
         }
         fclose(fp);
@@ -1419,7 +1487,8 @@ static void toggle_usbeth(void) {
     g_usbeth_enabled = !g_usbeth_enabled;
     if (g_usbeth_enabled) {
         save_settings_conf();
-        if (is_usb_hardware_connected()) {
+        g_usb_connected = is_usb_hardware_connected();
+        if (g_usb_connected) {
             show_notice("Starting USB Ethernet...", 1500);
             render_screen();
             start_usbeth_and_dropbear();
@@ -2123,12 +2192,10 @@ static void rf_send_full_sync_request(void) {
 /* Wake CC2544 radio and re-sync with Hub */
 static void rf_wake_and_reconnect(void) {
     if (g_rf_fd < 0) return;
-    /* Dongle Active Sync pulses (matches stock hal_remote) */
-    uint8_t pkt_dongle0[10] = {0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t pkt_dongle1[10] = {0x12, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    /* Dongle Active Sync pulse (matches stock hal_remote & AGENTS.md Rule 3) */
+    uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
-    if (write(g_rf_fd, pkt_dongle0, sizeof(pkt_dongle0)) < 0) {}
-    if (write(g_rf_fd, pkt_dongle1, sizeof(pkt_dongle1)) < 0) {}
+    if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
     pthread_mutex_unlock(&g_rf_write_mutex);
     usleep(5000);
     /* Send activity sync query to re-establish active session */
@@ -2816,6 +2883,10 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             }
 
             g_is_ota_updating = true;
+            g_last_activity_time = time(NULL);
+            if (!g_screen_on) {
+                fb_set_blank(false);
+            }
             g_ota_start_ms = get_monotonic_ms();
             g_ota_last_packet_ms = g_ota_start_ms;
             g_ota_total_bytes = tot_b;
@@ -2827,13 +2898,13 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
-            render_screen();
             break;
         }
 
         case RF_MSG_OTA_CHUNK: {
             if (!g_is_ota_updating || !g_ota_file) break;
             g_ota_last_packet_ms = get_monotonic_ms();
+            g_last_activity_time = time(NULL);
 
             uint16_t c_idx = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
             uint8_t d_len = f->payload[2];
@@ -2971,15 +3042,21 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 set_msp430_rtc(epoch);
             }
             if (tz_str[0]) {
-                FILE *ftz = fopen("/etc/TZ", "w");
-                if (ftz) {
-                    fprintf(ftz, "%s\n", tz_str);
-                    fclose(ftz);
+                char full_tz[48] = {0};
+                expand_timezone(tz_str, full_tz, sizeof(full_tz));
+                if (full_tz[0] && strcmp(g_timezone_str, full_tz) != 0) {
+                    FILE *ftz = fopen("/etc/TZ", "w");
+                    if (ftz) {
+                        fprintf(ftz, "%s\n", full_tz);
+                        fclose(ftz);
+                    }
+                    strncpy(g_timezone_str, full_tz, sizeof(g_timezone_str) - 1);
+                    g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
+                    setenv("TZ", g_timezone_str, 1);
+                    tzset();
+                    save_settings_conf();
+                    printf("[+] Timezone updated to: %s\n", g_timezone_str);
                 }
-                strncpy(g_timezone_str, tz_str, sizeof(g_timezone_str) - 1);
-                setenv("TZ", g_timezone_str, 1);
-                tzset();
-                save_settings_conf();
             }
 
             /* Hub config version embedded at byte 20 */
@@ -4280,8 +4357,7 @@ static void render_settings_view(void) {
                 snprintf(values[1], sizeof(values[1]), "[ OFF ]");
                 cols[1] = RGB_TEXT_MUTED;
             } else {
-                bool usb_hw = is_usb_hardware_connected();
-                if (usb_hw) {
+                if (g_usb_connected) {
                     snprintf(values[1], sizeof(values[1]), "[ ACTIVE ]");
                     cols[1] = RGB_GREEN;
                 } else {
@@ -4579,9 +4655,7 @@ static void *power_manager(void *arg) {
 
     while (g_running) {
         if (!g_screen_on) {
-            bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
-                              strcmp(g_battery_info.powersource, "usb") == 0 ||
-                              g_battery_info.charging);
+            bool is_docked = is_elite_docked();
             if (is_docked) {
                 usleep(500000);  /* 500ms check when charging on dock (external power) */
             } else {
@@ -4644,8 +4718,12 @@ static void *power_manager(void *arg) {
         if (g_timeout_seconds > 0 && g_screen_on) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
-                printf("[*] Idle timeout reached (%ds), blanking display\n", g_timeout_seconds);
-                fb_set_blank(true);
+                if (g_is_ota_updating) {
+                    reset_idle_timer();
+                } else {
+                    printf("[*] Idle timeout reached (%ds), blanking display\n", g_timeout_seconds);
+                    fb_set_blank(true);
+                }
             }
         }
     }
@@ -5517,9 +5595,7 @@ int main(int argc, char **argv) {
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
         uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
-        bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
-                          strcmp(g_battery_info.powersource, "usb") == 0 ||
-                          g_battery_info.charging);
+        bool is_docked = is_elite_docked();
         bool allow_gyro_wake = (standby_s < 1800 || is_docked);
         if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
             FD_SET(g_gyro_fd, &rfds);
@@ -5590,7 +5666,9 @@ int main(int argc, char **argv) {
 
         /* Dynamic USB Connection Monitor: instantly start/drop Dropbear and Ethernet */
         static uint64_t last_usb_check_ms = 0;
-        if (now_ms - last_usb_check_ms >= 1000) {
+        uint32_t usb_check_interval = g_usb_connected ? 1000 : 3000;
+        if ((g_usbeth_enabled || (g_screen_on && g_current_view == VIEW_SETTINGS)) &&
+            (now_ms - last_usb_check_ms >= usb_check_interval)) {
             last_usb_check_ms = now_ms;
             bool usb_now = is_usb_hardware_connected();
             if (usb_now != g_usb_connected) {
@@ -5930,9 +6008,7 @@ int main(int argc, char **argv) {
         if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
-            bool is_docked = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
-                              strcmp(g_battery_info.powersource, "usb") == 0 ||
-                              g_battery_info.charging);
+            bool is_docked = is_elite_docked();
             bool allow_gyro_wake = (standby_s < 1800 || is_docked);
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");

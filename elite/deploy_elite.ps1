@@ -24,7 +24,18 @@ $BinDir = Join-Path $ScriptDir "bin"
 $RcsLocal = Join-Path $ScriptDir "rcS.local"
 $Target = "root@$Ip"
 
-$sshArgs = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=NUL", "-o", "LogLevel=ERROR")
+if (-not $KeyPath) {
+    $candFiles = @(
+        Get-ChildItem -Path "$HOME\.ssh\harmony_owner_*" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
+        Get-ChildItem -Path "$HOME\.ssh\id_rsa" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
+        Get-ChildItem -Path "$HOME\.ssh\id_ed25519" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
+    )
+    if ($candFiles.Count -gt 0) {
+        $KeyPath = $candFiles[0].FullName
+    }
+}
+
+$sshArgs = @("-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR")
 if ($KeyPath -and (Test-Path $KeyPath)) {
     $sshArgs += @("-i", $KeyPath)
 }
@@ -69,10 +80,10 @@ Write-Host "[*] Preserving stock configuration backup..." -ForegroundColor Yello
 $scpArgs = @("-O") + $sshArgs
 
 Write-Host "[*] Stopping existing codex_elite and stock processes..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "killall -9 codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true"
+& ssh @sshArgs $Target "killall -9 codex_watchdog.sh codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true"
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/* /data/bin/* /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/codex_elite /data/codex_sync /data/codex_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /data/factory_reset.sh /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -111,6 +122,12 @@ foreach ($b in $binaries) {
     Deploy-EliteFileIfChanged -LocalFile $src -RemoteFile "/data/$b" -Perm "755" | Out-Null
 }
 
+$watchdogScript = Join-Path $ScriptDir "codex_watchdog.sh"
+if (Test-Path $watchdogScript) {
+    Write-Host "[*] Syncing /data/codex_watchdog.sh (MD5 check)..." -ForegroundColor Yellow
+    Deploy-EliteFileIfChanged -LocalFile $watchdogScript -RemoteFile "/data/codex_watchdog.sh" -Perm "755" | Out-Null
+}
+
 if (Test-Path $RcsLocal) {
     Write-Host "[*] Syncing /etc/init.d/rcS.local (MD5 check)..." -ForegroundColor Yellow
     Deploy-EliteFileIfChanged -LocalFile $RcsLocal -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
@@ -131,12 +148,14 @@ if (Test-Path $switchPng) {
 Write-Host "[*] Configuring permissions and starting codex_elite..." -ForegroundColor Yellow
 $postCmd = "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
            "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; " +
-           "ln -sf /data/codex_sync /data/sync 2>/dev/null || true; " +
-           "ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; " +
-           "ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; " +
-           "if [ -x /data/busybox ]; then cp -f /data/busybox /bin/busybox 2>/dev/null; for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/$a 2>/dev/null; done; fi; " +
-           "killall -9 codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
-           "/data/codex_elite > /tmp/codex_elite.log 2>&1 & sleep 1; pidof codex_elite || echo 'offline'"
+           "[ -L /data/sync ] || ln -sf /data/codex_sync /data/sync 2>/dev/null || true; " +
+           "[ -L /usr/bin/sync ] || ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; " +
+           "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; " +
+           "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/`$a 2>/dev/null; done; fi; " +
+           "rm -f /cache/crashlog-*.json 2>/dev/null || true; " +
+           "killall -9 codex_watchdog.sh codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
+           "if [ -x /data/codex_watchdog.sh ]; then ( /data/codex_watchdog.sh </dev/null >/tmp/codex_watchdog.log 2>&1 & ); else ( /data/codex_elite </dev/null >/tmp/codex_elite.log 2>&1 & ); fi; " +
+           "sleep 1; pidof codex_elite || echo 'offline'"
 
 $res = & ssh @sshArgs $Target $postCmd
 Write-Host "[+] Status: $res" -ForegroundColor Green

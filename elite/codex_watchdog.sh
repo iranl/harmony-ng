@@ -33,8 +33,16 @@ while true; do
 
     # If exit code was 0 (clean user shutdown/quit), exit watchdog loop
     if [ "$EXIT_CODE" -eq 0 ]; then
-        echo "$(date) codex_elite exited cleanly (code 0)" >> "$LOG_FILE" 2>/dev/null
+        echo "$(date) codex_elite exited cleanly (code 0)" >> /tmp/codex_watchdog.log 2>/dev/null
         break
+    fi
+
+    # Exit code 137 (SIGKILL) or 143 (SIGTERM) is an intentional reload or operator kill;
+    # log to RAM (/tmp) to avoid unnecessary flash wear and sync
+    if [ "$EXIT_CODE" -eq 137 ] || [ "$EXIT_CODE" -eq 143 ]; then
+        echo "$(date) [WATCHDOG] codex_elite stopped via signal $EXIT_CODE (PID $PID). Restarting..." >> /tmp/codex_watchdog.log 2>/dev/null
+        sleep 1
+        continue
     fi
 
     NOW=$(date +%s 2>/dev/null || echo 0)

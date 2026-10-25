@@ -158,6 +158,27 @@
     </div>
   </div>
 
+  <!-- RF OTA Progress Top Banner -->
+  <div id="rfOtaTopBanner" class="rf-ota-banner" style="display: none;">
+    <div class="rf-ota-header">
+      <div class="sync-banner-content">
+        <div class="sync-indicator-icon" style="background: rgba(56, 189, 248, 0.25); border-color: #38bdf8; color: #bae6fd;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+        </div>
+        <div class="sync-banner-text">
+          <strong id="rfOtaTopTitle">Remote Firmware OTA Update in Progress</strong>
+          <span id="rfOtaTopDesc" class="sync-subtext">Transmitting firmware chunks to Remote over RF...</span>
+        </div>
+      </div>
+      <span id="rfOtaTopPctBadge" class="badge mini" style="background: #38bdf8; color: #0f172a; font-weight: bold; font-size: 11px;">0%</span>
+    </div>
+    <div class="rf-ota-progress-track">
+      <div id="rfOtaTopProgressBar" class="rf-ota-progress-fill" style="width: 0%;"></div>
+    </div>
+  </div>
+
   <!-- Hub Offline Alert Banner -->
   <div id="hubOfflineBanner" class="hub-offline-banner" style="display: none;">
     <div class="offline-banner-content">
@@ -2326,6 +2347,18 @@
                 id="rfPairState">IDLE</span></div>
           </div>
           <span id="rfStatusBadge" class="badge">OFFLINE</span>
+        </div>
+
+        <!-- RF OTA Progress Card -->
+        <div id="rfOtaCardBanner" style="display: none; margin-top: 12px; margin-bottom: 12px; background: rgba(37, 99, 235, 0.12); border: 1px solid #3b82f6; border-radius: var(--radius-sm); padding: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong id="rfOtaCardTitle" style="font-size: 13px; color: #60a5fa;">⚡ RF OTA Firmware Update Running</strong>
+            <span id="rfOtaCardPct" class="badge mini" style="background: #2563eb; color: #fff;">0%</span>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 6px;">
+            <div id="rfOtaCardBar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;"></div>
+          </div>
+          <div id="rfOtaCardDesc" class="mini muted">Transmitting firmware chunks to Remote. Other RF operations and settings changes are locked.</div>
         </div>
 
         <!-- 2 Remote Slots Grid -->

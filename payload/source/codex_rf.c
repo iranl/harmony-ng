@@ -54,6 +54,7 @@ typedef struct {
 } paired_remote_t;
 
 static uint64_t get_monotonic_ms(void);
+static void set_hub_led(int state);
 static uint8_t g_config_version = 1;
 
 typedef struct {
@@ -92,6 +93,13 @@ typedef struct {
 
 static rf_ota_state_t g_rf_ota = { false, 0, 0, 0, 0, 0, 0, "" };
 static pthread_mutex_t g_ota_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool is_ota_busy(void) {
+    pthread_mutex_lock(&g_ota_lock);
+    bool b = g_rf_ota.in_progress;
+    pthread_mutex_unlock(&g_ota_lock);
+    return b;
+}
 
 static paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES] = {
     { .slot = 0x01, .active = false, .last_seen_ms = 0 },
@@ -974,7 +982,7 @@ static void rf_send_codex_time_sync_slot(uint8_t slot) {
 
     /* Read /etc/TZ */
     FILE *ftz = fopen("/etc/TZ", "r");
-    char tz[20] = "CET-1CEST,M3.5.0";
+    char tz[64] = "CET-1CEST,M3.5.0,M10.5.0/3";
     if (ftz) {
         if (fgets(tz, sizeof(tz), ftz)) {
             char *nl = strchr(tz, '\n');
@@ -983,6 +991,11 @@ static void rf_send_codex_time_sync_slot(uint8_t slot) {
             if (cr) *cr = '\0';
         }
         fclose(ftz);
+    }
+    /* If string exceeds 15 bytes, truncate at first comma so we send a clean prefix instead of a malformed chunk */
+    if (strlen(tz) > 15) {
+        char *comma = strchr(tz, ',');
+        if (comma) *comma = '\0';
     }
     uint8_t tz_len = (uint8_t)strlen(tz);
     if (tz_len > 15) tz_len = 15;
@@ -1046,6 +1059,11 @@ static void *config_push_worker(void *arg) {
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
     if (pthread_mutex_trylock(&push_lock) != 0) {
         printf("[-] Config push already in progress\n");
+        return NULL;
+    }
+    if (is_ota_busy()) {
+        printf("[-] Config push skipped: RF OTA in progress on slot %d\n", g_rf_ota.target_slot);
+        pthread_mutex_unlock(&push_lock);
         return NULL;
     }
     printf("[*] Starting config push to remote...\n");
@@ -1708,6 +1726,33 @@ static void *config_push_worker(void *arg) {
     return NULL;
 }
 
+static void ota_set_progress(uint32_t sent_bytes, uint16_t sent_chunks) {
+    pthread_mutex_lock(&g_ota_lock);
+    g_rf_ota.sent_bytes = sent_bytes;
+    g_rf_ota.sent_chunks = sent_chunks;
+    pthread_mutex_unlock(&g_ota_lock);
+}
+
+static void ota_set_status(int status, bool in_prog, const char *err) {
+    pthread_mutex_lock(&g_ota_lock);
+    g_rf_ota.status_code = status;
+    g_rf_ota.in_progress = in_prog;
+    if (err) {
+        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "%s", err);
+    } else {
+        g_rf_ota.error_msg[0] = '\0';
+    }
+    pthread_mutex_unlock(&g_ota_lock);
+    set_hub_led(in_prog ? 2 : 1);
+    if (!in_prog) {
+        if (status == 2) {
+            printf("[+] Hub RF OTA finished: SUCCESS\n");
+        } else if (status < 0) {
+            printf("[-] Hub RF OTA finished: FAILED (%s)\n", err ? err : "unknown error");
+        }
+    }
+}
+
 /* Background worker: sends binary OTA chunks over RF to Remote */
 static void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
@@ -1720,16 +1765,18 @@ static void *rf_ota_sender_worker(void *arg) {
     g_rf_ota.error_msg[0] = '\0';
     g_rf_ota.sent_bytes = 0;
     g_rf_ota.sent_chunks = 0;
+    g_rf_ota.total_bytes = 0;
+    g_rf_ota.total_chunks = 0;
+    pthread_mutex_unlock(&g_ota_lock);
 
     const char *ota_path = "/cache/codex_elite.ota.gz";
     if (access(ota_path, R_OK) != 0) ota_path = "/data/codex_elite.ota.gz";
     if (access(ota_path, R_OK) != 0) ota_path = "/tmp/codex_elite.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
-        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "OTA image not found (%s)", ota_path);
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        char err[128];
+        snprintf(err, sizeof(err), "OTA image not found (%s)", ota_path);
+        ota_set_status(-1, false, err);
         return NULL;
     }
 
@@ -1739,17 +1786,19 @@ static void *rf_ota_sender_worker(void *arg) {
 
     if (file_size <= 0 || file_size > 10000000) {
         fclose(f);
-        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Invalid OTA file size: %ld", file_size);
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        char err[128];
+        snprintf(err, sizeof(err), "Invalid OTA file size: %ld", file_size);
+        ota_set_status(-1, false, err);
         return NULL;
     }
 
     uint32_t tot_bytes = (uint32_t)file_size;
     uint16_t tot_chunks = (uint16_t)((tot_bytes + 21) / 22);
+
+    pthread_mutex_lock(&g_ota_lock);
     g_rf_ota.total_bytes = tot_bytes;
     g_rf_ota.total_chunks = tot_chunks;
+    pthread_mutex_unlock(&g_ota_lock);
 
     printf("[*] Starting RF OTA to slot %d: %u bytes, %u chunks from %s\n",
            target_slot, tot_bytes, tot_chunks, ota_path);
@@ -1764,31 +1813,38 @@ static void *rf_ota_sender_worker(void *arg) {
     start_payload[4] = (uint8_t)(tot_chunks & 0xFF);
     start_payload[5] = (uint8_t)((tot_chunks >> 8) & 0xFF);
 
-    rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 6);
-    int ack_res = rf_send_frame_acked(&frame, 1200);
+    int ack_res = -1;
+    for (int attempt = 1; attempt <= 10 && g_running; attempt++) {
+        rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 6);
+        ack_res = rf_send_frame_acked(&frame, 1000);
+        if (ack_res == 0) break;
+        if (attempt < 10) {
+            printf("[*] Waiting for remote in slot %d to respond to OTA_START (attempt %d/10)...\n",
+                   target_slot, attempt);
+            usleep(800000); /* 800ms between retries */
+        }
+    }
+
     if (ack_res != 0) {
         fclose(f);
-        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Remote failed to ACK OTA_START (timeout)");
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        ota_set_status(-1, false, "Remote failed to ACK OTA_START (timeout - wake remote)");
         return NULL;
     }
     if (g_ack_status != 0x00) {
         fclose(f);
+        char err[128];
         if (g_ack_status == 0x02) {
-            snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Remote rejected OTA: Low battery (<40%%)");
+            snprintf(err, sizeof(err), "Remote rejected OTA: Low battery (<40%%)");
         } else {
-            snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Remote rejected OTA: Error code 0x%02X", g_ack_status);
+            snprintf(err, sizeof(err), "Remote rejected OTA: Error code 0x%02X", g_ack_status);
         }
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        ota_set_status(-1, false, err);
         return NULL;
     }
 
     /* 2. Stream RF_MSG_OTA_CHUNK frames */
     uint16_t c_idx = 0;
+    uint32_t sent_bytes = 0;
     while (c_idx < tot_chunks && g_running) {
         uint8_t chunk_data[22];
         size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
@@ -1807,28 +1863,32 @@ static void *rf_ota_sender_worker(void *arg) {
         if (need_ack) {
             int retries = 0;
             int ack_ok = -1;
-            while (retries < 3) {
-                if (rf_send_frame_acked(&frame, 800) == 0 && g_ack_status == 0x00) {
+            while (retries < 5) {
+                if (rf_send_frame_acked(&frame, 1200) == 0 && g_ack_status == 0x00) {
                     ack_ok = 0;
                     break;
                 }
                 retries++;
-                usleep(25000);
+                usleep(35000);
             }
             if (ack_ok != 0) {
                 fclose(f);
-                snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Chunk %u ACK timeout", c_idx);
-                g_rf_ota.status_code = -1;
-                g_rf_ota.in_progress = false;
-                pthread_mutex_unlock(&g_ota_lock);
+                char err[128];
+                snprintf(err, sizeof(err), "Chunk %u ACK timeout", c_idx);
+                ota_set_status(-1, false, err);
                 return NULL;
             }
         } else {
             rf_send_frame(&frame);
         }
 
-        g_rf_ota.sent_bytes += rd;
-        g_rf_ota.sent_chunks = c_idx + 1;
+        sent_bytes += rd;
+        ota_set_progress(sent_bytes, c_idx + 1);
+        if ((c_idx + 1) % 250 == 0 || c_idx + 1 == tot_chunks) {
+            uint32_t pct = tot_chunks > 0 ? (uint32_t)(((c_idx + 1) * 100) / tot_chunks) : 0;
+            printf("[*] Hub RF OTA to Slot %d: %u%% (%u/%u chunks, %u/%u bytes)\n",
+                   target_slot, pct, c_idx + 1, tot_chunks, sent_bytes, tot_bytes);
+        }
         c_idx++;
         usleep(15000); /* 15ms pace to avoid CC2544 FIFO overflow */
     }
@@ -1839,25 +1899,19 @@ static void *rf_ota_sender_worker(void *arg) {
     uint8_t end_payload[25] = {0};
     rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 1);
     if (rf_send_frame_acked(&frame, 6000) != 0) {
-        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "OTA_END ACK timeout");
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        ota_set_status(-1, false, "OTA_END ACK timeout");
         return NULL;
     }
 
     if (g_ack_status != 0x00) {
-        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Remote verification failed (status 0x%02X)", g_ack_status);
-        g_rf_ota.status_code = -1;
-        g_rf_ota.in_progress = false;
-        pthread_mutex_unlock(&g_ota_lock);
+        char err[128];
+        snprintf(err, sizeof(err), "Remote verification failed (status 0x%02X)", g_ack_status);
+        ota_set_status(-1, false, err);
         return NULL;
     }
 
     printf("[+] RF OTA completed successfully to slot %d!\n", target_slot);
-    g_rf_ota.status_code = 2; /* complete */
-    g_rf_ota.in_progress = false;
-    pthread_mutex_unlock(&g_ota_lock);
+    ota_set_status(2, false, NULL);
     return NULL;
 }
 
@@ -1896,7 +1950,7 @@ static void handle_codex_frame(const rf_frame_t *f) {
 
             static uint32_t s_last_sync_ms = 0;
             uint32_t now_ms = (uint32_t)get_monotonic_ms();
-            if (now_ms - s_last_sync_ms > 5000) {
+            if (!is_ota_busy() && (now_ms - s_last_sync_ms > 5000)) {
                 s_last_sync_ms = now_ms;
                 char cur[32] = "-1";
                 get_current_activity(cur, sizeof(cur));
@@ -1986,6 +2040,10 @@ static void handle_codex_frame(const rf_frame_t *f) {
         }
 
         case RF_MSG_SYNC_REQUEST: {
+            if (is_ota_busy()) {
+                printf("[*] RF OTA active - suppressing SYNC_REQUEST response\n");
+                break;
+            }
             uint8_t req_type = f->payload[0];
             uint8_t slot = f->dev_slot ? f->dev_slot : (g_remote_slot ? g_remote_slot : 0x01);
             printf("[*] Codex SYNC_REQUEST: type=%d seq=%d slot=%d\n", req_type, f->seq, slot);
@@ -2017,9 +2075,11 @@ static void handle_codex_frame(const rf_frame_t *f) {
             printf("[*] Codex BATTERY_STATUS: Slot %d: %d%% (chg=%d, %umV)\n",
                    slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
             publish_remote_battery_mqtt(slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
-            rf_frame_t ack;
-            rf_build_ack(&ack, slot, f->seq, 0x00);
-            rf_send_frame(&ack);
+            if (!is_ota_busy()) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, slot, f->seq, 0x00);
+                rf_send_frame(&ack);
+            }
             break;
         }
 
@@ -2028,9 +2088,11 @@ static void handle_codex_frame(const rf_frame_t *f) {
             if (slot < 1 || slot > 2) slot = 1;
             printf("[*] Codex REMOTE_CONFIG_BACKUP: Slot %d\n", slot);
             save_remote_config_backup(slot, f->payload);
-            rf_frame_t ack;
-            rf_build_ack(&ack, slot, f->seq, 0x00);
-            rf_send_frame(&ack);
+            if (!is_ota_busy()) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, slot, f->seq, 0x00);
+                rf_send_frame(&ack);
+            }
             break;
         }
 
@@ -2332,9 +2394,11 @@ static void *activity_sync_worker(void *arg) {
         char cur_act[32] = "-1";
         get_current_activity(cur_act, sizeof(cur_act));
         if (strcmp(cur_act, last_act) != 0) {
-            strncpy(last_act, cur_act, sizeof(last_act) - 1);
-            last_act[sizeof(last_act) - 1] = '\0';
-            rf_send_codex_activity_sync_seq(cur_act, ++g_tx_seq);
+            if (!is_ota_busy()) {
+                strncpy(last_act, cur_act, sizeof(last_act) - 1);
+                last_act[sizeof(last_act) - 1] = '\0';
+                rf_send_codex_activity_sync_seq(cur_act, ++g_tx_seq);
+            }
         }
         sleep(1);
     }
@@ -2533,34 +2597,49 @@ static void *api_server_worker(void *arg) {
         if (n > 0) {
             buf[n] = '\0';
             if (strstr(buf, "GET /api/rf/pair") == buf || strstr(buf, "POST /api/rf/pair") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
-                start_pairing_mode(slot);
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pairing_started\"}";
-                write(cli, res, strlen(res));
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    start_pairing_mode(slot);
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pairing_started\"}";
+                    write(cli, res, strlen(res));
+                }
             } else if (strstr(buf, "GET /api/rf/stop-pair") == buf) {
                 stop_pairing_mode();
                 const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pairing_stopped\"}";
                 write(cli, res, strlen(res));
             } else if (strstr(buf, "GET /api/rf/unpair") == buf || strstr(buf, "POST /api/rf/unpair") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
-                unpair_device(slot);
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\",\"ok\":true}";
-                write(cli, res, strlen(res));
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    unpair_device(slot);
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\",\"ok\":true}";
+                    write(cli, res, strlen(res));
+                }
             } else if (strstr(buf, "GET /api/rf/pull-config") == buf || strstr(buf, "POST /api/rf/pull-config") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
-                rf_frame_t pull_frame;
-                memset(&pull_frame, 0, sizeof(pull_frame));
-                pull_frame.report_id = 0x20;
-                pull_frame.sub_id = 0x12;
-                pull_frame.dev_slot = (uint8_t)slot;
-                pull_frame.seq = g_tx_seq++;
-                pull_frame.hdr_flag = 0x50 | (pull_frame.seq & 0x0F);
-                pull_frame.msg_type = RF_MSG_CONFIG_PULL_REQ;
-                rf_send_frame(&pull_frame);
-                char res[128];
-                int rlen = snprintf(res, sizeof(res),
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
-                write(cli, res, rlen);
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    rf_frame_t pull_frame;
+                    memset(&pull_frame, 0, sizeof(pull_frame));
+                    pull_frame.report_id = 0x20;
+                    pull_frame.sub_id = 0x12;
+                    pull_frame.dev_slot = (uint8_t)slot;
+                    pull_frame.seq = g_tx_seq++;
+                    pull_frame.hdr_flag = 0x50 | (pull_frame.seq & 0x0F);
+                    pull_frame.msg_type = RF_MSG_CONFIG_PULL_REQ;
+                    rf_send_frame(&pull_frame);
+                    char res[128];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
+                    write(cli, res, rlen);
+                }
             } else if (strstr(buf, "GET /api/rf/log-level") == buf || strstr(buf, "POST /api/rf/log-level") == buf) {
                 char *lp = strstr(buf, "level=");
                 if (lp) {
@@ -2575,43 +2654,58 @@ static void *api_server_worker(void *arg) {
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"log_level\":%d,\"ok\":true}", g_log_level);
                 write(cli, res, rlen);
             } else if (strstr(buf, "GET /api/rf/send?hex=") == buf) {
-                char *hex = strstr(buf, "hex=") + 4;
-                char *end = strchr(hex, ' ');
-                if (end) *end = '\0';
-                uint8_t raw[64] = {0};
-                size_t raw_len = 0;
-                while (*hex && *(hex + 1) && raw_len < sizeof(raw)) {
-                    unsigned int byte_val = 0;
-                    char hex_byte[3] = { hex[0], hex[1], '\0' };
-                    if (sscanf(hex_byte, "%02x", &byte_val) == 1 || sscanf(hex_byte, "%02X", &byte_val) == 1) {
-                        raw[raw_len++] = (uint8_t)byte_val;
-                        hex += 2;
-                    } else break;
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    char *hex = strstr(buf, "hex=") + 4;
+                    char *end = strchr(hex, ' ');
+                    if (end) *end = '\0';
+                    uint8_t raw[64] = {0};
+                    size_t raw_len = 0;
+                    while (*hex && *(hex + 1) && raw_len < sizeof(raw)) {
+                        unsigned int byte_val = 0;
+                        char hex_byte[3] = { hex[0], hex[1], '\0' };
+                        if (sscanf(hex_byte, "%02x", &byte_val) == 1 || sscanf(hex_byte, "%02X", &byte_val) == 1) {
+                            raw[raw_len++] = (uint8_t)byte_val;
+                            hex += 2;
+                        } else break;
+                    }
+                    if (raw_len > 0) {
+                        printf("[*] API RF TX (%zu bytes): ", raw_len);
+                        for (size_t i = 0; i < raw_len; i++) printf("%02X ", raw[i]);
+                        printf("\n");
+                        rf_write_cmd(raw, raw_len);
+                    }
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"sent\"}";
+                    write(cli, res, strlen(res));
                 }
-                if (raw_len > 0) {
-                    printf("[*] API RF TX (%zu bytes): ", raw_len);
-                    for (size_t i = 0; i < raw_len; i++) printf("%02X ", raw[i]);
-                    printf("\n");
-                    rf_write_cmd(raw, raw_len);
-                }
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"sent\"}";
-                write(cli, res, strlen(res));
             } else if (strstr(buf, "GET /api/rf/push-config") == buf || strstr(buf, "POST /api/rf/push-config") == buf) {
-                g_config_version++;
-                if (g_config_version == 0) g_config_version = 1;
-                FILE *vf = fopen("/data/codex/config_version", "w");
-                if (vf) { fprintf(vf, "%d\n", g_config_version); fclose(vf); }
-                pthread_t push_th;
-                pthread_create(&push_th, NULL, config_push_worker, NULL);
-                pthread_detach(push_th);
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}";
-                write(cli, res, strlen(res));
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    g_config_version++;
+                    if (g_config_version == 0) g_config_version = 1;
+                    FILE *vf = fopen("/data/codex/config_version", "w");
+                    if (vf) { fprintf(vf, "%d\n", g_config_version); fclose(vf); }
+                    pthread_t push_th;
+                    pthread_create(&push_th, NULL, config_push_worker, NULL);
+                    pthread_detach(push_th);
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}";
+                    write(cli, res, strlen(res));
+                }
             } else if (strstr(buf, "GET /api/rf/sync") == buf) {
-                char cur[32] = "-1";
-                get_current_activity(cur, sizeof(cur));
-                rf_send_codex_activity_sync(cur);
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"synced\"}";
-                write(cli, res, strlen(res));
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"ota_in_progress\",\"ok\":true}";
+                    write(cli, res, strlen(res));
+                } else {
+                    char cur[32] = "-1";
+                    get_current_activity(cur, sizeof(cur));
+                    rf_send_codex_activity_sync(cur);
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"synced\"}";
+                    write(cli, res, strlen(res));
+                }
             } else if (strstr(buf, "GET /api/rf/remote-config") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
                 char path[64];
@@ -2633,126 +2727,131 @@ static void *api_server_worker(void *arg) {
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
             } else if (strstr(buf, "POST /api/rf/remote-config") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
-                char *body_start = strstr(buf, "\r\n\r\n");
-                if (body_start) {
-                    body_start += 4;
-                    cJSON *root = cJSON_Parse(body_start);
-                    if (root) {
-                        cJSON *jb = cJSON_GetObjectItem(root, "brightness");
-                        cJSON *jt = cJSON_GetObjectItem(root, "timeout");
-                        cJSON *jtouch = cJSON_GetObjectItem(root, "touchEnabled");
-                        if (!jtouch) jtouch = cJSON_GetObjectItem(root, "touch");
-                        cJSON *jgyro = cJSON_GetObjectItem(root, "gyroEnabled");
-                        if (!jgyro) jgyro = cJSON_GetObjectItem(root, "gyro");
-                        cJSON *jnk = cJSON_GetObjectItem(root, "navToggleKey");
-                        if (!jnk) jnk = cJSON_GetObjectItem(root, "nav_key");
-                        cJSON *jnm = cJSON_GetObjectItem(root, "navToggleMode");
-                        if (!jnm) jnm = cJSON_GetObjectItem(root, "nav_mode");
-                        cJSON *jca = cJSON_GetObjectItem(root, "confirmActivity");
-                        if (!jca) jca = cJSON_GetObjectItem(root, "confirm_act");
-                        cJSON *jts = cJSON_GetObjectItem(root, "touchSensitivity");
-                        if (!jts) jts = cJSON_GetObjectItem(root, "touch_sensitivity");
-                        cJSON *jrm = cJSON_GetObjectItem(root, "remoteMode");
-                        if (!jrm) jrm = cJSON_GetObjectItem(root, "remote_mode");
-                        cJSON *jgr = cJSON_GetObjectItem(root, "gyroRate");
-                        if (!jgr) jgr = cJSON_GetObjectItem(root, "gyro_rate");
-                        cJSON *jbb = cJSON_GetObjectItem(root, "btnBacklight");
-                        if (!jbb) jbb = cJSON_GetObjectItem(root, "btn_backlight");
-                        cJSON *jns = cJSON_GetObjectItem(root, "nightStart");
-                        if (!jns) jns = cJSON_GetObjectItem(root, "night_start");
-                        cJSON *jne = cJSON_GetObjectItem(root, "nightEnd");
-                        if (!jne) jne = cJSON_GetObjectItem(root, "night_end");
-                        cJSON *jue = cJSON_GetObjectItem(root, "usbEth");
-                        if (!jue) jue = cJSON_GetObjectItem(root, "usbeth");
-                        cJSON *jnscreen = cJSON_GetObjectItem(root, "noScreen");
-                        if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
-                        cJSON *jcap = cJSON_GetObjectItem(root, "capButtonsEnabled");
-                        if (!jcap) jcap = cJSON_GetObjectItem(root, "cap_buttons");
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    char *body_start = strstr(buf, "\r\n\r\n");
+                    if (body_start) {
+                        body_start += 4;
+                        cJSON *root = cJSON_Parse(body_start);
+                        if (root) {
+                            cJSON *jb = cJSON_GetObjectItem(root, "brightness");
+                            cJSON *jt = cJSON_GetObjectItem(root, "timeout");
+                            cJSON *jtouch = cJSON_GetObjectItem(root, "touchEnabled");
+                            if (!jtouch) jtouch = cJSON_GetObjectItem(root, "touch");
+                            cJSON *jgyro = cJSON_GetObjectItem(root, "gyroEnabled");
+                            if (!jgyro) jgyro = cJSON_GetObjectItem(root, "gyro");
+                            cJSON *jnk = cJSON_GetObjectItem(root, "navToggleKey");
+                            if (!jnk) jnk = cJSON_GetObjectItem(root, "nav_key");
+                            cJSON *jnm = cJSON_GetObjectItem(root, "navToggleMode");
+                            if (!jnm) jnm = cJSON_GetObjectItem(root, "nav_mode");
+                            cJSON *jca = cJSON_GetObjectItem(root, "confirmActivity");
+                            if (!jca) jca = cJSON_GetObjectItem(root, "confirm_act");
+                            cJSON *jts = cJSON_GetObjectItem(root, "touchSensitivity");
+                            if (!jts) jts = cJSON_GetObjectItem(root, "touch_sensitivity");
+                            cJSON *jrm = cJSON_GetObjectItem(root, "remoteMode");
+                            if (!jrm) jrm = cJSON_GetObjectItem(root, "remote_mode");
+                            cJSON *jgr = cJSON_GetObjectItem(root, "gyroRate");
+                            if (!jgr) jgr = cJSON_GetObjectItem(root, "gyro_rate");
+                            cJSON *jbb = cJSON_GetObjectItem(root, "btnBacklight");
+                            if (!jbb) jbb = cJSON_GetObjectItem(root, "btn_backlight");
+                            cJSON *jns = cJSON_GetObjectItem(root, "nightStart");
+                            if (!jns) jns = cJSON_GetObjectItem(root, "night_start");
+                            cJSON *jne = cJSON_GetObjectItem(root, "nightEnd");
+                            if (!jne) jne = cJSON_GetObjectItem(root, "night_end");
+                            cJSON *jue = cJSON_GetObjectItem(root, "usbEth");
+                            if (!jue) jue = cJSON_GetObjectItem(root, "usbeth");
+                            cJSON *jnscreen = cJSON_GetObjectItem(root, "noScreen");
+                            if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
+                            cJSON *jcap = cJSON_GetObjectItem(root, "capButtonsEnabled");
+                            if (!jcap) jcap = cJSON_GetObjectItem(root, "cap_buttons");
 
-                        int bright = jb ? jb->valueint : 3;
-                        int timeout = jt ? jt->valueint : 120;
-                        int touch = (jtouch && (cJSON_IsTrue(jtouch) || (cJSON_IsNumber(jtouch) && jtouch->valueint != 0))) ? 1 : 0;
-                        int gyro = (jgyro && (cJSON_IsTrue(jgyro) || (cJSON_IsNumber(jgyro) && jgyro->valueint != 0))) ? 1 : (jgyro ? 0 : 1);
-                        int nav_key = jnk ? jnk->valueint : 139;
-                        int nav_mode = jnm ? jnm->valueint : 1;
-                        int confirm_act = (jca && (cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0))) ? 1 : 0;
-                        int touch_sens = (jts && jts->valueint >= 1 && jts->valueint <= 3) ? jts->valueint : 2;
-                        int remote_mode = (jrm && jrm->valueint == 1) ? 1 : 0;
-                        int gyro_rate = (jgr && jgr->valueint > 0) ? jgr->valueint : 25;
-                        int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 1;
-                        int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;
-                        int night_end = (jne && jne->valueint >= 0 && jne->valueint <= 23) ? jne->valueint : 7;
-                        int usbeth = (jue && (cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0))) ? 1 : 0;
-                        int no_screen = (jnscreen && (cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0))) ? 1 : 0;
-                        int cap_buttons = (jcap && (cJSON_IsFalse(jcap) || (cJSON_IsNumber(jcap) && jcap->valueint == 0))) ? 0 : 1;
+                            int bright = jb ? jb->valueint : 3;
+                            int timeout = jt ? jt->valueint : 120;
+                            int touch = (jtouch && (cJSON_IsTrue(jtouch) || (cJSON_IsNumber(jtouch) && jtouch->valueint != 0))) ? 1 : 0;
+                            int gyro = (jgyro && (cJSON_IsTrue(jgyro) || (cJSON_IsNumber(jgyro) && jgyro->valueint != 0))) ? 1 : (jgyro ? 0 : 1);
+                            int nav_key = jnk ? jnk->valueint : 139;
+                            int nav_mode = jnm ? jnm->valueint : 1;
+                            int confirm_act = (jca && (cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0))) ? 1 : 0;
+                            int touch_sens = (jts && jts->valueint >= 1 && jts->valueint <= 3) ? jts->valueint : 2;
+                            int remote_mode = (jrm && jrm->valueint == 1) ? 1 : 0;
+                            int gyro_rate = (jgr && jgr->valueint > 0) ? jgr->valueint : 25;
+                            int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 1;
+                            int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;
+                            int night_end = (jne && jne->valueint >= 0 && jne->valueint <= 23) ? jne->valueint : 7;
+                            int usbeth = (jue && (cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0))) ? 1 : 0;
+                            int no_screen = (jnscreen && (cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0))) ? 1 : 0;
+                            int cap_buttons = (jcap && (cJSON_IsFalse(jcap) || (cJSON_IsNumber(jcap) && jcap->valueint == 0))) ? 0 : 1;
 
-                        /* Create normalized JSON root saving all fields */
-                        cJSON *norm = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(norm, "slot", slot);
-                        cJSON_AddNumberToObject(norm, "brightness", bright);
-                        cJSON_AddNumberToObject(norm, "timeout", timeout);
-                        cJSON_AddBoolToObject(norm, "touchEnabled", touch != 0);
-                        cJSON_AddNumberToObject(norm, "touch", touch);
-                        cJSON_AddBoolToObject(norm, "capButtonsEnabled", cap_buttons != 0);
-                        cJSON_AddNumberToObject(norm, "cap_buttons", cap_buttons);
-                        cJSON_AddBoolToObject(norm, "gyroEnabled", gyro != 0);
-                        cJSON_AddNumberToObject(norm, "gyro", gyro);
-                        cJSON_AddNumberToObject(norm, "navToggleKey", nav_key);
-                        cJSON_AddNumberToObject(norm, "nav_key", nav_key);
-                        cJSON_AddNumberToObject(norm, "navToggleMode", nav_mode);
-                        cJSON_AddNumberToObject(norm, "nav_mode", nav_mode);
-                        cJSON_AddBoolToObject(norm, "confirmActivity", confirm_act != 0);
-                        cJSON_AddNumberToObject(norm, "confirm_act", confirm_act);
-                        cJSON_AddNumberToObject(norm, "touchSensitivity", touch_sens);
-                        cJSON_AddNumberToObject(norm, "touch_sensitivity", touch_sens);
-                        cJSON_AddNumberToObject(norm, "remoteMode", remote_mode);
-                        cJSON_AddNumberToObject(norm, "remote_mode", remote_mode);
-                        cJSON_AddNumberToObject(norm, "gyroRate", gyro_rate);
-                        cJSON_AddNumberToObject(norm, "gyro_rate", gyro_rate);
-                        cJSON_AddNumberToObject(norm, "btnBacklight", btn_backlight);
-                        cJSON_AddNumberToObject(norm, "btn_backlight", btn_backlight);
-                        cJSON_AddNumberToObject(norm, "nightStart", night_start);
-                        cJSON_AddNumberToObject(norm, "night_start", night_start);
-                        cJSON_AddNumberToObject(norm, "nightEnd", night_end);
-                        cJSON_AddNumberToObject(norm, "night_end", night_end);
-                        cJSON_AddBoolToObject(norm, "usbEth", usbeth != 0);
-                        cJSON_AddNumberToObject(norm, "usbeth", usbeth);
-                        cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
-                        cJSON_AddNumberToObject(norm, "no_screen", no_screen);
+                            /* Create normalized JSON root saving all fields */
+                            cJSON *norm = cJSON_CreateObject();
+                            cJSON_AddNumberToObject(norm, "slot", slot);
+                            cJSON_AddNumberToObject(norm, "brightness", bright);
+                            cJSON_AddNumberToObject(norm, "timeout", timeout);
+                            cJSON_AddBoolToObject(norm, "touchEnabled", touch != 0);
+                            cJSON_AddNumberToObject(norm, "touch", touch);
+                            cJSON_AddBoolToObject(norm, "capButtonsEnabled", cap_buttons != 0);
+                            cJSON_AddNumberToObject(norm, "cap_buttons", cap_buttons);
+                            cJSON_AddBoolToObject(norm, "gyroEnabled", gyro != 0);
+                            cJSON_AddNumberToObject(norm, "gyro", gyro);
+                            cJSON_AddNumberToObject(norm, "navToggleKey", nav_key);
+                            cJSON_AddNumberToObject(norm, "nav_key", nav_key);
+                            cJSON_AddNumberToObject(norm, "navToggleMode", nav_mode);
+                            cJSON_AddNumberToObject(norm, "nav_mode", nav_mode);
+                            cJSON_AddBoolToObject(norm, "confirmActivity", confirm_act != 0);
+                            cJSON_AddNumberToObject(norm, "confirm_act", confirm_act);
+                            cJSON_AddNumberToObject(norm, "touchSensitivity", touch_sens);
+                            cJSON_AddNumberToObject(norm, "touch_sensitivity", touch_sens);
+                            cJSON_AddNumberToObject(norm, "remoteMode", remote_mode);
+                            cJSON_AddNumberToObject(norm, "remote_mode", remote_mode);
+                            cJSON_AddNumberToObject(norm, "gyroRate", gyro_rate);
+                            cJSON_AddNumberToObject(norm, "gyro_rate", gyro_rate);
+                            cJSON_AddNumberToObject(norm, "btnBacklight", btn_backlight);
+                            cJSON_AddNumberToObject(norm, "btn_backlight", btn_backlight);
+                            cJSON_AddNumberToObject(norm, "nightStart", night_start);
+                            cJSON_AddNumberToObject(norm, "night_start", night_start);
+                            cJSON_AddNumberToObject(norm, "nightEnd", night_end);
+                            cJSON_AddNumberToObject(norm, "night_end", night_end);
+                            cJSON_AddBoolToObject(norm, "usbEth", usbeth != 0);
+                            cJSON_AddNumberToObject(norm, "usbeth", usbeth);
+                            cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
+                            cJSON_AddNumberToObject(norm, "no_screen", no_screen);
 
-                        char path[64];
-                        snprintf(path, sizeof(path), "/data/codex/elite_slot%d_config.json", slot);
+                            char path[64];
+                            snprintf(path, sizeof(path), "/data/codex/elite_slot%d_config.json", slot);
 
-                        /* Read existing config to compute diff for pending push banner */
-                        char old_cfg[4096] = {0};
-                        FILE *cur_f = fopen(path, "r");
-                        if (cur_f) {
-                            size_t cr = fread(old_cfg, 1, sizeof(old_cfg) - 1, cur_f);
-                            old_cfg[cr] = '\0';
-                            fclose(cur_f);
-                        }
-                        record_config_diff(slot, old_cfg, norm);
-
-                        char *norm_str = cJSON_Print(norm);
-                        cJSON_Delete(norm);
-                        if (norm_str) {
-                            FILE *f = fopen(path, "w");
-                            if (f) {
-                                fputs(norm_str, f);
-                                fclose(f);
+                            /* Read existing config to compute diff for pending push banner */
+                            char old_cfg[4096] = {0};
+                            FILE *cur_f = fopen(path, "r");
+                            if (cur_f) {
+                                size_t cr = fread(old_cfg, 1, sizeof(old_cfg) - 1, cur_f);
+                                old_cfg[cr] = '\0';
+                                fclose(cur_f);
                             }
-                            free(norm_str);
+                            record_config_diff(slot, old_cfg, norm);
+
+                            char *norm_str = cJSON_Print(norm);
+                            cJSON_Delete(norm);
+                            if (norm_str) {
+                                FILE *f = fopen(path, "w");
+                                if (f) {
+                                    fputs(norm_str, f);
+                                    fclose(f);
+                                }
+                                free(norm_str);
+                            }
+                            rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
+                                                       confirm_act, touch_sens, remote_mode, gyro_rate,
+                                                       btn_backlight, night_start, night_end, usbeth, no_screen,
+                                                       cap_buttons);
+                            cJSON_Delete(root);
                         }
-                        rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
-                                                   confirm_act, touch_sens, remote_mode, gyro_rate,
-                                                   btn_backlight, night_start, night_end, usbeth, no_screen,
-                                                   cap_buttons);
-                        cJSON_Delete(root);
                     }
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved_and_pushed\",\"ok\":true}";
+                    write(cli, res, strlen(res));
                 }
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved_and_pushed\",\"ok\":true}";
-                write(cli, res, strlen(res));
             } else if (strstr(buf, "GET /api/rf/remote-direct-buttons") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
                 char path[64];
@@ -2772,25 +2871,30 @@ static void *api_server_worker(void *arg) {
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
             } else if (strstr(buf, "POST /api/rf/remote-direct-buttons") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
-                char *body_start = strstr(buf, "\r\n\r\n");
-                if (body_start) {
-                    body_start += 4;
-                    char path[64];
-                    snprintf(path, sizeof(path), "/data/codex/elite_slot%d_direct_buttons.json", slot);
-                    FILE *f = fopen(path, "w");
-                    if (f) {
-                        fputs(body_start, f);
-                        fclose(f);
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    char *body_start = strstr(buf, "\r\n\r\n");
+                    if (body_start) {
+                        body_start += 4;
+                        char path[64];
+                        snprintf(path, sizeof(path), "/data/codex/elite_slot%d_direct_buttons.json", slot);
+                        FILE *f = fopen(path, "w");
+                        if (f) {
+                            fputs(body_start, f);
+                            fclose(f);
+                        }
+                        if (is_slot_direct_mode(slot)) {
+                            pthread_t push_th;
+                            pthread_create(&push_th, NULL, config_push_worker, NULL);
+                            pthread_detach(push_th);
+                        }
                     }
-                    if (is_slot_direct_mode(slot)) {
-                        pthread_t push_th;
-                        pthread_create(&push_th, NULL, config_push_worker, NULL);
-                        pthread_detach(push_th);
-                    }
+                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}";
+                    write(cli, res, strlen(res));
                 }
-                const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}";
-                write(cli, res, strlen(res));
             } else if (strstr(buf, "GET /api/rf/ota-status") == buf) {
                 pthread_mutex_lock(&g_ota_lock);
                 char res_body[512];
@@ -2813,19 +2917,36 @@ static void *api_server_worker(void *arg) {
             } else if (strstr(buf, "POST /api/rf/ota-start") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
                 int started = 0;
+                int busy_slot = 0;
                 pthread_mutex_lock(&g_ota_lock);
                 if (!g_rf_ota.in_progress) {
+                    g_rf_ota.in_progress = true;
+                    g_rf_ota.target_slot = slot;
+                    g_rf_ota.status_code = 1;
+                    g_rf_ota.error_msg[0] = '\0';
                     pthread_t ota_th;
                     if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
                         pthread_detach(ota_th);
                         started = 1;
+                    } else {
+                        g_rf_ota.in_progress = false;
+                        g_rf_ota.status_code = -1;
                     }
+                } else {
+                    busy_slot = g_rf_ota.target_slot;
                 }
                 pthread_mutex_unlock(&g_ota_lock);
-                const char *res = started ?
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"started\",\"ok\":true}" :
-                    "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"already_in_progress\",\"ok\":false}";
-                write(cli, res, strlen(res));
+                if (started) {
+                    char res[128];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"started\",\"slot\":%d,\"ok\":true}", slot);
+                    write(cli, res, rlen);
+                } else {
+                    char res[256];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"already_in_progress\",\"slot\":%d,\"error\":\"RF OTA already in progress on slot %d\",\"ok\":false}", busy_slot, busy_slot);
+                    write(cli, res, rlen);
+                }
             } else {
                 /* Status endpoint */
                 char addr1_str[16] = "None";
@@ -2878,10 +2999,23 @@ static void *api_server_worker(void *arg) {
                 bool slot1_in_sync = (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
                 bool slot2_in_sync = (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
 
-                char body[2048];
+                pthread_mutex_lock(&g_ota_lock);
+                bool ota_in_prog = g_rf_ota.in_progress;
+                int ota_slot = g_rf_ota.target_slot;
+                int ota_status = g_rf_ota.status_code;
+                uint32_t ota_sent_b = g_rf_ota.sent_bytes;
+                uint32_t ota_tot_b = g_rf_ota.total_bytes;
+                uint16_t ota_sent_c = g_rf_ota.sent_chunks;
+                uint16_t ota_tot_c = g_rf_ota.total_chunks;
+                char ota_err[64];
+                snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
+                pthread_mutex_unlock(&g_ota_lock);
+
+                char body[3072];
                 int blen = snprintf(body, sizeof(body),
                     "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
                     "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
+                    "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
                     "\"slots\":["
                     "{\"slot\":1,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
                     "{\"slot\":2,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
@@ -2891,6 +3025,7 @@ static void *api_server_worker(void *arg) {
                     g_pairing_mode ? "true" : "false",
                     sync_pending ? "true" : "false",
                     pending_slot, pending_diff, g_config_version,
+                    ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
                     name1, g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
                     g_remote_versions[0].sw_version, g_remote_versions[0].config_version,
                     g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv,
@@ -2929,6 +3064,7 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+    signal(SIGPIPE, SIG_IGN);
 
     /* Load debug logging flag from persistent config */
     if (access("/data/codex/debug_logging.conf", F_OK) == 0) {

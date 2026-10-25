@@ -112,7 +112,7 @@ static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_s
     f->dev_slot = dev_slot;
     f->sub_id = 0x12;
     f->seq = acked_seq;
-    f->hdr_flag = 0x50 | (acked_seq & 0x0F);
+    f->hdr_flag = 0x40 | (acked_seq & 0x0F);
     f->msg_type = RF_MSG_ACK;
     f->flags = RF_FLAG_IS_ACK;
     f->payload[0] = acked_seq;

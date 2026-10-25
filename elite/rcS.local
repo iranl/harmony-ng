@@ -7,8 +7,10 @@ sync_fs() {
 }
 
 # 0. Early watchdog neuter and neuter stock binaries
-touch /etc/nowatchdog 2>/dev/null || true
-chmod -x /usr/bin/watchdog /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true
+[ -f /etc/nowatchdog ] || touch /etc/nowatchdog 2>/dev/null || true
+if [ -x /usr/bin/watchdog ]; then
+    chmod -x /usr/bin/watchdog /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true
+fi
 killall -9 watchdog usbhid hal luaworks luadraws lua luajit luajit-2.0.0-beta10 2>/dev/null || true
 
 # 1. Reboot counter check
@@ -23,8 +25,10 @@ sync_fs
 # 2. 5-minute stability timer in background
 (
     sleep 300
-    echo 0 > /data/reboot_counter
-    sync_fs
+    if [ -f /data/reboot_counter ] && [ "$(cat /data/reboot_counter 2>/dev/null)" != "0" ]; then
+        echo 0 > /data/reboot_counter
+        sync_fs
+    fi
     echo "$(date) Elite uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
 ) &
 
@@ -66,8 +70,8 @@ else
 fi
 
 if [ -x /data/codex_sync ]; then
-    ln -sf /data/codex_sync /data/sync 2>/dev/null || true
-    ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true
+    [ -L /data/sync ] || ln -sf /data/codex_sync /data/sync 2>/dev/null || true
+    [ -L /usr/bin/sync ] || ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true
 fi
 
 # Ensure /dev/i2c-1 exists for Clearpad touchscreen
@@ -75,9 +79,8 @@ if [ ! -e /dev/i2c-1 ] && [ -x /data/mknod ]; then
     /data/mknod /dev/i2c-1 c 89 1 2>/dev/null || true
 fi
 
-# Ensure extended BusyBox utilities are available in standard PATH and default shell
-if [ -x /data/busybox ]; then
-    cp -f /data/busybox /bin/busybox 2>/dev/null || true
+# Ensure extended BusyBox utilities are available in standard PATH
+if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then
     for applet in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do
         ln -sf /data/busybox "/usr/bin/$applet" 2>/dev/null || true
     done

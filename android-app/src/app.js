@@ -6653,6 +6653,58 @@ class HarmonyApp {
             msg.style.display = 'none';
           }
         }
+
+        // OTA Card Banner & RF Action Locking
+        const otaCard = document.getElementById('rfOtaCardBanner');
+        const isOtaBusy = Boolean(st.ota && st.ota.in_progress);
+        if (otaCard) {
+          if (isOtaBusy) {
+            otaCard.style.display = 'block';
+            const pct = st.ota.total_chunks > 0 ? Math.round((st.ota.sent_chunks / st.ota.total_chunks) * 100) : 0;
+            const titleEl = document.getElementById('rfOtaCardTitle');
+            const pctEl = document.getElementById('rfOtaCardPct');
+            const barEl = document.getElementById('rfOtaCardBar');
+            const descEl = document.getElementById('rfOtaCardDesc');
+            if (titleEl) titleEl.textContent = `⚡ RF OTA Update in Progress (Slot ${st.ota.slot})`;
+            if (pctEl) pctEl.textContent = `${pct}%`;
+            if (barEl) barEl.style.width = `${pct}%`;
+            if (descEl) {
+              const kbSent = Math.round((st.ota.sent_bytes || 0) / 1024);
+              const kbTot = Math.round((st.ota.total_bytes || 0) / 1024);
+              descEl.textContent = `Chunk ${st.ota.sent_chunks}/${st.ota.total_chunks} (${kbSent} KB / ${kbTot} KB). Pairing and settings changes locked.`;
+            }
+          } else {
+            otaCard.style.display = 'none';
+          }
+        }
+
+        // Lock / unlock conflicting buttons during OTA
+        const conflictingBtnIds = [
+          'rfPairSlot1Btn', 'rfPairSlot2Btn', 'rfUnpairSlot1Btn', 'rfUnpairSlot2Btn',
+          'rfUnpairBtn', 'rfConfigSlot1Btn', 'rfConfigSlot2Btn', 'rfPullSlot1Btn',
+          'rfPullSlot2Btn', 'btnPushConfigToRemote'
+        ];
+        conflictingBtnIds.forEach(id => {
+          const b = document.getElementById(id);
+          if (b) {
+            b.disabled = isOtaBusy;
+            if (isOtaBusy) b.title = `Locked: RF OTA firmware update active on Slot ${st.ota?.slot || 'remote'}`;
+            else b.removeAttribute('title');
+          }
+        });
+
+        const ota1Btn = document.getElementById('rfSlot1UpdateBtn');
+        const ota2Btn = document.getElementById('rfSlot2UpdateBtn');
+        if (ota1Btn) {
+          ota1Btn.disabled = isOtaBusy;
+          if (isOtaBusy && st.ota?.slot !== 1) ota1Btn.title = `Locked: OTA in progress on Slot ${st.ota?.slot}`;
+          else ota1Btn.removeAttribute('title');
+        }
+        if (ota2Btn) {
+          ota2Btn.disabled = isOtaBusy;
+          if (isOtaBusy && st.ota?.slot !== 2) ota2Btn.title = `Locked: OTA in progress on Slot ${st.ota?.slot}`;
+          else ota2Btn.removeAttribute('title');
+        }
       }
     } catch {
       const badge = document.getElementById('rfStatusBadge');
@@ -6897,8 +6949,10 @@ class HarmonyApp {
   async startEliteOta(slot = 1) {
     if (!await showConfirm(`Start RF OTA firmware update for Remote in Slot ${slot}? Ensure remote is close to the Hub and has at least 40% battery.`, { title: 'RF OTA Update', okText: 'Start Update', danger: false })) return;
     const btn = document.getElementById(`rfSlot${slot}UpdateBtn`);
+    const otherBtn = document.getElementById(`rfSlot${slot === 1 ? 2 : 1}UpdateBtn`);
     const statusDiv = document.getElementById(`rfSlot${slot}OtaStatus`);
     if (btn) btn.disabled = true;
+    if (otherBtn) otherBtn.disabled = true;
     if (statusDiv) {
       statusDiv.style.display = 'block';
       statusDiv.textContent = 'Initiating RF OTA transfer...';
@@ -6906,32 +6960,47 @@ class HarmonyApp {
     try {
       const res = await this.client.startRfOta(slot);
       if (res && res.status === 'started') {
+        let startedTransmitting = false;
+        this.refreshRfStatus().catch(() => {});
         const pollTimer = setInterval(async () => {
           try {
             const st = await this.client.getRfOtaStatus();
             if (!st) return;
             if (st.status === 1 || st.in_progress) {
+              startedTransmitting = true;
               const pct = st.total_bytes > 0 ? Math.round((st.sent_bytes / st.total_bytes) * 100) : 0;
               if (statusDiv) statusDiv.textContent = `Sending OTA: ${pct}% (${st.sent_chunks}/${st.total_chunks} chunks, ${st.sent_bytes}/${st.total_bytes} bytes)...`;
+              this.refreshRfStatus().catch(() => {});
             } else if (st.status === 2) {
               clearInterval(pollTimer);
               if (statusDiv) statusDiv.textContent = '✓ OTA Complete! Remote verifying and rebooting.';
               if (btn) btn.disabled = false;
+              if (otherBtn) otherBtn.disabled = false;
               setTimeout(() => this.refreshRfStatus(), 10000);
             } else if (st.status === -1) {
               clearInterval(pollTimer);
               if (statusDiv) statusDiv.textContent = `❌ OTA Failed: ${st.error || 'Transfer failed'}`;
               if (btn) btn.disabled = false;
+              if (otherBtn) otherBtn.disabled = false;
+              this.refreshRfStatus().catch(() => {});
+            } else if (st.status === 0 && !st.in_progress && startedTransmitting) {
+              clearInterval(pollTimer);
+              if (statusDiv) statusDiv.textContent = '❌ OTA Aborted: RF daemon restarted or connection lost';
+              if (btn) btn.disabled = false;
+              if (otherBtn) otherBtn.disabled = false;
+              this.refreshRfStatus().catch(() => {});
             }
           } catch {}
         }, 1500);
       } else {
-        alert('Could not start OTA: ' + (res?.status || 'Unknown error'));
+        alert('Could not start OTA: ' + (res?.error || res?.status || 'Unknown error'));
         if (btn) btn.disabled = false;
+        if (otherBtn) otherBtn.disabled = false;
       }
     } catch (e) {
       alert('Failed to trigger RF OTA: ' + e.message);
       if (btn) btn.disabled = false;
+      if (otherBtn) otherBtn.disabled = false;
     }
   }
 
@@ -7010,6 +7079,29 @@ class HarmonyApp {
           }
         } else {
           syncBanner.style.display = 'none';
+        }
+      }
+
+      // 3. RF OTA update in progress top banner
+      const otaBanner = document.getElementById('rfOtaTopBanner');
+      if (otaBanner) {
+        if (rfStat?.ota?.in_progress) {
+          otaBanner.style.display = 'flex';
+          const title = document.getElementById('rfOtaTopTitle');
+          const desc = document.getElementById('rfOtaTopDesc');
+          const badge = document.getElementById('rfOtaTopPctBadge');
+          const bar = document.getElementById('rfOtaTopProgressBar');
+          const pct = rfStat.ota.total_chunks > 0 ? Math.round((rfStat.ota.sent_chunks / rfStat.ota.total_chunks) * 100) : 0;
+          if (title) title.textContent = `Remote Slot ${rfStat.ota.slot} Firmware OTA in Progress`;
+          if (badge) badge.textContent = `${pct}%`;
+          if (bar) bar.style.width = `${pct}%`;
+          if (desc) {
+            const kbSent = Math.round((rfStat.ota.sent_bytes || 0) / 1024);
+            const kbTot = Math.round((rfStat.ota.total_bytes || 0) / 1024);
+            desc.textContent = `Transmitting chunk ${rfStat.ota.sent_chunks} of ${rfStat.ota.total_chunks} (${kbSent} KB / ${kbTot} KB). Other RF changes locked.`;
+          }
+        } else {
+          otaBanner.style.display = 'none';
         }
       }
     } catch {}

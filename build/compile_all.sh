@@ -33,6 +33,19 @@ fi
 mkdir -p "$BIN" "$OUT"
 
 cd "$REPO_ROOT"
+
+# Sync version across components before compilation
+PYTHON=""
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON="python"
+fi
+if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
+    echo "[-] Syncing project version from VERSION..."
+    "$PYTHON" "$REPO_ROOT/scripts/bump_version.py" --sync
+fi
+
 CFLAGS="-Os -static -s -DNDEBUG"
 COMPAT_SRC=""
 
