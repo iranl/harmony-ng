@@ -161,8 +161,10 @@ body {
   background: var(--bg-card-hover);
 }
 
-/* Hub Management only for Native Android App */
+/* Native Android App Only elements */
 body:not(.is-native) [data-native-only="true"],
+body.is-webui [data-native-only="true"],
+body.is-webui #cardIconCache,
 body.is-webui [data-view-target="hubs"],
 body.is-webui #view-hubs,
 body.is-webui .settings-nav-card[data-view-target="hubs"] {

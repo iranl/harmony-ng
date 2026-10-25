@@ -1317,6 +1317,8 @@ static void send_host_text(const char *text) {
     }
 }
 
+static void execute_btstack_cmd(const char *cmd_in);
+
 static void poll_bthid_fifo(void) {
     if (g_bthid_fifo_fd < 0) {
         struct stat st;
@@ -1337,6 +1339,16 @@ static void poll_bthid_fifo(void) {
     while (line) {
         while (*line == ' ') line++;
         if (*line) {
+            if (strncmp(line, "pair_host_on", 12) == 0 ||
+                strncmp(line, "pair_host_off", 13) == 0 ||
+                strncmp(line, "connect_host", 12) == 0 ||
+                strncmp(line, "disconnect_host", 15) == 0 ||
+                strncmp(line, "scan", 4) == 0 ||
+                strncmp(line, "pair ", 5) == 0) {
+                execute_btstack_cmd(line);
+                line = strtok_r(NULL, "\r\n", &save);
+                continue;
+            }
             if (strncmp(line, "TARGET ", 7) == 0) {
                 bd_addr_t t_addr;
                 if (parse_bd_addr(line + 7, t_addr)) {
@@ -1532,6 +1544,23 @@ static void execute_btstack_cmd(const char *cmd_in) {
         while (*addr_str == ' ') addr_str++;
         start_user_pair(addr_str);
     } else if (strncmp(cmd, "pair_host_on", 12) == 0) {
+        stop_host_reconnect();
+        for (int i = 0; i < MAX_HOST_CONNS; i++) {
+            if (g_hosts[i].hid_cid) {
+                hid_device_disconnect(g_hosts[i].hid_cid);
+                g_hosts[i].hid_cid = 0;
+            }
+            if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
+                gap_disconnect(g_hosts[i].acl_handle);
+                g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+            }
+            g_hosts[i].connected = false;
+        }
+        if (g_host_hid_cid) {
+            hid_device_disconnect(g_host_hid_cid);
+            g_host_hid_cid = 0;
+        }
+        g_host_connected = false;
         char *name = cmd + 12;
         while (*name == ' ') name++;
         if (name[0]) {
@@ -2660,6 +2689,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                             if (memcmp(g_hosts[i].addr, conn_addr, 6) == 0 || g_hosts[i].hid_cid == cid) {
                                 g_hosts[i].connected = false;
                                 g_hosts[i].hid_cid = 0;
+                                if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
+                                    gap_disconnect(g_hosts[i].acl_handle);
+                                    g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+                                }
                             }
                         }
                         g_host_connected = is_any_host_connected();

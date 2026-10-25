@@ -1901,14 +1901,10 @@ static void http_process_request(int client_fd, const char *req) {
         } else if (!enable) {
             unlink("/tmp/bt_pending_pair_device");
         }
-        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-        if (bfd >= 0) {
-            char pipe_cmd[128];
-            if (enable) snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_on %s\n", name);
-            else snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_off\n");
-            write(bfd, pipe_cmd, strlen(pipe_cmd));
-            close(bfd);
-        }
+        char pipe_cmd[128];
+        if (enable) snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_on %s\n", name);
+        else snprintf(pipe_cmd, sizeof(pipe_cmd), "pair_host_off\n");
+        codex_send_btstack_cmd(pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddBoolToObject(st, "pairing", enable);
@@ -1927,14 +1923,10 @@ static void http_process_request(int client_fd, const char *req) {
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
         }
-        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-        if (bfd >= 0) {
-            char pipe_cmd[128];
-            if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host %s\n", bdaddr);
-            else snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host\n");
-            write(bfd, pipe_cmd, strlen(pipe_cmd));
-            close(bfd);
-        }
+        char pipe_cmd[128];
+        if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host %s\n", bdaddr);
+        else snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host\n");
+        codex_send_btstack_cmd(pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         send_cjson_resp(client_fd, 200, st);
@@ -1952,14 +1944,10 @@ static void http_process_request(int client_fd, const char *req) {
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
         }
-        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-        if (bfd >= 0) {
-            char pipe_cmd[128];
-            if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "disconnect_host %s\n", bdaddr);
-            else snprintf(pipe_cmd, sizeof(pipe_cmd), "disconnect_host\n");
-            write(bfd, pipe_cmd, strlen(pipe_cmd));
-            close(bfd);
-        }
+        char pipe_cmd[128];
+        if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "disconnect_host %s\n", bdaddr);
+        else snprintf(pipe_cmd, sizeof(pipe_cmd), "disconnect_host\n");
+        codex_send_btstack_cmd(pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         send_cjson_resp(client_fd, 200, st);

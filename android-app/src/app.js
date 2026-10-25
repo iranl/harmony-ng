@@ -189,6 +189,8 @@ export function setStockIconsAvailable(avail) {
 
 if (typeof window !== 'undefined') {
   window.__harmonyCacheIcon = (src) => {
+    // Only cache dynamically into IndexedDB in native mobile app
+    if (!window.Capacitor?.isNativePlatform?.()) return;
     if (!src || typeof src !== 'string' || src.startsWith('blob:') || src.startsWith('data:')) return;
     const fn = src.split('/').pop().split('?')[0];
     if (fn && fn.toLowerCase().endsWith('.png') && !hasCachedIcon(fn)) {
@@ -1193,13 +1195,15 @@ class HarmonyApp {
       });
     }
 
-    try {
-      const cachedCount = await initIconCache();
-      if (cachedCount > 0) {
-        setStockIconsAvailable(true);
+    if (this.isNative) {
+      try {
+        const cachedCount = await initIconCache();
+        if (cachedCount > 0) {
+          setStockIconsAvailable(true);
+        }
+      } catch (e) {
+        console.warn('Failed to initialize icon cache:', e);
       }
-    } catch (e) {
-      console.warn('Failed to initialize icon cache:', e);
     }
     await this.loadActiveHub();
     this.updateIconCacheUI();
@@ -2165,9 +2169,11 @@ class HarmonyApp {
     document.getElementById('updateCheck')?.addEventListener('click', () => this.checkSoftwareUpdate());
     document.getElementById('updateInstall')?.addEventListener('click', () => this.installSoftwareUpdate());
     document.getElementById('updateRefresh')?.addEventListener('click', () => this.showSoftwareVersions());
-    document.getElementById('btnSyncIconsHub')?.addEventListener('click', () => this.syncIconPack('hub'));
-    document.getElementById('btnSyncIconsOta')?.addEventListener('click', () => this.syncIconPack('ota'));
-    document.getElementById('btnClearIconCache')?.addEventListener('click', () => this.clearLocalIconCache());
+    if (this.isNative) {
+      document.getElementById('btnSyncIconsHub')?.addEventListener('click', () => this.syncIconPack('hub'));
+      document.getElementById('btnSyncIconsOta')?.addEventListener('click', () => this.syncIconPack('ota'));
+      document.getElementById('btnClearIconCache')?.addEventListener('click', () => this.clearLocalIconCache());
+    }
     document.getElementById('btnRediscover')?.addEventListener('click', () => this.rediscoverMqtt());
     document.getElementById('btnRebootHub')?.addEventListener('click', () => this.rebootHub());
     this.setupFactoryResetModal();
@@ -4966,7 +4972,19 @@ class HarmonyApp {
       }
       if (hostStateEl) {
         hostStateEl.textContent = isHostConn ? 'CONNECTED' : (host.pairing ? 'PAIRING...' : 'DISCONNECTED');
-        hostStateEl.style.color = isHostConn ? 'var(--success)' : 'var(--text-dim)';
+        hostStateEl.style.color = isHostConn ? 'var(--success)' : (host.pairing ? 'var(--warning)' : 'var(--text-dim)');
+      }
+      const pairToggleBtn = document.getElementById('btPairToggleBtn');
+      if (pairToggleBtn) {
+        if (host.pairing) {
+          pairToggleBtn.textContent = 'Stop Pairing Mode';
+          pairToggleBtn.classList.remove('btn-primary');
+          pairToggleBtn.classList.add('btn-warning');
+        } else {
+          pairToggleBtn.textContent = 'Start Pairing Mode';
+          pairToggleBtn.classList.remove('btn-warning');
+          pairToggleBtn.classList.add('btn-primary');
+        }
       }
       if (hostDetailEl) hostDetailEl.textContent = isHostConn ? 'BLE HID Link Active' : 'Standby / Idle';
 
@@ -5039,6 +5057,21 @@ class HarmonyApp {
     const btn = document.getElementById('btPairToggleBtn');
     const name = document.getElementById('btPairName')?.value || 'Harmony Keyboard';
     const target = document.getElementById('btPairTargetDev')?.value || '';
+
+    const isPairing = btn && btn.textContent.toLowerCase().includes('stop');
+    if (isPairing) {
+      try {
+        if (btn) btn.textContent = 'Stopping pairing...';
+        await this.client.setBtPairing(false);
+        showToast('Bluetooth pairing mode stopped', 'info');
+      } catch (err) {
+        alert('Failed to stop pairing: ' + err.message);
+      } finally {
+        await this.loadBtView();
+      }
+      return;
+    }
+
     if (!target) {
       alert('Please select a target device to assign this Bluetooth pairing to.');
       return;
@@ -5047,12 +5080,11 @@ class HarmonyApp {
       if (btn) btn.textContent = 'Entering pairing mode...';
       await this.client.setBtPairing(true, name, target);
       const devObj = (this.inventory.devices || []).find(d => String(d.id) === String(target));
-      alert('Hub is now discoverable as "' + name + '" for ' + (devObj ? devObj.name : target) + '. Pair from your host device.');
-      this.loadBtView();
+      showToast('Hub is now discoverable as "' + name + '" for ' + (devObj ? devObj.name : target) + '. Pair from your host device.', 'success');
     } catch (err) {
       alert('Pairing mode failed: ' + err.message);
     } finally {
-      if (btn) btn.textContent = 'Start Pairing Mode';
+      await this.loadBtView();
     }
   }
 
@@ -7575,6 +7607,7 @@ class HarmonyApp {
   }
 
   updateIconCacheUI() {
+    if (!this.isNative) return;
     const badge = document.getElementById('iconCacheStatusBadge');
     const detail = document.getElementById('iconCacheDetail');
     if (!badge) return;
