@@ -214,7 +214,8 @@ static const uint8_t hid_descriptor_composite[] = {
     0x75, 0x08,                    //     Report Size (8)
     0x95, 0x03,                    //     Report Count (3)
     0x81, 0x06,                    //     Input (Data, Variable, Relative) - dX, dY, Wheel
-    0xc0                           // End Collection
+    0xc0,                          //   End Collection (Physical)
+    0xc0                           // End Collection (Application)
 };
 
 static char g_last_btn[64] = "";
@@ -1554,11 +1555,17 @@ static void execute_btstack_cmd(const char *cmd_in) {
                 gap_disconnect(g_hosts[i].acl_handle);
                 g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
             }
+            if (!is_null_bd_addr(g_hosts[i].addr)) {
+                gap_drop_link_key_for_bd_addr(g_hosts[i].addr);
+            }
             g_hosts[i].connected = false;
         }
         if (g_host_hid_cid) {
             hid_device_disconnect(g_host_hid_cid);
             g_host_hid_cid = 0;
+        }
+        if (!is_null_bd_addr(g_host_addr)) {
+            gap_drop_link_key_for_bd_addr(g_host_addr);
         }
         g_host_connected = false;
         char *name = cmd + 12;
