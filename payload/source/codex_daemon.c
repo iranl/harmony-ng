@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #include "ir_encoder.h"
 #include "ir_i2s.h"
@@ -1510,6 +1511,12 @@ static void handle_ws_client_message(int cfd) {
     cJSON_Delete(root);
 }
 
+static void *http_client_worker(void *arg) {
+    int cfd = (int)(intptr_t)arg;
+    http_handle_client(cfd);
+    return NULL;
+}
+
 int main(int argc, char **argv) {
     int port = 8089;
     for (int i = 1; i < argc; i++) {
@@ -1615,15 +1622,26 @@ int main(int argc, char **argv) {
                 if (cfd >= 0) {
                     fcntl(cfd, F_SETFD, FD_CLOEXEC);
                     struct timeval to;
-                    to.tv_sec = 10;
+                    to.tv_sec = 2;
                     to.tv_usec = 0;
                     setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
-                    to.tv_sec = 10;
+                    to.tv_sec = 2;
                     to.tv_usec = 0;
                     setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
                     int nodelay = 1;
                     setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-                    http_handle_client(cfd);
+                    int sndbuf = 32768;
+                    setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
+                    pthread_t th;
+                    pthread_attr_t attr;
+                    pthread_attr_init(&attr);
+                    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+                    pthread_attr_setstacksize(&attr, 128 * 1024);
+                    if (pthread_create(&th, &attr, http_client_worker, (void *)(intptr_t)cfd) != 0) {
+                        http_handle_client(cfd);
+                    }
+                    pthread_attr_destroy(&attr);
                 }
             }
 

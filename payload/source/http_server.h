@@ -42,6 +42,12 @@ void daemon_get_mqtt_info(char *host, size_t hlen, int *port, char *base, size_t
 /* Close HTTP server socket */
 void http_server_close(int server_fd);
 
+/* In-memory static asset cache flush */
+void static_cache_flush(void);
+
+/* Asynchronous background icon extraction */
+void http_ensure_icons_extracted(void);
+
 #ifdef __cplusplus
 }
 #endif

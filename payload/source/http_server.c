@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <dirent.h>
+#include <pthread.h>
 
 #include "codex_version.h"
 #ifndef CODEX_COMMIT
@@ -288,6 +289,14 @@ static int get_usb_host_mode(void) {
 static void get_wifi_ssid(char *ssid_out, size_t ssid_len) {
     if (!ssid_out || !ssid_len) return;
     ssid_out[0] = '\0';
+    static char s_cached_ssid[64] = {0};
+    static time_t s_last_ssid_check = 0;
+    time_t now = time(NULL);
+    if (s_last_ssid_check > 0 && (now - s_last_ssid_check) < 5) {
+        strncpy(ssid_out, s_cached_ssid, ssid_len - 1);
+        ssid_out[ssid_len - 1] = '\0';
+        return;
+    }
     FILE *f = popen("/usr/sbin/wpa_cli -i ath0 status 2>/dev/null", "r");
     if (f) {
         char line[128];
@@ -296,6 +305,9 @@ static void get_wifi_ssid(char *ssid_out, size_t ssid_len) {
                 char *s = line + 5;
                 char *nl = strchr(s, '\n'); if (nl) *nl = '\0';
                 nl = strchr(s, '\r'); if (nl) *nl = '\0';
+                strncpy(s_cached_ssid, s, sizeof(s_cached_ssid) - 1);
+                s_cached_ssid[sizeof(s_cached_ssid) - 1] = '\0';
+                s_last_ssid_check = now;
                 strncpy(ssid_out, s, ssid_len - 1);
                 break;
             }
@@ -601,6 +613,8 @@ static int test_wifi_connection(const char *ssid, const char *psk, int is_open, 
 }
 
 
+static void ensure_icons_extracted(void);
+
 int http_server_init(int port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
@@ -625,6 +639,9 @@ int http_server_init(int port) {
         close(s);
         return -1;
     }
+
+    /* Start non-blocking background icon extraction if needed */
+    ensure_icons_extracted();
 
     return s;
 }
@@ -1203,39 +1220,139 @@ static const char *get_mime_type(const char *path) {
     return "application/octet-stream";
 }
 
+static volatile int g_icons_extracting = 0;
+
+static void *extract_icons_thread(void *arg) {
+    const char *tar_path = (const char *)arg;
+    mkdir("/tmp/www", 0755);
+    mkdir("/tmp/www/assets", 0755);
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd),
+        "export PATH=/cache/bin:/data/codex/bin:$PATH; "
+        "tar -xzf \"%s\" -C /tmp/www/assets/ 2>/dev/null && "
+        "for d in /tmp/www/assets/icons/*/; do "
+        "  if [ -d \"$d\" ]; then "
+        "    for f in \"$d\"*.png; do [ -f \"$f\" ] && ln -sf \"$f\" /tmp/www/assets/icons/ 2>/dev/null; done; "
+        "  fi; "
+        "done",
+        tar_path);
+    system(cmd);
+    g_icons_extracting = 0;
+    return NULL;
+}
+
 static void ensure_icons_extracted(void) {
     if (access("/tmp/www/assets/icons", F_OK) == 0) return;
+    if (g_icons_extracting) return;
 
-    const char *tar_path = NULL;
+    static char s_tar_path[128];
+    s_tar_path[0] = '\0';
     if (access("/data/codex/icons.tar.gz", F_OK) == 0) {
-        tar_path = "/data/codex/icons.tar.gz";
+        strncpy(s_tar_path, "/data/codex/icons.tar.gz", sizeof(s_tar_path) - 1);
     } else if (access("/cache/icons.tar.gz", F_OK) == 0) {
-        tar_path = "/cache/icons.tar.gz";
+        strncpy(s_tar_path, "/cache/icons.tar.gz", sizeof(s_tar_path) - 1);
     } else if (access("/cache/www/assets/icons.tar.gz", F_OK) == 0) {
-        tar_path = "/cache/www/assets/icons.tar.gz";
+        strncpy(s_tar_path, "/cache/www/assets/icons.tar.gz", sizeof(s_tar_path) - 1);
     }
-    if (tar_path) {
-        mkdir("/tmp/www", 0755);
-        mkdir("/tmp/www/assets", 0755);
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd),
-            "export PATH=/cache/bin:/data/codex/bin:$PATH; "
-            "tar -xzf \"%s\" -C /tmp/www/assets/ 2>/dev/null && "
-            "for d in /tmp/www/assets/icons/*/; do "
-            "  if [ -d \"$d\" ]; then "
-            "    for f in \"$d\"*.png; do [ -f \"$f\" ] && ln -sf \"$f\" /tmp/www/assets/icons/ 2>/dev/null; done; "
-            "  fi; "
-            "done",
-            tar_path);
-        system(cmd);
+
+    if (s_tar_path[0]) {
+        g_icons_extracting = 1;
+        pthread_t th;
+        if (pthread_create(&th, NULL, extract_icons_thread, (void *)s_tar_path) == 0) {
+            pthread_detach(th);
+        } else {
+            g_icons_extracting = 0;
+        }
     }
 }
 
-static int serve_static_file(int client_fd, const char *req, const char *path) {
+void http_ensure_icons_extracted(void) {
+    ensure_icons_extracted();
+}
+
+#define STATIC_CACHE_MAX_ENTRIES 32
+#define STATIC_CACHE_MAX_SIZE (384 * 1024)
+
+struct static_cache_entry {
+    char rel_path[128];
+    int is_gzip;
+    char *data;
+    size_t size;
+    const char *mime;
+};
+
+static struct static_cache_entry g_static_cache[STATIC_CACHE_MAX_ENTRIES];
+static int g_static_cache_count = 0;
+static pthread_mutex_t g_static_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void static_cache_flush(void) {
+    pthread_mutex_lock(&g_static_cache_mutex);
+    for (int i = 0; i < g_static_cache_count; i++) {
+        if (g_static_cache[i].data) {
+            free(g_static_cache[i].data);
+            g_static_cache[i].data = NULL;
+        }
+        g_static_cache[i].rel_path[0] = '\0';
+        g_static_cache[i].size = 0;
+    }
+    g_static_cache_count = 0;
+    pthread_mutex_unlock(&g_static_cache_mutex);
+}
+
+static struct static_cache_entry *static_cache_find(const char *rel_path, int is_gzip) {
+    pthread_mutex_lock(&g_static_cache_mutex);
+    for (int i = 0; i < g_static_cache_count; i++) {
+        if (g_static_cache[i].data &&
+            g_static_cache[i].is_gzip == is_gzip &&
+            strcmp(g_static_cache[i].rel_path, rel_path) == 0) {
+            pthread_mutex_unlock(&g_static_cache_mutex);
+            return &g_static_cache[i];
+        }
+    }
+    pthread_mutex_unlock(&g_static_cache_mutex);
+    return NULL;
+}
+
+static void static_cache_insert(const char *rel_path, int is_gzip, const char *mime, const char *data, size_t size) {
+    if (!rel_path || !data || size == 0 || size > STATIC_CACHE_MAX_SIZE) return;
+    pthread_mutex_lock(&g_static_cache_mutex);
+    for (int i = 0; i < g_static_cache_count; i++) {
+        if (strcmp(g_static_cache[i].rel_path, rel_path) == 0 && g_static_cache[i].is_gzip == is_gzip) {
+            pthread_mutex_unlock(&g_static_cache_mutex);
+            return;
+        }
+    }
+    if (g_static_cache_count < STATIC_CACHE_MAX_ENTRIES) {
+        char *copy = (char *)malloc(size);
+        if (copy) {
+            memcpy(copy, data, size);
+            strncpy(g_static_cache[g_static_cache_count].rel_path, rel_path, sizeof(g_static_cache[0].rel_path) - 1);
+            g_static_cache[g_static_cache_count].rel_path[sizeof(g_static_cache[0].rel_path) - 1] = '\0';
+            g_static_cache[g_static_cache_count].is_gzip = is_gzip;
+            g_static_cache[g_static_cache_count].data = copy;
+            g_static_cache[g_static_cache_count].size = size;
+            g_static_cache[g_static_cache_count].mime = mime;
+            g_static_cache_count++;
+        }
+    }
+    pthread_mutex_unlock(&g_static_cache_mutex);
+}
+
+static int is_http_keep_alive(const char *req) {
+    if (!req) return 0;
+    if (strstr(req, "HTTP/1.1")) {
+        if (strcasestr(req, "Connection: close")) return 0;
+        return 1;
+    }
+    if (strcasestr(req, "Connection: keep-alive")) return 1;
+    return 0;
+}
+
+static int serve_static_file(int client_fd, const char *req, const char *path, int keep_alive) {
     if (strstr(path, "..")) return 0;
 
     char rel_path[256];
-    if (strcmp(path, "/") == 0 || path[0] == '\0') {
+    if (strcmp(path, "/") == 0 || path[0] == '\0' || !strchr(path, '.')) {
         strncpy(rel_path, "/index.html", sizeof(rel_path) - 1);
         rel_path[sizeof(rel_path) - 1] = '\0';
     } else {
@@ -1247,6 +1364,50 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
         ensure_icons_extracted();
     }
 
+    int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
+
+    /* 1. Check RAM Cache */
+    struct static_cache_entry *cached = NULL;
+    if (client_gzip) {
+        cached = static_cache_find(rel_path, 1);
+    }
+    if (!cached) {
+        cached = static_cache_find(rel_path, 0);
+    }
+
+    if (cached) {
+        const char *cache_hdr = (strstr(rel_path, "/assets/") != NULL) ?
+            "Cache-Control: public, max-age=31536000, immutable\r\n" :
+            "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\n";
+        char header[512];
+        int hlen = snprintf(header, sizeof(header),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %zu\r\n"
+            "%s"
+            "Access-Control-Allow-Origin: *\r\n"
+            "%s"
+            "Connection: %s\r\n"
+            "%s\r\n",
+            cached->mime, cached->size,
+            cached->is_gzip ? "Content-Encoding: gzip\r\n" : "",
+            cache_hdr,
+            keep_alive ? "keep-alive" : "close",
+            keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
+
+        send(client_fd, header, (size_t)hlen, 0);
+        if (strncmp(req, "HEAD ", 5) != 0 && cached->size > 0) {
+            size_t sent = 0;
+            while (sent < cached->size) {
+                ssize_t s = send(client_fd, cached->data + sent, cached->size - sent, 0);
+                if (s <= 0) break;
+                sent += (size_t)s;
+            }
+        }
+        return 1;
+    }
+
+    /* 2. Cache miss: find on storage */
     char file_path[512];
     snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
     if (access(file_path, F_OK) != 0) {
@@ -1256,7 +1417,6 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
         }
     }
 
-    int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
     int is_gzip = 0;
     FILE *f = NULL;
     struct stat st_raw, st_gz;
@@ -1322,15 +1482,42 @@ static int serve_static_file(int client_fd, const char *req, const char *path) {
         "%s"
         "Access-Control-Allow-Origin: *\r\n"
         "%s"
-        "Connection: close\r\n\r\n",
+        "Connection: %s\r\n"
+        "%s\r\n",
         mime, fsize,
         is_gzip ? "Content-Encoding: gzip\r\n" : "",
-        cache_hdr);
+        cache_hdr,
+        keep_alive ? "keep-alive" : "close",
+        keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
 
     send(client_fd, header, (size_t)hlen, 0);
 
+    /* If small enough, read whole file into memory and populate RAM cache */
+    if (fsize > 0 && fsize <= STATIC_CACHE_MAX_SIZE) {
+        char *file_buf = (char *)malloc((size_t)fsize);
+        if (file_buf) {
+            size_t nr = fread(file_buf, 1, (size_t)fsize, f);
+            if (nr > 0) {
+                if (strncmp(req, "HEAD ", 5) != 0) {
+                    size_t sent = 0;
+                    while (sent < nr) {
+                        ssize_t s = send(client_fd, file_buf + sent, nr - sent, 0);
+                        if (s <= 0) break;
+                        sent += (size_t)s;
+                    }
+                }
+                if (strncmp(file_path, "/tmp/", 5) != 0) {
+                    static_cache_insert(rel_path, is_gzip, mime, file_buf, nr);
+                }
+            }
+            free(file_buf);
+            fclose(f);
+            return 1;
+        }
+    }
+
     if (strncmp(req, "HEAD ", 5) != 0) {
-        char chunk[4096];
+        char chunk[16384];
         size_t nr;
         while ((nr = fread(chunk, 1, sizeof(chunk), f)) > 0) {
             if (send(client_fd, chunk, nr, 0) < 0) break;
@@ -1385,55 +1572,144 @@ static void http_process_request(int client_fd, const char *req);
 void http_handle_client(int client_fd) {
     if (client_fd < 0) return;
 
-    char init_buf[HTTP_REQ_BUF_SIZE] = {0};
-    ssize_t n = recv(client_fd, init_buf, sizeof(init_buf) - 1, 0);
-    if (n <= 0) {
-        close(client_fd);
-        return;
-    }
-    init_buf[n] = '\0';
-
-    /* Check if WebSocket upgrade */
-    if (ws_is_upgrade_req(init_buf)) {
-        if (ws_handle_upgrade(client_fd, init_buf) != 0) {
+    int req_count = 0;
+    while (req_count < 64) {
+        char init_buf[HTTP_REQ_BUF_SIZE] = {0};
+        ssize_t n = recv(client_fd, init_buf, sizeof(init_buf) - 1, 0);
+        if (n <= 0) {
             close(client_fd);
+            return;
         }
-        return; /* Keep client_fd open for WebSocket frames */
-    }
+        init_buf[n] = '\0';
+        req_count++;
 
-    const char *req = init_buf;
-    char *dyn_buf = NULL;
+        /* Check if WebSocket upgrade */
+        if (ws_is_upgrade_req(init_buf)) {
+            if (ws_handle_upgrade(client_fd, init_buf) != 0) {
+                close(client_fd);
+            }
+            return; /* Keep client_fd open for WebSocket frames */
+        }
 
-    /* Check Content-Length for large bodies (e.g. backup restore) */
-    char *hdr_end = strstr(init_buf, "\r\n\r\n");
-    if (hdr_end) {
-        char *cl_pos = strcasestr(init_buf, "Content-Length:");
-        if (cl_pos && cl_pos < hdr_end) {
-            cl_pos += 15;
-            while (*cl_pos == ' ' || *cl_pos == '\t') cl_pos++;
-            long cl = atol(cl_pos);
-            size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
-            size_t body_recvd = (size_t)n - hdr_len;
-            if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
-                size_t total_needed = hdr_len + (size_t)cl;
-                dyn_buf = (char *)malloc(total_needed + 1);
-                if (dyn_buf) {
-                    memcpy(dyn_buf, init_buf, (size_t)n);
-                    size_t total_read = (size_t)n;
-                    while (total_read < total_needed) {
-                        ssize_t r = recv(client_fd, dyn_buf + total_read, total_needed - total_read, 0);
-                        if (r <= 0) break;
-                        total_read += (size_t)r;
+        const char *req = init_buf;
+        char *dyn_buf = NULL;
+
+        /* Check Content-Length for large bodies (e.g. backup restore) */
+        char *hdr_end = strstr(init_buf, "\r\n\r\n");
+        if (hdr_end) {
+            char *cl_pos = strcasestr(init_buf, "Content-Length:");
+            if (cl_pos && cl_pos < hdr_end) {
+                cl_pos += 15;
+                while (*cl_pos == ' ' || *cl_pos == '\t') cl_pos++;
+                long cl = atol(cl_pos);
+                size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
+                size_t body_recvd = (size_t)n - hdr_len;
+                if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
+                    size_t total_needed = hdr_len + (size_t)cl;
+                    dyn_buf = (char *)malloc(total_needed + 1);
+                    if (dyn_buf) {
+                        memcpy(dyn_buf, init_buf, (size_t)n);
+                        size_t total_read = (size_t)n;
+                        while (total_read < total_needed) {
+                            ssize_t r = recv(client_fd, dyn_buf + total_read, total_needed - total_read, 0);
+                            if (r <= 0) break;
+                            total_read += (size_t)r;
+                        }
+                        dyn_buf[total_read] = '\0';
+                        req = dyn_buf;
                     }
-                    dyn_buf[total_read] = '\0';
-                    req = dyn_buf;
                 }
             }
         }
-    }
 
-    http_process_request(client_fd, req);
-    if (dyn_buf) free(dyn_buf);
+        int keep_alive = is_http_keep_alive(req);
+        int handled_static = 0;
+
+        char method[16] = {0}, path[128] = {0};
+        if (sscanf(req, "%15s %127s", method, path) == 2) {
+            char clean_path[128] = {0};
+            strncpy(clean_path, path, sizeof(clean_path) - 1);
+            char *qmark = strchr(clean_path, '?');
+            if (qmark) *qmark = '\0';
+
+            if ((strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) &&
+                strncmp(clean_path, "/api/", 5) != 0 &&
+                strcmp(clean_path, "/ws") != 0 &&
+                strcmp(clean_path, "/health") != 0 &&
+                strncmp(clean_path, "/export/", 8) != 0) {
+                if (serve_static_file(client_fd, req, clean_path, keep_alive)) {
+                    handled_static = 1;
+                }
+            }
+        }
+
+        if (dyn_buf) free(dyn_buf);
+
+        if (!handled_static) {
+            http_process_request(client_fd, req);
+            return;
+        }
+
+        if (!keep_alive) {
+            close(client_fd);
+            return;
+        }
+
+        /* Fast burst keep-alive: wait up to 100ms for pipelined/subresource requests */
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+        fd_set rfd;
+        FD_ZERO(&rfd);
+        FD_SET(client_fd, &rfd);
+        int sel = select(client_fd + 1, &rfd, NULL, NULL, &tv);
+        if (sel <= 0) {
+            close(client_fd);
+            return;
+        }
+    }
+    close(client_fd);
+}
+
+static int is_proc_running(const char *proc_name) {
+    static int s_rf_running = 0;
+    static time_t s_rf_time = 0;
+    static int s_bt_running = 0;
+    static time_t s_bt_time = 0;
+    time_t now = time(NULL);
+
+    int is_rf = (strcmp(proc_name, "codex_rf") == 0);
+    int is_bt = (strcmp(proc_name, "codex_btstack") == 0);
+
+    if (is_rf && s_rf_time > 0 && (now - s_rf_time) < 2) return s_rf_running;
+    if (is_bt && s_bt_time > 0 && (now - s_bt_time) < 2) return s_bt_running;
+
+    DIR *d = opendir("/proc");
+    if (!d) return 0;
+    struct dirent *de;
+    int running = 0;
+    while ((de = readdir(d)) != NULL) {
+        if (!isdigit((unsigned char)de->d_name[0])) continue;
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%s/comm", de->d_name);
+        FILE *f = fopen(path, "r");
+        if (f) {
+            char comm[32] = {0};
+            if (fgets(comm, sizeof(comm), f)) {
+                char *nl = strchr(comm, '\n'); if (nl) *nl = '\0';
+                nl = strchr(comm, '\r'); if (nl) *nl = '\0';
+                if (strcmp(comm, proc_name) == 0) {
+                    running = 1;
+                    fclose(f);
+                    break;
+                }
+            }
+            fclose(f);
+        }
+    }
+    closedir(d);
+
+    if (is_rf) { s_rf_running = running; s_rf_time = now; }
+    if (is_bt) { s_bt_running = running; s_bt_time = now; }
+    return running;
 }
 
 static void http_process_request(int client_fd, const char *req) {
@@ -1483,9 +1759,9 @@ static void http_process_request(int client_fd, const char *req) {
         }
     }
 
-    /* Static file server: if GET or HEAD and not an /api/ or /ws route, serve from /data/codex/www */
+    /* Static file server fallback: if GET or HEAD and not an /api/ or /ws route, serve from /data/codex/www */
     if ((strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) && strncmp(clean_path, "/api/", 5) != 0 && strcmp(clean_path, "/ws") != 0 && strcmp(clean_path, "/health") != 0 && strncmp(clean_path, "/export/", 8) != 0) {
-        if (serve_static_file(client_fd, req, clean_path)) {
+        if (serve_static_file(client_fd, req, clean_path, 0)) {
             close(client_fd);
             return;
         }
@@ -1773,7 +2049,7 @@ static void http_process_request(int client_fd, const char *req) {
                 fclose(bf);
             }
         }
-        int bt_running = (access("/tmp/codex_btstack.pid", F_OK) == 0 || system("pidof codex_btstack >/dev/null 2>&1") == 0);
+        int bt_running = (access("/tmp/codex_btstack.pid", F_OK) == 0 || is_proc_running("codex_btstack"));
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddBoolToObject(st, "running", bt_running);
@@ -1787,8 +2063,8 @@ static void http_process_request(int client_fd, const char *req) {
     /* Route: GET /api/services */
     if (strcmp(clean_path, "/api/services") == 0 && strcmp(method, "GET") == 0) {
         int rf_disabled = (access("/data/codex/rf_disabled.conf", F_OK) == 0);
-        int rf_running = (system("pidof codex_rf >/dev/null 2>&1") == 0);
-        int bt_running = (access("/tmp/codex_btstack.pid", F_OK) == 0 || system("pidof codex_btstack >/dev/null 2>&1") == 0);
+        int rf_running = is_proc_running("codex_rf");
+        int bt_running = (access("/tmp/codex_btstack.pid", F_OK) == 0 || is_proc_running("codex_btstack"));
 
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
@@ -3212,7 +3488,7 @@ static void http_process_request(int client_fd, const char *req) {
             sin.sin_port = htons(8092);
             sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-            struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+            struct timeval tv = { .tv_sec = 0, .tv_usec = 400000 };
             setsockopt(rfsock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
             setsockopt(rfsock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
