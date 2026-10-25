@@ -5272,7 +5272,17 @@ class HarmonyApp {
     let scrollAcc = 0;
     let isMouseDown = false;
 
-    const getSpeed = () => Number(speedSel?.value) || 1.0;
+    if (speedSel) {
+      const savedSpeed = localStorage.getItem('codex_mouse_speed') || '6.0';
+      if (speedSel.querySelector(`option[value="${savedSpeed}"]`)) {
+        speedSel.value = savedSpeed;
+      }
+      speedSel.addEventListener('change', () => {
+        localStorage.setItem('codex_mouse_speed', speedSel.value);
+      });
+    }
+
+    const getSpeed = () => Number(speedSel?.value) || 6.0;
     const getTarget = () => (document.getElementById('btTargetHostSelect')?.value || '').trim();
 
     // Touch events for mobile / Android / Capacitor

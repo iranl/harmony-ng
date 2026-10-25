@@ -1209,11 +1209,15 @@ export class RemoteEngine {
             <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">Mouse</button>
           </div>
           <select id="remoteMouseSpeed" class="form-control form-control-sm" style="font-size:11px; padding:2px 6px; width:72px;">
-            <option value="0.75">0.75x</option>
-            <option value="1.0" selected>1.0x</option>
-            <option value="1.5">1.5x</option>
-            <option value="2.0">2.0x</option>
             <option value="3.0">3.0x</option>
+            <option value="4.0">4.0x</option>
+            <option value="5.0">5.0x</option>
+            <option value="6.0" selected>6.0x</option>
+            <option value="8.0">8.0x</option>
+            <option value="10.0">10.0x</option>
+            <option value="12.0">12.0x</option>
+            <option value="15.0">15.0x</option>
+            <option value="20.0">20.0x</option>
           </select>
           <button type="button" class="btn btn-xs btn-danger" id="mouseReleaseAllBtn" title="Release held mouse buttons">Release</button>
         </div>
@@ -1276,7 +1280,17 @@ export class RemoteEngine {
     const btnWheelUp = view.querySelector('#remoteBtnWheelUp');
     const btnWheelDown = view.querySelector('#remoteBtnWheelDown');
 
-    const getSpeed = () => Number(speedSel?.value) || 1.0;
+    if (speedSel) {
+      const savedSpeed = localStorage.getItem('codex_mouse_speed') || '6.0';
+      if (speedSel.querySelector(`option[value="${savedSpeed}"]`)) {
+        speedSel.value = savedSpeed;
+      }
+      speedSel.addEventListener('change', () => {
+        localStorage.setItem('codex_mouse_speed', speedSel.value);
+      });
+    }
+
+    const getSpeed = () => Number(speedSel?.value) || 6.0;
 
     const sendMouse = (payload) => {
       if (this.client && typeof this.client.sendBtMouse === 'function') {
