@@ -494,6 +494,65 @@ static void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
         }
         free(out);
     }
+
+    /* Also persist to canonical config/devices.json */
+    const char *dpath = "/data/codex/config/devices.json";
+    if (access(dpath, F_OK) != 0) dpath = "/data/codex/devices.json";
+    FILE *df = fopen(dpath, "r");
+    if (df) {
+        fseek(df, 0, SEEK_END);
+        long dsz = ftell(df);
+        fseek(df, 0, SEEK_SET);
+        if (dsz > 0 && dsz < 1000000) {
+            char *dbuf = (char *)malloc(dsz + 1);
+            if (dbuf) {
+                size_t dr = fread(dbuf, 1, dsz, df);
+                dbuf[dr] = 0;
+                cJSON *droot = cJSON_Parse(dbuf);
+                free(dbuf);
+                if (droot) {
+                    cJSON *ddevs = cJSON_GetObjectItemCaseSensitive(droot, "devices");
+                    if (!ddevs) ddevs = cJSON_GetObjectItemCaseSensitive(droot, "DevicesWithFeatures");
+                    if (ddevs && cJSON_IsArray(ddevs)) {
+                        cJSON *ditem = NULL;
+                        cJSON_ArrayForEach(ditem, ddevs) {
+                            cJSON *d = cJSON_GetObjectItemCaseSensitive(ditem, "Device");
+                            if (!d) d = ditem;
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                            char d_id_str[32] = {0};
+                            if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
+                            else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
+                            if (strcmp(d_id_str, dev_id) == 0) {
+                                cJSON_DeleteItemFromObjectCaseSensitive(d, "BTAddress");
+                                cJSON_DeleteItemFromObjectCaseSensitive(d, "bt_host");
+                                cJSON_DeleteItemFromObjectCaseSensitive(d, "btHost");
+                                cJSON_AddStringToObject(d, "BTAddress", addr_str);
+                                cJSON_AddStringToObject(d, "bt_host", addr_str);
+                                cJSON_AddStringToObject(d, "btHost", addr_str);
+                                char *dout = cJSON_Print(droot);
+                                if (dout) {
+                                    char tmp_dpath[128];
+                                    snprintf(tmp_dpath, sizeof(tmp_dpath), "%s.tmp", dpath);
+                                    FILE *dwf = fopen(tmp_dpath, "w");
+                                    if (dwf) {
+                                        fputs(dout, dwf);
+                                        fputc('\n', dwf);
+                                        fclose(dwf);
+                                        rename(tmp_dpath, dpath);
+                                    }
+                                    free(dout);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    cJSON_Delete(droot);
+                }
+            }
+        }
+        fclose(df);
+    }
 }
 
 static const char *get_default_host_name(void) {

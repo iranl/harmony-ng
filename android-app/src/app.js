@@ -1620,30 +1620,67 @@ class HarmonyApp {
       if (statusMsg) statusMsg.textContent = 'Hub is in pairing mode. Waiting for device to pair...';
 
       try {
+        const initialBtSt = await this.client.getBtStatus().catch(() => null);
+        const initialHosts = new Set(((initialBtSt?.hosts) || []).map(h => (h.addr || '').toLowerCase()));
         await this.client.setBtPairing(true, 'Harmony Keyboard', devId);
+
         // Start polling for pairing completion
         if (this._btPairPollTimer) clearInterval(this._btPairPollTimer);
         let pollAttempts = 0;
         this._btPairPollTimer = setInterval(async () => {
           pollAttempts++;
-          if (pollAttempts > 35) {
+          if (pollAttempts > 45) {
             clearInterval(this._btPairPollTimer);
+            this._btPairPollTimer = null;
             if (helpBox) helpBox.style.display = 'none';
             if (startBtn) startBtn.disabled = false;
             return;
           }
           try {
+            const btSt = await this.client.getBtStatus().catch(() => null);
+            let newlyPairedAddr = '';
+
+            // 1. Check if an active host is connected
+            if (btSt?.host?.connected && btSt?.host?.addr && btSt.host.addr !== '00:00:00:00:00:00') {
+              newlyPairedAddr = btSt.host.addr;
+            } else if (btSt?.hosts && btSt.hosts.length > 0) {
+              // 2. Check if any host is connected or newly added
+              const connectedHost = btSt.hosts.find(h => h.connected && h.addr && h.addr !== '00:00:00:00:00:00');
+              const newHost = btSt.hosts.find(h => h.addr && !initialHosts.has(h.addr.toLowerCase()) && h.addr !== '00:00:00:00:00:00');
+              if (connectedHost) newlyPairedAddr = connectedHost.addr;
+              else if (newHost) newlyPairedAddr = newHost.addr;
+            }
+
+            if (newlyPairedAddr) {
+              clearInterval(this._btPairPollTimer);
+              this._btPairPollTimer = null;
+              // Automatically link device to newly paired host
+              await this.client.linkBtDevice(newlyPairedAddr, devId);
+              await this.refreshData();
+              if (statusMsg) {
+                statusMsg.innerHTML = `<span style="color:var(--success)">✓ Successfully paired and linked to ${newlyPairedAddr}!</span>`;
+              }
+              setTimeout(() => {
+                if (helpBox) helpBox.style.display = 'none';
+                if (startBtn) startBtn.disabled = false;
+                this.updateStudioDeviceView();
+              }, 1200);
+              return;
+            }
+
+            // Fallback: check if inventory was already updated directly
             await this.refreshData();
             const curDev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
             const pairedAddr = curDev ? (curDev.btHost || curDev.bt_host || curDev.BTAddress) : '';
             if (pairedAddr) {
               clearInterval(this._btPairPollTimer);
+              this._btPairPollTimer = null;
               if (statusMsg) statusMsg.innerHTML = `<span style="color:var(--success)">✓ Successfully paired to ${pairedAddr}!</span>`;
               setTimeout(() => {
                 if (helpBox) helpBox.style.display = 'none';
                 if (startBtn) startBtn.disabled = false;
                 this.updateStudioDeviceView();
-              }, 1500);
+              }, 1200);
             }
           } catch {}
         }, 2000);
@@ -1655,7 +1692,10 @@ class HarmonyApp {
     });
 
     document.getElementById('btnCurDevBtCancelPair')?.addEventListener('click', async () => {
-      if (this._btPairPollTimer) clearInterval(this._btPairPollTimer);
+      if (this._btPairPollTimer) {
+        clearInterval(this._btPairPollTimer);
+        this._btPairPollTimer = null;
+      }
       const helpBox = document.getElementById('curDevBtPairHelp');
       const startBtn = document.getElementById('btnCurDevBtStartPair');
       if (helpBox) helpBox.style.display = 'none';
@@ -3860,9 +3900,14 @@ class HarmonyApp {
           if (hasHost && btBadge) {
             const isConn = (activeHost.connected && activeHost.addr && activeHost.addr.toLowerCase() === hostAddr.toLowerCase()) ||
                            hosts.some(h => h.connected && h.addr && h.addr.toLowerCase() === hostAddr.toLowerCase());
-            if (isConn) {
-              btBadge.textContent = 'Connected';
-              btBadge.className = 'badge ok mini';
+            btBadge.textContent = isConn ? 'Connected' : 'Paired';
+            btBadge.className = isConn ? 'badge ok mini' : 'badge badge-secondary mini';
+            if (connBtn) {
+              connBtn.disabled = isConn;
+              connBtn.textContent = isConn ? 'Connected' : 'Connect';
+            }
+            if (disconnBtn) {
+              disconnBtn.disabled = !isConn;
             }
           }
           if (knownHostRow && knownHostSel) {
