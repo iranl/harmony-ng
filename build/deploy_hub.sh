@@ -69,6 +69,10 @@ fi
 echo "[1/5] Running pre-deployment backup..."
 SSH_KEY="$SSH_KEY" bash "$SCRIPT_DIR/backup_hub.sh" "$HUB_HOST"
 
+# Keep the stock startup script so a factory reset can restore it (same as deploy_hub.ps1)
+ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
+    "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
+
 # 2. Stop existing processes with kill -9
 echo "[2/5] Stopping old hub processes..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
@@ -142,6 +146,12 @@ if [ -d "$MODULES_DIR" ]; then
         [ -f "$mod" ] || continue
         deploy_file_if_changed "$mod" "/cache/modules/$(basename "$mod")" 644
     done
+fi
+
+# Install the HarmonyNG startup script; without it the Hub boots the stock stack on next reboot
+if [ -f "$SCRIPTS_DIR/rcS.local" ]; then
+    echo "[*] Installing startup script /etc/init.d/rcS.local..."
+    deploy_file_if_changed "$SCRIPTS_DIR/rcS.local" "/etc/init.d/rcS.local" 755
 fi
 
 # 4. Deploy WebUI to /cache/www/ (preserves critical /data flash)
