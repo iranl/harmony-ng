@@ -1297,7 +1297,7 @@ static void *config_push_worker(void *arg) {
                             if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d_obj, "ContentProfileKey");
 
                             cJSON *jname = cJSON_GetObjectItemCaseSensitive(d_obj, "ParentDeviceModel");
-                            if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "Name");
+                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "Name"); /* also matches "name" in devices.json */
                             if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "Model");
                             if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "FriendlyName");
 
