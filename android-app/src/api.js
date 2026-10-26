@@ -30,9 +30,17 @@ export class HarmonyClient {
         this.wsUrl = '';
       }
     }
-    this.authHeader = (this.hub.username && this.hub.password)
-      ? `Basic ${btoa(`${this.hub.username}:${this.hub.password}`)}`
-      : null;
+
+    const savedToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('harmony_auth_token') : null;
+    this.token = this.hub.token || savedToken || null;
+
+    if (this.token) {
+      this.authHeader = this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`;
+    } else if (this.hub.username && this.hub.password) {
+      this.authHeader = `Basic ${btoa(`${this.hub.username}:${this.hub.password}`)}`;
+    } else {
+      this.authHeader = null;
+    }
 
     if (this.wsUrl && (!this.ws || this.ws.readyState >= 2)) {
       this.connectWebSocket(true);
@@ -50,7 +58,13 @@ export class HarmonyClient {
     this.disconnectWebSocket();
 
     try {
-      this.ws = new WebSocket(this.wsUrl);
+      let finalWsUrl = this.wsUrl;
+      if (this.token) {
+        const cleanToken = this.token.replace(/^Bearer\s+/i, '');
+        const sep = finalWsUrl.includes('?') ? '&' : '?';
+        finalWsUrl = `${finalWsUrl}${sep}token=${encodeURIComponent(cleanToken)}`;
+      }
+      this.ws = new WebSocket(finalWsUrl);
       this.ws.onopen = () => {
         if (this.onWsStatus) this.onWsStatus(true);
       };
@@ -129,6 +143,9 @@ export class HarmonyClient {
       const res = await fetch(url, opts);
       clearTimeout(timeout);
       if (res.status === 401) {
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
+        }
         throw new Error('Authentication failed. Check hub credentials.');
       }
       const text = await res.text();
@@ -1007,5 +1024,62 @@ export class HarmonyClient {
 
   async sendDirectPronto(prontoHex, port = 7, repeats = 1) {
     return this.postJson('/api/ir-send', { pronto: String(prontoHex), port: Number(port) || 7, repeats: Number(repeats) || 1 });
+  }
+
+  async login(username, password) {
+    const res = await fetch(this.baseUrl ? `${this.baseUrl}/api/auth/token` : '/api/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Login failed');
+    }
+    this.token = data.access_token;
+    this.authHeader = `Bearer ${this.token}`;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('harmony_auth_token', this.token);
+      localStorage.setItem('harmony_auth_user', data.username || username);
+      localStorage.setItem('harmony_auth_role', data.role || 'admin');
+    }
+    this.connectWebSocket(true);
+    return data;
+  }
+
+  async logout() {
+    try {
+      if (this.token) {
+        await this.request('/api/auth/logout', { method: 'POST' });
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    this.token = null;
+    this.authHeader = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('harmony_auth_token');
+      localStorage.removeItem('harmony_auth_user');
+      localStorage.removeItem('harmony_auth_role');
+    }
+    this.connectWebSocket(true);
+  }
+
+  async getTokens() {
+    return this.request('/api/auth/tokens');
+  }
+
+  async createToken(name, role = 'admin') {
+    return this.request('/api/auth/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, role })
+    });
+  }
+
+  async deleteToken(id) {
+    return this.request(`/api/auth/tokens?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
   }
 }

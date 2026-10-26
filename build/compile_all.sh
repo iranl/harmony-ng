@@ -81,6 +81,7 @@ build_daemon() {
         payload/source/http_server.c \
         payload/source/mqtt_client.c \
         payload/source/codex_ntp.c \
+        payload/source/sha256.c \
         $COMPAT_SRC -lpthread -lm
 }
 

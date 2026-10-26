@@ -1062,3 +1062,64 @@ Connect via WebSocket to `ws://<hub_ip>:8089/ws` or `ws://<hub_ip>/ws`.
   "action": "bt_key"
 }
 ```
+
+---
+
+## 11. Authentication & Security Architecture
+
+Harmony Hub supports a multi-tier authentication model:
+
+### 11.1 HTTP Digest Authentication (RFC 7616 / RFC 2617)
+Protects credentials on the wire without requiring SSL/TLS overhead on embedded hardware. Nonces are HMAC-SHA256 signed with dynamic expiry.
+
+```bash
+# Digest authentication with curl
+curl --digest -u admin:secret123 http://10.234.234.98:8089/api/status
+```
+
+### 11.2 OAuth2 Bearer Session Tokens (RFC 6749 / RFC 6750)
+Recommended for SPAs, WebUI, and Mobile Apps.
+
+```bash
+# 1. Acquire Bearer token
+curl -X POST http://10.234.234.98:8089/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"secret123"}'
+
+# Response:
+# {"ok":true,"access_token":"hht_018f...","token_type":"Bearer","expires_in":86400,"username":"admin","role":"admin"}
+
+# 2. Use Bearer token
+curl -H "Authorization: Bearer hht_018f..." http://10.234.234.98:8089/api/status
+
+# 3. Invalidate token / Logout
+curl -X POST -H "Authorization: Bearer hht_018f..." http://10.234.234.98:8089/api/auth/logout
+```
+
+### 11.3 Personal Access Tokens (PAT) for Home Automation
+Designed for Home Assistant, Homebridge, Node-RED, or automation scripts. Never requires sharing or hardcoding admin passwords.
+
+```bash
+# 1. Generate new Personal Access Token (Admin only)
+curl -X POST -H "Authorization: Bearer hht_..." \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Home Assistant","role":"admin"}' \
+  http://10.234.234.98:8089/api/auth/tokens
+
+# Response:
+# {"ok":true,"id":"tok_6a1d8f","name":"Home Assistant","role":"admin","token":"pat_3f8a9b..."}
+
+# 2. Authenticate Home Assistant REST sensor / command
+curl -H "Authorization: Bearer pat_3f8a9b..." http://10.234.234.98:8089/api/current_activity
+
+# 3. List active tokens
+curl -H "Authorization: Bearer hht_..." http://10.234.234.98:8089/api/auth/tokens
+
+# 4. Revoke a token
+curl -X DELETE -H "Authorization: Bearer hht_..." "http://10.234.234.98:8089/api/auth/tokens?id=tok_6a1d8f"
+```
+
+### 11.4 WebSocket Token Authentication
+Connect with token in query string:
+`ws://10.234.234.98:8089/?token=pat_3f8a9b...`
+

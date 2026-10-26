@@ -41,6 +41,10 @@
           <span id="activeHubStatusDot" class="hub-status-dot online"></span>
           <span id="activeHubLabel">Harmony Hub</span>
         </div>
+        <button type="button" class="btn btn-xs btn-ghost" id="btnAuthSession" title="Account / Authentication" style="display: none; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 11px;">
+          <span id="authUserDisplay">admin</span>
+          <span id="btnAuthAction" style="margin-left: 4px; color: var(--danger, #ef4444); font-weight: 600;">Logout</span>
+        </button>
       </div>
     </div>
 
@@ -3557,7 +3561,7 @@ harmony_send_command:
         <form id="systemAuthForm" onsubmit="return false;" style="margin-top: 10px;">
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 12px;">
             <input type="checkbox" id="authEnabledCheck" name="authEnabled" value="1">
-            <span style="font-weight: 600;">Require username and password (HTTP Basic Auth)</span>
+            <span style="font-weight: 600;" data-i18n="require_auth">Require authentication (Digest / Bearer Tokens / Basic)</span>
           </label>
 
           <!-- Admin Credentials -->
@@ -3603,6 +3607,45 @@ harmony_send_command:
               <div class="actions" style="margin-top: 8px;">
                 <button id="btnAddNonAdminUser" type="button" class="btn btn-xs btn-secondary" data-i18n="add_non_admin_user">Add Non-Admin User</button>
                 <span id="newUserStatus" class="subtle mini" style="margin-left: 8px;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Personal Access Tokens (PAT) Management -->
+          <div style="margin-top: 14px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--fg);">Personal Access Tokens (Home Assistant & API)</div>
+            <div class="help mini" style="margin-bottom: 8px;">Persistent tokens for Home Assistant, Homebridge, Node-RED, or scripts without sharing passwords.</div>
+            
+            <div id="tokensListContainer" style="margin-bottom: 10px;">
+              <div class="subtle mini" id="tokensListLoading">Loading tokens...</div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border); padding-top: 8px;">
+              <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px;">Generate New Personal Access Token</div>
+              <div class="row" style="gap: 8px;">
+                <div style="flex: 2;">
+                  <label for="newTokenName" class="mini muted">Token Name / Client</label>
+                  <input id="newTokenName" class="form-control form-control-sm" placeholder="e.g. Home Assistant or Curl Script">
+                </div>
+                <div style="flex: 1;">
+                  <label for="newTokenRole" class="mini muted">Role</label>
+                  <select id="newTokenRole" class="form-control form-control-sm">
+                    <option value="admin">Admin</option>
+                    <option value="user">Operator (User)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="actions" style="margin-top: 8px;">
+                <button id="btnCreateToken" type="button" class="btn btn-xs btn-primary">Generate Token</button>
+              </div>
+            </div>
+
+            <div id="newlyCreatedTokenBox" style="display: none; margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 6px;">
+              <div style="font-size: 12px; font-weight: 600; color: #10b981; margin-bottom: 4px;">Token Generated Successfully!</div>
+              <div class="mini subtle" style="margin-bottom: 6px;">Copy this token now. You will not be able to see it again!</div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input id="newlyCreatedTokenInput" readonly style="flex: 1; font-family: monospace; font-size: 11px; padding: 4px 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+                <button type="button" id="btnCopyNewToken" class="btn btn-xs btn-secondary">Copy</button>
               </div>
             </div>
           </div>
@@ -3944,6 +3987,29 @@ harmony_send_command:
       <div class="modal-sheet-footer" style="display: flex; justify-content: flex-end;">
         <button type="button" id="btnBtCalibrateCancel" class="btn btn-xs btn-secondary" data-i18n="close">Close</button>
       </div>
+    </div>
+  <!-- Modern Login Modal Dialog -->
+  <div class="modal-overlay" id="loginModalOverlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 99999; align-items: center; justify-content: center;">
+    <div class="modal-card" style="max-width: 360px; width: 90%; background: var(--bg-card, #131722); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;">
+      <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="brand-icon" style="width: 28px; height: 28px; font-size: 14px;">H</div>
+          <span style="font-weight: 700; font-size: 15px;">Sign In to Harmony Hub</span>
+        </div>
+        <button type="button" id="btnLoginClose" class="btn btn-xs btn-ghost" style="font-size: 16px;">✕</button>
+      </div>
+      <form id="loginForm" style="padding: 20px;">
+        <div style="margin-bottom: 14px;">
+          <label for="loginUsername" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Username</label>
+          <input type="text" id="loginUsername" class="form-control" placeholder="admin" required autocomplete="username" style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label for="loginPassword" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Password</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required autocomplete="current-password" style="width: 100%;">
+        </div>
+        <div id="loginErrorMsg" style="display: none; color: var(--danger, #ef4444); font-size: 12px; margin-bottom: 12px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;"></div>
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary" style="width: 100%; font-weight: 600; justify-content: center; padding: 10px;">Sign In</button>
+      </form>
     </div>
   </div>
 

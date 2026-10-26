@@ -2412,6 +2412,7 @@ class HarmonyApp {
     document.getElementById('btnRediscover')?.addEventListener('click', () => this.rediscoverMqtt());
     document.getElementById('btnRebootHub')?.addEventListener('click', () => this.rebootHub());
     this.setupFactoryResetModal();
+    this.initAuthUI();
     document.getElementById('btnToggleRfSvc')?.addEventListener('click', () => this.toggleRfService());
     document.getElementById('btnToggleBtSvc')?.addEventListener('click', () => this.toggleBtService());
     document.getElementById('btnRefreshLogs')?.addEventListener('click', () => this.refreshLogs());
@@ -8341,7 +8342,8 @@ class HarmonyApp {
       this.refreshServiceStatuses(),
       this.refreshSystemInfo(),
       this.refreshLogs(),
-      this.loadUserAccounts()
+      this.loadUserAccounts(),
+      this.loadPersonalAccessTokens()
     ]);
     this.updateIconCacheUI();
   }
@@ -8691,8 +8693,183 @@ class HarmonyApp {
       await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
       if (status) status.innerHTML = '<span style="color:var(--success)">Admin account & sign-in saved!</span>';
       await this.loadUserAccounts();
+      this.checkAuthStatus();
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+    }
+  }
+
+  async loadPersonalAccessTokens() {
+    const listEl = document.getElementById('tokensListContainer');
+    if (!this.client || typeof this.client.getTokens !== 'function' || !listEl) return;
+
+    try {
+      const data = await this.client.getTokens();
+      if (!data || !data.ok) {
+        listEl.innerHTML = '<div class="subtle mini">Unable to retrieve tokens.</div>';
+        return;
+      }
+      const tokens = data.tokens || [];
+      if (tokens.length === 0) {
+        listEl.innerHTML = '<div class="subtle mini" style="padding: 4px 0;">No Personal Access Tokens generated yet.</div>';
+        return;
+      }
+
+      let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+      for (const t of tokens) {
+        const createdDate = t.created_at ? new Date(t.created_at * 1000).toLocaleDateString() : 'Unknown';
+        const lastUsed = t.last_used_at ? new Date(t.last_used_at * 1000).toLocaleString() : 'Never';
+        html += `
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
+            <div>
+              <div style="font-weight: 600; font-size: 13px;">${t.name || 'Unnamed Token'}</div>
+              <div class="mini muted" style="font-size: 10px; margin-top: 2px;">
+                <span>ID: ${t.id}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
+              </div>
+            </div>
+            <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${t.id}" data-name="${t.name || t.id}">Revoke</button>
+          </div>`;
+      }
+      html += '</div>';
+      listEl.innerHTML = html;
+
+      listEl.querySelectorAll('.btn-del-pat').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tid = btn.getAttribute('data-id');
+          const tname = btn.getAttribute('data-name');
+          if (!confirm(`Revoke Personal Access Token "${tname}"? Third-party integrations using this token will stop working.`)) return;
+          try {
+            await this.client.deleteToken(tid);
+            await this.loadPersonalAccessTokens();
+          } catch (err) {
+            alert(`Failed to revoke token: ${err.message}`);
+          }
+        });
+      });
+    } catch (err) {
+      listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load tokens: ${err.message}</div>`;
+    }
+  }
+
+  async createPersonalAccessToken() {
+    const nameInp = document.getElementById('newTokenName');
+    const roleSel = document.getElementById('newTokenRole');
+    const box = document.getElementById('newlyCreatedTokenBox');
+    const outInp = document.getElementById('newlyCreatedTokenInput');
+    const name = nameInp?.value.trim() || 'Personal Access Token';
+    const role = roleSel?.value || 'admin';
+
+    try {
+      const res = await this.client.createToken(name, role);
+      if (res && res.ok && res.token) {
+        if (outInp) outInp.value = res.token;
+        if (box) box.style.display = 'block';
+        if (nameInp) nameInp.value = '';
+        await this.loadPersonalAccessTokens();
+      }
+    } catch (err) {
+      alert(`Failed to create token: ${err.message}`);
+    }
+  }
+
+  initAuthUI() {
+    const modal = document.getElementById('loginModalOverlay');
+    const form = document.getElementById('loginForm');
+    const btnClose = document.getElementById('btnLoginClose');
+    const btnSession = document.getElementById('btnAuthSession');
+    const errBox = document.getElementById('loginErrorMsg');
+
+    window.addEventListener('harmony:unauthorized', () => {
+      this.showLoginModal();
+    });
+
+    if (btnClose) {
+      btnClose.addEventListener('click', () => {
+        if (modal) modal.style.display = 'none';
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const u = document.getElementById('loginUsername')?.value.trim();
+        const p = document.getElementById('loginPassword')?.value;
+        if (errBox) errBox.style.display = 'none';
+        try {
+          await this.client.login(u, p);
+          if (modal) modal.style.display = 'none';
+          this.checkAuthStatus();
+        } catch (err) {
+          if (errBox) {
+            errBox.textContent = err.message || 'Invalid username or password';
+            errBox.style.display = 'block';
+          }
+        }
+      });
+    }
+
+    if (btnSession) {
+      btnSession.addEventListener('click', async () => {
+        if (this.client?.token) {
+          if (confirm('Log out from Harmony Hub?')) {
+            await this.client.logout();
+            this.checkAuthStatus();
+            this.showLoginModal();
+          }
+        } else {
+          this.showLoginModal();
+        }
+      });
+    }
+
+    const btnCreatePat = document.getElementById('btnCreateToken');
+    if (btnCreatePat) {
+      btnCreatePat.addEventListener('click', () => this.createPersonalAccessToken());
+    }
+
+    const btnCopyPat = document.getElementById('btnCopyNewToken');
+    if (btnCopyPat) {
+      btnCopyPat.addEventListener('click', () => {
+        const inp = document.getElementById('newlyCreatedTokenInput');
+        if (inp && inp.value) {
+          navigator.clipboard?.writeText(inp.value);
+          btnCopyPat.textContent = 'Copied!';
+          setTimeout(() => { btnCopyPat.textContent = 'Copy'; }, 2000);
+        }
+      });
+    }
+
+    this.checkAuthStatus();
+  }
+
+  showLoginModal() {
+    const modal = document.getElementById('loginModalOverlay');
+    const errBox = document.getElementById('loginErrorMsg');
+    if (errBox) errBox.style.display = 'none';
+    if (modal) modal.style.display = 'flex';
+  }
+
+  async checkAuthStatus() {
+    const btnSession = document.getElementById('btnAuthSession');
+    const userDisplay = document.getElementById('authUserDisplay');
+    const btnAction = document.getElementById('btnAuthAction');
+    if (!this.client || typeof this.client.getAuthMe !== 'function') return;
+
+    try {
+      const me = await this.client.getAuthMe();
+      if (me && me.auth_enabled) {
+        if (btnSession) btnSession.style.display = 'inline-flex';
+        if (userDisplay) userDisplay.textContent = me.username || 'User';
+        if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
+      } else if (btnSession) {
+        btnSession.style.display = 'none';
+      }
+    } catch (e) {
+      if (this.client?.token && btnSession) {
+        btnSession.style.display = 'inline-flex';
+        if (userDisplay) userDisplay.textContent = 'Auth required';
+        if (btnAction) btnAction.textContent = 'Login';
+      }
     }
   }
 

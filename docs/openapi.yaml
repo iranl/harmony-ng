@@ -434,6 +434,137 @@ paths:
                 username: admin
                 role: admin
 
+  /api/auth/token:
+    post:
+      tags:
+        - Authentication & Users
+      summary: OAuth2 Password Grant / Login
+      description: Exchanges username and password credentials for an expiring Bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              example:
+                ok: true
+                access_token: "hht_018f3a9e2c4d8b7a1e5f..."
+                token_type: "Bearer"
+                expires_in: 86400
+                username: admin
+                role: admin
+        '401':
+          description: Invalid username or password
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Session Logout
+      description: Invalidates active Bearer session token.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Logged out
+
+  /api/auth/tokens:
+    get:
+      tags:
+        - Authentication & Users
+      summary: List Personal Access Tokens (Admin only)
+      description: Returns active Personal Access Tokens for third-party home automation integrations.
+      security:
+        - bearerAuth: []
+        - digestAuth: []
+        - basicAuth: []
+      responses:
+        '200':
+          description: Token list retrieved
+          content:
+            application/json:
+              example:
+                ok: true
+                tokens:
+                  - id: tok_1a2b3c4d
+                    name: "Home Assistant"
+                    role: admin
+                    created_at: 1729940000
+                    last_used_at: 1729950000
+    post:
+      tags:
+        - Authentication & Users
+      summary: Generate Personal Access Token (Admin only)
+      description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation.
+      security:
+        - bearerAuth: []
+        - digestAuth: []
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: Home Assistant
+                role:
+                  type: string
+                  enum: [admin, user]
+                  example: admin
+      responses:
+        '201':
+          description: Token created
+          content:
+            application/json:
+              example:
+                ok: true
+                id: tok_1a2b3c4d
+                name: "Home Assistant"
+                role: admin
+                token: "pat_3f8a9b1c2d4e..."
+    delete:
+      tags:
+        - Authentication & Users
+      summary: Revoke Personal Access Token (Admin only)
+      parameters:
+        - in: query
+          name: id
+          schema:
+            type: string
+          required: true
+          description: Token ID to revoke
+      responses:
+        '200':
+          description: Token revoked
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Token deleted
+
   /api/users:
     get:
       tags:
@@ -2448,5 +2579,19 @@ components:
       scheme: basic
       description: |
         HTTP Basic Authentication for multi-user RBAC.
-        When authentication is enabled on the Hub, requests must supply the `Authorization: Basic <base64(user:pass)>` header.
-        Users can have `admin` (full access) or `user` (restricted access: start/stop activities, control devices, trigger keys/mouse, customize personal remote layout) roles.
+        When authentication is enabled on the Hub, requests can supply the `Authorization: Basic <base64(user:pass)>` header.
+        Users can have `admin` or `user` roles.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token (Session or PAT)
+      description: |
+        OAuth2 Bearer Token Authentication.
+        Supports in-memory session tokens (`hht_...` generated via `/api/auth/token`) and persistent Personal Access Tokens (`pat_...` generated via `/api/auth/tokens`).
+        Supply header `Authorization: Bearer <token>`.
+    digestAuth:
+      type: http
+      scheme: digest
+      description: |
+        HTTP Digest Authentication (RFC 7616 / RFC 2617) with SHA-256.
+        Standard curl, Postman, Home Assistant digest authentication without sending plaintext credentials over the wire.

@@ -31,6 +31,7 @@ if [ ! -f "$HOST_BUILD_DIR/codex_daemon_test" ]; then
         "$REPO_ROOT/payload/source/ws_server.c" \
         "$REPO_ROOT/payload/source/mqtt_client.c" \
         "$REPO_ROOT/payload/source/codex_ntp.c" \
+        "$REPO_ROOT/payload/source/sha256.c" \
         -lpthread -lm \
         -o "$HOST_BUILD_DIR/codex_daemon_test" || {
             echo "[!] Host test compile skipped (cross-compilation verified via compile_all.sh)"
