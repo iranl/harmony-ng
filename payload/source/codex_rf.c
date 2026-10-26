@@ -230,6 +230,15 @@ static int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     return ok ? 0 : -1;
 }
 
+/* Config frames are lost when the CC2544 NAKs a send; retry until the remote ACKs. */
+static int rf_send_config_frame(rf_frame_t *frame) {
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        if (rf_send_frame_acked(frame, 300) == 0) return 0;
+    }
+    printf("[-] No ACK for config frame type=0x%02X seq=%d after 3 attempts\n", frame->msg_type, frame->seq);
+    return -1;
+}
+
 /* Trigger HTTP POST request to local service (with connect timeout) */
 static void http_post_local(int port, const char *endpoint, const char *json_body) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -920,7 +929,7 @@ static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, in
     payload[18] = (uint8_t)(cap_buttons ? 1 : 2);
     payload[19] = (uint8_t)(power_debug ? 1 : 2);
     rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 20);
-    rf_send_frame_acked(&f, 300);
+    rf_send_config_frame(&f);
 }
 
 /* Send Codex Activity Sync frame to a specific slot */
@@ -1171,7 +1180,7 @@ static void *config_push_worker(void *arg) {
         payload[0] = 0x00; /* clear */
         payload[1] = config_ver;
         rf_build_frame(&f, target_slot, RF_MSG_CONFIG_END, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 2);
-        rf_send_frame_acked(&f, 300);
+        rf_send_config_frame(&f);
     }
     usleep(20000);
 
@@ -1256,7 +1265,7 @@ static void *config_push_worker(void *arg) {
                 strncpy((char *)&payload[11], acts[i].name, 14);
             }
             rf_build_frame(&f, target_slot, RF_MSG_ACTIVITY_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
@@ -1332,7 +1341,7 @@ static void *config_push_worker(void *arg) {
             memcpy(&payload[2], devs[i].id, 10);
             memcpy(&payload[12], devs[i].name, 14);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
@@ -1366,7 +1375,7 @@ static void *config_push_worker(void *arg) {
                             payload[24] = 0x01; /* device_cmd */
 
                             rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                            rf_send_frame_acked(&f, 300);
+                            rf_send_config_frame(&f);
                             btn_count++;
                             sidx++;
                             usleep(15000);
@@ -1407,7 +1416,7 @@ static void *config_push_worker(void *arg) {
                                 payload[24] = 0x01; /* device_cmd */
 
                                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                rf_send_frame_acked(&f, 300);
+                                rf_send_config_frame(&f);
                                 btn_count++;
                                 sidx++;
                                 usleep(15000);
@@ -1453,7 +1462,7 @@ static void *config_push_worker(void *arg) {
                                 payload[24] = atype;
 
                                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                rf_send_frame_acked(&f, 300);
+                                rf_send_config_frame(&f);
                                 btn_count++;
                                 b_idx++;
                                 usleep(15000);
@@ -1474,7 +1483,7 @@ static void *config_push_worker(void *arg) {
                 payload[24] = 0x03; /* activity_stop */
 
                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                rf_send_frame_acked(&f, 300);
+                rf_send_config_frame(&f);
                 btn_count++;
                 usleep(15000);
             }
@@ -1707,7 +1716,7 @@ static void *config_push_worker(void *arg) {
             strncpy((char *)&payload[14], act_steps[i].name, 11);
 
             rf_build_frame(&f, target_slot, RF_MSG_STEP_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
@@ -1790,7 +1799,7 @@ static void *config_push_worker(void *arg) {
         payload[0] = 0x01; /* complete */
         payload[1] = g_config_version;
         rf_build_frame(&f, target_slot, RF_MSG_CONFIG_END, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 2);
-        rf_send_frame_acked(&f, 300);
+        rf_send_config_frame(&f);
     }
 
     printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
