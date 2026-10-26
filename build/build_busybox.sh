@@ -90,18 +90,16 @@ build_arm() {
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
 
-    if command -v arm-buildroot-linux-uclibcgnueabi-gcc >/dev/null 2>&1; then
-        CROSS="arm-buildroot-linux-uclibcgnueabi-"
-        scripts/kconfig/conf -D .config Config.in
-        make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
-        "${CROSS}strip" busybox
-    else
-        CROSS="arm-linux-gnueabi-"
-        sed -i 's/CONFIG_LFS=y/# CONFIG_LFS is not set/' .config
-        scripts/kconfig/conf -D .config Config.in
-        make -j"$(nproc)" CROSS_COMPILE="$CROSS" EXTRA_CFLAGS="-U_TIME_BITS -D_TIME_BITS=32 -D_FILE_OFFSET_BITS=32" busybox
-        "${CROSS}strip" busybox
+    # The Elite runs Linux 2.6.37. A static glibc BusyBox breaks there (tar -c,
+    # find and du fail), so only the uClibc toolchain is accepted.
+    CROSS="arm-buildroot-linux-uclibcgnueabi-"
+    if ! command -v "${CROSS}gcc" >/dev/null 2>&1; then
+        echo "[!] ${CROSS}gcc not found. Extract the Bootlin armv5-eabi--uclibc--stable toolchain into build/toolchains/." >&2
+        exit 1
     fi
+    scripts/kconfig/conf -D .config Config.in
+    make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
+    "${CROSS}strip" busybox
 
     cp busybox "$REPO_ROOT/elite/bin/busybox"
     echo "[+] ARM BusyBox built: $REPO_ROOT/elite/bin/busybox ($(ls -lh "$REPO_ROOT/elite/bin/busybox" | awk '{print $5}'))"
