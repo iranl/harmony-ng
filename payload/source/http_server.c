@@ -1643,12 +1643,13 @@ void http_handle_client(int client_fd) {
             }
         }
 
-        if (dyn_buf) free(dyn_buf);
-
         if (!handled_static) {
             http_process_request(client_fd, req);
+            if (dyn_buf) free(dyn_buf);
             return;
         }
+
+        if (dyn_buf) free(dyn_buf);
 
         if (!keep_alive) {
             close(client_fd);

@@ -1637,7 +1637,7 @@ int main(int argc, char **argv) {
                     pthread_attr_t attr;
                     pthread_attr_init(&attr);
                     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-                    pthread_attr_setstacksize(&attr, 128 * 1024);
+                    pthread_attr_setstacksize(&attr, 512 * 1024);
                     if (pthread_create(&th, &attr, http_client_worker, (void *)(intptr_t)cfd) != 0) {
                         http_handle_client(cfd);
                     }

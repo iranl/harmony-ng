@@ -685,14 +685,20 @@ static void orch_trigger_bt_host_connect(const char *target_activity_id) {
 }
 
 static int orch_compile_transition(const char *target_id) {
-    orch_step_t steps[ORCH_MAX_STEPS];
+    orch_step_t *steps = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+    if (!steps) return -1;
     size_t count = 0;
-    if (orch_build_steps(target_id, steps, ORCH_MAX_STEPS, &count) != 0) return -1;
-    return orch_enqueue_steps(steps, count);
+    if (orch_build_steps(target_id, steps, ORCH_MAX_STEPS, &count) != 0) {
+        free(steps);
+        return -1;
+    }
+    int rc = orch_enqueue_steps(steps, count);
+    free(steps);
+    return rc;
 }
 
 static void orch_format_preview_json(const char *target_id, const orch_step_t *steps, size_t count,
-                                    char *preview_json, size_t preview_len) {
+                                     char *preview_json, size_t preview_len) {
     if (!preview_json || preview_len == 0) return;
     cJSON *pj = cJSON_CreateObject();
     cJSON_AddStringToObject(pj, "target", target_id ? target_id : ORCH_POWEROFF_ID);
@@ -726,10 +732,13 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
 
     if (dry_run) {
         if (preview_json && preview_len > 0) {
-            orch_step_t steps[ORCH_MAX_STEPS];
-            size_t count = 0;
-            orch_build_steps(target_activity_id, steps, ORCH_MAX_STEPS, &count);
-            orch_format_preview_json(target_activity_id, steps, count, preview_json, preview_len);
+            orch_step_t *steps = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+            if (steps) {
+                size_t count = 0;
+                orch_build_steps(target_activity_id, steps, ORCH_MAX_STEPS, &count);
+                orch_format_preview_json(target_activity_id, steps, count, preview_json, preview_len);
+                free(steps);
+            }
         }
         return 0;
     }
@@ -768,10 +777,13 @@ int orch_power_off(int dry_run, char *preview_json, size_t preview_len) {
 
     if (dry_run) {
         if (preview_json && preview_len > 0) {
-            orch_step_t steps[ORCH_MAX_STEPS];
-            size_t count = 0;
-            orch_build_steps(ORCH_POWEROFF_ID, steps, ORCH_MAX_STEPS, &count);
-            orch_format_preview_json(ORCH_POWEROFF_ID, steps, count, preview_json, preview_len);
+            orch_step_t *steps = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+            if (steps) {
+                size_t count = 0;
+                orch_build_steps(ORCH_POWEROFF_ID, steps, ORCH_MAX_STEPS, &count);
+                orch_format_preview_json(ORCH_POWEROFF_ID, steps, count, preview_json, preview_len);
+                free(steps);
+            }
         }
         return 0;
     }
