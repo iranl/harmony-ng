@@ -350,12 +350,24 @@ def print_step1_instructions() -> None:
     print("\n" + "=" * 70)
     print(" CONFIGURE STATIC IP ON PC:")
     print("=" * 70)
-    print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
-    print("   - Open Network Connections (Win+R -> ncpa.cpl).")
-    print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
-    print("        IP Address:      192.168.2.2")
-    print("        Subnet Mask:     255.255.255.0")
-    print("        Default Gateway: 192.168.2.1")
+    if sys.platform == "win32":
+        print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
+        print("   - Open Network Connections (Win+R -> ncpa.cpl).")
+        print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
+        print("        IP Address:      192.168.2.2")
+        print("        Subnet Mask:     255.255.255.0")
+        print("        Default Gateway: 192.168.2.1")
+    elif sys.platform == "darwin":
+        print("   - macOS adds a network service named 'RNDIS/Ethernet Gadget' (no driver needed).")
+        print("   - Give it a static address (no router, so your internet route is unchanged):")
+        print('        sudo networksetup -setmanual "RNDIS/Ethernet Gadget" 192.168.2.2 255.255.255.0')
+        print("   - To undo later:")
+        print('        sudo networksetup -setdhcp "RNDIS/Ethernet Gadget"')
+    else:
+        print("   - A USB Ethernet interface (e.g. usb0 or enx...) will appear; find it with: ip link")
+        print("   - Give it a static address:")
+        print("        sudo ip addr add 192.168.2.2/24 dev <interface>")
+        print("        sudo ip link set <interface> up")
     print("=" * 70)
 
 
