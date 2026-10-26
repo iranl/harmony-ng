@@ -251,7 +251,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
 
     ssh_opts = [
         "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=NUL" if sys.platform == "win32" else "/dev/null",
+        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]

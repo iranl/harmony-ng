@@ -40,7 +40,7 @@ DEFAULT_ELITE_IP = "192.168.2.1"
 def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
         "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null" if sys.platform != "win32" else "NUL",
+        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=5",
     ]
