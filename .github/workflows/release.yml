@@ -110,10 +110,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
+      - name: Install Bootlin ARMv5 uClibc Toolchain
+        run: |
+          mkdir -p build/toolchains
+          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
       - name: Compile Elite Binaries & Extended BusyBox
         run: |
           chmod +x build/build_busybox.sh
-          ./build/build_busybox.sh arm || true
+          ./build/build_busybox.sh arm
           mkdir -p build/output/elite
           arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source \
             payload/source/codex_elite.c payload/source/cJSON.c \
