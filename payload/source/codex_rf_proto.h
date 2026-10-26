@@ -46,6 +46,10 @@
 #define RF_MSG_ICON_CHUNK          0x27  /* Hub -> Remote: 22-byte icon binary chunk */
 #define RF_MSG_ICON_END            0x28  /* Hub -> Remote: complete / CRC16 verification */
 
+/* Update Management */
+#define RF_MSG_OTA_REQUEST         0x29  /* Remote -> Hub: request Hub to start binary OTA */
+#define RF_MSG_UPDATE_NOTIFY       0x2A  /* Hub -> Remote: notify remote of pending config or OTA update */
+
 /* Flags */
 #define RF_FLAG_ACK_REQ  0x01
 #define RF_FLAG_IS_ACK   0x02
@@ -85,13 +89,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[4];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
+               (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
     if (len >= 30 && raw[0] == 0x12) {
@@ -99,13 +103,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[2];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
+               (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
     return 0;

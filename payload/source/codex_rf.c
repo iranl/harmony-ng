@@ -972,6 +972,64 @@ static void rf_send_codex_activity_sync(const char *act_id) {
 }
 
 /* Send Codex Time & Timezone sync frame to a specific slot */
+static uint8_t rf_check_update_flags(uint8_t slot) {
+    uint8_t flags = 0;
+    int idx = (slot == 2) ? 1 : 0;
+
+    /* 1. Config update check: Hub config_version differs from remote reported config_version */
+    if (g_config_version > 0 && g_remote_versions[idx].config_version > 0 &&
+        g_remote_versions[idx].config_version != g_config_version) {
+        flags |= 0x01;
+    }
+
+    /* 2. OTA update check: Hub has OTA file in /cache or /data */
+    const char *ota_path = "/cache/codex_elite.ota.gz";
+    if (access(ota_path, R_OK) != 0) ota_path = "/data/codex_elite.ota.gz";
+    if (access(ota_path, R_OK) == 0) {
+        FILE *vf = fopen("/cache/codex_elite.version", "r");
+        if (!vf) vf = fopen("/data/codex_elite.version", "r");
+        if (vf) {
+            char ota_ver[32] = {0};
+            if (fgets(ota_ver, sizeof(ota_ver), vf)) {
+                char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
+                nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
+                if (strcmp(g_remote_versions[idx].sw_version, "unknown") == 0 ||
+                    strcmp(g_remote_versions[idx].sw_version, ota_ver) != 0) {
+                    flags |= 0x02;
+                }
+            }
+            fclose(vf);
+        } else {
+            flags |= 0x02;
+        }
+    }
+    return flags;
+}
+
+static void rf_notify_update_available(uint8_t target_slot) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    uint8_t flags = rf_check_update_flags(target_slot);
+    if (!flags) return;
+
+    rf_frame_t f;
+    uint8_t payload[25] = {0};
+    payload[0] = flags;
+    payload[1] = g_config_version;
+    FILE *vf = fopen("/cache/codex_elite.version", "r");
+    if (!vf) vf = fopen("/data/codex_elite.version", "r");
+    if (vf) {
+        unsigned int maj = 0, min = 0, pat = 0;
+        if (fscanf(vf, "%u.%u.%u", &maj, &min, &pat) >= 2) {
+            payload[2] = (uint8_t)maj;
+            payload[3] = (uint8_t)min;
+            payload[4] = (uint8_t)pat;
+        }
+        fclose(vf);
+    }
+    rf_build_frame(&f, target_slot ? target_slot : 0x01, RF_MSG_UPDATE_NOTIFY, ++g_tx_seq, 0, payload, 8);
+    rf_send_frame(&f);
+}
+
 static void rf_send_codex_time_sync_slot(uint8_t slot) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
 
@@ -1006,6 +1064,9 @@ static void rf_send_codex_time_sync_slot(uint8_t slot) {
     if (tz_len > 15) tz_len = 15;
     payload[4] = tz_len;
     memcpy(&payload[5], tz, tz_len);
+
+    /* Byte 19: Update notification flags (0x01 = config update, 0x02 = firmware OTA) */
+    payload[19] = rf_check_update_flags(slot ? slot : 0x01);
 
     /* Config version embedded at byte 20 */
     payload[20] = g_config_version;
@@ -2261,6 +2322,44 @@ static void handle_codex_frame(const rf_frame_t *f) {
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
+
+            uint8_t uflags = rf_check_update_flags(slot);
+            if (uflags) {
+                usleep(25000);
+                rf_notify_update_available(slot);
+            }
+            break;
+        }
+
+        case RF_MSG_OTA_REQUEST: {
+            uint8_t slot = f->dev_slot & 0x0F;
+            if (slot < 1 || slot > 2) slot = g_remote_slot ? g_remote_slot : 1;
+            printf("[*] Codex: Remote in slot %d requested RF OTA pull\n", slot);
+            pthread_mutex_lock(&g_ota_lock);
+            if (!g_rf_ota.in_progress) {
+                g_rf_ota.in_progress = true;
+                g_rf_ota.target_slot = slot;
+                g_rf_ota.status_code = 1;
+                g_rf_ota.error_msg[0] = '\0';
+                pthread_t ota_th;
+                if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
+                    pthread_detach(ota_th);
+                    rf_frame_t ack;
+                    rf_build_ack(&ack, slot, f->seq, 0x00);
+                    rf_send_frame(&ack);
+                } else {
+                    g_rf_ota.in_progress = false;
+                    g_rf_ota.status_code = -1;
+                    rf_frame_t ack;
+                    rf_build_ack(&ack, slot, f->seq, 0x01);
+                    rf_send_frame(&ack);
+                }
+            } else {
+                rf_frame_t ack;
+                rf_build_ack(&ack, slot, f->seq, 0x02); /* Busy */
+                rf_send_frame(&ack);
+            }
+            pthread_mutex_unlock(&g_ota_lock);
             break;
         }
 
@@ -2892,6 +2991,8 @@ static void *api_server_worker(void *arg) {
                     pthread_t push_th;
                     pthread_create(&push_th, NULL, config_push_worker, NULL);
                     pthread_detach(push_th);
+                    rf_notify_update_available(1);
+                    rf_notify_update_available(2);
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}";
                     write(cli, res, strlen(res));
                 }

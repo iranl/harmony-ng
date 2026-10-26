@@ -45,6 +45,7 @@
 #define RFSPI_DEV                 "/dev/rfspi"
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
 #define STOCK_ACTIVITY_JSON_FILE  "/data/resources/ActivityList.json"
+#define RF_CONFIG_FILE            "/data/codex_elite_config.json"
 
 
 
@@ -78,6 +79,7 @@ typedef enum {
     VIEW_DEVICES,
     VIEW_SETTINGS,
     VIEW_PAIRING,
+    VIEW_NOT_PAIRED,
     VIEW_COUNT
 } ui_view_t;
 
@@ -91,6 +93,26 @@ static bool g_no_screen_mode = false;
 static int g_log_level = LOG_LEVEL_INFO;
 static void rf_send_full_sync_request(void);
 static void rf_wake_and_reconnect(void);
+
+/* RF Link & Pairing State */
+static volatile bool g_rf_link_connected = false;
+static volatile int g_pairing_state = 0; /* 0=idle, 1=pairing, 2=paired, 3=failed */
+static uint8_t g_paired_hub_addr[4] = {0};
+static uint8_t g_remote_own_addr[4] = {0};
+
+/* Hub & OTA Update Notification State */
+static bool g_update_config_available = false;
+static bool g_update_ota_available = false;
+static uint8_t g_hub_config_version = 0;
+static char g_hub_ota_version[16] = "";
+
+static inline bool is_remote_paired(void) {
+    if (g_rf_link_connected) return true;
+    if (g_pairing_state == 2) return true;
+    if (g_paired_hub_addr[0] || g_paired_hub_addr[1] || g_paired_hub_addr[2] || g_paired_hub_addr[3]) return true;
+    if (access(RF_CONFIG_FILE, F_OK) == 0) return true;
+    return false;
+}
 
 /* Activity item */
 typedef struct {
@@ -283,8 +305,6 @@ static int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t lab
     }
     return -1;
 }
-
-#define RF_CONFIG_FILE "/data/codex_elite_config.json"
 
 static void save_rf_config(void) {
     cJSON *root = cJSON_CreateObject();
@@ -517,6 +537,7 @@ typedef enum {
     SETTINGS_VIEW_TOUCH,
     SETTINGS_VIEW_POWER,
     SETTINGS_VIEW_SYSTEM,
+    SETTINGS_VIEW_UPDATE,
     SETTINGS_VIEW_FACTORY_RESET,
     SETTINGS_VIEW_REBOOT,
     SETTINGS_VIEW_SUSPEND
@@ -531,7 +552,6 @@ static void enter_kernel_suspend(void);
 static void trigger_manual_suspend_to_ram(void);
 static int g_selected_pair_opt = 0;
 #define PAIR_OPT_COUNT 2
-static volatile bool g_rf_link_connected = false;
 static bool g_touch_enabled = true;
 static bool g_cap_buttons_enabled = true;
 static int g_touch_sensitivity = 2;   /* 1 = Low, 2 = Normal, 3 = High */
@@ -2188,10 +2208,7 @@ static void *key_repeat_thread(void *arg) {
 }
 
 static pthread_mutex_t g_rf_write_mutex = PTHREAD_MUTEX_INITIALIZER;
-static volatile int g_pairing_state = 0; /* 0=idle, 1=pairing, 2=paired, 3=failed */
 static volatile uint64_t g_last_hub_frame_ms = 0;
-static uint8_t g_remote_own_addr[4] = {0};
-static uint8_t g_paired_hub_addr[4] = {0};
 static bool g_unpair_confirm_active = false;
 
 /* Send a Codex RF frame over /dev/rfspi using stock 32-byte Report 0x20 (Remote device mode framing matching hal_remote) */
@@ -2382,6 +2399,7 @@ static void rf_unpair(void) {
     g_active_activity_name[0] = '\0';
     g_config_version = 0;
     g_unpair_confirm_active = false;
+    g_current_view = VIEW_NOT_PAIRED;
 
     printf("[+] Remote unpairing & bonding removal complete. Ready to pair to new hub.\n");
     render_screen();
@@ -2707,6 +2725,7 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 g_is_syncing_config = false;
                 g_config_version = version;
                 g_has_hub_config = true;
+                g_update_config_available = false;
                 save_rf_config();
                 g_activity_count = 0;
                 for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
@@ -3135,8 +3154,18 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 }
             }
 
-            /* Hub config version embedded at byte 20 */
+            /* Hub config version & update flags embedded at bytes 19..20 */
+            uint8_t uflags = f->payload[19];
             uint8_t hub_ver = f->payload[20];
+            g_hub_config_version = hub_ver;
+            if (hub_ver != 0 && hub_ver != g_config_version) {
+                g_update_config_available = true;
+            } else {
+                g_update_config_available = false;
+            }
+            if (uflags & 0x02) {
+                g_update_ota_available = true;
+            }
             if (hub_ver != 0 && hub_ver != g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
                 static uint64_t last_ver_check_ms = 0;
                 uint64_t now_ms = get_monotonic_ms();
@@ -3154,6 +3183,27 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 printf("[+] Remote learned Hub RF Address from TIME_SYNC: %02X%02X%02X%02X\n",
                        g_paired_hub_addr[0], g_paired_hub_addr[1], g_paired_hub_addr[2], g_paired_hub_addr[3]);
             }
+            g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_UPDATE_NOTIFY: {
+            uint8_t uflags = f->payload[0];
+            uint8_t hub_ver = f->payload[1];
+            g_hub_config_version = hub_ver;
+            if (uflags & 0x01) {
+                g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
+            }
+            if (uflags & 0x02) {
+                g_update_ota_available = true;
+                snprintf(g_hub_ota_version, sizeof(g_hub_ota_version), "v%d.%d.%d",
+                         f->payload[2], f->payload[3], f->payload[4]);
+            }
+            printf("[*] Remote received UPDATE_NOTIFY: flags=0x%02X, cfg_ver=%d, ota_ver=%s\n",
+                   uflags, hub_ver, g_hub_ota_version);
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
             g_screen_dirty = true;
             break;
         }
@@ -3176,7 +3226,7 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             if (write(g_rf_fd, exit_test, sizeof(exit_test)) < 0) {}
             pthread_mutex_unlock(&g_rf_write_mutex);
             show_notice("Hub unpaired this remote", 4000);
-            g_current_view = VIEW_PAIRING;
+            g_current_view = VIEW_NOT_PAIRED;
             g_screen_dirty = true;
             break;
         }
@@ -3414,7 +3464,7 @@ static void *rf_rx_worker(void *arg) {
                 printf("[+] Remote RF Pairing SUCCESS! Paired to Hub on Slot %d\n", g_remote_slot);
                 g_rf_link_connected = true;
                 g_pairing_state = 2;
-                if (g_current_view == VIEW_PAIRING) g_current_view = VIEW_ACTIVITIES;
+                if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) g_current_view = VIEW_ACTIVITIES;
                 rf_send_full_sync_request();
             } else {
                 printf("[-] Remote RF Pairing failed / closed (status=0x%02X)\n", pair_status);
@@ -3432,7 +3482,7 @@ static void *rf_rx_worker(void *arg) {
             }
             if (g_pairing_state == 1) {
                 g_pairing_state = 2;
-                if (g_current_view == VIEW_PAIRING) {
+                if (g_current_view == VIEW_PAIRING || g_current_view == VIEW_NOT_PAIRED) {
                     g_current_view = VIEW_ACTIVITIES;
                     g_screen_dirty = true;
                 }
@@ -3543,8 +3593,32 @@ static void render_header(void) {
     /* View Title in bold anti-aliased font */
     const char *title = (g_current_view == VIEW_ACTIVITIES) ? (g_remote_mode == 1 ? "PAGE 1" : "ACTIVITIES") :
                         ((g_current_view == VIEW_DEVICES) ? (g_remote_mode == 1 ? "PAGE 2" : "DEVICES") :
-                        ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" : "SETTINGS"));
+                        ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" :
+                        ((g_current_view == VIEW_NOT_PAIRED) ? "NOT PAIRED" : "SETTINGS")));
     fb_draw_text_aa(10, 9, title, RGB_WHITE, &g_font_title);
+
+    /* Notification Icon for Available Updates (Config or Firmware OTA) */
+    if (g_update_config_available || g_update_ota_available) {
+        int notif_x = 76;
+        int notif_y = 9;
+        int notif_w = 18;
+        int notif_h = 16;
+        uint16_t n_bg = g_update_ota_available ? RGB_YELLOW : RGB_TEAL;
+        uint16_t n_fg = RGB_BLACK;
+
+        fb_fill_rect(notif_x, notif_y, notif_w, notif_h, n_bg);
+        fb_draw_rect(notif_x, notif_y, notif_w, notif_h, RGB_WHITE);
+
+        /* Down arrow symbol: shaft */
+        fb_fill_rect(notif_x + 8, notif_y + 3, 2, 5, n_fg);
+        /* Arrowhead (stepped horizontal bars) */
+        fb_fill_rect(notif_x + 5, notif_y + 8, 8, 1, n_fg);
+        fb_fill_rect(notif_x + 6, notif_y + 9, 6, 1, n_fg);
+        fb_fill_rect(notif_x + 7, notif_y + 10, 4, 1, n_fg);
+        fb_fill_rect(notif_x + 8, notif_y + 11, 2, 1, n_fg);
+        /* Tray bottom line */
+        fb_fill_rect(notif_x + 4, notif_y + 13, 10, 1, n_fg);
+    }
 
     /* Right-aligned RF Connection Badge at fixed offset FB_WIDTH - 142 to prevent title clipping */
     int badge_x = FB_WIDTH - 142;
@@ -3621,17 +3695,22 @@ static void render_footer(void) {
         int tx = 4 + t * (tab_w + 2);
         int ty = dock_y + 4;
         int th = dock_h - 8;
-        bool is_active_view = (g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING);
+        bool paired = is_remote_paired();
+        bool is_disabled = !paired && (t == 0 || t == 1);
+        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING));
+        if (!paired && t == 2 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) {
+            is_active_view = true;
+        }
 
         uint16_t bg = is_active_view ? RGB_TAB_ACTIVE : RGB_TAB_BG;
         uint16_t border = is_active_view ? RGB_TEAL : 0x1924;
-        uint16_t fg = is_active_view ? RGB_WHITE : RGB_TEXT_MUTED;
+        uint16_t fg = is_disabled ? 0x4A69 : (is_active_view ? RGB_WHITE : RGB_TEXT_MUTED);
 
         fb_fill_rect(tx, ty, tab_w, th, bg);
         fb_draw_rect(tx, ty, tab_w, th, border);
 
         /* Indicator line for active view */
-        if (is_active_view) {
+        if (is_active_view && !is_disabled) {
             fb_fill_rect(tx + 2, ty + th - 2, tab_w - 4, 2, RGB_TEAL);
         }
 
@@ -4048,6 +4127,7 @@ static int get_settings_sub_count(void) {
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 4;
         case SETTINGS_VIEW_SYSTEM:     return 8;
+        case SETTINGS_VIEW_UPDATE:     return 5;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
         case SETTINGS_VIEW_SUSPEND:       return 2;
@@ -4057,13 +4137,10 @@ static int get_settings_sub_count(void) {
 
 static void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
-        if (idx >= 0 && idx < 5) {
+        if (idx >= 0 && idx < 6) {
             g_selected_category = idx;
             g_settings_subview = (settings_subview_t)(SETTINGS_VIEW_ACTIVITIES + idx);
             g_selected_sub_item = 0;
-        } else if (idx == 5) {
-            send_remote_config_backup_rf();
-            show_notice("Settings pushed to Hub!", 2500);
         }
         return;
     }
@@ -4235,6 +4312,58 @@ static void execute_settings_action(int idx) {
         return;
     }
 
+    if (g_settings_subview == SETTINGS_VIEW_UPDATE) {
+        switch (idx) {
+            case 0: /* Pull Config from Hub */
+                if (!g_rf_link_connected) {
+                    show_notice("Hub not connected", 2500);
+                } else {
+                    rf_send_full_sync_request();
+                    show_notice("Pulling config from Hub...", 3000);
+                }
+                break;
+            case 1: /* Pull Firmware OTA from Hub */
+                if (!g_rf_link_connected) {
+                    show_notice("Hub not connected", 2500);
+                } else {
+                    read_elite_battery();
+                    if (g_battery_info.percent < 40 && !g_battery_info.charging) {
+                        show_notice("Low battery (<40%) - connect charger", 3500);
+                    } else {
+                        rf_frame_t f;
+                        uint8_t payload[25] = {0};
+                        rf_build_frame(&f, g_remote_slot, RF_MSG_OTA_REQUEST, ++g_tx_seq, 0, payload, 4);
+                        rf_send_frame(&f);
+                        show_notice("Requesting OTA from Hub...", 3500);
+                    }
+                }
+                break;
+            case 2: /* Push Settings to Hub */
+                if (!g_rf_link_connected) {
+                    show_notice("Hub not connected", 2500);
+                } else {
+                    send_remote_config_backup_rf();
+                    show_notice("Settings pushed to Hub!", 2500);
+                }
+                break;
+            case 3: /* Check for Updates */
+                if (!g_rf_link_connected) {
+                    show_notice("Hub not connected", 2500);
+                } else {
+                    send_version_report_rf();
+                    rf_send_sync_query();
+                    show_notice("Checking for updates...", 2000);
+                }
+                break;
+            case 4: /* Back */
+                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                g_selected_category = 5;
+                break;
+            default: break;
+        }
+        return;
+    }
+
     if (g_settings_subview == SETTINGS_VIEW_SUSPEND) {
         if (idx == 0) {
             g_suspend_countdown_start_ms = 0;
@@ -4288,7 +4417,7 @@ static void render_settings_categories(void) {
         "TOUCH",
         "POWER",
         "SYSTEM",
-        "PUSH TO HUB"
+        "UPDATE & SYNC"
     };
     const char *cat_descs[6] = {
         "Confirm switch, remote mode",
@@ -4296,7 +4425,7 @@ static void render_settings_categories(void) {
         "Sensitivity, nav buttons",
         "Tilt wake, battery health",
         "USB ethernet, pairing, reset",
-        "Sync settings over RF"
+        "OTA, config pull, settings push"
     };
     const char *cat_icons[6] = {
         "/opt/luadraws/appscommon/asset/footer/devices.png",
@@ -4304,7 +4433,7 @@ static void render_settings_categories(void) {
         "/opt/luadraws/appscommon/asset/gesture/gesturehand.png",
         "/opt/luadraws/appscommon/asset/footer/flip.png",
         "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
-        "/opt/luadraws/appscommon/asset/pairing/connectHub.png"
+        "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png"
     };
 
     for (int i = 0; i < total; i++) {
@@ -4321,8 +4450,9 @@ static void render_settings_categories(void) {
         fb_draw_text_aa(text_x, y + 3, cat_names[i], is_sel ? RGB_WHITE : RGB_CYAN, &g_font_title);
         fb_draw_text_aa(text_x, y + 19, cat_descs[i], RGB_TEXT_MUTED, &g_font_main);
 
-        if (i == 5) {
-            fb_draw_text_aa(FB_WIDTH - 52, y + 10, "[PUSH]", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_main);
+        if (i == 5 && (g_update_config_available || g_update_ota_available)) {
+            uint16_t ucol = g_update_ota_available ? RGB_YELLOW : RGB_TEAL;
+            fb_draw_text_aa(FB_WIDTH - 64, y + 10, "[UPDATE]", ucol, &g_font_main);
         } else {
             fb_draw_text_aa(FB_WIDTH - 20, y + 9, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_title);
         }
@@ -4529,6 +4659,139 @@ static void render_settings_suspend(void) {
     }
 }
 
+/* Dedicated Not Paired View */
+static void render_not_paired_view(void) {
+    int card_x = 10;
+    int card_y = 42;
+    int card_w = FB_WIDTH - 20;
+    int card_h = 232;
+
+    /* Background card */
+    fb_fill_rect(card_x, card_y, card_w, card_h, RGB_CARD);
+    fb_draw_rect(card_x, card_y, card_w, card_h, RGB_CARD_BORDER);
+
+    /* Hub connection icon */
+    if (!blit_png_file((FB_WIDTH - 48) / 2, card_y + 16, 48, 48, "/opt/luadraws/appscommon/asset/pairing/connectHub.png")) {
+        fb_fill_rect((FB_WIDTH - 40) / 2, card_y + 20, 40, 40, RGB_CARD_SEL);
+        fb_draw_rect((FB_WIDTH - 40) / 2, card_y + 20, 40, 40, RGB_RED);
+    }
+
+    /* Titles */
+    int tw = fb_text_width_aa("REMOTE NOT PAIRED", &g_font_title);
+    fb_draw_text_aa((FB_WIDTH - tw) / 2, card_y + 74, "REMOTE NOT PAIRED", RGB_WHITE, &g_font_title);
+
+    int m1w = fb_text_width_aa("Connect with Harmony Hub", &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m1w) / 2, card_y + 102, "Connect with Harmony Hub", RGB_TEXT_MUTED, &g_font_main);
+
+    int m2w = fb_text_width_aa("to control activities & devices.", &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m2w) / 2, card_y + 120, "to control activities & devices.", RGB_TEXT_MUTED, &g_font_main);
+
+    int m3w = fb_text_width_aa("Tap button below to pair:", &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m3w) / 2, card_y + 144, "Tap button below to pair:", RGB_CYAN, &g_font_main);
+
+    /* Prominent Touch Button */
+    int btn_x = 24;
+    int btn_y = card_y + 166;
+    int btn_w = FB_WIDTH - 48;
+    int btn_h = 44;
+
+    fb_fill_rect(btn_x, btn_y, btn_w, btn_h, RGB_CARD_SEL);
+    fb_draw_rect(btn_x, btn_y, btn_w, btn_h, RGB_TEAL);
+    fb_fill_rect(btn_x + 4, btn_y + btn_h - 3, btn_w - 8, 2, RGB_TEAL);
+
+    int bw = fb_text_width_aa("PAIR TO HUB", &g_font_title);
+    fb_draw_text_aa((FB_WIDTH - bw) / 2, btn_y + 13, "PAIR TO HUB", RGB_WHITE, &g_font_title);
+}
+
+/* Dedicated Settings Update & Sync View */
+static void render_settings_update(void) {
+    /* Header: Clean title */
+    fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
+    fb_draw_text_aa(14, 10, "UPDATE & SYNC", RGB_CYAN, &g_font_title);
+
+    int start_y = 38;
+    int card_h = 76;
+
+    /* Info card: Software & config status */
+    fb_fill_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD);
+    fb_draw_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD_BORDER);
+
+    char sw_str[48];
+    snprintf(sw_str, sizeof(sw_str), "Elite SW: v%s", CODEX_ELITE_VERSION);
+    fb_draw_text_aa(16, start_y + 8, sw_str, RGB_WHITE, &g_font_main);
+
+    char cfg_str[48];
+    snprintf(cfg_str, sizeof(cfg_str), "Remote Config: v%d", g_config_version);
+    fb_draw_text_aa(16, start_y + 25, cfg_str, RGB_TEXT_MUTED, &g_font_main);
+
+    char hub_cfg_str[48];
+    if (g_hub_config_version > 0) {
+        snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: v%d %s",
+                 g_hub_config_version,
+                 (g_hub_config_version != g_config_version) ? "[NEW]" : "[OK]");
+    } else {
+        snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: [UNKNOWN]");
+    }
+    fb_draw_text_aa(16, start_y + 42, hub_cfg_str,
+                    (g_hub_config_version != g_config_version && g_hub_config_version > 0) ? RGB_TEAL : RGB_TEXT_MUTED,
+                    &g_font_main);
+
+    char hub_ota_str[48];
+    if (g_update_ota_available) {
+        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub OTA: %s [READY]",
+                 g_hub_ota_version[0] ? g_hub_ota_version : "Update");
+        fb_draw_text_aa(16, start_y + 59, hub_ota_str, RGB_YELLOW, &g_font_main);
+    } else {
+        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub OTA: [UP TO DATE]");
+        fb_draw_text_aa(16, start_y + 59, hub_ota_str, RGB_GREEN, &g_font_main);
+    }
+
+    /* 5 Action items */
+    const char *labels[5] = {
+        "Pull Config from Hub",
+        "Pull Firmware OTA from Hub",
+        "Push Settings to Hub",
+        "Check for Updates",
+        "< Back to Settings"
+    };
+    const char *icons[5] = {
+        "/opt/luadraws/appscommon/asset/footer/devices.png",
+        "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
+        "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
+        "/opt/luadraws/appscommon/asset/footer/settings.png",
+        "/opt/luadraws/appscommon/asset/footer/close.png"
+    };
+
+    int item_y_start = start_y + card_h + 4;
+    int item_h = 30;
+    int spacing = 3;
+
+    for (int i = 0; i < 5; i++) {
+        int y = item_y_start + i * (item_h + spacing);
+        bool is_sel = (i == g_selected_sub_item);
+        bool is_back = (i == 4);
+        uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
+        uint16_t border = is_sel ? (is_back ? RGB_TEXT_MUTED : RGB_TEAL) : 0x2945;
+
+        fb_fill_rect(8, y, FB_WIDTH - 16, item_h, bg);
+        fb_draw_rect(8, y, FB_WIDTH - 16, item_h, border);
+
+        bool has_icon = blit_png_file(14, y + 5, 20, 20, icons[i]);
+        int tx = has_icon ? 40 : 14;
+
+        uint16_t fg = is_sel ? RGB_WHITE : (is_back ? RGB_TEXT_MUTED : RGB_CYAN);
+        fb_draw_text_aa(tx, y + 7, labels[i], fg, &g_font_main);
+
+        if (i == 0 && g_update_config_available) {
+            fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_TEAL, &g_font_main);
+        } else if (i == 1 && g_update_ota_available) {
+            fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_YELLOW, &g_font_main);
+        } else if (!is_back) {
+            fb_draw_text_aa(FB_WIDTH - 20, y + 7, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_main);
+        }
+    }
+}
+
 /* Render Settings View (Hierarchical Submenus) */
 static void render_settings_view(void) {
     switch (g_settings_subview) {
@@ -4682,6 +4945,9 @@ static void render_settings_view(void) {
             render_settings_items("SYSTEM", 8, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
+        case SETTINGS_VIEW_UPDATE:
+            render_settings_update();
+            break;
         case SETTINGS_VIEW_REBOOT:
             render_settings_reboot();
             break;
@@ -4867,6 +5133,7 @@ static void render_screen(void) {
             case VIEW_DEVICES:    render_devices_view();    break;
             case VIEW_SETTINGS:   render_settings_view();   break;
             case VIEW_PAIRING:    render_pairing_view();    break;
+            case VIEW_NOT_PAIRED: render_not_paired_view(); break;
             default: break;
         }
 
@@ -5105,7 +5372,32 @@ static void handle_screen_touch_tap(int x, int y) {
     int dy = y - g_touch_down_y;
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
+    /* Tap on Top Header Bar: if update is available, tapping near notification icon jumps to UPDATE & SYNC */
+    if (is_tap && y < 38) {
+        if ((g_update_config_available || g_update_ota_available) && x >= 70 && x <= 130) {
+            printf("[*] Touch tap on update badge -> jump to UPDATE & SYNC\n");
+            g_current_view = VIEW_SETTINGS;
+            g_settings_subview = SETTINGS_VIEW_UPDATE;
+            g_selected_sub_item = 0;
+            render_screen();
+        }
+        return;
+    }
+
     if (!is_tap && abs(dx) >= h_thresh && abs(dx) >= (abs(dy) * 3 / 2) && y < 280) {
+        if (!is_remote_paired()) {
+            /* Restrict swipe between NOT_PAIRED and SETTINGS when not paired */
+            if (g_current_view == VIEW_NOT_PAIRED) {
+                g_current_view = VIEW_SETTINGS;
+                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                g_selected_sub_item = 0;
+            } else if (g_current_view == VIEW_SETTINGS) {
+                g_current_view = VIEW_NOT_PAIRED;
+            }
+            printf("[*] Swipe (dx=%d) [unpaired lock] -> view %d\n", dx, g_current_view);
+            render_screen();
+            return;
+        }
         if (dx > 0) {
             /* Swipe Right -> Previous View (wraparound across main tabs) */
             if (g_current_view == VIEW_ACTIVITIES) g_current_view = VIEW_SETTINGS;
@@ -5205,12 +5497,20 @@ static void handle_screen_touch_tap(int x, int y) {
         ui_view_t prev_view = g_current_view;
         if (x < 62) {
             /* Tab: Activities */
+            if (!is_remote_paired()) {
+                show_notice("Remote not paired - pair first", 2500);
+                return;
+            }
             g_current_view = VIEW_ACTIVITIES;
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
         } else if (x < 124) {
             /* Tab: Devices */
+            if (!is_remote_paired()) {
+                show_notice("Remote not paired - pair first", 2500);
+                return;
+            }
             g_current_view = VIEW_DEVICES;
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
@@ -5238,6 +5538,10 @@ static void handle_screen_touch_tap(int x, int y) {
     /* Capacitive touch buttons below LCD screen (screen height is 320): y >= 320 */
     if (y >= 320) {
         g_confirm_pending_rf_code = 0;
+        if (!is_remote_paired()) {
+            show_notice("Remote not paired - pair first", 2500);
+            return;
+        }
         if (x < 120) {
             printf("[*] Capacitive tap: Activities (x=%d, y=%d)\n", x, y);
             g_current_view = VIEW_ACTIVITIES;
@@ -5334,6 +5638,19 @@ static void handle_screen_touch_tap(int x, int y) {
                     return;
                 }
             }
+        } else if (g_settings_subview == SETTINGS_VIEW_UPDATE) {
+            int item_y_start = 118;
+            int item_h = 30;
+            int spacing = 3;
+            for (int i = 0; i < 5; i++) {
+                int cy = item_y_start + i * (item_h + spacing);
+                if (y >= cy && y < cy + item_h) {
+                    g_selected_sub_item = i;
+                    execute_settings_action(i);
+                    render_screen();
+                    return;
+                }
+            }
         } else {
             int start_y = 40;
             int count = get_settings_sub_count();
@@ -5360,6 +5677,14 @@ static void handle_screen_touch_tap(int x, int y) {
                 execute_pairing_menu_opt(i);
                 return;
             }
+        }
+    } else if (g_current_view == VIEW_NOT_PAIRED) {
+        if (y >= 190 && y <= 265 && x >= 16 && x <= FB_WIDTH - 16) {
+            printf("[*] Touch tap 'PAIR TO HUB' -> switch to VIEW_PAIRING\n");
+            g_current_view = VIEW_PAIRING;
+            g_selected_pair_opt = 0;
+            render_screen();
+            return;
         }
     }
 }
@@ -5388,6 +5713,10 @@ static void handle_navigation_key(int code, int value) {
     if (code == 364) { /* Left capacitive button directly below screen: always Activities */
         if (!g_cap_buttons_enabled) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
+        if (!is_remote_paired()) {
+            show_notice("Remote not paired - pair first", 2500);
+            return;
+        }
         if (g_current_view == VIEW_ACTIVITIES) return;
         printf("[*] Capacitive key pressed: Activities (code=364)\n");
         g_current_view = VIEW_ACTIVITIES;
@@ -5397,6 +5726,10 @@ static void handle_navigation_key(int code, int value) {
     if (code == 102) { /* Right capacitive button directly below screen: always Devices */
         if (!g_cap_buttons_enabled) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
+        if (!is_remote_paired()) {
+            show_notice("Remote not paired - pair first", 2500);
+            return;
+        }
         if (g_current_view == VIEW_DEVICES) return;
         printf("[*] Capacitive key pressed: Devices (code=102)\n");
         g_current_view = VIEW_DEVICES;
@@ -5485,6 +5818,33 @@ static void handle_navigation_key(int code, int value) {
             if ((g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) && g_settings_dirty) {
                 g_settings_dirty = false;
             }
+            if (!is_remote_paired()) {
+                if (g_current_view == VIEW_PAIRING) {
+                    g_current_view = VIEW_SETTINGS;
+                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_selected_sub_item = 3;
+                } else if (g_current_view == VIEW_SETTINGS) {
+                    if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
+                        bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
+                        bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
+                        g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                        g_factory_reset_stage = 0;
+                        g_suspend_countdown_start_ms = 0;
+                        g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
+                    } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
+                        g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                        g_factory_reset_stage = 0;
+                        g_suspend_countdown_start_ms = 0;
+                    } else {
+                        g_current_view = VIEW_NOT_PAIRED;
+                    }
+                } else if (g_current_view == VIEW_NOT_PAIRED) {
+                    g_current_view = VIEW_SETTINGS;
+                    g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                }
+                render_screen();
+                break;
+            }
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
@@ -5516,6 +5876,26 @@ static void handle_navigation_key(int code, int value) {
         case 203: /* KEY_PROG4 (Ha4 / Socket Off -> Right / Next Tab) */
             if ((g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) && g_settings_dirty) {
                 g_settings_dirty = false;
+            }
+            if (!is_remote_paired()) {
+                if (g_current_view == VIEW_PAIRING) {
+                    g_current_view = VIEW_SETTINGS;
+                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_selected_sub_item = 3;
+                } else if (g_current_view == VIEW_NOT_PAIRED) {
+                    g_current_view = VIEW_SETTINGS;
+                    g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                } else if (g_current_view == VIEW_SETTINGS) {
+                    if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
+                        g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                        g_factory_reset_stage = 0;
+                        g_suspend_countdown_start_ms = 0;
+                    } else {
+                        g_current_view = VIEW_NOT_PAIRED;
+                    }
+                }
+                render_screen();
+                break;
             }
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
@@ -5599,6 +5979,10 @@ static void handle_navigation_key(int code, int value) {
                 render_screen();
             } else if (g_current_view == VIEW_PAIRING) {
                 execute_pairing_menu_opt(g_selected_pair_opt);
+            } else if (g_current_view == VIEW_NOT_PAIRED) {
+                g_current_view = VIEW_PAIRING;
+                g_selected_pair_opt = 0;
+                render_screen();
             }
             break;
 
@@ -5608,9 +5992,13 @@ static void handle_navigation_key(int code, int value) {
                 if (g_unpair_confirm_active) {
                     g_unpair_confirm_active = false;
                 } else {
-                    g_current_view = VIEW_SETTINGS;
-                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                    g_selected_sub_item = 3;
+                    if (!is_remote_paired()) {
+                        g_current_view = VIEW_NOT_PAIRED;
+                    } else {
+                        g_current_view = VIEW_SETTINGS;
+                        g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                        g_selected_sub_item = 3;
+                    }
                 }
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
@@ -5625,8 +6013,11 @@ static void handle_navigation_key(int code, int value) {
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
                 } else {
-                    g_current_view = VIEW_DEVICES;
+                    g_current_view = is_remote_paired() ? VIEW_DEVICES : VIEW_NOT_PAIRED;
                 }
+            } else if (g_current_view == VIEW_NOT_PAIRED) {
+                /* In Not Paired root view, back does nothing */
+                break;
             } else if (g_current_view == VIEW_DEVICES) {
                 g_current_view = VIEW_ACTIVITIES;
             } else if (g_current_view == VIEW_ACTIVITIES) {
@@ -5937,6 +6328,9 @@ int main(int argc, char **argv) {
     pthread_create(&th_repeat, NULL, key_repeat_thread, NULL);
 
     /* Initial Render */
+    if (!is_remote_paired() && g_current_view != VIEW_PAIRING) {
+        g_current_view = VIEW_NOT_PAIRED;
+    }
     render_screen();
 
     /* Event Loop with select() multiplexing physical buttons and touchscreen */
