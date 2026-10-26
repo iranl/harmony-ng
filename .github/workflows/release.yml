@@ -165,8 +165,8 @@ jobs:
         run: |
           chmod +x build/compile_all.sh build/build_busybox.sh
           ./build/compile_all.sh hub
-          ./build/compile_all.sh btstack || true
-          ./build/build_busybox.sh mips || true
+          ./build/compile_all.sh btstack
+          ./build/build_busybox.sh mips
           mkdir -p build/output/hub
           cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           [ -f payload/bin/busybox ] && cp -f payload/bin/busybox build/output/hub/ || true

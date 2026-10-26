@@ -8,12 +8,14 @@ SRC="$REPO_ROOT/payload/source/codex_btstack"
 BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
 TMP="$SCRIPT_DIR/tmp"
-TOOLS="$SCRIPT_DIR/toolchains/mips32--uclibc--stable"
 BTSTACK_DIR="$TMP/btstack"
 
-if [ -d "$TOOLS/bin" ]; then
-    export PATH="$TOOLS/bin:$PATH"
-fi
+for t in "$SCRIPT_DIR/toolchains"/mips32--uclibc--stable*; do
+    if [ -d "$t/bin" ]; then
+        export PATH="$t/bin:$PATH"
+        break
+    fi
+done
 
 if [ -z "${CC:-}" ]; then
     if command -v mips-buildroot-linux-uclibc-gcc >/dev/null 2>&1; then
@@ -26,6 +28,10 @@ if [ -z "${CC:-}" ]; then
         CC="mips-buildroot-linux-uclibc-gcc"
         STRIP="mips-buildroot-linux-uclibc-strip"
     fi
+fi
+if ! command -v "$CC" >/dev/null 2>&1; then
+    echo "[!] $CC not found. Extract the Bootlin mips32--uclibc--stable toolchain into build/toolchains/." >&2
+    exit 1
 fi
 if [ -z "${STRIP:-}" ]; then
     STRIP="strip"

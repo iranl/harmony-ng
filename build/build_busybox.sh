@@ -53,10 +53,15 @@ build_mips() {
                CONFIG_UBIRENAME CONFIG_RX CONFIG_ZCIP; do
         sed -i "s/^${opt}=y/# ${opt} is not set/" .config
     done
+    CROSS="mips-buildroot-linux-uclibc-"
+    if ! command -v "${CROSS}gcc" >/dev/null 2>&1; then
+        echo "[!] ${CROSS}gcc not found. Extract the Bootlin mips32--uclibc--stable toolchain into build/toolchains/." >&2
+        exit 1
+    fi
     scripts/kconfig/conf -D .config Config.in
 
-    make -j"$(nproc)" CROSS_COMPILE="mips-buildroot-linux-uclibc-" busybox
-    mips-buildroot-linux-uclibc-strip busybox
+    make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
+    "${CROSS}strip" busybox
 
     cp busybox "$REPO_ROOT/payload/bin/busybox"
     echo "[+] MIPS BusyBox built: $REPO_ROOT/payload/bin/busybox ($(ls -lh "$REPO_ROOT/payload/bin/busybox" | awk '{print $5}'))"
