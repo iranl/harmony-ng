@@ -12,6 +12,8 @@ Usage:
     python tools/setup_remote.py --step 2   (Dropbear & persistence install only)
 """
 
+from __future__ import annotations
+
 import argparse
 import base64
 import json

@@ -64,7 +64,11 @@ deploy_file_if_changed() {
     local perm="${3:-755}"
     [ ! -f "$src" ] && return 0
     local local_md5
-    local_md5=$(md5sum "$src" | awk '{print $1}')
+    if command -v md5sum >/dev/null 2>&1; then
+        local_md5=$(md5sum "$src" | awk '{print $1}')
+    else
+        local_md5=$(md5 -q "$src")  # macOS before 15 ships md5 but not md5sum
+    fi
     local remote_md5
     remote_md5=$(echo "$REMOTE_MD5_LIST" | awk -v p="$dst" '$2 == p {print $1; exit}')
     local fname
