@@ -860,14 +860,14 @@ class HarmonyApp {
         if (delBtn) {
           e.stopPropagation();
           const fnToDelete = delBtn.getAttribute('data-fn');
-          if (confirm(`Delete custom icon "${fnToDelete}"?`)) {
+          if (confirm(t("del_custom_icon_confirm").replace("{name}", fnToDelete))) {
             try {
               await this.client.deleteCustomIcon(fnToDelete);
-              showToast(`Deleted custom icon "${fnToDelete}"`, 'info');
+              showToast(t("del_custom_icon_success").replace("{name}", fnToDelete), 'info');
               await this.loadAvailableIcons(true);
               this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
             } catch (err) {
-              showToast(`Delete failed: ${err.message}`, 'error');
+              showToast(t("del_custom_icon_failed") + err.message, 'error');
             }
           }
           return;
@@ -1042,7 +1042,7 @@ class HarmonyApp {
         startBtn.disabled = false;
         startBtn.textContent = 'Start Detection Test';
         msgEl.innerHTML = '<span style="color:var(--danger)">Connection timed out (60s). Check if device is powered on.</span>';
-        showToast('Bluetooth detection timed out.', 'warning');
+        showToast(t("bt_detect_timeout"), 'warning');
         return;
       }
 
@@ -1092,7 +1092,7 @@ class HarmonyApp {
       document.getElementById('btDelayCalibrateModal').style.display = 'none';
       await this.refreshData();
     } catch (e) {
-      showToast(`Failed to save delay: ${e.message}`, 'error');
+      showToast(t("bt_delay_fail") + e.message, 'error');
     }
   }
 
@@ -1903,7 +1903,7 @@ class HarmonyApp {
     document.getElementById('btnCurDevBtConnect')?.addEventListener('click', async () => {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(this.selectedIrDeviceId));
       const addr = dev ? (dev.btHost || dev.bt_host || dev.BTAddress) : '';
-      if (!addr) return alert('No Bluetooth host address linked.');
+      if (!addr) return alert(t("no_bt_host_linked"));
       try {
         await this.client.connectBt(addr);
         alert('Connection command sent to host ' + addr);
@@ -1918,7 +1918,7 @@ class HarmonyApp {
       const addr = dev ? (dev.btHost || dev.bt_host || dev.BTAddress) : '';
       try {
         await this.client.disconnectBt(addr);
-        alert('Disconnect command sent.');
+        alert(t("disconnect_cmd_sent"));
         setTimeout(() => this.updateStudioDeviceView(), 1000);
       } catch (err) {
         alert('Disconnect failed: ' + err.message);
@@ -1941,7 +1941,7 @@ class HarmonyApp {
     document.getElementById('btnCurDevBtLinkKnown')?.addEventListener('click', async () => {
       const devId = this.selectedIrDeviceId;
       const addr = document.getElementById('curDevBtKnownHostSelect')?.value;
-      if (!devId || !addr) return alert('Please select a known Bluetooth host to link.');
+      if (!devId || !addr) return alert(t("select_known_bt_host"));
       try {
         await this.client.linkBtDevice(addr, devId);
         await this.refreshData();
@@ -2011,7 +2011,7 @@ class HarmonyApp {
       const topic = document.getElementById('devMqttTopic')?.value.trim();
       const pulseMs = parseInt(document.getElementById('devMqttPulse')?.value, 10) || 1000;
       const stat = document.getElementById('devMqttStatus');
-      if (!topic) return alert('Enter MQTT topic first');
+      if (!topic) return alert(t("enter_mqtt_topic"));
       if (stat) stat.textContent = 'Testing publish...';
       try {
         const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
@@ -2039,7 +2039,7 @@ class HarmonyApp {
       const devId = document.getElementById('editCmdDevId')?.value;
       const raw = document.getElementById('editCmdPayload')?.value.trim();
       const stat = document.getElementById('cmdEditStatus');
-      if (!raw) return alert('No signal data to test');
+      if (!raw) return alert(t("no_signal_test"));
       if (stat) stat.textContent = 'Testing signal...';
       try {
         if (raw.startsWith('0000 ') || raw.startsWith('0000')) {
@@ -2070,7 +2070,7 @@ class HarmonyApp {
       const repeats = Number(document.getElementById('editCmdRepeats')?.value) || 3;
       const port = Number(document.getElementById('editCmdPort')?.value) || 0;
       const stat = document.getElementById('cmdEditStatus');
-      if (!name) return alert('Enter command name');
+      if (!name) return alert(t("enter_cmd_name"));
 
       if (stat) stat.textContent = 'Saving changes...';
       try {
@@ -2108,7 +2108,7 @@ class HarmonyApp {
     document.getElementById('btnTestPastedPronto')?.addEventListener('click', async () => {
       const hex = document.getElementById('irdbPaste')?.value.trim();
       const devId = document.getElementById('manageDeviceSelect')?.value;
-      if (!hex) return alert('Enter Pronto Hex first');
+      if (!hex) return alert(t("enter_pronto_first"));
       const stat = document.getElementById('pasteStatus');
       if (stat) stat.textContent = 'Blasting Pronto code...';
       try {
@@ -2657,7 +2657,7 @@ class HarmonyApp {
         URL.revokeObjectURL(img.src);
         processImageToCanvas(img, label);
       };
-      img.onerror = () => showToast('Failed to decode image file', 'error');
+      img.onerror = () => showToast(t("fail_decode_img"), 'error');
       img.src = URL.createObjectURL(blob);
     };
 
@@ -2673,7 +2673,7 @@ class HarmonyApp {
       const urlInput = document.getElementById('customIconUrlInput');
       const url = urlInput?.value.trim();
       if (!url) {
-        showToast('Please enter an image URL', 'warning');
+        showToast(t("enter_img_url"), 'warning');
         return;
       }
       btnFetchUrl.disabled = true;
@@ -2696,7 +2696,7 @@ class HarmonyApp {
         loadImgFromBlob(blob, fn);
         showToast('Image loaded and resized to 40×40', 'success');
       } catch (err) {
-        showToast(`Could not fetch image: ${err.message}`, 'error');
+        showToast(t("could_not_fetch_img") + err.message, 'error');
       } finally {
         btnFetchUrl.disabled = false;
         btnFetchUrl.textContent = 'Fetch';
@@ -2715,7 +2715,7 @@ class HarmonyApp {
       }
 
       if (exists) {
-        const ok = confirm(`An icon named "${iconName}" already exists. Overwrite it?`);
+        const ok = confirm(t("icon_already_exists").replace("{name}", iconName));
         if (!ok) return;
       }
 
@@ -2768,7 +2768,7 @@ class HarmonyApp {
         await this.loadAvailableIcons(true);
         this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
       } catch (err) {
-        showToast(`Failed to upload custom icon: ${err.message}`, 'error');
+        showToast(t("fail_upload_icon") + err.message, 'error');
       } finally {
         btnSaveIcon.disabled = false;
         btnSaveIcon.textContent = 'Upload & Push to Remote';
@@ -2779,7 +2779,7 @@ class HarmonyApp {
     document.getElementById('btnAutoDetectBtDelay')?.addEventListener('click', () => {
       const devId = this.selectedIrDeviceId || this.currentIrDeviceId;
       if (devId) this.openBtDelayCalibrator(devId);
-      else showToast('Please select a device first', 'warning');
+      else showToast(t("select_device_first"), 'warning');
     });
 
     const btCalibModal = document.getElementById('btDelayCalibrateModal');
@@ -2814,7 +2814,7 @@ class HarmonyApp {
           const stateEl = document.getElementById('btCalibrateStateMsg');
           if (stateEl) stateEl.textContent = `Power off command "${offCmd.name}" sent.`;
         } catch (e) {
-          showToast(`Error sending command: ${e.message}`, 'error');
+          showToast(t("error_sending_cmd") + e.message, 'error');
         }
       } else {
         showToast('No PowerOff/Toggle command found. Please turn off device manually.', 'info', 3000);
@@ -3605,7 +3605,7 @@ class HarmonyApp {
             await this.refreshData();
             await this.loadActivitiesView();
           } catch (e) {
-            showToast(`Failed to update activity: ${e.message}`, 'error');
+            showToast(t("fail_update_act") + e.message, 'error');
           }
         }, null, null, { type: 'activity', id: act.id });
       });
@@ -3778,7 +3778,7 @@ class HarmonyApp {
           const val = addSel?.value;
           if (!val) return;
           const exists = Array.from(listWrap.querySelectorAll('.act-dev-row')).some(r => r.dataset.devId === String(val));
-          if (exists) return alert('Device already added to order.');
+          if (exists) return alert(t("dev_already_in_order"));
           renderDevRow(val);
           refreshAddDevControls();
         });
@@ -4000,10 +4000,10 @@ class HarmonyApp {
 
   async testLiveSequence(containerId) {
     const steps = this.serializeSequence(containerId);
-    if (!steps.length) return alert('No steps to test.');
+    if (!steps.length) return alert(t("no_steps_to_test"));
     try {
       await this.client.testActivitySequence(steps);
-      alert('Sequence test sent to hub.');
+      alert(t("seq_test_sent"));
     } catch (err) {
       alert('Test failed: ' + err.message);
     }
@@ -4016,7 +4016,7 @@ class HarmonyApp {
     const order = Number(document.getElementById('actEditOrder')?.value) || 1;
     const statusEl = document.getElementById('actEditorStatus');
 
-    if (!name) return alert('Activity name is required.');
+    if (!name) return alert(t("act_name_required"));
 
     const listWrap = document.getElementById('actDevOrderedList');
     const deviceIds = listWrap
@@ -4057,7 +4057,7 @@ class HarmonyApp {
 
   async deleteCurrentActivity() {
     const id = document.getElementById('actEditId')?.value;
-    if (!id || String(id) === '-1') return alert('Cannot delete this activity.');
+    if (!id || String(id) === '-1') return alert(t("cannot_delete_act"));
     if (!await showConfirm('Are you sure you want to delete this activity?', { title: 'Delete Activity', okText: 'Delete' })) return;
     try {
       await this.client.deleteActivity(id);
@@ -4803,7 +4803,7 @@ class HarmonyApp {
         const dId = btn.getAttribute('data-dev');
         const cmd = btn.getAttribute('data-cmd');
         if (isBt && (cmd === 'Connect' || cmd === 'Disconnect')) {
-          alert('Connect and Disconnect commands cannot be deleted for Bluetooth devices.');
+          alert(t("bt_cmds_cannot_delete"));
           return;
         }
         if (!await showConfirm(`Delete command "${cmd}" from this device?`, { title: 'Delete Command', okText: 'Delete' })) return;
@@ -4871,7 +4871,7 @@ class HarmonyApp {
     const model = document.getElementById('newDeviceModel')?.value.trim();
     const status = document.getElementById('profileStatus');
 
-    if (!name || !manufacturer || !model) return alert('Name, manufacturer, and model are required.');
+    if (!name || !manufacturer || !model) return alert(t("name_mfr_model_required"));
     try {
       if (status) status.textContent = 'Saving new device...';
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
@@ -4935,7 +4935,7 @@ class HarmonyApp {
   openPowerSequenceModal() {
     const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-    if (!dev) return alert('Select a device first.');
+    if (!dev) return alert(t("select_device_first_dot"));
     const modal = document.getElementById('powerSeqModal');
     if (!modal) return;
     const devNameEl = document.getElementById('powerSeqDevName');
@@ -5031,7 +5031,7 @@ class HarmonyApp {
     const s = pathInp?.dataset.source || 'flipper';
     const status = document.getElementById('irdbStatus');
 
-    if (!p) return alert('Select or type a file path first.');
+    if (!p) return alert(t("select_file_path_first"));
     try {
       if (status) status.textContent = 'Loading file...';
       const text = await fetchIrdFile(p, s);
@@ -5044,7 +5044,7 @@ class HarmonyApp {
 
   parsePastIrdb() {
     const paste = document.getElementById('irdbPaste')?.value.trim();
-    if (!paste) return alert('Paste code contents first.');
+    if (!paste) return alert(t("paste_code_first"));
     const rows = parseIrText(paste, 'custom', '');
     this.renderIrdbPreview(rows);
   }
@@ -5119,7 +5119,7 @@ class HarmonyApp {
       }
     });
 
-    if (!cmdPayloads.length) return alert('No commands selected.');
+    if (!cmdPayloads.length) return alert(t("no_cmds_selected"));
     try {
       let ok = false;
       try {
@@ -5131,7 +5131,7 @@ class HarmonyApp {
       if (!ok) {
         await this.client.importIrdb({ deviceId: devId, payload: lines.join('\n') });
       }
-      alert(`Imported ${cmdPayloads.length} commands to "${targetDev?.name || devId}".`);
+      alert(t("imported_cmds_to").replace("{count}", cmdPayloads.length).replace("{device}", targetDev?.name || devId));
       await this.refreshData();
       this.renderIrView(devId);
     } catch (err) {
@@ -5189,7 +5189,7 @@ class HarmonyApp {
     const protocol = document.getElementById('wizardProtocol')?.value || '2';
     const status = document.getElementById('wizardLearnStatus');
 
-    if (!devId || !name) return alert('Device and command name are required.');
+    if (!devId || !name) return alert(t("dev_cmd_name_required"));
 
     try {
       if (status) status.textContent = 'Saving command...';
@@ -5220,7 +5220,7 @@ class HarmonyApp {
     const devId = document.getElementById('verifyDevice')?.value;
     const cmd = document.getElementById('verifyCommand')?.value;
     const status = document.getElementById('wizardVerifyStatus');
-    if (!devId || !cmd) return alert('Select device and command first.');
+    if (!devId || !cmd) return alert(t("select_dev_cmd_first"));
     try {
       if (status) status.textContent = `Sending ${cmd}...`;
       await this.client.sendCommand(devId, cmd);
@@ -5349,7 +5349,7 @@ class HarmonyApp {
           model: editor.querySelector('#mgrDevMod').value,
           controlPort: cpVal
         });
-        alert('Device details saved.');
+        alert(t("device_details_saved"));
         await this.refreshData();
         this.populateManageDevices(dev.id);
       });
@@ -5357,7 +5357,7 @@ class HarmonyApp {
       editor.querySelector('#btnMgrDelDev')?.addEventListener('click', async () => {
         if (!await showConfirm(`Delete device ${dev.name}?`, { title: 'Delete Device', okText: 'Delete' })) return;
         await this.client.deleteDevice(dev.id);
-        alert('Device deleted.');
+        alert(t("device_deleted"));
         await this.refreshData();
         this.populateManageDevices();
       });
@@ -5368,7 +5368,7 @@ class HarmonyApp {
           isPowerAlwaysOn: editor.querySelector('#mgrDevAlwaysOn').checked ? 1 : 0,
           powerOnDelay: Number(editor.querySelector('#mgrDevPowerDelay').value) || 1500
         });
-        alert('Power settings saved.');
+        alert(t("power_saved"));
         await this.refreshData();
         this.populateManageDevices(dev.id);
       });
@@ -5380,7 +5380,7 @@ class HarmonyApp {
           mqttTopic: editor.querySelector('#mgrDevMqttTopic').value,
           mqttPulseMs: Number(editor.querySelector('#mgrDevMqttPulse').value) || 1000
         });
-        alert('Device MQTT settings saved.');
+        alert(t("mqtt_saved"));
         await this.refreshData();
         this.populateManageDevices(dev.id);
       });
@@ -5395,7 +5395,7 @@ class HarmonyApp {
           topic: mgrTopic,
           pulseMs: mgrPulse
         });
-        alert('Test MQTT pulse sent.');
+        alert(t("test_mqtt_pulse_sent"));
       });
 
       const renderCmds = (filter = '') => {
@@ -5523,7 +5523,7 @@ class HarmonyApp {
   useStoredLabCommands() {
     const devId = document.getElementById('labDevice')?.value;
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-    if (!dev) return alert('Select a stored device.');
+    if (!dev) return alert(t("select_stored_device"));
     this.labQueue = (dev.commands || []).map(c => ({
       name: c.name,
       meta: 'Stored command',
@@ -5574,7 +5574,7 @@ class HarmonyApp {
 
   async importLabSelected() {
     const devId = document.getElementById('labDevice')?.value;
-    if (!devId || devId === '__auto_lab__') return alert('Please select a real stored device to save into.');
+    if (!devId || devId === '__auto_lab__') return alert(t("select_real_stored_device"));
     const lines = [];
     document.querySelectorAll('.lab-pick:checked').forEach(cb => {
       const idx = Number(cb.getAttribute('data-index'));
@@ -5585,7 +5585,7 @@ class HarmonyApp {
     if (!lines.length) return alert('No commands selected.');
     try {
       await this.client.importIrdb({ deviceId: devId, payload: lines.join('\n') });
-      alert(`Imported ${lines.length} commands.`);
+      alert(t("imported_n_cmds").replace("{count}", lines.length));
       await this.refreshData();
     } catch (err) {
       alert('Import failed: ' + err.message);
@@ -5606,7 +5606,7 @@ class HarmonyApp {
       selected.push(this.labQueue[idx]);
     });
 
-    if (!selected.length) return alert('No commands selected to run.');
+    if (!selected.length) return alert(t("no_cmds_to_run"));
     this.labRunning = true;
     this.labRunId = Date.now().toString();
 
@@ -5813,7 +5813,7 @@ class HarmonyApp {
       try {
         if (btn) btn.textContent = 'Stopping pairing...';
         await this.client.setBtPairing(false);
-        showToast('Bluetooth pairing mode stopped', 'info');
+        showToast(t("bt_pairing_stopped"), 'info');
       } catch (err) {
         alert('Failed to stop pairing: ' + err.message);
       } finally {
@@ -5823,7 +5823,7 @@ class HarmonyApp {
     }
 
     if (!target) {
-      alert('Please select a target device to assign this Bluetooth pairing to.');
+      alert(t("select_target_bt_pairing"));
       return;
     }
     try {
@@ -5880,7 +5880,7 @@ class HarmonyApp {
     const name = document.getElementById('btSaveCommandName')?.value.trim();
     const script = document.getElementById('btMacroScript')?.value.trim();
     const stat = document.getElementById('btSaveCommandStatus');
-    if (!devId || !name || !script) return alert('Device, command name, and script content are required.');
+    if (!devId || !name || !script) return alert(t("dev_cmd_script_required"));
     try {
       await this.client.saveBtCommand(devId, name, script);
       if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
@@ -6311,7 +6311,7 @@ class HarmonyApp {
       const mfg = mfgInput.value.trim();
       const modelName = modelInput?.value.trim();
       if (!mfg || !modelName) {
-        alert('Please specify both Manufacturer and Model.');
+        alert(t("specify_mfg_model"));
         return;
       }
       if (statusEl) statusEl.textContent = `Looking up specs & codeset for ${mfg} ${modelName}...`;
@@ -6407,13 +6407,13 @@ class HarmonyApp {
     importBtn?.addEventListener('click', async () => {
       if (!currentCodeset || !currentCodeset.commands) return;
       const targetDevId = targetDevSel?.value || document.getElementById('manageDeviceSelect')?.value || this.selectedIrDeviceId;
-      if (!targetDevId) return alert('Select an existing target device first.');
+      if (!targetDevId) return alert(t("select_existing_target"));
 
       const targetDev = (this.inventory.devices || []).find(d => String(d.id) === String(targetDevId));
-      if (!targetDev) return alert('Target device not found in inventory.');
+      if (!targetDev) return alert(t("target_dev_not_found"));
 
       const checkedCbs = Array.from(gridEl?.querySelectorAll('.harmony-cmd-cb:checked') || []);
-      if (!checkedCbs.length) return alert('No commands selected to import.');
+      if (!checkedCbs.length) return alert(t("no_cmds_to_import"));
 
       const selectedCmds = checkedCbs.map(cb => {
         const idx = parseInt(cb.getAttribute('data-idx'), 10);
@@ -6645,7 +6645,7 @@ class HarmonyApp {
     try {
       if (btn) btn.textContent = 'Saving...';
       await this.client.saveRemoteMappings(this.b25MapData);
-      alert('All Homatics B25 button mappings saved to hub!');
+      alert(t("b25_saved_hub"));
     } catch (err) {
       alert('Save failed: ' + err.message);
     } finally {
@@ -6658,7 +6658,7 @@ class HarmonyApp {
     const actId = document.getElementById('b25ActivitySelect')?.value || '-1';
     if (!devId) return alert('Select target device first.');
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-    if (!dev || !dev.commands) return alert('Device has no commands.');
+    if (!dev || !dev.commands) return alert(t("dev_has_no_cmds"));
 
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const aliases = {
@@ -6691,7 +6691,7 @@ class HarmonyApp {
     });
 
     this.updateB25ButtonStates();
-    alert(`Auto-mapped ${mapped} buttons for device! Click "Save All Mappings" to persist.`);
+    alert(t("auto_mapped_b25").replace("{count}", mapped));
   }
 
   async scanB25Remote() {
@@ -6719,7 +6719,7 @@ class HarmonyApp {
   async pairB25Remote() {
     const addr = document.getElementById('b25DiscoveredList')?.value;
     const log = document.getElementById('b25PairLog');
-    if (!addr) return alert('Select discovered remote first.');
+    if (!addr) return alert(t("select_discovered_remote"));
     try {
       if (log) log.textContent = `Pairing with ${addr}...`;
       await this.client.pairBtRemote(addr);
@@ -7117,7 +7117,7 @@ class HarmonyApp {
     });
 
     this.updateEliteButtonStates();
-    alert(`Auto-mapped ${mapped} buttons for device! Click "Save All to Hub" to persist.`);
+    alert(t("auto_mapped_elite").replace("{count}", mapped));
   }
 
   renderEliteScreenButtons() {
@@ -7282,7 +7282,7 @@ class HarmonyApp {
     }
 
     if (sbtns.length >= 48) {
-      return alert('Maximum of 48 screen buttons reached.');
+      return alert(t("max_screen_buttons"));
     }
     const devs = this.inventory.devices || [];
     const firstDev = devs[0];
@@ -7573,13 +7573,13 @@ class HarmonyApp {
     let no_screen = 0;
     if (remote_mode === 2) {
       const confirm1 = await showConfirm(
-        'WARNING: You are enabling No-Screen Mode. This disables the LCD display, touch digitizer, and backlight to conserve power on remotes with physically broken screens. Physical buttons will continue controlling the Hub. Continue?',
-        { title: 'Enable No-Screen Mode', okText: 'I Understand, Continue', danger: true }
+        t('confirm_no_screen_1'),
+        { title: t('title_enable_no_screen'), okText: t('btn_understand_continue'), danger: true }
       );
       if (!confirm1) return;
       const confirm2 = await showConfirm(
-        'CONFIRM BLACK SCREEN: The remote screen and backlight will turn off immediately upon receiving this configuration. Are you sure?',
-        { title: 'Confirm Black Screen', okText: 'Yes, Disable Screen', danger: true }
+        t('confirm_no_screen_2'),
+        { title: t('title_confirm_black_screen'), okText: t('btn_yes_disable_screen'), danger: true }
       );
       if (!confirm2) return;
       no_screen = 1;
@@ -7649,7 +7649,7 @@ class HarmonyApp {
     if (!await showConfirm(`Pull configuration from Remote in ${slotName} to Hub? This will overwrite the Hub's saved remote configuration with what is currently running on the remote.`, { title: `Pull Config (${slotName})`, okText: 'Pull Config', danger: false })) return;
     try {
       await this.client.pullRfConfig(slot);
-      alert(`Config pull requested from Remote (${slotName}). Wait a few seconds for remote to reply and check sync status.`);
+      alert(t("config_pull_requested").replace("{slot}", slotName));
       setTimeout(() => this.refreshRfStatus(), 3000);
     } catch (err) {
       alert(t('error', 'Error') + ': ' + err.message);
@@ -7764,7 +7764,7 @@ class HarmonyApp {
           } catch {}
         }, 1500);
       } else {
-        alert('Could not start OTA: ' + (res?.error || res?.status || 'Unknown error'));
+        alert(t("could_not_start_ota") + (res?.error || res?.status || 'Unknown error'));
         if (btn) btn.disabled = false;
         if (otherBtn) otherBtn.disabled = false;
       }
@@ -8275,7 +8275,7 @@ class HarmonyApp {
         a.remove();
       }, 1000);
     } catch (err) {
-      alert(`Export failed: ${err.message}`);
+      alert(t("export_failed") + err.message);
     }
   }
 
@@ -8284,19 +8284,19 @@ class HarmonyApp {
     const payload = document.getElementById('backupPayload')?.value.trim();
     const restoreNet = !!document.getElementById('restoreNetworkCheckbox')?.checked;
     const status = document.getElementById('backupImportStatus');
-    if (!payload) return alert('Enter backup payload to restore.');
+    if (!payload) return alert(t("enter_backup_payload"));
     const confirmMsg = restoreNet ?
-      `Restore ${target} from payload INCLUDING network/Wi-Fi settings?\nWARNING: If network configuration differs, Hub may become unreachable.` :
-      `Restore ${target} from payload? (Active network & Wi-Fi settings will be safely preserved)`;
-    if (!await showConfirm(confirmMsg, { title: 'Restore Backup', okText: 'Restore' })) return;
+      t('restore_backup_net_confirm').replace('{target}', target) :
+      t('restore_backup_safe_confirm').replace('{target}', target);
+    if (!await showConfirm(confirmMsg, { title: t('title_restore_backup'), okText: t('btn_restore') })) return;
     try {
-      if (status) status.textContent = 'Restoring...';
+      if (status) status.textContent = t('restoring_status');
       await this.client.restoreBackup(target, payload, restoreNet);
-      if (status) status.innerHTML = '<span style="color:var(--success)">Restored!</span>';
-      alert('Restore complete. Reboot hub if necessary.');
+      if (status) status.innerHTML = `<span style="color:var(--success)">${t('restored_status')}</span>`;
+      alert(t("backup_restore_complete"));
       await this.refreshData();
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Restore failed: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${t('restore_failed_status')}${err.message}</span>`;
     }
   }
 
@@ -8417,7 +8417,7 @@ class HarmonyApp {
     } catch (err) {
       console.error('Icon sync error:', err);
       if (statusText) statusText.textContent = `Failed: ${err.message}`;
-      showToast(`Icon sync failed: ${err.message}`, 'error');
+      showToast(t("icon_sync_failed") + err.message, 'error');
       setTimeout(() => {
         if (progressWrap) progressWrap.style.display = 'none';
       }, 6000);
@@ -8433,7 +8433,7 @@ class HarmonyApp {
     await clearIconCache();
     failedIconUrls.clear();
     this.updateIconCacheUI();
-    showToast('Local icon cache cleared.', 'info');
+    showToast(t("icon_cache_cleared"), 'info');
   }
 
   async refreshServiceStatuses() {
@@ -8643,12 +8643,12 @@ class HarmonyApp {
       listEl.querySelectorAll('.btn-del-user').forEach(btn => {
         btn.addEventListener('click', async () => {
           const uname = btn.getAttribute('data-username');
-          if (!confirm(`Delete non-admin user "${uname}"?`)) return;
+          if (!confirm(t("delete_user_confirm").replace("{name}", uname))) return;
           try {
             await this.client.deleteUser(uname);
             await this.loadUserAccounts();
           } catch (err) {
-            alert(`Failed to delete user: ${err.message}`);
+            alert(t("failed_delete_user") + err.message);
           }
         });
       });
@@ -8839,7 +8839,7 @@ class HarmonyApp {
 
   async rebootHub() {
     if (this.isUpdating) {
-      showToast('Manual reboot blocked: software update is currently in progress.', 'warning');
+      showToast(t("reboot_blocked_ota"), 'warning');
       return;
     }
     if (!await showConfirm(t('reboot_confirm', 'Are you sure you want to reboot the Harmony Hub?'), { title: 'Reboot Hub', okText: 'Reboot' })) return;
@@ -9096,7 +9096,7 @@ class HarmonyApp {
       showToast(`Network scan complete! Added ${foundCount} Harmony Hub(s).`, 'success');
       await this.renderHubsList();
     } else if (!this._cancelScan) {
-      showToast('Scan complete. No Harmony Hubs found on port 8089. You can add one manually.', 'warning');
+      showToast(t("scan_complete_none"), 'warning');
       if (!this.activeHub || !this.activeHub.host) {
         this.switchTab('hubs');
       }

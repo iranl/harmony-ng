@@ -1,5 +1,6 @@
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { getRemoteLayout, saveRemoteLayout, resetRemoteLayout } from './storage.js';
+import { t } from './i18n.js';
 
 export class RemoteEngine {
   constructor(client) {
@@ -480,9 +481,9 @@ export class RemoteEngine {
       await this.client.saveUiRemoteLayout(hubData);
       await saveRemoteLayout(this.currentScope, this.currentTarget.id, this.activeLayout);
       await this.triggerHaptic();
-      alert(`Layout for "${targetName}" saved to Hub as default!\n\nThis will be included in Hub backups and used on all devices without a local override.`);
+      alert(t("layout_saved_hub"));
     } catch (err) {
-      alert(`Failed to save layout to Hub: ${err.message}`);
+      alert(t("failed_save_layout") + err.message);
     }
   }
 
@@ -506,13 +507,13 @@ export class RemoteEngine {
         await saveRemoteLayout(this.currentScope, this.currentTarget.id, this.activeLayout);
         await this.triggerHaptic();
         this.updateDOM();
-        alert(`Loaded Hub default layout for "${targetName}".`);
+        alert(t("loaded_hub_layout"));
       } else {
-        alert(`No saved layout found on Hub for "${targetName}". Resetting to standard button layout.`);
+        alert(t("no_saved_layout_hub"));
         await this.resetCurrentLayout(true);
       }
     } catch (err) {
-      alert(`Could not fetch layout from Hub: ${err.message}`);
+      alert(t("save_failed") + err.message);
     }
   }
 
@@ -647,31 +648,31 @@ export class RemoteEngine {
       <div class="remote-subtabs-actions">
         ${this.currentSubTab === 'remote' ? `
           ${this.editMode ? `
-          <button type="button" class="subtab-reset-btn" id="btnSaveToHub" title="Save this layout to Hub as default for all devices">
+          <button type="button" class="subtab-reset-btn" id="btnSaveToHub" title="${t('save_layout_hub_title')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
               <polyline points="17 21 17 13 7 13 7 21"></polyline>
               <polyline points="7 3 7 8 15 8"></polyline>
             </svg>
-            <span>Save to Hub</span>
+            <span>${t('save_to_hub')}</span>
           </button>
-          <button type="button" class="subtab-reset-btn" id="btnRestoreFromHub" title="Restore layout from Hub default (clears local override)">
+          <button type="button" class="subtab-reset-btn" id="btnRestoreFromHub" title="${t('restore_layout_hub_title')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            <span>Hub Default</span>
+            <span>${t('hub_default')}</span>
           </button>
-          <button type="button" class="subtab-reset-btn" id="btnResetLayout" title="Reset layout to standard layout based on available buttons">
+          <button type="button" class="subtab-reset-btn" id="btnResetLayout" title="${t('reset_layout_title')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
               <path d="M3 3v5h5"></path>
             </svg>
-            <span>Reset</span>
+            <span>${t('reset_layout')}</span>
           </button>
           ` : ''}
-          <button type="button" class="subtab-pencil-btn ${this.editMode ? 'active' : ''}" id="btnToggleEdit" title="${this.editMode ? 'Finish Editing' : 'Customize Remote Buttons'}">
+          <button type="button" class="subtab-pencil-btn ${this.editMode ? 'active' : ''}" id="btnToggleEdit" title="${this.editMode ? t('finish_editing') : t('customize_remote_buttons')}">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 20h9"></path>
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
@@ -751,7 +752,7 @@ export class RemoteEngine {
         slotEl.className = `grid-slot-empty ${this.editMode ? 'clickable' : ''}`;
         if (this.editMode) {
           slotEl.innerHTML = `<span class="slot-add-icon">+</span>`;
-          slotEl.title = `Slot ${i + 1}: Tap to add button`;
+          slotEl.title = t("tap_to_add_btn").replace("{slot}", i + 1);
           slotEl.addEventListener('click', () => {
             this.openSlotEditorModal(null, i);
           });
@@ -798,7 +799,7 @@ export class RemoteEngine {
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
     searchInput.className = 'form-control cmd-search-input';
-    searchInput.placeholder = 'Search commands...';
+    searchInput.placeholder = t('placeholder_search_commands');
     searchInput.value = this.cmdSearchFilter;
     view.appendChild(searchInput);
 
@@ -858,7 +859,7 @@ export class RemoteEngine {
       });
 
       if (listContainer.children.length === 0) {
-        listContainer.innerHTML = '<div class="muted text-center p-2 mini">No matching commands found.</div>';
+        listContainer.innerHTML = `<div class="muted text-center p-2 mini">${t('no_matching_commands')}</div>`;
       }
     };
 
@@ -878,7 +879,7 @@ export class RemoteEngine {
 
     const numDevs = this.getDevicesWithNumbers();
     if (numDevs.length === 0) {
-      view.innerHTML = '<div class="muted text-center p-2 mini">No number keypad commands found.</div>';
+      view.innerHTML = `<div class="muted text-center p-2 mini">${t('no_keypad_commands')}</div>`;
       return view;
     }
 
@@ -902,7 +903,7 @@ export class RemoteEngine {
       const selectBar = document.createElement('div');
       selectBar.className = 'keypad-select-bar';
       selectBar.innerHTML = `
-        <label class="keypad-select-label">Target Device</label>
+        <label class="keypad-select-label">${t('target_device')}</label>
         <select class="form-control keypad-dev-select">
           ${numDevs.map(d => `<option value="${d.id}" ${String(d.id) === String(currentDev.id) ? 'selected' : ''}>${d.name || d.label} (${d.model || d.id})</option>`).join('')}
         </select>
@@ -970,20 +971,20 @@ export class RemoteEngine {
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
-            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">Keyboard</button>
-            <button type="button" class="btn btn-xs btn-ghost" id="kbSwitchToMouseBtn" style="border-radius:0;">Mouse</button>
+            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">${t('keyboard_tab')}</button>
+            <button type="button" class="btn btn-xs btn-ghost" id="kbSwitchToMouseBtn" style="border-radius:0;">${t('mouse_tab')}</button>
           </div>
-          <button type="button" class="btn btn-xs btn-danger" id="kbReleaseAllBtn" title="Release all held Bluetooth keys">Release All</button>
+          <button type="button" class="btn btn-xs btn-danger" id="kbReleaseAllBtn" title="${t('release_held_keys_title')}">${t('release_all')}</button>
         </div>
       </div>
 
       <div class="keyboard-card" style="margin-bottom:14px;">
         <form class="keyboard-form" id="kbForm">
           <div class="keyboard-input-wrap">
-            <input type="text" id="kbTextInput" class="form-control keyboard-input" placeholder="Type text to send to host..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-            <button type="submit" class="btn btn-primary keyboard-send-btn" id="kbSendBtn">Send</button>
+            <input type="text" id="kbTextInput" class="form-control keyboard-input" placeholder="${t('placeholder_kb_text')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary keyboard-send-btn" id="kbSendBtn">${t('send')}</button>
           </div>
-          <div class="keyboard-hint mini muted" style="margin-top:4px;">Press Send or Enter on mobile keyboard to send text block.</div>
+          <div class="keyboard-hint mini muted" style="margin-top:4px;">${t('kb_send_hint')}</div>
           <div class="keyboard-feedback" id="kbFeedback" style="display: none; margin-top:6px;"></div>
         </form>
       </div>
@@ -1210,8 +1211,8 @@ export class RemoteEngine {
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
-            <button type="button" class="btn btn-xs btn-ghost" id="mouseSwitchToKbBtn" style="border-radius:0;">Keyboard</button>
-            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">Mouse</button>
+            <button type="button" class="btn btn-xs btn-ghost" id="mouseSwitchToKbBtn" style="border-radius:0;">${t('keyboard_tab')}</button>
+            <button type="button" class="btn btn-xs btn-primary" style="border-radius:0;">${t('mouse_tab')}</button>
           </div>
           <select id="remoteMouseSpeed" class="form-control form-control-sm" style="font-size:11px; padding:2px 6px; width:72px;">
             <option value="3.0">3.0x</option>
@@ -1224,31 +1225,31 @@ export class RemoteEngine {
             <option value="15.0">15.0x</option>
             <option value="20.0">20.0x</option>
           </select>
-          <button type="button" class="btn btn-xs btn-danger" id="mouseReleaseAllBtn" title="Release held mouse buttons">Release</button>
+          <button type="button" class="btn btn-xs btn-danger" id="mouseReleaseAllBtn" title="${t('release_held_mouse_title')}">${t('release')}</button>
         </div>
       </div>
 
       <div class="bt-touchpad-card" style="margin-bottom:14px;">
         <div class="bt-touchpad-surface" id="remoteTouchpad" style="height:260px;">
-          <div class="bt-touchpad-hint">Touch &amp; Drag Trackpad<br><span style="font-size:11px; opacity:0.75;">Tap to click • Two fingers or right edge to scroll</span></div>
+          <div class="bt-touchpad-hint">${t('touchpad_hint')}<br><span style="font-size:11px; opacity:0.75;">${t('touchpad_subhint')}</span></div>
           <div class="bt-touchpad-scroll-zone">
             <span>▲</span>
-            <span>Scroll</span>
+            <span>${t('scroll_zone')}</span>
             <span>▼</span>
           </div>
           <div class="bt-touchpad-ripple" id="remoteTouchpadRipple"></div>
         </div>
 
         <div class="bt-mouse-btn-bar">
-          <button type="button" class="bt-mouse-btn btn-primary" id="remoteBtnMouseLeft" data-btn="left">Left Click</button>
-          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseMiddle" data-btn="middle" style="font-size:11px;">Middle</button>
-          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseRight" data-btn="right">Right Click</button>
+          <button type="button" class="bt-mouse-btn btn-primary" id="remoteBtnMouseLeft" data-btn="left">${t('left_click')}</button>
+          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseMiddle" data-btn="middle" style="font-size:11px;">${t('middle_click')}</button>
+          <button type="button" class="bt-mouse-btn" id="remoteBtnMouseRight" data-btn="right">${t('right_click')}</button>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; padding:0 4px;">
           <div style="display:flex; gap:6px;">
-            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelUp" style="padding:4px 10px;">▲ Scroll Up</button>
-            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelDown" style="padding:4px 10px;">▼ Scroll Down</button>
+            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelUp" style="padding:4px 10px;">${t('scroll_up')}</button>
+            <button type="button" class="btn btn-xs btn-secondary" id="remoteBtnWheelDown" style="padding:4px 10px;">${t('scroll_down')}</button>
           </div>
           <div class="mini subtle" id="remoteMouseCoords">dx: 0, dy: 0</div>
         </div>
@@ -1309,7 +1310,7 @@ export class RemoteEngine {
         sendMouse({ action: 'up', button: 'left' });
         sendMouse({ action: 'up', button: 'middle' });
         sendMouse({ action: 'up', button: 'right' });
-        if (coordsEl) coordsEl.textContent = 'Released';
+        if (coordsEl) coordsEl.textContent = t('state_released');
       });
     }
 
@@ -1418,7 +1419,7 @@ export class RemoteEngine {
         if (duration < 250 && totalDist < 10) {
           await this.triggerHaptic();
           sendMouse({ action: 'click', button: 'left' });
-          if (coordsEl) coordsEl.textContent = 'Tap Click (Left)';
+          if (coordsEl) coordsEl.textContent = t('state_tap_click_left');
         }
       });
 
@@ -1487,7 +1488,7 @@ export class RemoteEngine {
         if (duration < 250 && totalDist < 6) {
           await this.triggerHaptic();
           sendMouse({ action: 'click', button: 'left' });
-          if (coordsEl) coordsEl.textContent = 'Click (Left)';
+          if (coordsEl) coordsEl.textContent = t('state_click_left');
         }
       });
 
@@ -1564,42 +1565,42 @@ export class RemoteEngine {
     modal.innerHTML = `
       <div class="modal-card">
         <div class="modal-header">
-          <h3>${isEdit ? 'Customize Button' : 'Add Button'} (Row ${row}, Col ${col})</h3>
+          <h3>${isEdit ? t('customize_button') : t('add_button')} (${t('row_col_format').replace('{row}', row).replace('{col}', col)})</h3>
           <button type="button" class="btn btn-ghost btn-sm" id="btnModalClose">✕</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>Target Device ${this.currentScope === 'device' ? '<span class="mini muted">(Current Device)</span>' : ''}</label>
+            <label>${t('target_device')} ${this.currentScope === 'device' ? `<span class="mini muted">${t('current_device_label')}</span>` : ''}</label>
             <select id="editBtnDevice" class="form-control" ${this.currentScope === 'device' ? 'disabled' : ''}>
-              ${devOptions || '<option value="">(No devices available)</option>'}
+              ${devOptions || `<option value="">${t('no_devices_avail')}</option>`}
             </select>
           </div>
           <div class="form-group">
-            <label>Command / Function</label>
+            <label>${t('cmd_function')}</label>
             <select id="editBtnCommand" class="form-control">
-              ${cmdOptions || '<option value="">(No commands available)</option>'}
+              ${cmdOptions || `<option value="">${t('no_commands_avail')}</option>`}
             </select>
           </div>
           <div class="form-group">
-            <label>Button Label</label>
-            <input type="text" id="editBtnLabel" class="form-control" value="${isEdit ? (btn.label || '') : ''}" placeholder="e.g. PLAY, HDMI 2, ▲">
+            <label>${t('button_label')}</label>
+            <input type="text" id="editBtnLabel" class="form-control" value="${isEdit ? (btn.label || '') : ''}" placeholder="${t('placeholder_btn_label')}">
           </div>
           <div class="form-group">
-            <label>Color Accent</label>
+            <label>${t('color_accent')}</label>
             <select id="editBtnVariant" class="form-control">
-              <option value="" ${!isEdit || !btn.variant ? 'selected' : ''}>Standard Dark</option>
-              <option value="primary" ${isEdit && btn.variant === 'primary' ? 'selected' : ''}>Cyan Accent</option>
-              <option value="accent" ${isEdit && btn.variant === 'accent' ? 'selected' : ''}>Green Play</option>
-              <option value="warning" ${isEdit && btn.variant === 'warning' ? 'selected' : ''}>Orange Warning</option>
-              <option value="danger" ${isEdit && btn.variant === 'danger' ? 'selected' : ''}>Red Power</option>
+              <option value="" ${!isEdit || !btn.variant ? 'selected' : ''}>${t('variant_dark')}</option>
+              <option value="primary" ${isEdit && btn.variant === 'primary' ? 'selected' : ''}>${t('variant_primary')}</option>
+              <option value="accent" ${isEdit && btn.variant === 'accent' ? 'selected' : ''}>${t('variant_accent')}</option>
+              <option value="warning" ${isEdit && btn.variant === 'warning' ? 'selected' : ''}>${t('variant_warning')}</option>
+              <option value="danger" ${isEdit && btn.variant === 'danger' ? 'selected' : ''}>${t('variant_danger')}</option>
             </select>
           </div>
         </div>
         <div class="modal-footer">
-          ${btn ? '<button type="button" class="btn btn-danger btn-sm" id="btnModalDelete">Clear Slot</button>' : ''}
+          ${btn ? `<button type="button" class="btn btn-danger btn-sm" id="btnModalDelete">${t('clear_slot')}</button>` : ''}
           <div style="flex:1;"></div>
-          <button type="button" class="btn btn-secondary btn-sm" id="btnModalCancel">Cancel</button>
-          <button type="button" class="btn btn-primary btn-sm" id="btnModalSave">Save</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnModalCancel">${t('cancel')}</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnModalSave">${t('save')}</button>
         </div>
       </div>
     `;
@@ -1655,7 +1656,7 @@ export class RemoteEngine {
       const chosenDevId = this.currentScope === 'device' ? this.currentTarget.id : devSelect.value;
       const chosenCmd = cmdSelect.value;
       if (!chosenDevId || !chosenCmd) {
-        alert('Please select a valid device and command.');
+        alert(t('select_device_cmd'));
         return;
       }
 
