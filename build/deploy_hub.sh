@@ -21,13 +21,13 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [ -d "$SCRIPT_DIR/bin" ]; then
     BIN_DIR="$SCRIPT_DIR/bin"
     WWW_DIR="$SCRIPT_DIR/www"
     SCRIPTS_DIR="$SCRIPT_DIR/scripts"
     MODULES_DIR="$SCRIPT_DIR/modules"
 else
-    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
     BIN_DIR="$REPO_ROOT/payload/bin"
     WWW_DIR="$REPO_ROOT/payload/www"
     SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
@@ -144,7 +144,7 @@ while IFS= read -r -d '' wfile; do
     deploy_file_if_changed "$wfile" "/cache/www/$rel" 644
 done < <(find "$WWW_DIR" -type f -print0)
 
-if [ ! -f "$REPO_ROOT/build/icons.tar.gz" ]; then
+if [ ! -f "$REPO_ROOT/build/icons.tar.gz" ] && [ -f "$REPO_ROOT/tools/harmony_firmware.py" ]; then
     echo ""
     echo "[?] build/icons.tar.gz not found on host."
     read -p "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? [Y/n] " -r REPLY || true
