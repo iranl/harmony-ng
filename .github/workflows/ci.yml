@@ -11,9 +11,11 @@ jobs:
     name: Check Version Consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Verify Version Sync
@@ -25,9 +27,9 @@ jobs:
     name: Build WebUI & Validate Assets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -47,13 +49,14 @@ jobs:
     name: Compile Elite ARM Binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install ARM GCC toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
       - name: Compile codex_elite
         run: |
+          chmod +x build/*.sh
           mkdir -p elite/bin
           arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o elite/bin/codex_elite -lpthread -lm
           arm-linux-gnueabi-gcc -static -Os -s -o elite/bin/codex_sync payload/source/codex_sync.c
@@ -64,14 +67,14 @@ jobs:
     name: Compile Hub MIPS Binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install MIPS GCC toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-mips-linux-gnu libc6-dev-mips-cross
       - name: Compile Hub MIPS Binaries
         run: |
-          chmod +x build/compile_all.sh
+          chmod +x build/*.sh
           ./build/compile_all.sh hub
           file payload/bin/codex_daemon payload/bin/codex_rf
           ls -lh payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod

@@ -102,7 +102,7 @@ build_mknod() {
 
 build_btstack() {
     echo "[-] Building codex_btstack..."
-    "$SCRIPT_DIR/build_btstack.sh"
+    sh "$SCRIPT_DIR/build_btstack.sh"
 }
 
 build_sync() {
@@ -207,7 +207,10 @@ case "$TARGET" in
 esac
 
 echo "Copying binaries to build/output..."
-cp -f "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$OUT"/ 2>/dev/null || true
+if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && [ ! -f "$BIN/dropbearmulti" ]; then
+    cp -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"
+fi
+cp -f "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$BIN"/dropbearmulti "$OUT"/ 2>/dev/null || true
 
 echo "Updating MANIFEST.txt and FILES..."
 cd "$BIN"

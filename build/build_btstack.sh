@@ -44,7 +44,7 @@ if [ ! -d "$BTSTACK_DIR/src" ]; then
     git clone --depth 1 https://github.com/bluekitchen/btstack.git "$BTSTACK_DIR"
 fi
 if [ -f "$SCRIPT_DIR/patches/btstack.patch" ]; then
-    (cd "$BTSTACK_DIR" && git apply "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || true)
+    (cd "$BTSTACK_DIR" && (git apply --whitespace=nowarn "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || git apply -3 "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || true))
 fi
 
 echo "=== Compiling codex_btstack for MIPS32 ==="
