@@ -520,6 +520,17 @@ static int orch_build_steps(const char *target_id, orch_step_t *steps, size_t ma
 
     /* 5. Departing activity stop sequence tail (after Switched marker) */
     if (old_act && stop_switched_idx >= 0 && strcmp(target_id, ORCH_POWEROFF_ID) != 0) {
+        int already_switched = 0;
+        for (size_t s = 0; s < count; s++) {
+            if (steps[s].type == STEP_ACT_SWITCHED) { already_switched = 1; break; }
+        }
+        if (!already_switched && count < ORCH_MAX_STEPS) {
+            memset(&steps[count], 0, sizeof(orch_step_t));
+            steps[count].type = STEP_ACT_SWITCHED;
+            steps[count].delay_ms = 0;
+            snprintf(steps[count].description, sizeof(steps[count].description), "Activity switch completed (tail commands continue)");
+            count++;
+        }
         for (int k = stop_switched_idx + 1; k < old_act->stop_count && count < ORCH_MAX_STEPS; k++) {
             append_orch_step(steps, &count, &old_act->stop_steps[k], "Stop tail");
         }
@@ -707,6 +718,9 @@ static void orch_format_preview_json(const char *target_id, const orch_step_t *s
         cJSON *st = cJSON_CreateObject();
         cJSON_AddStringToObject(st, "description", steps[i].description);
         cJSON_AddNumberToObject(st, "type", (int)steps[i].type);
+        if (steps[i].type == STEP_ACT_SWITCHED) {
+            cJSON_AddStringToObject(st, "stepType", "Switched");
+        }
         if (steps[i].device_id[0]) cJSON_AddStringToObject(st, "deviceId", steps[i].device_id);
         if (steps[i].command_name[0]) cJSON_AddStringToObject(st, "command", steps[i].command_name);
         cJSON_AddNumberToObject(st, "delayMs", steps[i].delay_ms);

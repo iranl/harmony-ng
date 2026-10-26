@@ -3560,20 +3560,21 @@ class HarmonyApp {
   }
 
   simulateActivityTransition() {
-    const fromId = document.getElementById('previewFromAct')?.value;
-    const toId = document.getElementById('previewToAct')?.value;
+    const fromId = String(document.getElementById('previewFromAct')?.value || '-1');
+    const toId = String(document.getElementById('previewToAct')?.value || '-1');
     const resultsBox = document.getElementById('previewResultsBox');
     const summaryEl = document.getElementById('previewSummary');
     const timelineEl = document.getElementById('previewTimeline');
 
     if (!resultsBox || !summaryEl || !timelineEl) return;
 
-    const fromAct = (this.activitiesData.activities || []).find(a => String(a.id) === String(fromId));
-    const toAct = (this.activitiesData.activities || []).find(a => String(a.id) === String(toId));
+    const allActs = this.activitiesData.activities || [];
+    const fromAct = allActs.find(a => String(a.id) === fromId) || (fromId === '-1' ? { id: '-1', name: 'PowerOff' } : null);
+    const toAct = allActs.find(a => String(a.id) === toId) || (toId === '-1' ? { id: '-1', name: 'PowerOff' } : null);
     const allDevs = this.inventory.devices || [];
 
     const getActDevIds = (act) => {
-      if (!act) return [];
+      if (!act || String(act.id) === '-1') return [];
       const set = new Set();
       if (Array.isArray(act.deviceIds)) {
         act.deviceIds.forEach(id => set.add(String(id)));
@@ -3594,154 +3595,313 @@ class HarmonyApp {
     const fromDevIds = getActDevIds(fromAct);
     const toDevIds = getActDevIds(toAct);
 
-    // Departing devices: in fromAct, not in toAct, and NOT is_power_always_on
-    const departingDevs = fromDevIds
-      .filter(id => !toDevIds.includes(id))
-      .map(id => allDevs.find(d => String(d.id) === String(id)))
-      .filter(d => d && !d.is_power_always_on && !d.isPowerAlwaysOn);
-
-    // Entering devices: in toAct, not in fromAct
-    const enteringDevs = toDevIds
-      .filter(id => !fromDevIds.includes(id))
-      .map(id => allDevs.find(d => String(d.id) === String(id)))
-      .filter(Boolean);
+    // Old activity exists only if fromId is valid, not PowerOff (-1), and not switching to same
+    const oldAct = (fromId !== '-1' && fromId !== toId) ? fromAct : null;
+    const isTargetPowerOff = (toId === '-1');
 
     const steps = [];
 
-    const fromStop = fromAct?.stopSteps || fromAct?.stopSequence || [];
+    // Departing activity stop sequence
+    const fromStop = (oldAct?.stopSteps || oldAct?.stopSequence || []).map(s => ({
+      ...s,
+      type: s.type || s.Type || 'Command',
+      command: s.command || s.Command || s.CommandName || '',
+      delay: s.delay !== undefined ? s.delay : (s.Delay !== undefined ? s.Delay : 0)
+    }));
+
     const stopSwitchedIdx = fromStop.findIndex(s => {
       const t = (s.type || '').toLowerCase();
-      const c = (s.command || s.Command || s.CommandName || '').toLowerCase();
+      const c = (s.command || '').toLowerCase();
       return t === 'switched' || t === 'activityswitched' || c === 'switched';
     });
 
-    const departingPhases = [];
-    departingDevs.forEach(dev => {
-      const pOffSeq = dev.powerOffSequence || dev.power_off_sequence || dev.PowerOffActions || [];
-      if (Array.isArray(pOffSeq) && pOffSeq.length > 0) {
-        pOffSeq.forEach(s => departingPhases.push({ ...s, deviceId: s.deviceId || dev.id, phase: `Power Off ${dev.name || dev.id}` }));
-      } else {
-        const cmds = dev.commands || this.deviceCommandsMap[dev.id] || [];
-        const pwrCmd = cmds.find(c => {
-          const n = (c.name || c).toLowerCase();
-          return n === 'poweroff' || n === 'powertoggle' || n === 'power';
+    // 1. Departing activity stop sequence head (before Switched marker, or all if no marker/powering off)
+    if (oldAct) {
+      const stopLimit = (stopSwitchedIdx >= 0 && !isTargetPowerOff) ? stopSwitchedIdx : fromStop.length;
+      for (let k = 0; k < stopLimit; k++) {
+        const s = fromStop[k];
+        const isDl = (s.type || '').toLowerCase() === 'delay';
+        steps.push({
+          ...s,
+          type: isDl ? 'Delay' : 'Command',
+          delay: isDl ? (s.delay || 50) : (s.delay > 0 ? s.delay : 250),
+          phase: `Exit ${oldAct.name || 'Current'}`
         });
-        if (pwrCmd) {
-          departingPhases.push({
-            type: 'Command',
-            deviceId: dev.id,
-            command: pwrCmd.name || pwrCmd,
-            phase: `Power Off ${dev.name || dev.id}`
-          });
-        }
       }
-    });
+    }
 
-    const enteringPhases = [];
-    enteringDevs.forEach(dev => {
-      const pOnSeq = dev.powerOnSequence || dev.power_on_sequence || dev.PowerOnActions || [];
-      if (Array.isArray(pOnSeq) && pOnSeq.length > 0) {
-        pOnSeq.forEach(s => enteringPhases.push({ ...s, deviceId: s.deviceId || dev.id, phase: `Power On ${dev.name || dev.id}` }));
-      } else {
-        const cmds = dev.commands || this.deviceCommandsMap[dev.id] || [];
-        const pwrCmd = cmds.find(c => {
-          const n = (c.name || c).toLowerCase();
-          return n === 'poweron' || n === 'powertoggle' || n === 'power';
-        });
-        if (pwrCmd) {
-          enteringPhases.push({
-            type: 'Command',
-            deviceId: dev.id,
-            command: pwrCmd.name || pwrCmd,
-            phase: `Power On ${dev.name || dev.id}`
+    // 2. Power OFF departing devices (not present in new activity)
+    if (oldAct && !isTargetPowerOff) {
+      const departingDevs = fromDevIds
+        .filter(id => !toDevIds.includes(id))
+        .map(id => allDevs.find(d => String(d.id) === String(id)))
+        .filter(d => d && !d.is_power_always_on && !d.isPowerAlwaysOn);
+
+      departingDevs.reverse().forEach(dev => {
+        const pOffSeq = dev.powerOffSequence || dev.power_off_sequence || dev.PowerOffActions || [];
+        if (Array.isArray(pOffSeq) && pOffSeq.length > 0) {
+          pOffSeq.forEach(s => {
+            const isDl = (s.type || '').toLowerCase() === 'delay';
+            const del = s.delay !== undefined ? s.delay : (s.delayMs || 0);
+            steps.push({
+              ...s,
+              deviceId: s.deviceId || dev.id,
+              type: isDl ? 'Delay' : 'Command',
+              delay: isDl ? (del || 50) : (del > 0 ? del : (dev.inter_device_delay || dev.interDeviceDelay || 250)),
+              phase: `Power Off ${dev.name || dev.id}`
+            });
           });
+        } else {
+          const cmds = dev.commands || this.deviceCommandsMap[dev.id] || [];
+          const pwrCmd = cmds.find(c => {
+            const n = (c.name || c).toLowerCase();
+            return n === 'poweroff' || n === 'powertoggle' || n === 'power';
+          });
+          if (pwrCmd) {
+            steps.push({
+              type: 'Command',
+              deviceId: dev.id,
+              command: pwrCmd.name || pwrCmd,
+              delay: dev.inter_device_delay || dev.interDeviceDelay || 250,
+              phase: `Power Off ${dev.name || dev.id}`
+            });
+          }
         }
-      }
-      const pwrDelay = dev.power_on_delay !== undefined ? dev.power_on_delay : (dev.powerOnDelay || 1500);
-      if (pwrDelay > 0) {
-        enteringPhases.push({
+      });
+    } else if (oldAct && isTargetPowerOff) {
+      const departingDevs = fromDevIds
+        .map(id => allDevs.find(d => String(d.id) === String(id)))
+        .filter(d => d && !d.is_power_always_on && !d.isPowerAlwaysOn);
+
+      const pOffStart = toAct?.startSteps || toAct?.startSequence || [];
+      departingDevs.reverse().forEach(dev => {
+        const inPowerOffSeq = pOffStart.some(s => String(s.deviceId) === String(dev.id));
+        if (inPowerOffSeq) return;
+
+        const pOffSeq = dev.powerOffSequence || dev.power_off_sequence || dev.PowerOffActions || [];
+        if (Array.isArray(pOffSeq) && pOffSeq.length > 0) {
+          pOffSeq.forEach(s => {
+            const isDl = (s.type || '').toLowerCase() === 'delay';
+            const del = s.delay !== undefined ? s.delay : (s.delayMs || 0);
+            steps.push({
+              ...s,
+              deviceId: s.deviceId || dev.id,
+              type: isDl ? 'Delay' : 'Command',
+              delay: isDl ? (del || 50) : (del > 0 ? del : (dev.inter_device_delay || dev.interDeviceDelay || 250)),
+              phase: `Power Off ${dev.name || dev.id}`
+            });
+          });
+        } else {
+          const cmds = dev.commands || this.deviceCommandsMap[dev.id] || [];
+          const pwrCmd = cmds.find(c => {
+            const n = (c.name || c).toLowerCase();
+            return n === 'poweroff' || n === 'powertoggle' || n === 'power';
+          });
+          if (pwrCmd) {
+            steps.push({
+              type: 'Command',
+              deviceId: dev.id,
+              command: pwrCmd.name || pwrCmd,
+              delay: dev.inter_device_delay || dev.interDeviceDelay || 250,
+              phase: `Power Off ${dev.name || dev.id}`
+            });
+          }
+        }
+      });
+    }
+
+    // 3. Power ON arriving devices (not present in old activity)
+    if (!isTargetPowerOff) {
+      const enteringDevs = toDevIds
+        .filter(id => !fromDevIds.includes(id))
+        .map(id => allDevs.find(d => String(d.id) === String(id)))
+        .filter(d => d && !d.is_power_always_on && !d.isPowerAlwaysOn);
+
+      const toStart = toAct?.startSteps || toAct?.startSequence || [];
+      let maxWarmup = 0;
+
+      enteringDevs.forEach(dev => {
+        // Skip power-on if activity start steps already explicitly issue power command
+        const inStartSeq = toStart.some(s => {
+          if (String(s.deviceId) !== String(dev.id)) return false;
+          const c = (s.command || s.Command || s.CommandName || '').toLowerCase();
+          return c === 'poweron' || c === 'powertoggle' || c === 'power';
+        });
+        if (inStartSeq) return;
+
+        const pOnSeq = dev.powerOnSequence || dev.power_on_sequence || dev.PowerOnActions || [];
+        if (Array.isArray(pOnSeq) && pOnSeq.length > 0) {
+          pOnSeq.forEach(s => {
+            const isDl = (s.type || '').toLowerCase() === 'delay';
+            const del = s.delay !== undefined ? s.delay : (s.delayMs || 0);
+            steps.push({
+              ...s,
+              deviceId: s.deviceId || dev.id,
+              type: isDl ? 'Delay' : 'Command',
+              delay: isDl ? (del || 50) : (del > 0 ? del : (dev.inter_device_delay || dev.interDeviceDelay || 250)),
+              phase: `Power On ${dev.name || dev.id}`
+            });
+          });
+        } else {
+          const cmds = dev.commands || this.deviceCommandsMap[dev.id] || [];
+          const pwrCmd = cmds.find(c => {
+            const n = (c.name || c).toLowerCase();
+            return n === 'poweron' || n === 'powertoggle' || n === 'power';
+          });
+          if (pwrCmd) {
+            steps.push({
+              type: 'Command',
+              deviceId: dev.id,
+              command: pwrCmd.name || pwrCmd,
+              delay: dev.inter_device_delay || dev.interDeviceDelay || 250,
+              phase: `Power On ${dev.name || dev.id}`
+            });
+          }
+        }
+        const pwrDelay = dev.power_on_delay !== undefined ? dev.power_on_delay : (dev.powerOnDelay || 0);
+        if (pwrDelay > maxWarmup) maxWarmup = pwrDelay;
+      });
+
+      if (maxWarmup > 0) {
+        steps.push({
           type: 'Delay',
-          deviceId: dev.id,
-          delay: pwrDelay,
-          phase: `Warmup ${dev.name || dev.id}`
+          deviceId: '0',
+          command: '',
+          delay: maxWarmup,
+          phase: `Warmup (${maxWarmup} ms)`
+        });
+      }
+    }
+
+    // 4. Arriving activity start sequence
+    const toStartRaw = toAct?.startSteps || toAct?.startSequence || [];
+    toStartRaw.forEach(s => {
+      const t = (s.type || s.Type || '').toLowerCase();
+      const c = s.command || s.Command || s.CommandName || '';
+      const isDl = t === 'delay' || (s.__type && s.__type.includes('Delay'));
+      const isSw = t === 'switched' || t === 'activityswitched' || c.toLowerCase() === 'switched';
+      const del = s.delay !== undefined ? s.delay : (s.Delay !== undefined ? s.Delay : 0);
+      const dev = allDevs.find(d => String(d.id) === String(s.deviceId));
+
+      if (isSw) {
+        steps.push({
+          type: 'Switched',
+          deviceId: '0',
+          command: 'Switched',
+          delay: 0,
+          phase: 'Switchpoint'
+        });
+      } else if (isDl) {
+        steps.push({
+          type: 'Delay',
+          deviceId: s.deviceId || '0',
+          command: '',
+          delay: del > 0 ? del : 50,
+          phase: isTargetPowerOff ? 'PowerOff' : `Enter ${toAct ? toAct.name : 'Target'}`
+        });
+      } else {
+        steps.push({
+          type: s.type || 'Command',
+          deviceId: s.deviceId,
+          command: c,
+          delay: del > 0 ? del : 250,
+          phase: isTargetPowerOff ? 'PowerOff' : `Enter ${toAct ? toAct.name : 'Target'}`
         });
       }
     });
 
-    const toStart = toAct?.startSteps || toAct?.startSequence || [];
-    const targetStartPhases = [];
-    toStart.forEach(s => targetStartPhases.push({ ...s, phase: 'Enter ' + (toAct ? toAct.name : 'Target') }));
+    // 5. Activity Switched Marker if not already placed inside startSequence
+    const hasSwitchedSoFar = steps.some(s => s.type === 'Switched');
+    if (!hasSwitchedSoFar) {
+      steps.push({
+        type: 'Switched',
+        deviceId: '0',
+        command: 'Switched',
+        delay: 0,
+        phase: 'Switchpoint'
+      });
+    }
 
-    if (stopSwitchedIdx >= 0 && toId !== '-1') {
-      fromStop.slice(0, stopSwitchedIdx).forEach(s => steps.push({ ...s, phase: 'Exit ' + (fromAct ? fromAct.name : 'Current') }));
-      departingPhases.forEach(s => steps.push(s));
-      enteringPhases.forEach(s => steps.push(s));
-      targetStartPhases.forEach(s => steps.push(s));
-      fromStop.slice(stopSwitchedIdx + 1).forEach(s => steps.push({ ...s, phase: 'Exit tail ' + (fromAct ? fromAct.name : 'Current') }));
-    } else {
-      fromStop.forEach(s => steps.push({ ...s, phase: 'Exit ' + (fromAct ? fromAct.name : 'Current') }));
-      departingPhases.forEach(s => steps.push(s));
-      enteringPhases.forEach(s => steps.push(s));
-      targetStartPhases.forEach(s => steps.push(s));
+    // 6. Departing activity stop sequence tail (after Switched marker)
+    if (oldAct && stopSwitchedIdx >= 0 && !isTargetPowerOff) {
+      for (let k = stopSwitchedIdx + 1; k < fromStop.length; k++) {
+        const s = fromStop[k];
+        const isDl = (s.type || '').toLowerCase() === 'delay';
+        steps.push({
+          ...s,
+          type: isDl ? 'Delay' : 'Command',
+          delay: isDl ? (s.delay || 50) : (s.delay > 0 ? s.delay : 250),
+          phase: `Exit tail ${oldAct.name || 'Current'}`
+        });
+      }
     }
 
     resultsBox.style.display = 'block';
 
     let totalDurationMs = 0;
     let switchedAtMs = null;
-    let lastDeviceId = null;
+    let actionCount = 0;
 
-    const renderedTimeline = steps.map((st, i) => {
-      const normType = (st.type === 'IRCommand') ? 'Command' : (st.type || 'Command');
+    const renderedTimeline = steps.map((st) => {
+      const normType = (st.type === 'IRCommand' || st.type === 'BTCommand') ? 'Command' : (st.type || 'Command');
       const isDelay = normType === 'Delay';
       const isSwitched = normType === 'Switched';
-      const delayVal = isDelay ? (st.delay !== undefined ? st.delay : (st.delayMs || 1000)) : 0;
+      const delayVal = isSwitched ? 0 : (st.delay || 0);
       const dev = allDevs.find(d => String(d.id) === String(st.deviceId));
-      const devName = dev ? (dev.name || dev.model || `Device ${st.deviceId}`) : `Device ${st.deviceId}`;
+      const devName = dev ? (dev.name || dev.model || `Device ${st.deviceId}`) : (st.deviceId && st.deviceId !== '0' ? `Device ${st.deviceId}` : '');
 
       if (isSwitched) {
         if (switchedAtMs === null) switchedAtMs = totalDurationMs;
+        const switchedSec = (totalDurationMs / 1000).toFixed(1);
         return `
-          <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px;margin-bottom:4px;background:rgba(34,197,94,0.1);border-left:3px solid var(--accent);">
-            <span style="font-size:12px;font-weight:600;color:var(--accent);">${i + 1}. [${st.phase || 'Switchpoint'}] ★ Elite Remote UI updates to "${toAct ? toAct.name : 'Target'}" (${totalDurationMs} ms)</span>
-            <span class="badge ok">Switched</span>
+          <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:8px 0;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);border-left:4px solid #22c55e;border-radius:var(--radius-sm);">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-size:14px;">⚡</span>
+              <strong style="font-size:12px;color:#22c55e;letter-spacing:0.5px;">ACTIVITY SWITCHED</strong>
+              <span style="font-size:12px;color:var(--text-muted);">&bull; Elite Remote UI updates to "${toAct ? toAct.name : 'PowerOff'}"</span>
+            </div>
+            <span class="badge ok" style="font-weight:700;font-size:11px;">T: ${switchedSec}s (${totalDurationMs.toLocaleString()} ms)</span>
           </div>
         `;
       }
 
+      actionCount++;
+      const startT = totalDurationMs;
+      totalDurationMs += delayVal;
+      const startSec = (startT / 1000).toFixed(1);
+      const endSec = (totalDurationMs / 1000).toFixed(1);
+
       if (isDelay) {
-        totalDurationMs += delayVal;
         return `
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;">
-            <span style="font-size:12px;">${i + 1}. [${st.phase}] Wait ${delayVal} ms (T: ${totalDurationMs} ms)</span>
+            <span style="font-size:12px;">${actionCount}. [${st.phase}] Wait ${delayVal} ms (T: ${startSec}s &rarr; ${endSec}s)</span>
             <span class="badge warn">Delay</span>
           </div>
         `;
       }
 
-      // Command timing: add inter-device delay if switching target device
-      if (dev && lastDeviceId && String(lastDeviceId) !== String(dev.id)) {
-        const idd = dev.inter_device_delay !== undefined ? dev.inter_device_delay : (dev.interDeviceDelay || 100);
-        totalDurationMs += idd;
-      }
-      lastDeviceId = st.deviceId;
-
       return `
         <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;">
-          <span style="font-size:12px;">${i + 1}. [${st.phase}] Send ${st.command} to ${devName} (T: ${totalDurationMs} ms)</span>
-          <span class="badge ok">Command</span>
+          <span style="font-size:12px;">${actionCount}. [${st.phase}] Send <strong>${st.command}</strong> to ${devName} (${delayVal} ms, T: ${startSec}s)</span>
+          <span class="badge ok">${normType}</span>
         </div>
       `;
     }).join('') || '<div class="muted mini">No operations required.</div>';
 
-    const switchNote = (switchedAtMs !== null) ? ` • UI Switched after ${switchedAtMs} ms` : '';
-    summaryEl.textContent = `Transition from ${fromAct ? fromAct.name : 'PowerOff'} to ${toAct ? toAct.name : 'PowerOff'}: ${steps.length} steps • Estimated duration: ${(totalDurationMs / 1000).toFixed(1)}s${switchNote}`;
+    if (switchedAtMs === null) switchedAtMs = totalDurationMs;
+    const switchedSec = (switchedAtMs / 1000).toFixed(1);
+    const totalSec = (totalDurationMs / 1000).toFixed(1);
+
+    summaryEl.innerHTML = `
+      <strong>${fromAct ? fromAct.name : 'PowerOff'} &rarr; ${toAct ? toAct.name : 'PowerOff'}</strong>: 
+      ${actionCount} steps &bull; 
+      <span style="color:#22c55e;font-weight:700;">Activity Switched at: ${switchedSec}s (${switchedAtMs.toLocaleString()} ms)</span> &bull; 
+      <span style="color:var(--text);font-weight:600;">Total Duration: ${totalSec}s (${totalDurationMs.toLocaleString()} ms)</span>
+    `;
     timelineEl.innerHTML = renderedTimeline;
   }
 
-  /* -------------------------------------------------------------
-   * 4. Control View (Device Remotes)
-   * ------------------------------------------------------------- */
+
   renderControlView() {
     const cont = document.getElementById('controlDeviceWorkspace');
     if (!cont) return;
@@ -6836,10 +6996,10 @@ class HarmonyApp {
         const navKey = cfg.nav_key || cfg.navToggleKey || 139;
         document.getElementById('rfCfgNavKey').value = String(navKey);
 
-        const navMode = typeof cfg.nav_mode !== 'undefined' ? cfg.nav_mode : (cfg.navToggleMode || 0);
+        const navMode = typeof cfg.nav_mode !== 'undefined' ? cfg.nav_mode : (typeof cfg.navToggleMode !== 'undefined' ? cfg.navToggleMode : 1);
         document.getElementById('rfCfgNavMode').value = String(navMode);
 
-        const confirmAct = typeof cfg.confirm_act !== 'undefined' ? cfg.confirm_act : (cfg.confirmActivity ? 1 : 0);
+        const confirmAct = typeof cfg.confirm_act !== 'undefined' ? cfg.confirm_act : (typeof cfg.confirmActivity !== 'undefined' ? (cfg.confirmActivity ? 1 : 0) : 1);
         document.getElementById('rfCfgConfirmAct').value = String(confirmAct ? 1 : 0);
 
         const gyroVal = typeof cfg.gyro !== 'undefined' ? cfg.gyro : (typeof cfg.gyroEnabled !== 'undefined' ? (cfg.gyroEnabled ? 1 : 0) : 1);
@@ -6848,17 +7008,26 @@ class HarmonyApp {
         const gyroRate = cfg.gyro_rate || cfg.gyroRate || 25;
         if (document.getElementById('rfCfgGyroRate')) document.getElementById('rfCfgGyroRate').value = String(gyroRate);
 
-        const btnBacklight = typeof cfg.btn_backlight !== 'undefined' ? cfg.btn_backlight : (typeof cfg.btnBacklight !== 'undefined' ? cfg.btnBacklight : 1);
+        const btnBacklight = typeof cfg.btn_backlight !== 'undefined' ? cfg.btn_backlight : (typeof cfg.btnBacklight !== 'undefined' ? cfg.btnBacklight : 2);
         if (document.getElementById('rfCfgBtnBacklight')) document.getElementById('rfCfgBtnBacklight').value = String(btnBacklight);
 
         const nightStart = typeof cfg.night_start !== 'undefined' ? cfg.night_start : (typeof cfg.nightStart !== 'undefined' ? cfg.nightStart : 22);
-        if (document.getElementById('rfCfgNightStart')) document.getElementById('rfCfgNightStart').value = String(nightStart);
-
         const nightEnd = typeof cfg.night_end !== 'undefined' ? cfg.night_end : (typeof cfg.nightEnd !== 'undefined' ? cfg.nightEnd : 7);
-        if (document.getElementById('rfCfgNightEnd')) document.getElementById('rfCfgNightEnd').value = String(nightEnd);
+        if (document.getElementById('rfCfgNightSchedule')) {
+          const schedVal = `${nightStart}-${nightEnd}`;
+          const schedSelect = document.getElementById('rfCfgNightSchedule');
+          if (schedSelect.querySelector(`option[value="${schedVal}"]`)) {
+            schedSelect.value = schedVal;
+          } else {
+            schedSelect.value = '22-7';
+          }
+        }
 
         const usbEth = typeof cfg.usbeth !== 'undefined' ? cfg.usbeth : (typeof cfg.usbEth !== 'undefined' ? (cfg.usbEth ? 1 : 0) : 0);
         if (document.getElementById('rfCfgUsbEth')) document.getElementById('rfCfgUsbEth').value = String(usbEth ? 1 : 0);
+
+        const powerDebug = typeof cfg.power_debug !== 'undefined' ? cfg.power_debug : (typeof cfg.powerDebug !== 'undefined' ? (cfg.powerDebug ? 1 : 0) : 0);
+        if (document.getElementById('rfCfgPowerDebug')) document.getElementById('rfCfgPowerDebug').value = String(powerDebug ? 1 : 0);
       }
     } catch (e) {
       console.warn('Could not fetch existing remote config:', e);
@@ -6872,21 +7041,23 @@ class HarmonyApp {
 
   async saveRfConfig() {
     const slot = parseInt(document.getElementById('rfConfigSlot')?.value || '1', 10);
-    const bright = parseInt(document.getElementById('rfCfgBrightness')?.value || '3', 10);
-    const timeout = parseInt(document.getElementById('rfCfgTimeout')?.value || '120', 10);
+    const bright = parseInt(document.getElementById('rfCfgBrightness')?.value || '2', 10);
+    const timeout = parseInt(document.getElementById('rfCfgTimeout')?.value || '10', 10);
     const touch = parseInt(document.getElementById('rfCfgTouch')?.value || '1', 10);
     const cap_buttons = parseInt(document.getElementById('rfCfgCapButtons')?.value || '1', 10);
     const touch_sensitivity = parseInt(document.getElementById('rfCfgTouchSens')?.value || '2', 10);
     let remote_mode = parseInt(document.getElementById('rfCfgRemoteMode')?.value || '0', 10);
     const nav_key = parseInt(document.getElementById('rfCfgNavKey')?.value || '139', 10);
-    const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '0', 10);
-    const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '0', 10);
+    const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '1', 10);
+    const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '1', 10);
     const gyro = parseInt(document.getElementById('rfCfgGyro')?.value || '1', 10);
     const gyro_rate = parseInt(document.getElementById('rfCfgGyroRate')?.value || '25', 10);
-    const btn_backlight = parseInt(document.getElementById('rfCfgBtnBacklight')?.value || '1', 10);
-    const night_start = parseInt(document.getElementById('rfCfgNightStart')?.value || '22', 10);
-    const night_end = parseInt(document.getElementById('rfCfgNightEnd')?.value || '7', 10);
+    const btn_backlight = parseInt(document.getElementById('rfCfgBtnBacklight')?.value || '2', 10);
+    const schedParts = (document.getElementById('rfCfgNightSchedule')?.value || '22-7').split('-');
+    const night_start = parseInt(schedParts[0] || '22', 10);
+    const night_end = parseInt(schedParts[1] || '7', 10);
     const usbeth = parseInt(document.getElementById('rfCfgUsbEth')?.value || '0', 10);
+    const power_debug = parseInt(document.getElementById('rfCfgPowerDebug')?.value || '0', 10);
 
     let no_screen = 0;
     if (remote_mode === 2) {
@@ -6934,6 +7105,8 @@ class HarmonyApp {
       nightEnd: night_end,
       usbeth: usbeth,
       usbEth: usbeth === 1,
+      power_debug: power_debug,
+      powerDebug: power_debug === 1,
       no_screen: no_screen,
       noScreen: no_screen === 1
     };

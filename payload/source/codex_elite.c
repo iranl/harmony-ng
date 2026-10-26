@@ -543,12 +543,12 @@ static void init_act_triggers(void) {
 
 static bool g_gyro_enabled = true;
 static int g_gyro_rate_hz = 25;       /* 10, 25, 50 Hz */
-static int g_btn_backlight_mode = 1;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
+static int g_btn_backlight_mode = 2;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
 static int g_night_start_hour = 22;   /* 10 PM */
 static int g_night_end_hour = 7;      /* 7 AM */
-static int g_timeout_seconds = 120;
-static int g_brightness_val = 3; /* 1..5 */
-static bool g_confirm_activity = false;
+static int g_timeout_seconds = 10;
+static int g_brightness_val = 2; /* 1..5 */
+static bool g_confirm_activity = true;
 static int g_confirm_pending_idx = -1;
 static uint64_t g_confirm_pending_deadline_ms = 0;
 static int g_confirm_pending_rf_code = 0;
@@ -1210,7 +1210,7 @@ static void load_settings_conf(void) {
             else if (strcmp(key, "night_start") == 0) g_night_start_hour = val;
             else if (strcmp(key, "night_end") == 0) g_night_end_hour = val;
             else if (strcmp(key, "timeout") == 0) g_timeout_seconds = val;
-            else if (strcmp(key, "brightness") == 0) g_brightness_val = (val >= 1 && val <= 5) ? val : 3;
+            else if (strcmp(key, "brightness") == 0) g_brightness_val = (val >= 1 && val <= 5) ? val : 2;
             else if (strcmp(key, "screen") == 0) g_screen_on = (val != 0);
             else if (strcmp(key, "nav_key") == 0) g_nav_toggle_key = val;
             else if (strcmp(key, "nav_mode") == 0) g_nav_toggle_mode = val;
@@ -1442,7 +1442,8 @@ static void send_remote_config_backup_rf(void) {
     payload[15] = (uint8_t)g_night_end_hour;
     payload[16] = (uint8_t)((g_timeout_seconds >> 8) & 0xFF);
     payload[17] = (uint8_t)(g_cap_buttons_enabled ? 1 : 0);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 18);
+    payload[18] = (uint8_t)(g_power_debug ? 1 : 0);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 19);
     rf_send_frame(&f);
     printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d\n",
            g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds);
@@ -2826,6 +2827,8 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             g_no_screen_mode = (f->payload[17] != 0);
             if (f->payload[18] == 1) g_cap_buttons_enabled = true;
             else if (f->payload[18] == 2) g_cap_buttons_enabled = false;
+            if (f->payload[19] == 1) g_power_debug = true;
+            else if (f->payload[19] == 2) g_power_debug = false;
 
             if (g_no_screen_mode) {
                 set_backlight_level(0);
@@ -2835,10 +2838,10 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d pwrdbg=%d\n",
                    g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
                    g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity, g_remote_mode,
-                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode);
+                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode, g_power_debug);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);

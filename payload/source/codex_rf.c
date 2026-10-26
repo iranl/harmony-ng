@@ -809,7 +809,7 @@ static void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
 
     int timeout = (int)p[1] | ((int)p[16] << 8);
     if (timeout <= 0) timeout = (int)p[1];
-    if (timeout <= 0) timeout = 120;
+    if (timeout <= 0) timeout = 10;
 
     int gyro = (p[11] != 0);
     int gyro_rate = p[12] > 0 ? p[12] : 25;
@@ -851,6 +851,9 @@ static void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     int cap_buttons = (p[17] == 0) ? 0 : 1;
     cJSON_AddBoolToObject(root, "capButtonsEnabled", cap_buttons != 0);
     cJSON_AddNumberToObject(root, "cap_buttons", cap_buttons);
+    int power_debug = (p[18] == 1) ? 1 : 0;
+    cJSON_AddBoolToObject(root, "powerDebug", power_debug != 0);
+    cJSON_AddNumberToObject(root, "power_debug", power_debug);
 
     char *txt = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -892,7 +895,7 @@ static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, in
                                        int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                        int remote_mode, int gyro_rate, int btn_backlight,
                                        int night_start, int night_end, int usbeth, int no_screen,
-                                       int cap_buttons) {
+                                       int cap_buttons, int power_debug) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
     rf_frame_t f;
     uint8_t payload[26] = {0};
@@ -908,14 +911,15 @@ static void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, in
     payload[9] = (uint8_t)(touch_sens >= 1 && touch_sens <= 3 ? touch_sens : 2);
     payload[10] = (uint8_t)(remote_mode == 1 ? 1 : 0);
     payload[11] = (uint8_t)(gyro_rate > 0 ? gyro_rate : 25);
-    payload[12] = (uint8_t)(btn_backlight >= 0 && btn_backlight <= 2 ? btn_backlight : 1);
+    payload[12] = (uint8_t)(btn_backlight >= 0 && btn_backlight <= 2 ? btn_backlight : 2);
     payload[13] = (uint8_t)(night_start >= 0 && night_start <= 23 ? night_start : 22);
     payload[14] = (uint8_t)(night_end >= 0 && night_end <= 23 ? night_end : 7);
     payload[15] = (uint8_t)(usbeth ? 1 : 0);
     payload[16] = (uint8_t)g_config_version;
     payload[17] = (uint8_t)(no_screen ? 1 : 0);
     payload[18] = (uint8_t)(cap_buttons ? 1 : 2);
-    rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 19);
+    payload[19] = (uint8_t)(power_debug ? 1 : 2);
+    rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 20);
     rf_send_frame_acked(&f, 300);
 }
 
@@ -1650,8 +1654,8 @@ static void *config_push_worker(void *arg) {
     /* 6. Settings push */
     for (int t = 0; t < num_targets; t++) {
         uint8_t target_slot = target_slots[t];
-        int bright = 3, timeout = 120, touch = 1, gyro = 1, nav_key = 139, nav_mode = 1, confirm_act = 0, touch_sens = 2, remote_mode = 0;
-        int gyro_rate = 25, btn_backlight = 1, night_start = 22, night_end = 7, usbeth = 0;
+        int bright = 2, timeout = 10, touch = 1, gyro = 1, nav_key = 139, nav_mode = 1, confirm_act = 1, touch_sens = 2, remote_mode = 0;
+        int gyro_rate = 25, btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
         char spath[64];
         snprintf(spath, sizeof(spath), "/data/codex/elite_slot%d_config.json", target_slot);
         FILE *sf = fopen(spath, "r");
@@ -1688,6 +1692,8 @@ static void *config_push_worker(void *arg) {
                 if (!jne) jne = cJSON_GetObjectItem(sroot, "night_end");
                 cJSON *jue = cJSON_GetObjectItem(sroot, "usbEth");
                 if (!jue) jue = cJSON_GetObjectItem(sroot, "usbeth");
+                cJSON *jpd = cJSON_GetObjectItem(sroot, "powerDebug");
+                if (!jpd) jpd = cJSON_GetObjectItem(sroot, "power_debug");
                 cJSON *jnscreen = cJSON_GetObjectItem(sroot, "noScreen");
                 if (!jnscreen) jnscreen = cJSON_GetObjectItem(sroot, "no_screen");
                 int no_screen = 0;
@@ -1711,8 +1717,9 @@ static void *config_push_worker(void *arg) {
                 if (jns && jns->valueint >= 0 && jns->valueint <= 23) night_start = jns->valueint;
                 if (jne && jne->valueint >= 0 && jne->valueint <= 23) night_end = jne->valueint;
                 if (jue) usbeth = cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0) ? 1 : 0;
+                if (jpd) power_debug = cJSON_IsTrue(jpd) || (cJSON_IsNumber(jpd) && jpd->valueint != 0) ? 1 : 0;
                 cJSON_Delete(sroot);
-                rf_send_settings_push_slot(target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons);
+                rf_send_settings_push_slot(target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug);
                 usleep(15000);
             }
         }
@@ -2726,7 +2733,7 @@ static void *api_server_worker(void *arg) {
                     fclose(f);
                 } else {
                     snprintf(res_body, sizeof(res_body),
-                        "{\"slot\":%d,\"brightness\":3,\"timeout\":120,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":1,\"btn_backlight\":1,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":false,\"confirm_act\":0,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0}",
+                        "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0}",
                         slot);
                 }
                 char header[256];
@@ -2771,13 +2778,15 @@ static void *api_server_worker(void *arg) {
                             if (!jne) jne = cJSON_GetObjectItem(root, "night_end");
                             cJSON *jue = cJSON_GetObjectItem(root, "usbEth");
                             if (!jue) jue = cJSON_GetObjectItem(root, "usbeth");
+                            cJSON *jpd = cJSON_GetObjectItem(root, "powerDebug");
+                            if (!jpd) jpd = cJSON_GetObjectItem(root, "power_debug");
                             cJSON *jnscreen = cJSON_GetObjectItem(root, "noScreen");
                             if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
                             cJSON *jcap = cJSON_GetObjectItem(root, "capButtonsEnabled");
                             if (!jcap) jcap = cJSON_GetObjectItem(root, "cap_buttons");
 
-                            int bright = jb ? jb->valueint : 3;
-                            int timeout = jt ? jt->valueint : 120;
+                            int bright = jb ? jb->valueint : 2;
+                            int timeout = jt ? jt->valueint : 10;
                             int touch = (jtouch && (cJSON_IsTrue(jtouch) || (cJSON_IsNumber(jtouch) && jtouch->valueint != 0))) ? 1 : 0;
                             int gyro = (jgyro && (cJSON_IsTrue(jgyro) || (cJSON_IsNumber(jgyro) && jgyro->valueint != 0))) ? 1 : (jgyro ? 0 : 1);
                             int nav_key = jnk ? jnk->valueint : 139;
@@ -2786,10 +2795,11 @@ static void *api_server_worker(void *arg) {
                             int touch_sens = (jts && jts->valueint >= 1 && jts->valueint <= 3) ? jts->valueint : 2;
                             int remote_mode = (jrm && jrm->valueint == 1) ? 1 : 0;
                             int gyro_rate = (jgr && jgr->valueint > 0) ? jgr->valueint : 25;
-                            int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 1;
+                            int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 2;
                             int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;
                             int night_end = (jne && jne->valueint >= 0 && jne->valueint <= 23) ? jne->valueint : 7;
                             int usbeth = (jue && (cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0))) ? 1 : 0;
+                            int power_debug = (jpd && (cJSON_IsTrue(jpd) || (cJSON_IsNumber(jpd) && jpd->valueint != 0))) ? 1 : 0;
                             int no_screen = (jnscreen && (cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0))) ? 1 : 0;
                             int cap_buttons = (jcap && (cJSON_IsFalse(jcap) || (cJSON_IsNumber(jcap) && jcap->valueint == 0))) ? 0 : 1;
 
@@ -2824,6 +2834,8 @@ static void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "night_end", night_end);
                             cJSON_AddBoolToObject(norm, "usbEth", usbeth != 0);
                             cJSON_AddNumberToObject(norm, "usbeth", usbeth);
+                            cJSON_AddBoolToObject(norm, "powerDebug", power_debug != 0);
+                            cJSON_AddNumberToObject(norm, "power_debug", power_debug);
                             cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
                             cJSON_AddNumberToObject(norm, "no_screen", no_screen);
 
@@ -2853,7 +2865,7 @@ static void *api_server_worker(void *arg) {
                             rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
                                                        confirm_act, touch_sens, remote_mode, gyro_rate,
                                                        btn_backlight, night_start, night_end, usbeth, no_screen,
-                                                       cap_buttons);
+                                                       cap_buttons, power_debug);
                             cJSON_Delete(root);
                         }
                     }

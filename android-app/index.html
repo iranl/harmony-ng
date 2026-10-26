@@ -2476,7 +2476,7 @@
                 <label for="rfCfgConfirmAct">Confirm Activity Switch</label>
                 <select id="rfCfgConfirmAct" class="form-control">
                   <option value="0">Off (Immediate switch on click)</option>
-                  <option value="1">On (Requires second tap or OK button to confirm)</option>
+                  <option value="1" selected>Prompt (Requires second tap or OK button to confirm) (Default)</option>
                 </select>
               </div>
               <div>
@@ -2500,8 +2500,8 @@
                 <label for="rfCfgBrightness">Display Brightness</label>
                 <select id="rfCfgBrightness" class="form-control">
                   <option value="1">Level 1 (Dimmest)</option>
-                  <option value="2">Level 2</option>
-                  <option value="3">Level 3 (Default)</option>
+                  <option value="2" selected>Level 2 (Default)</option>
+                  <option value="3">Level 3</option>
                   <option value="4">Level 4</option>
                   <option value="5">Level 5 (Max)</option>
                 </select>
@@ -2509,29 +2509,28 @@
               <div>
                 <label for="rfCfgTimeout">Screen Timeout</label>
                 <select id="rfCfgTimeout" class="form-control">
+                  <option value="10" selected>10 Seconds (Default)</option>
                   <option value="15">15 Seconds</option>
                   <option value="30">30 Seconds</option>
                   <option value="60">60 Seconds</option>
-                  <option value="120">120 Seconds (Default)</option>
+                  <option value="120">120 Seconds</option>
                 </select>
               </div>
               <div>
                 <label for="rfCfgBtnBacklight">Physical Button Backlight</label>
                 <select id="rfCfgBtnBacklight" class="form-control">
                   <option value="0">Always Off (Maximum battery life)</option>
-                  <option value="1" selected>Always On when Awake (Default)</option>
-                  <option value="2">Night Schedule Only</option>
+                  <option value="1">Always On when Awake</option>
+                  <option value="2" selected>Night Schedule Only (Default)</option>
                 </select>
               </div>
-              <div style="display: flex; gap: 8px;">
-                <div style="flex: 1;">
-                  <label for="rfCfgNightStart">Night Start Hour</label>
-                  <input type="number" id="rfCfgNightStart" class="form-control" min="0" max="23" value="22">
-                </div>
-                <div style="flex: 1;">
-                  <label for="rfCfgNightEnd">Night End Hour</label>
-                  <input type="number" id="rfCfgNightEnd" class="form-control" min="0" max="23" value="7">
-                </div>
+              <div>
+                <label for="rfCfgNightSchedule">Night Schedule Window</label>
+                <select id="rfCfgNightSchedule" class="form-control">
+                  <option value="22-7" selected>22:00 – 07:00 (Default)</option>
+                  <option value="23-6">23:00 – 06:00</option>
+                  <option value="21-8">21:00 – 08:00</option>
+                </select>
               </div>
             </div>
 
@@ -2545,14 +2544,14 @@
               <div>
                 <label for="rfCfgTouch">Touchscreen</label>
                 <select id="rfCfgTouch" class="form-control">
-                  <option value="1">Enabled</option>
+                  <option value="1" selected>Enabled (Default)</option>
                   <option value="0">Disabled (Physical bottom buttons navigate UI)</option>
                 </select>
               </div>
               <div>
                 <label for="rfCfgCapButtons">Capacitive Buttons (Activities / Devices)</label>
                 <select id="rfCfgCapButtons" class="form-control">
-                  <option value="1">Enabled (Default)</option>
+                  <option value="1" selected>Enabled (Default)</option>
                   <option value="0">Disabled</option>
                 </select>
               </div>
@@ -2567,7 +2566,7 @@
               <div>
                 <label for="rfCfgNavKey">Nav Mode Toggle Key</label>
                 <select id="rfCfgNavKey" class="form-control">
-                  <option value="139">Menu Key (139)</option>
+                  <option value="139" selected>Menu Key (139) (Default)</option>
                   <option value="358">Info Key (358)</option>
                   <option value="395">Guide Key (395)</option>
                   <option value="389">DVR Key (389)</option>
@@ -2578,7 +2577,7 @@
                 <label for="rfCfgNavMode">Nav Toggle Mode</label>
                 <select id="rfCfgNavMode" class="form-control">
                   <option value="0">Short Press</option>
-                  <option value="1">Long Press Hold (500ms)</option>
+                  <option value="1" selected>Long Press Hold (500ms) (Default)</option>
                 </select>
               </div>
             </div>
@@ -2593,7 +2592,7 @@
               <div>
                 <label for="rfCfgGyro">Motion / Gyro Wake</label>
                 <select id="rfCfgGyro" class="form-control">
-                  <option value="1" selected>Enabled (Wake display on movement)</option>
+                  <option value="1" selected>Enabled (Wake display on movement) (Default)</option>
                   <option value="0">Disabled (Preserve battery)</option>
                 </select>
               </div>
@@ -2618,8 +2617,15 @@
               <div>
                 <label for="rfCfgUsbEth">USB Ethernet Mode</label>
                 <select id="rfCfgUsbEth" class="form-control">
-                  <option value="0" selected>Disabled (Standard Remote)</option>
+                  <option value="0" selected>Disabled (Standard Remote) (Default)</option>
                   <option value="1">Enabled (Dropbear SSH on 192.168.2.1)</option>
+                </select>
+              </div>
+              <div>
+                <label for="rfCfgPowerDebug">Power Debug Log</label>
+                <select id="rfCfgPowerDebug" class="form-control">
+                  <option value="0" selected>Disabled (Default)</option>
+                  <option value="1">Enabled (Log to /tmp/power_debug.log on remote)</option>
                 </select>
               </div>
             </div>

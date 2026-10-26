@@ -180,6 +180,9 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[14]`: Night Schedule Start Hour (`0` to `23`)
 - `payload[15]`: Night Schedule End Hour (`0` to `23`)
 - `payload[16]`: Screen Timeout high byte (seconds)
+- `payload[17]`: No-Screen Mode (`0x01` on, `0x00` off)
+- `payload[18]`: Capacitive Buttons (`1` Enabled, `2` Disabled in push; `1`/`0` in backup)
+- `payload[19]`: Power Debug Log (`1` Enabled, `2` Disabled in push; byte 18 `1`/`0` in backup)
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:

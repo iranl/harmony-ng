@@ -317,6 +317,8 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
    - `Byte 14`: Night Start Hour (0–23)
    - `Byte 15`: Night End Hour (0–23)
    - `Byte 16`: Screen Timeout high byte (seconds)
+   - `Byte 17`: Capacitive Buttons Enable flag (0/1)
+   - `Byte 18`: Power Debug Log Enable flag (0/1)
 
 ---
 
