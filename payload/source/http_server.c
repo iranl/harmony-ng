@@ -2530,11 +2530,13 @@ static void http_process_request(int client_fd, const char *req) {
 
         cJSON *j_type = cJSON_GetObjectItem(root, "type");
         cJSON *j_id = cJSON_GetObjectItem(root, "id");
+        cJSON *j_name = cJSON_GetObjectItem(root, "name");
         cJSON *j_b64 = cJSON_GetObjectItem(root, "image_base64");
         if (!j_b64) j_b64 = cJSON_GetObjectItem(root, "data");
 
         char type_str[32] = "activity";
         char id_str[64] = {0};
+        char name_str[64] = {0};
 
         if (j_type && j_type->valuestring && j_type->valuestring[0]) {
             snprintf(type_str, sizeof(type_str), "%s", j_type->valuestring);
@@ -2544,20 +2546,30 @@ static void http_process_request(int client_fd, const char *req) {
         } else if (j_id && cJSON_IsNumber(j_id)) {
             snprintf(id_str, sizeof(id_str), "%d", j_id->valueint);
         }
+        if (j_name && j_name->valuestring && j_name->valuestring[0]) {
+            snprintf(name_str, sizeof(name_str), "%s", j_name->valuestring);
+        }
 
-        if (!id_str[0] || !j_b64 || !j_b64->valuestring) {
+        if ((!id_str[0] && !name_str[0]) || !j_b64 || !j_b64->valuestring) {
             cJSON_Delete(root);
-            send_json_error(client_fd, 400, "Missing required fields: id and image_base64");
+            send_json_error(client_fd, 400, "Missing required fields: id/name and image_base64");
             close(client_fd);
             return;
         }
 
-        /* Sanitize type_str and id_str to prevent directory traversal */
+        /* Sanitize type_str, id_str, and name_str to prevent directory traversal */
         for (char *p = type_str; *p; p++) {
             if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_') *p = '_';
         }
         for (char *p = id_str; *p; p++) {
             if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_') *p = '_';
+        }
+        for (char *p = name_str; *p; p++) {
+            *p = (char)tolower((unsigned char)*p);
+            if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_') *p = '_';
+        }
+        if (!id_str[0] && name_str[0]) {
+            snprintf(id_str, sizeof(id_str), "%s", name_str);
         }
 
         /* Enforce strict 16 KB ceiling for resized icons */
@@ -2584,7 +2596,16 @@ static void http_process_request(int client_fd, const char *req) {
         mkdir("/cache/www/assets/icons", 0755);
 
         char main_name[64];
-        snprintf(main_name, sizeof(main_name), "%s_%s.png", type_str, id_str);
+        if (name_str[0]) {
+            if (strncmp(name_str, "custom_", 7) == 0) {
+                snprintf(main_name, sizeof(main_name), "%s.png", name_str);
+            } else {
+                snprintf(main_name, sizeof(main_name), "custom_%s.png", name_str);
+            }
+            snprintf(type_str, sizeof(type_str), "custom");
+        } else {
+            snprintf(main_name, sizeof(main_name), "%s_%s.png", type_str, id_str);
+        }
 
         char p_data[256], p_cache[256], p_tmp[256];
         snprintf(p_data, sizeof(p_data), "/data/codex/custom_icons/%s", main_name);
@@ -2599,15 +2620,6 @@ static void http_process_request(int client_fd, const char *req) {
         }
         fwrite(png_data, 1, png_len, f);
         fclose(f);
-
-        /* Also write direct id file e.g. /data/codex/custom_icons/<id>.png */
-        char p_alias[256];
-        snprintf(p_alias, sizeof(p_alias), "/data/codex/custom_icons/%s.png", id_str);
-        FILE *fa = fopen(p_alias, "wb");
-        if (fa) {
-            fwrite(png_data, 1, png_len, fa);
-            fclose(fa);
-        }
 
         /* Copy to cache and tmp for fast web serving */
         FILE *fc = fopen(p_cache, "wb");

@@ -969,10 +969,12 @@ export class HarmonyClient {
     return this.request('/api/custom-icons');
   }
 
-  async uploadCustomIcon(type, id, image_base64) {
+  async uploadCustomIcon(type, id, image_base64, name = null) {
+    const payload = { type, id, image_base64 };
+    if (name) payload.name = name;
     return this.request('/api/custom-icons', {
       method: 'POST',
-      body: JSON.stringify({ type, id, image_base64 })
+      body: JSON.stringify(payload)
     });
   }
 

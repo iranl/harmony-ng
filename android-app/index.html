@@ -3881,15 +3881,26 @@ harmony_send_command:
               <input type="file" id="customIconFileInput" accept="image/*" style="display: none;">
             </label>
           </div>
-          <div id="customIconPreviewRow" style="display: none; align-items: center; gap: 8px; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border);">
-            <div style="width: 36px; height: 36px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <canvas id="customIconCanvas" width="40" height="40" style="width: 32px; height: 32px;"></canvas>
+          <div style="display: flex; gap: 6px; align-items: center; margin-top: 6px;">
+            <label for="customIconNameInput" class="mini muted" style="white-space: nowrap; font-size: 11px;">Icon Name:</label>
+            <input type="text" id="customIconNameInput" class="form-control form-control-sm" placeholder="e.g. kodi, cinema, netflix" style="flex: 1; font-size: 11px;">
+            <span id="customIconNameStatus" class="mini" style="font-size: 10px; white-space: nowrap;"></span>
+          </div>
+          <div id="customIconPreviewRow" style="display: none; flex-direction: column; gap: 6px; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="width: 36px; height: 36px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <canvas id="customIconCanvas" width="40" height="40" style="width: 32px; height: 32px;"></canvas>
+              </div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="customIconPreviewLabel">Preview</div>
+                <div class="muted" style="font-size: 10px;" id="customIconPreviewSize">Ready</div>
+              </div>
+              <button type="button" id="btnSaveCustomIcon" class="btn btn-xs btn-primary" style="white-space: nowrap;">Upload &amp; Push to Remote</button>
             </div>
-            <div style="flex: 1; min-width: 0;">
-              <div style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="customIconPreviewLabel">Preview</div>
-              <div class="muted" style="font-size: 10px;" id="customIconPreviewSize">Ready</div>
-            </div>
-            <button type="button" id="btnSaveCustomIcon" class="btn btn-xs btn-primary" style="white-space: nowrap;">Upload & Push to Remote</button>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; margin: 0; padding-left: 2px;">
+              <input type="checkbox" id="customIconInvertCheck" style="width: 13px; height: 13px; accent-color: var(--accent);">
+              <span>Invert to white silhouette (for dark background &amp; remote screen)</span>
+            </label>
           </div>
         </div>
         <div class="icon-picker-body">

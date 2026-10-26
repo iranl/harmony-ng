@@ -2977,12 +2977,14 @@ select {
   display: none !important;
 }
 
-.stock-icon-img,
-.stock-icon-img.invert-white {
+.stock-icon-img {
   display: inline-block;
   vertical-align: middle;
   object-fit: contain;
   margin-right: 4px;
+}
+
+.stock-icon-img.invert-white {
   filter: brightness(0) invert(1);
 }
 

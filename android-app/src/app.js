@@ -54,8 +54,12 @@ export function escapeHtml(s) {
 
 export function autoInvertDarkIcon(img) {
   if (!img) return;
-  img.classList.add('invert-white');
-  img.style.filter = 'brightness(0) invert(1)';
+  const key = img.getAttribute('data-icon-key') || img.src || '';
+  if (isDarkMonochromeIcon(key)) {
+    img.classList.add('invert-white');
+  } else {
+    img.classList.remove('invert-white');
+  }
 }
 
 export function showToast(message, type = 'info', duration = 3500) {
@@ -199,6 +203,108 @@ if (typeof window !== 'undefined') {
   };
 }
 
+const STOCK_DARK_ICONS = new Set([
+  "013a19aa-dfb1-40e8-80a3-773c7a0ae986_smallon.png", "01d34356-613c-45f3-935d-4bf763ae4f4b_smallon.png",
+  "053fa80a-458f-4ea9-85e5-b2f7db1c7052_smallon.png", "085a8031-090d-4052-bb5f-c7809dce8665_smallon.png",
+  "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4_smallon.png", "0df1488a-eedb-40ec-8bc7-b87e16e13dc2_smallon.png",
+  "0e588723-18da-4df7-978f-0306f601fe28_smallon.png", "0f40f257-68c8-4f24-9561-3cb3441da395_smallon.png",
+  "16.png", "1861d98d-b831-4dd7-96dd-58fd0ea1b045_smallon.png", "1978f30f-e27f-4126-b622-fc230936ae2f_smallon.png",
+  "204.png", "204f0071-4b64-4577-bda9-e726d6480abf_smallon.png", "21aa7d88-e238-49b3-9933-276232b7dc6c_smallon.png",
+  "257c953f-b575-4f4d-8429-f8eaa1de8241_off.png", "257c953f-b575-4f4d-8429-f8eaa1de8241_smallon.png",
+  "27bbf517-b5ea-46ce-8155-08f6d48e0bce_smallon.png", "29281b8d-fc8d-4c13-89c4-60705b8429f9_smallon.png",
+  "31179e2f-bd17-48e9-95c0-22ceb36c6188_smallon.png", "311d40b5-6cf9-4da2-8820-e17012b852a1_smallon.png",
+  "349826b4-fa41-4af4-b032-d5280b1363ac_off.png", "349826b4-fa41-4af4-b032-d5280b1363ac_smallon.png",
+  "363ce48c-b589-48fa-99d9-6ae5056c1e9c_smallon.png", "36d512d1-9f0b-4084-89a1-63b6947e9587_smallon.png",
+  "3aebfa09-de9a-46f5-86fb-ac5e585295fb_smallon.png", "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd_smallon.png",
+  "3d057f31-87ad-4ad5-bcfd-453403a21d29_smallon.png", "3d423017-ba9e-4132-a885-69222cfe4842_smallon.png",
+  "3fb5eead-419d-472f-8232-3bbbed1f4874_smallon.png", "41bf3aa6-da1d-4115-a225-e99f475d7dc7_smallon.png",
+  "46700828-34b6-42b9-9d6a-968bc681172a_smallon.png", "468668ab-2587-4662-9e89-cf66bd70f314_smallon.png",
+  "4a703d51-717d-4bd3-8457-3442879a7dcc_smallon.png", "4ae30392-221f-4718-9e17-ace55f27cd3d_off.png",
+  "4ae30392-221f-4718-9e17-ace55f27cd3d_smallon.png", "4d002443-a954-47c3-98c5-f24e53b1e628_smallon.png",
+  "50ea2de1-d490-4c34-bda9-f93b5b4342fc_smallon.png", "5180221e-8f0c-459e-a61c-6d6e02bb2a0c_smallon.png",
+  "5248477c-d901-49e0-a8a6-24f212443817_smallon.png", "53469038-7e1c-4241-b9bd-bae95cc0509c_smallon.png",
+  "58df2164-056e-4965-a911-cae9621e0885_smallon.png", "5bbc2bc3-551a-493b-b374-3ec77eb5b1eb_smallon.png",
+  "5be0f80a-d144-40b0-a467-b67a7633282a_smallon.png", "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285_smallon.png",
+  "6231922f-ab2e-4ae1-a111-41b09b6f3e08_off.png", "6231922f-ab2e-4ae1-a111-41b09b6f3e08_smallon.png",
+  "63677e44-c3ac-46cb-873d-e948bb64a727_smallon.png", "64657363-41a2-4ebd-a5fd-ba7cf83de4d3_smallon.png",
+  "68aa6991-a06f-49fa-9be6-fe882e03d979_off.png", "68aa6991-a06f-49fa-9be6-fe882e03d979_smallon.png",
+  "6d621a24-72d6-4ccd-8ed8-1114b52952ae_smallon.png", "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099_smallon.png",
+  "6ebd03b8-c815-48be-adbb-d36e06caac5e_smallon.png", "718b691b-df39-4787-989d-eab9d39d595e_smallon.png",
+  "72d0aab4-2ed8-4644-84d2-0031bdae356e_smallon.png", "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc_smallon.png",
+  "7b7ff0c6-cc71-498d-8b1e-c029cbb07cf3_smallon.png", "818ad711-eac5-42e8-80dc-d5ed9f1046f4_smallon.png",
+  "818d06a7-7821-4380-8a62-719a9d6b9c9b_smallon.png", "819abab3-94ad-4798-8b71-bd98c829eb89_smallon.png",
+  "835b9806-a8f5-4395-9ae7-a1086d75f5d3_smallon.png", "840ad7c6-5295-465f-a6ae-9bc9154b6549_off.png",
+  "840ad7c6-5295-465f-a6ae-9bc9154b6549_smallon.png", "86d46e83-04ea-460a-b3dc-70a0246c7794_smallon.png",
+  "897101b2-567b-11e7-907b-a6006ad3dba0_smallon.png", "8a4cc6cd-16e8-40e4-8c91-2917076f967d_off.png",
+  "8a4cc6cd-16e8-40e4-8c91-2917076f967d_smallon.png", "8b271ada-d2ed-477b-bff2-d2450245c3b0_smallon.png",
+  "8c07fd25-a715-4a64-a4f9-46b0b7a0c1ef_smallon.png", "8d8f352a-131e-11e2-8581-b78bf89f9455.png",
+  "93ce3aba-5fed-4374-adc1-d5cd36dedb36_smallon.png", "9532487a-4fbf-4bef-add3-3cde6ee8db16_off.png",
+  "9532487a-4fbf-4bef-add3-3cde6ee8db16_smallon.png", "970c1e6e-9e37-48f1-baf0-eabddb9e989b_smallon.png",
+  "974d2e15-d103-463a-8386-36b9ebd4037f_smallon.png", "9b0478b4-cb51-4cc8-b58e-682033dfc8ef_smallon.png",
+  "9c0b36c2-f503-41fa-b957-4a0bcc7e4d8f_smallon.png", "9ccf9a96-b984-4aeb-9227-9b565ff74e06_off.png",
+  "9ccf9a96-b984-4aeb-9227-9b565ff74e06_smallon.png", "9cec604e-b876-4953-88d2-7cd6283d3275_smallon.png",
+  "9d24eb35-468b-4148-a6a2-bb764aa9609c_smallon.png", "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c_smallon.png",
+  "9d6b957c-8a14-4c92-adee-dd0c8fbb2366_off.png", "9d6b957c-8a14-4c92-adee-dd0c8fbb2366_smallon.png",
+  "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7_smallon.png", "a12ff2be-5c15-4e5d-8e51-1f328716ef3d_smallon.png",
+  "a181d535-d966-4178-91f9-57278be8d7ea_off.png", "a181d535-d966-4178-91f9-57278be8d7ea_smallon.png",
+  "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b_off.png", "a3a7fe08-e4dd-4b05-b0a9-945cd717a09b_smallon.png",
+  "a54ab6f8-8fbe-4a90-a43e-2c9993961efd_smallon.png", "a648ac27-8b04-4cad-a2b2-82a83bcdb741_smallon.png",
+  "ab95c212-7b27-4118-8cd3-0e595ea061d5_smallon.png", "ac921110-8f9c-40a3-b51c-06f3b1e18c92_off.png",
+  "ac921110-8f9c-40a3-b51c-06f3b1e18c92_smallon.png", "activitygreyline.png", "addphoto_small.png",
+  "arrow_off.png", "b25a8282-30ce-4ea3-9f92-3e25474b076b_smallon.png", "b4241984-3855-46c7-a940-3604743297bd_off.png",
+  "b4241984-3855-46c7-a940-3604743297bd_smallon.png", "bab09c4a-e61d-4284-b1f3-84135f562217_smallon.png",
+  "background.png", "bf4c747e-c437-423e-9801-535e0ea55848_smallon.png", "bg_check_box.png",
+  "black_line.png", "blinds_off.png", "bri.png", "bulb_off.png", "buttonbg.png",
+  "c45b3641-9ce3-43d8-907f-f87838a86c84_smallon.png", "c4d124b8-f851-4200-86c0-b38494fe6167_smallon.png",
+  "c62c7998-d6bf-4c2d-9e6c-47440e28a113_smallon.png", "c83a52e3-5615-4a0b-987e-58c3d85ffccd_off.png",
+  "c83a52e3-5615-4a0b-987e-58c3d85ffccd_smallon.png", "cb589261-82db-4113-bc1b-c09ec6e17b2c_smallon.png",
+  "cd78e011-e7fd-42ea-b6d8-fafca64b9c09_smallon.png", "ceda3f57-1d34-48f0-852d-ec9c425b2733_smallon.png",
+  "cedd3f0f-932a-4135-8f2d-1670550f20ee_smallon.png", "cfa819f4-db13-4f04-985d-d59087108d62_smallon.png",
+  "chevron.png", "covering_off.png", "d1d5e928-d0ad-488a-a43e-56fd6d17209b_smallon.png",
+  "d22a587c-e45c-4b4a-9396-19396eb8e32b_smallon.png", "d4f91d44-f634-41fb-a9be-fc8f63abced2_smallon.png",
+  "d636fd4e-016c-447f-ba4a-25e8943e23f4_smallon.png", "d7f21109-8f71-4edb-990a-bcab435efb92_off.png",
+  "d7f21109-8f71-4edb-990a-bcab435efb92_smallon.png", "dec07396-b858-47e8-ae50-4ab346af1d98_smallon.png",
+  "default.png", "device_group2.png", "device_group3.png", "device_group4.png",
+  "devicelock_lock.png", "dff3a4b7-b2a5-41f6-8347-77cac20a7dd0_smallon.png", "doorlock_lock.png",
+  "e816d949-6f22-4fa2-a278-17fabe2cfcc9_smallon.png", "e942edfa-826d-4b06-9e8f-073f8895e69c_smallon.png",
+  "eac61c29-abb4-4545-9f69-85010b4ccad5_off.png", "eac61c29-abb4-4545-9f69-85010b4ccad5_smallon.png",
+  "eb6113e5-431d-4642-9348-f1fd23207b69_smallon.png", "ec6648b8-49ee-4457-95e4-f31b242d989a_off.png",
+  "ec6648b8-49ee-4457-95e4-f31b242d989a_smallon.png", "edcd349e-0bb5-4320-a1ae-d409bcfba325_smallon.png",
+  "efd06b84-dce8-4bf7-af0c-afac990862b5_smallon.png", "f30d50e9-96a2-4a44-92d5-9a42431f83da_off.png",
+  "f30d50e9-96a2-4a44-92d5-9a42431f83da_smallon.png", "fa224ad1-a6b0-4fb3-84a1-9ee204c0dcd9_smallon.png",
+  "fad05710-2621-4042-9dd4-b3466665a584_off.png", "fad05710-2621-4042-9dd4-b3466665a584_smallon.png",
+  "fcf344ce-4029-406c-8e11-582d7a7bfb08_smallon.png", "fdc89d40-dbbf-469b-9fc9-b24a6651fe6a_smallon.png",
+  "gesture_bg.png", "gesture_cue.png", "heos.png", "hopsdevice_blaster.png",
+  "hopsdevice_group2.png", "hopsdevice_group3.png", "hopsdevice_group4.png", "hopsgesture_box.png",
+  "hopsmenu.png", "hopsmenu_sleeptimer.png", "hopspower_icon.png", "lamp_off.png",
+  "lock_lock.png", "menu-bg.png", "minus_normal.png", "myharmonyblocking.png",
+  "myharmonydismiss.png", "pc_wifi_hops.png", "pc_wifi_remote.png", "plug_off.png",
+  "pluggroup_off.png", "plus_normal.png", "power_off.png", "presence_off.png",
+  "ps.png", "scene-default_jrf.png", "sensor_off.png", "separator.png",
+  "shield.png", "sonos.png", "text_btn_hover.png", "thermostat_off.png",
+  "toolbarbg.png", "toolbarbgwithblackline.png", "toolbarblackline.png", "waterheater_off.png",
+  "white_line.png", "wii_bg.png", "xbox.png"
+]);
+
+export function isCustomIcon(iconKey) {
+  if (!iconKey || typeof iconKey !== 'string') return false;
+  const clean = iconKey.split('/').pop().trim().toLowerCase();
+  if (clean.startsWith('custom_')) return true;
+  if (typeof window !== 'undefined' && window.__harmonyCustomIcons && window.__harmonyCustomIcons.has(clean)) return true;
+  return false;
+}
+
+export function isDarkMonochromeIcon(iconKey) {
+  if (!iconKey || typeof iconKey !== 'string') return false;
+  if (isCustomIcon(iconKey)) return false;
+  const clean = iconKey.split('/').pop().trim().toLowerCase();
+  const withExt = clean.endsWith('.png') ? clean : `${clean}.png`;
+  if (STOCK_DARK_ICONS.has(withExt) || clean.endsWith('_off.png') || clean.endsWith('_smallon.png')) {
+    return true;
+  }
+  return false;
+}
+
 export function getStockIconUrl(iconKey, hint = '') {
   if (!iconKey && !hint) return '';
   let fn = '';
@@ -225,8 +331,8 @@ export function getStockIconUrl(iconKey, hint = '') {
   const cachedUrl = getCachedIconUrl(fn);
   if (cachedUrl) return cachedUrl;
 
-  // 2. If neither local cache nor remote hub has icons, skip (unless custom icon)
-  const isCustom = fn.startsWith('activity_') || fn.startsWith('device_') || fn.startsWith('custom_') || fn.startsWith('button_') || /^\d+\.png$/i.test(fn);
+  // 2. Custom icon check
+  const isCustom = isCustomIcon(fn);
   if (!stockIconsAvailable && !hasCachedIcon(fn) && !isCustom) return '';
 
   const base = stockIconBaseUrl || '';
@@ -235,14 +341,16 @@ export function getStockIconUrl(iconKey, hint = '') {
   return url;
 }
 
-function renderWithStockIconFallback(imgUrl, fallbackSvg, size) {
+function renderWithStockIconFallback(imgUrl, fallbackSvg, size, originalIconKey = '') {
   if (!imgUrl || failedIconUrls.has(imgUrl)) return fallbackSvg;
-  return `<span class="stock-icon-wrap"><img src="${imgUrl}" class="stock-icon-img invert-white" loading="lazy" decoding="async" width="${size}" height="${size}" onload="if(window.__harmonyCacheIcon)window.__harmonyCacheIcon(this.src)" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
+  const keyToCheck = originalIconKey || imgUrl;
+  const shouldInvert = isDarkMonochromeIcon(keyToCheck);
+  return `<span class="stock-icon-wrap"><img src="${imgUrl}" data-icon-key="${keyToCheck}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" width="${size}" height="${size}" onload="if(window.__harmonyCacheIcon)window.__harmonyCacheIcon(this.src);if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
 }
 
 export function getActivityIconSvg(iconKey, actType, size = 14) {
   const fallbackSvg = getRawActivityIconSvg(iconKey, actType, size);
-  return renderWithStockIconFallback(getStockIconUrl(iconKey, actType), fallbackSvg, size);
+  return renderWithStockIconFallback(getStockIconUrl(iconKey, actType), fallbackSvg, size, iconKey || actType);
 }
 
 export function getRawActivityIconSvg(iconKey, actType, size = 14) {
@@ -464,33 +572,62 @@ class HarmonyApp {
     if (!force && this.availableIcons && this.availableIcons.length > 0) return;
     try {
       let icons = [];
+      let customIcons = [];
       try {
-        icons = await this.client.getIcons();
+        [icons, customIcons] = await Promise.all([
+          this.client.getIcons().catch(() => []),
+          this.client.getCustomIcons().catch(() => [])
+        ]);
       } catch (e) {
         console.warn('Could not query icons from Hub, checking local cache:', e);
       }
       if ((!icons || icons.length === 0) && getCachedIconsCount() > 0) {
         icons = getAllCachedKeys();
       }
-      if (Array.isArray(icons) && icons.length > 0) {
-        this.availableIcons = icons;
-        this.iconCatalog = icons.map(fn => {
+
+      const customMap = new Map();
+      (customIcons || []).forEach(ci => {
+        if (ci && ci.filename) {
+          customMap.set(ci.filename.toLowerCase(), ci);
+          const noExt = ci.filename.replace(/\.png$/i, '').toLowerCase();
+          customMap.set(noExt, ci);
+        }
+      });
+      window.__harmonyCustomIcons = new Set(customMap.keys());
+      this.customIconMap = customMap;
+
+      // Merge stock icons and custom icons, ensuring custom icons are present
+      const allIconsSet = new Set(icons || []);
+      (customIcons || []).forEach(ci => {
+        if (ci && ci.filename) allIconsSet.add(ci.filename);
+      });
+
+      const allIconsList = Array.from(allIconsSet);
+      if (allIconsList.length > 0) {
+        this.availableIcons = allIconsList;
+        this.iconCatalog = allIconsList.map(fn => {
           const cleanFn = String(fn).split('/').pop().trim();
+          const cleanLower = cleanFn.toLowerCase();
           const meta = iconMetadata[cleanFn] || iconMetadata[`${cleanFn}.png`] || {};
-          const title = this.formatIconDisplayName(cleanFn);
-          const isCust = cleanFn.startsWith('activity_') || cleanFn.startsWith('device_') || cleanFn.startsWith('custom_') || cleanFn.startsWith('button_') || /^\d+\.png$/i.test(cleanFn);
-          const category = meta.category || (isCust ? 'custom' : 'other');
+          const isCust = customMap.has(cleanLower) || cleanLower.startsWith('custom_');
+          const title = isCust
+            ? (cleanFn.replace(/^custom_/i, '').replace(/\.png$/i, '').replace(/[-_]/g, ' '))
+            : this.formatIconDisplayName(cleanFn);
+          const category = isCust ? 'custom' : (meta.category || 'other');
           return {
             fn: cleanFn,
-            title,
+            title: title.charAt(0).toUpperCase() + title.slice(1),
             lowerTitle: title.toLowerCase(),
-            lowerFn: cleanFn.toLowerCase(),
+            lowerFn: cleanLower,
             category,
             isCustom: isCust,
             tags: ((meta.tags || []).join(' ') + (isCust ? ' custom user' : '')).toLowerCase(),
             url: getStockIconUrl(cleanFn)
           };
-        }).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+        }).sort((a, b) => {
+          if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1;
+          return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+        });
 
         this.populateIconSelects();
       }
@@ -573,7 +710,8 @@ class HarmonyApp {
     const val = sel.value;
     const url = getStockIconUrl(val);
     if (url) {
-      badge.innerHTML = `<img src="${url}" class="stock-icon-img invert-white" loading="lazy" decoding="async" style="width: 22px; height: 22px;" onerror="this.style.display='none'" />`;
+      const shouldInvert = isDarkMonochromeIcon(val);
+      badge.innerHTML = `<img src="${url}" data-icon-key="${val}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" style="width: 22px; height: 22px;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />`;
     } else {
       badge.innerHTML = `<span style="font-size: 14px; opacity: 0.5;">🖼</span>`;
     }
@@ -609,6 +747,12 @@ class HarmonyApp {
     if (urlInp) urlInp.value = '';
     const fileInp = document.getElementById('customIconFileInput');
     if (fileInp) fileInp.value = '';
+    const nameInp = document.getElementById('customIconNameInput');
+    if (nameInp) nameInp.value = '';
+    const nameStatus = document.getElementById('customIconNameStatus');
+    if (nameStatus) nameStatus.innerHTML = '';
+    const invertCheck = document.getElementById('customIconInvertCheck');
+    if (invertCheck) invertCheck.checked = false;
 
     const curVal = this.iconPickerCurrentVal || '';
     const subtitle = document.getElementById('iconPickerSubtitle');
@@ -646,12 +790,14 @@ class HarmonyApp {
       this.iconCatalog = iconList.map(fn => {
         const cleanFn = String(fn).split('/').pop().trim();
         const meta = iconMetadata[cleanFn] || iconMetadata[`${cleanFn}.png`] || {};
-        const title = this.formatIconDisplayName(cleanFn);
-        const isCust = cleanFn.startsWith('activity_') || cleanFn.startsWith('device_') || cleanFn.startsWith('custom_') || cleanFn.startsWith('button_') || /^\d+\.png$/i.test(cleanFn);
-        const category = meta.category || (isCust ? 'custom' : 'other');
+        const isCust = isCustomIcon(cleanFn);
+        const title = isCust
+          ? (cleanFn.replace(/^custom_/i, '').replace(/\.png$/i, '').replace(/[-_]/g, ' '))
+          : this.formatIconDisplayName(cleanFn);
+        const category = isCust ? 'custom' : (meta.category || (cleanFn.startsWith('button_') ? 'commands' : 'other'));
         return {
           fn: cleanFn,
-          title,
+          title: title.charAt(0).toUpperCase() + title.slice(1),
           lowerTitle: title.toLowerCase(),
           lowerFn: cleanFn.toLowerCase(),
           category,
@@ -659,7 +805,10 @@ class HarmonyApp {
           tags: ((meta.tags || []).join(' ') + (isCust ? ' custom user' : '')).toLowerCase(),
           url: getStockIconUrl(cleanFn)
         };
-      }).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+      }).sort((a, b) => {
+        if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1;
+        return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+      });
     }
 
     const s = (searchTerm || '').toLowerCase().trim();
@@ -668,12 +817,13 @@ class HarmonyApp {
     this.currentFilteredIcons = this.iconCatalog.filter(item => {
       if (cat !== 'all') {
         if (cat === 'custom') {
-          if (!item.isCustom && item.category !== 'custom') return false;
+          if (!item.isCustom) return false;
         } else {
+          if (item.isCustom) return false;
           if (cat === 'activity' && item.category !== 'activity' && !item.fn.startsWith('activity_')) return false;
           if (cat === 'device' && item.category !== 'device' && !item.fn.startsWith('device_')) return false;
           if (cat === 'home' && item.category !== 'home') return false;
-          if (cat === 'commands' && item.category !== 'commands') return false;
+          if (cat === 'commands' && item.category !== 'commands' && !item.fn.startsWith('button_')) return false;
           if (cat === 'settings' && (item.category !== 'ui' && item.category !== 'other')) return false;
         }
       }
@@ -762,12 +912,13 @@ class HarmonyApp {
 
     const html = batch.map(item => {
       const isSel = (item.fn === curVal || item.fn.replace(/\.png$/i, '') === curVal);
-      const isCustom = item.isCustom || item.category === 'custom' || item.fn.startsWith('activity_') || item.fn.startsWith('device_') || item.fn.startsWith('custom_') || item.fn.startsWith('button_') || /^\d+\.png$/i.test(item.fn);
+      const isCustom = item.isCustom;
+      const shouldInvert = isDarkMonochromeIcon(item.fn);
       return `
         <div class="act-icon-card ${isSel ? 'selected' : ''}" data-icon="${item.fn}" style="position: relative;">
           ${isCustom ? `<button type="button" class="btn-delete-custom-icon" data-fn="${item.fn}" title="Delete custom icon" style="position: absolute; top: 3px; right: 3px; background: rgba(220,38,38,0.85); color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2;">&times;</button>` : ''}
           <div class="icon-preview">
-            <img src="${item.url}" class="stock-icon-img invert-white" loading="lazy" decoding="async" style="width: 26px; height: 26px;" onerror="this.src='/favicon.png'" />
+            <img src="${item.url}" data-icon-key="${item.fn}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" style="width: 26px; height: 26px;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.src='/favicon.png'" />
           </div>
           <div class="icon-title" title="${item.title}">${item.title}</div>
           <div class="icon-filename">${item.fn}</div>
@@ -2340,11 +2491,117 @@ class HarmonyApp {
     });
 
     // Custom Icon Upload & Canvas Resize (40x40 PNG client-side to prevent Hub RAM OOM)
+    let rawIconImage = null;
+
+    const checkCustomIconNameStatus = () => {
+      const nameInput = document.getElementById('customIconNameInput');
+      const statusEl = document.getElementById('customIconNameStatus');
+      if (!nameInput || !statusEl) return { exists: false, cleanName: '' };
+      const raw = nameInput.value.trim();
+      if (!raw) {
+        statusEl.innerHTML = '';
+        return { exists: false, cleanName: '' };
+      }
+      const cleanName = raw.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+      const key1 = cleanName;
+      const key2 = `${cleanName}.png`;
+      const key3 = `custom_${cleanName}`;
+      const key4 = `custom_${cleanName}.png`;
+
+      const existsInCustom = this.customIconMap && (
+        this.customIconMap.has(key1) || this.customIconMap.has(key2) ||
+        this.customIconMap.has(key3) || this.customIconMap.has(key4)
+      );
+      const existsInAll = (this.availableIcons || []).some(fn => {
+        const c = String(fn).split('/').pop().trim().toLowerCase();
+        return c === key1 || c === key2 || c === key3 || c === key4;
+      });
+
+      const exists = existsInCustom || existsInAll;
+      if (exists) {
+        statusEl.innerHTML = `<span class="badge warn" style="font-size: 10px; color: #f59e0b;">⚠️ Exists (will overwrite)</span>`;
+      } else {
+        statusEl.innerHTML = `<span class="badge ok" style="font-size: 10px; color: #10b981;">✓ Name available</span>`;
+      }
+      return { exists, cleanName };
+    };
+
+    const analyzeIsDarkSilhouette = (ctx, w, h) => {
+      try {
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+        let totalOpaque = 0;
+        let lowSatCount = 0;
+        let totalLuminance = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a > 30) {
+            totalOpaque++;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const sat = max === 0 ? 0 : (max - min) / max;
+            if (sat < 0.25) lowSatCount++;
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            totalLuminance += lum;
+          }
+        }
+        if (totalOpaque < 10) return false;
+        const avgLum = totalLuminance / totalOpaque;
+        const isMonochrome = (lowSatCount / totalOpaque) > 0.85;
+        return isMonochrome && avgLum < 110;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    const redrawCustomCanvas = () => {
+      const canvas = document.getElementById('customIconCanvas');
+      const invertCheck = document.getElementById('customIconInvertCheck');
+      const previewSz = document.getElementById('customIconPreviewSize');
+      if (!canvas || !rawIconImage) return;
+
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, 40, 40);
+
+      const nw = rawIconImage.naturalWidth || rawIconImage.width || 40;
+      const nh = rawIconImage.naturalHeight || rawIconImage.height || 40;
+      const scale = Math.min(40 / nw, 40 / nh);
+      const w = Math.max(1, Math.round(nw * scale));
+      const h = Math.max(1, Math.round(nh * scale));
+      const x = Math.round((40 - w) / 2);
+      const y = Math.round((40 - h) / 2);
+
+      ctx.drawImage(rawIconImage, x, y, w, h);
+
+      if (invertCheck && invertCheck.checked) {
+        const imgData = ctx.getImageData(0, 0, 40, 40);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] > 15) {
+            d[i] = 255;
+            d[i + 1] = 255;
+            d[i + 2] = 255;
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const approxBytes = Math.round((dataUrl.length * 3) / 4);
+      if (previewSz) {
+        const mode = invertCheck && invertCheck.checked ? 'White silhouette' : 'Original colors';
+        previewSz.textContent = `${w}×${h} px • ${approxBytes} bytes • ${mode}`;
+      }
+    };
+
     const processImageToCanvas = (img, labelText) => {
+      rawIconImage = img;
       const canvas = document.getElementById('customIconCanvas');
       const previewRow = document.getElementById('customIconPreviewRow');
       const previewLbl = document.getElementById('customIconPreviewLabel');
-      const previewSz = document.getElementById('customIconPreviewSize');
+      const invertCheck = document.getElementById('customIconInvertCheck');
+      const nameInput = document.getElementById('customIconNameInput');
       if (!canvas) return;
       canvas.width = 40;
       canvas.height = 40;
@@ -2360,12 +2617,39 @@ class HarmonyApp {
       const y = Math.round((40 - h) / 2);
       ctx.drawImage(img, x, y, w, h);
 
+      // Auto-detect if image is dark monochrome silhouette
+      const isDarkSil = analyzeIsDarkSilhouette(ctx, 40, 40);
+      if (invertCheck) {
+        invertCheck.checked = isDarkSil;
+      }
+
+      // Populate icon name input if empty or from labelText
+      if (nameInput) {
+        let suggestedName = (labelText || '')
+          .replace(/\.[^/.]+$/, '')
+          .replace(/^custom_/i, '')
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .toLowerCase();
+        if (!suggestedName && this.iconPickerCurrentVal) {
+          suggestedName = this.iconPickerCurrentVal.replace(/\.[^/.]+$/, '').replace(/^custom_/i, '');
+        }
+        nameInput.value = suggestedName || 'my_icon';
+        checkCustomIconNameStatus();
+      }
+
       if (previewRow) previewRow.style.display = 'flex';
       if (previewLbl) previewLbl.textContent = labelText || 'Custom Icon';
-      const dataUrl = canvas.toDataURL('image/png');
-      const approxBytes = Math.round((dataUrl.length * 3) / 4);
-      if (previewSz) previewSz.textContent = `${w}×${h} px • ${approxBytes} bytes (PNG)`;
+
+      redrawCustomCanvas();
     };
+
+    document.getElementById('customIconInvertCheck')?.addEventListener('change', () => {
+      redrawCustomCanvas();
+    });
+
+    document.getElementById('customIconNameInput')?.addEventListener('input', () => {
+      checkCustomIconNameStatus();
+    });
 
     const loadImgFromBlob = (blob, label) => {
       const img = new Image();
@@ -2423,26 +2707,38 @@ class HarmonyApp {
     btnSaveIcon?.addEventListener('click', async () => {
       const canvas = document.getElementById('customIconCanvas');
       if (!canvas) return;
+
+      const { exists, cleanName } = checkCustomIconNameStatus();
+      let iconName = cleanName;
+      if (!iconName) {
+        iconName = 'icon_' + Date.now();
+      }
+
+      if (exists) {
+        const ok = confirm(`An icon named "${iconName}" already exists. Overwrite it?`);
+        if (!ok) return;
+      }
+
+      // Ensure canvas has latest pixel rendering (with silhouette or original colors)
+      redrawCustomCanvas();
       const dataUrl = canvas.toDataURL('image/png');
+
       btnSaveIcon.disabled = true;
       btnSaveIcon.textContent = 'Uploading...';
       try {
-        let type = this.iconPickerContext?.type || 'activity';
-        let id = this.iconPickerContext?.id;
-        if (!id) {
-          if (this.currentIconPickerTarget === 'actEditIcon') {
-            type = 'activity';
-            id = document.getElementById('actEditId')?.value;
-          } else if (this.currentIconPickerTarget === 'editDevIcon') {
-            type = 'device';
-            id = this.selectedIrDeviceId || this.currentIrDeviceId;
-          }
+        let type = 'custom';
+        let id = iconName;
+        if (this.currentIconPickerTarget === 'actEditIcon') {
+          type = 'activity';
+          id = document.getElementById('actEditId')?.value || iconName;
+        } else if (this.currentIconPickerTarget === 'editDevIcon') {
+          type = 'device';
+          id = this.selectedIrDeviceId || this.currentIrDeviceId || iconName;
         }
-        if (!id) id = 'custom_' + Date.now();
 
-        const uploadRes = await this.client.uploadCustomIcon(type, id, dataUrl);
-        const iconFn = uploadRes.filename || `${type}_${id}.png`;
-        showToast(`Icon saved & queued for remote push!`, 'success');
+        const uploadRes = await this.client.uploadCustomIcon(type, id, dataUrl, iconName);
+        const iconFn = uploadRes.filename || `custom_${iconName}.png`;
+        showToast(`Custom icon "${iconName}" saved & queued for remote push!`, 'success');
 
         if (typeof this.iconPickerCallback === 'function') {
           await this.iconPickerCallback(iconFn);
@@ -2467,6 +2763,7 @@ class HarmonyApp {
         const urlInp = document.getElementById('customIconUrlInput');
         if (urlInp) urlInp.value = '';
         if (customFileInput) customFileInput.value = '';
+        rawIconImage = null;
 
         await this.loadAvailableIcons(true);
         this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
@@ -6887,13 +7184,14 @@ class HarmonyApp {
       const cmdOpts = cmds.map(c => `<option value="${c.name}" ${c.name === btn.command ? 'selected' : ''}>${c.name}</option>`).join('');
       const iconUrl = btn.icon ? getStockIconUrl(btn.icon) : '';
       const iconDispName = btn.icon ? this.formatIconDisplayName(btn.icon) : 'Pick Icon';
+      const shouldInvert = isDarkMonochromeIcon(btn.icon);
 
       return `
         <div class="screen-btn-row" data-idx="${idx}">
           <span class="screen-btn-num">${idx + 1}</span>
           <input type="text" class="form-control screen-btn-label" maxlength="12" value="${btn.label || ''}" placeholder="Label (max 12)" style="font-size: 12px; padding: 4px 8px;">
           <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="Choose Icon" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
-            ${iconUrl ? `<img src="${iconUrl}" class="stock-icon-img invert-white" style="width: 16px; height: 16px; filter: brightness(0) invert(1); flex-shrink: 0;" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
+            ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${btn.icon}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
             <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${iconDispName}</span>
           </button>
           <select class="form-control screen-btn-dev" style="font-size: 12px; padding: 4px 6px;">
