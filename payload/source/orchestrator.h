@@ -20,7 +20,8 @@ typedef enum {
     STEP_ACT_IR_PRONTO,
     STEP_ACT_DEVICE_CMD,
     STEP_ACT_BTHID,
-    STEP_ACT_SWITCHED
+    STEP_ACT_SWITCHED,
+    STEP_ACT_STOP_SWITCHED
 } step_action_type_t;
 
 typedef struct {
@@ -33,6 +34,14 @@ typedef struct {
     uint32_t delay_ms;
     char description[128];
 } orch_step_t;
+
+typedef struct {
+    orch_step_t step;
+    uint64_t target_time_ms;
+    uint32_t relative_offset_ms;
+    int anchor_step; /* 1 = Step 1 stop switched, 4 = Step 4 start switched */
+    int executed;
+} orch_bg_step_t;
 
 /* Progress callback for WebSocket broadcasts */
 typedef void (*orch_progress_cb)(const char *activity_id, orch_state_t state,

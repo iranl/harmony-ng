@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 static hw_mqtt_button_handler_t g_mqtt_button_handler = NULL;
 
@@ -439,8 +440,53 @@ int hw_device_command_send(const char *device_id, const char *command) {
         is_bt = 1;
     }
 
+    int inter_device_delay = 500;
+    int inter_key_delay = 100;
+    int hold_inter_key_delay = 200;
+
+    cJSON *j_idd = cJSON_GetObjectItemCaseSensitive(target_dev, "interDeviceDelay");
+    if (!j_idd) j_idd = cJSON_GetObjectItemCaseSensitive(target_dev, "inter_device_delay");
+    if (j_idd && cJSON_IsNumber(j_idd) && j_idd->valueint >= 0) inter_device_delay = j_idd->valueint;
+
+    cJSON *j_ikd = cJSON_GetObjectItemCaseSensitive(target_dev, "interKeyDelay");
+    if (!j_ikd) j_ikd = cJSON_GetObjectItemCaseSensitive(target_dev, "inter_key_delay");
+    if (j_ikd && cJSON_IsNumber(j_ikd) && j_ikd->valueint >= 0) inter_key_delay = j_ikd->valueint;
+
+    cJSON *j_hikd = cJSON_GetObjectItemCaseSensitive(target_dev, "holdInterKeyDelay");
+    if (!j_hikd) j_hikd = cJSON_GetObjectItemCaseSensitive(target_dev, "hold_inter_key_delay");
+    if (j_hikd && cJSON_IsNumber(j_hikd) && j_hikd->valueint >= 0) hold_inter_key_delay = j_hikd->valueint;
+
+    static pthread_mutex_t s_hw_cmd_lock = PTHREAD_MUTEX_INITIALIZER;
+    static uint64_t s_last_cmd_time_ms = 0;
+    static char s_last_device_id[64] = {0};
+    static char s_last_cmd_name[64] = {0};
+
+    pthread_mutex_lock(&s_hw_cmd_lock);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+
+    if (s_last_cmd_time_ms > 0) {
+        uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
+        int req_delay = 0;
+        if (strcmp(s_last_device_id, device_id) != 0) {
+            req_delay = inter_device_delay;
+        } else {
+            if (strcmp(s_last_cmd_name, command) == 0) {
+                req_delay = hold_inter_key_delay;
+            } else {
+                req_delay = inter_key_delay;
+            }
+        }
+        if (req_delay > 0 && elapsed < (uint64_t)req_delay) {
+            uint64_t wait_ms = (uint64_t)req_delay - elapsed;
+            usleep((useconds_t)(wait_ms * 1000));
+        }
+    }
+
     if (is_bt) {
         if (!bdaddr[0]) {
+            pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
                    command, dev_name[0] ? dev_name : "BT-Device", device_id);
             return 0; /* Skip gracefully without failing activity switch */
@@ -537,6 +583,14 @@ int hw_device_command_send(const char *device_id, const char *command) {
         }
         ret = hw_ir_send_harmony_keycode(keycode_str, ir_ports, repeats);
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    s_last_cmd_time_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    strncpy(s_last_device_id, device_id, sizeof(s_last_device_id) - 1);
+    s_last_device_id[sizeof(s_last_device_id) - 1] = '\0';
+    strncpy(s_last_cmd_name, command, sizeof(s_last_cmd_name) - 1);
+    s_last_cmd_name[sizeof(s_last_cmd_name) - 1] = '\0';
+    pthread_mutex_unlock(&s_hw_cmd_lock);
 
     return ret;
 }

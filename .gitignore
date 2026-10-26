@@ -32,8 +32,6 @@ scratch_*
 build/ota_staging/
 build/icons.tar.gz
 payload/www/assets/icons/
-
-# Compiled payload binaries and built web assets (tracked on 'ota' branch only)
 payload/bin/*
 !payload/bin/.gitkeep
 elite/bin/*
@@ -41,3 +39,4 @@ elite/bin/*
 !elite/bin/dropbearmulti_musl
 payload/www/*
 !payload/www/.gitkeep
+plan.md
