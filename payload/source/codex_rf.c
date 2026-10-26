@@ -1799,7 +1799,20 @@ static void *config_push_worker(void *arg) {
         payload[0] = 0x01; /* complete */
         payload[1] = g_config_version;
         rf_build_frame(&f, target_slot, RF_MSG_CONFIG_END, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 2);
-        rf_send_config_frame(&f);
+        if (rf_send_config_frame(&f) == 0 && target_slot >= 1 && target_slot <= 2) {
+            /* The remote applies the config when it receives this frame, but it only sends
+               VERSION_REPORT on first link and every 24h, so record its new version here. */
+            int idx = target_slot - 1;
+            g_remote_versions[idx].config_version = payload[1];
+            char vpath[64];
+            snprintf(vpath, sizeof(vpath), "/data/codex/elite_slot%d_version.json", target_slot);
+            FILE *vf = fopen(vpath, "w");
+            if (vf) {
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
+                        target_slot, g_remote_versions[idx].sw_version, payload[1], (long)time(NULL));
+                fclose(vf);
+            }
+        }
     }
 
     printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
