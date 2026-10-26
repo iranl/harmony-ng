@@ -56,7 +56,7 @@ from tools.root_hub_usb import (
 def get_ssh_opts(priv_key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
         "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=NUL" if sys.platform == "win32" else "/dev/null",
+        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]

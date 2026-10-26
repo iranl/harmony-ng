@@ -297,9 +297,10 @@ def parse_hfw2_bundle(bundle_path: pathlib.Path) -> FirmwareBundle:
 
 def find_7z_executable() -> Optional[str]:
     """Find 7z executable on system."""
-    candidate = shutil.which("7z")
-    if candidate:
-        return candidate
+    for name in ("7z", "7zz"):  # Homebrew's sevenzip installs as 7zz
+        candidate = shutil.which(name)
+        if candidate:
+            return candidate
     for default_path in [
         r"C:\Program Files\7-Zip\7z.exe",
         r"C:\Program Files (x86)\7-Zip\7z.exe",
@@ -318,7 +319,10 @@ def extract_elite_icons(
     """Extract all icons from Elite .hfw2 -> ota-update.EzHex -> squashfs -> opt/luadraws."""
     seven_zip = find_7z_executable()
     if not seven_zip:
-        raise RuntimeError("7-Zip (7z.exe) is required to unpack squashfs. Please install 7-Zip.")
+        raise RuntimeError(
+            "7-Zip is required to unpack squashfs. Install 7-Zip (Windows), p7zip (Linux), "
+            "or 'brew install sevenzip' (macOS)."
+        )
 
     print(f"[*] Opening firmware bundle: {firmware_path.name}")
     with zipfile.ZipFile(firmware_path, "r") as z_outer:
@@ -343,7 +347,8 @@ def extract_elite_icons(
             "x",
             f"-o{output_dir}",
             str(temp_squash),
-            r"opt\luadraws\appscommon\asset\*",
+            # Outside Windows, 7-Zip only splits filter paths on "/", so build the filter with the host separator
+            os.path.join("opt", "luadraws", "appscommon", "asset", "*"),
             "-r",
             "-y",
         ]
@@ -363,6 +368,8 @@ def extract_elite_icons(
                 shutil.copy2(png_file, dest)
                 extracted_count += 1
 
+        if extracted_count == 0:
+            raise RuntimeError(f"7-Zip extracted no icons from opt/luadraws/appscommon/asset in {firmware_path.name}")
         print(f"[+] Successfully extracted {extracted_count} icons to: {consolidated_icons_dir}")
 
         if archive_path:

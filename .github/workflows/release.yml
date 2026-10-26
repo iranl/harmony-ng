@@ -269,8 +269,8 @@ jobs:
             if [ -d artifacts/webui-assets ]; then
               cp -rf artifacts/webui-assets/* staging_hub/www/
             fi
-            cp -f build/deploy_hub.sh build/deploy_hub.ps1 staging_hub/
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py staging_hub/tools/
+            cp -f build/deploy_hub.sh build/deploy_hub.ps1 build/backup_hub.sh staging_hub/
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py staging_hub/tools/
             
             (cd staging_hub && zip -r "${RELEASE_DIR}/harmony-hub-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
@@ -284,7 +284,7 @@ jobs:
             rm -f staging_elite/bin/codex_elite.gz staging_elite/bin/codex_elite.ota.gz 2>/dev/null || true
             cp -f elite/rcS.local staging_elite/
             cp -f elite/deploy_elite.py elite/deploy_elite.ps1 staging_elite/
-            cp -f tools/root_remote_usb.py tools/harmony_hid.py elite/setup_remote.py staging_elite/tools/
+            cp -f tools/root_remote_usb.py tools/harmony_hid.py tools/harmony_firmware.py elite/setup_remote.py staging_elite/tools/
             
             (cd staging_elite && zip -r "${RELEASE_DIR}/harmony-elite-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-elite-v${VERSION}.tar.gz" -C staging_elite .

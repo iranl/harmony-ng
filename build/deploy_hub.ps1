@@ -253,17 +253,26 @@ if (Test-Path $WwwDir) {
         & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
     } else {
         $iconsTar = $null
+        $fwTool = $null
         if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
             $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
         } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
             $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
-        } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
-            Write-Host "`n[?] build/icons.tar.gz not found on host." -ForegroundColor Yellow
-            $resp = Read-Host "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)"
-            if ($resp -eq "" -or $resp.Trim().ToLower() -eq "y") {
-                Write-Host "[*] Extracting remote UI icons and packaging build/icons.tar.gz..." -ForegroundColor Cyan
+        } else {
+            # Release bundle ships tools\harmony_firmware.py next to this script; a repo checkout has it under the repo root
+            if (Test-Path (Join-Path $ScriptDir "tools\harmony_firmware.py")) {
+                $fwTool = Join-Path $ScriptDir "tools\harmony_firmware.py"
+                $archiveOut = Join-Path $ScriptDir "icons.tar.gz"
+            } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
                 $fwTool = Join-Path $RepoRoot "tools\harmony_firmware.py"
                 $archiveOut = Join-Path $RepoRoot "build\icons.tar.gz"
+            }
+        }
+        if ($fwTool) {
+            Write-Host "`n[?] $archiveOut not found on host." -ForegroundColor Yellow
+            $resp = Read-Host "Download official Elite firmware, extract 1,350 icons, and build $archiveOut now? (Y/n)"
+            if ($resp -eq "" -or $resp.Trim().ToLower() -eq "y") {
+                Write-Host "[*] Extracting remote UI icons and packaging $archiveOut..." -ForegroundColor Cyan
                 $pyCmd = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" } else { "py" }
                 & $pyCmd $fwTool extract-icons --archive $archiveOut
                 if (Test-Path $archiveOut) {

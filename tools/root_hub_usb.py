@@ -251,7 +251,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
 
     ssh_opts = [
         "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=NUL" if sys.platform == "win32" else "/dev/null",
+        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]
@@ -377,7 +377,7 @@ def main() -> None:
         if not args.skip_fw_check:
             sysinfo = hid.get_sysinfo()
             current_fw = sysinfo.get("fw_ver") or sysinfo.get("version") or sysinfo.get("fw_version")
-            target_skin = 115 if connected_pid == HUB_PRO_PID else DEFAULT_HUB_SKIN
+            target_skin = 115 if connected_pid == HUB_PRO_PID else 97  # SUS skin IDs: Hub Pro / Hub
             if sysinfo.get("skin"):
                 try:
                     target_skin = int(sysinfo["skin"])
@@ -388,7 +388,6 @@ def main() -> None:
                 try:
                     from tools.harmony_firmware import (
                         query_latest_firmware,
-                        DEFAULT_HUB_SKIN,
                         download_file,
                         parse_hfw2_bundle,
                         flash_firmware,

@@ -327,10 +327,10 @@ The custom firmware environment includes a clean-room HID flashing tool (`tools/
 ### 1. Check & Flash Official Elite Firmware
 ```bash
 # Query latest version from Logitech update servers:
-python tools/harmony_firmware.py check elite
+python tools/harmony_firmware.py check
 
 # Download and flash directly over USB HID:
-python tools/harmony_firmware.py flash elite
+python tools/harmony_firmware.py flash --target elite
 ```
 
 ### 2. Extract Official Remote UI Icons for Hub Web UI

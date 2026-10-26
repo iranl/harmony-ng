@@ -5,23 +5,42 @@ HUB_HOST="${1:-192.168.1.1}"
 HUB_USER="root"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BACKUP_DIR="$REPO_ROOT/backups"
+if [ -d "$SCRIPT_DIR/bin" ]; then
+    BACKUP_DIR="$SCRIPT_DIR/backups"  # release bundle: same backups/ as tools/root_hub_usb.py
+else
+    BACKUP_DIR="$REPO_ROOT/backups"
+fi
 GOLDEN_FILE="$BACKUP_DIR/golden_hub_backup.tar"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p "$BACKUP_DIR"
 
+# SSH key: $SSH_KEY, else the newest ~/.ssh/harmony_owner_* (authorized by root_hub_usb.py), id_rsa, id_ed25519
+SSH_KEY="${SSH_KEY:-}"
+if [ -z "$SSH_KEY" ]; then
+    SSH_KEY="$(ls -t "$HOME"/.ssh/harmony_owner_* 2>/dev/null | grep -v '\.pub$' | head -n 1 || true)"
+fi
+for cand in "$HOME/.ssh/id_rsa" "$HOME/.ssh/id_ed25519"; do
+    if [ -z "$SSH_KEY" ] && [ -f "$cand" ]; then
+        SSH_KEY="$cand"
+    fi
+done
+SSH_OPTS=(-q -o BatchMode=yes -o StrictHostKeyChecking=no)
+if [ -n "$SSH_KEY" ]; then
+    SSH_OPTS+=(-i "$SSH_KEY")
+fi
+
 echo "[*] Connecting to Harmony Hub ($HUB_HOST)..."
 
 # Detect tar binary on Hub (stock BusyBox lacks tar)
 TAR_CMD="tar"
-if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "test -x /cache/bin/busybox" 2>/dev/null; then
+if ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /cache/bin/busybox" 2>/dev/null; then
     TAR_CMD="/cache/bin/busybox tar"
-elif ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "test -x /data/codex/bin/busybox" 2>/dev/null; then
+elif ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /data/codex/bin/busybox" 2>/dev/null; then
     TAR_CMD="/data/codex/bin/busybox tar"
 fi
 
-if ! ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" "$TAR_CMD --help >/dev/null 2>&1"; then
+if ! ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "$TAR_CMD --help >/dev/null 2>&1"; then
     echo "[!] Notice: tar applet not found on Hub BusyBox. Skipping pre-deployment backup."
     exit 0
 fi
@@ -29,7 +48,7 @@ fi
 # 1. Golden backup: First ever backup kept permanently for pristine restore (plain tar, no gzip)
 if [ ! -f "$GOLDEN_FILE" ]; then
     echo "[*] Creating GOLDEN initial backup of Hub stock state..."
-    ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
+    ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
         "$TAR_CMD -cf - /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$GOLDEN_FILE" || {
         echo "[!] Golden backup failed to download"
         rm -f "$GOLDEN_FILE"
@@ -44,7 +63,7 @@ fi
 # 2. Rolling backup: includes /data/codex and configs (plain tar, no gzip)
 NEW_BACKUP="$BACKUP_DIR/hub_backup_${TIMESTAMP}.tar"
 echo "[*] Creating rolling backup..."
-ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
+ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
     "$TAR_CMD -cf - /data/codex /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$NEW_BACKUP" || {
     echo "[!] Rolling backup failed"
     rm -f "$NEW_BACKUP"
