@@ -71,8 +71,6 @@ build_daemon() {
     "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_daemon" \
         payload/source/codex_daemon.c \
         payload/source/config_store.c \
-        payload/source/config_sanitize.c \
-        payload/source/config_migration.c \
         payload/source/resource_cache.c \
         payload/source/cJSON.c \
         payload/source/ir_encoder.c \
