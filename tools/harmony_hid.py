@@ -511,10 +511,6 @@ if sys.platform == "darwin":
     iokit.IOHIDManagerCreate.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     iokit.IOHIDManagerSetDeviceMatching.restype = None
     iokit.IOHIDManagerSetDeviceMatching.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    iokit.IOHIDManagerOpen.restype = ctypes.c_int32
-    iokit.IOHIDManagerOpen.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    iokit.IOHIDManagerClose.restype = ctypes.c_int32
-    iokit.IOHIDManagerClose.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     iokit.IOHIDManagerCopyDevices.restype = ctypes.c_void_p
     iokit.IOHIDManagerCopyDevices.argtypes = [ctypes.c_void_p]
 
@@ -708,10 +704,6 @@ class MacHidDevice:
 
         if self.manager:
             try:
-                iokit.IOHIDManagerClose(self.manager, 0)
-            except Exception:
-                pass
-            try:
                 cf.CFRelease(self.manager)
             except Exception:
                 pass
@@ -724,10 +716,9 @@ def find_darwin_device(target_pid: Optional[int] = None) -> tuple[Optional[int],
     if not mgr:
         return None, None
     iokit.IOHIDManagerSetDeviceMatching(mgr, None)
-    if iokit.IOHIDManagerOpen(mgr, 0) != 0:
-        cf.CFRelease(mgr)
-        return None, None
-
+    # Do not call IOHIDManagerOpen: it opens every matched HID device and fails if any one
+    # refuses (e.g. Magic Keyboard with Touch ID returns kIOReturnUnsupported). Enumeration
+    # works without it, and open() calls IOHIDDeviceOpen on the matched device only.
     dev_set = iokit.IOHIDManagerCopyDevices(mgr)
     matched_device = None
     if dev_set:
@@ -756,7 +747,6 @@ def find_darwin_device(target_pid: Optional[int] = None) -> tuple[Optional[int],
         cf.CFRetain(matched_device)
         return mgr, matched_device
 
-    iokit.IOHIDManagerClose(mgr, 0)
     cf.CFRelease(mgr)
     return None, None
 
@@ -808,7 +798,6 @@ class HarmonyHid:
             ret = iokit.IOHIDDeviceOpen(dev_ref, 0)
             if ret != 0:
                 if mgr:
-                    iokit.IOHIDManagerClose(mgr, 0)
                     cf.CFRelease(mgr)
                 cf.CFRelease(dev_ref)
                 return False
