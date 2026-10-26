@@ -66,8 +66,8 @@ The tool automatically:
 > You can also check, download, or flash Elite firmware and extract UI icons at any time with the standalone tool:
 > ```bash
 > # Check or flash firmware directly:
-> python tools/harmony_firmware.py check elite
-> python tools/harmony_firmware.py flash elite
+> python tools/harmony_firmware.py check
+> python tools/harmony_firmware.py flash --target elite
 >
 > # Extract all 1,350 official icons directly from firmware bundle (no remote connection needed):
 > python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz

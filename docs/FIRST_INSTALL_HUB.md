@@ -74,8 +74,8 @@ The tool automatically:
 > [!TIP]
 > You can also check, download, or flash Hub firmware at any time with the standalone tool:
 > ```bash
-> python tools/harmony_firmware.py check hub
-> python tools/harmony_firmware.py flash hub
+> python tools/harmony_firmware.py check
+> python tools/harmony_firmware.py flash --target hub
 > ```
 
 ### Step 2.3: Verify SSH Access
