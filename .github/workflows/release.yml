@@ -110,7 +110,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
+      - name: Cache Bootlin ARM Toolchain
+        id: cache-arm-toolchain
+        uses: actions/cache@v4
+        with:
+          path: build/toolchains
+          key: bootlin-armv5-uclibc-2017.05
       - name: Install Bootlin ARMv5 uClibc Toolchain
+        if: steps.cache-arm-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
@@ -161,7 +168,14 @@ jobs:
           python-version: '3.11'
       - name: Sync Version
         run: python scripts/bump_version.py --version ${{ needs.prepare-version.outputs.version }}
+      - name: Cache Bootlin MIPS Toolchain
+        id: cache-mips-toolchain
+        uses: actions/cache@v4
+        with:
+          path: build/toolchains
+          key: bootlin-mips32-uclibc-2017.05
       - name: Install Bootlin MIPS uClibc Toolchain
+        if: steps.cache-mips-toolchain.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
@@ -199,6 +213,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'gradle'
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
