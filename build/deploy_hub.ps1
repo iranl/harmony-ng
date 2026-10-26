@@ -54,9 +54,9 @@ $Target = "root@$HubIp"
 # Auto-detect SSH key if not specified
 if (-not $KeyPath) {
     $candFiles = @(
-        Get-ChildItem -Path "$HOME\.ssh\harmony_owner_*" -File -ErrorAction SilentlyContinue
-        Get-ChildItem -Path "$HOME\.ssh\id_rsa" -File -ErrorAction SilentlyContinue
-        Get-ChildItem -Path "$HOME\.ssh\id_ed25519" -File -ErrorAction SilentlyContinue
+        Get-ChildItem -Path "$HOME\.ssh\harmony_owner_*" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
+        Get-ChildItem -Path "$HOME\.ssh\id_rsa" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
+        Get-ChildItem -Path "$HOME\.ssh\id_ed25519" -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne ".pub" }
     )
     foreach ($cand in $candFiles) {
         if ($cand -and (Test-Path $cand.FullName)) {

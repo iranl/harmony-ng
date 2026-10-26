@@ -41,6 +41,11 @@ else
     FW_TOOL="$REPO_ROOT/tools/harmony_firmware.py"
     ICONS_TAR="$REPO_ROOT/build/icons.tar.gz"
 fi
+if [ -f "$REPO_ROOT/build/icons.tar.gz" ]; then
+    ICONS_TAR="$REPO_ROOT/build/icons.tar.gz"
+elif [ -f "$SCRIPT_DIR/icons.tar.gz" ]; then
+    ICONS_TAR="$SCRIPT_DIR/icons.tar.gz"
+fi
 
 # SSH key: --key=PATH, $SSH_KEY, else the newest ~/.ssh/harmony_owner_* (authorized by root_hub_usb.py), id_rsa, id_ed25519
 if [ -z "$SSH_KEY" ]; then
@@ -85,17 +90,19 @@ ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
 
 REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
 
+if command -v md5sum >/dev/null 2>&1; then
+    compute_md5() { md5sum "$1" | awk '{print $1}'; }
+else
+    compute_md5() { md5 -q "$1"; }  # macOS before 15 ships md5 but not md5sum
+fi
+
 deploy_file_if_changed() {
     local src="$1"
     local dst="$2"
     local perm="${3:-755}"
     [ ! -f "$src" ] && return 0
     local local_md5
-    if command -v md5sum >/dev/null 2>&1; then
-        local_md5=$(md5sum "$src" | awk '{print $1}')
-    else
-        local_md5=$(md5 -q "$src")  # macOS before 15 ships md5 but not md5sum
-    fi
+    local_md5=$(compute_md5 "$src")
     local remote_md5
     remote_md5=$(echo "$REMOTE_MD5_LIST" | awk -v p="$dst" '$2 == p {print $1; exit}')
     local fname
