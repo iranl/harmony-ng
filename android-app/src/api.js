@@ -900,6 +900,22 @@ export class HarmonyClient {
     return this.postForm('/system', { action, ...extra });
   }
 
+  async getAuthMe() {
+    return this.request('/api/auth/me');
+  }
+
+  async getUsers() {
+    return this.request('/api/users');
+  }
+
+  async saveUser(user) {
+    return this.postJson('/api/users', user);
+  }
+
+  async deleteUser(username) {
+    return this.postJson('/api/users/delete', { username });
+  }
+
   async getServices() {
     return this.request('/api/services');
   }

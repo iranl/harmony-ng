@@ -431,6 +431,9 @@ class HarmonyApp {
     this.pollTimer = null;
     this.wsProgress = null;
     this.isHubOnline = false;
+    this.userRole = 'admin';
+    this.currentUser = 'admin';
+    this.authEnabled = false;
 
     // Sub-states
     this.b25MapData = { remote: { name: 'Homatics B25' }, activities: {} };
@@ -2214,6 +2217,7 @@ class HarmonyApp {
     // System Actions
     document.getElementById('btnSaveDebug')?.addEventListener('click', () => this.saveDebugLogging());
     document.getElementById('btnSaveAuth')?.addEventListener('click', () => this.saveWebUiAuth());
+    document.getElementById('btnAddNonAdminUser')?.addEventListener('click', () => this.addNonAdminUser());
     document.getElementById('btnSaveHubName')?.addEventListener('click', async () => {
       const nameInp = document.getElementById('hubCustomNameInput');
       const newName = nameInp?.value.trim();
@@ -2680,6 +2684,10 @@ class HarmonyApp {
       this.updateIconCacheUI();
 
       if (stat) {
+        if (stat.role) this.userRole = stat.role;
+        if (stat.user) this.currentUser = stat.user;
+        if (typeof stat.auth_enabled !== 'undefined') this.authEnabled = Boolean(stat.auth_enabled);
+        this.applyRoleRestrictions();
         if (stat.hub_name) {
           const lbl = document.getElementById('activeHubLabel');
           if (lbl) lbl.textContent = stat.hub_name;
@@ -2733,6 +2741,9 @@ class HarmonyApp {
   }
 
   switchTab(tabId, pushHistory = true) {
+    if (this.userRole === 'user' && !['activities', 'control', 'activity-remote', 'hubs'].includes(tabId)) {
+      tabId = 'activities';
+    }
     if (!tabId || (tabId === 'hubs' && !this.isNative)) tabId = 'overview';
     this.currentTab = tabId;
     if (pushHistory && typeof window !== 'undefined' && window.history) {
@@ -3311,9 +3322,12 @@ class HarmonyApp {
       fromSel.innerHTML = `<option value="-1">PowerOff</option>${opts}`;
       toSel.innerHTML = `${opts}<option value="-1">PowerOff</option>`;
     }
+
+    this.applyRoleRestrictions();
   }
 
   openActivityEditor(act) {
+    if (this.userRole === 'user') return;
     const box = document.getElementById('actEditorBox');
     if (!box) return;
     box.style.display = 'block';
@@ -8028,7 +8042,8 @@ class HarmonyApp {
     await Promise.allSettled([
       this.refreshServiceStatuses(),
       this.refreshSystemInfo(),
-      this.refreshLogs()
+      this.refreshLogs(),
+      this.loadUserAccounts()
     ]);
     this.updateIconCacheUI();
   }
@@ -8243,6 +8258,132 @@ class HarmonyApp {
     }
   }
 
+  applyRoleRestrictions() {
+    const isUser = (this.userRole === 'user');
+
+    // Settings nav button and drawer items
+    document.querySelectorAll('.nav-tab-btn[data-tab="overview"], .drawer-item[data-view-target="overview"], .drawer-item[data-view-target="network"], .drawer-item[data-view-target="mqtt"], .drawer-item[data-view-target="backup"], .drawer-item[data-view-target="system"], .drawer-item[data-view-target="firmware"], .drawer-item[data-view-target="ir"], .drawer-item[data-view-target="bluetooth"], .drawer-item[data-view-target="remotes"]').forEach(el => {
+      el.style.display = isUser ? 'none' : '';
+    });
+
+    // Activities editor & icon buttons
+    document.querySelectorAll('#actNewBtn, .btn-act-edit, .btn-act-icon').forEach(el => {
+      el.style.display = isUser ? 'none' : '';
+    });
+
+    // Role badge display in header if auth enabled
+    const userBadge = document.getElementById('headerUserBadge');
+    if (this.authEnabled && this.currentUser) {
+      if (!userBadge) {
+        const wrap = document.getElementById('hubStatusPill') || document.querySelector('.header-right');
+        if (wrap) {
+          const b = document.createElement('span');
+          b.id = 'headerUserBadge';
+          b.className = 'badge';
+          b.style.fontSize = '10px';
+          b.style.marginLeft = '6px';
+          b.style.background = isUser ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+          b.style.color = isUser ? 'var(--accent)' : '#10b981';
+          b.textContent = `${this.currentUser} (${isUser ? 'User' : 'Admin'})`;
+          wrap.appendChild(b);
+        }
+      } else {
+        userBadge.style.display = '';
+        userBadge.style.background = isUser ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+        userBadge.style.color = isUser ? 'var(--accent)' : '#10b981';
+        userBadge.textContent = `${this.currentUser} (${isUser ? 'User' : 'Admin'})`;
+      }
+    } else if (userBadge) {
+      userBadge.style.display = 'none';
+    }
+
+    // Force redirection if non-admin is viewing a settings panel
+    const allowed = ['activities', 'control', 'activity-remote', 'hubs'];
+    if (isUser && !allowed.includes(this.currentTab)) {
+      this.switchTab('activities', false);
+    }
+  }
+
+  async loadUserAccounts() {
+    const listEl = document.getElementById('usersListContainer');
+    const chk = document.getElementById('authEnabledCheck');
+    const adminUser = document.getElementById('authUsername');
+    if (!this.client || typeof this.client.getUsers !== 'function') return;
+
+    try {
+      const data = await this.client.getUsers();
+      if (!data || !data.ok) return;
+
+      if (chk) chk.checked = Boolean(data.auth_enabled);
+      const users = data.users || [];
+
+      const admin = users.find(u => u.role === 'admin');
+      if (admin && adminUser) adminUser.value = admin.username;
+
+      const nonAdmins = users.filter(u => u.role === 'user');
+      if (!listEl) return;
+
+      if (nonAdmins.length === 0) {
+        listEl.innerHTML = '<div class="subtle mini" style="padding: 4px 0;">No non-admin accounts configured yet.</div>';
+        return;
+      }
+
+      let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+      for (const u of nonAdmins) {
+        html += `
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
+            <div>
+              <span style="font-weight: 600; font-size: 13px;">${u.username}</span>
+              <span class="badge" style="margin-left: 8px; font-size: 10px; background: rgba(59, 130, 246, 0.15); color: var(--accent);">Restricted User</span>
+            </div>
+            <button type="button" class="btn btn-xs btn-danger btn-del-user" data-username="${u.username}">Delete</button>
+          </div>`;
+      }
+      html += '</div>';
+      listEl.innerHTML = html;
+
+      listEl.querySelectorAll('.btn-del-user').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const uname = btn.getAttribute('data-username');
+          if (!confirm(`Delete non-admin user "${uname}"?`)) return;
+          try {
+            await this.client.deleteUser(uname);
+            await this.loadUserAccounts();
+          } catch (err) {
+            alert(`Failed to delete user: ${err.message}`);
+          }
+        });
+      });
+    } catch (err) {
+      if (listEl) listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load users: ${err.message}</div>`;
+    }
+  }
+
+  async addNonAdminUser() {
+    const uInp = document.getElementById('newUserName');
+    const pInp = document.getElementById('newUserPassword');
+    const stat = document.getElementById('newUserStatus');
+    const username = uInp?.value.trim();
+    const password = pInp?.value;
+
+    if (!username || !password) {
+      if (stat) stat.innerHTML = '<span style="color:var(--danger)">Username and password required</span>';
+      return;
+    }
+
+    if (stat) stat.textContent = 'Adding user...';
+    try {
+      await this.client.saveUser({ username, password, role: 'user' });
+      if (uInp) uInp.value = '';
+      if (pInp) pInp.value = '';
+      if (stat) stat.innerHTML = '<span style="color:var(--success)">User added!</span>';
+      setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
+      await this.loadUserAccounts();
+    } catch (err) {
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+    }
+  }
+
   async saveWebUiAuth() {
     const status = document.getElementById('authSaveStatus');
     const on = document.getElementById('authEnabledCheck')?.checked ? 1 : 0;
@@ -8250,7 +8391,8 @@ class HarmonyApp {
     const p = document.getElementById('authPassword')?.value;
     try {
       await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
-      if (status) status.innerHTML = '<span style="color:var(--success)">Sign-in setting saved!</span>';
+      if (status) status.innerHTML = '<span style="color:var(--success)">Admin account & sign-in saved!</span>';
+      await this.loadUserAccounts();
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
     }

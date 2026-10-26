@@ -702,7 +702,12 @@ export class RemoteEngine {
 
     const saveHubBtn = subtabsBar.querySelector('#btnSaveToHub');
     if (saveHubBtn) {
-      saveHubBtn.addEventListener('click', () => this.saveCurrentLayoutToHub());
+      const isRestricted = (window.harmonyApp && window.harmonyApp.userRole === 'user');
+      if (isRestricted) {
+        saveHubBtn.style.display = 'none';
+      } else {
+        saveHubBtn.addEventListener('click', () => this.saveCurrentLayoutToHub());
+      }
     }
 
     const restoreHubBtn = subtabsBar.querySelector('#btnRestoreFromHub');

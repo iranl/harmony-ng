@@ -846,32 +846,159 @@ static uint32_t crc32_simple(const unsigned char *buf, size_t len) {
     return ~crc;
 }
 
-static int check_http_auth(const char *req) {
-    FILE *f = fopen("/data/codex/webui_auth.conf", "r");
-    if (!f) return 1; /* Auth not configured -> allow */
+#define CODEX_USERS_JSON "/data/codex/config/users.json"
+#define CODEX_AUTH_CONF "/data/codex/webui_auth.conf"
+#define MAX_HTTP_USERS 16
+#define MAX_USERNAME_LEN 48
+#define MAX_PASSWORD_LEN 64
 
-    char expected[256] = {0};
-    int has_cred = 0;
-    while (fgets(expected, sizeof(expected), f)) {
-        char *nl = strchr(expected, '\n'); if (nl) *nl = '\0';
-        nl = strchr(expected, '\r'); if (nl) *nl = '\0';
-        char *p = expected;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p && *p != '#') {
-            memmove(expected, p, strlen(p) + 1);
-            has_cred = 1;
-            break;
+enum http_role {
+    ROLE_NONE = 0,
+    ROLE_USER = 1,
+    ROLE_ADMIN = 2
+};
+
+struct user_account {
+    char username[MAX_USERNAME_LEN];
+    char password[MAX_PASSWORD_LEN];
+    enum http_role role;
+};
+
+static int load_user_accounts(struct user_account *users, int max_users, int *auth_enabled) {
+    if (auth_enabled) *auth_enabled = 0;
+    int count = 0;
+
+    /* First attempt: load from /data/codex/config/users.json */
+    size_t flen = 0;
+    char *json_txt = read_file_text_alloc(CODEX_USERS_JSON, 65536, &flen);
+    if (json_txt) {
+        cJSON *root = cJSON_Parse(json_txt);
+        free(json_txt);
+        if (root) {
+            cJSON *j_en = cJSON_GetObjectItemCaseSensitive(root, "auth_enabled");
+            int is_en = j_en ? (cJSON_IsTrue(j_en) || (cJSON_IsNumber(j_en) && j_en->valueint != 0)) : 1;
+            cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "users");
+            if (arr && cJSON_IsArray(arr)) {
+                const cJSON *it = NULL;
+                cJSON_ArrayForEach(it, arr) {
+                    if (count >= max_users) break;
+                    cJSON *ju = cJSON_GetObjectItemCaseSensitive(it, "username");
+                    cJSON *jp = cJSON_GetObjectItemCaseSensitive(it, "password");
+                    cJSON *jr = cJSON_GetObjectItemCaseSensitive(it, "role");
+                    if (ju && cJSON_IsString(ju) && jp && cJSON_IsString(jp)) {
+                        strncpy(users[count].username, ju->valuestring, sizeof(users[count].username) - 1);
+                        strncpy(users[count].password, jp->valuestring, sizeof(users[count].password) - 1);
+                        const char *rstr = (jr && cJSON_IsString(jr)) ? jr->valuestring : "admin";
+                        users[count].role = (strcasecmp(rstr, "user") == 0) ? ROLE_USER : ROLE_ADMIN;
+                        count++;
+                    }
+                }
+            }
+            if (auth_enabled) *auth_enabled = (count > 0 && is_en);
+            cJSON_Delete(root);
+            if (count > 0) return count;
         }
+    }
+
+    /* Fallback: parse /data/codex/webui_auth.conf */
+    FILE *f = fopen(CODEX_AUTH_CONF, "r");
+    if (!f) return 0;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f) && count < max_users) {
+        char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
+        nl = strchr(line, '\r'); if (nl) *nl = '\0';
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p || *p == '#') continue;
+
+        char *c1 = strchr(p, ':');
+        if (!c1) continue;
+        *c1 = '\0';
+        char *user = p;
+        char *pass = c1 + 1;
+        char *role_str = NULL;
+        char *c2 = strchr(pass, ':');
+        if (c2) {
+            *c2 = '\0';
+            role_str = c2 + 1;
+        }
+
+        strncpy(users[count].username, user, sizeof(users[count].username) - 1);
+        strncpy(users[count].password, pass, sizeof(users[count].password) - 1);
+        if (role_str && strcasecmp(role_str, "user") == 0) {
+            users[count].role = ROLE_USER;
+        } else {
+            users[count].role = ROLE_ADMIN;
+        }
+        count++;
     }
     fclose(f);
 
-    if (!has_cred || !expected[0]) return 1; /* Empty file -> allow */
+    if (auth_enabled) *auth_enabled = (count > 0);
+    return count;
+}
+
+static int save_user_accounts(const struct user_account *users, int count, int auth_enabled) {
+    /* 1. Write CODEX_USERS_JSON */
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return 0;
+    cJSON_AddBoolToObject(root, "auth_enabled", auth_enabled ? 1 : 0);
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < count; i++) {
+        cJSON *u = cJSON_CreateObject();
+        cJSON_AddStringToObject(u, "username", users[i].username);
+        cJSON_AddStringToObject(u, "password", users[i].password);
+        cJSON_AddStringToObject(u, "role", users[i].role == ROLE_USER ? "user" : "admin");
+        cJSON_AddItemToArray(arr, u);
+    }
+    cJSON_AddItemToObject(root, "users", arr);
+
+    char *json_out = cJSON_Print(root);
+    cJSON_Delete(root);
+    if (json_out) {
+        mkdir("/data/codex/config", 0755);
+        write_file_atomic(CODEX_USERS_JSON, json_out, strlen(json_out));
+        free(json_out);
+    }
+
+    /* 2. Write CODEX_AUTH_CONF */
+    if (!auth_enabled || count == 0) {
+        write_file_atomic(CODEX_AUTH_CONF, "# auth disabled\n", 16);
+    } else {
+        char conf_buf[2048] = {0};
+        int offset = 0;
+        for (int i = 0; i < count; i++) {
+            int written = snprintf(conf_buf + offset, sizeof(conf_buf) - offset,
+                "%s:%s:%s\n", users[i].username, users[i].password,
+                users[i].role == ROLE_USER ? "user" : "admin");
+            if (written > 0 && offset + written < (int)sizeof(conf_buf)) {
+                offset += written;
+            }
+        }
+        write_file_atomic(CODEX_AUTH_CONF, conf_buf, (size_t)offset);
+    }
+    return 1;
+}
+
+static enum http_role check_request_auth(const char *req, char *out_user, size_t out_user_len) {
+    if (out_user && out_user_len > 0) out_user[0] = '\0';
+
+    struct user_account users[MAX_HTTP_USERS];
+    int auth_enabled = 0;
+    int count = load_user_accounts(users, MAX_HTTP_USERS, &auth_enabled);
+
+    if (!auth_enabled || count == 0) {
+        /* Open access (no auth configured) -> grant admin role */
+        if (out_user && out_user_len > 0) strncpy(out_user, "admin", out_user_len - 1);
+        return ROLE_ADMIN;
+    }
 
     const char *hdr = strcasestr(req, "Authorization:");
-    if (!hdr) return 0;
+    if (!hdr) return ROLE_NONE;
     hdr += 14;
     while (*hdr == ' ' || *hdr == '\t') hdr++;
-    if (strncasecmp(hdr, "Basic ", 6) != 0) return 0;
+    if (strncasecmp(hdr, "Basic ", 6) != 0) return ROLE_NONE;
     hdr += 6;
     while (*hdr == ' ' || *hdr == '\t') hdr++;
 
@@ -884,12 +1011,78 @@ static int check_http_auth(const char *req) {
 
     size_t dlen = 0;
     unsigned char *decoded = b64_decode(b64, &dlen);
-    if (!decoded) return 0;
+    if (!decoded) return ROLE_NONE;
     decoded[dlen] = '\0';
 
-    int matched = (strcmp((char *)decoded, expected) == 0);
+    char *c = strchr((char *)decoded, ':');
+    if (!c) {
+        free(decoded);
+        return ROLE_NONE;
+    }
+    *c = '\0';
+    const char *u = (char *)decoded;
+    const char *p = c + 1;
+
+    enum http_role matched_role = ROLE_NONE;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(users[i].username, u) == 0 && strcmp(users[i].password, p) == 0) {
+            matched_role = users[i].role;
+            if (out_user && out_user_len > 0) {
+                strncpy(out_user, users[i].username, out_user_len - 1);
+            }
+            break;
+        }
+    }
     free(decoded);
-    return matched;
+    return matched_role;
+}
+
+static int is_user_role_permitted(const char *method, const char *clean_path) {
+    if (strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) {
+        if (strcmp(clean_path, "/api/status") == 0 ||
+            strcmp(clean_path, "/api/auth/me") == 0 ||
+            strcmp(clean_path, "/api/activities") == 0 ||
+            strcmp(clean_path, "/api/activity") == 0 ||
+            strcmp(clean_path, "/api/current_activity") == 0 ||
+            strcmp(clean_path, "/api/devices") == 0 ||
+            strcmp(clean_path, "/api/inventory") == 0 ||
+            strcmp(clean_path, "/api/icons") == 0 ||
+            strcmp(clean_path, "/api/icons/archive") == 0 ||
+            strcmp(clean_path, "/api/custom-icons") == 0 ||
+            strcmp(clean_path, "/api/ui-remote-layout") == 0 ||
+            strcmp(clean_path, "/assets/icons.tar.gz") == 0 ||
+            strncmp(clean_path, "/api/icons/", 11) == 0 ||
+            strncmp(clean_path, "/assets/", 8) == 0) {
+            return 1;
+        }
+        return 0;
+    }
+
+    if (strcmp(method, "POST") == 0) {
+        if (strcmp(clean_path, "/api/activity") == 0 ||
+            strcmp(clean_path, "/api/activity-start") == 0 ||
+            strcmp(clean_path, "/api/activity-stop") == 0 ||
+            strcmp(clean_path, "/api/poweroff") == 0 ||
+            strcmp(clean_path, "/api/activity-cancel") == 0 ||
+            strcmp(clean_path, "/api/activity-progress") == 0 ||
+            strcmp(clean_path, "/api/ir-send") == 0 ||
+            strcmp(clean_path, "/ir/send") == 0 ||
+            strcmp(clean_path, "/api/button-press") == 0 ||
+            strcmp(clean_path, "/api/bt-saved-command") == 0 ||
+            strcmp(clean_path, "/api/bt-key") == 0 ||
+            strcmp(clean_path, "/api/bt-text") == 0 ||
+            strcmp(clean_path, "/api/bt-mouse") == 0 ||
+            strcmp(clean_path, "/api/v1/bt/mouse") == 0 ||
+            strcmp(clean_path, "/api/bt-script") == 0 ||
+            strcmp(clean_path, "/api/commands-batch") == 0 ||
+            strcmp(clean_path, "/api/ir-batch-send") == 0 ||
+            strcmp(clean_path, "/api/ir-cancel") == 0) {
+            return 1;
+        }
+        return 0;
+    }
+
+    return 0;
 }
 
 static cJSON *sanitize_activity_steps_array(const cJSON *arr) {
@@ -1785,12 +1978,15 @@ static void http_process_request(int client_fd, const char *req) {
         return;
     }
 
-    /* Check HTTP Basic authentication for API and management routes */
+    char auth_user[MAX_USERNAME_LEN] = {0};
+    enum http_role auth_role = check_request_auth(req, auth_user, sizeof(auth_user));
+
+    /* Check HTTP Basic authentication & RBAC permissions */
     if (strncmp(clean_path, "/api/", 5) == 0 || strcmp(clean_path, "/wifi") == 0 ||
         strcmp(clean_path, "/ethernet") == 0 || strcmp(clean_path, "/import") == 0 ||
         strncmp(clean_path, "/export/", 8) == 0 || strncmp(clean_path, "/ir/", 4) == 0 ||
-        strncmp(clean_path, "/bt/", 4) == 0) {
-        if (!check_http_auth(req)) {
+        strncmp(clean_path, "/bt/", 4) == 0 || strcmp(clean_path, "/system") == 0) {
+        if (auth_role == ROLE_NONE) {
             const char *unauth =
                 "HTTP/1.1 401 Unauthorized\r\n"
                 "WWW-Authenticate: Basic realm=\"Harmony Hub Codex\"\r\n"
@@ -1801,6 +1997,19 @@ static void http_process_request(int client_fd, const char *req) {
                 "Connection: close\r\n\r\n"
                 "{\"ok\":false,\"error\":\"Unauthorized\"}";
             send(client_fd, unauth, strlen(unauth), 0);
+            close(client_fd);
+            return;
+        }
+        if (auth_role == ROLE_USER && !is_user_role_permitted(method, clean_path)) {
+            const char *forbidden =
+                "HTTP/1.1 403 Forbidden\r\n"
+                "Content-Type: application/json\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
+                "Content-Length: 53\r\n"
+                "Connection: close\r\n\r\n"
+                "{\"ok\":false,\"error\":\"Forbidden: Admin access required\"}";
+            send(client_fd, forbidden, strlen(forbidden), 0);
             close(client_fd);
             return;
         }
@@ -1833,6 +2042,12 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON_AddNumberToObject(st, "total_kb", (double)total_kb);
         cJSON_AddNumberToObject(st, "free_kb", (double)free_kb);
         cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
+
+        int auth_on = 0;
+        load_user_accounts(NULL, 0, &auth_on);
+        cJSON_AddBoolToObject(st, "auth_enabled", auth_on);
+        cJSON_AddStringToObject(st, "role", auth_role == ROLE_USER ? "user" : "admin");
+        cJSON_AddStringToObject(st, "user", auth_user[0] ? auth_user : "admin");
 
         FILE *uf = fopen("/proc/uptime", "r");
         if (uf) {
@@ -1878,6 +2093,218 @@ static void http_process_request(int client_fd, const char *req) {
 
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: GET /api/auth/me */
+    if (strcmp(clean_path, "/api/auth/me") == 0 && strcmp(method, "GET") == 0) {
+        int auth_on = 0;
+        load_user_accounts(NULL, 0, &auth_on);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddBoolToObject(resp, "auth_enabled", auth_on);
+        cJSON_AddStringToObject(resp, "username", auth_user[0] ? auth_user : "admin");
+        cJSON_AddStringToObject(resp, "role", auth_role == ROLE_USER ? "user" : "admin");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: GET /api/users (Admin only) */
+    if (strcmp(clean_path, "/api/users") == 0 && strcmp(method, "GET") == 0) {
+        struct user_account ulist[MAX_HTTP_USERS];
+        int auth_on = 0;
+        int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddBoolToObject(resp, "auth_enabled", auth_on);
+        cJSON *arr = cJSON_CreateArray();
+        for (int i = 0; i < ucnt; i++) {
+            cJSON *u = cJSON_CreateObject();
+            cJSON_AddStringToObject(u, "username", ulist[i].username);
+            cJSON_AddStringToObject(u, "role", ulist[i].role == ROLE_USER ? "user" : "admin");
+            cJSON_AddItemToArray(arr, u);
+        }
+        cJSON_AddItemToObject(resp, "users", arr);
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: POST /api/users (Admin only: create/update user) */
+    if (strcmp(clean_path, "/api/users") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = parse_request_params(body);
+        if (!params) {
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            cJSON_AddStringToObject(err, "error", "Invalid JSON payload");
+            send_cjson_resp(client_fd, 400, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return;
+        }
+        cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "username");
+        cJSON *jp = cJSON_GetObjectItemCaseSensitive(params, "password");
+        cJSON *jr = cJSON_GetObjectItemCaseSensitive(params, "role");
+        const char *new_user = (ju && cJSON_IsString(ju)) ? ju->valuestring : "";
+        const char *new_pass = (jp && cJSON_IsString(jp)) ? jp->valuestring : "";
+        const char *new_role_str = (jr && cJSON_IsString(jr)) ? jr->valuestring : "user";
+
+        if (!new_user[0]) {
+            cJSON_Delete(params);
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            cJSON_AddStringToObject(err, "error", "Username cannot be empty");
+            send_cjson_resp(client_fd, 400, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return;
+        }
+
+        struct user_account ulist[MAX_HTTP_USERS];
+        int auth_on = 0;
+        int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+
+        int found_idx = -1;
+        for (int i = 0; i < ucnt; i++) {
+            if (strcmp(ulist[i].username, new_user) == 0) {
+                found_idx = i;
+                break;
+            }
+        }
+
+        if (found_idx >= 0) {
+            /* Update existing user */
+            if (new_pass[0]) {
+                strncpy(ulist[found_idx].password, new_pass, sizeof(ulist[found_idx].password) - 1);
+            }
+            if (jr && cJSON_IsString(jr)) {
+                ulist[found_idx].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
+            }
+        } else {
+            /* Create new user */
+            if (ucnt >= MAX_HTTP_USERS) {
+                cJSON_Delete(params);
+                cJSON *err = cJSON_CreateObject();
+                cJSON_AddBoolToObject(err, "ok", 0);
+                cJSON_AddStringToObject(err, "error", "Maximum user count reached");
+                send_cjson_resp(client_fd, 400, err);
+                cJSON_Delete(err);
+                close(client_fd);
+                return;
+            }
+            if (!new_pass[0]) {
+                cJSON_Delete(params);
+                cJSON *err = cJSON_CreateObject();
+                cJSON_AddBoolToObject(err, "ok", 0);
+                cJSON_AddStringToObject(err, "error", "Password is required for new user");
+                send_cjson_resp(client_fd, 400, err);
+                cJSON_Delete(err);
+                close(client_fd);
+                return;
+            }
+            strncpy(ulist[ucnt].username, new_user, sizeof(ulist[ucnt].username) - 1);
+            strncpy(ulist[ucnt].password, new_pass, sizeof(ulist[ucnt].password) - 1);
+            ulist[ucnt].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
+            ucnt++;
+        }
+
+        /* Ensure at least one admin exists */
+        int admin_count = 0;
+        for (int i = 0; i < ucnt; i++) {
+            if (ulist[i].role == ROLE_ADMIN) admin_count++;
+        }
+        if (admin_count == 0) {
+            ulist[0].role = ROLE_ADMIN;
+        }
+
+        save_user_accounts(ulist, ucnt, auth_on ? 1 : (ucnt > 0 ? 1 : 0));
+        cJSON_Delete(params);
+
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "message", "User account saved");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: DELETE /api/users or POST /api/users/delete (Admin only) */
+    if (((strcmp(clean_path, "/api/users") == 0 && strcmp(method, "DELETE") == 0) ||
+         (strcmp(clean_path, "/api/users/delete") == 0 && strcmp(method, "POST") == 0))) {
+        cJSON *params = parse_request_params(body);
+        const char *del_user = "";
+        if (params) {
+            cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "username");
+            if (ju && cJSON_IsString(ju)) del_user = ju->valuestring;
+        }
+        if (!del_user[0]) {
+            const char *qu = strstr(path, "username=");
+            if (qu) del_user = qu + 9;
+        }
+
+        if (!del_user || !del_user[0]) {
+            if (params) cJSON_Delete(params);
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            cJSON_AddStringToObject(err, "error", "Username is required");
+            send_cjson_resp(client_fd, 400, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return;
+        }
+
+        struct user_account ulist[MAX_HTTP_USERS];
+        int auth_on = 0;
+        int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+
+        int target_idx = -1;
+        int admin_count = 0;
+        for (int i = 0; i < ucnt; i++) {
+            if (ulist[i].role == ROLE_ADMIN) admin_count++;
+            if (strcmp(ulist[i].username, del_user) == 0) {
+                target_idx = i;
+            }
+        }
+
+        if (target_idx < 0) {
+            if (params) cJSON_Delete(params);
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            cJSON_AddStringToObject(err, "error", "User not found");
+            send_cjson_resp(client_fd, 404, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return;
+        }
+
+        if (ulist[target_idx].role == ROLE_ADMIN && admin_count <= 1) {
+            if (params) cJSON_Delete(params);
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            cJSON_AddStringToObject(err, "error", "Cannot delete the sole admin account");
+            send_cjson_resp(client_fd, 400, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return;
+        }
+
+        for (int i = target_idx; i < ucnt - 1; i++) {
+            ulist[i] = ulist[i + 1];
+        }
+        ucnt--;
+        save_user_accounts(ulist, ucnt, ucnt > 0 ? auth_on : 0);
+
+        if (params) cJSON_Delete(params);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "message", "User deleted");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
         close(client_fd);
         return;
     }
@@ -4440,6 +4867,51 @@ static void http_process_request(int client_fd, const char *req) {
                 cJSON_Delete(resp);
                 close(client_fd);
                 return;
+            } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "auth") == 0) {
+                cJSON *p_en = cJSON_GetObjectItemCaseSensitive(params, "authEnabled");
+                cJSON *p_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
+                cJSON *p_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
+
+                int en = (p_en && ((cJSON_IsBool(p_en) && cJSON_IsTrue(p_en)) || (cJSON_IsNumber(p_en) && p_en->valueint != 0) || (cJSON_IsString(p_en) && strcmp(p_en->valuestring, "1") == 0)));
+                const char *u = (p_u && cJSON_IsString(p_u) && p_u->valuestring[0]) ? p_u->valuestring : "admin";
+                const char *p = (p_p && cJSON_IsString(p_p)) ? p_p->valuestring : "";
+
+                struct user_account ulist[MAX_HTTP_USERS];
+                int auth_on = 0;
+                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+
+                int admin_idx = -1;
+                for (int i = 0; i < ucnt; i++) {
+                    if (ulist[i].role == ROLE_ADMIN) {
+                        admin_idx = i;
+                        break;
+                    }
+                }
+
+                if (admin_idx >= 0) {
+                    strncpy(ulist[admin_idx].username, u, sizeof(ulist[admin_idx].username) - 1);
+                    if (p[0]) {
+                        strncpy(ulist[admin_idx].password, p, sizeof(ulist[admin_idx].password) - 1);
+                    }
+                } else {
+                    if (ucnt < MAX_HTTP_USERS) {
+                        strncpy(ulist[ucnt].username, u, sizeof(ulist[ucnt].username) - 1);
+                        strncpy(ulist[ucnt].password, p[0] ? p : "admin", sizeof(ulist[ucnt].password) - 1);
+                        ulist[ucnt].role = ROLE_ADMIN;
+                        ucnt++;
+                    }
+                }
+
+                save_user_accounts(ulist, ucnt, en);
+
+                cJSON_Delete(params);
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddStringToObject(resp, "message", en ? "Authentication enabled" : "Authentication disabled");
+                send_cjson_resp(client_fd, 200, resp);
+                cJSON_Delete(resp);
+                close(client_fd);
+                return;
             }
             cJSON_Delete(params);
         }
@@ -4472,6 +4944,7 @@ static void http_process_request(int client_fd, const char *req) {
                 { "elite_remote_map", "/data/codex/elite_remote_map.json", NULL },
                 { "ui_remote_layout", "/data/codex/web_remote_layouts.json", NULL },
                 { "auth", "/data/codex/webui_auth.conf", NULL },
+                { "users", CODEX_USERS_JSON, NULL },
                 { "hub_id", "/data/codex/hub_id", NULL },
                 { NULL, NULL, NULL }
             };
@@ -4590,6 +5063,10 @@ static void http_process_request(int client_fd, const char *req) {
             download_name = "webui_auth.conf";
             ctype = "text/plain; charset=utf-8";
         }
+        else if (strcmp(tgt, "users") == 0) {
+            file_to_send = CODEX_USERS_JSON;
+            download_name = "users.json";
+        }
         else if (strcmp(tgt, "hub-id") == 0 || strcmp(tgt, "hub_id") == 0) {
             file_to_send = "/data/codex/hub_id";
             download_name = "hub_id";
@@ -4655,6 +5132,7 @@ static void http_process_request(int client_fd, const char *req) {
                         { "elite_remote_map", "/data/codex/elite_remote_map.json", 0 },
                         { "ui_remote_layout", "/data/codex/web_remote_layouts.json", 0 },
                         { "auth", "/data/codex/webui_auth.conf", 0 },
+                        { "users", CODEX_USERS_JSON, 0 },
                         { "hub_id", "/data/codex/hub_id", 0 },
                         { NULL, NULL, 0 }
                     };
@@ -4707,6 +5185,10 @@ static void http_process_request(int client_fd, const char *req) {
                     invalidate_device_list_cache();
                     config_store_init();
                     notify_rf_push_config();
+                    struct user_account tmp_u[MAX_HTTP_USERS];
+                    int tmp_en = 0;
+                    int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
+                    if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
                     success = 1;
                 }
                 if (bundle && bundle != p_pay && bundle != params) cJSON_Delete(bundle);
@@ -4723,6 +5205,7 @@ static void http_process_request(int client_fd, const char *req) {
                 else if (strcmp(tgt, "elite_remote_map") == 0) file_to_write = "/data/codex/elite_remote_map.json";
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) file_to_write = "/data/codex/web_remote_layouts.json";
                 else if (strcmp(tgt, "auth") == 0) file_to_write = "/data/codex/webui_auth.conf";
+                else if (strcmp(tgt, "users") == 0) file_to_write = CODEX_USERS_JSON;
                 else if (strcmp(tgt, "hub_id") == 0 || strcmp(tgt, "hub-id") == 0) file_to_write = "/data/codex/hub_id";
 
                 if (file_to_write) {
@@ -4742,6 +5225,12 @@ static void http_process_request(int client_fd, const char *req) {
                         config_store_init();
                         if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 || strcmp(tgt, "elite_remote_map") == 0) {
                             notify_rf_push_config();
+                        }
+                        if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {
+                            struct user_account tmp_u[MAX_HTTP_USERS];
+                            int tmp_en = 0;
+                            int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
+                            if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
                         }
                     }
                 }

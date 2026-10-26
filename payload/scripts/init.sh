@@ -133,6 +133,7 @@ fi
 ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
 ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true
 [ -f /data/codex/bin/safe_reboot.sh ] && chmod +x /data/codex/bin/safe_reboot.sh 2>/dev/null || true
+[ -f /data/codex/codex_user.sh ] && ln -sf /data/codex/codex_user.sh /data/codex/bin/codex_user.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
 cat <<'EOF' > /etc/profile.d/00-codex.sh
