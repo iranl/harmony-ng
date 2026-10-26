@@ -269,13 +269,12 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             try:
                 sysinfo = hid.get_sysinfo()
                 current_fw = sysinfo.get("sw_version", "")
-                remote_skin = sysinfo.get("skin", DEFAULT_ELITE_SKIN)
-                target_skin = 116 if remote_skin == 116 else DEFAULT_ELITE_SKIN
+                remote_skin = sysinfo.get("skin", 99)
+                target_skin = 116 if remote_skin == 116 else 99  # SUS skin IDs (99: Elite / Touch / Ultimate)
                 if current_fw:
                     print(f"[*] Remote reports firmware version: {current_fw} (Skin: {remote_skin})")
                     from tools.harmony_firmware import (
                         query_latest_firmware,
-                        DEFAULT_ELITE_SKIN,
                         download_file,
                         parse_hfw2_bundle,
                         flash_firmware,
@@ -288,7 +287,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                             ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
                             if ans.strip().lower() == "y":
                                 fw_dir = REPO_DIR / "firmware"
-                                fw_file = fw_dir / f"elite_{DEFAULT_ELITE_SKIN}_{latest_fw}.hfw2"
+                                fw_file = fw_dir / f"elite_{target_skin}_{latest_fw}.hfw2"
                                 if not fw_file.is_file():
                                     if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
                                         print("[-] Firmware download failed. Proceeding with current firmware...")
@@ -351,12 +350,24 @@ def print_step1_instructions() -> None:
     print("\n" + "=" * 70)
     print(" CONFIGURE STATIC IP ON PC:")
     print("=" * 70)
-    print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
-    print("   - Open Network Connections (Win+R -> ncpa.cpl).")
-    print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
-    print("        IP Address:      192.168.2.2")
-    print("        Subnet Mask:     255.255.255.0")
-    print("        Default Gateway: 192.168.2.1")
+    if sys.platform == "win32":
+        print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
+        print("   - Open Network Connections (Win+R -> ncpa.cpl).")
+        print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
+        print("        IP Address:      192.168.2.2")
+        print("        Subnet Mask:     255.255.255.0")
+        print("        Default Gateway: 192.168.2.1")
+    elif sys.platform == "darwin":
+        print("   - macOS adds a network service named 'RNDIS/Ethernet Gadget' (no driver needed).")
+        print("   - Give it a static address (no router, so your internet route is unchanged):")
+        print('        sudo networksetup -setmanual "RNDIS/Ethernet Gadget" 192.168.2.2 255.255.255.0')
+        print("   - To undo later:")
+        print('        sudo networksetup -setdhcp "RNDIS/Ethernet Gadget"')
+    else:
+        print("   - A USB Ethernet interface (e.g. usb0 or enx...) will appear; find it with: ip link")
+        print("   - Give it a static address:")
+        print("        sudo ip addr add 192.168.2.2/24 dev <interface>")
+        print("        sudo ip link set <interface> up")
     print("=" * 70)
 
 
