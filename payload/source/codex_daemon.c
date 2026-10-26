@@ -898,6 +898,35 @@ static void publish_ha_discovery(void) {
         }
     }
 
+    /* 9. button/<ident>_remote_1_sleep/config & button/<ident>_remote_2_sleep/config */
+    for (int s = 1; s <= 2; s++) {
+        char sleep_top[160];
+        snprintf(sleep_top, sizeof(sleep_top), "%s/remote/%d/sleep", g_mqtt_base_topic, s);
+        snprintf(top, sizeof(top), "%s/button/%s_remote_%d_sleep/config", g_mqtt_discovery_prefix, ident, s);
+        cJSON *cs = cJSON_CreateObject();
+        if (cs) {
+            char bname[64];
+            snprintf(bname, sizeof(bname), "Remote %d Sleep", s);
+            cJSON_AddStringToObject(cs, "name", bname);
+            snprintf(uid, sizeof(uid), "%s_remote_%d_sleep", ident, s);
+            cJSON_AddStringToObject(cs, "unique_id", uid);
+            cJSON_AddStringToObject(cs, "command_topic", sleep_top);
+            cJSON_AddStringToObject(cs, "payload_press", "PRESS");
+            cJSON_AddStringToObject(cs, "availability_topic", g_status_topic);
+            cJSON_AddStringToObject(cs, "payload_available", "online");
+            cJSON_AddStringToObject(cs, "payload_not_available", "offline");
+            cJSON_AddStringToObject(cs, "icon", "mdi:sleep");
+            cJSON_AddStringToObject(cs, "entity_category", "config");
+            cJSON_AddItemToObject(cs, "device", create_ha_device_obj(ident));
+            char *ps = cJSON_PrintUnformatted(cs);
+            cJSON_Delete(cs);
+            if (ps) {
+                mqtt_publish(top, ps, 1);
+                free(ps);
+            }
+        }
+    }
+
     publish_mqtt_state_ex(1);
 }
 
@@ -1180,6 +1209,26 @@ static void handle_mqtt_command_dispatch(const char *topic, const char *payload)
     }
 }
 
+static void trigger_remote_sleep(int slot) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return;
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(8092); /* codex_rf HTTP port */
+    sin.sin_addr.s_addr = inet_addr("127.0.0.1");
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+        char req[128];
+        int len = snprintf(req, sizeof(req),
+            "POST /api/rf/sleep?slot=%d HTTP/1.1\r\nHost: 127.0.0.1:8092\r\nConnection: close\r\n\r\n", slot);
+        write(s, req, len);
+    }
+    close(s);
+}
+
 /* MQTT Incoming Message Handler */
 static void on_mqtt_command(const char *topic, const char *payload, size_t len, void *ud) {
     (void)ud;
@@ -1193,6 +1242,11 @@ static void on_mqtt_command(const char *topic, const char *payload, size_t len, 
     char ha_status_topic[160];
     snprintf(ha_status_topic, sizeof(ha_status_topic), "%s/status", g_mqtt_discovery_prefix);
 
+    char rem_sleep_prefix[160];
+    snprintf(rem_sleep_prefix, sizeof(rem_sleep_prefix), "%s/remote/", g_mqtt_base_topic);
+    char rem_sleep_all[160];
+    snprintf(rem_sleep_all, sizeof(rem_sleep_all), "%s/remote/sleep", g_mqtt_base_topic);
+
     if (strcmp(topic, act_set_topic) == 0) {
         handle_mqtt_activity_set(payload);
     } else if (strcmp(topic, sync_topic) == 0) {
@@ -1203,6 +1257,15 @@ static void on_mqtt_command(const char *topic, const char *payload, size_t len, 
             printf("[*] Home Assistant birth message received: re-publishing discovery & state\n");
             publish_ha_discovery();
         }
+    } else if (strcmp(topic, rem_sleep_all) == 0) {
+        printf("[*] MQTT: remote sleep requested for all remotes\n");
+        trigger_remote_sleep(0);
+    } else if (strncmp(topic, rem_sleep_prefix, strlen(rem_sleep_prefix)) == 0 &&
+               strstr(topic, "/sleep")) {
+        const char *p = topic + strlen(rem_sleep_prefix);
+        int slot = atoi(p);
+        printf("[*] MQTT: remote sleep requested for slot %d\n", slot);
+        trigger_remote_sleep(slot);
     } else if (strcmp(topic, "harmony/ir/pronto") == 0) {
         printf("[*] MQTT request: direct Pronto IR blast\n");
         hw_ir_send_pronto(payload, IR_PORT_ALL, 3);
@@ -1226,6 +1289,12 @@ static void subscribe_mqtt_topics(void) {
     mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
 
     snprintf(sub_buf, sizeof(sub_buf), "%s/sync", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/remote/+/sleep", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/remote/sleep", g_mqtt_base_topic);
     mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
 
     snprintf(sub_buf, sizeof(sub_buf), "%s/status", g_mqtt_discovery_prefix);

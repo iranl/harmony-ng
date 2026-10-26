@@ -2655,6 +2655,34 @@ static void *api_server_worker(void *arg) {
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
                     write(cli, res, rlen);
                 }
+            } else if (strstr(buf, "GET /api/rf/sleep") == buf || strstr(buf, "POST /api/rf/sleep") == buf) {
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    int sent_count = 0;
+                    for (int s = 1; s <= 2; s++) {
+                        if (slot != 0 && slot != s) continue;
+                        if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
+                        rf_frame_t f;
+                        memset(&f, 0, sizeof(f));
+                        f.report_id = 0x20;
+                        f.sub_id = 0x12;
+                        f.dev_slot = (uint8_t)s;
+                        f.seq = g_tx_seq++;
+                        f.hdr_flag = 0x50 | (f.seq & 0x0F);
+                        f.msg_type = RF_MSG_SLEEP_REQ;
+                        printf("[*] API: Sending SLEEP_REQ to remote slot %d (seq=%d)\n", s, f.seq);
+                        rf_send_frame_acked(&f, 500);
+                        sent_count++;
+                    }
+                    char res[160];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"sleep_dispatched\",\"slot\":%d,\"sent\":%d,\"ok\":true}",
+                        slot, sent_count);
+                    write(cli, res, rlen);
+                }
             } else if (strstr(buf, "GET /api/rf/log-level") == buf || strstr(buf, "POST /api/rf/log-level") == buf) {
                 char *lp = strstr(buf, "level=");
                 if (lp) {

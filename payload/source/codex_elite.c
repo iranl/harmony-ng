@@ -3118,6 +3118,20 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_SLEEP_REQ: {
+            printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            usleep(50000); /* allow RF ACK TX to complete before suspend */
+            fb_set_blank(true);
+            read_elite_battery();
+            if (strcmp(g_battery_info.powersource, "battery") == 0) {
+                enter_kernel_suspend();
+            }
+            break;
+        }
+
         case RF_MSG_ACK:
             break;
 
@@ -3313,7 +3327,7 @@ static void *rf_rx_worker(void *arg) {
                 }
                 /* Validate msg_type range */
                 if ((f.msg_type >= RF_MSG_ACTIVITY_SYNC && f.msg_type <= RF_MSG_STEP_LIST_CHUNK) ||
-                    (f.msg_type >= RF_MSG_BUTTON_PRESS && f.msg_type <= RF_MSG_SYNC_REQUEST) ||
+                    (f.msg_type >= RF_MSG_BUTTON_PRESS && f.msg_type <= RF_MSG_SLEEP_REQ) ||
                     (f.msg_type >= RF_MSG_OTA_START && f.msg_type <= RF_MSG_OTA_END) ||
                     f.msg_type == RF_MSG_ACK || f.msg_type == RF_MSG_PING) {
                     g_last_hub_frame_ms = get_monotonic_ms();

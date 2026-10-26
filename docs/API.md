@@ -760,6 +760,13 @@ Increments config version and broadcasts instant over-the-air sync packet to rem
 Forces remote activity display synchronization with hub current state.
 - **Response `200 OK`**: `{"status": "synced"}`
 
+#### `GET /api/rf/sleep?slot={0|1|2}` or `POST /api/rf/sleep?slot={0|1|2}`
+Puts paired Elite remotes to sleep (immediate Suspend-to-RAM on battery).
+- **Query Parameter**: `slot` (optional: `1` for remote 1, `2` for remote 2, `0` or omitted for all active remotes).
+- **Response `200 OK`**: `{"status": "sleep_dispatched", "slot": 1, "sent": 1, "ok": true}`
+- **MQTT equivalent**: Publish to `harmony/hub/remote/1/sleep` or `harmony/hub/remote/sleep`.
+- **Home Assistant**: Auto-discovered as `button.<hub>_remote_1_sleep`.
+
 ### 7.5 Direct Buttons & Firmware OTA
 #### `GET /api/rf/remote-direct-buttons?slot={1|2}`
 Returns touch screen direct command button grid.
