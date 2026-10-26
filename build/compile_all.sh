@@ -71,6 +71,8 @@ build_daemon() {
     "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_daemon" \
         payload/source/codex_daemon.c \
         payload/source/config_store.c \
+        payload/source/config_sanitize.c \
+        payload/source/config_migration.c \
         payload/source/resource_cache.c \
         payload/source/cJSON.c \
         payload/source/ir_encoder.c \
@@ -117,16 +119,34 @@ build_rf() {
 
 build_elite() {
     echo "[-] Building codex_elite (ARM)..."
+    ARM_CC=""
+    for t in "$SCRIPT_DIR/toolchains"/armv5-eabi--uclibc--stable*; do
+        if [ -d "$t/bin" ]; then
+            export PATH="$t/bin:$PATH"
+            break
+        fi
+    done
+    if command -v arm-buildroot-linux-uclibcgnueabi-gcc >/dev/null 2>&1; then
+        ARM_CC="arm-buildroot-linux-uclibcgnueabi-gcc"
+    elif command -v arm-linux-gnueabi-gcc >/dev/null 2>&1; then
+        ARM_CC="arm-linux-gnueabi-gcc"
+    elif command -v arm-linux-gcc >/dev/null 2>&1; then
+        ARM_CC="arm-linux-gcc"
+    else
+        echo "[!] No ARM cross-compiler found. Extract Bootlin ARM toolchain into build/toolchains/." >&2
+        exit 1
+    fi
+
     mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
-    arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/codex_elite" -lpthread -lm
+    "$ARM_CC" -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/codex_elite" -lpthread -lm
     echo "[-] Building codex_sync (ARM)..."
-    arm-linux-gnueabi-gcc -static -Os -s -o "$REPO_ROOT/elite/bin/codex_sync" payload/source/codex_sync.c
+    "$ARM_CC" -static -Os -s -o "$REPO_ROOT/elite/bin/codex_sync" payload/source/codex_sync.c
     echo "[-] Packaging codex_elite.ota.gz (binary + scripts)..."
     mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
     cp -f "$REPO_ROOT/elite/bin/codex_elite" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
     cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/codex_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
     tar -czf "$REPO_ROOT/elite/bin/codex_elite.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
-    cp -f "$REPO_ROOT/elite/bin/codex_elite.ota.gz" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/elite/bin/codex_elite.ota.gz" "$REPO_ROOT/elite/bin/codex_elite" "$REPO_ROOT/elite/bin/codex_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 

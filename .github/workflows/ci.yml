@@ -50,16 +50,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install ARM GCC toolchain
+      - name: Cache Bootlin ARM Toolchain
+        id: cache-arm-toolchain
+        uses: actions/cache@v4
+        with:
+          path: build/toolchains
+          key: bootlin-armv5-uclibc-2017.05
+      - name: Install Bootlin ARMv5 uClibc Toolchain
+        if: steps.cache-arm-toolchain.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabi libc6-dev-armel-cross
+          mkdir -p build/toolchains
+          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
       - name: Compile codex_elite
         run: |
           chmod +x build/*.sh
-          mkdir -p elite/bin
-          arm-linux-gnueabi-gcc -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o elite/bin/codex_elite -lpthread -lm
-          arm-linux-gnueabi-gcc -static -Os -s -o elite/bin/codex_sync payload/source/codex_sync.c
+          ./build/compile_all.sh elite
           file elite/bin/codex_elite
           ls -lh elite/bin/codex_elite elite/bin/codex_sync
 
@@ -68,10 +73,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install MIPS GCC toolchain
+      - name: Cache Bootlin MIPS Toolchain
+        id: cache-mips-toolchain
+        uses: actions/cache@v4
+        with:
+          path: build/toolchains
+          key: bootlin-mips32-uclibc-2017.05
+      - name: Install Bootlin MIPS uClibc Toolchain
+        if: steps.cache-mips-toolchain.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mips-linux-gnu libc6-dev-mips-cross
+          mkdir -p build/toolchains
+          curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
       - name: Compile Hub MIPS Binaries
         run: |
           chmod +x build/*.sh
