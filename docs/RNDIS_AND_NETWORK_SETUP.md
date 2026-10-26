@@ -57,6 +57,19 @@ sudo ip addr add 192.168.2.2/24 dev usb0
 sudo ip link set usb0 up
 ```
 
+### Setting Host Static IP in macOS:
+macOS needs no driver. When the remote is connected over USB, a network service named **RNDIS/Ethernet Gadget** appears. Without a static address, macOS gives it only a self-assigned `169.254.x.x` address, and `192.168.2.1` is unreachable. Assign the address without a router, so your normal internet route is unchanged:
+```bash
+# Confirm the service name
+networksetup -listallnetworkservices
+
+# Assign static IP (Elite shown; see the table above for the Hub's subnet)
+sudo networksetup -setmanual "RNDIS/Ethernet Gadget" 192.168.2.2 255.255.255.0
+
+# Revert to automatic addressing later
+sudo networksetup -setdhcp "RNDIS/Ethernet Gadget"
+```
+
 ---
 
 ## 3. Verifying Connectivity
