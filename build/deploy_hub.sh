@@ -27,11 +27,15 @@ if [ -d "$SCRIPT_DIR/bin" ]; then
     WWW_DIR="$SCRIPT_DIR/www"
     SCRIPTS_DIR="$SCRIPT_DIR/scripts"
     MODULES_DIR="$SCRIPT_DIR/modules"
+    FW_TOOL="$SCRIPT_DIR/tools/harmony_firmware.py"
+    ICONS_TAR="$SCRIPT_DIR/icons.tar.gz"
 else
     BIN_DIR="$REPO_ROOT/payload/bin"
     WWW_DIR="$REPO_ROOT/payload/www"
     SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
     MODULES_DIR="$REPO_ROOT/payload/modules"
+    FW_TOOL="$REPO_ROOT/tools/harmony_firmware.py"
+    ICONS_TAR="$REPO_ROOT/build/icons.tar.gz"
 fi
 
 echo "=== Harmony Hub Codex Firmware Deployment ==="
@@ -144,18 +148,18 @@ while IFS= read -r -d '' wfile; do
     deploy_file_if_changed "$wfile" "/cache/www/$rel" 644
 done < <(find "$WWW_DIR" -type f -print0)
 
-if [ ! -f "$REPO_ROOT/build/icons.tar.gz" ] && [ -f "$REPO_ROOT/tools/harmony_firmware.py" ]; then
+if [ ! -f "$ICONS_TAR" ] && [ -f "$FW_TOOL" ]; then
     echo ""
-    echo "[?] build/icons.tar.gz not found on host."
-    read -p "Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? [Y/n] " -r REPLY || true
+    echo "[?] $ICONS_TAR not found on host."
+    read -p "Download official Elite firmware, extract 1,350 icons, and build $ICONS_TAR now? [Y/n] " -r REPLY || true
     if [ -z "$REPLY" ] || [[ "$REPLY" =~ ^[Yy]$ ]]; then
-        echo "[*] Extracting remote UI icons and packaging build/icons.tar.gz..."
-        python3 "$REPO_ROOT/tools/harmony_firmware.py" extract-icons --archive "$REPO_ROOT/build/icons.tar.gz" || true
+        echo "[*] Extracting remote UI icons and packaging $ICONS_TAR..."
+        python3 "$FW_TOOL" extract-icons --archive "$ICONS_TAR" || true
     fi
 fi
 
-if [ -f "$REPO_ROOT/build/icons.tar.gz" ]; then
-    deploy_file_if_changed "$REPO_ROOT/build/icons.tar.gz" "/cache/icons.tar.gz" 644
+if [ -f "$ICONS_TAR" ]; then
+    deploy_file_if_changed "$ICONS_TAR" "/cache/icons.tar.gz" 644
     ssh -n -q -o BatchMode=yes -o StrictHostKeyChecking=no "${HUB_USER}@${HUB_HOST}" \
         "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
 fi
