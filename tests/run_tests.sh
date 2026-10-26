@@ -83,12 +83,12 @@ run_api_tests() {
         exit 1
     fi
 
-    # Test 3: POST /api/settings (Update BT reconnect duration & delay)
-    echo -n "Test 3: POST /api/settings (Update BT supervision) ... "
+    # Test 3: POST /api/settings (Update Hub settings)
+    echo -n "Test 3: POST /api/settings (Update Hub settings) ... "
     POST_SETTINGS_RESP=$(curl -s -X POST "http://127.0.0.1:$TEST_PORT/api/settings" \
         -H "Content-Type: application/json" \
-        -d '{"bt_auto_reconnect":1,"bt_reconnect_duration_sec":60,"bt_reconnect_delay_sec":10}')
-    if echo "$POST_SETTINGS_RESP" | grep -q '"bt_reconnect_duration_sec":60'; then
+        -d '{"hub_name":"Living Room Hub","dry_run":1}')
+    if echo "$POST_SETTINGS_RESP" | grep -q '"hub_name":"Living Room Hub"'; then
         echo "PASS"
     else
         echo "FAIL: $POST_SETTINGS_RESP"

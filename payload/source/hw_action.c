@@ -134,8 +134,19 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
     return ret;
 }
 
+static int is_bt_connected(void) {
+    FILE *f = fopen("/tmp/bthid_status", "r");
+    if (!f) return 0;
+    char buf[256];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return (strstr(buf, "\"state\":\"listening\"") != NULL);
+}
+
 static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
     if (!devs || !executed_cmd || !executed_cmd[0]) return;
+    if (is_bt_connected()) return;
 
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, devs) {
@@ -153,9 +164,38 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         cJSON *j_rec = cJSON_GetObjectItemCaseSensitive(dev, "bt_auto_reconnect");
         if (!j_rec) j_rec = cJSON_GetObjectItemCaseSensitive(dev, "btAutoReconnect");
         if (j_rec) {
-            int rec_val = cJSON_IsNumber(j_rec) ? (int)j_rec->valuedouble : (cJSON_IsBool(j_rec) ? (cJSON_IsTrue(j_rec) ? 1 : 0) : atoi(j_rec->valuestring));
+            int rec_val = cJSON_IsNumber(j_rec) ? (int)j_rec->valuedouble : (cJSON_IsBool(j_rec) ? (cJSON_IsTrue(j_rec) ? 1 : 0) : (j_rec->valuestring ? atoi(j_rec->valuestring) : 1));
             if (rec_val == 0) continue;
         }
+
+        char cur_id[32] = {0};
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev, "id");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(dev, "Id-");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(dev, "Id");
+        if (jid) {
+            if (cJSON_IsNumber(jid)) snprintf(cur_id, sizeof(cur_id), "%ld", (long)jid->valuedouble);
+            else if (cJSON_IsString(jid) && jid->valuestring) strncpy(cur_id, jid->valuestring, sizeof(cur_id) - 1);
+        }
+
+        char cur_name[64] = {0};
+        cJSON *jnm = cJSON_GetObjectItemCaseSensitive(dev, "name");
+        if (!jnm) jnm = cJSON_GetObjectItemCaseSensitive(dev, "label");
+        if (jnm && cJSON_IsString(jnm) && jnm->valuestring) {
+            strncpy(cur_name, jnm->valuestring, sizeof(cur_name) - 1);
+        }
+
+        int target_dev_delay = -1;
+        cJSON *jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
+        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
+        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelay");
+        if (jd_dly && cJSON_IsNumber(jd_dly) && jd_dly->valueint >= 0) target_dev_delay = jd_dly->valueint;
+
+        int dur = 0;
+        cJSON *jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
+        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
+        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDuration");
+        if (jd_dur && cJSON_IsNumber(jd_dur) && jd_dur->valueint > 0) dur = jd_dur->valueint;
+        if (dur <= 0) dur = 30;
 
         cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_device_id");
         if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerDeviceId");
@@ -166,7 +206,6 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command");
         if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommand");
         const char *trig_cmd = (j_trig_cmd && cJSON_IsString(j_trig_cmd)) ? j_trig_cmd->valuestring : "";
-        if (!trig_cmd[0]) continue;
 
         char trig_did_buf[64] = {0};
         char trig_cmd_buf[64] = {0};
@@ -180,14 +219,36 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
             trig_cmd = trig_cmd_buf;
         }
 
-        if (strcasecmp(executed_cmd, trig_cmd) != 0) continue;
+        int should_reconnect = 0;
+        int dly = 0;
 
-        if (trig_did && trig_did[0]) {
-            int match_dev = 0;
-            if (executed_dev_id && (strcmp(executed_dev_id, trig_did) == 0 || strcasecmp(executed_dev_id, trig_did) == 0)) match_dev = 1;
-            if (!match_dev && executed_dev_name && (strcmp(executed_dev_name, trig_did) == 0 || strcasecmp(executed_dev_name, trig_did) == 0)) match_dev = 1;
-            if (!match_dev) continue;
+        if (trig_cmd[0]) {
+            if (strcasecmp(executed_cmd, trig_cmd) == 0) {
+                int match_dev = 1;
+                if (trig_did && trig_did[0]) {
+                    match_dev = 0;
+                    if (executed_dev_id && (strcmp(executed_dev_id, trig_did) == 0 || strcasecmp(executed_dev_id, trig_did) == 0)) match_dev = 1;
+                    if (!match_dev && executed_dev_name && (strcmp(executed_dev_name, trig_did) == 0 || strcasecmp(executed_dev_name, trig_did) == 0)) match_dev = 1;
+                }
+                if (match_dev) {
+                    should_reconnect = 1;
+                    dly = (target_dev_delay >= 0) ? target_dev_delay : 2;
+                }
+            }
         }
+
+        /* Fallback: any button press sent directly to this BT device */
+        if (!should_reconnect) {
+            int is_target_dev = 0;
+            if (executed_dev_id && cur_id[0] && (strcmp(executed_dev_id, cur_id) == 0 || strcasecmp(executed_dev_id, cur_id) == 0)) is_target_dev = 1;
+            if (!is_target_dev && executed_dev_name && cur_name[0] && (strcmp(executed_dev_name, cur_name) == 0 || strcasecmp(executed_dev_name, cur_name) == 0)) is_target_dev = 1;
+            if (is_target_dev) {
+                should_reconnect = 1;
+                dly = 0; /* Button press: 0 delay for immediate reconnect */
+            }
+        }
+
+        if (!should_reconnect) continue;
 
         char target_bdaddr[32] = {0};
         cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
@@ -196,23 +257,6 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && codex_valid_bdaddr(j_bta->valuestring)) {
             strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
         }
-
-        struct codex_settings g_settings;
-        config_store_get_settings(&g_settings);
-
-        int dur = 0;
-        cJSON *jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
-        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
-        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDuration");
-        if (jd_dur && cJSON_IsNumber(jd_dur) && jd_dur->valueint > 0) dur = jd_dur->valueint;
-        if (dur <= 0) dur = g_settings.bt_reconnect_duration_sec > 0 ? g_settings.bt_reconnect_duration_sec : 30;
-
-        int dly = -1;
-        cJSON *jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
-        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
-        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelay");
-        if (jd_dly && cJSON_IsNumber(jd_dly) && jd_dly->valueint >= 0) dly = jd_dly->valueint;
-        if (dly < 0) dly = g_settings.bt_reconnect_delay_sec >= 0 ? g_settings.bt_reconnect_delay_sec : 2;
 
         char sh_cmd[256];
         if (target_bdaddr[0]) {

@@ -1930,6 +1930,132 @@ static void *rf_ota_sender_worker(void *arg) {
     return NULL;
 }
 
+/* Push a single custom icon to remote over RF */
+static int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {
+    if (target_slot < 1 || target_slot > 2) target_slot = 1;
+    if (!id_str || !id_str[0]) return -1;
+    if (!type_str || !type_str[0]) type_str = "activity";
+
+    char file_path[256];
+    snprintf(file_path, sizeof(file_path), "/data/codex/custom_icons/%s_%s.png", type_str, id_str);
+    if (access(file_path, R_OK) != 0) {
+        snprintf(file_path, sizeof(file_path), "/data/codex/custom_icons/%s.png", id_str);
+        if (access(file_path, R_OK) != 0) {
+            printf("[-] Icon push: file not found for %s / %s\n", type_str, id_str);
+            return -1;
+        }
+    }
+
+    FILE *f = fopen(file_path, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long fsz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (fsz <= 0 || fsz > 16384) {
+        fclose(f);
+        printf("[-] Icon push: invalid file size %ld\n", fsz);
+        return -1;
+    }
+
+    uint8_t *img_buf = (uint8_t *)malloc((size_t)fsz);
+    if (!img_buf) { fclose(f); return -1; }
+    if (fread(img_buf, 1, (size_t)fsz, f) != (size_t)fsz) {
+        free(img_buf);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    uint16_t crc = rf_crc16(img_buf, (size_t)fsz);
+    uint32_t tot_bytes = (uint32_t)fsz;
+    uint16_t tot_chunks = (uint16_t)((tot_bytes + 21) / 22);
+
+    printf("[*] Starting RF Custom Icon push to slot %d: %s_%s (%u bytes, %u chunks, CRC16=0x%04X)\n",
+           target_slot, type_str, id_str, tot_bytes, tot_chunks, crc);
+
+    /* 1. RF_MSG_ICON_START */
+    rf_frame_t frame;
+    uint8_t start_payload[25] = {0};
+    uint8_t type_code = (strcmp(type_str, "device") == 0) ? 1 : (strcmp(type_str, "button") == 0 ? 2 : 0);
+    start_payload[0] = type_code;
+    start_payload[1] = (uint8_t)(tot_bytes & 0xFF);
+    start_payload[2] = (uint8_t)((tot_bytes >> 8) & 0xFF);
+    start_payload[3] = (uint8_t)(tot_chunks & 0xFF);
+    start_payload[4] = (uint8_t)((tot_chunks >> 8) & 0xFF);
+    strncpy((char *)&start_payload[5], id_str, 19);
+
+    int ack_res = -1;
+    for (int attempt = 1; attempt <= 3 && g_running; attempt++) {
+        rf_build_frame(&frame, (uint8_t)target_slot, RF_MSG_ICON_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 25);
+        ack_res = rf_send_frame_acked(&frame, 800);
+        if (ack_res == 0) break;
+        usleep(100000);
+    }
+
+    if (ack_res != 0) {
+        free(img_buf);
+        printf("[-] Remote in slot %d did not ACK ICON_START (sleeping?)\n", target_slot);
+        return -1;
+    }
+
+    /* 2. Stream chunks */
+    uint16_t c_idx = 0;
+    uint32_t sent = 0;
+    while (c_idx < tot_chunks && g_running) {
+        uint32_t rem = tot_bytes - sent;
+        uint8_t chunk_len = (rem > 22) ? 22 : (uint8_t)rem;
+
+        uint8_t chunk_payload[25] = {0};
+        chunk_payload[0] = (uint8_t)(c_idx & 0xFF);
+        chunk_payload[1] = (uint8_t)((c_idx >> 8) & 0xFF);
+        chunk_payload[2] = chunk_len;
+        memcpy(&chunk_payload[3], img_buf + sent, chunk_len);
+
+        bool need_ack = ((c_idx + 1 == tot_chunks) || (c_idx % 4 == 0));
+        uint8_t flags = need_ack ? RF_FLAG_ACK_REQ : 0;
+        rf_build_frame(&frame, (uint8_t)target_slot, RF_MSG_ICON_CHUNK, ++g_tx_seq, flags, chunk_payload, (uint8_t)(3 + chunk_len));
+
+        if (need_ack) {
+            int retries = 0, ack_ok = -1;
+            while (retries < 3) {
+                if (rf_send_frame_acked(&frame, 800) == 0 && g_ack_status == 0x00) {
+                    ack_ok = 0;
+                    break;
+                }
+                retries++;
+                usleep(25000);
+            }
+            if (ack_ok != 0) {
+                free(img_buf);
+                printf("[-] Icon chunk %u ACK timeout\n", c_idx);
+                return -1;
+            }
+        } else {
+            rf_send_frame(&frame);
+        }
+
+        sent += chunk_len;
+        c_idx++;
+        usleep(15000); /* 15 ms pace */
+    }
+    free(img_buf);
+
+    /* 3. RF_MSG_ICON_END */
+    uint8_t end_payload[25] = {0};
+    end_payload[0] = (uint8_t)(crc & 0xFF);
+    end_payload[1] = (uint8_t)((crc >> 8) & 0xFF);
+    rf_build_frame(&frame, (uint8_t)target_slot, RF_MSG_ICON_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 2);
+
+    if (rf_send_frame_acked(&frame, 2000) != 0 || g_ack_status != 0x00) {
+        printf("[-] ICON_END verification failed on remote slot %d (status=0x%02X)\n", target_slot, g_ack_status);
+        return -1;
+    }
+
+    printf("[+] RF Custom Icon %s_%s transferred successfully to slot %d!\n", type_str, id_str, target_slot);
+    return 0;
+}
+
 /* Handle incoming Codex RF protocol frame */
 static void handle_codex_frame(const rf_frame_t *f) {
     if (f->dev_slot == 1 || f->dev_slot == 2) {
@@ -2722,6 +2848,37 @@ static void *api_server_worker(void *arg) {
                     }
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"sent\"}";
                     write(cli, res, strlen(res));
+                }
+            } else if (strstr(buf, "/api/rf/push-icon") == buf || strstr(buf, "GET /api/rf/push-icon") == buf || strstr(buf, "POST /api/rf/push-icon") == buf) {
+                if (is_ota_busy()) {
+                    const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
+                    write(cli, res, strlen(res));
+                } else {
+                    char id_str[32] = {0}, type_str[32] = "activity";
+                    char *qid = strstr(buf, "id=");
+                    if (qid) {
+                        strncpy(id_str, qid + 3, sizeof(id_str) - 1);
+                        char *amp = strpbrk(id_str, "& \r\n");
+                        if (amp) *amp = '\0';
+                    }
+                    char *qtype = strstr(buf, "type=");
+                    if (qtype) {
+                        strncpy(type_str, qtype + 5, sizeof(type_str) - 1);
+                        char *amp = strpbrk(type_str, "& \r\n");
+                        if (amp) *amp = '\0';
+                    }
+                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    int pushed = 0;
+                    for (int s = 1; s <= 2; s++) {
+                        if (slot != 0 && slot != s) continue;
+                        if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
+                        if (rf_push_custom_icon(s, type_str, id_str) == 0) pushed++;
+                    }
+                    char res[160];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"icon_pushed\",\"id\":\"%s\",\"pushed\":%d,\"ok\":true}",
+                        id_str, pushed);
+                    write(cli, res, rlen);
                 }
             } else if (strstr(buf, "GET /api/rf/push-config") == buf || strstr(buf, "POST /api/rf/push-config") == buf) {
                 if (is_ota_busy()) {

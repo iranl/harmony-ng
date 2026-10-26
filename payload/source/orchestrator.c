@@ -69,8 +69,6 @@ static void load_current_activity(void) {
     }
 }
 
-static void orch_trigger_bt_host_connect(const char *target_activity_id);
-
 int orch_init(void) {
     pthread_mutex_lock(&g_act_lock);
     load_current_activity();
@@ -81,9 +79,6 @@ int orch_init(void) {
     g_next_deadline_ms = 0;
     g_bg_len = 0;
     memset(g_bg_queue, 0, sizeof(g_bg_queue));
-    if (g_state == ORCH_STATE_RUNNING && strcmp(g_current_act, ORCH_POWEROFF_ID) != 0) {
-        orch_trigger_bt_host_connect(g_current_act);
-    }
     return 0;
 }
 
@@ -684,156 +679,7 @@ static int orch_build_steps(const char *target_id,
     return 0;
 }
 
-static void orch_trigger_bt_host_connect(const char *target_activity_id) {
-    if (!target_activity_id || !target_activity_id[0] || strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) return;
 
-    struct activity_inventory *act_inv = (struct activity_inventory *)calloc(1, sizeof(*act_inv));
-    if (!act_inv) return;
-    if (load_activity_inventory(act_inv) != 0) {
-        free(act_inv);
-        return;
-    }
-
-    int act_idx = -1;
-    for (int i = 0; i < act_inv->count; i++) {
-        if (strcmp(act_inv->items[i].id, target_activity_id) == 0) {
-            act_idx = i;
-            break;
-        }
-    }
-    if (act_idx < 0) {
-        free(act_inv);
-        return;
-    }
-
-    const struct activity_item *act = &act_inv->items[act_idx];
-    char target_bdaddr[32] = {0};
-    int found_bt = 0;
-    int target_dev_bt_reconnect = -1;
-    int target_dev_duration = 0;
-    int target_dev_delay = -1;
-
-    /* 1. Check BT inventory */
-    struct bt_inventory *bt_inv = (struct bt_inventory *)calloc(1, sizeof(*bt_inv));
-    if (bt_inv) {
-        if (load_bt_inventory(bt_inv) == 0) {
-            for (int i = 0; i < act->device_count; i++) {
-                for (int j = 0; j < bt_inv->device_count; j++) {
-                    if (strcmp(act->device_ids[i], bt_inv->devices[j].id) == 0) {
-                        found_bt = 1;
-                        if (bt_inv->devices[j].bdaddr[0] && codex_valid_bdaddr(bt_inv->devices[j].bdaddr)) {
-                            strncpy(target_bdaddr, bt_inv->devices[j].bdaddr, sizeof(target_bdaddr) - 1);
-                            break;
-                        }
-                    }
-                }
-                if (target_bdaddr[0]) break;
-            }
-        }
-        free(bt_inv);
-    }
-
-    /* 2. Check DeviceList.json */
-    cJSON *root = get_device_list_cached();
-    if (root) {
-        cJSON *dwf = cJSON_GetObjectItemCaseSensitive(root, "devices");
-        if (!dwf) dwf = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
-        if (dwf && cJSON_IsArray(dwf)) {
-            cJSON *item = NULL;
-            cJSON_ArrayForEach(item, dwf) {
-                cJSON *dev = cJSON_GetObjectItemCaseSensitive(item, "Device");
-                if (!dev) dev = item;
-                cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev, "id");
-                if (!jid) jid = cJSON_GetObjectItemCaseSensitive(dev, "Id-");
-                if (!jid) jid = cJSON_GetObjectItemCaseSensitive(dev, "Id");
-                char id_str[32] = {0};
-                if (jid) {
-                    if (cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
-                    else if (cJSON_IsString(jid) && jid->valuestring) strncpy(id_str, jid->valuestring, sizeof(id_str) - 1);
-                }
-                if (!id_str[0]) continue;
-                for (int i = 0; i < act->device_count; i++) {
-                    if (strcmp(act->device_ids[i], id_str) == 0) {
-                        cJSON *j_trans = cJSON_GetObjectItemCaseSensitive(dev, "transport");
-                        if (!j_trans) j_trans = cJSON_GetObjectItemCaseSensitive(dev, "Transport");
-                        if (!j_trans) j_trans = cJSON_GetObjectItemCaseSensitive(dev, "TransportType");
-                        cJSON *j_isbt = cJSON_GetObjectItemCaseSensitive(dev, "isBt");
-                        int is_bt = (j_trans && cJSON_IsNumber(j_trans) && (int)j_trans->valuedouble == 32) ||
-                                    (j_isbt && cJSON_IsTrue(j_isbt)) || target_bdaddr[0];
-                        if (is_bt) {
-                            found_bt = 1;
-                            cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
-                            if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bt_host");
-                            if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
-                            if (!target_bdaddr[0] && j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && codex_valid_bdaddr(j_bta->valuestring)) {
-                                strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
-                            }
-                            cJSON *j_bar = cJSON_GetObjectItemCaseSensitive(dev, "bt_auto_reconnect");
-                            if (!j_bar) j_bar = cJSON_GetObjectItemCaseSensitive(dev, "btAutoReconnect");
-                            if (j_bar) {
-                                if (cJSON_IsNumber(j_bar)) target_dev_bt_reconnect = j_bar->valueint;
-                                else if (cJSON_IsBool(j_bar)) target_dev_bt_reconnect = cJSON_IsTrue(j_bar) ? 1 : 0;
-                            }
-                            cJSON *j_bdur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
-                            if (!j_bdur) j_bdur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
-                            if (j_bdur && cJSON_IsNumber(j_bdur)) target_dev_duration = j_bdur->valueint;
-
-                            cJSON *j_bdel = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
-                            if (!j_bdel) j_bdel = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
-                            if (j_bdel && cJSON_IsNumber(j_bdel)) target_dev_delay = j_bdel->valueint;
-                            break;
-                        }
-                    }
-                }
-                if (target_bdaddr[0]) break;
-            }
-        }
-    }
-
-    /* 3. Check start steps for BTCommand */
-    if (!found_bt) {
-        for (int k = 0; k < act->start_count; k++) {
-            if (strcasecmp(act->start_steps[k].type, "BTCommand") == 0) {
-                found_bt = 1;
-                break;
-            }
-        }
-    }
-
-    if (found_bt || target_bdaddr[0]) {
-        struct codex_settings settings;
-        config_store_get_settings(&settings);
-
-        int should_reconnect = settings.bt_auto_reconnect;
-        if (target_dev_bt_reconnect == 0) should_reconnect = 0;
-        else if (target_dev_bt_reconnect == 1) should_reconnect = 1;
-
-        if (!should_reconnect) {
-            free(act_inv);
-            return;
-        }
-
-        int delay_sec = target_dev_delay >= 0 ? target_dev_delay : (settings.bt_reconnect_delay_sec >= 0 ? settings.bt_reconnect_delay_sec : 2);
-        int duration = target_dev_duration > 0 ? target_dev_duration : (settings.bt_reconnect_duration_sec > 0 ? settings.bt_reconnect_duration_sec : 30);
-
-        char sh_cmd[160];
-        if (target_bdaddr[0] && codex_valid_bdaddr(target_bdaddr)) {
-            save_bthid_target("btkeyboard", target_bdaddr);
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &", target_bdaddr, duration, delay_sec);
-            system(sh_cmd);
-        } else {
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &", duration, delay_sec);
-            system(sh_cmd);
-        }
-        if (delay_sec == 0) {
-            char cmd[128];
-            if (target_bdaddr[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", target_bdaddr, duration);
-            else snprintf(cmd, sizeof(cmd), "connect_host %d\n", duration);
-            codex_send_btstack_cmd(cmd);
-        }
-    }
-    free(act_inv);
-}
 
 static int orch_compile_transition(const char *target_id) {
     orch_step_t *main_steps = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
@@ -938,10 +784,6 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
 
     strncpy(g_target_act, target_activity_id, sizeof(g_target_act) - 1);
     g_state = (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING;
-
-    if (strcmp(target_activity_id, ORCH_POWEROFF_ID) != 0) {
-        orch_trigger_bt_host_connect(target_activity_id);
-    }
 
     int rc = orch_compile_transition(target_activity_id);
     if (rc != 0) {

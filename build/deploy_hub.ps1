@@ -111,7 +111,7 @@ Write-Host "[*] Stopping existing daemons (killall -9)..." -ForegroundColor Yell
 & ssh @sshArgs $Target "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true"
 
 Write-Host "[*] Ensuring remote directories..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "mkdir -p /data/codex/bin /data/codex/www /data/codex/www/assets /etc/init.d /cache/www/assets/icons; [ -L /data/codex/www/assets/icons ] || ln -s /cache/www/assets/icons /data/codex/www/assets/icons"
+& ssh @sshArgs $Target "mkdir -p /data/codex/bin /data/codex/www /data/codex/www/assets /data/codex/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/codex/www/assets/icons ] || ln -s /cache/www/assets/icons /data/codex/www/assets/icons"
 
 & ssh @sshArgs $Target "rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/codex/*.new /data/codex/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true"
 

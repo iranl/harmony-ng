@@ -1134,9 +1134,9 @@ int load_ir_inventory(struct ir_inventory *inv) {
             if (bar) {
                 if (cJSON_IsNumber(bar)) dev->bt_auto_reconnect = bar->valueint;
                 else if (cJSON_IsBool(bar)) dev->bt_auto_reconnect = cJSON_IsTrue(bar) ? 1 : 0;
-                else dev->bt_auto_reconnect = -1;
+                else dev->bt_auto_reconnect = 1;
             } else {
-                dev->bt_auto_reconnect = -1;
+                dev->bt_auto_reconnect = 1;
             }
 
             const cJSON *brdur = cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_duration_sec");
@@ -1608,9 +1608,6 @@ int load_bt_inventory(struct bt_inventory *inv) {
 
 int config_store_get_settings(struct codex_settings *settings) {
     if (!settings) return -1;
-    settings->bt_auto_reconnect = 1;
-    settings->bt_reconnect_duration_sec = 30;
-    settings->bt_reconnect_delay_sec = 2;
     settings->dry_run = 0;
     strncpy(settings->hub_name, "Harmony Hub", sizeof(settings->hub_name) - 1);
     settings->hub_name[sizeof(settings->hub_name) - 1] = '\0';
@@ -1624,18 +1621,7 @@ int config_store_get_settings(struct codex_settings *settings) {
     free(raw);
     if (!root) return 0;
 
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "bt_auto_reconnect");
-    if (item && cJSON_IsBool(item)) settings->bt_auto_reconnect = cJSON_IsTrue(item) ? 1 : 0;
-    else if (item && cJSON_IsNumber(item)) settings->bt_auto_reconnect = (int)item->valuedouble;
-
-
-    item = cJSON_GetObjectItemCaseSensitive(root, "bt_reconnect_duration_sec");
-    if (item && cJSON_IsNumber(item)) settings->bt_reconnect_duration_sec = (int)item->valuedouble;
-
-    item = cJSON_GetObjectItemCaseSensitive(root, "bt_reconnect_delay_sec");
-    if (item && cJSON_IsNumber(item)) settings->bt_reconnect_delay_sec = (int)item->valuedouble;
-
-    item = cJSON_GetObjectItemCaseSensitive(root, "dry_run");
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "dry_run");
     if (item && cJSON_IsBool(item)) settings->dry_run = cJSON_IsTrue(item) ? 1 : 0;
     else if (item && cJSON_IsNumber(item)) settings->dry_run = (int)item->valuedouble;
 
@@ -1672,9 +1658,6 @@ int config_store_save_settings(const struct codex_settings *settings) {
     cJSON *root = cJSON_CreateObject();
     if (!root) return -1;
 
-    cJSON_AddBoolToObject(root, "bt_auto_reconnect", settings->bt_auto_reconnect ? 1 : 0);
-    cJSON_AddNumberToObject(root, "bt_reconnect_duration_sec", settings->bt_reconnect_duration_sec);
-    cJSON_AddNumberToObject(root, "bt_reconnect_delay_sec", settings->bt_reconnect_delay_sec);
     cJSON_AddBoolToObject(root, "dry_run", settings->dry_run ? 1 : 0);
     cJSON_AddStringToObject(root, "hub_name", settings->hub_name[0] ? settings->hub_name : "Harmony Hub");
     cJSON_AddStringToObject(root, "ntp_server", settings->ntp_server);

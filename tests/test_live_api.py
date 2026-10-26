@@ -109,19 +109,18 @@ class ApiTester:
         status, j, text, ms = self.http_request("/health")
         self.assert_test("GET /health", status == 200 and (j and j.get("status") == "ok"), f"{ms:.1f}ms")
 
-        # 2. Settings (Verify Dry-Run & BT supervision schema)
+        # 2. Settings (Verify Dry-Run schema)
         status, j, text, ms = self.http_request("/api/settings")
-        schema_ok = status == 200 and j and "bt_auto_reconnect" in j and "bt_reconnect_duration_sec" in j
+        schema_ok = status == 200 and j and "dry_run" in j and "hub_name" in j
         self.assert_test("GET /api/settings", schema_ok, f"{ms:.1f}ms, dry_run={j.get('dry_run') if j else 'N/A'}")
 
         # 3. Save Settings
         status, j, text, ms = self.http_request("/api/settings", method="POST", data={
-            "bt_auto_reconnect": 1,
-            "bt_reconnect_duration_sec": 45,
-            "bt_reconnect_delay_sec": 5
+            "hub_name": "Living Room Hub",
+            "dry_run": 1
         })
-        post_ok = status == 200 and j and j.get("ok") is True and j.get("bt_reconnect_duration_sec") == 45
-        self.assert_test("POST /api/settings (Update BT Reconnect)", post_ok, f"{ms:.1f}ms")
+        post_ok = status == 200 and j and j.get("ok") is True and j.get("hub_name") == "Living Room Hub"
+        self.assert_test("POST /api/settings (Update Hub Settings)", post_ok, f"{ms:.1f}ms")
 
         # 4. Inventory
         status, j, text, ms = self.http_request("/api/inventory")

@@ -1164,20 +1164,19 @@
                 <div>
                   <label class="mini muted" for="curDevBtAutoReconnect">Bluetooth Auto-Reconnect</label>
                   <select id="curDevBtAutoReconnect" class="form-control form-control-sm">
-                    <option value="-1">Inherit Global Setting</option>
-                    <option value="1">Enabled (Always Reconnect)</option>
-                    <option value="0">Disabled (Never Reconnect)</option>
+                    <option value="1">Enabled (Trigger Command or Button Press)</option>
+                    <option value="0">Disabled (Manual Only)</option>
                   </select>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
                   <div>
                     <label class="mini muted" for="curDevBtDuration">Duration (s)</label>
-                    <input type="number" id="curDevBtDuration" class="form-control form-control-sm" placeholder="Global"
+                    <input type="number" id="curDevBtDuration" class="form-control form-control-sm" placeholder="30"
                       min="1" max="120">
                   </div>
                   <div>
                     <label class="mini muted" for="curDevBtDelay">Delay (s)</label>
-                    <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="Global"
+                    <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="2"
                       min="0" max="60">
                   </div>
                 </div>
@@ -1191,7 +1190,7 @@
                 <div style="margin-top: 6px;">
                   <label class="mini muted" for="curDevBtTriggerCmd">Trigger Reconnect on Command</label>
                   <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
-                    <option value="">None (Activity Start Only)</option>
+                    <option value="">None (Fallback to Button Press)</option>
                   </select>
                   <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp;
                     window whenever this command executes (e.g. smart socket PowerOn).</div>
@@ -1702,55 +1701,7 @@
         </div>
       </div>
 
-      <!-- Bluetooth Auto-Reconnect Supervision Configuration Card -->
-      <div class="card" style="margin-bottom: 14px;">
-        <div
-          style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px;">
-          <div>
-            <h3 style="font-size: 15px; margin: 0;">Bluetooth Auto-Reconnect Supervision</h3>
-            <div class="muted mini" style="margin-top: 2px;">Configure automatic host connection on power-on and
-              activity transitions.</div>
-          </div>
-          <span class="badge ok" id="btReconnectBadge">Supervised</span>
-        </div>
 
-        <div
-          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 10px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="btAutoReconnectToggle" checked
-              style="width: 18px; height: 18px; accent-color: var(--accent);">
-            <div>
-              <strong style="font-size: 13px;">Auto Reconnect on Activity</strong>
-              <div class="muted mini">Connect automatically when activity starts</div>
-            </div>
-          </label>
-
-
-          <div>
-            <label for="btReconnectDuration" style="font-size: 12px; font-weight: 600;">Supervision Duration
-              (seconds)</label>
-            <input type="number" id="btReconnectDuration" class="form-control" min="5" max="180" value="30"
-              style="margin-top: 4px;">
-            <div class="muted mini" style="margin-top: 2px;">Total retry window (default: 30s)</div>
-          </div>
-
-          <div>
-            <label for="btReconnectDelay" style="font-size: 12px; font-weight: 600;">Startup Delay (seconds)</label>
-            <input type="number" id="btReconnectDelay" class="form-control" min="0" max="30" value="2"
-              style="margin-top: 4px;">
-            <div class="muted mini" style="margin-top: 2px;">Wait before first connection attempt</div>
-          </div>
-        </div>
-
-        <div class="callout" style="margin-top: 12px; font-size: 12px;">
-          <strong>On-Demand Reconnect:</strong> Sending any Bluetooth button or command while disconnected will always
-          trigger an immediate reconnect attempt, regardless of whether auto-reconnect is enabled.
-        </div>
-
-        <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
-          <button type="button" class="btn btn-sm btn-primary" id="btSaveSettingsBtn">Save Bluetooth Settings</button>
-        </div>
-      </div>
 
       <!-- Diagnostics Log -->
       <details style="margin-top: 14px;" open>
@@ -3878,11 +3829,36 @@ harmony_send_command:
         <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px;"
           id="iconCategoryPills">
           <button type="button" class="btn btn-xs btn-primary icon-cat-pill" data-cat="all">All</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="custom">✨ Custom</button>
           <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="activity">Activities</button>
           <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="device">Devices</button>
           <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="home">Home</button>
           <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="commands">Commands</button>
           <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="settings">Settings</button>
+        </div>
+        <div id="customIconUploadSection" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 8px;">
+          <div style="font-size: 11px; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between;">
+            <span>Custom Image or Web Address</span>
+            <span class="muted" style="font-size: 10px;">Resized in browser to 40x40 px PNG (~1 KB)</span>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input type="text" id="customIconUrlInput" class="form-control form-control-sm" placeholder="Paste image web address (https://...)" style="flex: 1; font-size: 11px;">
+            <button type="button" id="btnFetchCustomIconUrl" class="btn btn-xs btn-secondary">Fetch</button>
+            <label class="btn btn-xs btn-primary" style="margin: 0; cursor: pointer; white-space: nowrap;">
+              <span>Browse</span>
+              <input type="file" id="customIconFileInput" accept="image/*" style="display: none;">
+            </label>
+          </div>
+          <div id="customIconPreviewRow" style="display: none; align-items: center; gap: 8px; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border);">
+            <div style="width: 36px; height: 36px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <canvas id="customIconCanvas" width="40" height="40" style="width: 32px; height: 32px;"></canvas>
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="customIconPreviewLabel">Preview</div>
+              <div class="muted" style="font-size: 10px;" id="customIconPreviewSize">Ready</div>
+            </div>
+            <button type="button" id="btnSaveCustomIcon" class="btn btn-xs btn-primary" style="white-space: nowrap;">Upload & Push to Remote</button>
+          </div>
         </div>
         <div class="icon-picker-body">
           <div id="iconPickerGrid" class="act-icon-picker-grid">

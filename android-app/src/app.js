@@ -225,8 +225,9 @@ export function getStockIconUrl(iconKey, hint = '') {
   const cachedUrl = getCachedIconUrl(fn);
   if (cachedUrl) return cachedUrl;
 
-  // 2. If neither local cache nor remote hub has icons, skip
-  if (!stockIconsAvailable && !hasCachedIcon(fn)) return '';
+  // 2. If neither local cache nor remote hub has icons, skip (unless custom icon)
+  const isCustom = fn.startsWith('activity_') || fn.startsWith('device_') || fn.startsWith('custom_') || fn.startsWith('button_') || /^\d+\.png$/i.test(fn);
+  if (!stockIconsAvailable && !hasCachedIcon(fn) && !isCustom) return '';
 
   const base = stockIconBaseUrl || '';
   const url = base ? `${base}/assets/icons/${fn}` : `/assets/icons/${fn}`;
@@ -474,13 +475,16 @@ class HarmonyApp {
           const cleanFn = String(fn).split('/').pop().trim();
           const meta = iconMetadata[cleanFn] || iconMetadata[`${cleanFn}.png`] || {};
           const title = this.formatIconDisplayName(cleanFn);
+          const isCust = cleanFn.startsWith('activity_') || cleanFn.startsWith('device_') || cleanFn.startsWith('custom_') || cleanFn.startsWith('button_') || /^\d+\.png$/i.test(cleanFn);
+          const category = meta.category || (isCust ? 'custom' : 'other');
           return {
             fn: cleanFn,
             title,
             lowerTitle: title.toLowerCase(),
             lowerFn: cleanFn.toLowerCase(),
-            category: meta.category || 'other',
-            tags: (meta.tags || []).join(' ').toLowerCase(),
+            category,
+            isCustom: isCust,
+            tags: ((meta.tags || []).join(' ') + (isCust ? ' custom user' : '')).toLowerCase(),
             url: getStockIconUrl(cleanFn)
           };
         }).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
@@ -572,25 +576,36 @@ class HarmonyApp {
     }
   }
 
-  openIconPicker(targetSelectIdOrCallback, previewBadgeId = null, onSelect = null) {
+  openIconPicker(targetSelectIdOrCallback, previewBadgeId = null, onSelect = null, context = null) {
     if (typeof targetSelectIdOrCallback === 'function') {
       this.iconPickerCallback = targetSelectIdOrCallback;
       this.currentIconPickerTarget = null;
       this.currentIconPickerBadge = null;
       this.iconPickerCurrentVal = previewBadgeId || '';
+      this.iconPickerContext = context || null;
     } else if (typeof onSelect === 'function') {
       this.currentIconPickerTarget = targetSelectIdOrCallback;
       this.currentIconPickerBadge = previewBadgeId;
       this.iconPickerCallback = onSelect;
       this.iconPickerCurrentVal = document.getElementById(targetSelectIdOrCallback)?.value || '';
+      this.iconPickerContext = context || null;
     } else {
       this.currentIconPickerTarget = targetSelectIdOrCallback;
       this.currentIconPickerBadge = previewBadgeId;
       this.iconPickerCallback = null;
       this.iconPickerCurrentVal = document.getElementById(targetSelectIdOrCallback)?.value || '';
+      this.iconPickerContext = context || null;
     }
     const modal = document.getElementById('iconPickerModal');
     if (!modal) return;
+
+    // Reset upload preview row
+    const prevRow = document.getElementById('customIconPreviewRow');
+    if (prevRow) prevRow.style.display = 'none';
+    const urlInp = document.getElementById('customIconUrlInput');
+    if (urlInp) urlInp.value = '';
+    const fileInp = document.getElementById('customIconFileInput');
+    if (fileInp) fileInp.value = '';
 
     const curVal = this.iconPickerCurrentVal || '';
     const subtitle = document.getElementById('iconPickerSubtitle');
@@ -629,13 +644,16 @@ class HarmonyApp {
         const cleanFn = String(fn).split('/').pop().trim();
         const meta = iconMetadata[cleanFn] || iconMetadata[`${cleanFn}.png`] || {};
         const title = this.formatIconDisplayName(cleanFn);
+        const isCust = cleanFn.startsWith('activity_') || cleanFn.startsWith('device_') || cleanFn.startsWith('custom_') || cleanFn.startsWith('button_') || /^\d+\.png$/i.test(cleanFn);
+        const category = meta.category || (isCust ? 'custom' : 'other');
         return {
           fn: cleanFn,
           title,
           lowerTitle: title.toLowerCase(),
           lowerFn: cleanFn.toLowerCase(),
-          category: meta.category || 'other',
-          tags: (meta.tags || []).join(' ').toLowerCase(),
+          category,
+          isCustom: isCust,
+          tags: ((meta.tags || []).join(' ') + (isCust ? ' custom user' : '')).toLowerCase(),
           url: getStockIconUrl(cleanFn)
         };
       }).sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
@@ -646,11 +664,15 @@ class HarmonyApp {
 
     this.currentFilteredIcons = this.iconCatalog.filter(item => {
       if (cat !== 'all') {
-        if (cat === 'activity' && item.category !== 'activity') return false;
-        if (cat === 'device' && item.category !== 'device') return false;
-        if (cat === 'home' && item.category !== 'home') return false;
-        if (cat === 'commands' && item.category !== 'commands') return false;
-        if (cat === 'settings' && (item.category !== 'ui' && item.category !== 'other')) return false;
+        if (cat === 'custom') {
+          if (!item.isCustom && item.category !== 'custom') return false;
+        } else {
+          if (cat === 'activity' && item.category !== 'activity' && !item.fn.startsWith('activity_')) return false;
+          if (cat === 'device' && item.category !== 'device' && !item.fn.startsWith('device_')) return false;
+          if (cat === 'home' && item.category !== 'home') return false;
+          if (cat === 'commands' && item.category !== 'commands') return false;
+          if (cat === 'settings' && (item.category !== 'ui' && item.category !== 'other')) return false;
+        }
       }
       if (s) {
         return item.lowerTitle.includes(s) || item.lowerFn.includes(s) || item.tags.includes(s);
@@ -680,7 +702,24 @@ class HarmonyApp {
     // Attach delegated click listener once
     if (!this._iconGridClickBound) {
       this._iconGridClickBound = true;
-      grid.addEventListener('click', (e) => {
+      grid.addEventListener('click', async (e) => {
+        const delBtn = e.target.closest('.btn-delete-custom-icon');
+        if (delBtn) {
+          e.stopPropagation();
+          const fnToDelete = delBtn.getAttribute('data-fn');
+          if (confirm(`Delete custom icon "${fnToDelete}"?`)) {
+            try {
+              await this.client.deleteCustomIcon(fnToDelete);
+              showToast(`Deleted custom icon "${fnToDelete}"`, 'info');
+              await this.loadAvailableIcons(true);
+              this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
+            } catch (err) {
+              showToast(`Delete failed: ${err.message}`, 'error');
+            }
+          }
+          return;
+        }
+
         const card = e.target.closest('.act-icon-card');
         if (!card) return;
         const iconVal = card.getAttribute('data-icon');
@@ -720,8 +759,10 @@ class HarmonyApp {
 
     const html = batch.map(item => {
       const isSel = (item.fn === curVal || item.fn.replace(/\.png$/i, '') === curVal);
+      const isCustom = item.isCustom || item.category === 'custom' || item.fn.startsWith('activity_') || item.fn.startsWith('device_') || item.fn.startsWith('custom_') || item.fn.startsWith('button_') || /^\d+\.png$/i.test(item.fn);
       return `
-        <div class="act-icon-card ${isSel ? 'selected' : ''}" data-icon="${item.fn}">
+        <div class="act-icon-card ${isSel ? 'selected' : ''}" data-icon="${item.fn}" style="position: relative;">
+          ${isCustom ? `<button type="button" class="btn-delete-custom-icon" data-fn="${item.fn}" title="Delete custom icon" style="position: absolute; top: 3px; right: 3px; background: rgba(220,38,38,0.85); color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2;">&times;</button>` : ''}
           <div class="icon-preview">
             <img src="${item.url}" class="stock-icon-img invert-white" loading="lazy" decoding="async" style="width: 26px; height: 26px;" onerror="this.src='/favicon.png'" />
           </div>
@@ -1559,7 +1600,7 @@ class HarmonyApp {
       const pao = document.getElementById('devIsPowerAlwaysOn')?.checked ? 1 : 0;
       const btHost = document.getElementById('curDevBtHost')?.value.trim();
       const btAutoRecVal = parseInt(document.getElementById('curDevBtAutoReconnect')?.value, 10);
-      const btAutoRec = isNaN(btAutoRecVal) ? -1 : btAutoRecVal;
+      const btAutoRec = isNaN(btAutoRecVal) ? 1 : (btAutoRecVal === 0 ? 0 : 1);
       const btDur = parseInt(document.getElementById('curDevBtDuration')?.value, 10);
       const btDly = parseInt(document.getElementById('curDevBtDelay')?.value, 10);
       const btTrigVal = document.getElementById('curDevBtTriggerCmd')?.value || '';
@@ -2008,7 +2049,6 @@ class HarmonyApp {
       const el = document.getElementById('btLog');
       if (el) el.textContent = 'Log cleared.';
     });
-    document.getElementById('btSaveSettingsBtn')?.addEventListener('click', () => this.saveBluetoothSupervisionSettings());
 
     // Bluetooth Virtual Mouse & Touchpad
     this.setupBtTouchpad();
@@ -2293,6 +2333,145 @@ class HarmonyApp {
         });
         this.renderIconPickerGrid(iconSearch ? iconSearch.value : '');
       });
+    });
+
+    // Custom Icon Upload & Canvas Resize (40x40 PNG client-side to prevent Hub RAM OOM)
+    const processImageToCanvas = (img, labelText) => {
+      const canvas = document.getElementById('customIconCanvas');
+      const previewRow = document.getElementById('customIconPreviewRow');
+      const previewLbl = document.getElementById('customIconPreviewLabel');
+      const previewSz = document.getElementById('customIconPreviewSize');
+      if (!canvas) return;
+      canvas.width = 40;
+      canvas.height = 40;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, 40, 40);
+
+      const nw = img.naturalWidth || img.width || 40;
+      const nh = img.naturalHeight || img.height || 40;
+      const scale = Math.min(40 / nw, 40 / nh);
+      const w = Math.max(1, Math.round(nw * scale));
+      const h = Math.max(1, Math.round(nh * scale));
+      const x = Math.round((40 - w) / 2);
+      const y = Math.round((40 - h) / 2);
+      ctx.drawImage(img, x, y, w, h);
+
+      if (previewRow) previewRow.style.display = 'flex';
+      if (previewLbl) previewLbl.textContent = labelText || 'Custom Icon';
+      const dataUrl = canvas.toDataURL('image/png');
+      const approxBytes = Math.round((dataUrl.length * 3) / 4);
+      if (previewSz) previewSz.textContent = `${w}×${h} px • ${approxBytes} bytes (PNG)`;
+    };
+
+    const loadImgFromBlob = (blob, label) => {
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(img.src);
+        processImageToCanvas(img, label);
+      };
+      img.onerror = () => showToast('Failed to decode image file', 'error');
+      img.src = URL.createObjectURL(blob);
+    };
+
+    const customFileInput = document.getElementById('customIconFileInput');
+    customFileInput?.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      loadImgFromBlob(file, file.name);
+    });
+
+    const btnFetchUrl = document.getElementById('btnFetchCustomIconUrl');
+    btnFetchUrl?.addEventListener('click', async () => {
+      const urlInput = document.getElementById('customIconUrlInput');
+      const url = urlInput?.value.trim();
+      if (!url) {
+        showToast('Please enter an image URL', 'warning');
+        return;
+      }
+      btnFetchUrl.disabled = true;
+      btnFetchUrl.textContent = 'Fetching...';
+      try {
+        let blob = null;
+        try {
+          const res = await fetch(url, { mode: 'cors' });
+          if (res.ok) blob = await res.blob();
+        } catch (corsErr) {
+          console.log('Direct fetch CORS error, trying hub proxy...', corsErr);
+        }
+        if (!blob) {
+          const proxyUrl = `${this.client.baseUrl}/api/custom-icons/proxy-fetch?url=${encodeURIComponent(url)}`;
+          const pRes = await fetch(proxyUrl);
+          if (!pRes.ok) throw new Error(`HTTP ${pRes.status} from proxy`);
+          blob = await pRes.blob();
+        }
+        const fn = url.split('/').pop().split('?')[0] || 'remote_icon.png';
+        loadImgFromBlob(blob, fn);
+        showToast('Image loaded and resized to 40×40', 'success');
+      } catch (err) {
+        showToast(`Could not fetch image: ${err.message}`, 'error');
+      } finally {
+        btnFetchUrl.disabled = false;
+        btnFetchUrl.textContent = 'Fetch';
+      }
+    });
+
+    const btnSaveIcon = document.getElementById('btnSaveCustomIcon');
+    btnSaveIcon?.addEventListener('click', async () => {
+      const canvas = document.getElementById('customIconCanvas');
+      if (!canvas) return;
+      const dataUrl = canvas.toDataURL('image/png');
+      btnSaveIcon.disabled = true;
+      btnSaveIcon.textContent = 'Uploading...';
+      try {
+        let type = this.iconPickerContext?.type || 'activity';
+        let id = this.iconPickerContext?.id;
+        if (!id) {
+          if (this.currentIconPickerTarget === 'actEditIcon') {
+            type = 'activity';
+            id = document.getElementById('actEditId')?.value;
+          } else if (this.currentIconPickerTarget === 'editDevIcon') {
+            type = 'device';
+            id = this.selectedIrDeviceId || this.currentIrDeviceId;
+          }
+        }
+        if (!id) id = 'custom_' + Date.now();
+
+        const uploadRes = await this.client.uploadCustomIcon(type, id, dataUrl);
+        const iconFn = uploadRes.filename || `${type}_${id}.png`;
+        showToast(`Icon saved & queued for remote push!`, 'success');
+
+        if (typeof this.iconPickerCallback === 'function') {
+          await this.iconPickerCallback(iconFn);
+        } else if (this.currentIconPickerTarget) {
+          const targetSel = document.getElementById(this.currentIconPickerTarget);
+          if (targetSel) {
+            let opt = Array.from(targetSel.options).find(o => o.value === iconFn);
+            if (!opt) {
+              opt = document.createElement('option');
+              opt.value = iconFn;
+              opt.textContent = this.formatIconDisplayName(iconFn);
+              targetSel.appendChild(opt);
+            }
+            targetSel.value = iconFn;
+            targetSel.dispatchEvent(new Event('change'));
+            this.updateBadgeForSelect(targetSel, this.currentIconPickerBadge);
+          }
+        }
+
+        const prevRow = document.getElementById('customIconPreviewRow');
+        if (prevRow) prevRow.style.display = 'none';
+        const urlInp = document.getElementById('customIconUrlInput');
+        if (urlInp) urlInp.value = '';
+        if (customFileInput) customFileInput.value = '';
+
+        await this.loadAvailableIcons(true);
+        this.renderIconPickerGrid(document.getElementById('iconPickerSearch')?.value || '');
+      } catch (err) {
+        showToast(`Failed to upload custom icon: ${err.message}`, 'error');
+      } finally {
+        btnSaveIcon.disabled = false;
+        btnSaveIcon.textContent = 'Upload & Push to Remote';
+      }
     });
 
     // Bluetooth Auto-Detect Delay
@@ -3080,6 +3259,7 @@ class HarmonyApp {
           <div style="display: flex; gap: 6px; margin-top: 6px;">
             <button type="button" class="btn btn-xs ${isPowerOff ? 'btn-danger' : (isRunning ? 'btn-ghost' : 'btn-primary')} btn-act-run" data-id="${a.id}" style="flex: 1;">${isRunning ? (isPowerOff ? 'Powered Off' : 'Active') : (isPowerOff ? 'Turn Off' : 'Run')}</button>
             <button type="button" class="btn btn-xs btn-secondary btn-act-edit" data-id="${a.id}" style="flex: 1;">Edit & Steps</button>
+            <button type="button" class="btn btn-xs btn-secondary btn-act-icon" data-id="${a.id}" title="Change Icon" style="padding: 0 8px;">🎨</button>
           </div>
         </div>
       `;
@@ -3101,6 +3281,25 @@ class HarmonyApp {
         const id = b.getAttribute('data-id');
         const act = acts.find(x => String(x.id) === String(id));
         this.openActivityEditor(act);
+      });
+    });
+
+    grid.querySelectorAll('.btn-act-icon').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-id');
+        const act = acts.find(x => String(x.id) === String(id));
+        if (!act) return;
+        this.openIconPicker(async (selectedIcon) => {
+          act.icon = selectedIcon;
+          try {
+            await this.client.updateActivity({ ...act, icon: selectedIcon });
+            showToast(`Updated icon for "${act.name}"`, 'success');
+            await this.refreshData();
+            await this.loadActivitiesView();
+          } catch (e) {
+            showToast(`Failed to update activity: ${e.message}`, 'error');
+          }
+        }, null, null, { type: 'activity', id: act.id });
       });
     });
 
@@ -4119,11 +4318,11 @@ class HarmonyApp {
       }
 
       if (btAutoRec) {
-        let recVal = -1;
+        let recVal = 1;
         if (dev.bt_auto_reconnect !== undefined && dev.bt_auto_reconnect !== null) {
-          recVal = Number(dev.bt_auto_reconnect);
+          recVal = Number(dev.bt_auto_reconnect) === 0 ? 0 : 1;
         } else if (dev.btAutoReconnect !== undefined && dev.btAutoReconnect !== null) {
-          recVal = Number(dev.btAutoReconnect);
+          recVal = Number(dev.btAutoReconnect) === 0 ? 0 : 1;
         }
         btAutoRec.value = String(recVal);
       }
@@ -4137,7 +4336,7 @@ class HarmonyApp {
       }
       const btTrigSel = document.getElementById('curDevBtTriggerCmd');
       if (btTrigSel) {
-        let html = '<option value="">None (Activity Start Only)</option>';
+        let html = '<option value="">None (Fallback to Button Press)</option>';
         const allDevs = this.devices || [];
         allDevs.forEach(d => {
           const cmds = d.commands || [];
@@ -5129,7 +5328,6 @@ class HarmonyApp {
    * 7. Bluetooth View
    * ------------------------------------------------------------- */
   async loadBtView() {
-    this.loadBluetoothSupervisionSettings();
     const badge = document.getElementById('btStatusBadge');
     const desc = document.getElementById('btHostDesc');
     const list = document.getElementById('btDevicesList');
@@ -5376,41 +5574,6 @@ class HarmonyApp {
       await this.client.saveBtCommand(devId, name, script);
       if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
       await this.refreshData();
-    } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
-    }
-  }
-
-  async loadBluetoothSupervisionSettings() {
-    try {
-      const s = await this.client.getSettings();
-      if (!s) return;
-      const toggle = document.getElementById('btAutoReconnectToggle');
-      const dur = document.getElementById('btReconnectDuration');
-      const del = document.getElementById('btReconnectDelay');
-      if (toggle) toggle.checked = !!s.bt_auto_reconnect;
-      if (dur && s.bt_reconnect_duration_sec !== undefined) dur.value = s.bt_reconnect_duration_sec;
-      if (del && s.bt_reconnect_delay_sec !== undefined) del.value = s.bt_reconnect_delay_sec;
-    } catch (e) {
-      console.warn('Failed to load BT supervision settings:', e);
-    }
-  }
-
-  async saveBluetoothSupervisionSettings() {
-    const toggle = document.getElementById('btAutoReconnectToggle');
-    const dur = document.getElementById('btReconnectDuration');
-    const del = document.getElementById('btReconnectDelay');
-    const stat = document.getElementById('btSettingsStatus');
-    if (stat) stat.textContent = 'Saving settings...';
-    try {
-      const payload = {
-        bt_auto_reconnect: toggle ? (toggle.checked ? 1 : 0) : 1,
-        bt_reconnect_duration_sec: dur ? parseInt(dur.value, 10) || 45 : 45,
-        bt_reconnect_delay_sec: del ? parseInt(del.value, 10) || 5 : 5
-      };
-      await this.client.saveSettings(payload);
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Supervision settings saved</span>';
-      setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
     } catch (err) {
       if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
     }

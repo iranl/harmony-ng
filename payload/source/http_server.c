@@ -667,6 +667,15 @@ static void send_cjson_resp(int fd, int code, cJSON *obj) {
     if (json) free(json);
 }
 
+static void send_json_error(int fd, int code, const char *msg) {
+    cJSON *obj = cJSON_CreateObject();
+    if (obj) {
+        cJSON_AddStringToObject(obj, "error", msg ? msg : "Error");
+        send_cjson_resp(fd, code, obj);
+        cJSON_Delete(obj);
+    }
+}
+
 static char *url_decode(const char *src) {
     if (!src) return NULL;
     size_t len = strlen(src);
@@ -1220,6 +1229,40 @@ static const char *get_mime_type(const char *path) {
     return "application/octet-stream";
 }
 
+static int b64_char_to_val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+' || c == '-') return 62;
+    if (c == '/' || c == '_') return 63;
+    return -1;
+}
+
+static size_t b64_decode_buffer(const char *src, size_t src_len, uint8_t *dst, size_t dst_max) {
+    if (!src || !dst || dst_max == 0) return 0;
+    const char *comma = strchr(src, ',');
+    if (comma && comma - src < 64) {
+        src_len -= (size_t)(comma + 1 - src);
+        src = comma + 1;
+    }
+    size_t out_len = 0;
+    uint32_t buf = 0;
+    int bits = 0;
+    for (size_t i = 0; i < src_len && src[i] != '\0' && src[i] != '='; i++) {
+        int v = b64_char_to_val(src[i]);
+        if (v < 0) continue;
+        buf = (buf << 6) | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (out_len < dst_max) {
+                dst[out_len++] = (uint8_t)((buf >> bits) & 0xFF);
+            }
+        }
+    }
+    return out_len;
+}
+
 static volatile int g_icons_extracting = 0;
 
 static void *extract_icons_thread(void *arg) {
@@ -1414,6 +1457,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         snprintf(file_path, sizeof(file_path), "/data/codex/www%s", rel_path);
         if (access(file_path, F_OK) != 0) {
             snprintf(file_path, sizeof(file_path), "/cache/www%s", rel_path);
+            if (access(file_path, F_OK) != 0 && strncmp(rel_path, "/assets/icons/", 14) == 0) {
+                snprintf(file_path, sizeof(file_path), "/data/codex/custom_icons/%s", rel_path + 14);
+            }
         }
     }
 
@@ -1971,8 +2017,346 @@ static void http_process_request(int client_fd, const char *req) {
             }
             closedir(d);
         }
+        /* Also include custom icons from persistent storage */
+        DIR *cd = opendir("/data/codex/custom_icons");
+        if (cd) {
+            struct dirent *de;
+            while ((de = readdir(cd)) != NULL) {
+                if (de->d_name[0] == '.') continue;
+                size_t nlen = strlen(de->d_name);
+                if (nlen > 4 && strcmp(de->d_name + nlen - 4, ".png") == 0) {
+                    cJSON_AddItemToArray(arr, cJSON_CreateString(de->d_name));
+                }
+            }
+            closedir(cd);
+        }
         send_cjson_resp(client_fd, 200, arr);
         cJSON_Delete(arr);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: GET /api/custom-icons */
+    if (strcmp(clean_path, "/api/custom-icons") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *arr = cJSON_CreateArray();
+        const char *cdir = "/data/codex/custom_icons";
+        DIR *d = opendir(cdir);
+        if (d) {
+            struct dirent *de;
+            while ((de = readdir(d)) != NULL) {
+                if (de->d_name[0] == '.') continue;
+                size_t nlen = strlen(de->d_name);
+                if (nlen > 4 && strcmp(de->d_name + nlen - 4, ".png") == 0) {
+                    char full_path[300];
+                    snprintf(full_path, sizeof(full_path), "%s/%s", cdir, de->d_name);
+                    struct stat st;
+                    long fsz = 0;
+                    if (stat(full_path, &st) == 0) fsz = (long)st.st_size;
+
+                    cJSON *item = cJSON_CreateObject();
+                    cJSON_AddStringToObject(item, "filename", de->d_name);
+                    char url[128];
+                    snprintf(url, sizeof(url), "/assets/icons/%s", de->d_name);
+                    cJSON_AddStringToObject(item, "url", url);
+                    cJSON_AddNumberToObject(item, "size", fsz);
+
+                    if (strncmp(de->d_name, "activity_", 9) == 0) {
+                        cJSON_AddStringToObject(item, "type", "activity");
+                        char id_buf[64] = {0};
+                        strncpy(id_buf, de->d_name + 9, sizeof(id_buf) - 1);
+                        char *dot = strrchr(id_buf, '.');
+                        if (dot) *dot = '\0';
+                        cJSON_AddStringToObject(item, "id", id_buf);
+                    } else if (strncmp(de->d_name, "device_", 7) == 0) {
+                        cJSON_AddStringToObject(item, "type", "device");
+                        char id_buf[64] = {0};
+                        strncpy(id_buf, de->d_name + 7, sizeof(id_buf) - 1);
+                        char *dot = strrchr(id_buf, '.');
+                        if (dot) *dot = '\0';
+                        cJSON_AddStringToObject(item, "id", id_buf);
+                    } else {
+                        char id_buf[64] = {0};
+                        strncpy(id_buf, de->d_name, sizeof(id_buf) - 1);
+                        char *dot = strrchr(id_buf, '.');
+                        if (dot) *dot = '\0';
+                        cJSON_AddStringToObject(item, "id", id_buf);
+                    }
+                    cJSON_AddItemToArray(arr, item);
+                }
+            }
+            closedir(d);
+        }
+        send_cjson_resp(client_fd, 200, arr);
+        cJSON_Delete(arr);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: POST /api/custom-icons */
+    if (strcmp(clean_path, "/api/custom-icons") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *root = body ? cJSON_Parse(body) : NULL;
+        if (!root) {
+            send_json_error(client_fd, 400, "Invalid JSON body");
+            close(client_fd);
+            return;
+        }
+
+        cJSON *j_type = cJSON_GetObjectItem(root, "type");
+        cJSON *j_id = cJSON_GetObjectItem(root, "id");
+        cJSON *j_b64 = cJSON_GetObjectItem(root, "image_base64");
+        if (!j_b64) j_b64 = cJSON_GetObjectItem(root, "data");
+
+        char type_str[32] = "activity";
+        char id_str[64] = {0};
+
+        if (j_type && j_type->valuestring && j_type->valuestring[0]) {
+            snprintf(type_str, sizeof(type_str), "%s", j_type->valuestring);
+        }
+        if (j_id && j_id->valuestring && j_id->valuestring[0]) {
+            snprintf(id_str, sizeof(id_str), "%s", j_id->valuestring);
+        } else if (j_id && cJSON_IsNumber(j_id)) {
+            snprintf(id_str, sizeof(id_str), "%d", j_id->valueint);
+        }
+
+        if (!id_str[0] || !j_b64 || !j_b64->valuestring) {
+            cJSON_Delete(root);
+            send_json_error(client_fd, 400, "Missing required fields: id and image_base64");
+            close(client_fd);
+            return;
+        }
+
+        /* Sanitize type_str and id_str to prevent directory traversal */
+        for (char *p = type_str; *p; p++) {
+            if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_') *p = '_';
+        }
+        for (char *p = id_str; *p; p++) {
+            if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_') *p = '_';
+        }
+
+        /* Enforce strict 16 KB ceiling for resized icons */
+        uint8_t png_data[16384];
+        size_t png_len = b64_decode_buffer(j_b64->valuestring, strlen(j_b64->valuestring), png_data, sizeof(png_data));
+        cJSON_Delete(root);
+
+        if (png_len < 8) {
+            send_json_error(client_fd, 400, "Decoded image data too small");
+            close(client_fd);
+            return;
+        }
+
+        /* Verify PNG signature: 0x89 'P' 'N' 'G' 0x0D 0x0A 0x1A 0x0A */
+        const uint8_t png_sig[8] = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        if (memcmp(png_data, png_sig, 8) != 0) {
+            send_json_error(client_fd, 400, "Uploaded data is not a valid PNG image");
+            close(client_fd);
+            return;
+        }
+
+        mkdir("/data/codex/custom_icons", 0755);
+        mkdir("/tmp/www/assets/icons", 0755);
+        mkdir("/cache/www/assets/icons", 0755);
+
+        char main_name[64];
+        snprintf(main_name, sizeof(main_name), "%s_%s.png", type_str, id_str);
+
+        char p_data[256], p_cache[256], p_tmp[256];
+        snprintf(p_data, sizeof(p_data), "/data/codex/custom_icons/%s", main_name);
+        snprintf(p_cache, sizeof(p_cache), "/cache/www/assets/icons/%s", main_name);
+        snprintf(p_tmp, sizeof(p_tmp), "/tmp/www/assets/icons/%s", main_name);
+
+        FILE *f = fopen(p_data, "wb");
+        if (!f) {
+            send_json_error(client_fd, 500, "Failed to write custom icon to flash storage");
+            close(client_fd);
+            return;
+        }
+        fwrite(png_data, 1, png_len, f);
+        fclose(f);
+
+        /* Also write direct id file e.g. /data/codex/custom_icons/<id>.png */
+        char p_alias[256];
+        snprintf(p_alias, sizeof(p_alias), "/data/codex/custom_icons/%s.png", id_str);
+        FILE *fa = fopen(p_alias, "wb");
+        if (fa) {
+            fwrite(png_data, 1, png_len, fa);
+            fclose(fa);
+        }
+
+        /* Copy to cache and tmp for fast web serving */
+        FILE *fc = fopen(p_cache, "wb");
+        if (fc) { fwrite(png_data, 1, png_len, fc); fclose(fc); }
+        FILE *ft = fopen(p_tmp, "wb");
+        if (ft) { fwrite(png_data, 1, png_len, ft); fclose(ft); }
+
+        static_cache_flush();
+
+        /* Notify codex_rf on local port 8092 to push icon over RF */
+        int rfsock = socket(AF_INET, SOCK_STREAM, 0);
+        if (rfsock >= 0) {
+            struct sockaddr_in sin;
+            memset(&sin, 0, sizeof(sin));
+            sin.sin_family = AF_INET;
+            sin.sin_port = htons(8092);
+            sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            struct timeval tv = { .tv_sec = 0, .tv_usec = 250000 };
+            setsockopt(rfsock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(rfsock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            if (connect(rfsock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+                char req_buf[256];
+                int qlen = snprintf(req_buf, sizeof(req_buf),
+                    "POST /api/rf/push-icon?id=%s&type=%s HTTP/1.1\r\nHost: 127.0.0.1:8092\r\nConnection: close\r\n\r\n",
+                    id_str, type_str);
+                if (qlen > 0) write(rfsock, req_buf, (size_t)qlen);
+            }
+            close(rfsock);
+        }
+
+        cJSON *res = cJSON_CreateObject();
+        cJSON_AddBoolToObject(res, "ok", 1);
+        cJSON_AddStringToObject(res, "filename", main_name);
+        char url[128];
+        snprintf(url, sizeof(url), "/assets/icons/%s", main_name);
+        cJSON_AddStringToObject(res, "url", url);
+        cJSON_AddNumberToObject(res, "size", (double)png_len);
+        send_cjson_resp(client_fd, 200, res);
+        cJSON_Delete(res);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: DELETE /api/custom-icons */
+    if (strcmp(clean_path, "/api/custom-icons") == 0 && strcmp(method, "DELETE") == 0) {
+        char fn[64] = {0};
+        const char *qfn = strstr(path, "filename=");
+        if (qfn) {
+            strncpy(fn, qfn + 9, sizeof(fn) - 1);
+            char *amp = strchr(fn, '&');
+            if (amp) *amp = '\0';
+        } else {
+            const char *qid = strstr(path, "id=");
+            const char *qtype = strstr(path, "type=");
+            char id_val[32] = {0}, type_val[32] = "activity";
+            if (qid) {
+                strncpy(id_val, qid + 3, sizeof(id_val) - 1);
+                char *amp = strchr(id_val, '&');
+                if (amp) *amp = '\0';
+            }
+            if (qtype) {
+                strncpy(type_val, qtype + 5, sizeof(type_val) - 1);
+                char *amp = strchr(type_val, '&');
+                if (amp) *amp = '\0';
+            }
+            if (id_val[0]) {
+                snprintf(fn, sizeof(fn), "%s_%s.png", type_val, id_val);
+            }
+        }
+
+        if (!fn[0] || strstr(fn, "..") || strchr(fn, '/')) {
+            send_json_error(client_fd, 400, "Invalid or missing icon identifier");
+            close(client_fd);
+            return;
+        }
+
+        char path_buf[256];
+        snprintf(path_buf, sizeof(path_buf), "/data/codex/custom_icons/%s", fn);
+        unlink(path_buf);
+        snprintf(path_buf, sizeof(path_buf), "/cache/www/assets/icons/%s", fn);
+        unlink(path_buf);
+        snprintf(path_buf, sizeof(path_buf), "/tmp/www/assets/icons/%s", fn);
+        unlink(path_buf);
+
+        const char *under = strchr(fn, '_');
+        if (under) {
+            snprintf(path_buf, sizeof(path_buf), "/data/codex/custom_icons/%s", under + 1);
+            unlink(path_buf);
+        }
+
+        static_cache_flush();
+        cJSON *res = cJSON_CreateObject();
+        cJSON_AddBoolToObject(res, "ok", 1);
+        cJSON_AddStringToObject(res, "deleted", fn);
+        send_cjson_resp(client_fd, 200, res);
+        cJSON_Delete(res);
+        close(client_fd);
+        return;
+    }
+
+    /* Route: GET /api/custom-icons/proxy-fetch?url=<encoded_url> (CORS fallback) */
+    if (strcmp(clean_path, "/api/custom-icons/proxy-fetch") == 0 && strcmp(method, "GET") == 0) {
+        const char *qurl = strstr(path, "url=");
+        if (!qurl || !*(qurl + 4)) {
+            send_json_error(client_fd, 400, "Missing url parameter");
+            close(client_fd);
+            return;
+        }
+        char raw_url[512] = {0};
+        strncpy(raw_url, qurl + 4, sizeof(raw_url) - 1);
+        char *space = strchr(raw_url, ' ');
+        if (space) *space = '\0';
+
+        char decoded_url[512] = {0};
+        size_t di = 0;
+        for (size_t i = 0; raw_url[i] && di < sizeof(decoded_url) - 1; i++) {
+            if (raw_url[i] == '%' && raw_url[i+1] && raw_url[i+2]) {
+                char hex[3] = { raw_url[i+1], raw_url[i+2], '\0' };
+                decoded_url[di++] = (char)strtol(hex, NULL, 16);
+                i += 2;
+            } else if (raw_url[i] == '+') {
+                decoded_url[di++] = ' ';
+            } else {
+                decoded_url[di++] = raw_url[i];
+            }
+        }
+
+        if (strncmp(decoded_url, "http://", 7) != 0 && strncmp(decoded_url, "https://", 8) != 0) {
+            send_json_error(client_fd, 400, "Only http:// and https:// URLs allowed");
+            close(client_fd);
+            return;
+        }
+
+        char cmd[768];
+        snprintf(cmd, sizeof(cmd),
+            "/cache/bin/busybox wget -q --no-check-certificate -T 6 -O /tmp/proxy_icon.tmp '%s' 2>/dev/null || "
+            "/data/codex/bin/busybox wget -q --no-check-certificate -T 6 -O /tmp/proxy_icon.tmp '%s' 2>/dev/null",
+            decoded_url, decoded_url);
+        system(cmd);
+
+        FILE *f = fopen("/tmp/proxy_icon.tmp", "rb");
+        if (!f) {
+            send_json_error(client_fd, 502, "Failed to download image from external URL");
+            close(client_fd);
+            return;
+        }
+        fseek(f, 0, SEEK_END);
+        long fsz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        if (fsz <= 0 || fsz > 2 * 1024 * 1024) {
+            fclose(f);
+            unlink("/tmp/proxy_icon.tmp");
+            send_json_error(client_fd, 413, "Image file empty or exceeds 2 MB limit");
+            close(client_fd);
+            return;
+        }
+
+        char header[256];
+        int hlen = snprintf(header, sizeof(header),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: image/png\r\n"
+            "Content-Length: %ld\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Connection: close\r\n\r\n",
+            fsz);
+        send(client_fd, header, (size_t)hlen, 0);
+
+        char buf[8192];
+        size_t nr;
+        while ((nr = fread(buf, 1, sizeof(buf), f)) > 0) {
+            if (send(client_fd, buf, nr, 0) < 0) break;
+        }
+        fclose(f);
+        unlink("/tmp/proxy_icon.tmp");
         close(client_fd);
         return;
     }
@@ -5326,10 +5710,10 @@ static void http_process_request(int client_fd, const char *req) {
                 cJSON *j_btrec = cJSON_GetObjectItemCaseSensitive(p, "bt_auto_reconnect");
                 if (!j_btrec) j_btrec = cJSON_GetObjectItemCaseSensitive(p, "btAutoReconnect");
                 if (j_btrec) {
-                    int val = -1;
-                    if (cJSON_IsNumber(j_btrec)) val = (int)j_btrec->valuedouble;
+                    int val = 1;
+                    if (cJSON_IsNumber(j_btrec)) val = (int)j_btrec->valuedouble ? 1 : 0;
                     else if (cJSON_IsBool(j_btrec)) val = cJSON_IsTrue(j_btrec) ? 1 : 0;
-                    else if (cJSON_IsString(j_btrec)) val = atoi(j_btrec->valuestring);
+                    else if (cJSON_IsString(j_btrec)) val = atoi(j_btrec->valuestring) ? 1 : 0;
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_auto_reconnect");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btAutoReconnect");
                     cJSON_AddNumberToObject(found_dev, "bt_auto_reconnect", val);
@@ -5497,9 +5881,6 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
-        cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
-        cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
-        cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
@@ -5516,16 +5897,7 @@ static void http_process_request(int client_fd, const char *req) {
         struct codex_settings s;
         config_store_get_settings(&s);
         if (p) {
-            cJSON *item = cJSON_GetObjectItemCaseSensitive(p, "bt_auto_reconnect");
-            if (item) {
-                if (cJSON_IsBool(item)) s.bt_auto_reconnect = cJSON_IsTrue(item) ? 1 : 0;
-                else if (cJSON_IsNumber(item)) s.bt_auto_reconnect = (int)item->valuedouble;
-            }
-            item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
-            if (item && cJSON_IsNumber(item)) s.bt_reconnect_duration_sec = (int)item->valuedouble;
-            item = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_delay_sec");
-            if (item && cJSON_IsNumber(item)) s.bt_reconnect_delay_sec = (int)item->valuedouble;
-            item = cJSON_GetObjectItemCaseSensitive(p, "dry_run");
+            cJSON *item = cJSON_GetObjectItemCaseSensitive(p, "dry_run");
             if (item) {
                 if (cJSON_IsBool(item)) s.dry_run = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.dry_run = (int)item->valuedouble;
@@ -5558,9 +5930,6 @@ static void http_process_request(int client_fd, const char *req) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
-        cJSON_AddBoolToObject(resp, "bt_auto_reconnect", s.bt_auto_reconnect);
-        cJSON_AddNumberToObject(resp, "bt_reconnect_duration_sec", s.bt_reconnect_duration_sec);
-        cJSON_AddNumberToObject(resp, "bt_reconnect_delay_sec", s.bt_reconnect_delay_sec);
         cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");

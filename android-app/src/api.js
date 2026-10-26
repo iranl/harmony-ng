@@ -349,8 +349,8 @@ export class HarmonyClient {
           btHost: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
           bt_host: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
           BTAddress: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
-          btAutoReconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : -1),
-          bt_auto_reconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : -1),
+          btAutoReconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1),
+          bt_auto_reconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1),
           btReconnectDuration: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
           bt_reconnect_duration_sec: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
           btReconnectDelay: dev.bt_reconnect_delay_sec !== undefined ? Number(dev.bt_reconnect_delay_sec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : (dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1)),
@@ -947,6 +947,23 @@ export class HarmonyClient {
 
   async getIcons() {
     return this.request('/api/icons');
+  }
+
+  async getCustomIcons() {
+    return this.request('/api/custom-icons');
+  }
+
+  async uploadCustomIcon(type, id, image_base64) {
+    return this.request('/api/custom-icons', {
+      method: 'POST',
+      body: JSON.stringify({ type, id, image_base64 })
+    });
+  }
+
+  async deleteCustomIcon(id, type = 'activity') {
+    return this.request(`/api/custom-icons?id=${encodeURIComponent(id)}&type=${encodeURIComponent(type)}`, {
+      method: 'DELETE'
+    });
   }
 
   async getIconsArchive() {

@@ -162,9 +162,6 @@ Returns global hub settings from `/data/codex/config/settings.json`.
   {
     "ok": true,
     "hub_name": "Living Room Hub",
-    "bt_auto_reconnect": true,
-    "bt_reconnect_duration_sec": 30,
-    "bt_reconnect_delay_sec": 5,
     "dry_run": false,
     "ntp_server": "pool.ntp.org",
     "timezone": "Europe/Amsterdam",
@@ -178,9 +175,6 @@ Updates global hub settings.
   ```json
   {
     "hub_name": "Living Room Hub",
-    "bt_auto_reconnect": true,
-    "bt_reconnect_duration_sec": 30,
-    "bt_reconnect_delay_sec": 5,
     "dry_run": false,
     "ntp_server": "pool.ntp.org",
     "timezone": "Europe/Amsterdam",

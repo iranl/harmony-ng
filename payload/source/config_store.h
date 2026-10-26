@@ -67,9 +67,9 @@ struct ir_device {
     int inter_key_delay;
     int hold_inter_key_delay;
     int default_inter_device_delay;
-    int bt_auto_reconnect;          /* -1 = inherit global, 0 = disabled, 1 = enabled */
-    int bt_reconnect_duration_sec;  /* 0 = inherit */
-    int bt_reconnect_delay_sec;     /* -1 = inherit */
+    int bt_auto_reconnect;          /* 0 = disabled, 1 = enabled (default: 1) */
+    int bt_reconnect_duration_sec;  /* duration of reconnect in seconds (default: 30) */
+    int bt_reconnect_delay_sec;     /* delay before reconnect in seconds (default: 2 for trigger, 0 for button) */
     char bt_trigger_device_id[32];      /* device_id whose command triggers bt reconnect */
     char bt_trigger_command_name[64];   /* command name that triggers bt reconnect */
 };
@@ -138,9 +138,6 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
                         int gap_ms, char *out, size_t outlen);
 
 struct codex_settings {
-    int bt_auto_reconnect;          /* 1 = enable auto reconnect on activity/power, 0 = disable (default: 1) */
-    int bt_reconnect_duration_sec;  /* duration of reconnect attempts in seconds (default: 30) */
-    int bt_reconnect_delay_sec;     /* delay in seconds before first reconnect attempt (default: 2) */
     int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */
     char hub_name[64];              /* Custom hub name (default: "Harmony Hub") */
     char ntp_server[128];           /* Custom NTP server hostname/IP (default: empty = use pools) */

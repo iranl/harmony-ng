@@ -224,6 +224,13 @@ static uint16_t g_ota_total_chunks = 0;
 static uint16_t g_ota_received_chunks = 0;
 static FILE *g_ota_file = NULL;
 
+static FILE *g_icon_rx_file = NULL;
+static uint32_t g_icon_rx_bytes = 0;
+static uint32_t g_icon_rx_tot_bytes = 0;
+static uint16_t g_icon_rx_chunks = 0;
+static uint8_t g_icon_rx_type = 0;
+static char g_icon_rx_id[32] = {0};
+
 static int get_active_dev_cmd_count(void) {
     if (!g_has_hub_config || g_rf_button_count == 0) {
         return 0;
@@ -480,8 +487,17 @@ static void load_rf_config(void) {
         for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
             strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
             strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-            resolve_activity_icon(g_rf_activities[i].icon, g_rf_activities[i].name,
-                                  g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
+            char cpath[128];
+            snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
+            if (access(cpath, R_OK) != 0) {
+                snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
+            }
+            if (access(cpath, R_OK) == 0) {
+                strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
+            } else {
+                resolve_activity_icon(g_rf_activities[i].icon, g_rf_activities[i].name,
+                                      g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
+            }
             g_activity_count++;
         }
         if (g_activity_count < MAX_ACTIVITIES) {
@@ -1774,6 +1790,16 @@ static void resolve_activity_icon(const char *image_key, const char *clean_name,
 
     if (base[0]) {
         char test_path[128];
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/activity_%s.png", base);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return;
+        }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", base);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return;
+        }
         snprintf(test_path, sizeof(test_path), "/opt/luadraws/appscommon/asset/juniperactivity/%s_small.png", base);
         if (access(test_path, R_OK) == 0) {
             strncpy(out_path, test_path, max_len - 1);
@@ -1790,6 +1816,20 @@ static void resolve_activity_icon(const char *image_key, const char *clean_name,
             return;
         }
         snprintf(test_path, sizeof(test_path), "/opt/luadraws/appscommon/asset/hopsactivity/%s_small.png", base);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return;
+        }
+    }
+
+    if (clean_name && clean_name[0]) {
+        char test_path[128];
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/activity_%s.png", clean_name);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return;
+        }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", clean_name);
         if (access(test_path, R_OK) == 0) {
             strncpy(out_path, test_path, max_len - 1);
             return;
@@ -1847,6 +1887,26 @@ static bool resolve_button_icon(const char *icon_key, const char *label, char *o
     char low[48] = {0};
     const char *src = (icon_key && icon_key[0]) ? icon_key : (label ? label : "");
     for (int k = 0; src[k] && k < 47; k++) low[k] = tolower((unsigned char)src[k]);
+
+    /* Check custom icons in /data/assets/custom/ */
+    if (src[0]) {
+        char test_path[128];
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", src);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return true;
+        }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/button_%s.png", src);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return true;
+        }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", src);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            return true;
+        }
+    }
 
     /* If purely numeric (FunctionId), check commands/<num>.png */
     bool is_num = (low[0] >= '0' && low[0] <= '9');
@@ -1997,8 +2057,17 @@ static void load_activities(void) {
                 if (!j_img) j_img = cJSON_GetObjectItem(item, "icon");
                 const char *img_key = (j_img && cJSON_IsString(j_img)) ? j_img->valuestring : NULL;
 
+                char custom_act_path[128];
+                snprintf(custom_act_path, sizeof(custom_act_path), "/data/assets/custom/activity_%s.png", id_str);
+                if (access(custom_act_path, R_OK) != 0) {
+                    snprintf(custom_act_path, sizeof(custom_act_path), "/data/assets/custom/%s.png", id_str);
+                }
                 char icon_file[128] = {0};
-                resolve_activity_icon(img_key, clean_name, icon_file, sizeof(icon_file));
+                if (access(custom_act_path, R_OK) == 0) {
+                    strncpy(icon_file, custom_act_path, sizeof(icon_file) - 1);
+                } else {
+                    resolve_activity_icon(img_key, clean_name, icon_file, sizeof(icon_file));
+                }
 
                 strncpy(g_activities[g_activity_count].name, clean_name, sizeof(g_activities[0].name) - 1);
                 strncpy(g_activities[g_activity_count].id, id_str, sizeof(g_activities[0].id) - 1);
@@ -3132,6 +3201,118 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_ICON_START: {
+            g_icon_rx_type = f->payload[0];
+            g_icon_rx_tot_bytes = (uint32_t)f->payload[1] | ((uint32_t)f->payload[2] << 8);
+            uint16_t tot_c = (uint16_t)f->payload[3] | ((uint16_t)f->payload[4] << 8);
+            memset(g_icon_rx_id, 0, sizeof(g_icon_rx_id));
+            strncpy(g_icon_rx_id, (const char *)&f->payload[5], sizeof(g_icon_rx_id) - 1);
+            g_icon_rx_bytes = 0;
+            g_icon_rx_chunks = 0;
+
+            printf("[*] Remote RF ICON_START: id='%s' type=%d, %u bytes, %u chunks\n",
+                   g_icon_rx_id, g_icon_rx_type, g_icon_rx_tot_bytes, tot_c);
+
+            if (g_icon_rx_file) {
+                fclose(g_icon_rx_file);
+                g_icon_rx_file = NULL;
+            }
+            g_icon_rx_file = fopen("/tmp/custom_icon_rx.tmp", "wb");
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, g_icon_rx_file ? 0x00 : 0x03);
+            rf_send_frame(&ack);
+            break;
+        }
+
+        case RF_MSG_ICON_CHUNK: {
+            if (!g_icon_rx_file) break;
+            uint16_t c_idx = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
+            uint8_t d_len = f->payload[2];
+            if (d_len > 22) d_len = 22;
+
+            if (d_len > 0) {
+                fwrite(&f->payload[3], 1, d_len, g_icon_rx_file);
+                g_icon_rx_bytes += d_len;
+                g_icon_rx_chunks++;
+            }
+
+            if ((f->flags & RF_FLAG_ACK_REQ) || (c_idx % 4 == 0)) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+                rf_send_frame(&ack);
+            }
+            break;
+        }
+
+        case RF_MSG_ICON_END: {
+            if (!g_icon_rx_file) break;
+            fclose(g_icon_rx_file);
+            g_icon_rx_file = NULL;
+
+            uint16_t expected_crc = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
+
+            /* Verify file integrity via CRC16 */
+            FILE *v = fopen("/tmp/custom_icon_rx.tmp", "rb");
+            uint8_t ack_status = 0x01;
+            if (v) {
+                fseek(v, 0, SEEK_END);
+                long sz = ftell(v);
+                fseek(v, 0, SEEK_SET);
+                if (sz > 0 && sz <= 16384) {
+                    uint8_t *tmp_buf = (uint8_t *)malloc((size_t)sz);
+                    if (tmp_buf) {
+                        if (fread(tmp_buf, 1, (size_t)sz, v) == (size_t)sz) {
+                            uint16_t actual_crc = rf_crc16(tmp_buf, (size_t)sz);
+                            if (actual_crc == expected_crc) {
+                                ack_status = 0x00;
+                            } else {
+                                printf("[-] Icon CRC mismatch: expected 0x%04X, got 0x%04X\n",
+                                       expected_crc, actual_crc);
+                            }
+                        }
+                        free(tmp_buf);
+                    }
+                }
+                fclose(v);
+            }
+
+            if (ack_status == 0x00) {
+                mkdir("/data/assets", 0755);
+                mkdir("/data/assets/custom", 0755);
+                const char *t_prefix = (g_icon_rx_type == 1) ? "device" : (g_icon_rx_type == 2 ? "button" : "activity");
+                char dst_path[128];
+                snprintf(dst_path, sizeof(dst_path), "/data/assets/custom/%s_%s.png", t_prefix, g_icon_rx_id);
+
+                /* Copy to primary and id alias */
+                char cmd[300];
+                snprintf(cmd, sizeof(cmd), "cp -f /tmp/custom_icon_rx.tmp %s && cp -f /tmp/custom_icon_rx.tmp /data/assets/custom/%s.png",
+                         dst_path, g_icon_rx_id);
+                system(cmd);
+                unlink("/tmp/custom_icon_rx.tmp");
+
+                /* Invalidate PNG cache for this icon */
+                for (int i = 0; i < g_png_cache_count; i++) {
+                    if (strstr(g_png_cache[i].path, g_icon_rx_id)) {
+                        g_png_cache[i].path[0] = '\0';
+                    }
+                }
+
+                /* Update active activities list with the new icon */
+                for (int i = 0; i < g_activity_count; i++) {
+                    if (strcmp(g_activities[i].id, g_icon_rx_id) == 0) {
+                        strncpy(g_activities[i].icon_path, dst_path, sizeof(g_activities[i].icon_path) - 1);
+                    }
+                }
+                g_screen_dirty = true;
+                printf("[+] Custom Icon saved to %s and active screen dirtied!\n", dst_path);
+            }
+
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, ack_status);
+            rf_send_frame(&ack);
+            break;
+        }
+
         case RF_MSG_ACK:
             break;
 
@@ -3328,7 +3509,7 @@ static void *rf_rx_worker(void *arg) {
                 /* Validate msg_type range */
                 if ((f.msg_type >= RF_MSG_ACTIVITY_SYNC && f.msg_type <= RF_MSG_STEP_LIST_CHUNK) ||
                     (f.msg_type >= RF_MSG_BUTTON_PRESS && f.msg_type <= RF_MSG_SLEEP_REQ) ||
-                    (f.msg_type >= RF_MSG_OTA_START && f.msg_type <= RF_MSG_OTA_END) ||
+                    (f.msg_type >= RF_MSG_OTA_START && f.msg_type <= RF_MSG_ICON_END) ||
                     f.msg_type == RF_MSG_ACK || f.msg_type == RF_MSG_PING) {
                     g_last_hub_frame_ms = get_monotonic_ms();
                     if (!g_rf_link_connected) {

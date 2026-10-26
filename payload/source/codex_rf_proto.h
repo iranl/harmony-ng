@@ -41,6 +41,11 @@
 #define RF_MSG_OTA_BLOCK_ACK       0x24  /* Remote -> Hub: ACK per block */
 #define RF_MSG_OTA_END             0x25  /* Hub -> Remote: complete / verify checksum */
 
+/* Custom Icon Push (Hub -> Remote) */
+#define RF_MSG_ICON_START          0x26  /* Hub -> Remote: start custom icon transfer */
+#define RF_MSG_ICON_CHUNK          0x27  /* Hub -> Remote: 22-byte icon binary chunk */
+#define RF_MSG_ICON_END            0x28  /* Hub -> Remote: complete / CRC16 verification */
+
 /* Flags */
 #define RF_FLAG_ACK_REQ  0x01
 #define RF_FLAG_IS_ACK   0x02
@@ -80,13 +85,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[4];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
+               (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
     if (len >= 30 && raw[0] == 0x12) {
@@ -94,16 +99,29 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[2];
         return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_OTA_END) ||
+               (t >= RF_MSG_OTA_START && t <= RF_MSG_ICON_END) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
     }
     return 0;
+}
+
+/* Helper: standard CRC16-CCITT for icon/asset validation */
+static inline uint16_t rf_crc16(const uint8_t *data, size_t len) {
+    uint16_t crc = 0xFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= (uint16_t)data[i] << 8;
+        for (int j = 0; j < 8; j++) {
+            if (crc & 0x8000) crc = (crc << 1) ^ 0x1021;
+            else crc <<= 1;
+        }
+    }
+    return crc;
 }
 
 /* Helper: build ACK frame */
