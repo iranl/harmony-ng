@@ -347,7 +347,8 @@ def extract_elite_icons(
             "x",
             f"-o{output_dir}",
             str(temp_squash),
-            r"opt\luadraws\appscommon\asset\*",
+            # Outside Windows, 7-Zip only splits filter paths on "/", so build the filter with the host separator
+            os.path.join("opt", "luadraws", "appscommon", "asset", "*"),
             "-r",
             "-y",
         ]
@@ -367,6 +368,8 @@ def extract_elite_icons(
                 shutil.copy2(png_file, dest)
                 extracted_count += 1
 
+        if extracted_count == 0:
+            raise RuntimeError(f"7-Zip extracted no icons from opt/luadraws/appscommon/asset in {firmware_path.name}")
         print(f"[+] Successfully extracted {extracted_count} icons to: {consolidated_icons_dir}")
 
         if archive_path:
