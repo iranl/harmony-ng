@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control (Codex) API
-  version: 1.3.0
+  version: 1.14.0
   description: |
     REST and WebSocket API for the open-source **Harmony Hub Codex** firmware and **Elite Remote** RF daemon.
     
@@ -42,6 +42,12 @@ tags:
     description: OTA software upgrades and system actions
   - name: Backup & Restore
     description: Configuration bundle export and atomic import
+  - name: Authentication & Users
+    description: Multi-user RBAC management, session inspection, and user account provisioning
+  - name: Custom Icons
+    description: Upload, crop, store, and RF-sync custom PNG icons for activities, devices, and commands
+  - name: UI Remote Layout
+    description: Web and touch UI button mapping and custom layout configuration
 
 paths:
   /health:
@@ -81,6 +87,10 @@ paths:
                 total_kb: 5120
                 free_kb: 1372
                 uptime_sec: 10421
+                updating: false
+                auth_enabled: false
+                role: admin
+                user: admin
                 mqtt:
                   connected: true
                   host: 192.168.1.50
@@ -260,11 +270,274 @@ paths:
                 - gamepad.png
                 - apple_tv.png
 
+  /api/icons/archive:
+    get:
+      tags:
+        - Custom Icons
+      summary: Download full icon archive (tar.gz)
+      description: Returns compressed tarball containing stock and custom icons (/assets/icons.tar.gz).
+      responses:
+        '200':
+          description: Icons tarball stream
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
+  /api/custom-icons:
+    get:
+      tags:
+        - Custom Icons
+      summary: List custom PNG icons
+      description: Returns array of custom uploaded icons stored in /data/codex/custom_icons.
+      responses:
+        '200':
+          description: Custom icons list
+          content:
+            application/json:
+              example:
+                - filename: activity_123456.png
+                  url: /assets/icons/activity_123456.png
+                  size: 4096
+                  type: activity
+                  id: "123456"
+                - filename: custom_appletv.png
+                  url: /assets/icons/custom_appletv.png
+                  size: 3200
+                  type: custom
+                  id: appletv
+    post:
+      tags:
+        - Custom Icons
+      summary: Upload custom PNG icon
+      description: |
+        Uploads base64-encoded PNG image (enforces <= 16 KB size limit) and saves to /data/codex/custom_icons.
+        Automatically notifies codex_rf over local socket (port 8092) to propagate icon to paired Elite remotes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  default: activity
+                  description: Target entity type (activity, device, or custom)
+                id:
+                  type: string
+                  description: Entity identifier or icon identifier
+                name:
+                  type: string
+                  description: Optional custom icon name
+                image_base64:
+                  type: string
+                  description: Base64-encoded PNG data (can also be provided as data)
+              required: [image_base64]
+            example:
+              type: activity
+              id: "123456"
+              name: apple_tv_dark
+              image_base64: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0..."
+      responses:
+        '200':
+          description: Custom icon saved and RF sync triggered
+          content:
+            application/json:
+              example:
+                ok: true
+                filename: custom_apple_tv_dark.png
+                url: /assets/icons/custom_apple_tv_dark.png
+                size: 2840
+        '400':
+          description: Invalid PNG data or missing parameters
+        '500':
+          description: Flash storage write failure
+    delete:
+      tags:
+        - Custom Icons
+      summary: Delete custom PNG icon
+      description: Removes custom icon from persistent storage and flash cache.
+      parameters:
+        - name: filename
+          in: query
+          required: false
+          schema:
+            type: string
+          example: custom_apple_tv_dark.png
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            default: activity
+      responses:
+        '200':
+          description: Custom icon deleted
+          content:
+            application/json:
+              example:
+                ok: true
+                deleted: custom_apple_tv_dark.png
+        '400':
+          description: Invalid or missing icon identifier
+
+  /api/custom-icons/proxy-fetch:
+    get:
+      tags:
+        - Custom Icons
+      summary: Proxy download external image (CORS fallback)
+      description: Downloads external HTTP/HTTPS image via wget on the Hub to bypass browser CORS constraints.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Target external image URL
+          example: "https://example.com/logo.png"
+      responses:
+        '200':
+          description: Downloaded image PNG stream
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid URL scheme
+        '413':
+          description: Image exceeds 2 MB limit
+        '502':
+          description: External download failed
+
+  /api/auth/me:
+    get:
+      tags:
+        - Authentication & Users
+      summary: Get current authenticated session & RBAC status
+      description: Returns active username, role (admin or user), and whether HTTP authentication is enabled.
+      responses:
+        '200':
+          description: Session info retrieved
+          content:
+            application/json:
+              example:
+                ok: true
+                auth_enabled: true
+                username: admin
+                role: admin
+
+  /api/users:
+    get:
+      tags:
+        - Authentication & Users
+      summary: List user accounts (Admin only)
+      description: Returns all configured local HTTP Basic auth user accounts.
+      responses:
+        '200':
+          description: User accounts retrieved
+          content:
+            application/json:
+              example:
+                ok: true
+                auth_enabled: true
+                users:
+                  - username: admin
+                    role: admin
+                  - username: family
+                    role: user
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (Admin role required)
+    post:
+      tags:
+        - Authentication & Users
+      summary: Create or update user account (Admin only)
+      description: Adds a new user account or updates password and role of an existing account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, user]
+                  default: user
+              required: [username]
+            example:
+              username: family
+              password: secretpassword
+              role: user
+      responses:
+        '200':
+          description: User account saved
+          content:
+            application/json:
+              example:
+                ok: true
+                message: User account saved
+        '400':
+          description: Invalid request or payload error
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (Admin role required)
+    delete:
+      tags:
+        - Authentication & Users
+      summary: Delete user account (Admin only)
+      description: Removes a user account. Cannot delete the sole administrator account. Also accepts POST to /api/users/delete.
+      parameters:
+        - name: username
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Username to delete (can also be passed in JSON body)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+            example:
+              username: family
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              example:
+                ok: true
+                message: User deleted
+        '400':
+          description: Cannot delete sole admin account or missing username
+        '404':
+          description: User not found
+
   /api/settings:
     get:
       tags:
         - System & Status
       summary: Global hub settings
+      description: Returns global hub settings. Note that Bluetooth auto-reconnect parameters are configured per-device in /api/inventory.
       responses:
         '200':
           description: Hub configuration
@@ -273,9 +546,6 @@ paths:
               example:
                 ok: true
                 hub_name: Living Room Hub
-                bt_auto_reconnect: true
-                bt_reconnect_duration_sec: 30
-                bt_reconnect_delay_sec: 5
                 dry_run: false
                 ntp_server: pool.ntp.org
                 timezone: Europe/Amsterdam
@@ -284,6 +554,7 @@ paths:
       tags:
         - System & Status
       summary: Save global hub settings
+      description: Updates global hub settings.
       requestBody:
         required: true
         content:
@@ -292,18 +563,12 @@ paths:
               type: object
               properties:
                 hub_name: {type: string}
-                bt_auto_reconnect: {type: boolean}
-                bt_reconnect_duration_sec: {type: integer}
-                bt_reconnect_delay_sec: {type: integer}
                 dry_run: {type: boolean}
                 ntp_server: {type: string}
                 timezone: {type: string}
                 led_mode: {type: string}
             example:
               hub_name: Living Room Hub
-              bt_auto_reconnect: true
-              bt_reconnect_duration_sec: 30
-              bt_reconnect_delay_sec: 5
               dry_run: false
               ntp_server: pool.ntp.org
               timezone: Europe/Amsterdam
@@ -409,6 +674,10 @@ paths:
                 mqttTopic: {type: string}
                 mqttEnabled: {type: boolean}
                 mqttPulse: {type: integer}
+                bt_auto_reconnect: {type: boolean, description: "Auto-reconnect Bluetooth device on activity start"}
+                bt_reconnect_duration_sec: {type: integer, default: 30, description: "Bluetooth reconnect attempt timeout"}
+                bt_reconnect_delay_sec: {type: integer, default: 0, description: "Delay in seconds before attempting Bluetooth reconnection"}
+                transport: {type: string, enum: [ir, bt], default: ir}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
@@ -420,6 +689,9 @@ paths:
               mqttTopic: home/livingroom/tv
               mqttEnabled: true
               mqttPulse: 100
+              bt_auto_reconnect: true
+              bt_reconnect_duration_sec: 30
+              bt_reconnect_delay_sec: 0
       responses:
         '200':
           description: Device saved
@@ -712,6 +984,32 @@ paths:
               example:
                 ok: true
 
+  /api/activity-progress:
+    post:
+      tags:
+        - Activities
+      summary: Broadcast activity switching progress
+      description: Relays transition progress events to WebSocket clients and publishes to MQTT topic harmony/hub/activity/status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example:
+              activityId: "123456"
+              state: switching
+              progress: 50
+              step: 2
+              totalSteps: 4
+      responses:
+        '200':
+          description: Progress broadcasted
+          content:
+            application/json:
+              example:
+                ok: true
+
   /api/activity-save:
     post:
       tags:
@@ -917,6 +1215,98 @@ paths:
                 pulseMs: 100
                 topic: harmony/hub/button/70321456/VolumeUp
                 reply: ok
+
+  /api/bt-mouse:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Send Bluetooth mouse movement, clicks, or scroll
+      description: |
+        Sends HID Report ID 3 mouse packets to the connected host via /tmp/bthid_input.
+        Supports continuous delta streaming or named actions (click, down, up, wheel). Also available under /api/v1/bt/mouse.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dx:
+                  type: integer
+                  description: Relative X movement delta
+                  default: 0
+                dy:
+                  type: integer
+                  description: Relative Y movement delta
+                  default: 0
+                wheel:
+                  type: integer
+                  description: Vertical scroll wheel delta
+                  default: 0
+                buttons:
+                  type: integer
+                  description: Button bitmask (1=Left, 2=Right, 4=Middle)
+                  default: 0
+                action:
+                  type: string
+                  enum: [click, down, up, wheel]
+                  description: Named mouse action
+                button:
+                  type: string
+                  enum: [left, right, middle]
+                  default: left
+                target:
+                  type: string
+                  description: Target Bluetooth host BD_ADDR
+            example:
+              dx: 15
+              dy: -5
+              buttons: 0
+              wheel: 0
+      responses:
+        '200':
+          description: Mouse event processed
+          content:
+            application/json:
+              example:
+                ok: true
+
+  /api/bt/reconnect:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Trigger Bluetooth host reconnection
+      description: Spawns the background reconnect worker (bt_reconnect.sh) to re-establish connection with paired hosts. Also available as /bt/reconnect.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target:
+                  type: string
+                  description: Target BD_ADDR or deviceId (optional, connects all if omitted)
+                duration:
+                  type: integer
+                  description: Connection attempt timeout in seconds
+                  default: 30
+                delay:
+                  type: integer
+                  description: Delay before starting reconnection in seconds
+                  default: 0
+            example:
+              target: "AA:BB:CC:DD:EE:FF"
+              duration: 30
+              delay: 0
+      responses:
+        '200':
+          description: Reconnect triggered
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Bluetooth reconnect triggered
 
   /api/bt-status:
     get:
@@ -1203,6 +1593,301 @@ paths:
               example:
                 status: pairing_started
 
+  /api/rf/sleep:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Put paired Elite remote to sleep (Suspend-to-RAM)
+      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered Elite remotes.
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+          description: Remote slot (0 for all active remotes, 1 for slot 1, 2 for slot 2)
+      responses:
+        '200':
+          description: Sleep command dispatched
+          content:
+            application/json:
+              example:
+                status: sleep_dispatched
+                slot: 1
+                sent: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Put paired Elite remote to sleep (POST)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+      responses:
+        '200':
+          description: Sleep command dispatched
+          content:
+            application/json:
+              example:
+                status: sleep_dispatched
+                slot: 1
+                sent: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+
+  /api/rf/push-icon:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Push custom icon to Elite remote over RF
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Activity or device identifier
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            default: activity
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+      responses:
+        '200':
+          description: Icon push dispatched
+          content:
+            application/json:
+              example:
+                status: icon_pushed
+                id: "123456"
+                pushed: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Push custom icon to Elite remote over RF (POST)
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            default: activity
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2]
+            default: 0
+      responses:
+        '200':
+          description: Icon push dispatched
+          content:
+            application/json:
+              example:
+                status: icon_pushed
+                id: "123456"
+                pushed: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+
+  /api/rf/pull-config:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Request configuration pull from remote slot
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Pull request sent
+          content:
+            application/json:
+              example:
+                status: config_pulled
+                slot: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Request configuration pull from remote slot (POST)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Pull request sent
+          content:
+            application/json:
+              example:
+                status: config_pulled
+                slot: 1
+                ok: true
+        '409':
+          description: RF OTA update in progress
+
+  /api/rf/remote-direct-buttons:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Get touchscreen direct command button grid
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Direct button grid definition
+          content:
+            application/json:
+              example:
+                page1: []
+                page2: []
+                buttons: {}
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Save touchscreen direct command button grid
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example:
+              page1:
+                - id: "1"
+                  label: Netflix
+                  cmd: LaunchNetflix
+              page2: []
+              buttons: {}
+      responses:
+        '200':
+          description: Saved and pushed if remote is in direct mode
+          content:
+            application/json:
+              example:
+                status: saved
+                ok: true
+        '409':
+          description: RF OTA update in progress
+
+  /api/rf/log-level:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Query or update RF daemon log level
+      parameters:
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2, 3, 4]
+          description: Log level (0=NONE, 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG)
+      responses:
+        '200':
+          description: Current or updated log level
+          content:
+            application/json:
+              example:
+                ok: true
+                log_level: 3
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Query or update RF daemon log level (POST)
+      parameters:
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [0, 1, 2, 3, 4]
+      responses:
+        '200':
+          description: Updated log level
+          content:
+            application/json:
+              example:
+                ok: true
+                log_level: 3
+
+  /api/rf/send:
+    get:
+      tags:
+        - RF & Elite Remote
+      summary: Transmit raw RF hex frame
+      parameters:
+        - name: hex
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "120150000000000000000000000000000000000000000000000000000000"
+      responses:
+        '200':
+          description: Raw frame transmitted
+          content:
+            application/json:
+              example:
+                ok: true
+                sent_hex: "120150..."
+        '409':
+          description: RF OTA update in progress
+
   /api/rf/stop-pair:
     get:
       tags:
@@ -1400,6 +2085,43 @@ paths:
                 ok: true
         '409':
           description: Update already in progress
+
+  /api/ui-remote-layout:
+    get:
+      tags:
+        - UI Remote Layout
+      summary: Get customized web and touch UI remote button layouts
+      description: Retrieves layout definitions stored in /data/codex/web_remote_layouts.json.
+      responses:
+        '200':
+          description: Layout configuration
+          content:
+            application/json:
+              example:
+                ok: true
+                layouts: {}
+    post:
+      tags:
+        - UI Remote Layout
+      summary: Save web and touch UI remote button layout configuration
+      description: Persists layout definitions to /data/codex/web_remote_layouts.json.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+            example:
+              layouts:
+                "123456":
+                  grid: []
+      responses:
+        '200':
+          description: Layout configuration saved
+          content:
+            application/json:
+              example:
+                ok: true
 
   /api/elite-mapping:
     get:
@@ -1718,3 +2440,13 @@ paths:
             application/json:
               example:
                 ok: true
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        HTTP Basic Authentication for multi-user RBAC.
+        When authentication is enabled on the Hub, requests must supply the `Authorization: Basic <base64(user:pass)>` header.
+        Users can have `admin` (full access) or `user` (restricted access: start/stop activities, control devices, trigger keys/mouse, customize personal remote layout) roles.
