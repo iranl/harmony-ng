@@ -482,6 +482,8 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         const char *h = hex;
         if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
         unsigned long val = strtoul(h, NULL, 16);
+        /* Harmony "RC5 13 Bit" codes omit the first start bit, which is always 1 */
+        val |= 0x2000;
         /* RC-5 Manchester encoding: 14 bits */
         int half_bits[28];
         for (int b = 0; b < 14; b++) {
@@ -494,9 +496,10 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                 half_bits[b * 2 + 1] = 0;
             }
         }
-        int cur_level = half_bits[0];
+        /* The start bit's first half is idle line; timings must begin with a pulse */
+        int cur_level = half_bits[1];
         uint32_t cur_dur = 889;
-        for (int i = 1; i < 28; i++) {
+        for (int i = 2; i < 28; i++) {
             if (half_bits[i] == cur_level) {
                 cur_dur += 889;
             } else {
@@ -505,9 +508,12 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                 cur_dur = 889;
             }
         }
-        timings[timing_count++] = cur_dur;
+        /* Pad the frame to the 113.8 ms RC-5 repeat period */
         if (cur_level == 1) {
+            timings[timing_count++] = cur_dur;
             timings[timing_count++] = 88900;
+        } else {
+            timings[timing_count++] = cur_dur + 88900;
         }
     } else {
         /* Standard NEC 32-bit / fallback */
