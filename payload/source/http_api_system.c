@@ -502,6 +502,25 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddBoolToObject(cfg, "btRemoteEvents", btr_val);
             }
 
+            cJSON *p_btrt = cJSON_GetObjectItemCaseSensitive(params, "btRemoteTopic");
+            if (p_btrt && cJSON_IsString(p_btrt)) {
+                cJSON_DeleteItemFromObject(cfg, "btRemoteTopic");
+                cJSON_AddStringToObject(cfg, "btRemoteTopic", p_btrt->valuestring);
+            }
+
+            cJSON *p_el = cJSON_GetObjectItemCaseSensitive(params, "eliteRemoteEvents");
+            if (p_el) {
+                int el_val = cJSON_IsTrue(p_el) || (cJSON_IsNumber(p_el) && p_el->valueint > 0) || (cJSON_IsString(p_el) && (strcmp(p_el->valuestring, "1") == 0 || strcasecmp(p_el->valuestring, "true") == 0));
+                cJSON_DeleteItemFromObject(cfg, "eliteRemoteEvents");
+                cJSON_AddBoolToObject(cfg, "eliteRemoteEvents", el_val);
+            }
+
+            cJSON *p_elt = cJSON_GetObjectItemCaseSensitive(params, "eliteRemoteTopic");
+            if (p_elt && cJSON_IsString(p_elt)) {
+                cJSON_DeleteItemFromObject(cfg, "eliteRemoteTopic");
+                cJSON_AddStringToObject(cfg, "eliteRemoteTopic", p_elt->valuestring);
+            }
+
             cJSON_DeleteItemFromObject(cfg, "pollSeconds");
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");

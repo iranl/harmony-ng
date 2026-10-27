@@ -2114,6 +2114,32 @@
         <div id="b25PairLog" class="muted mini" style="margin-top: 6px;"></div>
       </div>
 
+      <!-- Bluetooth Remote MQTT Mirroring Card -->
+      <div class="card" style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 15px;" data-i18n="bt_mqtt_mirroring">MQTT Button Mirroring</h3>
+          <span id="btMqttStatusBadge" class="badge">MQTT</span>
+        </div>
+        <div class="help" data-i18n="bt_mqtt_help">Mirror physical Bluetooth remote button presses to MQTT for Home Assistant automations.</div>
+        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="btRemoteMqttEnabled">
+            <strong data-i18n="enable_bt_mqtt">Mirror Bluetooth remote button presses to MQTT</strong>
+          </label>
+          <div id="btMqttTopicWrap" class="row" style="margin-top: 2px;">
+            <div style="flex: 1;">
+              <label for="btRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
+              <input id="btRemoteMqttTopic" class="form-control" placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button}/state)">
+              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code> placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}/state</code>.</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <button id="btMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT Settings</button>
+            <span id="btMqttSaveStatus" class="subtle mini"></span>
+          </div>
+        </div>
+      </div>
+
       <div id="b25ControlsWrapper">
         <!-- Activity Context & Save Toolbar -->
         <div class="card" id="b25ActivityCard" style="margin-bottom: 14px;">
@@ -2681,6 +2707,32 @@
         </div>
       </div>
 
+      <!-- Elite Remote MQTT Mirroring Card -->
+      <div class="card" style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 15px;" data-i18n="elite_mqtt_mirroring">MQTT Button Mirroring</h3>
+          <span id="eliteMqttStatusBadge" class="badge">MQTT</span>
+        </div>
+        <div class="help" data-i18n="elite_mqtt_help">Mirror physical Harmony Elite button presses to MQTT for Home Assistant automations.</div>
+        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="eliteRemoteMqttEnabled">
+            <strong data-i18n="enable_elite_mqtt">Mirror Elite button presses to MQTT</strong>
+          </label>
+          <div id="eliteMqttTopicWrap" class="row" style="margin-top: 2px;">
+            <div style="flex: 1;">
+              <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
+              <input id="eliteRemoteMqttTopic" class="form-control" placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/elite/{button}/state)">
+              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code> placeholder or defaults to <code>{baseTopic}/remotes/elite/{button}/state</code>.</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <button id="eliteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT Settings</button>
+            <span id="eliteMqttSaveStatus" class="subtle mini"></span>
+          </div>
+        </div>
+      </div>
+
       <!-- Activity Context & Save Toolbar -->
       <div class="card" id="eliteActivitySelectCard" style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -3066,10 +3118,6 @@
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
               <input type="checkbox" id="mqttHaDiscovery" name="haDiscovery" value="1" checked>
               <span>Create Home Assistant entities automatically</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="mqttBtEvents" name="btRemoteEvents" value="1">
-              <span>Publish physical Bluetooth remote buttons to MQTT</span>
             </label>
           </div>
 

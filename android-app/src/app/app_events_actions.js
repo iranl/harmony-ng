@@ -214,6 +214,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('b25ScanBtn')?.addEventListener('click', () => this.scanB25Remote());
     document.getElementById('b25PairBtn')?.addEventListener('click', () => this.pairB25Remote());
     document.getElementById('b25RefreshBtn')?.addEventListener('click', () => this.loadRemotesView());
+    document.getElementById('btMqttSaveBtn')?.addEventListener('click', () => this.saveBtRemoteMqttSettings());
 
     // Harmony Elite Remote Buttons
     document.querySelectorAll('.elite-hotspot').forEach(btn => {
@@ -275,6 +276,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
     document.getElementById('rfSlot1UpdateBtn')?.addEventListener('click', () => this.startEliteOta(1));
     document.getElementById('rfSlot2UpdateBtn')?.addEventListener('click', () => this.startEliteOta(2));
+    document.getElementById('eliteMqttSaveBtn')?.addEventListener('click', () => this.saveEliteRemoteMqttSettings());
 
     // MQTT Actions
     document.getElementById('mqttSaveBtn')?.addEventListener('click', () => this.saveMqttSettings());

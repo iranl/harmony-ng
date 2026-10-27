@@ -162,7 +162,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
         name: data.name || cfg.name || 'Harmony Hub',
         keepAlive: data.keepAlive || cfg.keepAlive || 60,
         haDiscovery: data.haDiscovery !== undefined ? Boolean(data.haDiscovery) : (cfg.haDiscovery !== undefined ? Boolean(cfg.haDiscovery) : true),
-        btRemoteEvents: Boolean(data.btRemoteEvents || cfg.btRemoteEvents)
+        btRemoteEvents: Boolean(data.btRemoteEvents !== undefined ? data.btRemoteEvents : (cfg.btRemoteEvents !== undefined ? cfg.btRemoteEvents : false)),
+        btRemoteTopic: data.btRemoteTopic || cfg.btRemoteTopic || '',
+        eliteRemoteEvents: Boolean(data.eliteRemoteEvents !== undefined ? data.eliteRemoteEvents : (cfg.eliteRemoteEvents !== undefined ? cfg.eliteRemoteEvents : true)),
+        eliteRemoteTopic: data.eliteRemoteTopic || cfg.eliteRemoteTopic || ''
       }
     };
   }

@@ -31,6 +31,10 @@ static char g_mqtt_user[256] = "";
 static char g_mqtt_pass[256] = "";
 static int  g_mqtt_ha_discovery = 1;
 static int  g_mqtt_enabled = 0;
+static int  g_mqtt_bt_events = 0;
+static char g_mqtt_bt_topic[160] = "";
+static int  g_mqtt_elite_events = 1;
+static char g_mqtt_elite_topic[160] = "";
 static char g_status_topic[160] = "harmony/hub/status";
 static char g_state_topic[160] = "harmony/hub/state";
 
@@ -147,6 +151,32 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
         g_mqtt_ha_discovery = cJSON_IsTrue(ha) ? 1 : 0;
     } else {
         g_mqtt_ha_discovery = 1;
+    }
+
+    cJSON *bte = cJSON_GetObjectItemCaseSensitive(root, "btRemoteEvents");
+    g_mqtt_bt_events = (bte && (cJSON_IsTrue(bte) || (cJSON_IsNumber(bte) && bte->valueint > 0))) ? 1 : 0;
+
+    cJSON *btt = cJSON_GetObjectItemCaseSensitive(root, "btRemoteTopic");
+    if (btt && cJSON_IsString(btt) && btt->valuestring) {
+        strncpy(g_mqtt_bt_topic, btt->valuestring, sizeof(g_mqtt_bt_topic) - 1);
+        g_mqtt_bt_topic[sizeof(g_mqtt_bt_topic) - 1] = '\0';
+    } else {
+        g_mqtt_bt_topic[0] = '\0';
+    }
+
+    cJSON *ele = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteEvents");
+    if (ele) {
+        g_mqtt_elite_events = (cJSON_IsTrue(ele) || (cJSON_IsNumber(ele) && ele->valueint > 0)) ? 1 : 0;
+    } else {
+        g_mqtt_elite_events = 1;
+    }
+
+    cJSON *elt = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteTopic");
+    if (elt && cJSON_IsString(elt) && elt->valuestring) {
+        strncpy(g_mqtt_elite_topic, elt->valuestring, sizeof(g_mqtt_elite_topic) - 1);
+        g_mqtt_elite_topic[sizeof(g_mqtt_elite_topic) - 1] = '\0';
+    } else {
+        g_mqtt_elite_topic[0] = '\0';
     }
 
     snprintf(g_status_topic, sizeof(g_status_topic), "%s/status", g_mqtt_base_topic);
@@ -476,6 +506,77 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
         topic[sizeof(topic) - 1] = '\0';
     } else {
         snprintf(topic, sizeof(topic), "%s/button/%s/%s/state", g_mqtt_base_topic, safe_dev, safe_cmd);
+    }
+
+    if (out_topic && out_topic_len > 0) {
+        strncpy(out_topic, topic, out_topic_len - 1);
+        out_topic[out_topic_len - 1] = '\0';
+    }
+    if (out_pulse_ms) {
+        *out_pulse_ms = (req_pulse_ms > 0) ? req_pulse_ms : 1000;
+    }
+
+    mqtt_publish(topic, "ON", 0);
+    queue_pulse_off(topic);
+    return 0;
+}
+
+static void format_button_topic(const char *tpl, const char *default_prefix, const char *safe_cmd, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    if (tpl && tpl[0]) {
+        const char *pbtn = strstr(tpl, "{button}");
+        if (!pbtn) pbtn = strstr(tpl, "{command}");
+        if (pbtn) {
+            size_t pre_len = (size_t)(pbtn - tpl);
+            const char *post = pbtn + (strstr(tpl, "{button}") ? 8 : 9);
+            snprintf(out, out_sz, "%.*s%s%s", (int)pre_len, tpl, safe_cmd, post);
+            return;
+        }
+        size_t tlen = strlen(tpl);
+        if (tpl[tlen - 1] == '/') {
+            snprintf(out, out_sz, "%s%s/state", tpl, safe_cmd);
+        } else {
+            snprintf(out, out_sz, "%s/%s/state", tpl, safe_cmd);
+        }
+    } else {
+        snprintf(out, out_sz, "%s/%s/%s/state", g_mqtt_base_topic, default_prefix, safe_cmd);
+    }
+}
+
+int mqtt_dispatch_remote_button(const char *source, const char *action, const char *cmd_name,
+                                const char *topic_in, int req_pulse_ms,
+                                char *out_topic, size_t out_topic_len, int *out_pulse_ms) {
+    if (!mqtt_is_connected()) return -1;
+    if (!cmd_name || !cmd_name[0]) return -1;
+
+    /* Ignore button releases to prevent duplicate pulses */
+    if (action && (strcasecmp(action, "release") == 0 || strcasecmp(action, "up") == 0)) {
+        return 0;
+    }
+
+    int is_elite = (source && (strcasecmp(source, "elite_rf") == 0 || strcasecmp(source, "elite") == 0));
+    int is_bt = (source && (strcasecmp(source, "bt_remote") == 0 || strcasecmp(source, "bt") == 0));
+
+    if (is_elite && !g_mqtt_elite_events) {
+        return 1; /* disabled */
+    }
+    if (is_bt && !g_mqtt_bt_events) {
+        return 1; /* disabled */
+    }
+
+    char safe_cmd[128] = {0};
+    safe_id(cmd_name, safe_cmd, sizeof(safe_cmd));
+
+    char topic[256];
+    if (topic_in && topic_in[0]) {
+        strncpy(topic, topic_in, sizeof(topic) - 1);
+        topic[sizeof(topic) - 1] = '\0';
+    } else if (is_elite) {
+        format_button_topic(g_mqtt_elite_topic, "remotes/elite", safe_cmd, topic, sizeof(topic));
+    } else if (is_bt) {
+        format_button_topic(g_mqtt_bt_topic, "remotes/bt", safe_cmd, topic, sizeof(topic));
+    } else {
+        snprintf(topic, sizeof(topic), "%s/button/device/%s/state", g_mqtt_base_topic, safe_cmd);
     }
 
     if (out_topic && out_topic_len > 0) {

@@ -83,6 +83,23 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       console.warn('Services check failed:', e);
     }
 
+    try {
+      const mqRes = await this.client.getMqttStatus().catch(() => null);
+      if (mqRes && mqRes.config) {
+        const enCb = document.getElementById('eliteRemoteMqttEnabled');
+        const topIn = document.getElementById('eliteRemoteMqttTopic');
+        const badge = document.getElementById('eliteMqttStatusBadge');
+        if (enCb) enCb.checked = Boolean(mqRes.config.eliteRemoteEvents !== undefined ? mqRes.config.eliteRemoteEvents : true);
+        if (topIn) topIn.value = mqRes.config.eliteRemoteTopic || '';
+        if (badge) {
+          badge.textContent = mqRes.connected ? 'CONNECTED' : (mqRes.enabled ? 'ONLINE' : 'MQTT OFF');
+          badge.className = 'badge ' + (mqRes.connected ? 'ok' : 'subtle');
+        }
+      }
+    } catch (e) {
+      console.warn('MQTT status check failed:', e);
+    }
+
     const sel = document.getElementById('eliteActivitySelect');
     const prevActVal = this.eliteSelectedActivityId || sel?.value || '-1';
     const filteredActs = (this.activitiesData.activities || []).filter(a => {
@@ -616,6 +633,20 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       command: firstCmd
     });
     this.renderEliteScreenButtons();
+  }
+
+  async saveEliteRemoteMqttSettings() {
+    const status = document.getElementById('eliteMqttSaveStatus');
+    const enabled = document.getElementById('eliteRemoteMqttEnabled')?.checked ? 1 : 0;
+    const topic = document.getElementById('eliteRemoteMqttTopic')?.value.trim() || '';
+    try {
+      if (status) status.textContent = 'Saving...';
+      await this.client.saveMqtt({ eliteRemoteEvents: enabled, eliteRemoteTopic: topic });
+      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+    } catch (err) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+    }
   }
 
 }

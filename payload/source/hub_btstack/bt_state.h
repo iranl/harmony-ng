@@ -49,6 +49,7 @@ extern "C" {
 #define PID_FILE            "/tmp/hub_btstack.pid"
 #define STATUS_FILE         "/tmp/hub_btstack_status.json"
 #define LOG_FILE            "/tmp/hub-btstack.log"
+#define DAEMON_PORT         8089
 #define BT_EVENT_FILE       "/tmp/bt_remote_events.log"
 #define MAP_FILE            "/data/harmony/bt_remote_map.json"
 #define CURRENT_ACT_FILE    "/data/harmony/current_activity"

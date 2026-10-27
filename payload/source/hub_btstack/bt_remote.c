@@ -111,7 +111,7 @@ void trigger_http_post(const char *endpoint, const char *json_body) {
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(8080);
+    addr.sin_port = htons(DAEMON_PORT);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);
@@ -121,11 +121,11 @@ void trigger_http_post(const char *endpoint, const char *json_body) {
     size_t blen = json_body ? strlen(json_body) : 0;
     snprintf(req, sizeof(req),
              "POST %s HTTP/1.1\r\n"
-             "Host: 127.0.0.1:8080\r\n"
+             "Host: 127.0.0.1:%d\r\n"
              "Content-Type: application/json\r\n"
              "Content-Length: %zu\r\n"
              "Connection: close\r\n\r\n%s",
-             endpoint, blen, json_body ? json_body : "");
+             endpoint, DAEMON_PORT, blen, json_body ? json_body : "");
     ssize_t w = write(fd, req, strlen(req));
     (void)w;
     close(fd);
@@ -332,6 +332,13 @@ void dispatch_button_event(const char *btn, int is_press) {
         char msg[160];
         snprintf(msg, sizeof(msg), "Button pressed: %s", btn);
         hub_bt_log_debug(msg);
+
+        /* Forward raw button event to daemon for MQTT (fire and forget) */
+        char mqtt_body[256];
+        snprintf(mqtt_body, sizeof(mqtt_body),
+                 "{\"command\":\"%s\",\"action\":\"press\",\"source\":\"bt_remote\"}",
+                 btn);
+        trigger_http_post("/api/button-press", mqtt_body);
     } else {
         FILE *ef = fopen(BT_EVENT_FILE, "a");
         if (ef) {

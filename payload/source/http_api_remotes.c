@@ -286,6 +286,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         char dev_id[64] = {0};
         char dev_name[128] = {0};
         char cmd_name[128] = {0};
+        char req_source[32] = {0};
+        char req_action[32] = {0};
         int req_pulse_ms = 0;
         char req_topic[256] = {0};
 
@@ -300,7 +302,14 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             if (jdev && cJSON_IsString(jdev) && jdev->valuestring) strncpy(dev_name, jdev->valuestring, sizeof(dev_name) - 1);
 
             cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(req_j, "command");
+            if (!jcmd) jcmd = cJSON_GetObjectItemCaseSensitive(req_j, "button");
             if (jcmd && cJSON_IsString(jcmd) && jcmd->valuestring) strncpy(cmd_name, jcmd->valuestring, sizeof(cmd_name) - 1);
+
+            cJSON *jsrc = cJSON_GetObjectItemCaseSensitive(req_j, "source");
+            if (jsrc && cJSON_IsString(jsrc) && jsrc->valuestring) strncpy(req_source, jsrc->valuestring, sizeof(req_source) - 1);
+
+            cJSON *jact = cJSON_GetObjectItemCaseSensitive(req_j, "action");
+            if (jact && cJSON_IsString(jact) && jact->valuestring) strncpy(req_action, jact->valuestring, sizeof(req_action) - 1);
 
             cJSON *jtop = cJSON_GetObjectItemCaseSensitive(req_j, "topic");
             if (!jtop) jtop = cJSON_GetObjectItemCaseSensitive(req_j, "mqttTopic");
@@ -318,21 +327,36 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             return 1;
         }
 
-        if (!dev_name[0]) {
-            if (dev_id[0]) strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
-            else strncpy(dev_name, "device", sizeof(dev_name) - 1);
-        }
-
         char final_topic[256] = {0};
         int final_pulse_ms = 0;
-        int mrc = mqtt_dispatch_button_pulse_topic(dev_id, dev_name, cmd_name, req_topic[0] ? req_topic : NULL, req_pulse_ms,
-                                                  final_topic, sizeof(final_topic), &final_pulse_ms);
+        int mrc = -1;
+
+        if (req_source[0]) {
+            mrc = mqtt_dispatch_remote_button(req_source, req_action, cmd_name, req_topic[0] ? req_topic : NULL, req_pulse_ms,
+                                              final_topic, sizeof(final_topic), &final_pulse_ms);
+        } else {
+            if (!dev_name[0]) {
+                if (dev_id[0]) strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
+                else strncpy(dev_name, "device", sizeof(dev_name) - 1);
+            }
+            mrc = mqtt_dispatch_button_pulse_topic(dev_id, dev_name, cmd_name, req_topic[0] ? req_topic : NULL, req_pulse_ms,
+                                                   final_topic, sizeof(final_topic), &final_pulse_ms);
+        }
+
         if (mrc == 0) {
             cJSON *resp_j = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp_j, "ok", 1);
+            cJSON_AddBoolToObject(resp_j, "mirrored", 1);
             cJSON_AddNumberToObject(resp_j, "pulseMs", final_pulse_ms);
             cJSON_AddStringToObject(resp_j, "topic", final_topic);
             cJSON_AddStringToObject(resp_j, "reply", "ok");
+            send_cjson_resp(client_fd, 200, resp_j);
+            cJSON_Delete(resp_j);
+        } else if (mrc == 1) {
+            cJSON *resp_j = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp_j, "ok", 1);
+            cJSON_AddBoolToObject(resp_j, "mirrored", 0);
+            cJSON_AddStringToObject(resp_j, "message", "MQTT button mirroring disabled for source");
             send_cjson_resp(client_fd, 200, resp_j);
             cJSON_Delete(resp_j);
         } else {

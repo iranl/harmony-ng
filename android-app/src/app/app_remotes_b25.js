@@ -81,6 +81,19 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       }
       const st = stRes.status === 'fulfilled' ? stRes.value : null;
       this.updateB25StatusUI(st);
+
+      const mqRes = await this.client.getMqttStatus().catch(() => null);
+      if (mqRes && mqRes.config) {
+        const enCb = document.getElementById('btRemoteMqttEnabled');
+        const topIn = document.getElementById('btRemoteMqttTopic');
+        const badge = document.getElementById('btMqttStatusBadge');
+        if (enCb) enCb.checked = Boolean(mqRes.config.btRemoteEvents);
+        if (topIn) topIn.value = mqRes.config.btRemoteTopic || '';
+        if (badge) {
+          badge.textContent = mqRes.connected ? 'CONNECTED' : (mqRes.enabled ? 'ONLINE' : 'MQTT OFF');
+          badge.className = 'badge ' + (mqRes.connected ? 'ok' : 'subtle');
+        }
+      }
     } catch {}
 
     this.selectB25Button(this.b25SelectedBtn || 'power', false);
@@ -311,6 +324,20 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       if (log) log.textContent = `Paired with ${addr}!`;
     } catch (err) {
       if (log) log.textContent = 'Pairing failed: ' + err.message;
+    }
+  }
+
+  async saveBtRemoteMqttSettings() {
+    const status = document.getElementById('btMqttSaveStatus');
+    const enabled = document.getElementById('btRemoteMqttEnabled')?.checked ? 1 : 0;
+    const topic = document.getElementById('btRemoteMqttTopic')?.value.trim() || '';
+    try {
+      if (status) status.textContent = 'Saving...';
+      await this.client.saveMqtt({ btRemoteEvents: enabled, btRemoteTopic: topic });
+      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+    } catch (err) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
     }
   }
 

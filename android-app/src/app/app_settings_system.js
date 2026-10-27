@@ -73,7 +73,6 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         document.getElementById('mqttName').value = st.config.name || 'Harmony Hub';
         document.getElementById('mqttKeepAlive').value = st.config.keepAlive || 60;
         document.getElementById('mqttHaDiscovery').checked = Boolean(st.config.haDiscovery);
-        document.getElementById('mqttBtEvents').checked = Boolean(st.config.btRemoteEvents);
       }
     } catch (err) {
       if (badge) badge.textContent = 'Offline';
@@ -94,8 +93,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       clientId: document.getElementById('mqttClientId')?.value.trim(),
       name: document.getElementById('mqttName')?.value.trim(),
       keepAlive: Number(document.getElementById('mqttKeepAlive')?.value) || 60,
-      haDiscovery: document.getElementById('mqttHaDiscovery')?.checked ? 1 : 0,
-      btRemoteEvents: document.getElementById('mqttBtEvents')?.checked ? 1 : 0
+      haDiscovery: document.getElementById('mqttHaDiscovery')?.checked ? 1 : 0
     };
 
     try {
