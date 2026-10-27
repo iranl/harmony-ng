@@ -45,12 +45,13 @@ void render_header(void) {
     }
     fb_draw_text_aa(10, 9, title, RGB_WHITE, &g_font_title);
 
-    if (g_update_config_available || g_update_ota_available) {
+    bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+    if (g_update_config_available || ota_avail) {
         int notif_x = 76;
         int notif_y = 9;
         int notif_w = 18;
         int notif_h = 16;
-        uint16_t n_bg = g_update_ota_available ? RGB_YELLOW : RGB_TEAL;
+        uint16_t n_bg = ota_avail ? RGB_YELLOW : RGB_TEAL;
         uint16_t n_fg = RGB_BLACK;
 
         fb_fill_rect(notif_x, notif_y, notif_w, notif_h, n_bg);

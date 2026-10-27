@@ -3,6 +3,7 @@
 #include "rf_spi.h"
 #include "rf_keymap.h"
 #include "rf_ota.h"
+#include "harmony_version.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -260,13 +261,13 @@ uint8_t rf_check_update_flags(uint8_t slot) {
     uint8_t flags = 0;
     int idx = (slot == 2) ? 1 : 0;
 
-    /* 1. Config update check: Hub config_version differs from remote reported config_version */
+    /* 1. Config update check: Hub config_version is newer than remote reported config_version */
     if (g_config_version > 0 && g_remote_versions[idx].config_version > 0 &&
-        g_remote_versions[idx].config_version != g_config_version) {
+        g_config_version > g_remote_versions[idx].config_version) {
         flags |= 0x01;
     }
 
-    /* 2. OTA update check: Hub has OTA file in /cache or /data */
+    /* 2. OTA update check: Hub has OTA file in /cache or /data with higher version than remote */
     const char *ota_path = "/cache/elite_ui.ota.gz";
     if (access(ota_path, R_OK) != 0) ota_path = "/data/elite_ui.ota.gz";
     if (access(ota_path, R_OK) == 0) {
@@ -277,14 +278,11 @@ uint8_t rf_check_update_flags(uint8_t slot) {
             if (fgets(ota_ver, sizeof(ota_ver), vf)) {
                 char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
                 nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
-                if (strcmp(g_remote_versions[idx].sw_version, "unknown") == 0 ||
-                    strcmp(g_remote_versions[idx].sw_version, ota_ver) != 0) {
+                if (harmony_version_compare(ota_ver, g_remote_versions[idx].sw_version) > 0) {
                     flags |= 0x02;
                 }
             }
             fclose(vf);
-        } else {
-            flags |= 0x02;
         }
     }
     return flags;

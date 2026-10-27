@@ -83,8 +83,9 @@ static void render_settings_categories(void) {
         fb_draw_text_aa(text_x, y + 3, cat_names[i], is_sel ? RGB_WHITE : RGB_CYAN, &g_font_title);
         fb_draw_text_aa(text_x, y + 19, cat_descs[i], RGB_TEXT_MUTED, &g_font_main);
 
-        if (i == 5 && (g_update_config_available || g_update_ota_available)) {
-            uint16_t ucol = g_update_ota_available ? RGB_YELLOW : RGB_TEAL;
+        bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+        if (i == 5 && (g_update_config_available || ota_avail)) {
+            uint16_t ucol = ota_avail ? RGB_YELLOW : RGB_TEAL;
             fb_draw_text_aa(FB_WIDTH - 64, y + 10, "[UPDATE]", ucol, &g_font_main);
         } else {
             fb_draw_text_aa(FB_WIDTH - 20, y + 9, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_title);
@@ -291,16 +292,17 @@ static void render_settings_update(void) {
     if (g_hub_config_version > 0) {
         snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: v%d %s",
                  g_hub_config_version,
-                 (g_hub_config_version != g_config_version) ? "[NEW]" : "[OK]");
+                 (g_hub_config_version > g_config_version) ? "[NEW]" : "[OK]");
     } else {
         snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: [UNKNOWN]");
     }
     fb_draw_text_aa(16, start_y + 42, hub_cfg_str,
-                    (g_hub_config_version != g_config_version && g_hub_config_version > 0) ? RGB_TEAL : RGB_TEXT_MUTED,
+                    (g_hub_config_version > g_config_version) ? RGB_TEAL : RGB_TEXT_MUTED,
                     &g_font_main);
 
     char hub_ota_str[48];
-    if (g_update_ota_available) {
+    bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+    if (ota_avail) {
         snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub OTA: %s [READY]",
                  g_hub_ota_version[0] ? g_hub_ota_version : "Update");
         fb_draw_text_aa(16, start_y + 59, hub_ota_str, RGB_YELLOW, &g_font_main);
@@ -346,7 +348,7 @@ static void render_settings_update(void) {
 
         if (i == 0 && g_update_config_available) {
             fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_TEAL, &g_font_main);
-        } else if (i == 1 && g_update_ota_available) {
+        } else if (i == 1 && ota_avail) {
             fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_YELLOW, &g_font_main);
         } else if (!is_back) {
             fb_draw_text_aa(FB_WIDTH - 20, y + 7, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_main);

@@ -578,13 +578,14 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       const hubBanner = document.getElementById('hubUpdateBanner');
       if (hubBanner) {
         const localVer = updateStat?.current_version || updateStat?.version || '';
-        const hasOnlineUpdate = Boolean(this.onlineVersion && localVer && this.isVersionOlder(localVer, this.onlineVersion));
-        const isUpdateAvail = Boolean(updateStat?.update_available || hasOnlineUpdate);
+        const targetRemote = this.onlineVersion || updateStat?.remote_version || '';
+        const hasOnlineUpdate = Boolean(targetRemote && localVer && this.isVersionOlder(localVer, targetRemote));
+        const isUpdateAvail = Boolean(hasOnlineUpdate || (updateStat?.update_available && (!targetRemote || (localVer && this.isVersionOlder(localVer, targetRemote)))));
         if (isUpdateAvail && !updateStat?.updating) {
           hubBanner.style.display = 'flex';
           const title = document.getElementById('hubUpdateTitle');
           const desc = document.getElementById('hubUpdateDesc');
-          const targetVer = this.onlineVersion || updateStat?.remote_version || 'New';
+          const targetVer = targetRemote || 'New';
           if (title) title.textContent = `Hub Software Update Available (v${targetVer.replace(/^v/, '')})`;
           if (desc) desc.textContent = `Installed: v${localVer.replace(/^v/, '') || 'current'} • Tap to view and install.`;
         } else {

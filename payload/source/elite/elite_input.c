@@ -150,7 +150,8 @@ void handle_screen_touch_tap(int x, int y) {
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
     if (is_tap && y < 38) {
-        if ((g_update_config_available || g_update_ota_available) && x >= 70 && x <= 130) {
+        bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+        if ((g_update_config_available || ota_avail) && x >= 70 && x <= 130) {
             printf("[*] Touch tap on update badge -> jump to UPDATE & SYNC\n");
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_UPDATE;

@@ -73,7 +73,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       } catch (_) { }
 
       const localVer = stat.local_version || ('v' + (sys.version || APP_VERSION));
-      const hasUpdate = stat.update_available || (remoteVer && !localVer.includes(remoteVer.replace(/^v/, '')));
+      const targetRemote = remoteVer || stat.remote_version || '';
+      const hasUpdate = Boolean(targetRemote && localVer && this.isVersionOlder(localVer, targetRemote));
 
       if (log) {
         log.textContent = `Hub Firmware: ${sys.firmware || stat.fw_version || '4.15.600'}\n` +
@@ -120,7 +121,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       if (log) {
         const displayRemote = remoteVer ? `v${remoteVer}` : (stat.remote_version || res.remote_version || 'unknown');
         const curVer = stat.current_version || APP_VERSION;
-        const hasUpdate = (stat.update_available || res.has_update || (remoteVer && remoteVer !== curVer));
+        const targetVer = remoteVer || (stat.remote_version ? stat.remote_version.replace(/^v/, '') : (res.remote_version ? res.remote_version.replace(/^v/, '') : ''));
+        const hasUpdate = Boolean(targetVer && curVer && this.isVersionOlder(curVer, targetVer));
         log.textContent = `Local: v${curVer} | Remote: ${displayRemote}\nStatus: ${hasUpdate ? `⚠️ Update available to install (${displayRemote})!` : '✓ Hub is up to date'}`;
       }
     } catch (err) {

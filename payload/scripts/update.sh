@@ -60,6 +60,23 @@ get_local_version() {
   fi
 }
 
+is_version_newer() {
+  awk -v r="$1" -v l="$2" '
+  BEGIN {
+    sub(/^[vV]/, "", r);
+    sub(/^[vV]/, "", l);
+    split(r, ra, ".");
+    split(l, la, ".");
+    for (i = 1; i <= 3; i++) {
+      rv = ra[i] + 0;
+      lv = la[i] + 0;
+      if (rv > lv) exit 0;
+      if (rv < lv) exit 1;
+    }
+    exit 1;
+  }'
+}
+
 do_check() {
   LOCAL_VER=$(get_local_version)
   REMOTE_VER=""
@@ -97,7 +114,7 @@ do_check() {
   echo "$REMOTE_VER" > /data/harmony/latest_version
 
   HAS_UPDATE=0
-  if [ "$REMOTE_VER" != "$LOCAL_VER" ]; then
+  if is_version_newer "$REMOTE_VER" "$LOCAL_VER"; then
     HAS_UPDATE=1
     touch /data/harmony/update_available.flag
   else
@@ -141,6 +158,12 @@ do_apply() {
   NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
   if [ -n "$LOCAL_MAJOR" ] && [ -n "$NEW_MAJOR" ] && [ "$LOCAL_MAJOR" != "$NEW_MAJOR" ]; then
     echo "[-] Major upgrade from v${LOCAL_VER} to v${NEW_VER} requires force deploy script. Aborting."
+    return 1
+  fi
+
+  # Guard against update to lower or equal version
+  if ! is_version_newer "$NEW_VER" "$LOCAL_VER"; then
+    echo "[-] Remote version v${NEW_VER} is not newer than current v${LOCAL_VER}. Aborting update."
     return 1
   fi
 

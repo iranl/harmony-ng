@@ -410,15 +410,17 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t uflags = f->payload[19];
             uint8_t hub_ver = f->payload[20];
             g_hub_config_version = hub_ver;
-            if (hub_ver != 0 && hub_ver != g_config_version) {
+            if (hub_ver > g_config_version) {
                 g_update_config_available = true;
             } else {
                 g_update_config_available = false;
             }
-            if (uflags & 0x02) {
-                g_update_ota_available = true;
+            if ((uflags & 0x02) && g_hub_ota_version[0]) {
+                g_update_ota_available = (harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0);
+            } else if (!(uflags & 0x02)) {
+                g_update_ota_available = false;
             }
-            if (hub_ver != 0 && hub_ver != g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
+            if (hub_ver > g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
                 static uint64_t last_ver_check_ms = 0;
                 uint64_t now_ms = get_monotonic_ms();
                 if (now_ms - last_ver_check_ms > 8000) {
@@ -444,15 +446,26 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t hub_ver = f->payload[1];
             g_hub_config_version = hub_ver;
             if (uflags & 0x01) {
-                g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
+                g_update_config_available = (hub_ver > g_config_version);
+            } else {
+                g_update_config_available = false;
             }
             if (uflags & 0x02) {
-                g_update_ota_available = true;
-                snprintf(g_hub_ota_version, sizeof(g_hub_ota_version), "v%d.%d.%d",
+                char ota_v[16];
+                snprintf(ota_v, sizeof(ota_v), "%d.%d.%d",
                          f->payload[2], f->payload[3], f->payload[4]);
+                if (harmony_version_compare(ota_v, HARMONY_ELITE_VERSION) > 0) {
+                    g_update_ota_available = true;
+                    snprintf(g_hub_ota_version, sizeof(g_hub_ota_version), "v%s", ota_v);
+                } else {
+                    g_update_ota_available = false;
+                    g_hub_ota_version[0] = '\0';
+                }
+            } else {
+                g_update_ota_available = false;
             }
-            printf("[*] Remote received UPDATE_NOTIFY: flags=0x%02X, cfg_ver=%d, ota_ver=%s\n",
-                   uflags, hub_ver, g_hub_ota_version);
+            printf("[*] Remote received UPDATE_NOTIFY: flags=0x%02X, cfg_ver=%d, ota_ver=%s (ota_avail=%d)\n",
+                   uflags, hub_ver, g_hub_ota_version, g_update_ota_available);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);

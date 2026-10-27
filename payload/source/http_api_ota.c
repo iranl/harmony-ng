@@ -35,12 +35,19 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
                 nl = strchr(lbuf, '\r'); if (nl) *nl = '\0';
                 if (strlen(lbuf) > 0) {
                     snprintf(remote_ver, sizeof(remote_ver), "%s", lbuf);
-                    if (strcmp(lbuf, HARMONY_VERSION) != 0 && strcmp(lbuf, "v" HARMONY_VERSION) != 0) {
+                    if (harmony_version_compare(lbuf, HARMONY_VERSION) > 0) {
                         has_update = 1;
+                    } else {
+                        has_update = 0;
+                        unlink("/data/harmony/update_available.flag");
                     }
                 }
             }
             fclose(rf);
+        }
+        if (has_update && harmony_version_compare(remote_ver, HARMONY_VERSION) <= 0) {
+            has_update = 0;
+            unlink("/data/harmony/update_available.flag");
         }
 
         cJSON *st = cJSON_CreateObject();
@@ -101,7 +108,7 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
                 fprintf(rf, "%s\n", clean_ver);
                 fclose(rf);
             }
-            if (strcmp(clean_ver, HARMONY_VERSION) != 0) {
+            if (harmony_version_compare(clean_ver, HARMONY_VERSION) > 0) {
                 FILE *ff = fopen("/data/harmony/update_available.flag", "w");
                 if (ff) fclose(ff);
             } else {
@@ -129,11 +136,12 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
                 if (strlen(lbuf) > 0) {
                     const char *clean = (lbuf[0] == 'v' || lbuf[0] == 'V') ? lbuf + 1 : lbuf;
                     snprintf(remote_ver, sizeof(remote_ver), "%s", clean);
-                    if (strcmp(clean, HARMONY_VERSION) != 0) {
+                    if (harmony_version_compare(clean, HARMONY_VERSION) > 0) {
                         has_update = 1;
                         FILE *ff = fopen("/data/harmony/update_available.flag", "w");
                         if (ff) fclose(ff);
                     } else {
+                        has_update = 0;
                         unlink("/data/harmony/update_available.flag");
                     }
                 }
