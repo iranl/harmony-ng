@@ -210,9 +210,12 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       const disk = await this.client.getSystemDisk();
       const flVal = document.getElementById('dashFlashVal');
       const flDet = document.getElementById('dashFlashDetail');
-      if (flVal) flVal.textContent = `${disk.freeMb || '2.0'} MB Free`;
+      const hasCache = (disk.cacheTotalMb && disk.cacheTotalMb !== '0.0') || (disk.cacheFreeMb && disk.cacheFreeMb !== '0.0');
+      if (flVal) {
+        flVal.textContent = `${(hasCache && disk.totalCombinedFreeMb) ? disk.totalCombinedFreeMb : (disk.freeMb || '2.0')} MB Free`;
+      }
       if (flDet) {
-        if (disk.cacheFreeMb && disk.cacheFreeMb !== '0.0') {
+        if (hasCache) {
           flDet.textContent = `Data: ${disk.freeMb}M/${disk.totalMb}M • Cache: ${disk.cacheFreeMb}M/${disk.cacheTotalMb}M`;
         } else {
           flDet.textContent = `${disk.usedMb || '3.0'} MB used (${disk.totalMb || '5.0'} MB total)`;
@@ -220,7 +223,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       }
       const ovDisk = document.getElementById('ovDiskVal');
       if (ovDisk) {
-        if (disk.cacheFreeMb && disk.cacheFreeMb !== '0.0') {
+        if (hasCache) {
           ovDisk.textContent = `Data: ${disk.freeMb}MB free • Cache: ${disk.cacheFreeMb}MB free`;
         } else {
           ovDisk.textContent = `${disk.freeMb || '2.0'} MB free`;

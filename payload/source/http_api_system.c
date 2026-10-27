@@ -41,6 +41,16 @@ static void get_disk_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
+    struct statvfs sv;
+    *total_kb = 0;
+    *free_kb = 0;
+    if (statvfs("/cache", &sv) == 0 && sv.f_frsize > 0) {
+        *total_kb = ((uint64_t)sv.f_blocks * sv.f_frsize) / 1024;
+        *free_kb = ((uint64_t)sv.f_bavail * sv.f_frsize) / 1024;
+    }
+}
+
 static void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
     int lfd = open("/sys/class/input/input0/led", O_WRONLY);
@@ -101,6 +111,10 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         get_disk_space_kb(&total_kb, &free_kb);
         cJSON_AddNumberToObject(st, "total_kb", (double)total_kb);
         cJSON_AddNumberToObject(st, "free_kb", (double)free_kb);
+        uint64_t cache_total_kb = 0, cache_free_kb = 0;
+        get_cache_space_kb(&cache_total_kb, &cache_free_kb);
+        cJSON_AddNumberToObject(st, "cache_total_kb", (double)cache_total_kb);
+        cJSON_AddNumberToObject(st, "cache_free_kb", (double)cache_free_kb);
         cJSON_AddBoolToObject(st, "updating", access("/tmp/hub_updating.flag", F_OK) == 0);
 
         int auth_on = 0;
@@ -354,6 +368,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(st, "free_kb", (double)free_kb);
         cJSON_AddNumberToObject(st, "used_kb", (double)(total_kb > free_kb ? total_kb - free_kb : 0));
         cJSON_AddNumberToObject(st, "percent_free", total_kb ? (double)(free_kb * 100 / total_kb) : 0);
+
+        uint64_t cache_total_kb = 0, cache_free_kb = 0;
+        get_cache_space_kb(&cache_total_kb, &cache_free_kb);
+        cJSON_AddNumberToObject(st, "cache_total_kb", (double)cache_total_kb);
+        cJSON_AddNumberToObject(st, "cache_free_kb", (double)cache_free_kb);
+        cJSON_AddNumberToObject(st, "cache_used_kb", (double)(cache_total_kb > cache_free_kb ? cache_total_kb - cache_free_kb : 0));
+        cJSON_AddNumberToObject(st, "cache_percent_free", cache_total_kb ? (double)(cache_free_kb * 100 / cache_total_kb) : 0);
+
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
