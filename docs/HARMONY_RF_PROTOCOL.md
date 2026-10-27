@@ -146,6 +146,8 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x0F` | `RF_MSG_CONFIG_END` | Hub -> Remote | End config sync transaction (ACK'd) |
 | `0x10` | `RF_MSG_TIME_SYNC` | Hub -> Remote | Epoch time, timezone, and Hub RF address sync |
 | `0x11` | `RF_MSG_STEP_LIST_CHUNK` | Hub -> Remote | Activity macro step list chunk (ACK'd) |
+| `0x12` | `RF_MSG_DEVICE_CMD_CHUNK` | Hub -> Remote | Device command name for device browsing (ACK'd) |
+| `0x13` | `RF_MSG_DEVICE_CMD_INDEX` | Remote -> Hub | Send a browsed device command by index |
 | `0x14` | `RF_MSG_BUTTON_PRESS` | Remote -> Hub | Physical button press/release event |
 | `0x15` | `RF_MSG_ACTIVITY_REQUEST` | Remote -> Hub | Request to switch active activity |
 | `0x16` | `RF_MSG_DEVICE_CMD_REQUEST` | Remote -> Hub | Request direct device command execution |
@@ -206,6 +208,21 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
   - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
   - `payload[3..14]`: Short button name string (up to 12 chars).
+
+#### `RF_MSG_DEVICE_CMD_CHUNK` (`0x12`)
+- Hub sends one per command during a config push, after the `RF_MSG_DEVICE_LIST_CHUNK` frames:
+  - `payload[0]`: Device index (position in the pushed device list).
+  - `payload[1]`: Command index (position in the device's `commands` array in `devices.json`).
+  - `payload[2]`: Number of commands for the device.
+  - `payload[3..24]`: Command name (up to 22 chars, NUL-padded).
+- A remote without device browsing does not ACK this type; the Hub stops sending device commands to that slot when the first one gets no ACK.
+
+#### `RF_MSG_DEVICE_CMD_INDEX` (`0x13`)
+- Remote transmits when a command is chosen in the device browser:
+  - `payload[0..9]`: Device ID (as received in `RF_MSG_DEVICE_LIST_CHUNK`).
+  - `payload[10]`: Command index.
+  - `payload[11..24]`: First 14 chars of the command name.
+- The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
 
 #### `RF_MSG_BATTERY_STATUS` (`0x18`)
 - Remote transmits battery status:

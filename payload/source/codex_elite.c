@@ -80,10 +80,14 @@ typedef enum {
     VIEW_SETTINGS,
     VIEW_PAIRING,
     VIEW_NOT_PAIRED,
+    VIEW_DEVICE_BROWSER,  /* all Hub devices, then one device's commands */
     VIEW_COUNT
 } ui_view_t;
 
 static ui_view_t g_current_view = VIEW_ACTIVITIES;
+/* Device browser state: g_browse_dev is -1 for the device list, else an index into g_rf_devices */
+static int g_browse_dev = -1;
+static int g_browse_sel = 0;
 static int g_remote_mode = 0;         /* 0 = Activities, 1 = Direct Device Mode */
 static bool g_no_screen_mode = false;
 #define LOG_LEVEL_ERR   0
@@ -219,6 +223,29 @@ typedef struct {
 static rf_act_step_t g_rf_steps[MAX_RF_STEPS];
 static int g_rf_step_count = 0;
 
+/* Device command names pushed by the Hub, for browsing devices on the remote */
+#define MAX_RF_DEV_CMDS 512
+typedef struct {
+    uint8_t dev_idx;  /* index into g_rf_devices */
+    uint8_t cmd_idx;  /* index into the device's commands on the Hub */
+    char name[23];
+} rf_dev_cmd_t;
+static rf_dev_cmd_t g_rf_dev_cmds[MAX_RF_DEV_CMDS];
+static int g_rf_dev_cmd_count = 0;
+
+/* Store or replace a command; a retried chunk must not add a duplicate */
+static void store_rf_dev_cmd(uint8_t dev_idx, uint8_t cmd_idx, const char *name) {
+    int i = 0;
+    while (i < g_rf_dev_cmd_count &&
+           (g_rf_dev_cmds[i].dev_idx != dev_idx || g_rf_dev_cmds[i].cmd_idx != cmd_idx)) i++;
+    if (i >= MAX_RF_DEV_CMDS) return;
+    g_rf_dev_cmds[i].dev_idx = dev_idx;
+    g_rf_dev_cmds[i].cmd_idx = cmd_idx;
+    strncpy(g_rf_dev_cmds[i].name, name, sizeof(g_rf_dev_cmds[0].name) - 1);
+    g_rf_dev_cmds[i].name[sizeof(g_rf_dev_cmds[0].name) - 1] = '\0';
+    if (i == g_rf_dev_cmd_count) g_rf_dev_cmd_count++;
+}
+
 static uint8_t g_config_version = 0;
 static uint8_t g_remote_slot = 0x01;
 static bool g_has_hub_config = false;
@@ -328,6 +355,20 @@ static void save_rf_config(void) {
         cJSON *d = cJSON_CreateObject();
         cJSON_AddStringToObject(d, "id", g_rf_devices[i].id);
         cJSON_AddStringToObject(d, "name", g_rf_devices[i].name);
+        int max_idx = -1;
+        for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+            if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx > max_idx) max_idx = g_rf_dev_cmds[c].cmd_idx;
+        }
+        if (max_idx >= 0) {
+            cJSON *cmds = cJSON_AddArrayToObject(d, "commands");
+            for (int k = 0; k <= max_idx; k++) {
+                const char *cname = "";
+                for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+                    if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx == k) { cname = g_rf_dev_cmds[c].name; break; }
+                }
+                cJSON_AddItemToArray(cmds, cJSON_CreateString(cname));
+            }
+        }
         cJSON_AddItemToArray(devs, d);
     }
 
@@ -417,6 +458,7 @@ static void load_rf_config(void) {
 
     cJSON *devs = cJSON_GetObjectItem(root, "devices");
     g_rf_device_count = 0;
+    g_rf_dev_cmd_count = 0;
     if (devs && cJSON_IsArray(devs)) {
         cJSON *d = NULL;
         cJSON_ArrayForEach(d, devs) {
@@ -428,6 +470,13 @@ static void load_rf_config(void) {
                 g_rf_devices[g_rf_device_count].id[12] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, 14);
                 g_rf_devices[g_rf_device_count].name[14] = '\0';
+                int k = 0;
+                cJSON *jc = NULL;
+                cJSON_ArrayForEach(jc, cJSON_GetObjectItem(d, "commands")) {
+                    if (k > 255) break;
+                    if (cJSON_IsString(jc) && jc->valuestring[0]) store_rf_dev_cmd(g_rf_device_count, k, jc->valuestring);
+                    k++;
+                }
                 g_rf_device_count++;
             }
         }
@@ -2389,6 +2438,7 @@ static void rf_unpair(void) {
     g_activity_count = 0;
     g_rf_activity_count = 0;
     g_rf_device_count = 0;
+    g_rf_dev_cmd_count = 0;
     g_rf_button_count = 0;
     memset(g_activities, 0, sizeof(g_activities));
     memset(g_rf_activities, 0, sizeof(g_rf_activities));
@@ -2717,6 +2767,7 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
                 g_sync_chunk_count = 0;
                 g_rf_activity_count = 0;
                 g_rf_device_count = 0;
+                g_rf_dev_cmd_count = 0;
                 g_rf_button_count = 0;
                 g_rf_step_count = 0;
                 init_act_triggers();
@@ -2814,6 +2865,25 @@ static void handle_codex_frame_remote(const rf_frame_t *f) {
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
             g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_DEVICE_CMD_CHUNK: {
+            /* [0] device index, [1] command index, [2] command total, [3..24] name */
+            if (!g_is_syncing_config) {
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+            }
+            g_sync_last_packet_ms = get_monotonic_ms();
+            g_sync_chunk_count++;
+            char cname[23] = {0};
+            memcpy(cname, &f->payload[3], 22);
+            if (f->payload[0] < MAX_RF_DEVICES && cname[0]) {
+                store_rf_dev_cmd(f->payload[0], f->payload[1], cname);
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
             break;
         }
 
@@ -3557,7 +3627,7 @@ static void *rf_rx_worker(void *arg) {
                     memcpy(f.payload, &pkt[6], sizeof(f.payload));
                 }
                 /* Validate msg_type range */
-                if ((f.msg_type >= RF_MSG_ACTIVITY_SYNC && f.msg_type <= RF_MSG_STEP_LIST_CHUNK) ||
+                if ((f.msg_type >= RF_MSG_ACTIVITY_SYNC && f.msg_type <= RF_MSG_DEVICE_CMD_INDEX) ||
                     (f.msg_type >= RF_MSG_BUTTON_PRESS && f.msg_type <= RF_MSG_SLEEP_REQ) ||
                     (f.msg_type >= RF_MSG_OTA_START && f.msg_type <= RF_MSG_ICON_END) ||
                     f.msg_type == RF_MSG_ACK || f.msg_type == RF_MSG_PING) {
@@ -3595,6 +3665,17 @@ static void render_header(void) {
                         ((g_current_view == VIEW_DEVICES) ? (g_remote_mode == 1 ? "PAGE 2" : "DEVICES") :
                         ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" :
                         ((g_current_view == VIEW_NOT_PAIRED) ? "NOT PAIRED" : "SETTINGS")));
+    char browser_title[32];
+    if (g_current_view == VIEW_DEVICE_BROWSER) {
+        bool in_dev = (g_browse_dev >= 0 && g_browse_dev < g_rf_device_count);
+        snprintf(browser_title, sizeof(browser_title), "< %s", in_dev ? g_rf_devices[g_browse_dev].name : "DEVICES");
+        /* Keep the title clear of the RF badge at FB_WIDTH - 142 */
+        size_t len = strlen(browser_title);
+        while (len > 3 && fb_text_width_aa(browser_title, &g_font_title) > FB_WIDTH - 142 - 14) {
+            browser_title[--len] = '\0';
+        }
+        title = browser_title;
+    }
     fb_draw_text_aa(10, 9, title, RGB_WHITE, &g_font_title);
 
     /* Notification Icon for Available Updates (Config or Firmware OTA) */
@@ -3697,7 +3778,8 @@ static void render_footer(void) {
         int th = dock_h - 8;
         bool paired = is_remote_paired();
         bool is_disabled = !paired && (t == 0 || t == 1);
-        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING));
+        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING) ||
+                                         (t == 0 && g_current_view == VIEW_DEVICE_BROWSER));
         if (!paired && t == 2 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) {
             is_active_view = true;
         }
@@ -3765,12 +3847,125 @@ static void render_footer(void) {
 }
 
 /* Render Activity List View (Dynamic Scrolling, 4 cards per page, 56px height) */
+/* Activity list entries: the activities (including Power Off), then Devices once the Hub pushed devices */
+static int activity_list_count(void) {
+    return g_activity_count + (g_rf_device_count > 0 ? 1 : 0);
+}
+
+static int browser_item_count(void) {
+    if (g_browse_dev < 0) return g_rf_device_count;
+    int n = 0;
+    for (int i = 0; i < g_rf_dev_cmd_count; i++) {
+        if (g_rf_dev_cmds[i].dev_idx == g_browse_dev) n++;
+    }
+    return n;
+}
+
+/* The nth command of the browsed device, in the order the Hub sent them */
+static const rf_dev_cmd_t *browser_cmd(int n) {
+    for (int i = 0; i < g_rf_dev_cmd_count; i++) {
+        if (g_rf_dev_cmds[i].dev_idx == g_browse_dev && n-- == 0) return &g_rf_dev_cmds[i];
+    }
+    return NULL;
+}
+
+static void open_device_browser(void) {
+    g_current_view = VIEW_DEVICE_BROWSER;
+    g_browse_dev = -1;
+    g_browse_sel = 0;
+}
+
+static void device_browser_back(void) {
+    if (g_browse_dev >= 0) {
+        g_browse_sel = g_browse_dev;
+        g_browse_dev = -1;
+    } else {
+        g_current_view = VIEW_ACTIVITIES;
+        g_selected_activity = g_activity_count; /* the Devices entry */
+    }
+}
+
+static void device_browser_move(int delta) {
+    int n = browser_item_count();
+    if (n > 0) g_browse_sel = ((g_browse_sel + delta) % n + n) % n;
+}
+
+static void device_browser_page(int dir) {
+    int n = browser_item_count();
+    int page = g_browse_sel / 6;
+    if (dir > 0) g_browse_sel = ((page + 1) * 6 < n) ? (page + 1) * 6 : (n > 0 ? n - 1 : 0);
+    else g_browse_sel = (page > 0) ? (page - 1) * 6 : 0;
+}
+
+/* Open a device from the list, or send the chosen command to the Hub */
+static void device_browser_activate(int n) {
+    if (n < 0 || n >= browser_item_count()) return;
+    g_browse_sel = n;
+    if (g_browse_dev < 0) {
+        g_browse_dev = n;
+        g_browse_sel = 0;
+        return;
+    }
+    const rf_dev_cmd_t *c = browser_cmd(n);
+    if (!c || g_rf_fd < 0) return;
+    uint8_t payload[25] = {0};
+    memcpy(payload, g_rf_devices[g_browse_dev].id, strnlen(g_rf_devices[g_browse_dev].id, 10));
+    payload[10] = c->cmd_idx;
+    memcpy(&payload[11], c->name, strnlen(c->name, 14));
+    rf_frame_t f;
+    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_INDEX, ++g_tx_seq, 0, payload, sizeof(payload));
+    rf_send_frame(&f);
+    printf("[*] RF TX DEVICE_CMD_INDEX: dev=%s idx=%d cmd=%s\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name);
+}
+
+/* Render the device list or the browsed device's commands (6 per page) */
+static void render_device_browser_view(void) {
+    int start_y = 38;
+    int card_h = 34;
+    int spacing = 5;
+    int page_size = 6;
+    if (g_browse_dev >= g_rf_device_count) g_browse_dev = -1;
+    int total = browser_item_count();
+    if (g_browse_sel >= total) g_browse_sel = 0;
+
+    if (total <= 0) {
+        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
+        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
+        fb_draw_text_aa(24, start_y + 30, g_browse_dev < 0 ? "No Devices" : "No Commands", RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(24, start_y + 55, "Configure in WebUI", RGB_CYAN, &g_font_main);
+        return;
+    }
+
+    int page_start = (g_browse_sel / page_size) * page_size;
+    int total_pages = (total + page_size - 1) / page_size;
+    for (int i = 0; i < page_size && (page_start + i) < total; i++) {
+        int idx = page_start + i;
+        int y = start_y + i * (card_h + spacing);
+        bool is_sel = (idx == g_browse_sel);
+        const rf_dev_cmd_t *c = (g_browse_dev >= 0) ? browser_cmd(idx) : NULL;
+        const char *label = (g_browse_dev < 0) ? g_rf_devices[idx].name : (c ? c->name : "");
+
+        fb_fill_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
+        fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : 0x2945);
+        fb_draw_text_aa(16, y + 9, label, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+        if (g_browse_dev < 0) {
+            fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
+        }
+    }
+
+    if (total_pages > 1) {
+        char pstr[16];
+        snprintf(pstr, sizeof(pstr), "%d/%d", page_start / page_size + 1, total_pages);
+        fb_draw_text_aa(FB_WIDTH - 32, start_y + page_size * (card_h + spacing) - 2, pstr, RGB_TEXT_MUTED, &g_font_main);
+    }
+}
+
 static void render_activities_view(void) {
     int start_y = 38;
     int card_h = 56;
     int spacing = 4;
     int page_size = 4;
-    int total = g_activity_count;
+    int total = activity_list_count();
 
     if (total <= 0) {
         fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
@@ -3788,6 +3983,27 @@ static void render_activities_view(void) {
         int idx = page_start + i;
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (idx == g_selected_activity);
+
+        if (idx == g_activity_count) {
+            /* Devices entry: opens the device browser */
+            fb_fill_rect(6, y, FB_WIDTH - 12, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
+            fb_draw_rect(6, y, FB_WIDTH - 12, card_h, is_sel ? RGB_TEAL : 0x2945);
+            if (is_sel) fb_fill_rect(6, y, 4, card_h, RGB_TEAL);
+            fb_fill_rect(12, y + 6, 44, 44, is_sel ? 0x2125 : 0x18C3);
+            fb_draw_rect(12, y + 6, 44, 44, is_sel ? RGB_TEAL : 0x31A6);
+            if (!blit_png_file(14 + 9, y + 8 + 9, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
+                fb_draw_rect(14 + 10, y + 8 + 12, 20, 14, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
+            }
+            char sub[24];
+            snprintf(sub, sizeof(sub), "%d device%s", g_rf_device_count, g_rf_device_count == 1 ? "" : "s");
+            fb_draw_text_aa(64, y + 13, "Devices", is_sel ? RGB_WHITE : 0xD6DA, &g_font_main);
+            fb_draw_text_aa(64, y + 33, sub, RGB_TEXT_MUTED, &g_font_main);
+            if (is_sel && !blit_png_file(FB_WIDTH - 24, y + 20, 10, 15, "/opt/luadraws/appscommon/asset/home/chevron.png")) {
+                fb_draw_text_aa(FB_WIDTH - 24, y + 19, ">", RGB_TEAL, &g_font_title);
+            }
+            continue;
+        }
+
         bool is_active = (strcmp(g_activities[idx].id, g_active_activity_id) == 0);
 
         bool is_confirm_pending = (g_confirm_pending_idx == idx);
@@ -5134,6 +5350,7 @@ static void render_screen(void) {
             case VIEW_SETTINGS:   render_settings_view();   break;
             case VIEW_PAIRING:    render_pairing_view();    break;
             case VIEW_NOT_PAIRED: render_not_paired_view(); break;
+            case VIEW_DEVICE_BROWSER: render_device_browser_view(); break;
             default: break;
         }
 
@@ -5380,6 +5597,9 @@ static void handle_screen_touch_tap(int x, int y) {
             g_settings_subview = SETTINGS_VIEW_UPDATE;
             g_selected_sub_item = 0;
             render_screen();
+        } else if (g_current_view == VIEW_DEVICE_BROWSER && x < 90) {
+            device_browser_back();
+            render_screen();
         }
         return;
     }
@@ -5395,6 +5615,13 @@ static void handle_screen_touch_tap(int x, int y) {
                 g_current_view = VIEW_NOT_PAIRED;
             }
             printf("[*] Swipe (dx=%d) [unpaired lock] -> view %d\n", dx, g_current_view);
+            render_screen();
+            return;
+        }
+        if (g_current_view == VIEW_DEVICE_BROWSER) {
+            if (dx > 0) device_browser_back();
+            else g_current_view = VIEW_DEVICES;
+            printf("[*] Swipe (dx=%d) in device browser -> view %d\n", dx, g_current_view);
             render_screen();
             return;
         }
@@ -5438,9 +5665,11 @@ static void handle_screen_touch_tap(int x, int y) {
                     else if (tot > 0) g_selected_device_cmd = tot - 1;
                 } else {
                     int cur_page = g_selected_activity / 4;
-                    if ((cur_page + 1) * 4 < g_activity_count) g_selected_activity = (cur_page + 1) * 4;
-                    else if (g_activity_count > 0) g_selected_activity = g_activity_count - 1;
+                    if ((cur_page + 1) * 4 < activity_list_count()) g_selected_activity = (cur_page + 1) * 4;
+                    else if (activity_list_count() > 0) g_selected_activity = activity_list_count() - 1;
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_page(1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int tot = get_active_dev_cmd_count();
                 int cur_page = g_selected_device_cmd / 6;
@@ -5469,6 +5698,8 @@ static void handle_screen_touch_tap(int x, int y) {
                     if (cur_page > 0) g_selected_activity = (cur_page - 1) * 4;
                     else g_selected_activity = 0;
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_page(-1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int cur_page = g_selected_device_cmd / 6;
                 if (cur_page > 0) g_selected_device_cmd = (cur_page - 1) * 6;
@@ -5583,13 +5814,29 @@ static void handle_screen_touch_tap(int x, int y) {
         int spacing = 4;
         int page_size = 4;
         int page_start = (g_selected_activity / page_size) * page_size;
-        for (int i = 0; i < page_size && (page_start + i) < g_activity_count; i++) {
+        for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
             int cy = start_y + i * (card_h + spacing);
             if (y >= cy && y < cy + card_h + spacing) {
                 int idx = page_start + i;
                 g_selected_activity = idx;
+                if (idx == g_activity_count) {
+                    printf("[*] Touch selected Devices -> device browser\n");
+                    open_device_browser();
+                    render_screen();
+                    return;
+                }
                 printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
                 request_activity_switch_with_confirm(idx);
+                return;
+            }
+        }
+    } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+        int page_start = (g_browse_sel / 6) * 6;
+        for (int i = 0; i < 6 && (page_start + i) < browser_item_count(); i++) {
+            int cy = start_y + i * (34 + 5);
+            if (y >= cy && y < cy + 34 + 5) {
+                device_browser_activate(page_start + i);
+                render_screen();
                 return;
             }
         }
@@ -5755,11 +6002,13 @@ static void handle_navigation_key(int code, int value) {
                         else g_selected_device_cmd = count - 1;
                     }
                 } else {
-                    if (g_activity_count > 0) {
+                    if (activity_list_count() > 0) {
                         if (g_selected_activity > 0) g_selected_activity--;
-                        else g_selected_activity = g_activity_count - 1;
+                        else g_selected_activity = activity_list_count() - 1;
                     }
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_move(-1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) {
@@ -5789,11 +6038,13 @@ static void handle_navigation_key(int code, int value) {
                         else g_selected_device_cmd = 0;
                     }
                 } else {
-                    if (g_activity_count > 0) {
-                        if (g_selected_activity < g_activity_count - 1) g_selected_activity++;
+                    if (activity_list_count() > 0) {
+                        if (g_selected_activity < activity_list_count() - 1) g_selected_activity++;
                         else g_selected_activity = 0;
                     }
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_move(1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) {
@@ -5845,7 +6096,9 @@ static void handle_navigation_key(int code, int value) {
                 render_screen();
                 break;
             }
-            if (g_current_view == VIEW_PAIRING) {
+            if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_back();
+            } else if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
@@ -5901,7 +6154,7 @@ static void handle_navigation_key(int code, int value) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
-            } else if (g_current_view == VIEW_ACTIVITIES) {
+            } else if (g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICE_BROWSER) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
                 g_current_view = VIEW_SETTINGS;
@@ -5965,8 +6218,14 @@ static void handle_navigation_key(int code, int value) {
                 } else {
                     if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
                         request_activity_switch_with_confirm(g_selected_activity);
+                    } else if (g_selected_activity == g_activity_count && g_rf_device_count > 0) {
+                        open_device_browser();
+                        render_screen();
                     }
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_activate(g_browse_sel);
+                render_screen();
             } else if (g_current_view == VIEW_DEVICES) {
                 execute_active_dev_cmd(g_selected_device_cmd);
                 render_screen();
@@ -6018,6 +6277,8 @@ static void handle_navigation_key(int code, int value) {
             } else if (g_current_view == VIEW_NOT_PAIRED) {
                 /* In Not Paired root view, back does nothing */
                 break;
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_back();
             } else if (g_current_view == VIEW_DEVICES) {
                 g_current_view = VIEW_ACTIVITIES;
             } else if (g_current_view == VIEW_ACTIVITIES) {

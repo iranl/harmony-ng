@@ -556,6 +556,61 @@ static void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
     pthread_mutex_unlock(&g_rf_q_mutex);
 }
 
+/* RF_MSG_DEVICE_CMD_INDEX payload: [0..9] device id, [10] command index, [11..24] name prefix.
+   The index comes from the last config push; the name prefix guards against devices.json
+   having changed since then. */
+static void enqueue_browsed_device_cmd(const uint8_t *payload) {
+    char dev_id[11] = {0};
+    char prefix[15] = {0};
+    memcpy(dev_id, payload, 10);
+    int cmd_idx = payload[10];
+    memcpy(prefix, &payload[11], 14);
+
+    FILE *fd = fopen("/data/codex/config/devices.json", "r");
+    if (!fd) return;
+    fseek(fd, 0, SEEK_END);
+    long sz = ftell(fd);
+    fseek(fd, 0, SEEK_SET);
+    char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
+    if (!buf) { fclose(fd); return; }
+    size_t n = fread(buf, 1, sz, fd);
+    buf[n] = '\0';
+    fclose(fd);
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) return;
+
+    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
+    const char *full_id = NULL;
+    const char *cmd_name = NULL;
+    cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs_arr) {
+        cJSON *jid = cJSON_GetObjectItem(dev, "id");
+        if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 10) != 0) continue;
+        full_id = jid->valuestring;
+        cJSON *cmds = cJSON_GetObjectItem(dev, "commands");
+        int c = 0;
+        cJSON *cmd = NULL;
+        cJSON_ArrayForEach(cmd, cmds) {
+            cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
+            if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 14) == 0) {
+                if (c == cmd_idx) { cmd_name = jn->valuestring; break; }
+                if (!cmd_name) cmd_name = jn->valuestring; /* index moved: first name match */
+            }
+            c++;
+        }
+        break;
+    }
+
+    if (full_id && cmd_name) {
+        printf("[*] Device browser command: dev=%s idx=%d -> %s\n", full_id, cmd_idx, cmd_name);
+        enqueue_elite_device_cmd(full_id, cmd_name);
+    } else {
+        printf("[-] Device browser command not found: dev=%s idx=%d name=%s\n", dev_id, cmd_idx, prefix);
+    }
+    cJSON_Delete(root);
+}
+
 static void enqueue_elite_activity(const char *act_id) {
     if (!act_id) return;
     pthread_mutex_lock(&g_rf_q_mutex);
@@ -1275,6 +1330,8 @@ static void *config_push_worker(void *arg) {
         char id[13];
         char name[15];
     } devs[16];
+    cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
+    cJSON *dev_root = NULL;
     int dev_count = 0;
 
     FILE *fd = fopen("/data/codex/config/devices.json", "r");
@@ -1320,12 +1377,13 @@ static void *config_push_worker(void *arg) {
                                     devs[dev_count].id[12] = '\0';
                                     strncpy(devs[dev_count].name, jname->valuestring, 14);
                                     devs[dev_count].name[14] = '\0';
+                                    dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
                                 }
                             }
                         }
                     }
-                    cJSON_Delete(root);
+                    dev_root = root;
                 }
             }
         }
@@ -1345,6 +1403,44 @@ static void *config_push_worker(void *arg) {
             usleep(15000);
         }
     }
+
+    /* 3b. Device command names, for browsing devices on the remote. A remote without
+       device browsing drops these frames, so stop if the first one is never ACKed. */
+    int dev_cmd_count = 0;
+    for (int t = 0; t < num_targets; t++) {
+        uint8_t target_slot = target_slots[t];
+        dev_cmd_count = 0;
+        bool supported = true;
+        for (int i = 0; i < dev_count && supported; i++) {
+            if (!cJSON_IsArray(dev_cmds[i])) continue;
+            int total = cJSON_GetArraySize(dev_cmds[i]);
+            if (total > 255) total = 255;
+            int c = 0;
+            cJSON *cmd = NULL;
+            cJSON_ArrayForEach(cmd, dev_cmds[i]) {
+                if (c >= total) break;
+                cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
+                if (jn && cJSON_IsString(jn) && jn->valuestring[0]) {
+                    uint8_t payload[25] = {0};
+                    payload[0] = (uint8_t)i;
+                    payload[1] = (uint8_t)c;
+                    payload[2] = (uint8_t)total;
+                    strncpy((char *)&payload[3], jn->valuestring, 22);
+                    rf_build_frame(&f, target_slot, RF_MSG_DEVICE_CMD_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
+                    if (rf_send_config_frame(&f) == 0) {
+                        dev_cmd_count++;
+                    } else if (dev_cmd_count == 0) {
+                        printf("[-] Slot %d did not ACK device commands; remote has no device browsing\n", target_slot);
+                        supported = false;
+                        break;
+                    }
+                    usleep(15000);
+                }
+                c++;
+            }
+        }
+    }
+    cJSON_Delete(dev_root);
 
     /* 4. Buttons: Direct Mode vs Activity Mode per target slot */
     int btn_count = 0;
@@ -1815,8 +1911,8 @@ static void *config_push_worker(void *arg) {
         }
     }
 
-    printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
-           act_count, dev_count, btn_count, total_step_count, g_config_version);
+    printf("[+] Config push complete (acts=%d devs=%d dev_cmds=%d btns=%d steps=%d ver=%d)\n",
+           act_count, dev_count, dev_cmd_count, btn_count, total_step_count, g_config_version);
     unlink("/data/codex/rf_sync_pending.flag");
     unlink("/data/codex/rf_sync_pending_details.json");
 
@@ -2190,6 +2286,10 @@ static void handle_codex_frame(const rf_frame_t *f) {
             enqueue_elite_activity(act_id);
             break;
         }
+
+        case RF_MSG_DEVICE_CMD_INDEX:
+            enqueue_browsed_device_cmd(f->payload);
+            break;
 
         case RF_MSG_DEVICE_CMD_REQUEST: {
             uint8_t slot = (f->dev_slot & 0x0F);

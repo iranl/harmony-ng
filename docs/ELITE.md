@@ -161,6 +161,19 @@ To toggle between `DEV` and `NAV` modes without touching the display, a physical
 
 ---
 
+## Device Browser
+
+Every device configured on the Hub can be controlled directly, without starting an activity:
+
+- The **ACTIVITIES** list ends with a **Devices** entry (after Power Off) once the Hub has pushed its devices.
+- **Devices** opens the list of all Hub devices; choosing a device lists all of its commands, 6 per page.
+- Choosing a command sends it to the Hub, which transmits it to the device.
+- **Back**: swipe left-to-right, tap the `<` title, or press `Back` / `Plug On` / `Light Off` (in `NAV` mode). The Activities capacitive button returns to the activity list.
+
+Command names are sent by the Hub during each config push. Remotes running older firmware ignore them and keep working without the device browser.
+
+---
+
 ## Complete Remote Settings Menu Reference
 
 The Elite settings menu is structured into 5 categories plus an RF sync push action:
