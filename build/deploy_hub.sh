@@ -88,7 +88,7 @@ echo "[3/5] Querying remote checksums & syncing binaries to /data/codex/bin/..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
     "mkdir -p /data/codex/bin /data/codex/www/assets /data/codex/config; rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/codex/bin/check_space 2>/dev/null || true"
 
-REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
+REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
 
 if command -v md5sum >/dev/null 2>&1; then
     compute_md5() { md5sum "$1" | awk '{print $1}'; }
