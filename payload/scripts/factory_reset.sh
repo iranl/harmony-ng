@@ -31,7 +31,7 @@ else
 fi
 
 echo "[*] Restoring stock daemon permissions..."
-chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true
+chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true
 
 echo "[*] Preserving user configuration directory..."
 mkdir -p /data/preserved_config 2>/dev/null || true

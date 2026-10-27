@@ -162,9 +162,9 @@ EOF
   fi
 fi
 
-# 4. Disable and kill Logitech HAL (direct /dev/i2s IR active, saves ~2.5MB RAM)
-chmod -x /usr/bin/hal 2>/dev/null || true
-killall -9 hal 2>/dev/null || true
+# 4. Disable and kill Logitech HAL & D-Bus (direct /dev/i2s IR active, saves ~4.5MB RAM)
+chmod -x /usr/bin/hal /usr/bin/dbus-daemon 2>/dev/null || true
+killall -9 hal dbus-daemon 2>/dev/null || true
 
 # 5. Network Time Sync (SNTP)
 _sntp_bin=""
