@@ -23,6 +23,7 @@ typedef struct {
 static const segment_t RC5 = { { 889 }, 13, { 889, -889 }, { -889, 889 }, { 0 }, 113792 };
 static const segment_t RC5EX = { { 900 }, 7, { 900, -900 }, { -900, 900 }, { -3515 }, 0 };
 static const segment_t RC5EX_1 = { { 0 }, 12, { 900, -900 }, { -900, 900 }, { 0 }, 95700 };
+static const segment_t SONY = { { 2400 }, 0, { -600, 600 }, { -600, 1200 }, { 0 }, 45000 };
 
 typedef struct {
     int d[256];
@@ -120,6 +121,11 @@ int main(void) {
     /* Marantz receiver PowerOn (address 16, command 12, data 1) and Back (field bit 0) */
     check_rc5ex("G:Philips RC5Ex:()(0x50_1x301)():3", 0x50, 0x301);
     check_rc5ex("G:Philips RC5Ex:()(0x10_1x5C4)():3", 0x10, 0x5C4);
+
+    /* Sony projector: the 15-bit code has a leading 0 hex bit that must not be sent,
+     * and receivers need the frame repeated (the keycode asks for 3) */
+    check_frames("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 3);
+    check_frames("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 3);
 
     printf("ALL IR ENCODER TESTS PASSED!\n");
     return 0;

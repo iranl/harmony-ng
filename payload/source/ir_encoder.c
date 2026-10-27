@@ -491,25 +491,30 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         timings[timing_count++] = 562;
         timings[timing_count++] = 40000; /* Trailing space: 40ms gap */
     } else if (strstr(proto, "Sony") || strcasecmp(proto, "Sony") == 0) {
+        /* Sony SIRC: the protocol name gives the bit count ("Sony 15 Bit"); the
+         * code's low bits are sent MSB first and each frame lasts 45 ms. Receivers
+         * act only on a repeated frame and the I2S player sends the sequence once,
+         * so the sequence holds every repeat, at least 3. */
         carrier_hz = 40000;
-        timings[timing_count++] = 2400;
-        timings[timing_count++] = 600;
-        const char *h = hex;
-        if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
-        for (int i = 0; h[i] && timing_count < 1000; i++) {
-            int val = 0;
-            char c = h[i];
-            if (c >= '0' && c <= '9') val = c - '0';
-            else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
-            else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
-            else continue;
-            for (int b = 3; b >= 0; b--) {
-                int bit = (val >> b) & 1;
-                timings[timing_count++] = (bit == 0) ? 600 : 1200;
-                timings[timing_count++] = 600;
-            }
+        unsigned long val = strtoul(hex, NULL, 16);
+        int bits = 0;
+        if (sscanf(proto, "Sony %d Bit", &bits) != 1 || bits < 1 || bits > 32) {
+            const char *h = hex;
+            if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
+            bits = 4 * (int)strspn(h, "0123456789abcdefABCDEF");
+            if (bits > 32) return -3;
         }
-        timings[timing_count++] = 25000; /* Trailing space: 25ms gap */
+        int frames = parsed_repeats < 3 ? 3 : parsed_repeats;
+        size_t frame_entries = 2 * (size_t)bits + 2;
+        for (int f = 0; f < frames && timing_count + frame_entries <= 1024; f++) {
+            uint32_t frame_start = timings_sum(timings, timing_count);
+            timings_add(timings, &timing_count, 1, 2400);
+            for (int b = bits - 1; b >= 0; b--) {
+                timings_add(timings, &timing_count, 0, 600);
+                timings_add(timings, &timing_count, 1, ((val >> b) & 1) ? 1200 : 600);
+            }
+            timings_pad_to(timings, &timing_count, frame_start, 45000);
+        }
     } else if (strstr(proto, "RC5Ex")) {
         /* Philips RC5 extended ("0x<field,toggle,address>_1x<command,data>"): a start
          * mark, 7 bits, a 3.5 ms gap, then 12 bits padded to 95.7 ms */
