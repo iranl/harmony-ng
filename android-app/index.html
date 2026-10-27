@@ -2733,15 +2733,28 @@
         </div>
       </div>
 
-      <!-- Activity Context & Save Toolbar -->
+      <!-- Activity / Device Context & Save Toolbar -->
       <div class="card" id="eliteActivitySelectCard" style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-          <div style="flex: 1; min-width: 220px;">
-            <label for="eliteActivitySelect" style="font-weight: 600; font-size: 13px;">Activity Context:</label>
-            <div class="help">Click any button on the visual remote to map its action for this activity.</div>
-            <select id="eliteActivitySelect" class="form-control" style="margin-top: 6px;">
-              <option value="-1">Off / Idle (Default)</option>
-            </select>
+          <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 280px; flex-wrap: wrap;">
+            <div style="min-width: 150px;">
+              <label for="eliteContextModeSelect" style="font-weight: 600; font-size: 13px;">Mapping Scope:</label>
+              <select id="eliteContextModeSelect" class="form-control" style="margin-top: 6px;">
+                <option value="activity" selected>Per Activity</option>
+                <option value="device">Per Device (Device Browser)</option>
+              </select>
+            </div>
+            <div id="eliteActivitySelectWrap" style="flex: 1; min-width: 180px;">
+              <label for="eliteActivitySelect" style="font-weight: 600; font-size: 13px;">Activity Context:</label>
+              <select id="eliteActivitySelect" class="form-control" style="margin-top: 6px;">
+                <option value="-1">Off / Idle (Default)</option>
+              </select>
+            </div>
+            <div id="eliteDeviceSelectWrap" style="flex: 1; min-width: 180px; display: none;">
+              <label for="eliteDeviceSelect" style="font-weight: 600; font-size: 13px;">Device Context (PR10):</label>
+              <select id="eliteDeviceSelect" class="form-control" style="margin-top: 6px;">
+              </select>
+            </div>
           </div>
           <div style="display: flex; gap: 8px; align-items: flex-end;">
             <button id="eliteSaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_hub">Save All

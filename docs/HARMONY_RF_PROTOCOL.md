@@ -203,11 +203,19 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[20]`: Config version number.
   - `payload[21..24]`: Hub's 4-byte RF address.
 
+#### `RF_MSG_DEVICE_LIST_CHUNK` (`0x0C`)
+- Hub transmits list of Hub devices during config push (ACK'd):
+  - `payload[0]`: Device 1-based index.
+  - `payload[1]`: Total device count.
+  - `payload[2..5]`: Shortened device ID string (null-terminated, up to 4 bytes).
+  - `payload[6..25]`: Friendly device name string (null-terminated, up to 20 bytes).
+
 #### `RF_MSG_BUTTON_PRESS` (`0x14`)
 - Remote transmits on key events:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
   - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
-  - `payload[3..14]`: Short button name string (up to 12 chars).
+  - `payload[3..18]`: Short button name string (up to 16 chars).
+  - `payload[20..24]`: Device context ID string (up to 4 chars + NUL) when the remote is browsing a device in the Hub Device Browser view (`VIEW_DEVICE_BROWSER`). Hub routes physical buttons to this device or falls back to matching command names. When not browsing a device, bytes 20..24 are zeroed.
 
 #### `RF_MSG_DEVICE_CMD_CHUNK` (`0x12`)
 - Hub sends one per command during a config push, after the `RF_MSG_DEVICE_LIST_CHUNK` frames:
@@ -219,10 +227,15 @@ Both frames use a 17-byte standardized configuration payload:
 
 #### `RF_MSG_DEVICE_CMD_INDEX` (`0x13`)
 - Remote transmits when a command is chosen in the device browser:
-  - `payload[0..9]`: Device ID (as received in `RF_MSG_DEVICE_LIST_CHUNK`).
-  - `payload[10]`: Command index.
-  - `payload[11..24]`: First 14 chars of the command name.
+  - `payload[0..3]`: Shortened Device ID (4 bytes, null-terminated).
+  - `payload[4]`: Command index.
+  - `payload[5..24]`: First 20 chars of the command name prefix.
 - The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
+
+#### `RF_MSG_DEVICE_CMD_REQUEST` (`0x16`)
+- Remote transmits for direct device command execution:
+  - `payload[0..3]`: Shortened Device ID (4 bytes, null-terminated).
+  - `payload[4..24]`: Command name (up to 21 chars, null-terminated).
 
 #### `RF_MSG_BATTERY_STATUS` (`0x18`)
 - Remote transmits battery status:

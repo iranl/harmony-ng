@@ -208,10 +208,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_DEVICES) {
-                memcpy(g_rf_devices[idx].id, &f->payload[2], 10);
-                g_rf_devices[idx].id[10] = '\0';
-                memcpy(g_rf_devices[idx].name, &f->payload[12], 14);
-                g_rf_devices[idx].name[14] = '\0';
+                memcpy(g_rf_devices[idx].id, &f->payload[2], 4);
+                g_rf_devices[idx].id[4] = '\0';
+                memcpy(g_rf_devices[idx].name, &f->payload[6], 20);
+                g_rf_devices[idx].name[20] = '\0';
                 if (idx >= g_rf_device_count) g_rf_device_count = idx + 1;
             }
             rf_frame_t ack;

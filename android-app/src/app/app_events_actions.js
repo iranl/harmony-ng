@@ -229,6 +229,23 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
       this.renderEliteScreenButtons();
     });
+    document.getElementById('eliteContextModeSelect')?.addEventListener('change', (e) => {
+      this.eliteContextMode = e.target.value;
+      const isDev = this.eliteContextMode === 'device';
+      const aW = document.getElementById('eliteActivitySelectWrap');
+      const dW = document.getElementById('eliteDeviceSelectWrap');
+      const sc = document.getElementById('eliteScreenButtonsCard');
+      if (aW) aW.style.display = isDev ? 'none' : 'block';
+      if (dW) dW.style.display = isDev ? 'block' : 'none';
+      if (sc && this.eliteRemoteMode !== 1) sc.style.display = isDev ? 'none' : 'block';
+      this.updateEliteButtonStates();
+      this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
+    });
+    document.getElementById('eliteDeviceSelect')?.addEventListener('change', (e) => {
+      this.eliteSelectedDeviceId = e.target.value;
+      this.updateEliteButtonStates();
+      this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
+    });
     document.getElementById('btnEliteAddScreenBtn')?.addEventListener('click', () => this.addEliteScreenButton());
     document.getElementById('btnEliteDirectPage1')?.addEventListener('click', () => {
       this.eliteDirectPage = 1;

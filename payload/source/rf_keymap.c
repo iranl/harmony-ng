@@ -100,17 +100,97 @@ cJSON *get_elite_direct_map(int slot) {
     return root;
 }
 
-void dispatch_elite_button(uint8_t slot, const char *button_name, const char *action_state) {
+void dispatch_elite_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
     int is_press = (strcmp(action_state, "release") != 0);
 
     /* Forward raw button event to daemon for MQTT (fire and forget) */
     char mqtt_body[256];
-    snprintf(mqtt_body, sizeof(mqtt_body),
-             "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"elite_rf\",\"slot\":%d}",
-             button_name, action_state, slot);
+    if (dev_id && dev_id[0]) {
+        snprintf(mqtt_body, sizeof(mqtt_body),
+                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"elite_rf\",\"slot\":%d,\"deviceId\":\"%s\"}",
+                 button_name, action_state, slot, dev_id);
+    } else {
+        snprintf(mqtt_body, sizeof(mqtt_body),
+                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"elite_rf\",\"slot\":%d}",
+                 button_name, action_state, slot);
+    }
     http_post_local(DAEMON_PORT, "/api/button-press", mqtt_body);
 
     if (!is_press) return;
+
+    /* If button pressed while browsing a specific device, dispatch to that device */
+    if (dev_id && dev_id[0]) {
+        cJSON *map = get_elite_map();
+        if (map) {
+            pthread_mutex_lock(&g_map_lock);
+            cJSON *devs_map = cJSON_GetObjectItemCaseSensitive(map, "devices");
+            if (devs_map && cJSON_IsObject(devs_map)) {
+                cJSON *d_obj = cJSON_GetObjectItemCaseSensitive(devs_map, dev_id);
+                if (d_obj && cJSON_IsObject(d_obj)) {
+                    cJSON *b_cfg = cJSON_GetObjectItemCaseSensitive(d_obj, button_name);
+                    if (b_cfg && cJSON_IsObject(b_cfg)) {
+                        cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(b_cfg, "command");
+                        if (j_cmd && cJSON_IsString(j_cmd) && j_cmd->valuestring[0]) {
+                            char body[256];
+                            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id, j_cmd->valuestring);
+                            printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s\n", button_name, dev_id, j_cmd->valuestring);
+                            http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                            pthread_mutex_unlock(&g_map_lock);
+                            return;
+                        }
+                    }
+                }
+            }
+            pthread_mutex_unlock(&g_map_lock);
+        }
+
+        /* Default fallback: auto-match button_name against device commands in devices.json */
+        FILE *fd = fopen("/data/harmony/config/devices.json", "r");
+        if (fd) {
+            fseek(fd, 0, SEEK_END);
+            long sz = ftell(fd);
+            fseek(fd, 0, SEEK_SET);
+            char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
+            if (buf) {
+                size_t n = fread(buf, 1, sz, fd);
+                buf[n] = '\0';
+                cJSON *root = cJSON_Parse(buf);
+                free(buf);
+                if (root) {
+                    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
+                    cJSON *d = NULL;
+                    const char *matched_cmd = NULL;
+                    cJSON_ArrayForEach(d, devs_arr) {
+                        cJSON *jid = cJSON_GetObjectItem(d, "id");
+                        if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, dev_id) == 0) {
+                            cJSON *cmds = cJSON_GetObjectItem(d, "commands");
+                            cJSON *c = NULL;
+                            cJSON_ArrayForEach(c, cmds) {
+                                cJSON *jn = cJSON_IsString(c) ? c : cJSON_GetObjectItem(c, "name");
+                                if (jn && cJSON_IsString(jn) && strcasecmp(jn->valuestring, button_name) == 0) {
+                                    matched_cmd = jn->valuestring;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (matched_cmd) {
+                        char body[256];
+                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id, matched_cmd);
+                        printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s\n", button_name, dev_id, matched_cmd);
+                        http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                        cJSON_Delete(root);
+                        fclose(fd);
+                        return;
+                    }
+                    cJSON_Delete(root);
+                }
+            }
+            fclose(fd);
+        }
+        return;
+    }
 
     /* If remote is in Direct Device Mode, look up in direct buttons */
     if (is_slot_direct_mode(slot)) {
@@ -222,6 +302,7 @@ typedef struct {
     uint8_t slot;
     char param1[64];
     char param2[64];
+    char param3[16];
 } rf_event_t;
 
 #define RF_QUEUE_SIZE 64
@@ -231,7 +312,7 @@ static int g_rf_q_tail = 0;
 static pthread_mutex_t g_rf_q_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_rf_q_cond = PTHREAD_COND_INITIALIZER;
 
-void enqueue_elite_button(uint8_t slot, const char *name, const char *action) {
+void enqueue_elite_button(uint8_t slot, const char *name, const char *action, const char *dev_id) {
     pthread_mutex_lock(&g_rf_q_mutex);
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
     if (next != g_rf_q_tail) {
@@ -241,6 +322,8 @@ void enqueue_elite_button(uint8_t slot, const char *name, const char *action) {
         g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
         strncpy(g_rf_queue[g_rf_q_head].param2, action ? action : "", sizeof(g_rf_queue[0].param2) - 1);
         g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
+        strncpy(g_rf_queue[g_rf_q_head].param3, dev_id ? dev_id : "", sizeof(g_rf_queue[0].param3) - 1);
+        g_rf_queue[g_rf_q_head].param3[sizeof(g_rf_queue[0].param3) - 1] = '\0';
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
     } else {
@@ -313,7 +396,7 @@ void *dispatch_worker(void *arg) {
         } else if (ev.kind == RF_EV_ACTIVITY) {
             dispatch_activity_to_daemon(ev.param1);
         } else {
-            dispatch_elite_button(ev.slot, ev.param1, ev.param2);
+            dispatch_elite_button(ev.slot, ev.param1, ev.param2, ev.param3);
         }
     }
     return NULL;

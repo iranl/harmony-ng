@@ -74,9 +74,11 @@ export class HarmonyAppCore {
     // Sub-states
     this.b25MapData = { remote: { name: 'Homatics B25' }, activities: {} };
     this.b25SelectedBtn = 'power';
-    this.eliteMapData = { remote: { name: 'Harmony Elite' }, activities: {} };
+    this.eliteMapData = { remote: { name: 'Harmony Elite' }, activities: {}, devices: {} };
     this.eliteSelectedBtn = 'Select';
     this.eliteSelectedActivityId = '-1';
+    this.eliteContextMode = 'activity';
+    this.eliteSelectedDeviceId = null;
     this.kbMods = { ctrl: false, shift: false, alt: false, win: false };
     this.labQueue = [];
     this.labRunning = false;

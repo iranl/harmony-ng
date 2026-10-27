@@ -106,8 +106,7 @@ void device_browser_back(void) {
         g_browse_sel = g_browse_dev;
         g_browse_dev = -1;
     } else {
-        g_current_view = VIEW_ACTIVITIES;
-        g_selected_activity = g_activity_count; /* the Devices entry */
+        g_current_view = VIEW_DEVICES;
     }
 }
 
@@ -135,9 +134,9 @@ void device_browser_activate(int n) {
     const rf_dev_cmd_t *c = browser_cmd(n);
     if (!c || g_rf_fd < 0) return;
     uint8_t payload[25] = {0};
-    memcpy(payload, g_rf_devices[g_browse_dev].id, strnlen(g_rf_devices[g_browse_dev].id, 10));
-    payload[10] = c->cmd_idx;
-    memcpy(&payload[11], c->name, strnlen(c->name, 14));
+    memcpy(payload, g_rf_devices[g_browse_dev].id, strnlen(g_rf_devices[g_browse_dev].id, 4));
+    payload[4] = c->cmd_idx;
+    memcpy(&payload[5], c->name, strnlen(c->name, 20));
     rf_frame_t f;
     rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_INDEX, ++g_tx_seq, 0, payload, sizeof(payload));
     rf_send_frame(&f);

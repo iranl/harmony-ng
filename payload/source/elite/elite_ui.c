@@ -65,6 +65,28 @@ void render_header(void) {
         fb_fill_rect(notif_x + 4, notif_y + 13, 10, 1, n_fg);
     }
 
+    int nav_x = 112;
+    int nav_y = 9;
+    int nav_w = 22;
+    int nav_h = 16;
+    if (g_screen_nav_mode) {
+        fb_fill_rect(nav_x, nav_y, nav_w, nav_h, RGB_TEAL);
+        fb_draw_rect(nav_x, nav_y, nav_w, nav_h, RGB_WHITE);
+        int cx = nav_x + nav_w / 2;
+        int cy = nav_y + nav_h / 2;
+        fb_fill_rect(cx - 1, cy - 5, 3, 11, RGB_BLACK);
+        fb_fill_rect(cx - 5, cy - 1, 11, 3, RGB_BLACK);
+        fb_fill_rect(cx, cy, 1, 1, RGB_TEAL);
+    } else {
+        fb_fill_rect(nav_x, nav_y, nav_w, nav_h, 0x1824);
+        fb_draw_rect(nav_x, nav_y, nav_w, nav_h, 0x2945);
+        int cx = nav_x + nav_w / 2;
+        int cy = nav_y + nav_h / 2;
+        fb_draw_rect(cx - 5, cy - 4, 11, 7, RGB_TEXT_MUTED);
+        fb_fill_rect(cx - 1, cy + 3, 3, 2, RGB_TEXT_MUTED);
+        fb_fill_rect(cx - 3, cy + 5, 7, 1, RGB_TEXT_MUTED);
+    }
+
     int badge_x = FB_WIDTH - 142;
     int badge_w = 54;
     int badge_h = 16;
@@ -125,18 +147,21 @@ void render_footer(void) {
     }
     fb_fill_rect(0, dock_y - 1, FB_WIDTH, 1, RGB_DIVIDER);
 
-    int tab_w = 58;
+    int tab_w = 56;
 
-    for (int t = 0; t < 3; t++) {
-        int tx = 4 + t * (tab_w + 2);
+    for (int t = 0; t < 4; t++) {
+        int tx = 3 + t * 59;
         int ty = dock_y + 4;
         int th = dock_h - 8;
         bool paired = is_remote_paired();
-        bool is_disabled = !paired && (t == 0 || t == 1);
-        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING) ||
-                                         (t == 0 && g_current_view == VIEW_DEVICE_BROWSER));
-        if (!paired && t == 2 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) {
-            is_active_view = true;
+        bool is_disabled = !paired && (t == 0 || t == 1 || t == 2);
+        bool is_active_view = false;
+        if (t == 0 && g_current_view == VIEW_ACTIVITIES) is_active_view = true;
+        else if (t == 1 && g_current_view == VIEW_DEVICES) is_active_view = true;
+        else if (t == 2 && g_current_view == VIEW_DEVICE_BROWSER) is_active_view = true;
+        else if (t == 3 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) is_active_view = true;
+        if (!paired) {
+            is_active_view = (t == 3 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING));
         }
 
         uint16_t bg = is_active_view ? RGB_TAB_ACTIVE : RGB_TAB_BG;
@@ -150,50 +175,38 @@ void render_footer(void) {
             fb_fill_rect(tx + 2, ty + th - 2, tab_w - 4, 2, RGB_TEAL);
         }
 
-        if (t == 1) {
-            if (g_remote_mode == 1) {
-                int tw = fb_text_width_aa("PG 2", &g_font_main);
-                fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "PG 2", fg, &g_font_main);
-            } else {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                    int tw = fb_text_width_aa("DEV", &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "DEV", fg, &g_font_main);
-                }
-            }
-        } else if (t == 2) {
-            if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
-                fb_draw_cog(tx + tab_w / 2, ty + th / 2, fg);
-            }
-        } else {
+        if (t == 0) {
             if (g_remote_mode == 1) {
                 int tw = fb_text_width_aa("PG 1", &g_font_main);
                 fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "PG 1", fg, &g_font_main);
             } else {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/wiihome.png") &&
-                    !blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/menu.png") &&
                     !blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/activities.png")) {
                     int tw = fb_text_width_aa("ACT", &g_font_main);
                     fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "ACT", fg, &g_font_main);
                 }
             }
+        } else if (t == 1) {
+            if (g_remote_mode == 1) {
+                int tw = fb_text_width_aa("PG 2", &g_font_main);
+                fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "PG 2", fg, &g_font_main);
+            } else {
+                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/menu.png")) {
+                    int tw = fb_text_width_aa("CMD", &g_font_main);
+                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "CMD", fg, &g_font_main);
+                }
+            }
+        } else if (t == 2) {
+            if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
+                int tw = fb_text_width_aa("DEV", &g_font_main);
+                fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "DEV", fg, &g_font_main);
+            }
+        } else if (t == 3) {
+            if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
+                fb_draw_cog(tx + tab_w / 2, ty + th / 2, fg);
+            }
         }
     }
-
-    int pill_x = FB_WIDTH - 52;
-    int pill_y = dock_y + 4;
-    int pill_w = 48;
-    int pill_h = dock_h - 8;
-
-    uint16_t pbg = g_screen_nav_mode ? RGB_TEAL : 0x1824;
-    uint16_t pfg = g_screen_nav_mode ? RGB_BLACK : RGB_TEXT_MUTED;
-    uint16_t pborder = g_screen_nav_mode ? RGB_WHITE : 0x2945;
-
-    fb_fill_rect(pill_x, pill_y, pill_w, pill_h, pbg);
-    fb_draw_rect(pill_x, pill_y, pill_w, pill_h, pborder);
-
-    const char *mode_str = g_screen_nav_mode ? "NAV" : "DEV";
-    int mw = fb_text_width_aa(mode_str, &g_font_main);
-    fb_draw_text_aa(pill_x + (pill_w - mw) / 2, pill_y + 6, mode_str, pfg, &g_font_main);
 }
 
 void render_sync_overlay(void) {

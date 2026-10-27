@@ -79,7 +79,7 @@ void request_activity_switch_with_confirm(int act_idx) {
 }
 
 int activity_list_count(void) {
-    return g_activity_count + (g_rf_device_count > 0 ? 1 : 0);
+    return g_activity_count;
 }
 
 void render_activities_screen(void) {
@@ -105,28 +105,6 @@ void render_activities_screen(void) {
         int idx = page_start + i;
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (idx == g_selected_activity);
-
-        if (idx == g_activity_count) {
-            fb_fill_rect(6, y, FB_WIDTH - 12, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
-            fb_draw_rect(6, y, FB_WIDTH - 12, card_h, is_sel ? RGB_TEAL : 0x2945);
-            if (is_sel) fb_fill_rect(6, y, 4, card_h, RGB_TEAL);
-            int icon_x = 14;
-            int icon_y = y + 8;
-            fb_fill_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? 0x2125 : 0x18C3);
-            fb_draw_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? RGB_TEAL : 0x31A6);
-            if (!blit_png_file(icon_x, icon_y, 40, 40, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                fb_draw_rect(icon_x + 10, icon_y + 10, 20, 20, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-            }
-            char sub[24];
-            snprintf(sub, sizeof(sub), "%d device%s", g_rf_device_count, g_rf_device_count == 1 ? "" : "s");
-            fb_draw_text_aa(64, y + 13, "Devices", is_sel ? RGB_WHITE : 0xD6DA, &g_font_main);
-            fb_draw_text_aa(64, y + 33, sub, RGB_TEXT_MUTED, &g_font_main);
-            if (is_sel && !blit_png_file(FB_WIDTH - 24, y + 20, 10, 15, "/opt/luadraws/appscommon/asset/home/chevron.png")) {
-                fb_draw_text_aa(FB_WIDTH - 24, y + 19, ">", RGB_TEAL, &g_font_title);
-            }
-            continue;
-        }
-
         bool is_active = (strcmp(g_activities[idx].id, g_active_activity_id) == 0);
 
         bool is_confirm_pending = (g_confirm_pending_idx == idx);

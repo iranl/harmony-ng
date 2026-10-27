@@ -162,8 +162,8 @@ void *config_push_worker(void *arg) {
 
     /* 3. Devices */
     struct {
-        char id[13];
-        char name[15];
+        char id[8];
+        char name[24];
     } devs[16];
     cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
     cJSON *dev_root = NULL;
@@ -208,10 +208,10 @@ void *config_push_worker(void *arg) {
                                 else if (cJSON_IsString(jid)) strncpy(id_str, jid->valuestring, sizeof(id_str) - 1);
 
                                 if (id_str[0]) {
-                                    strncpy(devs[dev_count].id, id_str, 12);
-                                    devs[dev_count].id[12] = '\0';
-                                    strncpy(devs[dev_count].name, jname->valuestring, 14);
-                                    devs[dev_count].name[14] = '\0';
+                                    strncpy(devs[dev_count].id, id_str, 7);
+                                    devs[dev_count].id[7] = '\0';
+                                    strncpy(devs[dev_count].name, jname->valuestring, 21);
+                                    devs[dev_count].name[21] = '\0';
                                     dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
                                 }
@@ -231,8 +231,8 @@ void *config_push_worker(void *arg) {
             uint8_t payload[26] = {0};
             payload[0] = (uint8_t)i;
             payload[1] = (uint8_t)dev_count;
-            memcpy(&payload[2], devs[i].id, 10);
-            memcpy(&payload[12], devs[i].name, 14);
+            memcpy(&payload[2], devs[i].id, 4);
+            memcpy(&payload[6], devs[i].name, 20);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             rf_send_config_frame(&f);
             usleep(15000);

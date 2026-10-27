@@ -161,16 +161,23 @@ To toggle between `DEV` and `NAV` modes without touching the display, a physical
 
 ---
 
-## Device Browser
+## Device Browser & Physical Button Control
 
 Every device configured on the Hub can be controlled directly, without starting an activity:
 
-- The **ACTIVITIES** list ends with a **Devices** entry (after Power Off) once the Hub has pushed its devices.
-- **Devices** opens the list of all Hub devices; choosing a device lists all of its commands, 6 per page.
-- Choosing a command sends it to the Hub, which transmits it to the device.
-- **Back**: swipe left-to-right, tap the `<` title, or press `Back` / `Plug On` / `Light Off` (in `NAV` mode). The Activities capacitive button returns to the activity list.
-
-Command names are sent by the Hub during each config push. Remotes running older firmware ignore them and keep working without the device browser.
+- **Bottom Navigation Dock**: 4 quick tabs across the bottom:
+  1. `ACTIVITIES`: Activity switcher and status.
+  2. `DEVICES`: On-screen touch buttons for devices belonging to the active activity.
+  3. `HUB DEVICES` (Center-Right): Dedicated Hub Device Browser view listing all configured devices on the Hub.
+  4. `SETTINGS`: Remote hardware and configuration settings.
+- **Top Header NAV/DEV Mode Indicator**: The NAV/DEV pill has moved from the footer dock to the top bar header. Tap the indicator icon (`NAV` D-pad vs `DEV` TV icon) to toggle bottom capacitive buttons between navigation and home-control/device functions.
+- **Hub Device Browser**: Selecting a device lists all of its commands (6 per page) for touch execution.
+- **Physical Button Control in Device Browser**: When viewing any device in the Hub Device Browser, physical remote button presses (Volume, Mute, D-pad, Play/Pause, Channel, etc.) automatically transmit the target device ID to the Hub.
+- **Hub Mapping & Auto-Fallback**:
+  - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
+  - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
+- **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for full device names (up to 20 chars) without truncation.
+- **Back**: Swipe left-to-right, tap the `<` title, or press `Prev Tab` (`KEY_PROG2`) / `Back` in NAV mode. At the root device list, returning switches back to `DEVICES`.
 
 ---
 

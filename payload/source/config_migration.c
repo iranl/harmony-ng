@@ -175,6 +175,180 @@ void migrate_activity_ids_to_short(cJSON *root) {
     }
 }
 
+static void remap_device_refs_in_json(cJSON *node, const struct id_pair *pairs, int pair_count, int *changed) {
+    if (!node) return;
+    if (cJSON_IsObject(node)) {
+        cJSON *child = NULL;
+        cJSON_ArrayForEach(child, node) {
+            if (child->string && (strcmp(child->string, "deviceId") == 0 ||
+                strcmp(child->string, "targetDevice") == 0 ||
+                strcmp(child->string, "device") == 0)) {
+                if (cJSON_IsString(child) && child->valuestring) {
+                    for (int i = 0; i < pair_count; i++) {
+                        if (strcmp(child->valuestring, pairs[i].old_id) == 0) {
+                            cJSON_SetValuestring(child, pairs[i].new_id);
+                            if (changed) *changed = 1;
+                            break;
+                        }
+                    }
+                } else if (cJSON_IsNumber(child)) {
+                    for (int i = 0; i < pair_count; i++) {
+                        if (atoi(pairs[i].old_id) == child->valueint) {
+                            child->valueint = atoi(pairs[i].new_id);
+                            child->valuedouble = (double)child->valueint;
+                            if (changed) *changed = 1;
+                            break;
+                        }
+                    }
+                }
+            } else if (child->string && strcmp(child->string, "deviceIds") == 0 && cJSON_IsArray(child)) {
+                cJSON *elem = NULL;
+                cJSON_ArrayForEach(elem, child) {
+                    if (cJSON_IsString(elem) && elem->valuestring) {
+                        for (int i = 0; i < pair_count; i++) {
+                            if (strcmp(elem->valuestring, pairs[i].old_id) == 0) {
+                                cJSON_SetValuestring(elem, pairs[i].new_id);
+                                if (changed) *changed = 1;
+                                break;
+                            }
+                        }
+                    } else if (cJSON_IsNumber(elem)) {
+                        for (int i = 0; i < pair_count; i++) {
+                            if (atoi(pairs[i].old_id) == elem->valueint) {
+                                elem->valueint = atoi(pairs[i].new_id);
+                                elem->valuedouble = (double)elem->valueint;
+                                if (changed) *changed = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                remap_device_refs_in_json(child, pairs, pair_count, changed);
+            }
+        }
+    } else if (cJSON_IsArray(node)) {
+        cJSON *elem = NULL;
+        cJSON_ArrayForEach(elem, node) {
+            remap_device_refs_in_json(elem, pairs, pair_count, changed);
+        }
+    }
+}
+
+void migrate_device_ids_to_short(cJSON *root) {
+    if (!root) return;
+
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "Devices");
+    if (!devs || !cJSON_IsArray(devs)) return;
+
+    int needs_migration = 0;
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, devs) {
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(item, "Id");
+        if (jid) {
+            char id_s[32] = {0};
+            if (cJSON_IsNumber(jid)) snprintf(id_s, sizeof(id_s), "%ld", (long)jid->valuedouble);
+            else if (cJSON_IsString(jid) && jid->valuestring) strncpy(id_s, jid->valuestring, sizeof(id_s) - 1);
+            if (id_s[0] && strcmp(id_s, "-1") != 0 && strcmp(id_s, "0") != 0 && (strlen(id_s) > 2 || atoi(id_s) > 99)) {
+                needs_migration = 1;
+                break;
+            }
+        }
+    }
+    if (!needs_migration) return;
+
+    printf("[*] Migrating device IDs to short format (1, 2, 3...)\n");
+
+    struct id_pair map[64];
+    int map_count = 0;
+    int next_id = 1;
+
+    cJSON_ArrayForEach(item, devs) {
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(item, "Id");
+        if (jid) {
+            char id_s[32] = {0};
+            if (cJSON_IsNumber(jid)) snprintf(id_s, sizeof(id_s), "%ld", (long)jid->valuedouble);
+            else if (cJSON_IsString(jid) && jid->valuestring) strncpy(id_s, jid->valuestring, sizeof(id_s) - 1);
+            if (!id_s[0] || strcmp(id_s, "-1") == 0 || strcmp(id_s, "0") == 0) continue;
+            if (map_count < 64) {
+                strncpy(map[map_count].old_id, id_s, sizeof(map[0].old_id) - 1);
+                snprintf(map[map_count].new_id, sizeof(map[0].new_id), "%d", next_id++);
+                cJSON_DeleteItemFromObject(item, "id");
+                cJSON_DeleteItemFromObject(item, "Id");
+                cJSON_AddStringToObject(item, "id", map[map_count].new_id);
+                printf("[*] Remapped device ID: %s -> %s\n", map[map_count].old_id, map[map_count].new_id);
+                map_count++;
+            }
+        }
+    }
+
+    char *out = cJSON_Print(root);
+    if (out) {
+        write_file_atomic(HARMONY_DEVICES_FILE, out);
+        write_file_atomic("/data/devices.json", out);
+        free(out);
+    }
+
+    char *araw = read_file_text(HARMONY_ACTIVITIES_FILE, 2 * 1024 * 1024);
+    if (araw) {
+        cJSON *aroot = cJSON_Parse(araw);
+        free(araw);
+        if (aroot) {
+            int changed = 0;
+            remap_device_refs_in_json(aroot, map, map_count, &changed);
+            if (changed) {
+                char *aout = cJSON_Print(aroot);
+                if (aout) {
+                    write_file_atomic(HARMONY_ACTIVITIES_FILE, aout);
+                    write_file_atomic("/data/activities.json", aout);
+                    free(aout);
+                    printf("[*] Remapped device references in %s\n", HARMONY_ACTIVITIES_FILE);
+                }
+            }
+            cJSON_Delete(aroot);
+        }
+    }
+
+    const char *map_files[] = {
+        "/data/harmony/elite_remote_map.json",
+        "/data/harmony/bt_remote_map.json",
+        NULL
+    };
+    for (int fi = 0; map_files[fi]; fi++) {
+        char *mraw = read_file_text(map_files[fi], 512 * 1024);
+        if (mraw) {
+            cJSON *mroot = cJSON_Parse(mraw);
+            free(mraw);
+            if (mroot) {
+                int changed = 0;
+                cJSON *mdevs = cJSON_GetObjectItemCaseSensitive(mroot, "devices");
+                if (mdevs && cJSON_IsObject(mdevs)) {
+                    for (int mi = 0; mi < map_count; mi++) {
+                        cJSON *entry = cJSON_DetachItemFromObject(mdevs, map[mi].old_id);
+                        if (entry) {
+                            cJSON_AddItemToObject(mdevs, map[mi].new_id, entry);
+                            changed = 1;
+                        }
+                    }
+                }
+                remap_device_refs_in_json(mroot, map, map_count, &changed);
+                if (changed) {
+                    char *mout = cJSON_Print(mroot);
+                    if (mout) {
+                        write_file_atomic(map_files[fi], mout);
+                        free(mout);
+                        printf("[*] Remapped device references in %s\n", map_files[fi]);
+                    }
+                }
+                cJSON_Delete(mroot);
+            }
+        }
+    }
+}
+
 /* Migrate stock DeviceList.json -> devices.json without touching original */
 void migrate_stock_devices(void) {
     if (access(HARMONY_DEVICES_FILE, F_OK) == 0) return;

@@ -150,8 +150,15 @@ void handle_screen_touch_tap(int x, int y) {
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
     if (is_tap && y < 38) {
+        if (x >= 106 && x <= 138) {
+            g_screen_nav_mode = !g_screen_nav_mode;
+            printf("[*] Mode toggled by top header icon: %s\n", g_screen_nav_mode ? "NAV" : "DEV");
+            show_notice(g_screen_nav_mode ? "Screen Nav: ON" : "Screen Nav: OFF", 1500);
+            render_screen();
+            return;
+        }
         bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
-        if ((g_update_config_available || ota_avail) && x >= 70 && x <= 130) {
+        if ((g_update_config_available || ota_avail) && x >= 70 && x <= 104) {
             printf("[*] Touch tap on update badge -> jump to UPDATE & SYNC\n");
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_UPDATE;
@@ -178,17 +185,17 @@ void handle_screen_touch_tap(int x, int y) {
             return;
         }
         if (g_current_view == VIEW_DEVICE_BROWSER) {
-            if (dx > 0) device_browser_back();
-            else g_current_view = VIEW_DEVICES;
-            printf("[*] Swipe (dx=%d) in device browser -> view %d\n", dx, g_current_view);
-            render_screen();
-            return;
+            if (dx > 0 && g_browse_dev >= 0) {
+                device_browser_back();
+                render_screen();
+                return;
+            }
         }
         if (dx > 0) {
             if (g_current_view == VIEW_ACTIVITIES) g_current_view = VIEW_SETTINGS;
             else if (g_current_view == VIEW_DEVICES) g_current_view = VIEW_ACTIVITIES;
-            else if (g_current_view == VIEW_SETTINGS) g_current_view = VIEW_DEVICES;
-            else if (g_current_view == VIEW_PAIRING) g_current_view = VIEW_SETTINGS;
+            else if (g_current_view == VIEW_DEVICE_BROWSER) g_current_view = VIEW_DEVICES;
+            else if (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) open_device_browser();
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
@@ -197,9 +204,9 @@ void handle_screen_touch_tap(int x, int y) {
             return;
         } else {
             if (g_current_view == VIEW_ACTIVITIES) g_current_view = VIEW_DEVICES;
-            else if (g_current_view == VIEW_DEVICES) g_current_view = VIEW_SETTINGS;
-            else if (g_current_view == VIEW_SETTINGS) g_current_view = VIEW_ACTIVITIES;
-            else if (g_current_view == VIEW_PAIRING) g_current_view = VIEW_SETTINGS;
+            else if (g_current_view == VIEW_DEVICES) open_device_browser();
+            else if (g_current_view == VIEW_DEVICE_BROWSER) g_current_view = VIEW_SETTINGS;
+            else if (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) g_current_view = VIEW_ACTIVITIES;
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
@@ -279,7 +286,7 @@ void handle_screen_touch_tap(int x, int y) {
         }
         g_confirm_pending_rf_code = 0;
         ui_view_t prev_view = g_current_view;
-        if (x < 62) {
+        if (x < 60) {
             if (!is_remote_paired()) {
                 show_notice("Remote not paired - pair first", 2500);
                 return;
@@ -288,7 +295,7 @@ void handle_screen_touch_tap(int x, int y) {
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
-        } else if (x < 124) {
+        } else if (x < 120) {
             if (!is_remote_paired()) {
                 show_notice("Remote not paired - pair first", 2500);
                 return;
@@ -297,16 +304,20 @@ void handle_screen_touch_tap(int x, int y) {
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
-        } else if (x < 186) {
-            g_current_view = VIEW_SETTINGS;
+        } else if (x < 180) {
+            if (!is_remote_paired()) {
+                show_notice("Remote not paired - pair first", 2500);
+                return;
+            }
+            open_device_browser();
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             g_selected_sub_item = 0;
             g_factory_reset_stage = 0;
         } else {
-            if (g_touch_enabled) {
-                g_screen_nav_mode = !g_screen_nav_mode;
-                printf("[*] Mode toggled by screen dock: %s\n", g_screen_nav_mode ? "NAV" : "DEV");
-            }
+            g_current_view = VIEW_SETTINGS;
+            g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+            g_selected_sub_item = 0;
+            g_factory_reset_stage = 0;
         }
         if ((prev_view == VIEW_SETTINGS || prev_view == VIEW_PAIRING) && g_current_view != prev_view && g_settings_dirty) {
             g_settings_dirty = false;
@@ -343,12 +354,6 @@ void handle_screen_touch_tap(int x, int y) {
             if (y >= cy && y < cy + card_h + spacing) {
                 int idx = page_start + i;
                 g_selected_activity = idx;
-                if (idx == g_activity_count) {
-                    printf("[*] Touch selected Devices -> device browser\n");
-                    open_device_browser();
-                    render_screen();
-                    return;
-                }
                 printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
                 request_activity_switch_with_confirm(idx);
                 return;
@@ -578,7 +583,11 @@ void handle_navigation_key(int code, int value) {
                 break;
             }
             if (g_current_view == VIEW_DEVICE_BROWSER) {
-                device_browser_back();
+                if (g_browse_dev >= 0) {
+                    device_browser_back();
+                } else {
+                    g_current_view = VIEW_DEVICES;
+                }
             } else if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
@@ -596,7 +605,7 @@ void handle_navigation_key(int code, int value) {
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
                 } else {
-                    g_current_view = VIEW_DEVICES;
+                    open_device_browser();
                 }
             } else if (g_current_view == VIEW_DEVICES) {
                 g_current_view = VIEW_ACTIVITIES;
@@ -635,9 +644,11 @@ void handle_navigation_key(int code, int value) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
-            } else if (g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICE_BROWSER) {
+            } else if (g_current_view == VIEW_ACTIVITIES) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
+                open_device_browser();
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
             } else if (g_current_view == VIEW_SETTINGS) {
@@ -697,10 +708,7 @@ void handle_navigation_key(int code, int value) {
                     execute_active_dev_cmd(g_selected_device_cmd);
                     render_screen();
                 } else {
-                    if (g_selected_activity == g_activity_count && g_rf_device_count > 0) {
-                        open_device_browser();
-                        render_screen();
-                    } else if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
+                    if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
                         request_activity_switch_with_confirm(g_selected_activity);
                     }
                 }

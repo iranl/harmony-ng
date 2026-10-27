@@ -120,8 +120,8 @@ typedef struct {
 } rf_activity_t;
 
 typedef struct {
-    char id[13];
-    char name[15];
+    char id[8];
+    char name[24];
 } rf_device_t;
 
 /* Device command names pushed by the Hub, for browsing devices on the remote */

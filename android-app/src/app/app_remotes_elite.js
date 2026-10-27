@@ -122,6 +122,16 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
     if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
     if (tgtAct) tgtAct.innerHTML = filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+    const devSelect = document.getElementById('eliteDeviceSelect');
+    if (devSelect) {
+      devSelect.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+      if (this.eliteSelectedDeviceId && devs.some(d => String(d.id) === String(this.eliteSelectedDeviceId))) {
+        devSelect.value = this.eliteSelectedDeviceId;
+      } else if (devs.length > 0) {
+        devSelect.value = devs[0].id;
+        this.eliteSelectedDeviceId = devs[0].id;
+      }
+    }
 
     this.eliteRemoteMode = 0;
     this.eliteDirectPage = 1;
@@ -169,7 +179,11 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
 
     try {
       const m = await this.client.getEliteMapping();
-      if (m && m.activities) this.eliteMapData = m;
+      if (m) {
+        if (!m.activities) m.activities = {};
+        if (!m.devices) m.devices = {};
+        this.eliteMapData = m;
+      }
     } catch (e) {
       console.warn('Failed to load Elite mappings:', e);
     }
@@ -199,7 +213,15 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     let mapping = null;
     if (this.eliteRemoteMode === 1) {
       mapping = this.eliteDirectData?.buttons?.[btnId];
+      if (modalActLbl) modalActLbl.textContent = 'Direct Mode';
+    } else if (this.eliteContextMode === 'device') {
+      const devSel = document.getElementById('eliteDeviceSelect');
+      const devId = this.eliteSelectedDeviceId || devSel?.value || (this.inventory.devices?.[0]?.id);
+      const devName = devSel ? devSel.options[devSel.selectedIndex]?.text || devId : devId;
+      if (modalActLbl) modalActLbl.textContent = `Device: ${devName}`;
+      mapping = this.eliteMapData?.devices?.[devId]?.[btnId];
     } else {
+      if (modalActLbl) modalActLbl.textContent = actName;
       mapping = this.eliteMapData?.activities?.[actId]?.[btnId];
     }
 
@@ -221,6 +243,10 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     if (mapping && mapping.deviceId) {
       const devSel = document.getElementById('eliteTargetDevice');
       if (devSel) devSel.value = mapping.deviceId;
+    } else if (this.eliteContextMode === 'device') {
+      const curDev = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+      const devSel = document.getElementById('eliteTargetDevice');
+      if (devSel && curDev) devSel.value = curDev;
     }
     if (mapping && mapping.sequence) {
       const seqSel = document.getElementById('eliteTargetSequence');
@@ -310,6 +336,17 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       } else {
         this.eliteDirectData.buttons[this.eliteSelectedBtn] = mapObj;
       }
+    } else if (this.eliteContextMode === 'device') {
+      const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+      if (devId) {
+        if (!this.eliteMapData.devices) this.eliteMapData.devices = {};
+        if (!this.eliteMapData.devices[devId]) this.eliteMapData.devices[devId] = {};
+        if (type === 'none' || !mapObj) {
+          delete this.eliteMapData.devices[devId][this.eliteSelectedBtn];
+        } else {
+          this.eliteMapData.devices[devId][this.eliteSelectedBtn] = mapObj;
+        }
+      }
     } else {
       const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
@@ -331,6 +368,11 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       if (this.eliteDirectData?.buttons) {
         delete this.eliteDirectData.buttons[this.eliteSelectedBtn];
       }
+    } else if (this.eliteContextMode === 'device') {
+      const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+      if (devId && this.eliteMapData.devices?.[devId]) {
+        delete this.eliteMapData.devices[devId][this.eliteSelectedBtn];
+      }
     } else {
       const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       if (this.eliteMapData.activities?.[actId]) {
@@ -347,6 +389,9 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     let actMap = {};
     if (this.eliteRemoteMode === 1) {
       actMap = this.eliteDirectData?.buttons || {};
+    } else if (this.eliteContextMode === 'device') {
+      const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+      actMap = this.eliteMapData?.devices?.[devId] || {};
     } else {
       const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
       actMap = this.eliteMapData?.activities?.[actId] || {};

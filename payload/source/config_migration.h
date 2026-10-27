@@ -10,6 +10,7 @@ struct cJSON;
 void migrate_stock_devices(void);
 void migrate_stock_activities(void);
 void migrate_activity_ids_to_short(struct cJSON *root);
+void migrate_device_ids_to_short(struct cJSON *root);
 
 #ifdef __cplusplus
 }

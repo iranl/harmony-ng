@@ -457,10 +457,10 @@ void load_rf_config(void) {
             cJSON *jid = cJSON_GetObjectItem(d, "id");
             cJSON *jname = cJSON_GetObjectItem(d, "name");
             if (jid && jname && cJSON_IsString(jid) && cJSON_IsString(jname)) {
-                strncpy(g_rf_devices[g_rf_device_count].id, jid->valuestring, 12);
-                g_rf_devices[g_rf_device_count].id[12] = '\0';
-                strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, 14);
-                g_rf_devices[g_rf_device_count].name[14] = '\0';
+                strncpy(g_rf_devices[g_rf_device_count].id, jid->valuestring, sizeof(g_rf_devices[0].id) - 1);
+                g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
+                strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, sizeof(g_rf_devices[0].name) - 1);
+                g_rf_devices[g_rf_device_count].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
                 int k = 0;
                 cJSON *jc = NULL;
                 cJSON_ArrayForEach(jc, cJSON_GetObjectItem(d, "commands")) {

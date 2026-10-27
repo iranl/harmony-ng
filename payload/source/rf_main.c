@@ -25,11 +25,11 @@
    The index comes from the last config push; the name prefix guards against devices.json
    having changed since then. */
 static void enqueue_browsed_device_cmd(const uint8_t *payload) {
-    char dev_id[11] = {0};
-    char prefix[15] = {0};
-    memcpy(dev_id, payload, 10);
-    int cmd_idx = payload[10];
-    memcpy(prefix, &payload[11], 14);
+    char dev_id[8] = {0};
+    char prefix[22] = {0};
+    memcpy(dev_id, payload, 4);
+    int cmd_idx = payload[4];
+    memcpy(prefix, &payload[5], 20);
 
     FILE *fd = fopen("/data/harmony/config/devices.json", "r");
     if (!fd) return;
@@ -51,14 +51,14 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
     cJSON *dev = NULL;
     cJSON_ArrayForEach(dev, devs_arr) {
         cJSON *jid = cJSON_GetObjectItem(dev, "id");
-        if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 10) != 0) continue;
+        if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 7) != 0) continue;
         full_id = jid->valuestring;
         cJSON *cmds = cJSON_GetObjectItem(dev, "commands");
         int c = 0;
         cJSON *cmd = NULL;
         cJSON_ArrayForEach(cmd, cmds) {
             cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
-            if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 14) == 0) {
+            if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 20) == 0) {
                 if (c == cmd_idx) { cmd_name = jn->valuestring; break; }
                 if (!cmd_name) cmd_name = jn->valuestring; /* index moved: first name match */
             }
@@ -91,15 +91,18 @@ void handle_rf_frame(const rf_frame_t *f) {
             if (slot < 1 || slot > 2) slot = 1;
             uint16_t key_code = ((uint16_t)f->payload[0] << 8) | f->payload[1];
             uint8_t state = f->payload[2];
-            char btn_name[13] = {0};
-            memcpy(btn_name, &f->payload[3], 12);
+            char btn_name[18] = {0};
+            memcpy(btn_name, &f->payload[3], 16);
+            char dev_id[8] = {0};
+            memcpy(dev_id, &f->payload[20], 5);
 
             const char *action = (state == 0x01) ? "press" : ((state == 0x02) ? "hold" : "release");
             const char *name = map_button_code(key_code >> 8, key_code & 0xFF);
             if (!name) name = btn_name[0] ? btn_name : "Unknown";
 
-            printf("[*] BUTTON_PRESS: slot=%d code=0x%04X state=%s name=%s\n", slot, key_code, action, name);
-            enqueue_elite_button(slot, name, action);
+            printf("[*] BUTTON_PRESS: slot=%d code=0x%04X state=%s name=%s dev=%s\n",
+                   slot, key_code, action, name, dev_id[0] ? dev_id : "none");
+            enqueue_elite_button(slot, name, action, dev_id);
 
             static uint32_t s_last_sync_ms = 0;
             uint32_t now_ms = (uint32_t)get_monotonic_ms();

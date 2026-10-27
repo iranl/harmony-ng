@@ -190,13 +190,19 @@ void rf_send_button_event(uint16_t key_code, int value) {
     payload[0] = (uint8_t)(key_code >> 8);
     payload[1] = (uint8_t)(key_code & 0xFF);
     payload[2] = state;
-    strncpy((char *)&payload[3], short_name, 12);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, 15);
+    strncpy((char *)&payload[3], short_name, 16);
 
+    const char *dev_ctx = "";
+    if (g_current_view == VIEW_DEVICE_BROWSER && g_browse_dev >= 0 && g_browse_dev < g_rf_device_count) {
+        dev_ctx = g_rf_devices[g_browse_dev].id;
+        strncpy((char *)&payload[20], dev_ctx, 5);
+    }
+
+    rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, 26);
     rf_send_frame(&f);
 
-    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s\n", key_code,
-           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name);
+    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s\n", key_code,
+           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name, dev_ctx[0] ? dev_ctx : "none");
 }
 
 void rf_send_activity_start(const char *act_id) {
@@ -217,8 +223,8 @@ void rf_send_device_command(const char *dev_id, const char *cmd) {
 
     rf_frame_t f;
     uint8_t payload[26] = {0};
-    strncpy((char *)payload, dev_id, 10);
-    strncpy((char *)&payload[10], cmd, 16);
+    strncpy((char *)payload, dev_id, 4);
+    strncpy((char *)&payload[4], cmd, 21);
     rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_REQUEST, ++g_tx_seq, 0, payload, 26);
 
     rf_send_frame(&f);

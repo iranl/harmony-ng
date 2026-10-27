@@ -84,6 +84,7 @@ int config_store_init(void) {
         free(dev_raw);
         if (g_devices_json_cache) {
             sanitize_devices_json(g_devices_json_cache);
+            migrate_device_ids_to_short(g_devices_json_cache);
         }
     }
     if (!g_devices_json_cache) {
