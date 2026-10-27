@@ -40,22 +40,21 @@ VERSION_FILE = REPO_ROOT / "VERSION"
 STAGING_DIR = REPO_ROOT / "build" / "ota_staging"
 
 HUB_BINARIES = [
-    "codex_daemon",
-    "codex_rf",
-    "codex_btstack",
-    "codex_dhcpd",
-    "codex_portal",
-    "codex_sntp",
-    "codex_sync",
+    "hub_daemon",
+    "hub_rf",
+    "hub_btstack",
+    "hub_dhcpd",
+    "hub_portal",
+    "hub_sntp",
+    "hub_sync",
     "mknod",
     "register_ehci",
     "eth_fix",
 ]
 
 ELITE_BINARIES = [
-    "codex_elite",
-    "codex_elite.ota.gz",
-    "codex_sync",
+    "elite_ui",
+    "elite_ui.ota.gz",
 ]
 
 def find_candidate_file(name: str, search_paths: list[Path]) -> Path | None:
@@ -82,7 +81,21 @@ def package_ota(output_dir: Path, version: str):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Version file
-    (output_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+    # For v2+ releases, keep root VERSION at 1.14.0 so existing 1.*.* hubs do not attempt 2.0 upgrade over the air.
+    # Write v2/VERSION and VERSION_V2 for 2.0+ clients.
+    try:
+        major = int(version.split(".")[0])
+    except Exception:
+        major = 1
+
+    if major >= 2:
+        (output_dir / "VERSION").write_text("1.14.0\n", encoding="utf-8")
+        (output_dir / "VERSION_V2").write_text(version + "\n", encoding="utf-8")
+        v2_dir = output_dir / "v2"
+        v2_dir.mkdir(parents=True, exist_ok=True)
+        (v2_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+    else:
+        (output_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
 
     # 2. MIPS binaries
     mips_target = output_dir / "bin" / "mips"
@@ -108,14 +121,14 @@ def package_ota(output_dir: Path, version: str):
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)
     for bname in ELITE_BINARIES:
-        if bname == "codex_elite.ota.gz":
-            elite_bin = find_candidate_file("codex_elite", ARM_SEARCH_PATHS)
+        if bname == "elite_ui.ota.gz":
+            elite_bin = find_candidate_file("elite_ui", ARM_SEARCH_PATHS)
             if elite_bin and elite_bin.is_file():
-                ota_tar = arm_target / "codex_elite.ota.gz"
+                ota_tar = arm_target / bname
                 print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
                 with tarfile.open(ota_tar, "w:gz") as tar:
-                    tar.add(elite_bin, arcname="codex_elite")
-                    for sf in ["rcS.local", "codex_watchdog.sh", "factory_reset.sh"]:
+                    tar.add(elite_bin, arcname="elite_ui")
+                    for sf in ["rcS.local", "elite_watchdog.sh", "factory_reset.sh"]:
                         sp = REPO_ROOT / "elite" / sf
                         if sp.is_file():
                             tar.add(sp, arcname=sf)
@@ -128,8 +141,6 @@ def package_ota(output_dir: Path, version: str):
                 continue
 
         src = find_candidate_file(bname, ARM_SEARCH_PATHS)
-        if (not src or not src.exists()) and bname == "codex_elite.ota.gz":
-            src = find_candidate_file("codex_elite.gz", ARM_SEARCH_PATHS)
         if src and src.exists():
             dst = arm_target / bname
             import shutil
@@ -257,7 +268,7 @@ def push_to_ota_branch(staging_dir: Path, version: str, remote_url: str = None, 
             print("    To push to GitHub, run with --remote <url> or git push -f.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Package and deploy Harmony Codex OTA assets")
+    parser = argparse.ArgumentParser(description="Package and deploy Harmony OTA assets")
     parser.add_argument("--version", "-v", help="Release version (default: from VERSION file)")
     parser.add_argument("--push", "-p", action="store_true", help="Push to git remote OTA branch")
     parser.add_argument("--remote", "-r", default="", help="Remote git URL (e.g. git@github.com:iranl/harmony-ng.git)")

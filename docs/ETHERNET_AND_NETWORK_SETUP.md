@@ -111,13 +111,13 @@ cat /sys/class/net/eth2/carrier
 dmesg | grep -E 'ehci|r8152|usbnet|asix'
 
 # View network manager watchdog logs
-cat /tmp/codex-network.log
+cat /tmp/harmony-network.log
 ```
 
 ### Offload Check
 If connecting over Ethernet shows successful TCP handshakes but hangs on data reception, ensure `eth_fix` has executed:
 ```bash
-/data/codex/bin/eth_fix eth2
+/data/harmony/bin/hub_eth_fix eth2
 # Expected output: [+] eth2: TX checksum offload disabled
 ```
 This is automatically handled by `start_usb_eth.sh` and `network_manager.sh`.

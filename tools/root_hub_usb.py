@@ -260,10 +260,10 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
 
     target = f"root@{hub_ip}"
 
-    # Determine busybox command on Hub (check if /cache/bin/busybox or /data/codex/bin/busybox exists)
+    # Determine busybox command on Hub (check if /cache/bin/busybox or /data/harmony/bin/busybox exists)
     chk_cmd = ["ssh"] + ssh_opts + [
         target,
-        "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; elif [ -x /data/codex/bin/busybox ]; then echo /data/codex/bin/busybox; elif [ -x /tmp/busybox ]; then echo /tmp/busybox; else echo ''; fi",
+        "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; elif [ -x /data/harmony/bin/busybox ]; then echo /data/harmony/bin/busybox; elif [ -x /tmp/busybox ]; then echo /tmp/busybox; else echo ''; fi",
     ]
     res = subprocess.run(chk_cmd, capture_output=True, text=True)
     bb_bin = res.stdout.strip()

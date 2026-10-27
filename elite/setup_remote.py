@@ -550,7 +550,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
 
     # 7. Make persistent in /etc/init.d/rcS.local
     print("[*] Preserving stock configuration backup...")
-    rce("mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi")
+    rce("mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi")
     print("[*] Installing boot persistence (/etc/init.d/rcS.local)...")
     rcs = "#!/bin/sh\\n/usr/bin/usbeth start &\\n/usr/sbin/dropbear -R -p 0.0.0.0:22\\n"
     rce(f"echo -e '{rcs}' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local")
@@ -581,7 +581,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
 
     # 10. Deploy Elite payload binaries & rcS.local (from deploy_elite.py)
     print("\n" + "=" * 70)
-    print(" [*] DEPLOYING CODEX_ELITE RUNTIME & RECOVERY RCS.LOCAL")
+    print(" [*] DEPLOYING ELITE RUNTIME & RECOVERY RCS.LOCAL")
     print("=" * 70)
     priv_path = pub_path.with_suffix("")
     ssh_opts = [
@@ -599,7 +599,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
         REPO_DIR / "elite" / "bin",
         SCRIPT_DIR / "bin",
     ])
-    binaries = ["codex_elite", "codex_sync", "scp", "dropbearkey"]
+    binaries = ["elite_ui", "elite_sync", "scp", "dropbearkey"]
     print("[*] Uploading ARM runtime binaries to /data/...")
     for b in binaries:
         src = bin_dir / b
@@ -607,14 +607,14 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
             print(f"    -> {b}")
             subprocess.run(["scp"] + scp_opts + [str(src), f"{target}:/data/{b}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Upload codex_watchdog.sh supervisor script
+    # Upload elite_watchdog.sh supervisor script
     watchdog_src = find_candidate([
-        REPO_DIR / "elite" / "codex_watchdog.sh",
-        SCRIPT_DIR / "codex_watchdog.sh",
+        REPO_DIR / "elite" / "elite_watchdog.sh",
+        SCRIPT_DIR / "elite_watchdog.sh",
     ])
     if watchdog_src.is_file():
-        print("[*] Uploading /data/codex_watchdog.sh supervisor script...")
-        subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/codex_watchdog.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"[*] Uploading /data/{watchdog_src.name} supervisor script...")
+        subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/{watchdog_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
@@ -627,25 +627,25 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
         subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if no_screen:
-        print("[*] Configuring No-Screen mode in /data/codex_elite.conf...")
-        subprocess.run(["ssh"] + ssh_opts + [target, "touch /data/codex_elite.conf; sed -i '/no_screen=/d' /data/codex_elite.conf 2>/dev/null; echo 'no_screen=1' >> /data/codex_elite.conf"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[*] Configuring No-Screen mode in /data/elite_ui.conf...")
+        subprocess.run(["ssh"] + ssh_opts + [target, "touch /data/elite_ui.conf; sed -i '/no_screen=/d' /data/elite_ui.conf 2>/dev/null; echo 'no_screen=1' >> /data/elite_ui.conf"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Finalize permissions, symlinks, and launch codex_elite (via watchdog if present)
-    print("[*] Finalizing permissions and starting codex_elite supervisor...")
+    # Finalize permissions, symlinks, and launch runtime (via watchdog if present)
+    print("[*] Finalizing permissions and starting Elite supervisor...")
     post_cmds = (
-        "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/usbhid /usr/bin/watchdog 2>/dev/null || true; "
-        "ln -sf /data/codex_sync /data/sync 2>/dev/null || true; "
-        "ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; "
+        "ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "
+        "ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /data/dropbear 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /usr/sbin/dropbear 2>/dev/null || true; "
-        "killall -9 codex_watchdog.sh codex_elite 2>/dev/null || true; "
-        "if [ -x /data/codex_watchdog.sh ]; then /data/codex_watchdog.sh > /dev/null 2>&1 & else /data/codex_elite > /tmp/codex_elite.log 2>&1 & fi; "
-        "sleep 1; pidof codex_elite || echo 'offline'"
+        "killall -9 elite_watchdog.sh elite_ui 2>/dev/null || true; "
+        "if [ -x /data/elite_watchdog.sh ]; then /data/elite_watchdog.sh > /dev/null 2>&1 & elif [ -x /data/elite_ui ]; then /data/elite_ui > /tmp/elite_ui.log 2>&1 & fi; "
+        "sleep 1; pidof elite_ui || echo 'offline'"
     )
     res = subprocess.run(["ssh"] + ssh_opts + [target, post_cmds], capture_output=True, text=True)
     out = res.stdout.strip()
-    print(f"[+] codex_elite status: {out}")
+    print(f"[+] Elite status: {out}")
     return True
 
 
@@ -680,13 +680,13 @@ def main():
             sys.exit(1)
         print("[*] Reverting remote to stock configuration...")
         revert_cmds = [
-            "killall -9 codex_watchdog.sh codex_elite 2>/dev/null || true",
+            "killall -9 elite_watchdog.sh elite_ui 2>/dev/null || true",
             "if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else rm -f /etc/init.d/rcS.local; fi",
             "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true",
-            "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log 2>/dev/null || true",
-            "rm -f /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
+            "rm -f /etc/nowatchdog /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log 2>/dev/null || true",
+            "rm -f /data/elite_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true",
-            "/data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
+            "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
             "reboot -f 2>/dev/null &",
         ]
         rce("; ".join(revert_cmds))

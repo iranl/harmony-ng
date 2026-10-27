@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """Harmony Hub & Elite Remote - Factory Reset & Stock Revert Utility.
 
-Safely wipes all custom Codex runtime files, removes persistence scripts,
+Safely wipes all custom runtime files, removes persistence scripts,
 restores original stock configuration files and permissions, and reboots
 the device(s) back into official Logitech stock firmware.
 
 Hardware Factory Reset Alternative (No SSH Required):
-    To revert any changes without SSH, perform a hardware factory reset:
-    1. Unplug micro-USB cable from Hub.
-    2. Press and hold the 'Pair/Reset' button on the back of the Hub.
-    3. Plug micro-USB into PC while holding the button for 15-20 seconds.
-    4. Release when the front LED flashes red rapidly.
-    5. After factory reset, restore your original stock configuration using:
-       python tools/restore_stock.py
+    Harmony Hub:
+        1. Unplug micro-USB cable from Hub.
+        2. Press and hold the 'Pair/Reset' button on the back of the Hub.
+        3. Plug micro-USB into PC while holding the button for 15-20 seconds.
+        4. Release when the front LED flashes red rapidly.
+        5. Restore stock configuration using: python tools/restore_stock.py
+
+    Harmony Elite Remote:
+        1. Press and hold 'Menu' (above CH+) and 'Off' (top power button) simultaneously.
+        2. Keep holding both buttons for ~20 seconds.
+        3. The remote graphic with circular arrow will flash briefly first.
+           IMPORTANT: Keep holding both buttons until the graphic stays permanently on the screen.
+        4. Release once the graphic stays on screen. The remote wipes all user data and reboots.
 
 Usage:
     python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
@@ -72,8 +78,8 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
     print("[*] Performing Hub factory reset sequence:")
 
     commands = [
-        # 1. Stop all Codex daemons
-        "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true",
+        # 1. Stop all daemons
+        "killall -9 init.sh hub_daemon hub_btstack hub_rf hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true",
         # 2. Restore stock rcS.local if backup exists
         (
             "if [ -f /data/stock_backup/rcS.local.orig ]; then "
@@ -92,13 +98,13 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
         ),
         # 4. Remove watchdog neuter and custom binaries
         (
-            "rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true; "
-            "rm -rf /data/codex /data/codexmqtt /data/codex-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; "
-            "echo '  + Removed all Codex binaries, scripts, and temporary state'"
+            "rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/hub_rf 2>/dev/null || true; "
+            "rm -rf /data/harmony /data/harmony-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; "
+            "echo '  + Removed all custom binaries, scripts, and temporary state'"
         ),
 
         # 5. Flush filesystem writes
-        "sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true",
+        "sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /data/sync 2>/dev/null || true",
     ]
 
     for c in commands:
@@ -125,8 +131,8 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
     print("[*] Performing Elite Remote factory reset sequence:")
 
     commands = [
-        # 1. Stop codex_elite
-        "killall -9 codex_elite 2>/dev/null || true",
+        # 1. Stop elite_ui
+        "killall -9 elite_ui elite_watchdog.sh 2>/dev/null || true",
         # 2. Restore or remove rcS.local
         (
             "if [ -f /data/stock_backup/rcS.local.orig ]; then "
@@ -145,13 +151,13 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
         ),
         # 4. Remove custom binaries, configs, and dropbear symlinks
         (
-            "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log 2>/dev/null || true; "
-            "rm -f /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "rm -f /etc/nowatchdog /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log 2>/dev/null || true; "
+            "rm -f /data/elite_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-            "echo '  + Removed all Codex binaries, Dropbear symlinks, and configuration files'"
+            "echo '  + Removed all custom binaries, Dropbear symlinks, and configuration files'"
         ),
         # 5. Flush filesystem writes
-        "/data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
+        "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
     ]
 
     for c in commands:
@@ -170,7 +176,7 @@ def confirm_prompt(device_label: str) -> bool:
     print(f" WARNING: FACTORY RESET FOR {device_label.upper()}")
     print("!" * 70)
     print(" This operation will:")
-    print("  1. Remove all custom Codex software, binaries, and Web UI.")
+    print("  1. Remove all custom software, binaries, and Web UI.")
     print("  2. Restore original stock startup scripts and daemon permissions.")
     print("  3. Restore stock watchdog and power management behavior.")
     print("  4. Reboot device(s) back into official Logitech stock mode.")

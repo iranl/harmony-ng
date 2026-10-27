@@ -61,7 +61,7 @@ if ($FactoryReset) {
     Write-Host "============================================================" -ForegroundColor Red
     Write-Host "  WARNING: HARMONY ELITE FACTORY RESET & STOCK RESTORATION" -ForegroundColor Red
     Write-Host "============================================================" -ForegroundColor Red
-    Write-Host "  This will remove all Codex software, restore original stock scripts," -ForegroundColor Yellow
+    Write-Host "  This will remove all custom software, restore original stock scripts," -ForegroundColor Yellow
     Write-Host "  and reboot the Elite Remote back into official Logitech stock firmware." -ForegroundColor Yellow
     $ans = Read-Host "Type 'RESET' to confirm"
     if ($ans -ne "RESET") {
@@ -69,21 +69,24 @@ if ($FactoryReset) {
         exit 1
     }
     Write-Host "[*] Reverting Elite Remote to stock (preserving config files)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "killall -9 codex_elite 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; mkdir -p /data/conf_p 2>/dev/null; cp -f /data/codex_elite_config.json /data/codex_elite.conf /data/conf_p/ 2>/dev/null || true; rm -f /etc/nowatchdog /data/reboot_counter /tmp/codex_elite.log 2>/dev/null || true; rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; cp -f /data/conf_p/* /data/ 2>/dev/null || true; rm -rf /data/conf_p 2>/dev/null; /data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; reboot -f 2>/dev/null &"
+    & ssh @sshArgs $Target "killall -9 elite_ui codex_elite elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; mkdir -p /data/conf_p 2>/dev/null; cp -f /data/elite_ui.conf /data/conf_p/ 2>/dev/null || true; rm -f /etc/nowatchdog /data/reboot_counter /tmp/codex_elite.log /tmp/elite_ui.log 2>/dev/null || true; rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; cp -f /data/conf_p/* /data/ 2>/dev/null || true; rm -rf /data/conf_p 2>/dev/null; /data/elite_sync 2>/dev/null || sync 2>/dev/null || true; reboot -f 2>/dev/null &"
     Write-Host "[+] Factory reset complete! Remote is rebooting into stock firmware (configs preserved)." -ForegroundColor Green
     exit 0
 }
 
 Write-Host "[*] Preserving stock configuration backup..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
+& ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
+
+Write-Host "[*] Stopping existing runtime and stock processes (kill -9)..." -ForegroundColor Yellow
+& ssh @sshArgs $Target "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; sleep 1"
+
+# One-way migration: move old configs and remove old codex binaries
+& ssh @sshArgs $Target "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite_config.json /data/elite_ui.conf 2>/dev/null || true; fi; if [ -f /data/codex_elite.conf ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite.conf /data/elite_ui.conf 2>/dev/null || true; fi; rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
 
 $scpArgs = @("-O") + $sshArgs
 
-Write-Host "[*] Stopping existing codex_elite and stock processes..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "killall -9 codex_watchdog.sh codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true"
-
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/codex_elite /data/codex_sync /data/codex_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /data/factory_reset.sh /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /data/factory_reset.sh /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -116,16 +119,17 @@ function Deploy-EliteFileIfChanged {
 }
 
 Write-Host "[*] Syncing core binaries to /data/ (MD5 check)..." -ForegroundColor Yellow
-$binaries = @("codex_elite", "codex_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox")
+$binaries = @("elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox")
 foreach ($b in $binaries) {
     $src = Join-Path $BinDir $b
     Deploy-EliteFileIfChanged -LocalFile $src -RemoteFile "/data/$b" -Perm "755" | Out-Null
 }
 
-$watchdogScript = Join-Path $ScriptDir "codex_watchdog.sh"
+$watchdogScript = Join-Path $ScriptDir "elite_watchdog.sh"
 if (Test-Path $watchdogScript) {
-    Write-Host "[*] Syncing /data/codex_watchdog.sh (MD5 check)..." -ForegroundColor Yellow
-    Deploy-EliteFileIfChanged -LocalFile $watchdogScript -RemoteFile "/data/codex_watchdog.sh" -Perm "755" | Out-Null
+    $wName = Split-Path -Leaf $watchdogScript
+    Write-Host "[*] Syncing /data/$wName (MD5 check)..." -ForegroundColor Yellow
+    Deploy-EliteFileIfChanged -LocalFile $watchdogScript -RemoteFile "/data/$wName" -Perm "755" | Out-Null
 }
 
 if (Test-Path $RcsLocal) {
@@ -145,17 +149,17 @@ if (Test-Path $switchPng) {
     Deploy-EliteFileIfChanged -LocalFile $switchPng -RemoteFile "/data/assets/switch.png" -Perm "644" | Out-Null
 }
 
-Write-Host "[*] Configuring permissions and starting codex_elite..." -ForegroundColor Yellow
-$postCmd = "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
+Write-Host "[*] Configuring permissions and starting elite_ui..." -ForegroundColor Yellow
+$postCmd = "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
            "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; " +
-           "[ -L /data/sync ] || ln -sf /data/codex_sync /data/sync 2>/dev/null || true; " +
-           "[ -L /usr/bin/sync ] || ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; " +
+           "[ -L /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; " +
+           "[ -L /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; " +
            "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; " +
            "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/`$a 2>/dev/null; done; fi; " +
            "rm -f /cache/crashlog-*.json 2>/dev/null || true; " +
-           "killall -9 codex_watchdog.sh codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
-           "if [ -x /data/codex_watchdog.sh ]; then ( /data/codex_watchdog.sh </dev/null >/tmp/codex_watchdog.log 2>&1 & ); else ( /data/codex_elite </dev/null >/tmp/codex_elite.log 2>&1 & ); fi; " +
-           "sleep 1; pidof codex_elite || echo 'offline'"
+           "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
+           "if [ -x /data/elite_watchdog.sh ]; then ( /data/elite_watchdog.sh </dev/null >/tmp/elite_ui.log 2>&1 & ); else ( /data/elite_ui </dev/null >/tmp/elite_ui.log 2>&1 & ); fi; " +
+           "sleep 1; pidof elite_ui || echo 'offline'"
 
 $res = & ssh @sshArgs $Target $postCmd
 Write-Host "[+] Status: $res" -ForegroundColor Green

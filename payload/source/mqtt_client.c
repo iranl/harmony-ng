@@ -27,7 +27,7 @@ typedef struct {
 
 static char g_host[128] = "127.0.0.1";
 static int  g_port = 1883;
-static char g_client_id[64] = "codex_hub";
+static char g_client_id[64] = "harmony_hub";
 static char g_user[256] = {0};
 static char g_pass[256] = {0};
 

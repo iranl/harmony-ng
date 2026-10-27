@@ -1,6 +1,6 @@
 # Harmony Hub - First Time Installation & Setup Guide
 
-This guide walks you through rooting and installing **HarmonyNG** (`codex_daemon`) on a stock Logitech Harmony Hub (Standard Model O-R0004 or Harmony Pro 2400).
+This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`) on a stock Logitech Harmony Hub (Standard Model O-R0004 or Harmony Pro 2400).
 
 ---
 
@@ -114,7 +114,7 @@ This archive preserves your stock Logitech pairings, Wi-Fi configuration, device
 
 ## 4. Deploy HarmonyNG Firmware
 
-Run the deployment script to push `codex_daemon`, the WebUI, network manager, and kernel modules to the Hub:
+Run the deployment script to push `hub_daemon`, the WebUI, network manager, and kernel modules to the Hub:
 
 ### On Windows (PowerShell):
 ```powershell
@@ -136,9 +136,9 @@ Run the deployment script to push `codex_daemon`, the WebUI, network manager, an
 
 The installer automatically:
 1. Validates available flash memory before writing.
-2. Installs `codex_daemon` (Hub micro-daemon) to `/data/codex/bin/`.
+2. Installs `hub_daemon` (Hub micro-daemon) to `/data/harmony/bin/`.
 3. Deploys startup scripts and USB Ethernet kernel drivers.
-4. Deploys the lightweight Web UI to `/data/codex/www/`.
+4. Deploys the lightweight Web UI to `/data/harmony/www/`.
 5. **Auto-extracts Remote UI Icons**: If `build/icons.tar.gz` is not yet built, the script asks:
    ```text
    [?] build/icons.tar.gz not found on host.

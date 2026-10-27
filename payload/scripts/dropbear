@@ -1,2 +1,3 @@
 #!/bin/sh
-exec /data/codex/bin/dropbear -s -g -K 300 "$@"
+BIN=/data/harmony/bin/dropbear
+exec "$BIN" -s -g -K 300 "$@"

@@ -12,7 +12,7 @@ payload/bin/MANIFEST.txt text eol=lf
 
 *.ps1 text eol=crlf
 
-payload/bin/codex_* binary
+payload/bin/hub_* binary
 payload/bin/dropbearmulti binary
 payload/bin/register_ehci binary
 payload/modules/*.ko binary

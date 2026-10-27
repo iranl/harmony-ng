@@ -4,10 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_PORT=8999
-DAEMON_BIN="$REPO_ROOT/payload/bin/codex_daemon"
+DAEMON_BIN="$REPO_ROOT/payload/bin/hub_daemon"
 
 echo "=============================================="
-echo "  Harmony Codex Comprehensive Test Suite      "
+echo "  Harmony Hub Comprehensive Test Suite        "
 echo "  (Dry-Run & API Validation)                  "
 echo "=============================================="
 
@@ -15,25 +15,44 @@ echo "=============================================="
 HOST_BUILD_DIR="$REPO_ROOT/build/tmp/test_host"
 mkdir -p "$HOST_BUILD_DIR"
 
-if [ ! -f "$HOST_BUILD_DIR/codex_daemon_test" ]; then
+if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
     echo "[-] Compiling host test runner for dry-run verification..."
     gcc -Wall -O2 -g -DTEST_HARNESS=1 \
         -I"$REPO_ROOT/payload/source" \
-        "$REPO_ROOT/payload/source/codex_daemon.c" \
+        "$REPO_ROOT/payload/source/hub_daemon.c" \
         "$REPO_ROOT/payload/source/http_server.c" \
+        "$REPO_ROOT/payload/source/http_util.c" \
+        "$REPO_ROOT/payload/source/http_auth.c" \
+        "$REPO_ROOT/payload/source/http_api_auth.c" \
+        "$REPO_ROOT/payload/source/http_api_activities.c" \
+        "$REPO_ROOT/payload/source/http_api_devices.c" \
+        "$REPO_ROOT/payload/source/http_api_commands.c" \
+        "$REPO_ROOT/payload/source/http_api_custom_icons.c" \
+        "$REPO_ROOT/payload/source/http_api_network.c" \
+        "$REPO_ROOT/payload/source/hub_network_util.c" \
+        "$REPO_ROOT/payload/source/http_api_remotes.c" \
+        "$REPO_ROOT/payload/source/http_api_ota.c" \
+        "$REPO_ROOT/payload/source/http_api_backup.c" \
+        "$REPO_ROOT/payload/source/http_api_system.c" \
         "$REPO_ROOT/payload/source/config_store.c" \
+        "$REPO_ROOT/payload/source/config_sanitize.c" \
+        "$REPO_ROOT/payload/source/config_migration.c" \
+        "$REPO_ROOT/payload/source/orchestrator.c" \
+        "$REPO_ROOT/payload/source/orchestrator_queue.c" \
+        "$REPO_ROOT/payload/source/hub_mqtt.c" \
+        "$REPO_ROOT/payload/source/hub_mqtt_ha.c" \
+        "$REPO_ROOT/payload/source/hub_ws.c" \
+        "$REPO_ROOT/payload/source/hub_ntp.c" \
         "$REPO_ROOT/payload/source/resource_cache.c" \
         "$REPO_ROOT/payload/source/cJSON.c" \
         "$REPO_ROOT/payload/source/ir_encoder.c" \
         "$REPO_ROOT/payload/source/ir_i2s.c" \
         "$REPO_ROOT/payload/source/hw_action.c" \
-        "$REPO_ROOT/payload/source/orchestrator.c" \
         "$REPO_ROOT/payload/source/ws_server.c" \
         "$REPO_ROOT/payload/source/mqtt_client.c" \
-        "$REPO_ROOT/payload/source/codex_ntp.c" \
         "$REPO_ROOT/payload/source/sha256.c" \
         -lpthread -lm \
-        -o "$HOST_BUILD_DIR/codex_daemon_test" || {
+        -o "$HOST_BUILD_DIR/hub_daemon_test" || {
             echo "[!] Host test compile skipped (cross-compilation verified via compile_all.sh)"
         }
 fi
@@ -41,10 +60,10 @@ fi
 run_api_tests() {
     local bin="$1"
     echo "[-] Launching test daemon in DRY-RUN mode on port $TEST_PORT..."
-    mkdir -p /tmp/codex_test_data/data/codex /tmp/codex_test_data/data/resources
+    mkdir -p /tmp/hub_test_data/data/harmony /tmp/hub_test_data/data/resources
     
     # Launch daemon with dry-run flag
-    "$bin" --dry-run --port "$TEST_PORT" >/tmp/codex_test_daemon.log 2>&1 &
+    "$bin" --dry-run --port "$TEST_PORT" >/tmp/hub_test_daemon.log 2>&1 &
     DAEMON_PID=$!
     
     cleanup() {
@@ -174,8 +193,8 @@ run_api_tests() {
     echo "=============================================="
 }
 
-if [ -f "$HOST_BUILD_DIR/codex_daemon_test" ]; then
-    run_api_tests "$HOST_BUILD_DIR/codex_daemon_test"
+if [ -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
+    run_api_tests "$HOST_BUILD_DIR/hub_daemon_test"
 else
     echo "[-] Validating cross-compiled binary headers and integrity..."
     file "$DAEMON_BIN" || true

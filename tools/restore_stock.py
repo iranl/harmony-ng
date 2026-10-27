@@ -266,18 +266,18 @@ def restore_stock_configuration(
     # Step 2: Kill all processes, except dropbear
     print("\n[*] [Step 2/5] Stopping all background daemons (preserving Dropbear SSH)...")
     kill_cmd = (
-        "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal "
+        "killall -9 init.sh hub_daemon hub_btstack hub_rf hub_dhcpd hub_portal "
         "hal luaworks luadraws lua watchdog bluetoothd 2>/dev/null || true"
     )
     res = run_ssh_cmd(target, kill_cmd, ssh_opts)
     time.sleep(1.5)
-    print("    + Terminated hal, luaworks, luadraws, watchdog, bluetoothd, and codex daemons.")
+    print("    + Terminated hal, luaworks, luadraws, watchdog, bluetoothd, and custom daemons.")
 
     # Step 3: Ensure busybox with tar support is available on Hub
     print("\n[*] [Step 3/5] Transferring and extracting backed up /cache and /data partitions...")
     chk_cmd = (
         "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; "
-        "elif [ -x /data/codex/bin/busybox ]; then echo /data/codex/bin/busybox; "
+        "elif [ -x /data/harmony/bin/busybox ]; then echo /data/harmony/bin/busybox; "
         "elif [ -x /tmp/busybox ]; then echo /tmp/busybox; "
         "else echo ''; fi"
     )
@@ -343,8 +343,8 @@ def restore_stock_configuration(
     # Step 4: Flush filesystem buffers safely
     print("\n[*] [Step 4/5] Flushing flash eraseblocks (sync; sync; sleep 2)...")
     cleanup_cmd = (
-        f"{bb_bin} sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; "
-        f"{bb_bin} sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; "
+        f"{bb_bin} sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; "
+        f"{bb_bin} sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; "
         "rm -f /tmp/busybox 2>/dev/null; sleep 2; /bin/sh -c 'true'"
     )
     sync_res = run_ssh_cmd(target, cleanup_cmd, ssh_opts, timeout=30)

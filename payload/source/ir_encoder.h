@@ -1,5 +1,5 @@
-#ifndef CODEX_IR_ENCODER_H
-#define CODEX_IR_ENCODER_H
+#ifndef HARMONY_IR_ENCODER_H
+#define HARMONY_IR_ENCODER_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,4 +56,4 @@ void ir_free_encoded(uint8_t *buf);
 }
 #endif
 
-#endif /* CODEX_IR_ENCODER_H */
+#endif /* HARMONY_IR_ENCODER_H */

@@ -61,7 +61,7 @@ if [ -n "$SSH_KEY" ]; then
     SSH_OPTS+=(-i "$SSH_KEY")
 fi
 
-echo "=== Harmony Hub Codex Firmware Deployment ==="
+echo "=== Harmony Hub Firmware Deployment ==="
 echo "Target Hub: $HUB_HOST"
 echo "SSH key: ${SSH_KEY:-(ssh defaults)}"
 if [ "$DEBUG_BUSYBOX" = "1" ]; then
@@ -76,19 +76,19 @@ SSH_KEY="$SSH_KEY" bash "$SCRIPT_DIR/backup_hub.sh" "$HUB_HOST"
 
 # Keep the stock startup script so a factory reset can restore it (same as deploy_hub.ps1)
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
+    "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
 # 2. Stop existing processes with kill -9
 echo "[2/5] Stopping old hub processes..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true; sleep 1"
+    "killall -9 hub_daemon codex_daemon hub_rf codex_rf hub_btstack codex_btstack hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 1"
 
-# 3. Query remote MD5 hashes and deploy binaries
-echo "[3/5] Querying remote checksums & syncing binaries to /data/codex/bin/..."
+# 3. One-way migration from /data/codex to /data/harmony and cleanup of old binaries
+echo "[3/5] Migrating legacy codex paths and querying remote checksums..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "mkdir -p /data/codex/bin /data/codex/www/assets /data/codex/config; rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/codex/bin/check_space 2>/dev/null || true"
+    "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
 
-REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
+REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /etc/init.d/rcS.local 2>/dev/null || true")
 
 if command -v md5sum >/dev/null 2>&1; then
     compute_md5() { md5sum "$1" | awk '{print $1}'; }
@@ -119,9 +119,9 @@ deploy_file_if_changed() {
     ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
 }
 
-for bin in codex_daemon codex_rf codex_sntp codex_btstack codex_sync codex_dhcpd codex_portal mknod register_ehci eth_fix; do
+for bin in hub_daemon hub_rf hub_sntp hub_btstack hub_sync hub_dhcpd hub_portal mknod register_ehci eth_fix; do
     if [ -f "$BIN_DIR/$bin" ]; then
-        deploy_file_if_changed "$BIN_DIR/$bin" "/data/codex/bin/$bin" 755
+        deploy_file_if_changed "$BIN_DIR/$bin" "/data/harmony/bin/$bin" 755
     fi
 done
 
@@ -130,25 +130,25 @@ if [ -f "$BIN_DIR/busybox" ]; then
     echo "[*] Syncing extended BusyBox to /cache/bin/..."
     ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/bin 2>/dev/null"
     deploy_file_if_changed "$BIN_DIR/busybox" "/cache/bin/busybox" 755
-    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in \$(/cache/bin/busybox --list 2>/dev/null); do [ ! -e \"/bin/\$_app\" ] && [ ! -e \"/usr/bin/\$_app\" ] && ln -sf /cache/bin/busybox \"/usr/bin/\$_app\" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/codex/bin:\$PATH' > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true"
+    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in \$(/cache/bin/busybox --list 2>/dev/null); do [ ! -e \"/bin/\$_app\" ] && [ ! -e \"/usr/bin/\$_app\" ] && ln -sf /cache/bin/busybox \"/usr/bin/\$_app\" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo 'export PATH=/cache/bin:/data/harmony/bin:\$PATH' > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true"
 fi
 # Ensure root profile uses extended BusyBox in cache if present
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "for prof in /root/.profile /home/root/.profile; do mkdir -p \"\$(dirname \"\$prof\")\" 2>/dev/null; printf \"BB_PATH=\\\"\\\"\n[ -x /cache/bin/busybox ] && BB_PATH=/cache/bin/busybox\n[ -x /cache/busybox ] && BB_PATH=/cache/busybox\nif [ -t 0 ] && [ -n \\\"\\\$BB_PATH\\\" ] && [ -z \\\"\\\$BB_EXTENDED\\\" ]; then\n  export BB_EXTENDED=1\n  export PATH=/cache/bin:/data/codex/bin:\\\$PATH\n  exec \\\"\\\$BB_PATH\\\" sh -l\nfi\nexport PATH=/cache/bin:/data/codex/bin:\\\$PATH\n\" > \"\$prof\"; chmod 644 \"\$prof\" 2>/dev/null || true; done"
+    "for prof in /root/.profile /home/root/.profile; do mkdir -p \"\$(dirname \"\$prof\")\" 2>/dev/null; printf \"BB_PATH=\\\"\\\"\n[ -x /cache/bin/busybox ] && BB_PATH=/cache/bin/busybox\n[ -x /cache/busybox ] && BB_PATH=/cache/busybox\nif [ -t 0 ] && [ -n \\\"\\\$BB_PATH\\\" ] && [ -z \\\"\\\$BB_EXTENDED\\\" ]; then\n  export BB_EXTENDED=1\n  export PATH=/cache/bin:/data/harmony/bin:\\\$PATH\n  exec \\\"\\\$BB_PATH\\\" sh -l\nfi\nexport PATH=/cache/bin:/data/harmony/bin:\\\$PATH\n\" > \"\$prof\"; chmod 644 \"\$prof\" 2>/dev/null || true; done"
 
 # Deploy payload scripts
 if [ -d "$SCRIPTS_DIR" ]; then
-    echo "[*] Syncing startup & network scripts to /data/codex/..."
+    echo "[*] Syncing startup & network scripts to /data/harmony/..."
     for sc in "$SCRIPTS_DIR"/*; do
         [ -f "$sc" ] || continue
-        deploy_file_if_changed "$sc" "/data/codex/$(basename "$sc")" 755
+        deploy_file_if_changed "$sc" "/data/harmony/$(basename "$sc")" 755
     done
 fi
 
-# Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
+# Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
 if [ -d "$MODULES_DIR" ]; then
     echo "[*] Syncing USB Ethernet kernel modules to /cache/modules/..."
-    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
+    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p /cache/modules 2>/dev/null; [ -L /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules"
     for mod in "$MODULES_DIR"/*.ko; do
         [ -f "$mod" ] || continue
         deploy_file_if_changed "$mod" "/cache/modules/$(basename "$mod")" 644
@@ -169,7 +169,7 @@ fi
 
 # Clean up physical directory on /data if present, symlink to /cache/www, prune flash icons
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "mkdir -p /cache/www/assets 2>/dev/null; rm -rf /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null"
+    "mkdir -p /cache/www/assets 2>/dev/null; rm -rf /cache/www/assets/icons 2>/dev/null; if [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ]; then rm -rf /data/harmony/www 2>/dev/null; fi; mkdir -p /data/harmony 2>/dev/null; [ -L /data/harmony/www ] || ln -sfn /cache/www /data/harmony/www 2>/dev/null"
 
 # Clean up stale assets on Hub (/cache/www/assets)
 for remote_file in $(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "ls -1 /cache/www/assets/ 2>/dev/null || true"); do
@@ -197,7 +197,7 @@ fi
 if [ -f "$ICONS_TAR" ]; then
     deploy_file_if_changed "$ICONS_TAR" "/cache/icons.tar.gz" 644
     ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-        "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+        "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; [ -L /data/harmony/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null"
 fi
 
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
@@ -205,6 +205,6 @@ ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/w
 # 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
 echo "[5/5] Verifying system shell and flushing NOR flash buffers..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/codex/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/safe_reboot.sh /data/codex/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/codex/bin/codex_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/codex/bin/codex_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
+    'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/harmony/bin/hub_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
 
 echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting safely. ==="

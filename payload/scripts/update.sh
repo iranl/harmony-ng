@@ -4,8 +4,8 @@
 BB=""
 if [ -x /cache/bin/busybox ]; then
   BB="/cache/bin/busybox"
-elif [ -x /data/codex/bin/busybox ]; then
-  BB="/data/codex/bin/busybox"
+elif [ -x /data/harmony/bin/busybox ]; then
+  BB="/data/harmony/bin/busybox"
 else
   BB="busybox"
 fi
@@ -51,12 +51,12 @@ download_retry() {
 }
 
 get_local_version() {
-  if [ -f /data/codex/VERSION ]; then
-    cat /data/codex/VERSION | tr -d '\r\n '
-  elif [ -f /etc/codex_version ]; then
-    cat /etc/codex_version | tr -d '\r\n '
+  if [ -f /data/harmony/VERSION ]; then
+    cat /data/harmony/VERSION | tr -d '\r\n '
+  elif [ -f /etc/harmony_version ]; then
+    cat /etc/harmony_version | tr -d '\r\n '
   else
-    echo "1.4.0"
+    echo "2.0.0"
   fi
 }
 
@@ -64,8 +64,10 @@ do_check() {
   LOCAL_VER=$(get_local_version)
   REMOTE_VER=""
 
-  # 1. Try raw GitHub OTA VERSION file with retries
-  if download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver 8 3; then
+  # 1. Try raw GitHub OTA VERSION file with retries (v2 checks v2/VERSION first)
+  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver 8 2 || \
+     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver 8 2 || \
+     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver 8 3; then
     REMOTE_VER=$(cat /tmp/ota_ver | tr -d '\r\n v')
   fi
 
@@ -83,17 +85,26 @@ do_check() {
     return 1
   fi
 
-  echo "$REMOTE_VER" > /data/codex/latest_version
+  # Major version guard: 1.x cannot OTA-update to 2.x
+  LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
+  REMOTE_MAJOR=$(echo "$REMOTE_VER" | cut -d. -f1)
+  if [ -n "$LOCAL_MAJOR" ] && [ -n "$REMOTE_MAJOR" ] && [ "$LOCAL_MAJOR" != "$REMOTE_MAJOR" ]; then
+    echo "{\"ok\":false,\"error\":\"Major upgrade from v${LOCAL_VER} to v${REMOTE_VER} requires force deploy script\"}"
+    return 1
+  fi
+
+  mkdir -p /data/harmony 2>/dev/null || true
+  echo "$REMOTE_VER" > /data/harmony/latest_version
 
   HAS_UPDATE=0
   if [ "$REMOTE_VER" != "$LOCAL_VER" ]; then
     HAS_UPDATE=1
-    touch /data/codex/update_available.flag
+    touch /data/harmony/update_available.flag
   else
-    rm -f /data/codex/update_available.flag
+    rm -f /data/harmony/update_available.flag 2>/dev/null || true
   fi
 
-  cat <<EOF > /data/codex/update_state.conf
+  cat <<EOF > /data/harmony/update_state.conf
 checkedAt=${TIMESTAMP}
 available=${HAS_UPDATE}
 local_version=${LOCAL_VER}
@@ -117,17 +128,28 @@ do_apply() {
 
   # 1. Fetch remote version
   NEW_VER=""
-  if download_retry "${REPO}/VERSION?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 3; then
+  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 2 || \
+     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 2 || \
+     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 3; then
     NEW_VER=$(cat "$TMPDIR/VERSION" | tr -d '\r\n v')
   fi
-  [ -z "$NEW_VER" ] && NEW_VER=$(cat /data/codex/latest_version 2>/dev/null | tr -d '\r\n v')
-  [ -z "$NEW_VER" ] && NEW_VER="1.5.0"
+  [ -z "$NEW_VER" ] && [ -f /data/harmony/latest_version ] && NEW_VER=$(cat /data/harmony/latest_version 2>/dev/null | tr -d '\r\n v')
+  [ -z "$NEW_VER" ] && NEW_VER="2.0.0"
+
+  # Major version guard
+  LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
+  NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
+  if [ -n "$LOCAL_MAJOR" ] && [ -n "$NEW_MAJOR" ] && [ "$LOCAL_MAJOR" != "$NEW_MAJOR" ]; then
+    echo "[-] Major upgrade from v${LOCAL_VER} to v${NEW_VER} requires force deploy script. Aborting."
+    return 1
+  fi
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
-  mkdir -p /data/codex/bin /cache/bin /cache/www 2>/dev/null
+  mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
+
   # Prune redundant/bloated binaries to ensure flash space
-  rm -f /cache/bin/codex_portal /cache/bin/codex_dhcpd /cache/bin/codex_sntp /data/codex/bin/mknod /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
+  rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
 
   # 2. Attempt unified RAM bundle update (hub_ota.tar.gz)
   OTA_BUNDLE_OK=0
@@ -151,31 +173,31 @@ do_apply() {
     mkdir -p "$TMPDIR/pkg" 2>/dev/null
     if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
       echo "[*] Extracting package to flash partitions..."
-      # A. Scripts -> /data/codex/
+      # A. Scripts -> /data/harmony/
       if [ -d "$TMPDIR/pkg/scripts" ]; then
-        cp -rf "$TMPDIR/pkg/scripts/"* /data/codex/ 2>/dev/null || true
-        chmod 755 /data/codex/*.sh /data/codex/rcS.local /data/codex/dropbear* 2>/dev/null || true
-        if [ -f /data/codex/rcS.local ]; then
-          cp -f /data/codex/rcS.local /etc/init.d/rcS.local 2>/dev/null || true
+        cp -rf "$TMPDIR/pkg/scripts/"* /data/harmony/ 2>/dev/null || true
+        chmod 755 /data/harmony/*.sh /data/harmony/rcS.local /data/harmony/dropbear* 2>/dev/null || true
+        if [ -f /data/harmony/rcS.local ]; then
+          cp -f /data/harmony/rcS.local /etc/init.d/rcS.local 2>/dev/null || true
           chmod 755 /etc/init.d/rcS.local 2>/dev/null || true
         fi
       fi
 
-      # B. Primary binaries -> /data/codex/bin/
-      for b in codex_daemon codex_btstack dropbearmulti; do
+      # B. Primary binaries -> /data/harmony/bin/
+      for b in hub_daemon hub_btstack dropbearmulti hub_sync; do
         if [ -f "$TMPDIR/pkg/bin/$b" ]; then
           chmod 755 "$TMPDIR/pkg/bin/$b"
-          cp -f "$TMPDIR/pkg/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+          cp -f "$TMPDIR/pkg/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
         fi
       done
 
       # C. Secondary binaries & BusyBox -> /cache/bin/
-      for b in codex_rf register_ehci eth_fix busybox; do
+      for b in hub_rf register_ehci eth_fix busybox; do
         if [ -f "$TMPDIR/pkg/bin/$b" ]; then
           chmod 755 "$TMPDIR/pkg/bin/$b"
           cp -f "$TMPDIR/pkg/bin/$b" "/cache/bin/$b" 2>/dev/null || true
-          rm -f "/data/codex/bin/$b" 2>/dev/null || true
-          ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+          rm -f "/data/harmony/bin/$b" 2>/dev/null || true
+          ln -sf "/cache/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
         fi
       done
 
@@ -183,15 +205,15 @@ do_apply() {
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
       if [ -x /cache/bin/busybox ]; then
         /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-        ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
+        ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
       fi
 
       # E. WebUI -> /cache/www/ (clean old hashed assets first to prevent flash fill-up)
       if [ -d "$TMPDIR/pkg/www" ]; then
-        if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
-          rm -rf /data/codex/www 2>/dev/null || true
+        if [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ]; then
+          rm -rf /data/harmony/www 2>/dev/null || true
         fi
-        ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+        ln -sfn /cache/www /data/harmony/www 2>/dev/null || true
         rm -f /cache/www/assets/index-*.js* /cache/www/assets/web-*.js* 2>/dev/null || true
         rm -rf /cache/www/assets/icons 2>/dev/null || true
         cp -rf "$TMPDIR/pkg/www/"* /cache/www/ 2>/dev/null || true
@@ -206,8 +228,8 @@ do_apply() {
       # F. Icons archive -> /cache/icons.tar.gz
       if [ -f "$TMPDIR/pkg/icons.tar.gz" ]; then
         cp -f "$TMPDIR/pkg/icons.tar.gz" /cache/icons.tar.gz 2>/dev/null || true
-        rm -f /data/codex/icons.tar.gz 2>/dev/null || true
-        ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null || true
+        rm -f /data/harmony/icons.tar.gz 2>/dev/null || true
+        ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null || true
         echo "[+] Icons archive updated in /cache/icons.tar.gz (symlinked)."
       fi
 
@@ -221,38 +243,38 @@ do_apply() {
     echo "[*] Falling back to modular asset download..."
     if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
       mkdir -p /cache/www 2>/dev/null
-      [ -d /data/codex/www ] && [ ! -L /data/codex/www ] && rm -rf /data/codex/www 2>/dev/null || true
-      ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+      [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ] && rm -rf /data/harmony/www 2>/dev/null || true
+      ln -sfn /cache/www /data/harmony/www 2>/dev/null || true
       $TAR -xzf "$TMPDIR/www.tar.gz" -C /cache/www/ 2>/dev/null
       rm -f "$TMPDIR/www.tar.gz"
       echo "[+] WebUI bundle updated in /cache/www."
     fi
 
-    for b in codex_daemon codex_btstack; do
+    for b in hub_daemon hub_btstack; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
-        mv -f "$TMPDIR/$b" "/data/codex/bin/$b"
+        mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
       fi
     done
 
-    for b in codex_rf register_ehci eth_fix; do
+    for b in hub_rf register_ehci eth_fix hub_sync; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/cache/bin/$b"
-        rm -f "/data/codex/bin/$b" 2>/dev/null || true
-        ln -sf "/cache/bin/$b" "/data/codex/bin/$b" 2>/dev/null || true
+        rm -f "/data/harmony/bin/$b" 2>/dev/null || true
+        ln -sf "/cache/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
       fi
     done
   fi
 
   # 4. Update Elite Remote OTA image (store on /cache to preserve /data flash)
   echo "[*] Checking Elite remote OTA package..."
-  if download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" "$TMPDIR/codex_elite.ota.gz" 35 3; then
-    cp -f "$TMPDIR/codex_elite.ota.gz" /cache/codex_elite.ota.gz 2>/dev/null || true
-    rm -f /data/codex_elite.ota.gz 2>/dev/null || true
-    ln -sf /cache/codex_elite.ota.gz /data/codex_elite.ota.gz 2>/dev/null || true
-    rm -f "$TMPDIR/codex_elite.ota.gz"
-    echo "[+] Elite remote OTA package cached (/cache/codex_elite.ota.gz)."
+  if download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/elite_ui.ota.gz" 35 3; then
+    cp -f "$TMPDIR/elite_ui.ota.gz" /cache/elite_ui.ota.gz 2>/dev/null || true
+    rm -f /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    ln -sf /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    rm -f "$TMPDIR/elite_ui.ota.gz"
+    echo "[+] Elite remote OTA package cached (/cache/elite_ui.ota.gz)."
   fi
 
   # 5. Check if update succeeded before recording version
@@ -262,26 +284,26 @@ do_apply() {
   fi
 
   # 6. Record new version
-  echo "$NEW_VER" > /data/codex/VERSION
-  echo "$NEW_VER" > /etc/codex_version 2>/dev/null || true
-  echo "$NEW_VER" > /data/codex/latest_version
-  rm -f /data/codex/update_available.flag
+  echo "$NEW_VER" > /data/harmony/VERSION
+  echo "$NEW_VER" > /etc/harmony_version 2>/dev/null || true
+  echo "$NEW_VER" > /data/harmony/latest_version
+  rm -f /data/harmony/update_available.flag 2>/dev/null || true
 
   # 6. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
   # 7. Sync filesystem
-  sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || true
+  sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || true
 
   echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
-  if [ -x /data/codex/safe_reboot.sh ]; then
-    /data/codex/safe_reboot.sh &
-  elif [ -x /data/codex/scripts/safe_reboot.sh ]; then
-    /data/codex/scripts/safe_reboot.sh &
+  if [ -x /data/harmony/safe_reboot.sh ]; then
+    /data/harmony/safe_reboot.sh &
+  elif [ -x /data/harmony/scripts/safe_reboot.sh ]; then
+    /data/harmony/scripts/safe_reboot.sh &
   else
-    killall -9 codex_rf codex_btstack codex_daemon 2>/dev/null || true
+    killall -9 hub_rf hub_btstack hub_daemon 2>/dev/null || true
     sleep 1
-    /data/codex/bin/codex_sync 2>/dev/null || sync 2>/dev/null || true
+    /data/harmony/bin/hub_sync 2>/dev/null || sync 2>/dev/null || true
     sleep 2
     mount -o remount,ro /data 2>/dev/null || true
     mount -o remount,ro /cache 2>/dev/null || true
@@ -293,18 +315,23 @@ do_elite_ota() {
   local slot="${1:-1}"
   echo "[*] Triggering RF OTA firmware update for Elite remote on Slot ${slot}..."
   
-  if [ ! -f /cache/codex_elite.ota.gz ] && [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
+  if [ ! -f /cache/elite_ui.ota.gz ] && [ ! -f /data/harmony/elite_ui.ota.gz ] && [ ! -f /tmp/elite_ui.ota.gz ]; then
     echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
-    download_retry "${REPO}/bin/arm/codex_elite.ota.gz?_=${TIMESTAMP}" /cache/codex_elite.ota.gz 35 3
-    ln -sf /cache/codex_elite.ota.gz /data/codex_elite.ota.gz 2>/dev/null || true
+    download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" /cache/elite_ui.ota.gz 35 3
+    ln -sf /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz 2>/dev/null || true
   fi
 
-  if [ ! -f /cache/codex_elite.ota.gz ] && [ ! -f /data/codex_elite.ota.gz ] && [ ! -f /tmp/codex_elite.ota.gz ]; then
-    echo "[-] Error: codex_elite.ota.gz not found and could not be downloaded."
+  OTA_FILE=""
+  for f in /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /tmp/elite_ui.ota.gz; do
+    if [ -f "$f" ]; then OTA_FILE="$f"; break; fi
+  done
+
+  if [ -z "$OTA_FILE" ]; then
+    echo "[-] Error: elite_ui.ota.gz not found and could not be downloaded."
     return 1
   fi
 
-  # Trigger codex_rf OTA endpoint on port 8092
+  # Trigger hub_rf OTA endpoint on port 8092
   res=$($WGET -qO- --post-data '' "http://127.0.0.1:8092/api/rf/ota-start?slot=${slot}" 2>/dev/null || true)
   echo "Response: $res"
   
@@ -345,14 +372,13 @@ case "$CMD" in
     do_elite_ota "${2:-1}"
     ;;
   status)
-    if [ -f /data/codex/update_state.conf ]; then
-      cat /data/codex/update_state.conf
+    if [ -f /data/harmony/update_state.conf ]; then
+      cat /data/harmony/update_state.conf
     else
       echo "No update check performed yet."
     fi
     ;;
   *)
-    # Default to apply when invoked without arguments (e.g. from old daemon)
     do_apply
     ;;
 esac

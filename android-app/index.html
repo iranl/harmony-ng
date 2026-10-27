@@ -41,9 +41,11 @@
           <span id="activeHubStatusDot" class="hub-status-dot online"></span>
           <span id="activeHubLabel">Harmony Hub</span>
         </div>
-        <button type="button" class="btn btn-xs btn-ghost" id="btnAuthSession" title="Account / Authentication" style="display: none; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 11px;">
+        <button type="button" class="btn btn-xs btn-ghost" id="btnAuthSession" title="Account / Authentication"
+          style="display: none; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; font-size: 11px;">
           <span id="authUserDisplay">admin</span>
-          <span id="btnAuthAction" style="margin-left: 4px; color: var(--danger, #ef4444); font-weight: 600;">Logout</span>
+          <span id="btnAuthAction"
+            style="margin-left: 4px; color: var(--danger, #ef4444); font-weight: 600;">Logout</span>
         </button>
       </div>
     </div>
@@ -107,8 +109,10 @@
   <div id="hubUpdatingOverlay" class="hub-updating-overlay" style="display: none;">
     <div class="hub-updating-card">
       <div class="updating-spinner-ring"></div>
-      <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;" data-i18n="hub_updating_title">Hub Software Update</h3>
-      <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;" data-i18n="hub_updating_desc">Hub is updated and is rebooting. Please wait...</p>
+      <h3 id="hubUpdatingTitle" style="margin: 0; font-size: 18px; font-weight: 700; color: #fff;"
+        data-i18n="hub_updating_title">Hub Software Update</h3>
+      <p id="hubUpdatingDesc" style="margin: 0; font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.4;"
+        data-i18n="hub_updating_desc">Hub is updated and is rebooting. Please wait...</p>
       <div class="updating-progress-badge">
         <span class="updating-pulse-dot"></span>
         <span id="hubUpdatingStatusText" data-i18n="hub_updating_status">Applying update...</span>
@@ -164,17 +168,21 @@
   <div id="rfOtaTopBanner" class="rf-ota-banner" style="display: none;">
     <div class="rf-ota-header">
       <div class="sync-banner-content">
-        <div class="sync-indicator-icon" style="background: rgba(56, 189, 248, 0.25); border-color: #38bdf8; color: #bae6fd;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+        <div class="sync-indicator-icon"
+          style="background: rgba(56, 189, 248, 0.25); border-color: #38bdf8; color: #bae6fd;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
           </svg>
         </div>
         <div class="sync-banner-text">
           <strong id="rfOtaTopTitle" data-i18n="rf_ota_top_title">Remote Firmware OTA Update in Progress</strong>
-          <span id="rfOtaTopDesc" class="sync-subtext" data-i18n="rf_ota_top_desc">Transmitting firmware chunks to Remote over RF...</span>
+          <span id="rfOtaTopDesc" class="sync-subtext" data-i18n="rf_ota_top_desc">Transmitting firmware chunks to
+            Remote over RF...</span>
         </div>
       </div>
-      <span id="rfOtaTopPctBadge" class="badge mini" style="background: #38bdf8; color: #0f172a; font-weight: bold; font-size: 11px;">0%</span>
+      <span id="rfOtaTopPctBadge" class="badge mini"
+        style="background: #38bdf8; color: #0f172a; font-weight: bold; font-size: 11px;">0%</span>
     </div>
     <div class="rf-ota-progress-track">
       <div id="rfOtaTopProgressBar" class="rf-ota-progress-fill" style="width: 0%;"></div>
@@ -355,7 +363,8 @@
         <div class="stat-card">
           <div class="stat-label" style="display: flex; justify-content: space-between; align-items: center;">
             <span data-i18n="flash_storage">Flash Storage</span>
-            <button type="button" id="btnRefreshDisk" class="btn btn-xs btn-ghost" title="Refresh Disk Space" data-i18n-title="refresh_disk" data-i18n-title="refresh_disk"
+            <button type="button" id="btnRefreshDisk" class="btn btn-xs btn-ghost" title="Refresh Disk Space"
+              data-i18n-title="refresh_disk" data-i18n-title="refresh_disk"
               style="padding: 1px 5px; font-size: 11px;">⟳</button>
           </div>
           <div class="stat-value" id="dashFlashVal">-</div>
@@ -392,7 +401,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="sequence_timeline">Sequence & delay timeline</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -410,7 +420,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_learn_db">Learn • Database • Pronto</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_manage">Manage →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_manage">Manage →</span>
             </div>
           </div>
 
@@ -429,7 +440,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_screen_keys">Screen & hardware keys</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -448,7 +460,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_tactile_map">Tactile button mapping</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -467,7 +480,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_service_host">Service & Host Config</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -486,7 +500,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_interactive_kb">Interactive Keyboard</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_open_kb">Open Keyboard →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_open_kb">Open Keyboard →</span>
             </div>
           </div>
 
@@ -504,7 +519,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" id="dashMqttBrokerPreview">192.168.1.10:1883</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -522,7 +538,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" id="ovNetDetail">ath0 (Wi-Fi)</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_configure">Configure →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_configure">Configure →</span>
             </div>
           </div>
 
@@ -541,7 +558,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" data-i18n="card_services_logs">RF/BT Toggles • Logs</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_open_sys">Open System →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_open_sys">Open System →</span>
             </div>
           </div>
 
@@ -560,7 +578,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" id="ovDiskVal">1.4 MB free</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_manage">Manage →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_manage">Manage →</span>
             </div>
           </div>
 
@@ -578,7 +597,8 @@
             <div
               style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
               <span class="muted mini" id="ovActiveHubLabel">Active Hub</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--accent);" data-i18n="card_footer_manage">Manage →</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
+                data-i18n="card_footer_manage">Manage →</span>
             </div>
           </div>
         </div>
@@ -628,7 +648,8 @@
           style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
           <div>
             <h3 id="actEditorTitle" style="margin: 0; font-size: 16px;" data-i18n="edit_activity">Edit Activity</h3>
-            <div class="muted mini" id="actEditorSubtitle" data-i18n="act_editor_sub">Configure activity settings and command sequences</div>
+            <div class="muted mini" id="actEditorSubtitle" data-i18n="act_editor_sub">Configure activity settings and
+              command sequences</div>
           </div>
           <button type="button" id="actEditorCloseBtn" class="btn btn-xs btn-ghost" data-i18n="close">Close</button>
         </div>
@@ -638,15 +659,19 @@
 
           <!-- Segmented Tab Navigation for Activity Editor -->
           <div class="segmented-nav act-editor-tabs" id="actEditTabsNav">
-            <button type="button" class="segmented-btn active" data-act-tab="profile" data-i18n="profile_devices_tab">1. Profile & Devices</button>
-            <button type="button" class="segmented-btn" data-act-tab="start" data-i18n="turn_on_seq_tab">2. Turn-On Sequence</button>
-            <button type="button" class="segmented-btn" data-act-tab="stop" data-i18n="turn_off_seq_tab">3. Turn-Off Sequence</button>
+            <button type="button" class="segmented-btn active" data-act-tab="profile" data-i18n="profile_devices_tab">1.
+              Profile & Devices</button>
+            <button type="button" class="segmented-btn" data-act-tab="start" data-i18n="turn_on_seq_tab">2. Turn-On
+              Sequence</button>
+            <button type="button" class="segmented-btn" data-act-tab="stop" data-i18n="turn_off_seq_tab">3. Turn-Off
+              Sequence</button>
           </div>
 
           <div class="act-editor-layout">
             <!-- Panel 1: Activity Profile & Participating Devices -->
             <div id="actTabPanelProfile" class="act-tab-panel">
-              <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--accent);" data-i18n="activity_profile">Activity Profile</h4>
+              <h4 style="font-size: 14px; margin-bottom: 8px; color: var(--accent);" data-i18n="activity_profile">
+                Activity Profile</h4>
               <div class="row">
                 <div>
                   <label for="actEditName" data-i18n="activity_name">Activity Name</label>
@@ -696,7 +721,8 @@
               </div>
 
               <div style="margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px;">
-                <label style="font-weight: 700; margin-bottom: 4px; display: block;" data-i18n="participating_devices">Participating Devices & Power Order</label>
+                <label style="font-weight: 700; margin-bottom: 4px; display: block;"
+                  data-i18n="participating_devices">Participating Devices & Power Order</label>
                 <div id="actDevicesCheckboxes" style="padding-top: 4px;"></div>
               </div>
             </div>
@@ -706,19 +732,26 @@
               <div
                 style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
                 <div>
-                  <h4 style="font-size: 14px; margin: 0; color: var(--accent);" data-i18n="turn_on_sequence">Turn-On Sequence (StartSequence)</h4>
-                  <div class="muted mini" data-i18n="start_seq_desc">Commands sent in order when entering activity.</div>
+                  <h4 style="font-size: 14px; margin: 0; color: var(--accent);" data-i18n="turn_on_sequence">Turn-On
+                    Sequence (StartSequence)</h4>
+                  <div class="muted mini" data-i18n="start_seq_desc">Commands sent in order when entering activity.
+                  </div>
                 </div>
                 <div class="actions" style="margin: 0; display: flex; flex-wrap: wrap; gap: 4px;">
-                  <button type="button" id="actAddStartCmdBtn" class="btn btn-xs btn-secondary" data-i18n="add_command">+ Add Command</button>
-                  <button type="button" id="actAddStartDelayBtn" class="btn btn-xs btn-ghost" data-i18n="add_delay">+ Add Delay</button>
-                  <button type="button" id="actAddStartSwitchedBtn" class="btn btn-xs btn-outline" data-i18n="add_switched" data-i18n-title="switched_hint"
+                  <button type="button" id="actAddStartCmdBtn" class="btn btn-xs btn-secondary"
+                    data-i18n="add_command">+ Add Command</button>
+                  <button type="button" id="actAddStartDelayBtn" class="btn btn-xs btn-ghost" data-i18n="add_delay">+
+                    Add Delay</button>
+                  <button type="button" id="actAddStartSwitchedBtn" class="btn btn-xs btn-outline"
+                    data-i18n="add_switched" data-i18n-title="switched_hint"
                     title="Mark activity switched early; background tail commands continue">+ Add Switched</button>
-                  <button type="button" id="actTestStartSeqBtn" class="btn btn-xs btn-ghost" data-i18n="test_live">Test Live</button>
+                  <button type="button" id="actTestStartSeqBtn" class="btn btn-xs btn-ghost" data-i18n="test_live">Test
+                    Live</button>
                 </div>
               </div>
               <div id="actStartStepsList" class="queue-list">
-                <div class="muted mini" style="padding: 8px;" data-i18n="no_start_steps">No start steps configured.</div>
+                <div class="muted mini" style="padding: 8px;" data-i18n="no_start_steps">No start steps configured.
+                </div>
               </div>
             </div>
 
@@ -727,15 +760,20 @@
               <div
                 style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
                 <div>
-                  <h4 style="font-size: 14px; margin: 0; color: var(--accent);" data-i18n="turn_off_sequence">Turn-Off Sequence (StopSequence)</h4>
+                  <h4 style="font-size: 14px; margin: 0; color: var(--accent);" data-i18n="turn_off_sequence">Turn-Off
+                    Sequence (StopSequence)</h4>
                   <div class="muted mini" data-i18n="stop_seq_desc">Commands sent when leaving activity.</div>
                 </div>
                 <div class="actions" style="margin: 0; display: flex; flex-wrap: wrap; gap: 4px;">
-                  <button type="button" id="actAddStopCmdBtn" class="btn btn-xs btn-secondary" data-i18n="add_command">+ Add Command</button>
-                  <button type="button" id="actAddStopDelayBtn" class="btn btn-xs btn-ghost" data-i18n="add_delay">+ Add Delay</button>
-                  <button type="button" id="actAddStopSwitchedBtn" class="btn btn-xs btn-outline" data-i18n="add_switched" data-i18n-title="switched_hint"
+                  <button type="button" id="actAddStopCmdBtn" class="btn btn-xs btn-secondary" data-i18n="add_command">+
+                    Add Command</button>
+                  <button type="button" id="actAddStopDelayBtn" class="btn btn-xs btn-ghost" data-i18n="add_delay">+ Add
+                    Delay</button>
+                  <button type="button" id="actAddStopSwitchedBtn" class="btn btn-xs btn-outline"
+                    data-i18n="add_switched" data-i18n-title="switched_hint"
                     title="Mark activity switched early; background tail commands continue">+ Add Switched</button>
-                  <button type="button" id="actTestStopSeqBtn" class="btn btn-xs btn-ghost" data-i18n="test_live">Test Live</button>
+                  <button type="button" id="actTestStopSeqBtn" class="btn btn-xs btn-ghost" data-i18n="test_live">Test
+                    Live</button>
                 </div>
               </div>
               <div id="actStopStepsList" class="queue-list">
@@ -747,7 +785,8 @@
           <div class="actions act-editor-footer"
             style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; justify-content: space-between;">
             <div style="display: flex; gap: 8px;">
-              <button type="button" id="actSaveBtn" class="btn btn-sm btn-primary" data-i18n="save_activity">Save Activity</button>
+              <button type="button" id="actSaveBtn" class="btn btn-sm btn-primary" data-i18n="save_activity">Save
+                Activity</button>
               <button type="button" id="actCancelBtn" class="btn btn-sm btn-ghost" data-i18n="cancel">Cancel</button>
             </div>
             <button type="button" id="actDeleteBtn" class="btn btn-sm btn-danger" style="display: none;">Delete
@@ -833,14 +872,17 @@
       <div id="studioNewDeviceBox" class="card"
         style="display: none; border-color: var(--accent); margin-bottom: 16px; background: rgba(56,189,248,0.03);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-          <h3 style="font-size: 15px; margin: 0; color: var(--accent);" data-i18n="create_device">Create New Appliance / Device</h3>
-          <button type="button" id="btnStudioCancelNewDevice" class="btn btn-xs btn-ghost" data-i18n="cancel">✕ Cancel</button>
+          <h3 style="font-size: 15px; margin: 0; color: var(--accent);" data-i18n="create_device">Create New Appliance /
+            Device</h3>
+          <button type="button" id="btnStudioCancelNewDevice" class="btn btn-xs btn-ghost" data-i18n="cancel">✕
+            Cancel</button>
         </div>
         <form id="profileDeviceForm" onsubmit="return false;">
           <div class="row">
             <div>
               <label for="newDeviceName" data-i18n="device_name">Device Name</label>
-              <input id="newDeviceName" class="form-control" required placeholder="e.g. Living Room TV" data-i18n-placeholder="placeholder_dev_name">
+              <input id="newDeviceName" class="form-control" required placeholder="e.g. Living Room TV"
+                data-i18n-placeholder="placeholder_dev_name">
             </div>
             <div>
               <label for="newDeviceType" data-i18n="device_type">Device Type</label>
@@ -854,11 +896,13 @@
           <div class="row" style="margin-top: 10px;">
             <div>
               <label for="newDeviceManufacturer" data-i18n="manufacturer">Manufacturer</label>
-              <input id="newDeviceManufacturer" class="form-control" placeholder="e.g. LG, Sony, Pioneer" data-i18n-placeholder="placeholder_mfg">
+              <input id="newDeviceManufacturer" class="form-control" placeholder="e.g. LG, Sony, Pioneer"
+                data-i18n-placeholder="placeholder_mfg">
             </div>
             <div>
               <label for="newDeviceModel" data-i18n="model">Model</label>
-              <input id="newDeviceModel" class="form-control" placeholder="e.g. OLED65C2, VSX-933" data-i18n-placeholder="placeholder_model">
+              <input id="newDeviceModel" class="form-control" placeholder="e.g. OLED65C2, VSX-933"
+                data-i18n-placeholder="placeholder_model">
             </div>
           </div>
           <div class="row" style="margin-top: 10px;">
@@ -944,7 +988,8 @@
         <!-- Left Panel: Device Selector & Commands List -->
         <div id="irStudioColLeft" class="card" style="display: flex; flex-direction: column; gap: 14px;">
           <div id="irDeviceSelectorWrap">
-            <label for="manageDeviceSelect" style="font-weight: 600; font-size: 13px;" data-i18n="selected_device">Selected Device</label>
+            <label for="manageDeviceSelect" style="font-weight: 600; font-size: 13px;"
+              data-i18n="selected_device">Selected Device</label>
             <select id="manageDeviceSelect" class="form-control" style="font-size: 14px; font-weight: 600;"></select>
           </div>
 
@@ -992,7 +1037,8 @@
               </div>
               <div style="margin-top: 6px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                  <label class="mini muted" for="editDevIcon" style="margin-bottom: 0;" data-i18n="device_icon">Device Icon (Elite / App)</label>
+                  <label class="mini muted" for="editDevIcon" style="margin-bottom: 0;" data-i18n="device_icon">Device
+                    Icon (Elite / App)</label>
                   <button type="button" id="btnBrowseDevIcons" class="btn btn-xs btn-outline"
                     style="font-size: 10px; padding: 1px 6px;">🖼 Browse All</button>
                 </div>
@@ -1035,25 +1081,29 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                   <div>
                     <label class="mini muted" for="devInterDeviceDelay"
-                      title="Delay before sending command to this device after another device" data-i18n="inter_device_delay">Inter-Device Delay (ms)</label>
+                      title="Delay before sending command to this device after another device"
+                      data-i18n="inter_device_delay">Inter-Device Delay (ms)</label>
                     <input type="number" id="devInterDeviceDelay" class="form-control form-control-sm" placeholder="100"
                       min="0" max="5000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devInterKeyDelay"
-                      title="Delay between successive key presses to this device" data-i18n-title="tooltip_interkey" data-i18n="inter_key_delay">Inter-Key Delay (ms)</label>
+                      title="Delay between successive key presses to this device" data-i18n-title="tooltip_interkey"
+                      data-i18n="inter_key_delay">Inter-Key Delay (ms)</label>
                     <input type="number" id="devInterKeyDelay" class="form-control form-control-sm" placeholder="100"
                       min="0" max="5000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devHoldInterKeyDelay"
-                      title="Delay between repeated commands when holding a button" data-i18n-title="tooltip_repeats" data-i18n="hold_inter_key_delay">Hold Inter-Key Delay (ms)</label>
+                      title="Delay between repeated commands when holding a button" data-i18n-title="tooltip_repeats"
+                      data-i18n="hold_inter_key_delay">Hold Inter-Key Delay (ms)</label>
                     <input type="number" id="devHoldInterKeyDelay" class="form-control form-control-sm"
                       placeholder="200" min="0" max="5000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devPowerOnDelay"
-                      title="Delay needed after power-on before device accepts further commands" data-i18n-title="tooltip_poweron" data-i18n="power_on_delay">Power-On Delay (ms)</label>
+                      title="Delay needed after power-on before device accepts further commands"
+                      data-i18n-title="tooltip_poweron" data-i18n="power_on_delay">Power-On Delay (ms)</label>
                     <input type="number" id="devPowerOnDelay" class="form-control form-control-sm" placeholder="1500"
                       min="0" max="30000" step="100">
                   </div>
@@ -1160,7 +1210,8 @@
 
               <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
                 <div>
-                  <label class="mini muted" for="curDevBtAutoReconnect" data-i18n="bt_auto_reconnect">Bluetooth Auto-Reconnect</label>
+                  <label class="mini muted" for="curDevBtAutoReconnect" data-i18n="bt_auto_reconnect">Bluetooth
+                    Auto-Reconnect</label>
                   <select id="curDevBtAutoReconnect" class="form-control form-control-sm">
                     <option value="1">Enabled (Trigger Command or Button Press)</option>
                     <option value="0">Disabled (Manual Only)</option>
@@ -1174,8 +1225,8 @@
                   </div>
                   <div>
                     <label class="mini muted" for="curDevBtDelay" data-i18n="delay_sec">Delay (s)</label>
-                    <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="2"
-                      min="0" max="60">
+                    <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="2" min="0"
+                      max="60">
                   </div>
                 </div>
                 <div style="margin-top: 6px;">
@@ -1186,7 +1237,8 @@
                   </button>
                 </div>
                 <div style="margin-top: 6px;">
-                  <label class="mini muted" for="curDevBtTriggerCmd" data-i18n="trigger_reconnect_cmd">Trigger Reconnect on Command</label>
+                  <label class="mini muted" for="curDevBtTriggerCmd" data-i18n="trigger_reconnect_cmd">Trigger Reconnect
+                    on Command</label>
                   <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
                     <option value="">None (Fallback to Button Press)</option>
                   </select>
@@ -1201,7 +1253,8 @@
               style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px;">
               <span class="muted mini">Device MQTT Bridge:</span>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <button type="button" id="btnDevMqttConfig" class="btn btn-xs btn-secondary" title="Configure MQTT topic for this device" data-i18n="mqtt_setup">MQTT Setup</button>
+                <button type="button" id="btnDevMqttConfig" class="btn btn-xs btn-secondary"
+                  title="Configure MQTT topic for this device" data-i18n="mqtt_setup">MQTT Setup</button>
               </div>
             </div>
             <div id="devMqttConfigBox"
@@ -1221,13 +1274,16 @@
                 <code>{base_topic}</code>, <code>{device}</code>, <code>{command}</code>, <code>{device_id}</code>
               </div>
               <div style="margin-top: 6px;">
-                <label class="mini muted" for="devMqttPulse" data-i18n="hold_pulse_duration">Hold / Pulse Duration (ms between 1 / 0)</label>
+                <label class="mini muted" for="devMqttPulse" data-i18n="hold_pulse_duration">Hold / Pulse Duration (ms
+                  between 1 / 0)</label>
                 <input type="number" id="devMqttPulse" class="form-control form-control-sm" placeholder="1000" min="50"
                   max="10000" step="50" value="1000">
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-                <button type="button" id="btnSaveDevMqtt" class="btn btn-xs btn-primary" data-i18n="save_mqtt">Save MQTT</button>
-                <button type="button" id="btnTestDevMqtt" class="btn btn-xs btn-ghost" data-i18n="test_publish">Test Publish</button>
+                <button type="button" id="btnSaveDevMqtt" class="btn btn-xs btn-primary" data-i18n="save_mqtt">Save
+                  MQTT</button>
+                <button type="button" id="btnTestDevMqtt" class="btn btn-xs btn-ghost" data-i18n="test_publish">Test
+                  Publish</button>
                 <span id="devMqttStatus" class="mini subtle"></span>
               </div>
             </div>
@@ -1238,7 +1294,9 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
               <strong style="font-size: 13px;">Saved Commands (<span id="curDevCmdCount">0</span>)</strong>
               <input type="text" id="curDevCmdFilter" class="form-control form-control-sm"
-                placeholder="Search commands..." data-i18n-placeholder="placeholder_search_commands" data-i18n-placeholder="placeholder_search_commands" style="width: 140px; padding: 3px 8px; font-size: 11px;">
+                placeholder="Search commands..." data-i18n-placeholder="placeholder_search_commands"
+                data-i18n-placeholder="placeholder_search_commands"
+                style="width: 140px; padding: 3px 8px; font-size: 11px;">
             </div>
 
             <div id="curDevCmdsList" class="queue-list"
@@ -1252,9 +1310,12 @@
         <div id="irStudioColRight" class="card" style="display: flex; flex-direction: column; gap: 14px;">
           <!-- Tabs for Command Add Mode -->
           <div style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
-            <button type="button" id="tabAddLearn" class="btn btn-sm btn-primary ir-add-tab active" data-add-mode="learn" data-i18n="learn_signal">Learn Signal</button>
-            <button type="button" id="tabAddDb" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="database" data-i18n="search_database">Search Database</button>
-            <button type="button" id="tabAddPaste" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="paste" data-i18n="pronto_hex_raw">Pronto Hex / Raw</button>
+            <button type="button" id="tabAddLearn" class="btn btn-sm btn-primary ir-add-tab active"
+              data-add-mode="learn" data-i18n="learn_signal">Learn Signal</button>
+            <button type="button" id="tabAddDb" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="database"
+              data-i18n="search_database">Search Database</button>
+            <button type="button" id="tabAddPaste" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="paste"
+              data-i18n="pronto_hex_raw">Pronto Hex / Raw</button>
           </div>
 
           <!-- Mode 1: Learn from Remote -->
@@ -1302,9 +1363,12 @@
               <div id="wizardLearnStatus" class="subtle" style="margin-top: 8px;"></div>
 
               <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
-                <button id="wizardCapture" type="button" class="btn btn-sm btn-primary" data-i18n="start_capture">Start Capture</button>
-                <button id="wizardLearnTest" type="button" class="btn btn-sm btn-secondary" data-i18n="test_signal">▶ Test Signal</button>
-                <button id="wizardSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_cmd_to_device">Save Command to Device</button>
+                <button id="wizardCapture" type="button" class="btn btn-sm btn-primary" data-i18n="start_capture">Start
+                  Capture</button>
+                <button id="wizardLearnTest" type="button" class="btn btn-sm btn-secondary" data-i18n="test_signal">▶
+                  Test Signal</button>
+                <button id="wizardSaveBtn" type="button" class="btn btn-sm btn-primary"
+                  data-i18n="save_cmd_to_device">Save Command to Device</button>
               </div>
             </form>
           </div>
@@ -1337,16 +1401,19 @@
                   <div style="flex: 1;">
                     <label for="harmonyMfgInput" data-i18n="manufacturer">1. Manufacturer</label>
                     <input id="harmonyMfgInput" class="form-control" list="harmonyMfgDatalist"
-                      placeholder="Type manufacturer (e.g. Sony, LG, Samsung, Denon)..." data-i18n-placeholder="placeholder_mfg_search">
+                      placeholder="Type manufacturer (e.g. Sony, LG, Samsung, Denon)..."
+                      data-i18n-placeholder="placeholder_mfg_search">
                     <datalist id="harmonyMfgDatalist"></datalist>
                   </div>
                   <div style="flex: 1;">
                     <label for="harmonyModelInput" data-i18n="model">2. Model Name / Number</label>
                     <div style="display: flex; gap: 6px;">
                       <input id="harmonyModelInput" class="form-control" list="harmonyModelDatalist"
-                        placeholder="Search models (e.g. OLED65, XBR, AVR)..." data-i18n-placeholder="placeholder_model_search">
+                        placeholder="Search models (e.g. OLED65, XBR, AVR)..."
+                        data-i18n-placeholder="placeholder_model_search">
                       <datalist id="harmonyModelDatalist"></datalist>
-                      <button id="harmonySearchBtn" type="button" class="btn btn-sm btn-primary" style="white-space: nowrap;" data-i18n="search">Search</button>
+                      <button id="harmonySearchBtn" type="button" class="btn btn-sm btn-primary"
+                        style="white-space: nowrap;" data-i18n="search">Search</button>
                     </div>
                   </div>
                 </div>
@@ -1377,7 +1444,9 @@
                   <div
                     style="margin-top: 10px; padding: 8px 12px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <label for="harmonyTargetDevSelect" style="font-size: 12px; font-weight: 600; margin: 0; color: var(--text-dim);" data-i18n="import_into_device">Import into Device:</label>
+                      <label for="harmonyTargetDevSelect"
+                        style="font-size: 12px; font-weight: 600; margin: 0; color: var(--text-dim);"
+                        data-i18n="import_into_device">Import into Device:</label>
                       <select id="harmonyTargetDevSelect" class="form-control form-control-sm"
                         style="font-size: 12px; width: auto; max-width: 220px; padding: 3px 8px;"></select>
                     </div>
@@ -1392,12 +1461,15 @@
                       <div style="display: flex; align-items: center; gap: 8px;">
                         <strong style="font-size: 12px;">Commands (<span id="harmonyCmdSelectedCount">0</span> of <span
                             id="harmonyCmdCount">0</span> selected)</strong>
-                        <button type="button" id="btnHarmonySelectAll" class="btn btn-xs btn-secondary" style="padding: 2px 8px; font-size: 11px;" data-i18n="select_all">Select All</button>
-                        <button type="button" id="btnHarmonySelectNone" class="btn btn-xs btn-ghost" style="padding: 2px 8px; font-size: 11px;" data-i18n="select_none">Select None</button>
+                        <button type="button" id="btnHarmonySelectAll" class="btn btn-xs btn-secondary"
+                          style="padding: 2px 8px; font-size: 11px;" data-i18n="select_all">Select All</button>
+                        <button type="button" id="btnHarmonySelectNone" class="btn btn-xs btn-ghost"
+                          style="padding: 2px 8px; font-size: 11px;" data-i18n="select_none">Select None</button>
                       </div>
                       <div style="display: flex; align-items: center; gap: 6px;">
                         <input type="text" id="harmonyCmdFilter" class="form-control form-control-sm"
-                          placeholder="Filter commands..." data-i18n-placeholder="placeholder_filter_cmds" style="width: 130px; padding: 2px 8px; font-size: 11px;">
+                          placeholder="Filter commands..." data-i18n-placeholder="placeholder_filter_cmds"
+                          style="width: 130px; padding: 2px 8px; font-size: 11px;">
                         <span class="muted mini" style="white-space: nowrap;">▶ Test to blast</span>
                       </div>
                     </div>
@@ -1463,8 +1535,10 @@
                 <input id="pasteCmdName" class="form-control" placeholder="e.g. Discrete Power On">
               </div>
               <div style="display: flex; align-items: flex-end; gap: 8px;">
-                <button id="btnTestPastedPronto" type="button" class="btn btn-sm btn-secondary" data-i18n="blast_code">▶ Blast Code</button>
-                <button id="btnSavePastedPronto" type="button" class="btn btn-sm btn-primary" data-i18n="save_to_device">Save to Device</button>
+                <button id="btnTestPastedPronto" type="button" class="btn btn-sm btn-secondary" data-i18n="blast_code">▶
+                  Blast Code</button>
+                <button id="btnSavePastedPronto" type="button" class="btn btn-sm btn-primary"
+                  data-i18n="save_to_device">Save to Device</button>
               </div>
             </div>
             <div id="pasteStatus" class="subtle" style="margin-top: 8px;"></div>
@@ -1629,13 +1703,15 @@
       <div class="card" style="margin-bottom: 14px;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div>
-            <h3 style="margin: 0; font-size: 15px;" data-i18n="bt_service_active">Bluetooth Service & Active Connections</h3>
+            <h3 style="margin: 0; font-size: 15px;" data-i18n="bt_service_active">Bluetooth Service & Active Connections
+            </h3>
             <div id="btHostDesc" class="muted mini">Real-time status of BTstack daemon, active target host, and paired
               remotes.</div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span id="btStatusBadge" class="badge">Checking...</span>
-            <button id="btRefreshBtn" type="button" class="btn btn-xs btn-secondary" data-i18n="refresh">Refresh</button>
+            <button id="btRefreshBtn" type="button" class="btn btn-xs btn-secondary"
+              data-i18n="refresh">Refresh</button>
           </div>
         </div>
 
@@ -1674,8 +1750,10 @@
           <input id="btPairName" class="form-control" style="flex: 1; min-width: 130px;" value="Harmony Keyboard"
             maxlength="48" placeholder="Hub Name">
           <select id="btPairTargetDev" class="form-control" style="flex: 1; min-width: 130px;"></select>
-          <button id="btPairToggleBtn" type="button" class="btn btn-sm btn-primary" style="flex-shrink: 0;" data-i18n="start_pairing_mode">Start Pairing Mode</button>
-          <button id="btDisconnBtn" type="button" class="btn btn-sm btn-danger" style="display: none; flex-shrink: 0;" data-i18n="disconnect_all">Disconnect All</button>
+          <button id="btPairToggleBtn" type="button" class="btn btn-sm btn-primary" style="flex-shrink: 0;"
+            data-i18n="start_pairing_mode">Start Pairing Mode</button>
+          <button id="btDisconnBtn" type="button" class="btn btn-sm btn-danger" style="display: none; flex-shrink: 0;"
+            data-i18n="disconnect_all">Disconnect All</button>
         </div>
         <div id="btPairHelp" class="help" style="margin-top: 6px;">Select target device, click Start Pairing Mode, then
           open Bluetooth settings on your host device and choose Harmony.</div>
@@ -1726,7 +1804,8 @@
             <select id="btTargetHostSelect" class="form-control" style="font-size: 12px; width: 140px;">
               <option value="">Auto (Active Host)</option>
             </select>
-            <button id="btReleaseAll" type="button" class="btn btn-xs btn-danger" data-i18n="release_all">Release All</button>
+            <button id="btReleaseAll" type="button" class="btn btn-xs btn-danger" data-i18n="release_all">Release
+              All</button>
           </div>
         </div>
 
@@ -2023,8 +2102,10 @@
           <span id="b25StatusBadge" class="badge">OFFLINE</span>
         </div>
         <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-          <button id="b25ScanBtn" type="button" class="btn btn-sm btn-primary" data-i18n="scan_ble_remotes">Scan for BLE Remotes</button>
-          <button id="b25PairBtn" type="button" class="btn btn-sm btn-secondary" data-i18n="pair_selected">Pair Selected</button>
+          <button id="b25ScanBtn" type="button" class="btn btn-sm btn-primary" data-i18n="scan_ble_remotes">Scan for BLE
+            Remotes</button>
+          <button id="b25PairBtn" type="button" class="btn btn-sm btn-secondary" data-i18n="pair_selected">Pair
+            Selected</button>
           <select id="b25DiscoveredList" class="form-control" style="width: auto; max-width: 220px; font-size: 12px;">
             <option value="">(Discovered remotes)</option>
           </select>
@@ -2045,7 +2126,8 @@
               </select>
             </div>
             <div style="display: flex; gap: 8px; align-items: flex-end;">
-              <button id="b25SaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_mappings">Save All Mappings</button>
+              <button id="b25SaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_mappings">Save
+                All Mappings</button>
             </div>
           </div>
         </div>
@@ -2238,9 +2320,11 @@
             </div>
 
             <div class="modal-sheet-footer">
-              <button id="b25ClearBtn" type="button" class="btn btn-sm btn-ghost" style="margin-right: auto; color: var(--danger);" data-i18n="clear_button">Clear Button</button>
+              <button id="b25ClearBtn" type="button" class="btn btn-sm btn-ghost"
+                style="margin-right: auto; color: var(--danger);" data-i18n="clear_button">Clear Button</button>
               <button id="b25CancelBtn" type="button" class="btn btn-sm btn-ghost" data-i18n="cancel">Cancel</button>
-              <button id="b25ApplyBtn" type="button" class="btn btn-sm btn-primary" data-i18n="apply_selected_button">Apply to Selected Button</button>
+              <button id="b25ApplyBtn" type="button" class="btn btn-sm btn-primary"
+                data-i18n="apply_selected_button">Apply to Selected Button</button>
             </div>
           </div>
         </div>
@@ -2270,7 +2354,7 @@
           <div>
             <strong style="font-size: 14px; display: block; margin-bottom: 2px;">⚠️ RF Receiver is Disabled on
               Hub</strong>
-            <span style="font-size: 12px; opacity: 0.95;">Hardware RF daemon (codex_rf) is disabled to prevent SPI flash
+            <span style="font-size: 12px; opacity: 0.95;">Hardware RF daemon (hub_rf) is disabled to prevent SPI flash
               arbitration lockups. Elite remote pairing and RF input are inactive.</span>
           </div>
           <button type="button" class="btn btn-xs btn-primary" id="btnEliteGoEnableRf">Enable RF Service</button>
@@ -2291,15 +2375,20 @@
         </div>
 
         <!-- RF OTA Progress Card -->
-        <div id="rfOtaCardBanner" style="display: none; margin-top: 12px; margin-bottom: 12px; background: rgba(37, 99, 235, 0.12); border: 1px solid #3b82f6; border-radius: var(--radius-sm); padding: 12px;">
+        <div id="rfOtaCardBanner"
+          style="display: none; margin-top: 12px; margin-bottom: 12px; background: rgba(37, 99, 235, 0.12); border: 1px solid #3b82f6; border-radius: var(--radius-sm); padding: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <strong id="rfOtaCardTitle" style="font-size: 13px; color: #60a5fa;">⚡ RF OTA Firmware Update Running</strong>
+            <strong id="rfOtaCardTitle" style="font-size: 13px; color: #60a5fa;">⚡ RF OTA Firmware Update
+              Running</strong>
             <span id="rfOtaCardPct" class="badge mini" style="background: #2563eb; color: #fff;">0%</span>
           </div>
-          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 6px;">
-            <div id="rfOtaCardBar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;"></div>
+          <div
+            style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 6px;">
+            <div id="rfOtaCardBar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;">
+            </div>
           </div>
-          <div id="rfOtaCardDesc" class="mini muted">Transmitting firmware chunks to Remote. Other RF operations and settings changes are locked.</div>
+          <div id="rfOtaCardDesc" class="mini muted">Transmitting firmware chunks to Remote. Other RF operations and
+            settings changes are locked.</div>
         </div>
 
         <!-- 2 Remote Slots Grid -->
@@ -2333,8 +2422,10 @@
                 1</button>
               <button id="rfUnpairSlot1Btn" type="button" class="btn btn-xs btn-danger" data-i18n="unpair_slot1">Unpair
                 Slot 1</button>
-              <button id="rfConfigSlot1Btn" type="button" class="btn btn-xs btn-secondary" data-i18n="remote_settings">Remote Settings</button>
-              <button id="rfPullSlot1Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull Config</button>
+              <button id="rfConfigSlot1Btn" type="button" class="btn btn-xs btn-secondary"
+                data-i18n="remote_settings">Remote Settings</button>
+              <button id="rfPullSlot1Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull
+                Config</button>
               <button id="rfRefreshSlot1Btn" type="button" class="btn btn-xs btn-ghost"
                 data-i18n="refresh">Refresh</button>
             </div>
@@ -2369,8 +2460,10 @@
                 2</button>
               <button id="rfUnpairSlot2Btn" type="button" class="btn btn-xs btn-danger" data-i18n="unpair_slot2">Unpair
                 Slot 2</button>
-              <button id="rfConfigSlot2Btn" type="button" class="btn btn-xs btn-secondary" data-i18n="remote_settings">Remote Settings</button>
-              <button id="rfPullSlot2Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull Config</button>
+              <button id="rfConfigSlot2Btn" type="button" class="btn btn-xs btn-secondary"
+                data-i18n="remote_settings">Remote Settings</button>
+              <button id="rfPullSlot2Btn" type="button" class="btn btn-xs btn-outline" data-i18n="pull_config">Pull
+                Config</button>
               <button id="rfRefreshSlot2Btn" type="button" class="btn btn-xs btn-ghost"
                 data-i18n="refresh">Refresh</button>
             </div>
@@ -2569,7 +2662,8 @@
           </div>
           <div class="modal-sheet-footer">
             <button type="button" id="rfConfigCancelBtn" class="btn btn-sm btn-ghost" data-i18n="cancel">Cancel</button>
-            <button type="button" id="rfConfigSaveBtn" class="btn btn-sm btn-primary" data-i18n="save_push_remote">Save & Push to Remote</button>
+            <button type="button" id="rfConfigSaveBtn" class="btn btn-sm btn-primary" data-i18n="save_push_remote">Save
+              & Push to Remote</button>
           </div>
         </div>
       </div>
@@ -2598,8 +2692,11 @@
             </select>
           </div>
           <div style="display: flex; gap: 8px; align-items: flex-end;">
-            <button id="eliteSaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_hub">Save All to Hub</button>
-            <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary" title="Transmit full configuration over RF to physical Elite remote" data-i18n="push_elite_remote">Push to Elite Remote</button>
+            <button id="eliteSaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_hub">Save All
+              to Hub</button>
+            <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary"
+              title="Transmit full configuration over RF to physical Elite remote" data-i18n="push_elite_remote">Push to
+              Elite Remote</button>
           </div>
         </div>
       </div>
@@ -2773,12 +2870,15 @@
                 <div id="eliteScreenSectionHelp" class="help" style="margin-top: 2px;">Buttons shown on the Elite
                   touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).</div>
               </div>
-              <button id="btnEliteAddScreenBtn" type="button" class="btn btn-xs btn-primary" data-i18n="add_screen_button">+ Add Screen Button</button>
+              <button id="btnEliteAddScreenBtn" type="button" class="btn btn-xs btn-primary"
+                data-i18n="add_screen_button">+ Add Screen Button</button>
             </div>
             <!-- Page Selector Tabs for Direct Mode -->
             <div id="eliteDirectPageTabs" style="display: none; margin-top: 8px; gap: 8px;">
-              <button type="button" id="btnEliteDirectPage1" class="btn btn-xs btn-primary" data-i18n="page_1_buttons">Page 1 Buttons</button>
-              <button type="button" id="btnEliteDirectPage2" class="btn btn-xs btn-ghost" data-i18n="page_2_buttons">Page 2 Buttons</button>
+              <button type="button" id="btnEliteDirectPage1" class="btn btn-xs btn-primary"
+                data-i18n="page_1_buttons">Page 1 Buttons</button>
+              <button type="button" id="btnEliteDirectPage2" class="btn btn-xs btn-ghost"
+                data-i18n="page_2_buttons">Page 2 Buttons</button>
             </div>
             <div id="eliteScreenButtonsList" style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
               <!-- Dynamically populated per activity -->
@@ -2791,7 +2891,8 @@
             <div class="help">Quickly map standard navigation and volume buttons to a selected device.</div>
             <div class="row" style="margin-top: 8px;">
               <select id="elitePresetDevice" class="form-control"></select>
-              <button id="eliteRunPresetBtn" type="button" class="btn btn-sm btn-secondary" data-i18n="run_preset">Auto-Map Standard Keys</button>
+              <button id="eliteRunPresetBtn" type="button" class="btn btn-sm btn-secondary"
+                data-i18n="run_preset">Auto-Map Standard Keys</button>
             </div>
           </div>
         </div>
@@ -2973,7 +3074,8 @@
           </div>
 
           <div class="actions" style="margin-top: 14px;">
-            <button id="mqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt_settings">Save MQTT Settings</button>
+            <button id="mqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt_settings">Save
+              MQTT Settings</button>
             <span id="mqttSaveStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3162,9 +3264,12 @@ harmony_send_command:
           </div>
 
           <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px;">
-            <button type="button" class="btn btn-sm btn-primary btn-save-eth" data-apply="save" data-i18n="save_ip_settings">Save IP Settings</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-eth" data-apply="reconfigure" data-i18n="save_apply">Save & Apply</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-eth" data-apply="reboot" data-i18n="save_reboot">Save & Reboot</button>
+            <button type="button" class="btn btn-sm btn-primary btn-save-eth" data-apply="save"
+              data-i18n="save_ip_settings">Save IP Settings</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-eth" data-apply="reconfigure"
+              data-i18n="save_apply">Save & Apply</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-eth" data-apply="reboot"
+              data-i18n="save_reboot">Save & Reboot</button>
             <span id="ethSaveStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3215,10 +3320,14 @@ harmony_send_command:
           </div>
 
           <div class="actions" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-            <button type="button" class="btn btn-sm btn-ghost" id="btnWifiTest" data-i18n="test_connection">Test Connection</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="save" data-i18n="save_wifi">Save Wi-Fi</button>
-            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="reconfigure" data-i18n="save_apply">Save & Apply</button>
-            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot" data-i18n="save_reboot">Save & Reboot</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="btnWifiTest" data-i18n="test_connection">Test
+              Connection</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="save"
+              data-i18n="save_wifi">Save Wi-Fi</button>
+            <button type="button" class="btn btn-sm btn-primary btn-save-wifi" data-apply="reconfigure"
+              data-i18n="save_apply">Save & Apply</button>
+            <button type="button" class="btn btn-sm btn-secondary btn-save-wifi" data-apply="reboot"
+              data-i18n="save_reboot">Save & Reboot</button>
             <span id="wifiSaveStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3247,7 +3356,8 @@ harmony_send_command:
         <h3 style="font-size: 15px; margin-bottom: 6px;">Download Backup</h3>
         <div class="help">Tap any item to download or view configuration.</div>
         <div class="export-list" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">
-          <button type="button" class="btn btn-xs btn-primary btn-backup-export" data-target="bundle" data-i18n="full_backup_bundle">Full Backup Bundle</button>
+          <button type="button" class="btn btn-xs btn-primary btn-backup-export" data-target="bundle"
+            data-i18n="full_backup_bundle">Full Backup Bundle</button>
           <button type="button" class="btn btn-xs btn-secondary btn-backup-export"
             data-target="activities">Activities</button>
           <button type="button" class="btn btn-xs btn-secondary btn-backup-export"
@@ -3297,8 +3407,8 @@ harmony_send_command:
               text</summary>
             <div style="margin-top: 8px;">
               <textarea id="backupPayload" class="form-control" rows="4"
-                style="font-family: monospace; font-size: 11px;"
-                placeholder="Paste JSON or config payload here..." data-i18n-placeholder="placeholder_backup_json"></textarea>
+                style="font-family: monospace; font-size: 11px;" placeholder="Paste JSON or config payload here..."
+                data-i18n-placeholder="placeholder_backup_json"></textarea>
             </div>
           </details>
 
@@ -3310,7 +3420,8 @@ harmony_send_command:
           </div>
 
           <div class="actions" style="margin-top: 12px;">
-            <button id="btnRestoreBackup" type="button" class="btn btn-sm btn-primary" data-i18n="restore_backup">Restore Backup</button>
+            <button id="btnRestoreBackup" type="button" class="btn btn-sm btn-primary"
+              data-i18n="restore_backup">Restore Backup</button>
             <span id="backupImportStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3353,7 +3464,8 @@ harmony_send_command:
 
       <!-- Hub System Configuration Card (NTP, Timezone, LED) -->
       <div class="card" style="margin-bottom: 14px;">
-        <h3 style="font-size: 15px; margin-bottom: 4px;" data-i18n="hub_config_sync">Hub Configuration & Synchronization</h3>
+        <h3 style="font-size: 15px; margin-bottom: 4px;" data-i18n="hub_config_sync">Hub Configuration & Synchronization
+        </h3>
         <div class="muted mini" style="margin-bottom: 12px;">Manage NTP time synchronization, system timezone, and front
           indicator LED behavior.</div>
         <div class="row">
@@ -3461,7 +3573,8 @@ harmony_send_command:
 
       <!-- Hardware Services Control Card -->
       <div class="card" style="margin-bottom: 14px;">
-        <h3 style="font-size: 15px; margin-bottom: 4px;" data-i18n="hardware_services_control">Hardware Services Control</h3>
+        <h3 style="font-size: 15px; margin-bottom: 4px;" data-i18n="hardware_services_control">Hardware Services Control
+        </h3>
         <div class="muted mini" style="margin-bottom: 12px;">Enable or disable low-level hardware background daemons on
           the hub.</div>
 
@@ -3474,11 +3587,12 @@ harmony_send_command:
                 <strong style="font-size: 14px;">RF Receiver Service (Harmony Elite / 950)</strong>
                 <span id="svcRfBadge" class="badge">Checking...</span>
               </div>
-              <div class="muted mini" style="margin-top: 4px;">Controls <code>codex_rf</code> daemon and CC2544
+              <div class="muted mini" style="margin-top: 4px;">Controls <code>hub_rf</code> daemon and CC2544
                 transceiver. Note: Atheros AR9344 shares SPI bus with flash.</div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
-              <button type="button" id="btnToggleRfSvc" class="btn btn-sm btn-secondary" data-i18n="toggle_rf">Toggle RF</button>
+              <button type="button" id="btnToggleRfSvc" class="btn btn-sm btn-secondary" data-i18n="toggle_rf">Toggle
+                RF</button>
             </div>
           </div>
 
@@ -3490,11 +3604,12 @@ harmony_send_command:
                 <strong style="font-size: 14px;">Bluetooth Stack (BTstack & HID Host)</strong>
                 <span id="svcBtBadge" class="badge">Checking...</span>
               </div>
-              <div class="muted mini" style="margin-top: 4px;">Controls <code>codex_btstack</code> daemon, BLE virtual
+              <div class="muted mini" style="margin-top: 4px;">Controls <code>hub_btstack</code> daemon, BLE virtual
                 keyboard, and Homatics B25 physical remote receiver.</div>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
-              <button type="button" id="btnToggleBtSvc" class="btn btn-sm btn-secondary" data-i18n="toggle_bt">Toggle Bluetooth</button>
+              <button type="button" id="btnToggleBtSvc" class="btn btn-sm btn-secondary" data-i18n="toggle_bt">Toggle
+                Bluetooth</button>
             </div>
           </div>
         </div>
@@ -3511,13 +3626,14 @@ harmony_send_command:
           <div style="display: flex; align-items: center; gap: 8px;">
             <select id="sysLogSource" class="form-control form-control-sm"
               style="width: auto; padding: 4px 8px; font-size: 12px;">
-              <option value="daemon">Hub Daemon (codex_daemon)</option>
-              <option value="btstack">Bluetooth Stack (codex_btstack)</option>
-              <option value="rf">RF Receiver (codex_rf)</option>
+              <option value="daemon">Hub Daemon (hub_daemon)</option>
+              <option value="btstack">Bluetooth Stack (hub_btstack)</option>
+              <option value="rf">RF Receiver (hub_rf)</option>
               <option value="network">Network Manager</option>
               <option value="system">System / Kernel (logread)</option>
             </select>
-            <button type="button" id="btnRefreshLogs" class="btn btn-sm btn-secondary" data-i18n="refresh">Refresh</button>
+            <button type="button" id="btnRefreshLogs" class="btn btn-sm btn-secondary"
+              data-i18n="refresh">Refresh</button>
             <label
               style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; color: var(--text-dim);">
               <input type="checkbox" id="sysLogAutoRefresh">
@@ -3548,7 +3664,8 @@ harmony_send_command:
             <span>Enable verbose debug logging</span>
           </label>
           <div class="actions" style="margin-top: 10px;">
-            <button id="btnSaveDebug" type="button" class="btn btn-sm btn-primary" data-i18n="save_logging">Save Logging Setting</button>
+            <button id="btnSaveDebug" type="button" class="btn btn-sm btn-primary" data-i18n="save_logging">Save Logging
+              Setting</button>
             <span id="sysDebugStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
@@ -3556,17 +3673,23 @@ harmony_send_command:
 
       <!-- User Accounts & Security Card -->
       <div class="card" id="cardUserAccounts" style="margin-bottom: 14px;">
-        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="user_accounts_access">User Accounts & Access Control</h3>
-        <div class="help">Configure authentication and access roles. Admin accounts have full hub control. User accounts can start/stop activities, control devices, and customize local remote button placement, but cannot access settings or modify hub configuration.</div>
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="user_accounts_access">User Accounts & Access Control
+        </h3>
+        <div class="help">Configure authentication and access roles. Admin accounts have full hub control. User accounts
+          can start/stop activities, control devices, and customize local remote button placement, but cannot access
+          settings or modify hub configuration.</div>
         <form id="systemAuthForm" onsubmit="return false;" style="margin-top: 10px;">
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 12px;">
             <input type="checkbox" id="authEnabledCheck" name="authEnabled" value="1">
-            <span style="font-weight: 600;" data-i18n="require_auth">Require authentication (Digest / Bearer Tokens / Basic)</span>
+            <span style="font-weight: 600;" data-i18n="require_auth">Require authentication (Digest / Bearer Tokens /
+              Basic)</span>
           </label>
 
           <!-- Admin Credentials -->
-          <div style="padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px;">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--accent);" data-i18n="admin_account_title">Admin Account (Full Access)</div>
+          <div
+            style="padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--accent);"
+              data-i18n="admin_account_title">Admin Account (Full Access)</div>
             <div class="row">
               <div>
                 <label for="authUsername" class="mini muted" data-i18n="admin_username">Admin Username</label>
@@ -3574,58 +3697,72 @@ harmony_send_command:
               </div>
               <div>
                 <label for="authPassword" class="mini muted" data-i18n="admin_password">Admin Password</label>
-                <input id="authPassword" type="password" class="form-control form-control-sm" placeholder="Leave blank to keep current" data-i18n-placeholder="placeholder_leave_blank">
+                <input id="authPassword" type="password" class="form-control form-control-sm"
+                  placeholder="Leave blank to keep current" data-i18n-placeholder="placeholder_leave_blank">
               </div>
             </div>
             <div class="actions" style="margin-top: 8px;">
-              <button id="btnSaveAuth" type="button" class="btn btn-xs btn-primary" data-i18n="save_admin_account">Save Admin Account</button>
+              <button id="btnSaveAuth" type="button" class="btn btn-xs btn-primary" data-i18n="save_admin_account">Save
+                Admin Account</button>
               <span id="authSaveStatus" class="subtle mini" style="margin-left: 8px;"></span>
             </div>
           </div>
 
           <!-- Non-Admin Users Management -->
-          <div style="padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm);">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--fg);" data-i18n="non_admin_accounts_title">Non-Admin Accounts (Operator / Remote Control Only)</div>
-            <div class="help mini" style="margin-bottom: 8px;" data-i18n="non_admin_accounts_help">Restricted users cannot access Settings, Wi-Fi, MQTT, or edit activities/devices.</div>
-            
+          <div
+            style="padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--fg);"
+              data-i18n="non_admin_accounts_title">Non-Admin Accounts (Operator / Remote Control Only)</div>
+            <div class="help mini" style="margin-bottom: 8px;" data-i18n="non_admin_accounts_help">Restricted users
+              cannot access Settings, Wi-Fi, MQTT, or edit activities/devices.</div>
+
             <div id="usersListContainer" style="margin-bottom: 10px;">
               <div class="subtle mini" id="usersListLoading" data-i18n="loading_users">Loading users...</div>
             </div>
 
             <div style="border-top: 1px solid var(--border); padding-top: 8px;">
-              <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px;" data-i18n="add_new_user">Add New Non-Admin User</div>
+              <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px;" data-i18n="add_new_user">Add New
+                Non-Admin User</div>
               <div class="row" style="gap: 8px;">
                 <div>
                   <label for="newUserName" class="mini muted">Username</label>
-                  <input id="newUserName" class="form-control form-control-sm" placeholder="e.g. family or guest" data-i18n-placeholder="placeholder_user_example">
+                  <input id="newUserName" class="form-control form-control-sm" placeholder="e.g. family or guest"
+                    data-i18n-placeholder="placeholder_user_example">
                 </div>
                 <div>
                   <label for="newUserPassword" class="mini muted">Password</label>
-                  <input id="newUserPassword" type="password" class="form-control form-control-sm" placeholder="User password" data-i18n-placeholder="placeholder_user_password">
+                  <input id="newUserPassword" type="password" class="form-control form-control-sm"
+                    placeholder="User password" data-i18n-placeholder="placeholder_user_password">
                 </div>
               </div>
               <div class="actions" style="margin-top: 8px;">
-                <button id="btnAddNonAdminUser" type="button" class="btn btn-xs btn-secondary" data-i18n="add_non_admin_user">Add Non-Admin User</button>
+                <button id="btnAddNonAdminUser" type="button" class="btn btn-xs btn-secondary"
+                  data-i18n="add_non_admin_user">Add Non-Admin User</button>
                 <span id="newUserStatus" class="subtle mini" style="margin-left: 8px;"></span>
               </div>
             </div>
           </div>
 
           <!-- Personal Access Tokens (PAT) Management -->
-          <div style="margin-top: 14px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm);">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--fg);">Personal Access Tokens (Home Assistant & API)</div>
-            <div class="help mini" style="margin-bottom: 8px;">Persistent tokens for Home Assistant, Homebridge, Node-RED, or scripts without sharing passwords.</div>
-            
+          <div
+            style="margin-top: 14px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--fg);">Personal Access Tokens
+              (Home Assistant & API)</div>
+            <div class="help mini" style="margin-bottom: 8px;">Persistent tokens for Home Assistant, Homebridge,
+              Node-RED, or scripts without sharing passwords.</div>
+
             <div id="tokensListContainer" style="margin-bottom: 10px;">
               <div class="subtle mini" id="tokensListLoading">Loading tokens...</div>
             </div>
 
             <div style="border-top: 1px solid var(--border); padding-top: 8px;">
-              <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px;">Generate New Personal Access Token</div>
+              <div style="font-size: 11px; font-weight: 600; margin-bottom: 6px;">Generate New Personal Access Token
+              </div>
               <div class="row" style="gap: 8px;">
                 <div style="flex: 2;">
                   <label for="newTokenName" class="mini muted">Token Name / Client</label>
-                  <input id="newTokenName" class="form-control form-control-sm" placeholder="e.g. Home Assistant or Curl Script">
+                  <input id="newTokenName" class="form-control form-control-sm"
+                    placeholder="e.g. Home Assistant or Curl Script">
                 </div>
                 <div style="flex: 1;">
                   <label for="newTokenRole" class="mini muted">Role</label>
@@ -3640,11 +3777,15 @@ harmony_send_command:
               </div>
             </div>
 
-            <div id="newlyCreatedTokenBox" style="display: none; margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 6px;">
-              <div style="font-size: 12px; font-weight: 600; color: #10b981; margin-bottom: 4px;">Token Generated Successfully!</div>
-              <div class="mini subtle" style="margin-bottom: 6px;">Copy this token now. You will not be able to see it again!</div>
+            <div id="newlyCreatedTokenBox"
+              style="display: none; margin-top: 10px; padding: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 6px;">
+              <div style="font-size: 12px; font-weight: 600; color: #10b981; margin-bottom: 4px;">Token Generated
+                Successfully!</div>
+              <div class="mini subtle" style="margin-bottom: 6px;">Copy this token now. You will not be able to see it
+                again!</div>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <input id="newlyCreatedTokenInput" readonly style="flex: 1; font-family: monospace; font-size: 11px; padding: 4px 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+                <input id="newlyCreatedTokenInput" readonly
+                  style="flex: 1; font-family: monospace; font-size: 11px; padding: 4px 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); color: #fff; border-radius: 4px;">
                 <button type="button" id="btnCopyNewToken" class="btn btn-xs btn-secondary">Copy</button>
               </div>
             </div>
@@ -3655,7 +3796,8 @@ harmony_send_command:
       <!-- Software Update Card -->
       <div class="card" style="margin-bottom: 14px;">
         <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="software_update">Software Update</h3>
-        <div class="help" data-i18n="update_lead">Check GitHub release files, verify checksums, and update hub binaries.</div>
+        <div class="help" data-i18n="update_lead">Check GitHub release files, verify checksums, and update hub binaries.
+        </div>
         <form id="updateForm" onsubmit="return false;" style="margin-top: 8px;">
           <div class="row">
             <div>
@@ -3665,13 +3807,17 @@ harmony_send_command:
             </div>
             <div>
               <label for="updateToken">GitHub Token (Private repos only)</label>
-              <input id="updateToken" type="password" class="form-control" placeholder="Optional token" data-i18n-placeholder="placeholder_optional_token">
+              <input id="updateToken" type="password" class="form-control" placeholder="Optional token"
+                data-i18n-placeholder="placeholder_optional_token">
             </div>
           </div>
           <div class="actions" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
-            <button id="updateCheck" type="button" class="btn btn-sm btn-secondary" data-i18n="check_updates">Check for Updates</button>
-            <button id="updateInstall" type="button" class="btn btn-sm btn-primary" data-i18n="install_update">Install Update</button>
-            <button id="updateRefresh" type="button" class="btn btn-sm btn-ghost" data-i18n="show_versions">Show Versions</button>
+            <button id="updateCheck" type="button" class="btn btn-sm btn-secondary" data-i18n="check_updates">Check for
+              Updates</button>
+            <button id="updateInstall" type="button" class="btn btn-sm btn-primary" data-i18n="install_update">Install
+              Update</button>
+            <button id="updateRefresh" type="button" class="btn btn-sm btn-ghost" data-i18n="show_versions">Show
+              Versions</button>
           </div>
           <pre id="updateLog" class="mini" style="margin-top: 8px; max-height: 120px;">Ready.</pre>
         </form>
@@ -3679,7 +3825,8 @@ harmony_send_command:
 
       <!-- Icon Pack & Cache Management (Native Android Only) -->
       <div id="cardIconCache" class="card" style="margin-bottom: 14px;" data-native-only="true">
-        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="official_icon_pack">Official Elite Icon Pack & Cache</h3>
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="official_icon_pack">Official Elite Icon Pack & Cache
+        </h3>
         <div class="help">Logitech Harmony Elite remote icon set (~828 device, activity and button glyphs). Can load
           dynamically from Hub or download for complete offline availability.</div>
         <div
@@ -3689,9 +3836,12 @@ harmony_send_command:
             <span id="iconCacheDetail" class="subtle mini" style="margin-left: 8px;"></span>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button id="btnSyncIconsHub" type="button" class="btn btn-sm btn-primary" data-i18n="sync_from_hub">Sync from Hub</button>
-            <button id="btnSyncIconsOta" type="button" class="btn btn-sm btn-secondary" data-i18n="download_ota">Download from OTA</button>
-            <button id="btnClearIconCache" type="button" class="btn btn-sm btn-ghost" data-i18n="clear_cache">Clear Cache</button>
+            <button id="btnSyncIconsHub" type="button" class="btn btn-sm btn-primary" data-i18n="sync_from_hub">Sync
+              from Hub</button>
+            <button id="btnSyncIconsOta" type="button" class="btn btn-sm btn-secondary"
+              data-i18n="download_ota">Download from OTA</button>
+            <button id="btnClearIconCache" type="button" class="btn btn-sm btn-ghost" data-i18n="clear_cache">Clear
+              Cache</button>
           </div>
         </div>
         <div id="iconSyncProgressWrap" style="display: none; margin-top: 10px;">
@@ -3711,9 +3861,13 @@ harmony_send_command:
       <div class="card">
         <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="hub_control_actions">Hub Control & Actions</h3>
         <div class="actions" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;">
-          <button id="btnRediscover" type="button" class="btn btn-sm btn-secondary" data-i18n="refresh_ha_discovery">Refresh Home Assistant Discovery</button>
-          <button id="btnRebootHub" type="button" class="btn btn-sm btn-danger" data-i18n="reboot_hub">Reboot Hub</button>
-          <button id="btnFactoryResetHub" type="button" class="btn btn-sm btn-danger" style="background: #b91c1c; border-color: #991b1b;" data-i18n="revert_to_stock">Revert to Stock Firmware (Factory Reset)</button>
+          <button id="btnRediscover" type="button" class="btn btn-sm btn-secondary"
+            data-i18n="refresh_ha_discovery">Refresh Home Assistant Discovery</button>
+          <button id="btnRebootHub" type="button" class="btn btn-sm btn-danger" data-i18n="reboot_hub">Reboot
+            Hub</button>
+          <button id="btnFactoryResetHub" type="button" class="btn btn-sm btn-danger"
+            style="background: #b91c1c; border-color: #991b1b;" data-i18n="revert_to_stock">Revert to Stock Firmware
+            (Factory Reset)</button>
         </div>
       </div>
     </section>
@@ -3738,19 +3892,21 @@ harmony_send_command:
         <div class="modal-sheet-body">
           <div id="resetModalStep1">
             <p style="font-size: 13px; line-height: 1.5; color: var(--text); margin-top: 0;">
-              This will uninstall Codex software and restore official Logitech factory firmware and startup scripts.
+              This will uninstall HarmonyNG software and restore official Logitech factory firmware and startup scripts.
             </p>
             <div
               style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 6px; padding: 10px; margin: 12px 0;">
-              <strong style="color: #22c55e; font-size: 13px;" data-i18n="configs_are_safe">✓ Your configurations are safe:</strong>
+              <strong style="color: #22c55e; font-size: 13px;" data-i18n="configs_are_safe">✓ Your configurations are
+                safe:</strong>
               <p style="font-size: 12px; margin: 4px 0 0 0; color: var(--text-muted);">
                 All activity, device, and remote mapping JSON files will remain safely stored on the Hub. When you
-                re-install Codex in the future, all your configurations will be picked up immediately.
+                re-install HarmonyNG in the future, all your configurations will be picked up immediately.
               </p>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
               <button type="button" id="btnResetCancel1" class="btn btn-sm btn-ghost" data-i18n="cancel">Cancel</button>
-              <button type="button" id="btnResetProceed1" class="btn btn-sm btn-danger" style="background:#dc2626;" data-i18n="proceed_to_confirm">Proceed to Confirmation</button>
+              <button type="button" id="btnResetProceed1" class="btn btn-sm btn-danger" style="background:#dc2626;"
+                data-i18n="proceed_to_confirm">Proceed to Confirmation</button>
             </div>
           </div>
 
@@ -3758,17 +3914,20 @@ harmony_send_command:
             <p style="font-size: 13px; line-height: 1.5; color: var(--text); margin-top: 0;">
               Please type <strong>RESET</strong> in capital letters below to confirm reverting to stock firmware:
             </p>
-            <input type="text" id="resetConfirmInput" class="form-control" placeholder="Type RESET to confirm" data-i18n-placeholder="placeholder_reset_confirm"
+            <input type="text" id="resetConfirmInput" class="form-control" placeholder="Type RESET to confirm"
+              data-i18n-placeholder="placeholder_reset_confirm"
               style="margin: 12px 0; font-family: monospace; font-size: 14px; text-transform: uppercase;">
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
               <button type="button" id="btnResetCancel2" class="btn btn-sm btn-ghost" data-i18n="cancel">Cancel</button>
-              <button type="button" id="btnResetExecute" class="btn btn-sm btn-danger" style="background:#b91c1c;" disabled data-i18n="confirm_stock_revert_btn">Confirm Stock Revert</button>
+              <button type="button" id="btnResetExecute" class="btn btn-sm btn-danger" style="background:#b91c1c;"
+                disabled data-i18n="confirm_stock_revert_btn">Confirm Stock Revert</button>
             </div>
           </div>
 
           <div id="resetModalProgress" style="display: none; text-align: center; padding: 16px 0;">
             <div class="spinner" style="margin: 0 auto 12px auto;"></div>
-            <div style="font-weight: 600; font-size: 14px;" data-i18n="restoring_stock">Restoring stock firmware & rebooting...</div>
+            <div style="font-weight: 600; font-size: 14px;" data-i18n="restoring_stock">Restoring stock firmware &
+              rebooting...</div>
             <div class="muted mini" style="margin-top: 6px;">Please wait while the Hub restarts into Logitech firmware.
             </div>
           </div>
@@ -3809,7 +3968,8 @@ harmony_send_command:
             <div>
               <div id="hubScanTitle" style="font-size: 13px; font-weight: 600;">Scanning network for Harmony Hubs on
                 port 8089...</div>
-              <div id="hubScanSub" class="muted mini" data-i18n="checking_health_subnets">Checking /health endpoint across local subnets</div>
+              <div id="hubScanSub" class="muted mini" data-i18n="checking_health_subnets">Checking /health endpoint
+                across local subnets</div>
             </div>
           </div>
           <button type="button" id="btnStopScan" class="btn btn-xs btn-ghost" data-i18n="cancel">Cancel</button>
@@ -3858,7 +4018,8 @@ harmony_send_command:
       <div class="modal-sheet-header">
         <div>
           <h3 style="font-size: 16px; margin: 0;" data-i18n="select_icon">Select Icon</h3>
-          <div class="mini muted" id="iconPickerSubtitle" data-i18n="choose_icon_sub">Choose an icon from all available remote assets</div>
+          <div class="mini muted" id="iconPickerSubtitle" data-i18n="choose_icon_sub">Choose an icon from all available
+            remote assets</div>
         </div>
         <button type="button" id="btnIconPickerClose" class="btn btn-xs btn-ghost">✕</button>
       </div>
@@ -3866,52 +4027,76 @@ harmony_send_command:
         style="display: flex; flex-direction: column; overflow: hidden; padding-bottom: 6px;">
         <div class="icon-search-bar">
           <input type="text" id="iconPickerSearch" class="form-control form-control-sm"
-            placeholder="Search 600+ icons (e.g. tv, shield, game, movie, bulb)..." data-i18n-placeholder="placeholder_search_icons" style="flex-grow: 1;">
+            placeholder="Search 600+ icons (e.g. tv, shield, game, movie, bulb)..."
+            data-i18n-placeholder="placeholder_search_icons" style="flex-grow: 1;">
           <button type="button" id="btnIconPickerClearSearch" class="btn btn-xs btn-ghost"
             style="padding: 2px 6px;">Clear</button>
         </div>
         <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px;"
           id="iconCategoryPills">
-          <button type="button" class="btn btn-xs btn-primary icon-cat-pill" data-cat="all" data-i18n="all_icons_tab">All</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="custom" data-i18n="custom_icons_tab">✨ Custom</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="activity" data-i18n="activities">Activities</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="device" data-i18n="devices">Devices</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="home" data-i18n="home">Home</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="commands" data-i18n="commands">Commands</button>
-          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="settings" data-i18n="settings">Settings</button>
+          <button type="button" class="btn btn-xs btn-primary icon-cat-pill" data-cat="all"
+            data-i18n="all_icons_tab">All</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="custom"
+            data-i18n="custom_icons_tab">✨ Custom</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="activity"
+            data-i18n="activities">Activities</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="device"
+            data-i18n="devices">Devices</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="home"
+            data-i18n="home">Home</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="commands"
+            data-i18n="commands">Commands</button>
+          <button type="button" class="btn btn-xs btn-ghost icon-cat-pill" data-cat="settings"
+            data-i18n="settings">Settings</button>
         </div>
-        <div id="customIconUploadSection" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 8px;">
-          <div style="font-size: 11px; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between;">
+        <div id="customIconUploadSection"
+          style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 8px;">
+          <div
+            style="font-size: 11px; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between;">
             <span data-i18n="custom_img_web">Custom Image or Web Address</span>
             <span class="muted" style="font-size: 10px;">Resized in browser to 40x40 px PNG (~1 KB)</span>
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <input type="text" id="customIconUrlInput" class="form-control form-control-sm" placeholder="Paste image web address (https://...)" data-i18n-placeholder="placeholder_image_url" style="flex: 1; font-size: 11px;">
-            <button type="button" id="btnFetchCustomIconUrl" class="btn btn-xs btn-secondary" data-i18n="btn_fetch">Fetch</button>
+            <input type="text" id="customIconUrlInput" class="form-control form-control-sm"
+              placeholder="Paste image web address (https://...)" data-i18n-placeholder="placeholder_image_url"
+              style="flex: 1; font-size: 11px;">
+            <button type="button" id="btnFetchCustomIconUrl" class="btn btn-xs btn-secondary"
+              data-i18n="btn_fetch">Fetch</button>
             <label class="btn btn-xs btn-primary" style="margin: 0; cursor: pointer; white-space: nowrap;">
               <span data-i18n="browse">Browse</span>
               <input type="file" id="customIconFileInput" accept="image/*" style="display: none;">
             </label>
           </div>
           <div style="display: flex; gap: 6px; align-items: center; margin-top: 6px;">
-            <label for="customIconNameInput" class="mini muted" style="white-space: nowrap; font-size: 11px;" data-i18n="icon_name_label">Icon Name:</label>
-            <input type="text" id="customIconNameInput" class="form-control form-control-sm" placeholder="e.g. kodi, cinema, netflix" data-i18n-placeholder="placeholder_icon_name" style="flex: 1; font-size: 11px;">
+            <label for="customIconNameInput" class="mini muted" style="white-space: nowrap; font-size: 11px;"
+              data-i18n="icon_name_label">Icon Name:</label>
+            <input type="text" id="customIconNameInput" class="form-control form-control-sm"
+              placeholder="e.g. kodi, cinema, netflix" data-i18n-placeholder="placeholder_icon_name"
+              style="flex: 1; font-size: 11px;">
             <span id="customIconNameStatus" class="mini" style="font-size: 10px; white-space: nowrap;"></span>
           </div>
-          <div id="customIconPreviewRow" style="display: none; flex-direction: column; gap: 6px; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border);">
+          <div id="customIconPreviewRow"
+            style="display: none; flex-direction: column; gap: 6px; padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--border);">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <div style="width: 36px; height: 36px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <div
+                style="width: 36px; height: 36px; background: #000; border: 1px solid #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                 <canvas id="customIconCanvas" width="40" height="40" style="width: 32px; height: 32px;"></canvas>
               </div>
               <div style="flex: 1; min-width: 0;">
-                <div style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="customIconPreviewLabel">Preview</div>
+                <div
+                  style="font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                  id="customIconPreviewLabel">Preview</div>
                 <div class="muted" style="font-size: 10px;" id="customIconPreviewSize">Ready</div>
               </div>
-              <button type="button" id="btnSaveCustomIcon" class="btn btn-xs btn-primary" style="white-space: nowrap;" data-i18n="upload_push_remote">Upload &amp; Push to Remote</button>
+              <button type="button" id="btnSaveCustomIcon" class="btn btn-xs btn-primary" style="white-space: nowrap;"
+                data-i18n="upload_push_remote">Upload &amp; Push to Remote</button>
             </div>
-            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; margin: 0; padding-left: 2px;">
-              <input type="checkbox" id="customIconInvertCheck" style="width: 13px; height: 13px; accent-color: var(--accent);">
-              <span data-i18n="invert_silhouette_label">Invert to white silhouette (for dark background &amp; remote screen)</span>
+            <label
+              style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; margin: 0; padding-left: 2px;">
+              <input type="checkbox" id="customIconInvertCheck"
+                style="width: 13px; height: 13px; accent-color: var(--accent);">
+              <span data-i18n="invert_silhouette_label">Invert to white silhouette (for dark background &amp; remote
+                screen)</span>
             </label>
           </div>
         </div>
@@ -3924,7 +4109,8 @@ harmony_send_command:
       </div>
       <div class="modal-sheet-footer" style="display: flex; justify-content: space-between; align-items: center;">
         <span id="iconPickerSelectedName" class="mini subtle" data-i18n="no_icon_selected">No icon selected</span>
-        <button type="button" id="btnIconPickerCancel" class="btn btn-xs btn-secondary" data-i18n="cancel">Cancel</button>
+        <button type="button" id="btnIconPickerCancel" class="btn btn-xs btn-secondary"
+          data-i18n="cancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -3965,14 +4151,19 @@ harmony_send_command:
         </div>
 
         <div class="bt-timer-card" style="text-align: center;">
-          <div class="mini muted" style="text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="stopwatch">Stopwatch</div>
+          <div class="mini muted" style="text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="stopwatch">
+            Stopwatch</div>
           <div id="btCalibrateTimer" class="bt-timer-readout">0.0s</div>
-          <div id="btCalibrateStateMsg" class="mini subtle" style="margin-top: 4px;" data-i18n="ready_timing_test">Ready to start timing test</div>
+          <div id="btCalibrateStateMsg" class="mini subtle" style="margin-top: 4px;" data-i18n="ready_timing_test">Ready
+            to start timing test</div>
         </div>
 
         <div style="margin-top: 12px; display: flex; gap: 8px;">
-          <button type="button" id="btnBtCalibrateStart" class="btn btn-sm btn-primary" style="flex: 1;" data-i18n="start_detection_test">Start Detection Test</button>
-          <button type="button" id="btnBtCalibratePowerOff" class="btn btn-sm btn-secondary" title="Send power off or disconnect first" data-i18n-title="send_poweroff_first" data-i18n="power_off_first">Power Off First</button>
+          <button type="button" id="btnBtCalibrateStart" class="btn btn-sm btn-primary" style="flex: 1;"
+            data-i18n="start_detection_test">Start Detection Test</button>
+          <button type="button" id="btnBtCalibratePowerOff" class="btn btn-sm btn-secondary"
+            title="Send power off or disconnect first" data-i18n-title="send_poweroff_first"
+            data-i18n="power_off_first">Power Off First</button>
         </div>
 
         <div id="btCalibrateResultBox"
@@ -3981,39 +4172,51 @@ harmony_send_command:
             0s!</div>
           <div class="mini muted" style="margin: 4px 0 8px;" id="btCalibrateResultDesc">Recommended delay: 0 seconds
             override for this device.</div>
-          <button type="button" id="btnBtCalibrateApply" class="btn btn-sm btn-primary" data-i18n="apply_device_override">Apply as Device Override</button>
+          <button type="button" id="btnBtCalibrateApply" class="btn btn-sm btn-primary"
+            data-i18n="apply_device_override">Apply as Device Override</button>
         </div>
       </div>
       <div class="modal-sheet-footer" style="display: flex; justify-content: flex-end;">
-        <button type="button" id="btnBtCalibrateCancel" class="btn btn-xs btn-secondary" data-i18n="close">Close</button>
+        <button type="button" id="btnBtCalibrateCancel" class="btn btn-xs btn-secondary"
+          data-i18n="close">Close</button>
       </div>
     </div>
-  <!-- Modern Login Modal Dialog -->
-  <div class="modal-overlay" id="loginModalOverlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 99999; align-items: center; justify-content: center;">
-    <div class="modal-card" style="max-width: 360px; width: 90%; background: var(--bg-card, #131722); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;">
-      <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div class="brand-icon" style="width: 28px; height: 28px; font-size: 14px;">H</div>
-          <span style="font-weight: 700; font-size: 15px;">Sign In to Harmony Hub</span>
+    <!-- Modern Login Modal Dialog -->
+    <div class="modal-overlay" id="loginModalOverlay"
+      style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 99999; align-items: center; justify-content: center;">
+      <div class="modal-card"
+        style="max-width: 360px; width: 90%; background: var(--bg-card, #131722); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;">
+        <div
+          style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="brand-icon" style="width: 28px; height: 28px; font-size: 14px;">H</div>
+            <span style="font-weight: 700; font-size: 15px;">Sign In to Harmony Hub</span>
+          </div>
+          <button type="button" id="btnLoginClose" class="btn btn-xs btn-ghost" style="font-size: 16px;">✕</button>
         </div>
-        <button type="button" id="btnLoginClose" class="btn btn-xs btn-ghost" style="font-size: 16px;">✕</button>
+        <form id="loginForm" style="padding: 20px;">
+          <div style="margin-bottom: 14px;">
+            <label for="loginUsername"
+              style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Username</label>
+            <input type="text" id="loginUsername" class="form-control" placeholder="admin" required
+              autocomplete="username" style="width: 100%;">
+          </div>
+          <div style="margin-bottom: 16px;">
+            <label for="loginPassword"
+              style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Password</label>
+            <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required
+              autocomplete="current-password" style="width: 100%;">
+          </div>
+          <div id="loginErrorMsg"
+            style="display: none; color: var(--danger, #ef4444); font-size: 12px; margin-bottom: 12px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
+          </div>
+          <button type="submit" id="btnLoginSubmit" class="btn btn-primary"
+            style="width: 100%; font-weight: 600; justify-content: center; padding: 10px;">Sign In</button>
+        </form>
       </div>
-      <form id="loginForm" style="padding: 20px;">
-        <div style="margin-bottom: 14px;">
-          <label for="loginUsername" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Username</label>
-          <input type="text" id="loginUsername" class="form-control" placeholder="admin" required autocomplete="username" style="width: 100%;">
-        </div>
-        <div style="margin-bottom: 16px;">
-          <label for="loginPassword" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Password</label>
-          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required autocomplete="current-password" style="width: 100%;">
-        </div>
-        <div id="loginErrorMsg" style="display: none; color: var(--danger, #ef4444); font-size: 12px; margin-bottom: 12px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;"></div>
-        <button type="submit" id="btnLoginSubmit" class="btn btn-primary" style="width: 100%; font-weight: 600; justify-content: center; padding: 10px;">Sign In</button>
-      </form>
     </div>
-  </div>
 
-  <script type="module" src="./src/app.js"></script>
+    <script type="module" src="./src/app.js"></script>
 </body>
 
 </html>

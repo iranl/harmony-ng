@@ -176,7 +176,7 @@ def main() -> None:
     # Check if remote is ALREADY online with SSH active
     if probe_tcp(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=0.5):
         print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
-        print("    Running deploy_elite.py to deploy Codex Elite runtime...")
+        print("    Running deploy_elite.py to deploy Harmony Elite runtime...")
         deploy_script = find_candidate([
             REPO_DIR / "elite" / "deploy_elite.py",
             REPO_DIR / "deploy_elite.py",
@@ -245,7 +245,7 @@ def main() -> None:
         print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:{REMOTE_SSH_PORT}...")
         if wait_for_ssh(REMOTE_IP, REMOTE_SSH_PORT, timeout_s=60):
             print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:{REMOTE_SSH_PORT}!")
-            print("    Deploying Codex Elite firmware...")
+            print("    Deploying Harmony Elite firmware...")
             deploy_script = find_candidate([
                 REPO_DIR / "elite" / "deploy_elite.py",
                 REPO_DIR / "deploy_elite.py",

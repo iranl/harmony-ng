@@ -1,5 +1,5 @@
-#ifndef CODEX_MQTT_CLIENT_H
-#define CODEX_MQTT_CLIENT_H
+#ifndef HARMONY_MQTT_CLIENT_H
+#define HARMONY_MQTT_CLIENT_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -50,4 +50,4 @@ void mqtt_disconnect(void);
 }
 #endif
 
-#endif /* CODEX_MQTT_CLIENT_H */
+#endif /* HARMONY_MQTT_CLIENT_H */

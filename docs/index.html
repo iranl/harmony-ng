@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Harmony Hub Codex API — Swagger UI</title>
+  <title>Harmony Hub API — Swagger UI</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
   <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5/favicon-32x32.png">
   <style>
@@ -113,7 +113,7 @@
   <div class="topbar-custom">
     <div class="topbar-brand">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
-      <span>Harmony Hub Codex API</span>
+      <span>Harmony Hub API</span>
     </div>
     <div class="topbar-controls">
       <span class="topbar-label">Target Hub URL:</span>
@@ -140,7 +140,7 @@
       document.getElementById('mixed-content-warning').style.display = 'flex';
     }
 
-    const savedHubUrl = localStorage.getItem('codex_hub_url') || 'http://harmony.local:8089';
+    const savedHubUrl = localStorage.getItem('harmony_hub_url') || 'http://harmony.local:8089';
     document.getElementById('hub-url-input').value = savedHubUrl;
 
     let ui;
@@ -191,7 +191,7 @@
         target = 'http://' + target;
       }
       document.getElementById('hub-url-input').value = target;
-      localStorage.setItem('codex_hub_url', target);
+      localStorage.setItem('harmony_hub_url', target);
       updateServerUrl(target);
     });
 

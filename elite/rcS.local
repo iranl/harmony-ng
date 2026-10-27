@@ -3,7 +3,7 @@
 # Automatic reboot recovery + USB Ethernet + Dropbear SSH
 
 sync_fs() {
-    sync 2>/dev/null || /data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || true
+    sync 2>/dev/null || /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true
 }
 
 # 0. Early watchdog neuter and neuter stock binaries
@@ -46,10 +46,11 @@ if [ "$COUNT" -gt 5 ]; then
 fi
 
 # 4. Normal Boot: USB Ethernet & Dropbear SSH disabled by default on battery to save power;
-# enabled only if explicitly configured in /data/codex_elite.conf (usbeth=1)
+# enabled only if explicitly configured in /data/elite_ui.conf (usbeth=1)
 USBETH_CONF=0
-if [ -f /data/codex_elite.conf ]; then
-    VAL=$(grep '^usbeth=' /data/codex_elite.conf 2>/dev/null | cut -d= -f2)
+ELITE_CONF="/data/elite_ui.conf"
+if [ -f "$ELITE_CONF" ]; then
+    VAL=$(grep '^usbeth=' "$ELITE_CONF" 2>/dev/null | cut -d= -f2)
     if [ "$VAL" = "1" ]; then USBETH_CONF=1; fi
 fi
 
@@ -69,9 +70,13 @@ else
     killall -9 dropbear dropbearmulti 2>/dev/null || true
 fi
 
-if [ -x /data/codex_sync ]; then
-    [ -L /data/sync ] || ln -sf /data/codex_sync /data/sync 2>/dev/null || true
-    [ -L /usr/bin/sync ] || ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true
+SYNC_BIN=""
+for b in /data/elite_sync; do
+    if [ -x "$b" ]; then SYNC_BIN="$b"; break; fi
+done
+if [ -n "$SYNC_BIN" ]; then
+    [ -L /data/sync ] || ln -sf "$SYNC_BIN" /data/sync 2>/dev/null || true
+    [ -L /usr/bin/sync ] || ln -sf "$SYNC_BIN" /usr/bin/sync 2>/dev/null || true
 fi
 
 # Ensure /dev/i2c-1 exists for Clearpad touchscreen
@@ -89,8 +94,8 @@ fi
 # 5. Launch custom Elite runtime
 if [ -x /data/init.sh ]; then
     /data/init.sh &
-elif [ -x /data/codex_watchdog.sh ]; then
-    /data/codex_watchdog.sh &
-elif [ -x /data/codex_elite ]; then
-    /data/codex_elite > /tmp/codex_elite.log 2>&1 &
+elif [ -x /data/elite_watchdog.sh ]; then
+    /data/elite_watchdog.sh &
+elif [ -x /data/elite_ui ]; then
+    /data/elite_ui > /tmp/elite_ui.log 2>&1 &
 fi

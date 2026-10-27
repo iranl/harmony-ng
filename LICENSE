@@ -24,7 +24,7 @@ SOFTWARE.
 
 ### Third-Party & Component Licenses
 - **Linux Kernel Driver (`build/cc2544/`)**: GNU General Public License v2 (GPL-2.0).
-- **BTstack (`codex_btstack`)**: Free for non-commercial use, Copyright (c) BlueKitchen GmbH.
+- **BTstack (`hub_btstack`)**: Free for non-commercial use, Copyright (c) BlueKitchen GmbH.
 - **cJSON (`payload/source/cJSON.*`)**: MIT License, Copyright (c) 2009-2017 Dave Gamble and cJSON contributors.
 - **stb libraries (`payload/source/stb_*`)**: MIT / Public Domain, Copyright (c) Sean Barrett.
 - **Dropbear (`dropbearmulti`)**: MIT/X11-style, Copyright (c) Matt Johnston.

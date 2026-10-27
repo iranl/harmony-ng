@@ -39,7 +39,7 @@ else {
     $WwwDir = Join-Path $PayloadDir "www"
 
     # Local Development: Fallback to build/output or android-app/dist if payload directories are empty
-    if (-not (Test-Path (Join-Path $BinDir "codex_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\codex_daemon"))) {
+    if (-not (Test-Path (Join-Path $BinDir "hub_daemon")) -and (Test-Path (Join-Path $RepoRoot "build\output\hub_daemon"))) {
         $BinDir = Join-Path $RepoRoot "build\output"
     }
     if (-not (Test-Path (Join-Path $WwwDir "index.html.gz")) -and -not (Test-Path (Join-Path $WwwDir "index.html"))) {
@@ -89,7 +89,7 @@ if ($FactoryReset) {
     Write-Host "============================================================" -ForegroundColor Red
     Write-Host "  WARNING: HARMONY HUB FACTORY RESET & STOCK RESTORATION" -ForegroundColor Red
     Write-Host "============================================================" -ForegroundColor Red
-    Write-Host "  This will remove all Codex software, restore original stock scripts," -ForegroundColor Yellow
+    Write-Host "  This will remove all custom software, restore original stock scripts," -ForegroundColor Yellow
     Write-Host "  and reboot the Hub back into official Logitech stock firmware." -ForegroundColor Yellow
     $ans = Read-Host "Type 'RESET' to confirm"
     if ($ans -ne "RESET") {
@@ -97,7 +97,7 @@ if ($FactoryReset) {
         exit 1
     }
     Write-Host "[*] Reverting Hub to stock (preserving config files)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true; rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true; mkdir -p /data/codex_p 2>/dev/null; cp -rf /data/codex/config/* /data/codex_p/ 2>/dev/null || true; cp -f /data/codex/mqtt_config.json /data/codex_p/ 2>/dev/null || true; rm -rf /data/codex/bin /data/codex/www /data/codex-backups /data/codexmqtt /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; rm -f /data/codex/*.conf /data/codex/current_activity /data/codex/config_version 2>/dev/null || true; mkdir -p /data/codex/config 2>/dev/null; cp -rf /data/codex_p/* /data/codex/config/ 2>/dev/null; [ -f /data/codex_p/mqtt_config.json ] && cp -f /data/codex_p/mqtt_config.json /data/codex/mqtt_config.json 2>/dev/null || true; rm -rf /data/codex_p 2>/dev/null; /data/codex/bin/codex_sync 2>/dev/null || sync 2>/dev/null || true; reboot -f 2>/dev/null &"
+    & ssh @sshArgs $Target "killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; echo '[+] Restored stock rcS.local'; else rm -f /etc/init.d/rcS.local; fi; chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true; rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf 2>/dev/null || true; mkdir -p /data/harmony_p 2>/dev/null; cp -rf /data/harmony/config/* /data/harmony_p/ 2>/dev/null || true; cp -f /data/harmony/mqtt_config.json /data/harmony_p/ 2>/dev/null || true; rm -rf /data/harmony/bin /data/harmony/www /data/harmony-backups /data/codex-backups /data/codex /data/codexmqtt /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; rm -f /data/harmony/*.conf /data/harmony/current_activity /data/harmony/config_version 2>/dev/null || true; mkdir -p /data/harmony/config 2>/dev/null; cp -rf /data/harmony_p/* /data/harmony/config/ 2>/dev/null; [ -f /data/harmony_p/mqtt_config.json ] && cp -f /data/harmony_p/mqtt_config.json /data/harmony/mqtt_config.json 2>/dev/null || true; rm -rf /data/harmony_p 2>/dev/null; /data/harmony/bin/hub_sync 2>/dev/null || sync 2>/dev/null || true; reboot -f 2>/dev/null &"
     Write-Host "[+] Factory reset complete! Hub is rebooting into stock firmware (configs preserved)." -ForegroundColor Green
     exit 0
 }
@@ -105,18 +105,16 @@ if ($FactoryReset) {
 $scpArgs = @("-O") + $sshArgs
 
 Write-Host "[*] Preserving stock configuration backup..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
+& ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
 Write-Host "[*] Stopping existing daemons (killall -9)..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true"
+& ssh @sshArgs $Target "killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true"
 
-Write-Host "[*] Ensuring remote directories..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "mkdir -p /data/codex/bin /data/codex/www /data/codex/www/assets /data/codex/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/codex/www/assets/icons ] || ln -s /cache/www/assets/icons /data/codex/www/assets/icons"
-
-& ssh @sshArgs $Target "rm -rf /data/codex-backups /data/codex/resource-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/codex/*.new /data/codex/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true"
+Write-Host "[*] Migrating legacy codex paths and preparing directories..." -ForegroundColor Yellow
+& ssh @sshArgs $Target "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www /data/harmony/www/assets /data/harmony/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/harmony/www/assets/icons ] || ln -s /cache/www/assets/icons /data/harmony/www/assets/icons"
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/codex/bin/* /data/codex/* /data/codex/www/* /data/codex/www/assets/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/codex_elite.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -171,17 +169,16 @@ $bins = Get-ChildItem -Path $BinDir -File | Where-Object {
     $_.Name -notmatch '^\.|\.txt$|^FILES$' -and $_.Name -ne 'busybox'
 }
 foreach ($b in $bins) {
-    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/codex/bin/$($b.Name)" -Perm "755" -UseAtomicNew | Out-Null
+    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" -UseAtomicNew | Out-Null
 }
-
-# 1b. Upload Elite RF OTA image to /cache/codex_elite.ota.gz if available
-$eliteOtaSrc = Join-Path $RepoRoot "elite\bin\codex_elite.ota.gz"
+# 1b. Upload Elite RF OTA image to /cache/elite_ui.ota.gz if available
+$eliteOtaSrc = Join-Path $RepoRoot "elite\bin\elite_ui.ota.gz"
 if (-not (Test-Path $eliteOtaSrc)) {
-    $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\codex_elite.ota.gz"
+    $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\elite_ui.ota.gz"
 }
 if (Test-Path $eliteOtaSrc) {
-    Write-Host "[*] Syncing Elite RF OTA image (/cache/codex_elite.ota.gz)..." -ForegroundColor Yellow
-    Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/codex_elite.ota.gz" -Perm "644" | Out-Null
+    Write-Host "[*] Syncing Elite RF OTA image (/cache/elite_ui.ota.gz)..." -ForegroundColor Yellow
+    Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/elite_ui.ota.gz" -Perm "644" | Out-Null
 }
 
 # Extended BusyBox (default deployment)
@@ -194,27 +191,27 @@ if (Test-Path $bb) {
     & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
     $changed = Install-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
     if ($changed) {
-        $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > /etc/profile.d/00-codex.sh 2>/dev/null; chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true'
+        $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true'
         & ssh @sshArgs $Target "$bbCmd"
     }
 }
 # Ensure root profile uses extended BusyBox in cache if present
-$profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/codex/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
+$profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
 & ssh @sshArgs $Target "$profCmd"
 
 # 2. Upload scripts
 Write-Host "[*] Uploading scripts (MD5 check)..." -ForegroundColor Yellow
 $scripts = Get-ChildItem -Path $ScriptsDir -File | Where-Object { $_.Name -notmatch '^\.' }
 foreach ($s in $scripts) {
-    Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/codex/$($s.Name)" -Perm "755" | Out-Null
+    Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/harmony/$($s.Name)" -Perm "755" | Out-Null
 }
 
-# 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/codex/modules)
+# 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
 if (Test-Path $ModulesDir) {
     $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File
     if ($modFiles) {
         Write-Host "[*] Syncing USB Ethernet kernel modules (/cache/modules)..." -ForegroundColor Yellow
-        & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/codex/modules ] || ln -sf /cache/modules /data/codex/modules"
+        & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules"
         foreach ($m in $modFiles) {
             Install-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
         }
@@ -230,7 +227,7 @@ if (Test-Path $WwwDir) {
         $WwwDir = Join-Path $PayloadDir "www"
     }
     Write-Host "[*] Syncing Web UI static assets (/cache/www, MD5 check)..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then rm -rf /data/codex/www 2>/dev/null; fi; mkdir -p /data/codex 2>/dev/null; [ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null; rm -f /cache/www/*.js /cache/www/*.css /cache/www/assets/*.js /cache/www/assets/*.css 2>/dev/null || true"
+    & ssh @sshArgs $Target "mkdir -p /cache/www/assets /cache/www/assets/icons 2>/dev/null; if [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ]; then rm -rf /data/harmony/www 2>/dev/null; fi; mkdir -p /data/harmony 2>/dev/null; [ -L /data/harmony/www ] || ln -sfn /cache/www /data/harmony/www 2>/dev/null; rm -f /cache/www/*.js /cache/www/*.css /cache/www/assets/*.js /cache/www/assets/*.css 2>/dev/null || true"
     $wwwFiles = Get-ChildItem -Path $WwwDir -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]icons([\\/]|$)' }
     $localRelNames = @()
     foreach ($f in $wwwFiles) {
@@ -246,11 +243,11 @@ if (Test-Path $WwwDir) {
         $pruneCmd = "if [ -d /cache/www/assets ]; then cd /cache/www/assets && for f in index-*.js* index-*.css* web-*.js*; do [ -f `"`$f`" ] || continue; case `"`$f`" in $activeCases) ;; *) rm -f `"`$f`" ;; esac; done; fi"
         & ssh @sshArgs $Target $pruneCmd
     }
-    # Upload icons archive to /cache/icons.tar.gz (preserve /data space) and symlink to /data/codex/icons.tar.gz
+    # Upload icons archive to /cache/icons.tar.gz (preserve /data space) and symlink to /data/harmony/icons.tar.gz
     $hasRemoteIcons = $remoteHashes.ContainsKey("/cache/icons.tar.gz")
     if ($hasRemoteIcons) {
         Write-Host "    -> icons.tar.gz (present on Hub - skipped)" -ForegroundColor DarkGray
-        & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+        & ssh @sshArgs $Target "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; [ -L /data/harmony/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null"
     } else {
         $iconsTar = $null
         $fwTool = $null
@@ -282,7 +279,7 @@ if (Test-Path $WwwDir) {
         }
         if ($iconsTar -and (Test-Path $iconsTar)) {
             Install-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null
-            & ssh @sshArgs $Target "if [ -f /data/codex/icons.tar.gz ] && [ ! -L /data/codex/icons.tar.gz ]; then rm -f /data/codex/icons.tar.gz 2>/dev/null; fi; [ -L /data/codex/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/codex/icons.tar.gz 2>/dev/null"
+            & ssh @sshArgs $Target "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; [ -L /data/harmony/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null"
         }
     }
     # Prune individual icons directory on flash to preserve JFFS2 partition space
@@ -298,7 +295,7 @@ if (Test-Path $rcsSrc) {
 
 # 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
 Write-Host "[*] Verifying system shell and flushing NOR flash buffers..." -ForegroundColor Yellow
-$verifyCmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/codex/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/safe_reboot.sh /data/codex/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true; ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh codex_daemon codex_btstack codex_rf codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/codex/bin/codex_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/codex/bin/codex_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
+$verifyCmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/harmony/bin/hub_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
 & ssh @sshArgs $Target "$verifyCmd"
 
 Write-Host "[+] Deployment complete! Hub is rebooting safely." -ForegroundColor Green

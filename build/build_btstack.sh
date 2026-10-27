@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-SRC="$REPO_ROOT/payload/source/codex_btstack"
+SRC="$REPO_ROOT/payload/source/hub_btstack"
 BIN="$REPO_ROOT/payload/bin"
 OUT="$SCRIPT_DIR/output"
 TMP="$SCRIPT_DIR/tmp"
@@ -47,11 +47,11 @@ if [ -f "$SCRIPT_DIR/patches/btstack.patch" ]; then
     (cd "$BTSTACK_DIR" && (git apply --whitespace=nowarn "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || git apply -3 "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || true))
 fi
 
-echo "=== Compiling codex_btstack for MIPS32 ==="
+echo "=== Compiling hub_btstack for MIPS32 ==="
 
 cd "$REPO_ROOT"
 
-INCLUDES="-Ipayload/source/codex_btstack -Ipayload/source -Ibuild/tmp/btstack/src -Ibuild/tmp/btstack/platform/posix -Ibuild/tmp/btstack/3rd-party/micro-ecc -Ibuild/tmp/btstack/3rd-party/rijndael -Ibuild/tmp/btstack/3rd-party/bluedroid/encoder/include -Ibuild/tmp/btstack/3rd-party/bluedroid/decoder/include -Ibuild/tmp/btstack/3rd-party/yxml"
+INCLUDES="-Ipayload/source/hub_btstack -Ipayload/source -Ibuild/tmp/btstack/src -Ibuild/tmp/btstack/platform/posix -Ibuild/tmp/btstack/3rd-party/micro-ecc -Ibuild/tmp/btstack/3rd-party/rijndael -Ibuild/tmp/btstack/3rd-party/bluedroid/encoder/include -Ibuild/tmp/btstack/3rd-party/bluedroid/decoder/include -Ibuild/tmp/btstack/3rd-party/yxml"
 
 CFLAGS="-Os -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -static -DNDEBUG"
 
@@ -92,18 +92,23 @@ build/tmp/btstack/platform/posix/btstack_tlv_posix.c
 build/tmp/btstack/platform/posix/hci_dump_posix_stdout.c
 "
 
-CODEX_SRCS="
+HUB_BT_SRCS="
 payload/source/cJSON.c
-payload/source/codex_btstack/hci_transport_linux.c
-payload/source/codex_btstack/codex_btstack.c
+payload/source/hub_btstack/hci_transport_linux.c
+payload/source/hub_btstack/bt_state.c
+payload/source/hub_btstack/bt_pairing.c
+payload/source/hub_btstack/bt_hid.c
+payload/source/hub_btstack/bt_cmd.c
+payload/source/hub_btstack/bt_remote.c
+payload/source/hub_btstack/bt_main.c
 "
 
 # Compile and link
-$CC $CFLAGS $INCLUDES -o "$BIN/codex_btstack" $BTSTACK_SRCS $CODEX_SRCS -lm
-cp -f "$BIN/codex_btstack" "$OUT/codex_btstack.debug"
-$STRIP "$BIN/codex_btstack"
-cp -f "$BIN/codex_btstack" "$OUT/codex_btstack"
+$CC $CFLAGS $INCLUDES -o "$BIN/hub_btstack" $BTSTACK_SRCS $HUB_BT_SRCS -lm
+cp -f "$BIN/hub_btstack" "$OUT/hub_btstack.debug"
+$STRIP "$BIN/hub_btstack"
+cp -f "$BIN/hub_btstack" "$OUT/hub_btstack"
 
 echo "Binary built successfully:"
-ls -lh "$BIN/codex_btstack"
-file "$BIN/codex_btstack"
+ls -lh "$BIN/hub_btstack"
+file "$BIN/hub_btstack"

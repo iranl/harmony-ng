@@ -134,7 +134,7 @@ jobs:
           if [ -f build/output/elite/busybox ]; then
             cp -f build/output/elite/busybox build/output/elite/mknod
           fi
-          (cd build/output/elite && gzip -c -9 codex_elite > codex_elite.gz)
+          (cd build/output/elite && gzip -c -9 elite_ui > elite_ui.gz)
           ls -lh build/output/elite
       - name: Archive Elite Binaries
         uses: actions/upload-artifact@v7
@@ -171,10 +171,10 @@ jobs:
           ./build/compile_all.sh all
           ./build/build_busybox.sh mips
           mkdir -p build/output/hub
-          cp -f payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
+          cp -f payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod build/output/hub/
           [ -f payload/bin/busybox ] && cp -f payload/bin/busybox build/output/hub/ || true
           [ -f tools/bin/dropbearmulti_mips ] && cp -f tools/bin/dropbearmulti_mips build/output/hub/dropbearmulti || true
-          (cd build/output/hub && gzip -c -9 codex_daemon > codex_daemon.gz)
+          (cd build/output/hub && gzip -c -9 hub_daemon > hub_daemon.gz)
           ls -lh build/output/hub
       - name: Archive Hub Binaries
         uses: actions/upload-artifact@v7
@@ -267,7 +267,7 @@ jobs:
           if [ -d artifacts/hub-binaries ]; then
             mkdir -p staging_hub/bin staging_hub/scripts staging_hub/modules staging_hub/www staging_hub/tools
             cp -rf artifacts/hub-binaries/* staging_hub/bin/
-            rm -f staging_hub/bin/codex_daemon.gz 2>/dev/null || true
+            rm -f staging_hub/bin/hub_daemon.gz 2>/dev/null || true
             cp -rf payload/scripts/* staging_hub/scripts/
             [ -d payload/modules ] && cp -rf payload/modules/*.ko staging_hub/modules/ || true
             if [ -d artifacts/webui-assets ]; then
@@ -278,21 +278,21 @@ jobs:
             
             (cd staging_hub && zip -r "${RELEASE_DIR}/harmony-hub-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-hub-v${VERSION}.tar.gz" -C staging_hub .
-            cp -f artifacts/hub-binaries/codex_daemon.gz "${RELEASE_DIR}/codex_daemon_v${VERSION}.gz"
+            cp -f artifacts/hub-binaries/hub_daemon.gz "${RELEASE_DIR}/hub_daemon_v${VERSION}.gz"
           fi
 
           # 2. Package Complete Elite Release Bundle
           if [ -d artifacts/elite-binaries ]; then
             mkdir -p staging_elite/bin staging_elite/tools
             cp -rf artifacts/elite-binaries/* staging_elite/bin/
-            rm -f staging_elite/bin/codex_elite.gz staging_elite/bin/codex_elite.ota.gz 2>/dev/null || true
+            rm -f staging_elite/bin/elite_ui.gz staging_elite/bin/elite_ui.ota.gz 2>/dev/null || true
             cp -f elite/rcS.local staging_elite/
             cp -f elite/deploy_elite.py elite/deploy_elite.ps1 staging_elite/
             cp -f tools/root_remote_usb.py tools/harmony_hid.py tools/harmony_firmware.py elite/setup_remote.py staging_elite/tools/
             
             (cd staging_elite && zip -r "${RELEASE_DIR}/harmony-elite-v${VERSION}.zip" .)
             tar -czvf "${RELEASE_DIR}/harmony-elite-v${VERSION}.tar.gz" -C staging_elite .
-            cp -f artifacts/elite-binaries/codex_elite.gz "${RELEASE_DIR}/codex_elite_v${VERSION}.gz"
+            cp -f artifacts/elite-binaries/elite_ui.gz "${RELEASE_DIR}/elite_ui_v${VERSION}.gz"
           fi
           
           # 3. Package WebUI Bundle

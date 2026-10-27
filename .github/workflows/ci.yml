@@ -61,12 +61,12 @@ jobs:
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
-      - name: Compile codex_elite
+      - name: Compile elite_ui
         run: |
           chmod +x build/*.sh
           ./build/compile_all.sh elite
-          file elite/bin/codex_elite
-          ls -lh elite/bin/codex_elite elite/bin/codex_sync
+          file elite/bin/elite_ui
+          ls -lh elite/bin/elite_ui elite/bin/elite_sync
 
   build-hub:
     name: Compile Hub MIPS Binaries
@@ -88,5 +88,5 @@ jobs:
         run: |
           chmod +x build/*.sh
           ./build/compile_all.sh hub
-          file payload/bin/codex_daemon payload/bin/codex_rf
-          ls -lh payload/bin/codex_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod
+          file payload/bin/hub_daemon payload/bin/hub_rf
+          ls -lh payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod

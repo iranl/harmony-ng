@@ -36,8 +36,8 @@ echo "[*] Connecting to Harmony Hub ($HUB_HOST)..."
 TAR_CMD="tar"
 if ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /cache/bin/busybox" 2>/dev/null; then
     TAR_CMD="/cache/bin/busybox tar"
-elif ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /data/codex/bin/busybox" 2>/dev/null; then
-    TAR_CMD="/data/codex/bin/busybox tar"
+elif ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /data/harmony/bin/busybox" 2>/dev/null; then
+    TAR_CMD="/data/harmony/bin/busybox tar"
 fi
 
 if ! ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "$TAR_CMD --help >/dev/null 2>&1"; then
@@ -60,11 +60,11 @@ else
     echo "[+] Golden backup already exists: $GOLDEN_FILE"
 fi
 
-# 2. Rolling backup: includes /data/codex and configs (plain tar, no gzip)
+# 2. Rolling backup: includes /data/harmony and configs (plain tar, no gzip)
 NEW_BACKUP="$BACKUP_DIR/hub_backup_${TIMESTAMP}.tar"
 echo "[*] Creating rolling backup..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "$TAR_CMD -cf - /data/codex /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$NEW_BACKUP" || {
+    "$TAR_CMD -cf - /data/harmony /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true" > "$NEW_BACKUP" || {
     echo "[!] Rolling backup failed"
     rm -f "$NEW_BACKUP"
     exit 1

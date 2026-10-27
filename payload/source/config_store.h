@@ -15,15 +15,17 @@
 #define ACTIVITY_LIST_FILE "/data/resources/ActivityList.json"
 #define BT_TEXT_FIFO "/tmp/bthid_input"
 
-#define CODEX_CONFIG_DIR "/data/codex/config"
-#define CODEX_DEVICES_FILE "/data/codex/config/devices.json"
-#define CODEX_ACTIVITIES_FILE "/data/codex/config/activities.json"
-#define CODEX_REMOTES_FILE "/data/codex/config/remotes.json"
-#define CODEX_SETTINGS_FILE "/data/codex/config/settings.json"
-#define STOCK_IMPORT_FLAG "/data/codex/config/.imported"
-#define CODEX_MQTT_FILE "/data/codex/mqtt_config.json"
-#define CODEX_MQTT_FILE_ALT "/data/codex/mqtt.json"
-#define CODEX_MQTT_LEGACY_FILE "/data/codexmqtt/config.json"
+#define HARMONY_DIR "/data/harmony"
+#define HARMONY_CONFIG_DIR "/data/harmony/config"
+#define HARMONY_DEVICES_FILE "/data/harmony/config/devices.json"
+#define HARMONY_ACTIVITIES_FILE "/data/harmony/config/activities.json"
+#define HARMONY_REMOTES_FILE "/data/harmony/config/remotes.json"
+#define HARMONY_SETTINGS_FILE "/data/harmony/config/settings.json"
+#define HARMONY_STOCK_IMPORT_FLAG "/data/harmony/config/.imported"
+#define HARMONY_MQTT_FILE "/data/harmony/mqtt_config.json"
+#define HARMONY_MQTT_FILE_ALT "/data/harmony/mqtt.json"
+
+#define STOCK_IMPORT_FLAG HARMONY_STOCK_IMPORT_FLAG
 
 struct activity_step {
     char type[32];
@@ -122,9 +124,21 @@ struct bt_inventory {
     struct bt_saved_device devices[12];
 };
 
+struct hub_settings {
+    int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */
+    char hub_name[64];              /* Custom hub name (default: "Harmony Hub") */
+    char ntp_server[128];           /* Custom NTP server hostname/IP (default: empty = use pools) */
+    char timezone[64];              /* Timezone string e.g. "CET-1CEST,M3.5.0,M10.5.0/3" (default: empty) */
+    char led_mode[32];              /* "always_on", "always_off", "flashing_slow", "flashing_fast" (default: "always_on") */
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+char *read_file_text(const char *path, size_t max_bytes);
+int write_file_atomic(const char *path, const char *content);
+const char *config_store_path(const char *rel_path);
 
 int load_ir_inventory(struct ir_inventory *inv);
 void free_ir_inventory(struct ir_inventory *inv);
@@ -137,21 +151,13 @@ int save_bthid_target(const char *type, const char *bdaddr);
 int run_bt_saved_script(const char *type, const char *bdaddr, const char *script,
                         int gap_ms, char *out, size_t outlen);
 
-struct codex_settings {
-    int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */
-    char hub_name[64];              /* Custom hub name (default: "Harmony Hub") */
-    char ntp_server[128];           /* Custom NTP server hostname/IP (default: empty = use pools) */
-    char timezone[64];             /* Timezone string e.g. "CET-1CEST,M3.5.0,M10.5.0/3" (default: empty) */
-    char led_mode[32];              /* "always_on", "always_off", "flashing_slow", "flashing_fast" (default: "always_on") */
-};
-
 int config_store_init(void);
 cJSON *config_store_get_devices_json(void);
 cJSON *config_store_get_activities_json(void);
 int config_store_save_devices(cJSON *devices_json);
 int config_store_save_activities(cJSON *activities_json);
-int config_store_get_settings(struct codex_settings *settings);
-int config_store_save_settings(const struct codex_settings *settings);
+int config_store_get_settings(struct hub_settings *settings);
+int config_store_save_settings(const struct hub_settings *settings);
 void config_store_invalidate_cache(void);
 void notify_rf_push_config(void);
 

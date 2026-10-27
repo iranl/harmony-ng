@@ -4,7 +4,7 @@ bump_version.py - Single Source of Truth Version Management
 
 Synchronizes version number across:
   - VERSION (root file)
-  - payload/source/http_server.c (CODEX_VERSION)
+  - payload/source/http_server.c (HARMONY_VERSION)
   - android-app/src/app.js (APP_VERSION)
   - android-app/package.json ("version")
   - android-app/android/app/build.gradle (versionName, versionCode)
@@ -18,8 +18,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 VERSION_FILE = REPO_ROOT / "VERSION"
-CODEX_VERSION_H = REPO_ROOT / "payload" / "source" / "codex_version.h"
-APP_JS = REPO_ROOT / "android-app" / "src" / "app.js"
+HARMONY_VERSION_H = REPO_ROOT / "payload" / "source" / "harmony_version.h"
+APP_JS = REPO_ROOT / "android-app" / "src" / "app" / "app_icons_ui.js"
 PACKAGE_JSON = REPO_ROOT / "android-app" / "package.json"
 BUILD_GRADLE = REPO_ROOT / "android-app" / "android" / "app" / "build.gradle"
 
@@ -64,11 +64,11 @@ def sync_all(new_version, increment_vc=False):
     VERSION_FILE.write_text(new_version.strip() + "\n", encoding="utf-8")
     print(f"[+] Updated VERSION -> {new_version}")
 
-    # 2. codex_version.h
+    # 2. harmony_version.h
     update_file(
-        CODEX_VERSION_H,
-        r'#define\s+CODEX_VERSION\s+"[^"]+"',
-        f'#define CODEX_VERSION "{new_version}"'
+        HARMONY_VERSION_H,
+        r'#define\s+HARMONY_VERSION\s+"[^"]+"',
+        f'#define HARMONY_VERSION "{new_version}"'
     )
 
     # 3. app.js

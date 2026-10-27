@@ -3,13 +3,13 @@
 # Prevents warm reset SPI arbiter / NOR flash bus lockups.
 
 # 1. Terminate RF and background workers immediately to release /dev/rfspi and Bluetooth UART
-killall -9 codex_rf codex_btstack codex_daemon codex_dhcpd codex_portal hal luaworks luadraws lua 2>/dev/null || true
+killall -9 hub_rf hub_btstack hub_daemon hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
 
 # 2. Wait for in-flight SPI hardware transactions to complete
 sleep 2
 
-# 3. Flush write buffers to NOR flash (AR9344 has no bare 'sync', use codex_sync)
-/data/codex/bin/codex_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true
+# 3. Flush write buffers to NOR flash (AR9344 has no bare 'sync', use hub_sync)
+/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 # Allow JFFS2 eraseblock garbage collection and flash sector erasures to settle
 sleep 6
 
@@ -18,6 +18,6 @@ mount -o remount,ro /data 2>/dev/null || true
 mount -o remount,ro /cache 2>/dev/null || true
 
 # 5. Final sync and reset
-/data/codex/bin/codex_sync 2>/dev/null || true
+/data/harmony/bin/hub_sync 2>/dev/null || sync 2>/dev/null || true
 sleep 3
 reboot -f

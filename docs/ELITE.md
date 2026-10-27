@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > **Hardware Family Compatibility**:
-> The **Harmony Pro 2400 Remote** (Skin 116), Harmony Ultimate (Home), and Harmony Touch share the same underlying architecture (TI DaVinci ARM, CC2544 RF, ClearPad touch, 240x320 RGB565 LCD). Pro 2400 remote runs Dropbear SSH out of the box in stock firmware 10.0.215. All are supported using the same tooling and `codex_elite` binary (*untested on physical Pro 2400 remote hardware*).
+> The **Harmony Pro 2400 Remote** (Skin 116), Harmony Ultimate (Home), and Harmony Touch share the same underlying architecture (TI DaVinci ARM, CC2544 RF, ClearPad touch, 240x320 RGB565 LCD). Pro 2400 remote runs Dropbear SSH out of the box in stock firmware 10.0.215. All are supported using the same tooling and `elite_ui` binary (*untested on physical Pro 2400 remote hardware*).
 
 ## Serial Console & U-Boot (UART)
 Baud rate: `115200 8N1` on serial pad.
@@ -23,7 +23,7 @@ python tools/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_e
 ```
 This utility:
 1. Starts `/usr/bin/usbeth start` on the remote.
-2. Streams base64-encoded static binaries (`dropbear`, `dropbearkey`, `scp`, `codex_sync`) to `/data/`.
+2. Streams base64-encoded static binaries (`dropbear`, `dropbearkey`, `scp`, `elite_sync`) to `/data/`.
 3. Generates Dropbear host keys in `/etc/dropbear/`.
 4. Installs your SSH public key into `/home/root/.ssh/authorized_keys`.
 5. Installs the emergency-recovery boot script `/etc/init.d/rcS.local`.
@@ -49,7 +49,7 @@ Architecture: ARMv5TE little-endian (`armv5tejl`, uClibc-0.9.30.1).
 ---
 
 ## SSH Deployment Script (`elite/deploy_elite.py` / `deploy_elite.ps1`)
-Once SSH is operational, deploy updated custom firmware (`codex_elite`), tools, and boot scripts:
+Once SSH is operational, deploy updated custom firmware (`elite_ui`), tools, and boot scripts:
 ```sh
 # Linux/macOS
 python3 elite/deploy_elite.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed25519
@@ -58,9 +58,9 @@ python3 elite/deploy_elite.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed2551
 .\elite\deploy_elite.ps1 -Ip 192.168.2.1 -KeyPath ~/.ssh/harmony_owner_ed25519
 ```
 This script uploads:
-- `codex_elite` (custom framebuffer UI & CC2544 RF engine)
-- `codex_sync` (ARM sync helper, symlinked to `/data/sync` and `/usr/bin/sync`)
-- `codex_rf_query` & `codex_rf_sniff`
+- `elite_ui` (custom framebuffer UI & CC2544 RF engine)
+- `elite_sync` (ARM sync helper, symlinked to `/data/sync` and `/usr/bin/sync`)
+- `elite_rf_query` & `elite_rf_sniff`
 - `/etc/init.d/rcS.local` with panic recovery counter
 
 ---
@@ -72,7 +72,7 @@ Elite `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/re
 - **Safe Mode**: If the device reboots more than **5 consecutive times** before reaching 5-minute stability (`COUNT > 5`), it enters Emergency Recovery Mode:
   - Enables **only** USB Ethernet (`/usr/bin/usbeth start`) and Dropbear SSH (`/data/dropbear -R -B`).
   - Logs alert to `/tmp/emergency_recovery.log`.
-  - Exits boot script **without** launching `codex_elite` or any other software.
+  - Exits boot script **without** launching `elite_ui` or any other software.
   - Allows full SSH root access at `192.168.2.1` to inspect logs, repair files, or reset the counter (`echo 0 > /data/reboot_counter`).
 
 ---
@@ -80,14 +80,14 @@ Elite `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/re
 ## Note on Busybox `sync`
 BusyBox v1.13.4 on both the Hub and Elite remote lacks the `sync` applet. Never run raw `sync` in scripts. Always use:
 ```sh
-sync 2>/dev/null || /data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || true
+sync 2>/dev/null || /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true
 ```
 
 ---
 
 ## Sleep Behavior & Expected Run Times
 
-The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** battery. In custom firmware (`codex_elite`), sleep is managed via a two-tier hardware power state architecture: **Light Standby** and **Deep Standby**.
+The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** battery. In custom firmware (`elite_ui`), sleep is managed via a two-tier hardware power state architecture: **Light Standby** and **Deep Standby**.
 
 ### Standby Power States & Wake Triggers
 
@@ -110,7 +110,7 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 | **Stage 1 (LCD Controller Shutdown)** | **2.5% / hour** | ~32.5 mA | **~40.0 hours (1.7 days)** | **3.1x longer** (Verified: 13% drop across 5h 08m uninterrupted sleep) |
 | **Stage 2 (Clearpad Sleep + Deep Standby)** | **~1.31% / hour** | **~17.0 mA** | **~76.5 hours (~3.2 days)** | **~6.0x longer** (>30m gyro suspended, 30s select loop, touch matrix off) |
 
-### Key Power Mechanisms in `codex_elite`
+### Key Power Mechanisms in `elite_ui`
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
 2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
@@ -220,9 +220,10 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
   - Opens CC2544 pairing management: inspect remote address, paired Hub address, link RSSI, request pairing, or unpair.
 - **`Reboot Remote`**: Clean reboot confirmation -> flushes flash buffers and executes `reboot -f`.
 - **`Factory Reset`**: Two-stage safety confirmation -> removes custom startup scripts, restores stock Logitech UI binaries, and reboots.
+  - *Hardware Factory Reset Alternative (No UI / SSH needed)*: Hold **`Menu`** (above `CH+`) and **`Off`** (top power button) simultaneously for ~20 seconds. The remote graphic with circular arrow will flash briefly first—**continue holding until the graphic stays permanently on the screen**. The remote then wipes user configurations and restores factory defaults.
 
 ### 6. `PUSH TO HUB`
-- Immediately sends an `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`) frame to the Hub to back up all current remote settings into `/data/codex/elite_slot<slot>_config.json`.
+- Immediately sends an `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`) frame to the Hub to back up all current remote settings into `/data/harmony/elite_slot<slot>_config.json`.
 
 ---
 
@@ -296,10 +297,10 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
 1. **Hub -> Remote Push (`RF_MSG_SETTINGS_PUSH`, `0x0E`)**:
    - Sent when settings are POSTed to the Hub API, or during full config sync (`RF_MSG_CONFIG_END`).
    - Requires ACK from Remote (`RF_FLAG_ACK_REQ`).
-   - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/codex_elite.conf`, and repaints the screen.
+   - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/elite_ui.conf`, and repaints the screen.
 2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`)**:
    - Sent whenever settings are modified in the Elite on-screen menu, or when the user selects `PUSH TO HUB`.
-   - The Hub receives the frame and persists the configuration to `/data/codex/elite_slot<slot>_config.json`.
+   - The Hub receives the frame and persists the configuration to `/data/harmony/elite_slot<slot>_config.json`.
 3. **17-Byte Payload Format**:
    - `Byte 0`: Display Brightness (1–5)
    - `Byte 1`: Screen Timeout low byte (seconds)

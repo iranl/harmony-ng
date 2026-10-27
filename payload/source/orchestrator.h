@@ -1,5 +1,5 @@
-#ifndef CODEX_ORCHESTRATOR_H
-#define CODEX_ORCHESTRATOR_H
+#ifndef HARMONY_ORCHESTRATOR_H
+#define HARMONY_ORCHESTRATOR_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -101,4 +101,4 @@ void orch_cancel(void);
 }
 #endif
 
-#endif /* CODEX_ORCHESTRATOR_H */
+#endif /* HARMONY_ORCHESTRATOR_H */

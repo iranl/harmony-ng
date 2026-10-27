@@ -1,5 +1,5 @@
-#ifndef CODEX_WS_SERVER_H
-#define CODEX_WS_SERVER_H
+#ifndef HARMONY_WS_SERVER_H
+#define HARMONY_WS_SERVER_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,4 +56,4 @@ void ws_close_all(void);
 }
 #endif
 
-#endif /* CODEX_WS_SERVER_H */
+#endif /* HARMONY_WS_SERVER_H */

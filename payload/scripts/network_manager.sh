@@ -1,14 +1,24 @@
 #!/bin/sh
-# Codex Network Manager - Ethernet / USB Host & Wi-Fi supervisor
+# Harmony Network Manager - Ethernet / USB Host & Wi-Fi supervisor
 # Handles 15s USB gadget safety boot, Ethernet initialization, and Wi-Fi fallback.
 
-PATH=/cache/bin:/data/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-CONF=/data/codex/ethernet.conf
+PATH=/cache/bin:/data/harmony/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CONF=/data/harmony/ethernet.conf
 WPA_CONF=/etc/wpa_supplicant.ath0.conf
 [ -f "$WPA_CONF" ] || WPA_CONF=/etc/wpa_supplicant.conf
 
-LOG=/tmp/codex-network.log
-STATE_FILE=/tmp/codex_active_net_state
+LOG=/tmp/harmony-network.log
+STATE_FILE=/tmp/harmony_active_net_state
+
+set_state() {
+  echo "$1" > "$STATE_FILE"
+}
+
+get_state() {
+  if [ -f "$STATE_FILE" ]; then
+    cat "$STATE_FILE" 2>/dev/null
+  fi
+}
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [NET] $*" >> "$LOG"
@@ -56,7 +66,8 @@ is_onboard_eth() {
   # On standard Hub, eth1 has no physical PHY/RJ45, so carrier is always 0.
   if [ -d /sys/class/net/eth1 ]; then
     [ -e /usr/bin/network_switch.sh ] && return 0
-    [ "$(cat /data/codex/skin 2>/dev/null)" = "115" ] && return 0
+    skin=$(cat /data/harmony/skin 2>/dev/null)
+    [ "$skin" = "115" ] && return 0
     if [ -f /sys/class/net/eth1/carrier ] && [ "$(cat /sys/class/net/eth1/carrier 2>/dev/null)" = "1" ]; then
       return 0
     fi
@@ -116,7 +127,7 @@ ensure_wifi() {
   if [ "$ETH_MODE" = "static" ] && [ -n "$ETH_IP" ]; then
     kill -9 $(cat /var/run/udhcpc.ath0.pid 2>/dev/null) 2>/dev/null || killall -9 udhcpc 2>/dev/null || true
     rm -f /var/run/udhcpc.ath0.pid
-    cur_state=$(cat "$STATE_FILE" 2>/dev/null)
+    cur_state=$(get_state)
     case "$cur_state" in
       *:ethernet:*)
         # Ethernet is active; keep ath0 at L2 standby without IP to avoid IP conflict
@@ -131,7 +142,7 @@ ensure_wifi() {
           [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
           send_garp "ath0" "$ETH_IP"
         fi
-        echo "ath0:wifi:$ETH_IP" > "$STATE_FILE"
+        set_state "ath0:wifi:$ETH_IP"
         stop_recovery_ap 2>/dev/null || true
         return 0
         ;;
@@ -154,7 +165,7 @@ ensure_wifi() {
 
   if [ -n "$wifi_ip" ]; then
     log "Wi-Fi connected successfully: ath0 has IP $wifi_ip"
-    echo "ath0:wifi:$wifi_ip" > "$STATE_FILE"
+    set_state "ath0:wifi:$wifi_ip"
     stop_recovery_ap 2>/dev/null || true
     return 0
   else
@@ -171,12 +182,12 @@ start_eth() {
     ifconfig "$eth_if" up >> "$LOG" 2>&1
   else
     log "Switching USB to host mode and loading drivers..."
-    if [ -x /data/codex/bin/start_usb_eth.sh ]; then
-      /data/codex/bin/start_usb_eth.sh >> "$LOG" 2>&1
-    elif [ -x /data/codex/start_usb_eth.sh ]; then
-      /data/codex/start_usb_eth.sh >> "$LOG" 2>&1
-    elif [ -x /usr/sbin/start_usb_eth.sh ]; then
-      /usr/sbin/start_usb_eth.sh >> "$LOG" 2>&1
+    START_USB_SCRIPT=""
+    for s in /data/harmony/bin/start_usb_eth.sh /data/harmony/start_usb_eth.sh /usr/sbin/start_usb_eth.sh; do
+      if [ -x "$s" ]; then START_USB_SCRIPT="$s"; break; fi
+    done
+    if [ -n "$START_USB_SCRIPT" ]; then
+      "$START_USB_SCRIPT" >> "$LOG" 2>&1
     else
       log "Error: start_usb_eth.sh script not found!"
       return 1
@@ -222,11 +233,11 @@ start_eth() {
   apply_eth_fix() {
     local dev="$1"
     [ -z "$dev" ] && return 0
-    if [ -x /data/codex/bin/eth_fix ]; then
-      /data/codex/bin/eth_fix "$dev" >> "$LOG" 2>&1 || true
-    elif [ -x /cache/bin/eth_fix ]; then
-      /cache/bin/eth_fix "$dev" >> "$LOG" 2>&1 || true
-    fi
+    FIX_BIN=""
+    for b in /data/harmony/bin/eth_fix /cache/bin/eth_fix /usr/sbin/eth_fix; do
+      if [ -x "$b" ]; then FIX_BIN="$b"; break; fi
+    done
+    [ -n "$FIX_BIN" ] && "$FIX_BIN" "$dev" >> "$LOG" 2>&1 || true
   }
 
   apply_eth_fix "$eth_if"
@@ -242,7 +253,7 @@ start_eth() {
     fi
     [ -n "$ETH_DNS" ] && echo "nameserver $ETH_DNS" > /etc/resolv.conf
     send_garp "$eth_if" "$ETH_IP"
-    echo "$eth_if:ethernet:$ETH_IP" > "$STATE_FILE"
+    set_state "$eth_if:ethernet:$ETH_IP"
     stop_recovery_ap 2>/dev/null || true
     log "Ethernet configured statically: $eth_if has IP $ETH_IP"
     return 0
@@ -260,7 +271,7 @@ start_eth() {
       apply_eth_fix "$eth_if"
       route del default dev ath0 2>/dev/null || true
       send_garp "$eth_if" "$eth_ip"
-      echo "$eth_if:ethernet:$eth_ip" > "$STATE_FILE"
+      set_state "$eth_if:ethernet:$eth_ip"
       stop_recovery_ap 2>/dev/null || true
       log "Ethernet connected via DHCP: $eth_if has IP $eth_ip"
       return 0
@@ -277,19 +288,17 @@ stop_eth() {
   if is_onboard_eth; then
     ifconfig eth1 0.0.0.0 down 2>/dev/null || true
   else
-    if [ -x /data/codex/bin/stop_usb_eth.sh ]; then
-      /data/codex/bin/stop_usb_eth.sh >> "$LOG" 2>&1
-    elif [ -x /data/codex/stop_usb_eth.sh ]; then
-      /data/codex/stop_usb_eth.sh >> "$LOG" 2>&1
-    elif [ -x /usr/sbin/stop_usb_eth.sh ]; then
-      /usr/sbin/stop_usb_eth.sh >> "$LOG" 2>&1
-    fi
+    STOP_USB_SCRIPT=""
+    for s in /data/harmony/bin/stop_usb_eth.sh /data/harmony/stop_usb_eth.sh /usr/sbin/stop_usb_eth.sh; do
+      if [ -x "$s" ]; then STOP_USB_SCRIPT="$s"; break; fi
+    done
+    [ -n "$STOP_USB_SCRIPT" ] && "$STOP_USB_SCRIPT" >> "$LOG" 2>&1 || true
   fi
 }
 
 monitor_wifi() {
   # Skip while recovery AP is active
-  [ -f /var/run/codex-recovery-ap.pid ] && return 0
+  [ -f /var/run/hub-recovery-ap.pid ] && return 0
 
   # 1. Ensure ath0 interface exists and is up
   if ! ifconfig ath0 >/dev/null 2>&1; then
@@ -436,12 +445,12 @@ get_current_gw() {
   local gw
   gw=$(route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $2; exit}')
   if [ -n "$gw" ] && [ "$gw" != "0.0.0.0" ]; then
-    echo "$gw" > /tmp/codex_saved_gw 2>/dev/null
+    echo "$gw" > /tmp/harmony_saved_gw 2>/dev/null
     echo "$gw"
     return 0
   fi
-  if [ -f /tmp/codex_saved_gw ]; then
-    cat /tmp/codex_saved_gw 2>/dev/null
+  if [ -f /tmp/harmony_saved_gw ]; then
+    cat /tmp/harmony_saved_gw 2>/dev/null
     return 0
   fi
   if [ -n "$ETH_GATEWAY" ]; then
@@ -463,12 +472,13 @@ send_garp() {
   local iface="$1"
   local ip="$2"
   [ -z "$iface" ] || [ -z "$ip" ] && return 0
-  if [ -x /data/codex/bin/busybox ]; then
-    /data/codex/bin/busybox arping -U -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
-    /data/codex/bin/busybox arping -A -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
-  elif [ -x /cache/bin/busybox ]; then
-    /cache/bin/busybox arping -U -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
-    /cache/bin/busybox arping -A -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
+  ARP_BB=""
+  for b in /data/harmony/bin/busybox /cache/bin/busybox; do
+    if [ -x "$b" ]; then ARP_BB="$b"; break; fi
+  done
+  if [ -n "$ARP_BB" ]; then
+    "$ARP_BB" arping -U -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
+    "$ARP_BB" arping -A -c 3 -I "$iface" "$ip" >/dev/null 2>&1 &
   fi
 }
 
@@ -498,11 +508,11 @@ migrate_to_ethernet() {
   ifconfig "$eth_if" "$target_ip" netmask "$target_mask" up >> "$LOG" 2>&1
 
   # Disable hardware checksum & segmentation offload on MIPS to prevent corrupted TCP checksums
-  if [ -x /data/codex/bin/eth_fix ]; then
-    /data/codex/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
-  elif [ -x /cache/bin/eth_fix ]; then
-    /cache/bin/eth_fix "$eth_if" >> "$LOG" 2>&1
-  fi
+  FIX_BIN=""
+  for b in /data/harmony/bin/eth_fix /cache/bin/eth_fix /usr/sbin/eth_fix; do
+    if [ -x "$b" ]; then FIX_BIN="$b"; break; fi
+  done
+  [ -n "$FIX_BIN" ] && "$FIX_BIN" "$eth_if" >> "$LOG" 2>&1 || true
 
   # Explicitly configure default route
   while route del default 2>/dev/null; do :; done
@@ -518,7 +528,7 @@ migrate_to_ethernet() {
   configure_arp_isolation
   send_garp "$eth_if" "$target_ip"
   echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
-  echo "$eth_if:ethernet:$target_ip" > "$STATE_FILE"
+  set_state "$eth_if:ethernet:$target_ip"
   stop_recovery_ap 2>/dev/null || true
   log "Migration complete: Ethernet ($eth_if) active with IP $target_ip, GW $target_gw"
 }
@@ -568,159 +578,20 @@ migrate_to_wifi() {
   configure_arp_isolation
   send_garp "ath0" "$target_ip"
   echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
-  echo "ath0:wifi-fallback:$target_ip" > "$STATE_FILE"
+  set_state "ath0:wifi-fallback:$target_ip"
   log "Migration complete: Wi-Fi (ath0) active with IP $target_ip, GW $target_gw"
 }
 
-# Background watchdog: monitors Ethernet link, Wi-Fi failover, Wi-Fi health & DHCP
-run_monitor() {
-  wifi_disc_count=0
-  dhcp_fail_count=0
-  gw_fail_count=0
-  no_gw_count=0
-  ping_check_cycle=0
-  gw_seen=0
-
-  # Cache initial working gateway on startup
-  get_current_gw >/dev/null 2>&1
-
-  # Ensure stock Pro 2400 network_switch.sh is not running to avoid route/DNS conflicts
-  killall -9 network_switch.sh 2>/dev/null || true
-
-  while true; do
-    sleep 3
-    load_config
-
-    cur_eth=$(find_eth_interface)
-    if [ -n "$cur_eth" ]; then
-      # Ensure interface is up administratively for PHY auto-negotiation & carrier
-      ifconfig "$cur_eth" up 2>/dev/null || true
-
-      cfile="/sys/class/net/$cur_eth/carrier"
-      carrier="0"
-      [ -f "$cfile" ] && [ "$(cat "$cfile" 2>/dev/null)" = "1" ] && carrier="1"
-
-      # Determine canonical static IP
-      canonical_ip="$ETH_IP"
-      if [ -z "$canonical_ip" ]; then
-        canonical_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
-      fi
-      [ -z "$canonical_ip" ] && [ -f "$STATE_FILE" ] && canonical_ip=$(cat "$STATE_FILE" 2>/dev/null | awk -F: '{print $3}')
-
-      cur_state=$(cat "$STATE_FILE" 2>/dev/null)
-
-      if [ "$carrier" = "1" ]; then
-        echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
-        case "$cur_state" in
-          "$cur_eth:ethernet:"*)
-            # Already active on Ethernet; ensure ath0 has no lingering IP or subnet routes
-            if ifconfig ath0 2>/dev/null | grep -q 'inet addr'; then
-              flush_iface_routes "ath0"
-              ifconfig ath0 0.0.0.0 2>/dev/null || true
-            fi
-            # Verify default gateway route is present
-            if ! route -n 2>/dev/null | grep -q '^0\.0\.0\.0'; then
-              gw=$(get_current_gw)
-              [ -z "$gw" ] && [ -n "$target_ip" ] && gw=$(echo "$target_ip" | sed 's/\.[0-9]*$/.1/')
-              if [ -n "$gw" ]; then
-                route add default gw "$gw" dev "$cur_eth" 2>/dev/null || true
-                echo "$gw" > "/tmp/default_gw.$cur_eth" 2>/dev/null || true
-              fi
-            fi
-            ;;
-          *)
-            target_ip="${ETH_IP:-$canonical_ip}"
-            if [ -n "$target_ip" ]; then
-              migrate_to_ethernet "$cur_eth" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
-            else
-              # Pure DHCP mode
-              udhcpc -i "$cur_eth" -p /var/run/udhcpc.$cur_eth.pid -b -t 5 -T 3 >> "$LOG" 2>&1
-              for i in 1 2 3 4 5; do
-                e_ip=$(ifconfig "$cur_eth" 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
-                [ -n "$e_ip" ] && break
-                sleep 1
-              done
-              if [ -n "$e_ip" ]; then
-                route del default dev ath0 2>/dev/null || true
-                send_garp "$cur_eth" "$e_ip"
-                echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
-                echo "$cur_eth:ethernet:$e_ip" > "$STATE_FILE"
-                stop_recovery_ap 2>/dev/null || true
-                log "Ethernet connected via DHCP: $cur_eth has IP $e_ip"
-              fi
-            fi
-            ;;
-        esac
-      else
-        # Carrier == 0 (Cable disconnected or switch powered down)
-        echo 0 > /tmp/eth_conn_pipe 2>/dev/null || true
-        case "$cur_state" in
-          "$cur_eth:ethernet:"*)
-            target_ip="${ETH_IP:-$canonical_ip}"
-            if [ -n "$target_ip" ]; then
-              migrate_to_wifi "$cur_eth" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
-            else
-              ensure_wifi
-              echo "ath0:wifi-fallback:" > "$STATE_FILE"
-            fi
-            ;;
-          *)
-            # If ETH_FALLBACK_WIFI=1 and static IP configured, ensure ath0 has the fallback IP
-            target_ip="${ETH_IP:-$canonical_ip}"
-            if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$target_ip" ]; then
-              cur_wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
-              if [ "$cur_wifi_ip" != "$target_ip" ]; then
-                log "Ethernet carrier 0: migrating ath0 ($cur_wifi_ip) to fallback IP $target_ip..."
-                migrate_to_wifi "$cur_eth" "$target_ip" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
-              fi
-            fi
-            # Wi-Fi active: verify default gateway route is present
-            if ! route -n 2>/dev/null | grep -q '^0\.0\.0\.0'; then
-              gw=$(get_current_gw)
-              [ -z "$gw" ] && [ -n "$target_ip" ] && gw=$(echo "$target_ip" | sed 's/\.[0-9]*$/.1/')
-              [ -n "$gw" ] && route add default gw "$gw" dev ath0 2>/dev/null || true
-            fi
-            monitor_wifi
-            ;;
-        esac
-      fi
-    else
-      # cur_eth not detected on bus
-      cur_state=$(cat "$STATE_FILE" 2>/dev/null)
-      case "$cur_state" in
-        *:ethernet:*)
-          log "Ethernet interface disappeared! Triggering Wi-Fi fallback..."
-          ensure_wifi
-          echo "ath0:wifi-fallback:" > "$STATE_FILE"
-          ;;
-        *)
-          monitor_wifi
-          ;;
-      esac
-    fi
-  done
-}
-
-start_monitor() {
-  stop_monitor
-  run_monitor </dev/null >> "$LOG" 2>&1 &
-  echo "$!" > /var/run/codex_net_monitor.pid
-  log "Network monitor started (PID $!)"
-}
-
-stop_monitor() {
-  if [ -f /var/run/codex_net_monitor.pid ]; then
-    old_pid=$(cat /var/run/codex_net_monitor.pid 2>/dev/null)
-    if [ -n "$old_pid" ]; then
-      kill -9 "$old_pid" 2>/dev/null || true
-    fi
-    rm -f /var/run/codex_net_monitor.pid
-  fi
-}
+# Source network monitor functions
+NET_MON_SCRIPT=""
+for s in /data/harmony/scripts/network_monitor.sh /data/harmony/network_monitor.sh "$(dirname "$0")/network_monitor.sh" /payload/scripts/network_monitor.sh; do
+  if [ -f "$s" ]; then NET_MON_SCRIPT="$s"; break; fi
+done
+[ -n "$NET_MON_SCRIPT" ] && . "$NET_MON_SCRIPT"
 
 start_recovery_ap() {
   log "Starting recovery captive portal AP..."
-  for s in /data/codex/scripts/recovery_ap.sh /data/codex/recovery_ap.sh /data/codex/bin/recovery_ap.sh; do
+  for s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
     if [ -x "$s" ]; then
       "$s" start >> "$LOG" 2>&1 &
       return 0
@@ -731,9 +602,9 @@ start_recovery_ap() {
 }
 
 stop_recovery_ap() {
-  if [ -f /var/run/codex-recovery-ap.pid ]; then
+  if [ -f /var/run/hub-recovery-ap.pid ]; then
     log "Stopping recovery AP..."
-    for s in /data/codex/scripts/recovery_ap.sh /data/codex/recovery_ap.sh /data/codex/bin/recovery_ap.sh; do
+    for s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
       if [ -x "$s" ]; then
         "$s" stop >> "$LOG" 2>&1
         return 0

@@ -121,13 +121,13 @@ def main() -> None:
         # 2. Stage binaries into /data/
         exec_cmd(ser, "mkdir -p /data /etc/dropbear /home/root/.ssh")
 
-        for b in ("dropbear", "dropbearkey", "scp", "codex_sync"):
+        for b in ("dropbear", "dropbearkey", "scp", "elite_sync"):
             src = BIN_DIR / b
             if src.is_file():
                 transfer_binary(ser, src, f"/data/{b}")
 
         # Symlink sync
-        exec_cmd(ser, "ln -sf /data/codex_sync /data/sync; ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true")
+        exec_cmd(ser, "ln -sf /data/elite_sync /data/sync; ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true")
 
         # 3. Generate Dropbear host keys if missing
         print("[*] Checking Dropbear host keys...")

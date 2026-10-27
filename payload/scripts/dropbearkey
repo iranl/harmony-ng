@@ -1,2 +1,3 @@
 #!/bin/sh
-exec /data/codex/bin/dropbearkey "$@"
+BIN=/data/harmony/bin/dropbearkey
+exec "$BIN" "$@"

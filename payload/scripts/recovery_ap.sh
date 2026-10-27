@@ -1,6 +1,6 @@
 #!/bin/sh
-PATH=/data/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-LOG=/tmp/codex-recovery.log
+PATH=/data/harmony/bin:/cache/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LOG=/tmp/harmony-recovery.log
 SSID_PREFIX=Harmony-Recovery
 AP_IF=ath1
 AP_IP=192.168.76.1
@@ -15,7 +15,7 @@ ssid() {
   echo "${SSID_PREFIX}-${mac}"
 }
 
-CONF=/data/codex/recovery_ap.conf
+CONF=/data/harmony/recovery_ap.conf
 WPA_PASSPHRASE=harmonyrecovery
 WPA_ENABLED=1
 
@@ -32,8 +32,9 @@ stop_station() {
 }
 
 start_ap() {
-  if [ -f /var/run/codex-recovery-ap.pid ]; then
-    old=$(cat /var/run/codex-recovery-ap.pid 2>/dev/null)
+  PID_FILE=/var/run/hub-recovery-ap.pid
+  if [ -f "$PID_FILE" ]; then
+    old=$(cat "$PID_FILE" 2>/dev/null)
     if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
       log "recovery ap already running"
       return 0
@@ -64,7 +65,7 @@ wpa_pairwise=CCMP
 rsn_pairwise=CCMP
 EOF
     HOSTAPD_BIN=""
-    for b in /data/codex/bin/hostapd /usr/sbin/hostapd /usr/bin/hostapd; do
+    for b in /data/harmony/bin/hostapd /cache/bin/hostapd /usr/sbin/hostapd /usr/bin/hostapd; do
       if [ -x "$b" ]; then HOSTAPD_BIN="$b"; break; fi
     done
     if [ -n "$HOSTAPD_BIN" ]; then
@@ -80,17 +81,20 @@ EOF
     log "recovery ap running in open mode"
   fi
 
-  killall -9 codex_dhcpd codex_portal 2>/dev/null || true
-  /data/codex/bin/codex_dhcpd "$AP_IF" "$AP_IP" 192.168.76.100 192.168.76.150 >> "$LOG" 2>&1 &
-  /data/codex/bin/codex_portal 80 >> "$LOG" 2>&1 &
-  echo $! > /var/run/codex-recovery-ap.pid
+  killall -9 hub_dhcpd hub_portal 2>/dev/null || true
+  DHCPD_BIN="/data/harmony/bin/hub_dhcpd"
+  PORTAL_BIN="/data/harmony/bin/hub_portal"
+  [ -x "$DHCPD_BIN" ] && "$DHCPD_BIN" "$AP_IF" "$AP_IP" 192.168.76.100 192.168.76.150 >> "$LOG" 2>&1 &
+  [ -x "$PORTAL_BIN" ] && "$PORTAL_BIN" 80 >> "$LOG" 2>&1 &
+  pid=$!
+  echo "$pid" > /var/run/hub-recovery-ap.pid
   echo 3 > /sys/class/input/input0/led 2>/dev/null
 }
 
 stop_ap() {
   log "stopping recovery ap"
-  killall -9 codex_portal codex_dhcpd hostapd 2>/dev/null || true
-  rm -f /var/run/codex-recovery-ap.pid /tmp/hostapd-recovery.conf
+  killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null || true
+  rm -f /var/run/hub-recovery-ap.pid /tmp/hostapd-recovery.conf
   ifconfig "$AP_IF" down 2>/dev/null
   wlanconfig "$AP_IF" destroy 2>/dev/null
 }

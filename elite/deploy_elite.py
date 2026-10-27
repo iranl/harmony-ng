@@ -52,7 +52,7 @@ def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Deploy codex_elite and recovery scripts to Harmony Elite")
+    parser = argparse.ArgumentParser(description="Deploy elite_ui and recovery scripts to Harmony Elite")
     parser.add_argument("--ip", default="192.168.2.1", help="Elite IP address (default 192.168.2.1)")
     parser.add_argument("--user", default="root", help="SSH username (default root)")
     parser.add_argument("--key", type=pathlib.Path, help="SSH private key path")
@@ -97,7 +97,7 @@ def main() -> None:
             sys.exit(1)
         print("[*] Performing stock revert...")
         revert_cmd = (
-            "killall -9 codex_elite 2>/dev/null || true; "
+            "killall -9 elite_ui codex_elite elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
             "if [ -f /data/stock_backup/rcS.local.orig ]; then "
             "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
             "  chmod 755 /etc/init.d/rcS.local; "
@@ -105,10 +105,10 @@ def main() -> None:
             "  rm -f /etc/init.d/rcS.local; "
             "fi; "
             "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
-            "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log 2>/dev/null || true; "
-            "rm -f /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log /tmp/elite_ui.log 2>/dev/null || true; "
+            "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-            "/data/codex_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; "
+            "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
         )
         run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
@@ -116,12 +116,24 @@ def main() -> None:
         sys.exit(0)
 
     # Preserve stock rcS.local backup before installing
-    run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
+    run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
+
+    # 1. Stop existing runtime and stock processes (kill -9 before deletion to free flash memory)
+    print("[*] Stopping existing runtime and stock processes...")
+    run_cmd(["ssh"] + ssh_opts + [target, "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; sleep 1"])
+
+    # One-way migration: move old configs and remove old codex binaries
+    migration_cmd = (
+        "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite_config.json /data/elite_ui.conf 2>/dev/null || true; fi; "
+        "if [ -f /data/codex_elite.conf ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite.conf /data/elite_ui.conf 2>/dev/null || true; fi; "
+        "rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
+    )
+    run_cmd(["ssh"] + ssh_opts + [target, migration_cmd])
 
     # 2. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/codex_elite /data/codex_sync /data/codex_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
     if md5_res.returncode == 0 and md5_res.stdout:
         for line in md5_res.stdout.strip().splitlines():
             parts = line.strip().split()
@@ -131,37 +143,38 @@ def main() -> None:
     # 3. Upload binaries (only when MD5 differs)
     scp_opts = ["-O"] + ssh_opts
     print("[*] Syncing core ARM binaries to /data/ (MD5 check)...")
-    binaries = ["codex_elite", "codex_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox"]
+    binaries = ["elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox"]
     for b in binaries:
         src = BIN_DIR / b
-        deploy_file_if_changed(src, f"/data/{b}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        if src.is_file():
+            deploy_file_if_changed(src, f"/data/{b}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
-    watchdog_script = SCRIPT_DIR / "codex_watchdog.sh"
+    watchdog_script = SCRIPT_DIR / "elite_watchdog.sh"
     if watchdog_script.is_file():
-        print("[*] Syncing /data/codex_watchdog.sh (MD5 check)...")
-        deploy_file_if_changed(watchdog_script, "/data/codex_watchdog.sh", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        print(f"[*] Syncing /data/{watchdog_script.name} (MD5 check)...")
+        deploy_file_if_changed(watchdog_script, f"/data/{watchdog_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
         print("[*] Syncing /etc/init.d/rcS.local (MD5 check)...")
         deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
-    # 5. Set permissions and create symlinks
+    # 5. Set permissions and finalize
     print("[*] Finalizing remote permissions...")
     post = (
-        "chmod 755 /data/codex_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
-        "[ -L /data/sync ] || ln -sf /data/codex_sync /data/sync 2>/dev/null || true; "
-        "[ -L /usr/bin/sync ] || ln -sf /data/codex_sync /usr/bin/sync 2>/dev/null || true; "
+        "[ -L /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "
+        "[ -L /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; "
         "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/$a 2>/dev/null; done; fi; "
         "rm -f /cache/crashlog-*.json 2>/dev/null || true; "
-        "killall -9 codex_watchdog.sh codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; "
-        "if [ -x /data/codex_watchdog.sh ]; then ( /data/codex_watchdog.sh </dev/null >/tmp/codex_watchdog.log 2>&1 & ); else ( /data/codex_elite </dev/null >/tmp/codex_elite.log 2>&1 & ); fi; "
-        "sleep 1; pidof codex_elite || echo 'offline'"
+        "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; "
+        "if [ -x /data/elite_watchdog.sh ]; then ( /data/elite_watchdog.sh </dev/null >/tmp/elite_ui.log 2>&1 & ); else ( /data/elite_ui </dev/null >/tmp/elite_ui.log 2>&1 & ); fi; "
+        "sleep 1; pidof elite_ui || echo 'offline'"
     )
     final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
-    print(f"    codex_elite PID: {final_res.stdout.strip()}")
+    print(f"    elite_ui PID: {final_res.stdout.strip()}")
 
     print()
     print("[+] Deployment to Harmony Elite completed successfully!")

@@ -1,5 +1,5 @@
-#ifndef CODEX_RESOURCE_CACHE_H
-#define CODEX_RESOURCE_CACHE_H
+#ifndef HARMONY_RESOURCE_CACHE_H
+#define HARMONY_RESOURCE_CACHE_H
 
 #include "cJSON.h"
 
@@ -24,4 +24,4 @@ void invalidate_device_list_cache(void);
 }
 #endif
 
-#endif /* CODEX_RESOURCE_CACHE_H */
+#endif /* HARMONY_RESOURCE_CACHE_H */

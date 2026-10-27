@@ -52,35 +52,54 @@ COMPAT_SRC=""
 TARGET="${1:-all}"
 
 build_dhcpd() {
-    echo "[-] Building codex_dhcpd..."
-    "$CC" $CFLAGS -o "$BIN/codex_dhcpd" payload/source/hub_dhcpd.c $COMPAT_SRC
+    echo "[-] Building hub_dhcpd..."
+    "$CC" $CFLAGS -o "$BIN/hub_dhcpd" payload/source/hub_dhcpd.c $COMPAT_SRC
 }
 
 build_portal() {
-    echo "[-] Building codex_portal..."
-    "$CC" $CFLAGS -o "$BIN/codex_portal" payload/source/hub_portal.c $COMPAT_SRC
+    echo "[-] Building hub_portal..."
+    "$CC" $CFLAGS -o "$BIN/hub_portal" payload/source/hub_portal.c $COMPAT_SRC
 }
 
 build_sntp() {
-    echo "[-] Building codex_sntp..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_sntp" payload/source/codex_sntp_main.c payload/source/codex_ntp.c $COMPAT_SRC
+    echo "[-] Building hub_sntp..."
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_sntp" payload/source/hub_sntp_main.c payload/source/hub_ntp.c $COMPAT_SRC
 }
 
 build_daemon() {
-    echo "[-] Building codex_daemon..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_daemon" \
-        payload/source/codex_daemon.c \
+    echo "[-] Building hub_daemon..."
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_daemon" \
+        payload/source/hub_daemon.c \
+        payload/source/http_server.c \
+        payload/source/http_util.c \
+        payload/source/http_auth.c \
+        payload/source/http_api_auth.c \
+        payload/source/http_api_activities.c \
+        payload/source/http_api_devices.c \
+        payload/source/http_api_commands.c \
+        payload/source/http_api_custom_icons.c \
+        payload/source/http_api_network.c \
+        payload/source/hub_network_util.c \
+        payload/source/http_api_remotes.c \
+        payload/source/http_api_ota.c \
+        payload/source/http_api_backup.c \
+        payload/source/http_api_system.c \
         payload/source/config_store.c \
+        payload/source/config_sanitize.c \
+        payload/source/config_migration.c \
+        payload/source/orchestrator.c \
+        payload/source/orchestrator_queue.c \
+        payload/source/hub_mqtt.c \
+        payload/source/hub_mqtt_ha.c \
+        payload/source/hub_ws.c \
+        payload/source/hub_ntp.c \
         payload/source/resource_cache.c \
         payload/source/cJSON.c \
         payload/source/ir_encoder.c \
         payload/source/ir_i2s.c \
         payload/source/hw_action.c \
-        payload/source/orchestrator.c \
         payload/source/ws_server.c \
-        payload/source/http_server.c \
         payload/source/mqtt_client.c \
-        payload/source/codex_ntp.c \
         payload/source/sha256.c \
         $COMPAT_SRC -lpthread -lm
 }
@@ -102,22 +121,23 @@ build_mknod() {
 
 
 build_btstack() {
-    echo "[-] Building codex_btstack..."
+    echo "[-] Building hub_btstack..."
     sh "$SCRIPT_DIR/build_btstack.sh"
 }
 
 build_sync() {
-    echo "[-] Building codex_sync..."
-    "$CC" $CFLAGS -o "$BIN/codex_sync" payload/source/codex_sync.c $COMPAT_SRC
+    echo "[-] Building hub_sync..."
+    "$CC" $CFLAGS -o "$BIN/hub_sync" payload/source/hub_sync.c $COMPAT_SRC
 }
 
 build_rf() {
-    echo "[-] Building codex_rf..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/codex_rf" payload/source/codex_rf.c payload/source/cJSON.c $COMPAT_SRC -lpthread -lm
+    echo "[-] Building hub_rf..."
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_api.c payload/source/rf_main.c"
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c $COMPAT_SRC -lpthread -lm
 }
 
 build_elite() {
-    echo "[-] Building codex_elite (ARM)..."
+    echo "[-] Building elite_ui (ARM)..."
     ARM_CC=""
     for t in "$SCRIPT_DIR/toolchains"/armv5-eabi--uclibc--stable*; do
         if [ -d "$t/bin" ]; then
@@ -137,15 +157,14 @@ build_elite() {
     fi
 
     mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
-    "$ARM_CC" -static -Os -s -Wall -Ipayload/source payload/source/codex_elite.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/codex_elite" -lpthread -lm
-    echo "[-] Building codex_sync (ARM)..."
-    "$ARM_CC" -static -Os -s -o "$REPO_ROOT/elite/bin/codex_sync" payload/source/codex_sync.c
-    echo "[-] Packaging codex_elite.ota.gz (binary + scripts)..."
+    echo "[-] Building elite_ui (ARM)..."
+    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/elite payload/source/elite/*.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/elite_ui" -lpthread -lm
+    echo "[-] Packaging elite_ui.ota.gz (binary + scripts)..."
     mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
-    cp -f "$REPO_ROOT/elite/bin/codex_elite" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
-    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/codex_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
-    tar -czf "$REPO_ROOT/elite/bin/codex_elite.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
-    cp -f "$REPO_ROOT/elite/bin/codex_elite.ota.gz" "$REPO_ROOT/elite/bin/codex_elite" "$REPO_ROOT/elite/bin/codex_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
+    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
+    tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
+    cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 
@@ -229,13 +248,13 @@ echo "Copying binaries to build/output..."
 if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && [ ! -f "$BIN/dropbearmulti" ]; then
     cp -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"
 fi
-cp -f "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$BIN"/dropbearmulti "$OUT"/ 2>/dev/null || true
+cp -f "$BIN"/hub_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$BIN"/dropbearmulti "$OUT"/ 2>/dev/null || true
 
 echo "Updating MANIFEST.txt and FILES..."
 cd "$BIN"
-file codex_btstack codex_dhcpd codex_portal codex_daemon codex_sntp codex_rf dropbearmulti register_ehci mknod > FILES 2>/dev/null || true
-ls -l codex_btstack codex_dhcpd codex_portal codex_daemon codex_sntp codex_rf dropbearmulti register_ehci mknod | sed -E 's/ [a-zA-Z0-9_-]+ [a-zA-Z0-9_-]+ / root root /' > MANIFEST.txt 2>/dev/null || true
-md5sum codex_btstack codex_dhcpd codex_portal codex_daemon codex_sntp codex_rf dropbearmulti register_ehci mknod >> MANIFEST.txt 2>/dev/null || true
+file hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod > FILES 2>/dev/null || true
+ls -l hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod | sed -E 's/ [a-zA-Z0-9_-]+ [a-zA-Z0-9_-]+ / root root /' > MANIFEST.txt 2>/dev/null || true
+md5sum hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod >> MANIFEST.txt 2>/dev/null || true
 
 echo "=== Build finished successfully! ==="
-ls -lh "$BIN"/codex_* "$BIN"/register_ehci "$BIN"/mknod 2>/dev/null || true
+ls -lh "$BIN"/hub_* "$BIN"/register_ehci "$BIN"/mknod 2>/dev/null || true

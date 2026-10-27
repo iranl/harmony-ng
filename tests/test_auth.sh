@@ -10,37 +10,55 @@ mkdir -p "$HOST_BUILD_DIR"
 echo "[-] Compiling host test runner for auth test..."
 gcc -Wall -O2 -g -DTEST_HARNESS=1 \
     -I"$REPO_ROOT/payload/source" \
-    "$REPO_ROOT/payload/source/codex_daemon.c" \
+    "$REPO_ROOT/payload/source/hub_daemon.c" \
     "$REPO_ROOT/payload/source/http_server.c" \
+    "$REPO_ROOT/payload/source/http_util.c" \
+    "$REPO_ROOT/payload/source/http_auth.c" \
+    "$REPO_ROOT/payload/source/http_api_auth.c" \
+    "$REPO_ROOT/payload/source/http_api_activities.c" \
+    "$REPO_ROOT/payload/source/http_api_devices.c" \
+    "$REPO_ROOT/payload/source/http_api_commands.c" \
+    "$REPO_ROOT/payload/source/http_api_custom_icons.c" \
+    "$REPO_ROOT/payload/source/http_api_network.c" \
+    "$REPO_ROOT/payload/source/hub_network_util.c" \
+    "$REPO_ROOT/payload/source/http_api_remotes.c" \
+    "$REPO_ROOT/payload/source/http_api_ota.c" \
+    "$REPO_ROOT/payload/source/http_api_backup.c" \
+    "$REPO_ROOT/payload/source/http_api_system.c" \
     "$REPO_ROOT/payload/source/config_store.c" \
+    "$REPO_ROOT/payload/source/config_sanitize.c" \
+    "$REPO_ROOT/payload/source/config_migration.c" \
+    "$REPO_ROOT/payload/source/orchestrator.c" \
+    "$REPO_ROOT/payload/source/orchestrator_queue.c" \
+    "$REPO_ROOT/payload/source/hub_mqtt.c" \
+    "$REPO_ROOT/payload/source/hub_mqtt_ha.c" \
+    "$REPO_ROOT/payload/source/hub_ws.c" \
+    "$REPO_ROOT/payload/source/hub_ntp.c" \
     "$REPO_ROOT/payload/source/resource_cache.c" \
     "$REPO_ROOT/payload/source/cJSON.c" \
     "$REPO_ROOT/payload/source/ir_encoder.c" \
     "$REPO_ROOT/payload/source/ir_i2s.c" \
     "$REPO_ROOT/payload/source/hw_action.c" \
-    "$REPO_ROOT/payload/source/orchestrator.c" \
     "$REPO_ROOT/payload/source/ws_server.c" \
     "$REPO_ROOT/payload/source/mqtt_client.c" \
-    "$REPO_ROOT/payload/source/codex_ntp.c" \
     "$REPO_ROOT/payload/source/sha256.c" \
     -lpthread -lm \
-    -o "$HOST_BUILD_DIR/codex_daemon_test"
+    -o "$HOST_BUILD_DIR/hub_daemon_test"
 
 # Prepare test directories and test user
-mkdir -p /data/codex/config 2>/dev/null || mkdir -p /tmp/data_codex/config
-if [ -d "/data/codex" ] && [ -w "/data/codex" ]; then
-    CODEX_CFG="/data/codex/config"
+mkdir -p /data/harmony/config 2>/dev/null || mkdir -p /tmp/data_harmony/config
+if [ -d "/data/harmony" ] && [ -w "/data/harmony" ]; then
+    HARMONY_CFG="/data/harmony/config"
 else
-    # Create symlink if needed or fallback
     mkdir -p /data 2>/dev/null || true
-    if [ ! -d "/data/codex" ]; then
-        ln -s /tmp/data_codex /data/codex 2>/dev/null || true
+    if [ ! -d "/data/harmony" ]; then
+        ln -s /tmp/data_harmony /data/harmony 2>/dev/null || true
     fi
-    CODEX_CFG="/data/codex/config"
+    HARMONY_CFG="/data/harmony/config"
 fi
 
 # Create test users: admin (pass: secret123), guest (pass: guestpass)
-cat << 'EOF' > "$CODEX_CFG/users.json"
+cat << 'EOF' > "$HARMONY_CFG/users.json"
 {
   "auth_enabled": true,
   "users": [
@@ -57,17 +75,17 @@ cat << 'EOF' > "$CODEX_CFG/users.json"
   ]
 }
 EOF
-rm -f "$CODEX_CFG/tokens.json"
+rm -f "$HARMONY_CFG/tokens.json" 2>/dev/null || true
 
 # Launch daemon
 echo "[-] Launching test daemon on port $TEST_PORT..."
-"$HOST_BUILD_DIR/codex_daemon_test" --dry-run --port "$TEST_PORT" >/tmp/codex_auth_daemon.log 2>&1 &
+"$HOST_BUILD_DIR/hub_daemon_test" --dry-run --port "$TEST_PORT" >/tmp/hub_auth_daemon.log 2>&1 &
 DAEMON_PID=$!
 
 cleanup() {
     echo "[-] Stopping daemon (PID $DAEMON_PID)..."
     kill -9 "$DAEMON_PID" 2>/dev/null || true
-    rm -f "$CODEX_CFG/users.json" "$CODEX_CFG/tokens.json" 2>/dev/null || true
+    rm -f "$HARMONY_CFG/users.json" "$HARMONY_CFG/tokens.json" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -85,8 +103,8 @@ echo "[+] Daemon is live! Testing authentication..."
 echo "[-] Test 1: 401 Challenge headers on protected endpoint..."
 HEADERS=$(curl -s -i "http://127.0.0.1:$TEST_PORT/api/status" | tr -d '\r')
 echo "$HEADERS" | grep -i "401 Unauthorized" > /dev/null
-echo "$HEADERS" | grep -i 'WWW-Authenticate: Digest realm="Harmony Hub Codex"' > /dev/null
-echo "$HEADERS" | grep -i 'WWW-Authenticate: Basic realm="Harmony Hub Codex"' > /dev/null
+echo "$HEADERS" | grep -i 'WWW-Authenticate: Digest realm="Harmony Hub"' > /dev/null
+echo "$HEADERS" | grep -i 'WWW-Authenticate: Basic realm="Harmony Hub"' > /dev/null
 echo "    PASS: 401 response contains Digest and Basic challenges"
 
 # Test 2: HTTP Basic auth backward compatibility

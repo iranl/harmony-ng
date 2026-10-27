@@ -1,7 +1,7 @@
 #!/bin/sh
 
 sync_fs() {
-	sync 2>/dev/null || /data/codex/bin/codex_sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || true
+	sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || true
 }
 
 # 0. Neuter watchdog and luaworks immediately
@@ -11,13 +11,14 @@ killall -9 watchdog 2>/dev/null || true
 
 # 1. Reboot counter emergency check
 COUNT=0
-if [ -f /data/codex/reboot_counter ]; then
-	COUNT=$(cat /data/codex/reboot_counter 2>/dev/null || echo 0)
+REBOOT_FILE="/data/harmony/reboot_counter"
+if [ -f "$REBOOT_FILE" ]; then
+	COUNT=$(cat "$REBOOT_FILE" 2>/dev/null || echo 0)
 fi
 COUNT=$(expr "$COUNT" + 1 2>/dev/null || echo 1)
-echo "$COUNT" > /data/codex/reboot_counter
+mkdir -p /data/harmony 2>/dev/null || true
+echo "$COUNT" > /data/harmony/reboot_counter
 sync_fs
-
 
 # 3. Emergency recovery condition (>5 consecutive unverified boots)
 if [ "$COUNT" -gt 5 ]; then
@@ -35,8 +36,8 @@ if [ "$COUNT" -gt 5 ]; then
 		/cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
 	fi
 	mkdir -p /etc/profile.d 2>/dev/null || true
-	echo 'export PATH=/cache/bin:/data/codex/bin:$PATH' > /etc/profile.d/00-codex.sh 2>/dev/null || true
-	chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true
+	echo 'export PATH=/cache/bin:/data/harmony/bin:$PATH' > /etc/profile.d/00-harmony.sh 2>/dev/null || true
+	chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true
 
 	for prof in /root/.profile /home/root/.profile; do
 		mkdir -p "$(dirname "$prof")" 2>/dev/null || true
@@ -49,18 +50,19 @@ elif [ -x /cache/busybox ]; then
 fi
 if [ -t 0 ] && [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
     export BB_EXTENDED=1
-    export PATH=/cache/bin:/data/codex/bin:$PATH
+    export PATH=/cache/bin:/data/harmony/bin:$PATH
     exec "$BB_PATH" sh -l
 fi
-export PATH=/cache/bin:/data/codex/bin:$PATH
+export PATH=/cache/bin:/data/harmony/bin:$PATH
 EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
 
 	# Start Dropbear SSH
-	if [ -x /data/codex/bin/dropbear ]; then
+	DROPBEAR_BIN="/data/harmony/bin/dropbear"
+	if [ -x "$DROPBEAR_BIN" ]; then
 		echo '#!/bin/sh' > /usr/sbin/dropbear
-		echo 'exec /data/codex/bin/dropbear -K 300 "$@"' >> /usr/sbin/dropbear
+		echo "exec $DROPBEAR_BIN -K 300 \"\$@\"" >> /usr/sbin/dropbear
 		chmod 755 /usr/sbin/dropbear
 		/usr/sbin/dropbear
 	elif [ -x /usr/sbin/dropbear ]; then
@@ -71,8 +73,8 @@ EOF
 fi
 
 # 4. Normal Boot: start core services and Dropbear SSH immediately
-if [ -x /data/codex/init.sh ]; then
-	/data/codex/init.sh &
+if [ -x /data/harmony/init.sh ]; then
+	/data/harmony/init.sh &
 fi
 
 # Ensure ifup -a does not spawn an unmanaged rogue udhcpc on ath0
@@ -89,7 +91,8 @@ load_modules /etc/modules.wlan 2>/dev/null || true
 echo 1 > /proc/sys/vm/overcommit_memory
 
 # Hardware version & Bluetooth (skip if Bluetooth disabled)
-if [ ! -f /data/codex/bt_disabled.conf ]; then
+BT_DIS="/data/harmony/bt_disabled.conf"
+if [ ! -f "$BT_DIS" ]; then
 (
 	MFG_DATA=/dev/$(grep mfg /proc/mtd | cut -d: -f1)
 	HW_VERSION=$(sed -n '/hw_ver/{N N N N s/^[^0-9]*\([0-9][0-9]\)/\1/p}' $MFG_DATA 2>/dev/null)
@@ -120,5 +123,5 @@ if [ ! -f /data/codex/bt_disabled.conf ]; then
 	/usr/sbin/hciconfig hci0 sspmode 1 2>/dev/null
 ) &
 else
-	echo "$(date) Bluetooth disabled in config, skipping hardware init" >> /tmp/codex-boot.log
+	echo "$(date) Bluetooth disabled in config, skipping hardware init" >> /tmp/harmony-boot.log
 fi

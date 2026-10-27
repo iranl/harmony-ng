@@ -1,7 +1,7 @@
 #!/bin/sh
 # USB Ethernet Host mode activator
-MODULES_DIR="/data/codex/modules"
-BIN_DIR="/data/codex/bin"
+MODULES_DIR="/data/harmony/modules"
+BIN_DIR="/data/harmony/bin"
 
 load_mod() {
   mod="$1"
@@ -9,6 +9,8 @@ load_mod() {
     insmod "$MODULES_DIR/$mod" 2>/dev/null || true
   elif [ -f "$MODULES_DIR/usb_net/$mod" ]; then
     insmod "$MODULES_DIR/usb_net/$mod" 2>/dev/null || true
+  elif [ -f "/cache/modules/$mod" ]; then
+    insmod "/cache/modules/$mod" 2>/dev/null || true
   fi
 }
 
@@ -29,10 +31,12 @@ insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/host/ehci-hcd.ko 2>/dev/n
 
 # Register dormant platform device ar7240-ehci.0 via sys_call_table ONLY if not already bound
 if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ]; then
-  if [ -x "$BIN_DIR/register_ehci" ]; then
-    "$BIN_DIR/register_ehci"
-  elif [ -x /usr/sbin/register_ehci ]; then
-    /usr/sbin/register_ehci
+  REG_BIN=""
+  for b in "$BIN_DIR/register_ehci" /cache/bin/register_ehci /usr/sbin/register_ehci; do
+    if [ -x "$b" ]; then REG_BIN="$b"; break; fi
+  done
+  if [ -n "$REG_BIN" ]; then
+    "$REG_BIN"
   else
     echo "[USB_ETH] Error: register_ehci not found!" >&2
   fi
@@ -90,17 +94,14 @@ for i in 1 2 3; do
     case "$ifname" in
       eth0|eth1|wifi0|ath0|lo) ;;
       *)
-        if [ -x "$BIN_DIR/eth_fix" ]; then
-          "$BIN_DIR/eth_fix" "$ifname" >/dev/null 2>&1 || true
-        elif [ -x /usr/sbin/eth_fix ]; then
-          /usr/sbin/eth_fix "$ifname" >/dev/null 2>&1 || true
-        fi
+        FIX_BIN=""
+        for b in "$BIN_DIR/eth_fix" /cache/bin/eth_fix /usr/sbin/eth_fix; do
+          if [ -x "$b" ]; then FIX_BIN="$b"; break; fi
+        done
+        [ -n "$FIX_BIN" ] && "$FIX_BIN" "$ifname" >/dev/null 2>&1 || true
         break 2
         ;;
     esac
   done
   sleep 1
 done
-
-echo "[USB_ETH] Done! Active USB drivers:"
-lsmod | grep -e r8152 -e asix -e cdc_ether -e smsc95xx -e dm9601 -e rtl8150 -e usbnet -e ehci_hcd

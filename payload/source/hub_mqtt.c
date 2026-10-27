@@ -1,0 +1,683 @@
+#define _GNU_SOURCE
+#include "hub_mqtt.h"
+#include "hub_mqtt_ha.h"
+#include "config_store.h"
+#include "orchestrator.h"
+#include "mqtt_client.h"
+#include "hw_action.h"
+#include "harmony_version.h"
+#include "cJSON.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <time.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <arpa/inet.h>
+#include <strings.h>
+
+/* MQTT configuration globals */
+static char g_mqtt_host[128] = "";
+static int  g_mqtt_port = 1883;
+char g_mqtt_base_topic[128] = "harmony/hub";
+static char g_mqtt_discovery_prefix[64] = "homeassistant";
+static char g_mqtt_name[64] = "Harmony Hub";
+static char g_mqtt_cid[64] = "harmony-local-mqtt";
+static char g_mqtt_user[256] = "";
+static char g_mqtt_pass[256] = "";
+static int  g_mqtt_ha_discovery = 1;
+static int  g_mqtt_enabled = 0;
+static char g_status_topic[160] = "harmony/hub/status";
+static char g_state_topic[160] = "harmony/hub/state";
+
+/* Forward declarations */
+static void publish_ha_discovery_wrapper(void);
+static void publish_mqtt_state_ex(int force);
+static void publish_mqtt_state(void);
+static void on_mqtt_command(const char *topic, const char *payload, size_t len, void *ud);
+static void subscribe_mqtt_topics(void);
+
+void daemon_get_mqtt_info(char *host, size_t hlen, int *port, char *base, size_t blen, int *connected) {
+    if (host && hlen > 0) {
+        strncpy(host, g_mqtt_host, hlen - 1);
+        host[hlen - 1] = '\0';
+    }
+    if (port) *port = g_mqtt_port;
+    if (base && blen > 0) {
+        strncpy(base, g_mqtt_base_topic, blen - 1);
+        base[blen - 1] = '\0';
+    }
+    if (connected) *connected = mqtt_is_connected();
+}
+
+static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *pass) {
+    const char *path = HARMONY_MQTT_FILE;
+    char *raw = read_file_text(path, 64 * 1024);
+    if (!raw) return 0;
+
+    cJSON *root = cJSON_Parse(raw);
+    free(raw);
+    if (!root) return 0;
+
+    cJSON *en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    if (!en || !cJSON_IsTrue(en)) {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    cJSON *h = cJSON_GetObjectItemCaseSensitive(root, "host");
+    if (h && cJSON_IsString(h) && h->valuestring && h->valuestring[0]) {
+        strncpy(host, h->valuestring, 127);
+        host[127] = '\0';
+    } else {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "port");
+    if (p && cJSON_IsNumber(p) && p->valueint > 0) {
+        *port = p->valueint;
+    } else {
+        *port = 1883;
+    }
+
+    cJSON *c = cJSON_GetObjectItemCaseSensitive(root, "clientId");
+    if (c && cJSON_IsString(c) && c->valuestring && c->valuestring[0]) {
+        strncpy(cid, c->valuestring, 63);
+        cid[63] = '\0';
+    } else {
+        strncpy(cid, "harmony-local-mqtt", 63);
+        cid[63] = '\0';
+    }
+
+    cJSON *u = cJSON_GetObjectItemCaseSensitive(root, "username");
+    if (u && cJSON_IsString(u) && u->valuestring) {
+        strncpy(user, u->valuestring, 255);
+        user[255] = '\0';
+    } else {
+        user[0] = '\0';
+    }
+
+    cJSON *pw = cJSON_GetObjectItemCaseSensitive(root, "password");
+    if (pw && cJSON_IsString(pw) && pw->valuestring) {
+        strncpy(pass, pw->valuestring, 255);
+        pass[255] = '\0';
+    } else {
+        pass[0] = '\0';
+    }
+
+    cJSON *b = cJSON_GetObjectItemCaseSensitive(root, "baseTopic");
+    if (b && cJSON_IsString(b) && b->valuestring && b->valuestring[0]) {
+        strncpy(g_mqtt_base_topic, b->valuestring, sizeof(g_mqtt_base_topic) - 1);
+        g_mqtt_base_topic[sizeof(g_mqtt_base_topic) - 1] = '\0';
+        size_t blen = strlen(g_mqtt_base_topic);
+        while (blen > 0 && g_mqtt_base_topic[blen - 1] == '/') {
+            g_mqtt_base_topic[blen - 1] = '\0';
+            blen--;
+        }
+    } else {
+        strncpy(g_mqtt_base_topic, "harmony/hub", sizeof(g_mqtt_base_topic) - 1);
+        g_mqtt_base_topic[sizeof(g_mqtt_base_topic) - 1] = '\0';
+    }
+
+    cJSON *dp = cJSON_GetObjectItemCaseSensitive(root, "discoveryPrefix");
+    if (dp && cJSON_IsString(dp) && dp->valuestring && dp->valuestring[0]) {
+        strncpy(g_mqtt_discovery_prefix, dp->valuestring, sizeof(g_mqtt_discovery_prefix) - 1);
+        g_mqtt_discovery_prefix[sizeof(g_mqtt_discovery_prefix) - 1] = '\0';
+    } else {
+        strncpy(g_mqtt_discovery_prefix, "homeassistant", sizeof(g_mqtt_discovery_prefix) - 1);
+        g_mqtt_discovery_prefix[sizeof(g_mqtt_discovery_prefix) - 1] = '\0';
+    }
+
+    cJSON *nm = cJSON_GetObjectItemCaseSensitive(root, "deviceName");
+    if (nm && cJSON_IsString(nm) && nm->valuestring && nm->valuestring[0]) {
+        strncpy(g_mqtt_name, nm->valuestring, sizeof(g_mqtt_name) - 1);
+        g_mqtt_name[sizeof(g_mqtt_name) - 1] = '\0';
+    } else {
+        strncpy(g_mqtt_name, "Harmony Hub", sizeof(g_mqtt_name) - 1);
+        g_mqtt_name[sizeof(g_mqtt_name) - 1] = '\0';
+    }
+
+    cJSON *ha = cJSON_GetObjectItemCaseSensitive(root, "haDiscovery");
+    if (ha) {
+        g_mqtt_ha_discovery = cJSON_IsTrue(ha) ? 1 : 0;
+    } else {
+        g_mqtt_ha_discovery = 1;
+    }
+
+    snprintf(g_status_topic, sizeof(g_status_topic), "%s/status", g_mqtt_base_topic);
+    snprintf(g_state_topic, sizeof(g_state_topic), "%s/state", g_mqtt_base_topic);
+
+    cJSON_Delete(root);
+    return 1;
+}
+
+void hub_mqtt_publish_progress(const char *msg) {
+    if (!mqtt_is_connected() || !msg || !msg[0]) return;
+    char top[160];
+    snprintf(top, sizeof(top), "%s/progress", g_mqtt_base_topic);
+    mqtt_publish(top, msg, 0);
+
+    cJSON *root = cJSON_Parse(msg);
+    if (root) {
+        cJSON *type = cJSON_GetObjectItemCaseSensitive(root, "type");
+        if (type && cJSON_IsString(type) && strcmp(type->valuestring, "activity_change") == 0) {
+            publish_mqtt_state_ex(1);
+        }
+        cJSON_Delete(root);
+    }
+}
+
+static char g_last_state_payload[2048] = {0};
+
+static void publish_mqtt_state_ex(int force) {
+    if (!mqtt_is_connected()) return;
+
+    const char *cur_id = orch_get_current_activity();
+    if (!cur_id || !cur_id[0]) cur_id = "-1";
+
+    struct daemon_activity_list act_list;
+    load_daemon_activities(&act_list);
+
+    char act_name[64] = "PowerOff";
+    char actual_cur_id[32] = "-1";
+    strncpy(actual_cur_id, cur_id, sizeof(actual_cur_id) - 1);
+    actual_cur_id[sizeof(actual_cur_id) - 1] = '\0';
+
+    int is_on = 0;
+    if (strcmp(actual_cur_id, "-1") != 0 && strcmp(actual_cur_id, "PowerOff") != 0) {
+        int found = 0;
+        for (int i = 0; i < act_list.count; i++) {
+            if (strcmp(actual_cur_id, act_list.items[i].id) == 0) {
+                strncpy(act_name, act_list.items[i].name, sizeof(act_name) - 1);
+                is_on = 1;
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            for (int i = 0; i < act_list.count; i++) {
+                if (strcasecmp(actual_cur_id, act_list.items[i].name) == 0) {
+                    strncpy(actual_cur_id, act_list.items[i].id, sizeof(actual_cur_id) - 1);
+                    strncpy(act_name, act_list.items[i].name, sizeof(act_name) - 1);
+                    is_on = 1;
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            strncpy(act_name, "PowerOff", sizeof(act_name) - 1);
+            strncpy(actual_cur_id, "-1", sizeof(actual_cur_id) - 1);
+            is_on = 0;
+        }
+    }
+
+    char fw[32] = "4.15.600";
+    FILE *ffw = fopen("/etc/version", "r");
+    if (ffw) {
+        if (fgets(fw, sizeof(fw), ffw)) {
+            char *nl = strchr(fw, '\n'); if (nl) *nl = 0;
+            nl = strchr(fw, '\r'); if (nl) *nl = 0;
+        }
+        fclose(ffw);
+    }
+
+    char local_ip[64] = {0};
+    get_local_ip(g_mqtt_host, local_ip, sizeof(local_ip));
+    int dev_count = 0, cmd_count = 0;
+    get_device_and_command_counts(&dev_count, &cmd_count);
+
+    cJSON *st = cJSON_CreateObject();
+    if (st) {
+        cJSON_AddStringToObject(st, "state", is_on ? "on" : "off");
+        cJSON_AddStringToObject(st, "current_activity", act_name);
+        cJSON_AddStringToObject(st, "activity", act_name);
+        cJSON_AddStringToObject(st, "activityId", actual_cur_id);
+
+        cJSON *act_arr = cJSON_CreateArray();
+        cJSON_AddItemToArray(act_arr, cJSON_CreateString("PowerOff"));
+        for (int i = 0; i < act_list.count; i++) {
+            cJSON_AddItemToArray(act_arr, cJSON_CreateString(act_list.items[i].name));
+        }
+        cJSON_AddItemToObject(st, "activity_list", act_arr);
+        cJSON_AddStringToObject(st, "firmware", fw);
+        cJSON_AddStringToObject(st, "ip", local_ip);
+        cJSON_AddNumberToObject(st, "deviceCount", dev_count);
+        cJSON_AddNumberToObject(st, "commandCount", cmd_count);
+        cJSON_AddStringToObject(st, "baseTopic", g_mqtt_base_topic);
+
+        char *payload = cJSON_PrintUnformatted(st);
+        cJSON_Delete(st);
+        if (payload) {
+            if (!force && strcmp(payload, g_last_state_payload) == 0) {
+                free(payload);
+                return;
+            }
+            strncpy(g_last_state_payload, payload, sizeof(g_last_state_payload) - 1);
+            g_last_state_payload[sizeof(g_last_state_payload) - 1] = '\0';
+            printf("[*] MQTT state published (retain=1): %s\n", payload);
+            mqtt_publish(g_state_topic, payload, 1);
+            free(payload);
+
+            char sub_top[160];
+            snprintf(sub_top, sizeof(sub_top), "%s/current_activity", g_mqtt_base_topic);
+            mqtt_publish(sub_top, act_name, 1);
+            snprintf(sub_top, sizeof(sub_top), "%s/activity", g_mqtt_base_topic);
+            mqtt_publish(sub_top, act_name, 1);
+            snprintf(sub_top, sizeof(sub_top), "%s/activity_id", g_mqtt_base_topic);
+            mqtt_publish(sub_top, actual_cur_id, 1);
+            snprintf(sub_top, sizeof(sub_top), "%s/status", g_mqtt_base_topic);
+            mqtt_publish(sub_top, "online", 1);
+        }
+    }
+}
+
+static void publish_mqtt_state(void) {
+    publish_mqtt_state_ex(0);
+}
+
+void daemon_publish_mqtt_state(void) {
+    publish_mqtt_state_ex(1);
+}
+
+static void publish_ha_discovery_wrapper(void) {
+    publish_ha_discovery(g_mqtt_cid, g_mqtt_name, g_mqtt_base_topic,
+                         g_mqtt_discovery_prefix, g_state_topic,
+                         g_status_topic, g_mqtt_host, g_mqtt_ha_discovery);
+}
+
+void daemon_sync_mqtt(void) {
+    char host[128] = {0};
+    int port = 1883;
+    char cid[64] = "harmony-local-mqtt";
+    char user[256] = {0};
+    char pass[256] = {0};
+
+    int was_enabled = g_mqtt_enabled;
+    g_mqtt_enabled = load_mqtt_config(host, &port, cid, user, pass);
+
+    if (!g_mqtt_enabled) {
+        if (was_enabled && mqtt_is_connected()) {
+            mqtt_disconnect();
+            g_last_state_payload[0] = '\0';
+        }
+        return;
+    }
+
+    g_mqtt_port = port;
+    strncpy(g_mqtt_host, host, sizeof(g_mqtt_host) - 1);
+    g_mqtt_host[sizeof(g_mqtt_host) - 1] = '\0';
+    strncpy(g_mqtt_cid, cid, sizeof(g_mqtt_cid) - 1);
+    g_mqtt_cid[sizeof(g_mqtt_cid) - 1] = '\0';
+    strncpy(g_mqtt_user, user, sizeof(g_mqtt_user) - 1);
+    g_mqtt_user[sizeof(g_mqtt_user) - 1] = '\0';
+    strncpy(g_mqtt_pass, pass, sizeof(g_mqtt_pass) - 1);
+    g_mqtt_pass[sizeof(g_mqtt_pass) - 1] = '\0';
+
+    if (mqtt_is_connected()) {
+        mqtt_disconnect();
+        g_last_state_payload[0] = '\0';
+    }
+
+    mqtt_init(g_mqtt_host, g_mqtt_port, g_mqtt_cid, g_mqtt_user, g_mqtt_pass);
+    mqtt_set_lwt(g_status_topic, "offline", 1);
+    mqtt_set_birth(g_status_topic, "online", 1);
+
+    if (mqtt_connect() == 0) {
+        printf("[+] Reconnected to MQTT broker %s:%d\n", g_mqtt_host, g_mqtt_port);
+        publish_ha_discovery_wrapper();
+        subscribe_mqtt_topics();
+        publish_mqtt_state_ex(1);
+    } else {
+        printf("[*] Connecting to MQTT broker in background...\n");
+    }
+}
+
+static void handle_mqtt_activity_set(const char *payload) {
+    if (!payload || !payload[0]) return;
+
+    char trimmed[128];
+    strncpy(trimmed, payload, sizeof(trimmed) - 1);
+    trimmed[sizeof(trimmed) - 1] = '\0';
+
+    char *start = trimmed;
+    while (*start && isspace((unsigned char)*start)) start++;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)*(end - 1))) end--;
+    *end = '\0';
+
+    if (!*start) return;
+
+    if (strcasecmp(start, "poweroff") == 0 || strcmp(start, "-1") == 0) {
+        printf("[*] MQTT command: PowerOff\n");
+        orch_power_off(0, NULL, 0);
+        return;
+    }
+
+    struct daemon_activity_list act_list;
+    load_daemon_activities(&act_list);
+
+    for (int i = 0; i < act_list.count; i++) {
+        if (strcmp(start, act_list.items[i].id) == 0) {
+            printf("[*] MQTT command: start activity %s (%s)\n", act_list.items[i].name, act_list.items[i].id);
+            orch_switch_activity(act_list.items[i].id, 0, NULL, 0);
+            return;
+        }
+    }
+
+    for (int i = 0; i < act_list.count; i++) {
+        if (strcasecmp(start, act_list.items[i].name) == 0) {
+            printf("[*] MQTT command: start activity %s (%s)\n", act_list.items[i].name, act_list.items[i].id);
+            orch_switch_activity(act_list.items[i].id, 0, NULL, 0);
+            return;
+        }
+    }
+
+    printf("[-] MQTT command: activity '%s' not found\n", start);
+}
+
+struct mqtt_pulse_entry {
+    char topic[256];
+    time_t release_time;
+    int active;
+};
+static struct mqtt_pulse_entry g_pulse_queue[16];
+
+static void queue_pulse_off(const char *topic) {
+    time_t now = time(NULL);
+    for (int i = 0; i < 16; i++) {
+        if (!g_pulse_queue[i].active) {
+            strncpy(g_pulse_queue[i].topic, topic, sizeof(g_pulse_queue[i].topic) - 1);
+            g_pulse_queue[i].release_time = now + 1;
+            g_pulse_queue[i].active = 1;
+            return;
+        }
+    }
+}
+
+void mqtt_cmd_tick(void) {
+    time_t now = time(NULL);
+    for (int i = 0; i < 16; i++) {
+        if (g_pulse_queue[i].active && now >= g_pulse_queue[i].release_time) {
+            mqtt_publish(g_pulse_queue[i].topic, "OFF", 0);
+            g_pulse_queue[i].active = 0;
+        }
+    }
+}
+
+static void handle_mqtt_send_command(const char *payload) {
+    if (!payload || !payload[0]) return;
+
+    cJSON *root = cJSON_Parse(payload);
+    if (!root) {
+        printf("[-] MQTT send_command: invalid JSON\n");
+        return;
+    }
+
+    cJSON *dev_j = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
+    if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(root, "device");
+    cJSON *cmd_j = cJSON_GetObjectItemCaseSensitive(root, "command");
+    cJSON *act_j = cJSON_GetObjectItemCaseSensitive(root, "action");
+    cJSON *hold_j = cJSON_GetObjectItemCaseSensitive(root, "holdMs");
+
+    const char *dev = (dev_j && cJSON_IsString(dev_j)) ? dev_j->valuestring : "";
+    const char *cmd = (cmd_j && cJSON_IsString(cmd_j)) ? cmd_j->valuestring : "";
+    const char *action = (act_j && cJSON_IsString(act_j)) ? act_j->valuestring : "tap";
+    int hold_ms = (hold_j && cJSON_IsNumber(hold_j)) ? hold_j->valueint : 0;
+
+    if (!dev[0] || !cmd[0]) {
+        printf("[-] MQTT send_command: missing deviceId or command\n");
+        cJSON_Delete(root);
+        return;
+    }
+
+    printf("[*] MQTT send_command: dev=%s cmd=%s action=%s hold=%d\n", dev, cmd, action, hold_ms);
+
+    if (strcmp(action, "hold") == 0 || hold_ms > 0) {
+        if (hold_ms <= 0) hold_ms = 500;
+        hw_device_command_send(dev, cmd);
+        usleep(hold_ms * 1000);
+        hw_device_command_send(dev, cmd);
+    } else {
+        hw_device_command_send(dev, cmd);
+    }
+
+    cJSON_Delete(root);
+}
+
+int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
+                                     const char *topic_in, int req_pulse_ms,
+                                     char *out_topic, size_t out_topic_len, int *out_pulse_ms) {
+    if (!mqtt_is_connected()) return -1;
+    if (!cmd_name || !cmd_name[0]) return -1;
+
+    char dev_name[128] = {0};
+    if (dev_name_in && dev_name_in[0]) {
+        strncpy(dev_name, dev_name_in, sizeof(dev_name) - 1);
+    } else if (dev_id && dev_id[0]) {
+        strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
+    } else {
+        strncpy(dev_name, "global", sizeof(dev_name) - 1);
+    }
+
+    char safe_dev[128] = {0};
+    char safe_cmd[128] = {0};
+    safe_id(dev_name, safe_dev, sizeof(safe_dev));
+    safe_id(cmd_name, safe_cmd, sizeof(safe_cmd));
+
+    char topic[256];
+    if (topic_in && topic_in[0]) {
+        strncpy(topic, topic_in, sizeof(topic) - 1);
+        topic[sizeof(topic) - 1] = '\0';
+    } else {
+        snprintf(topic, sizeof(topic), "%s/button/%s/%s/state", g_mqtt_base_topic, safe_dev, safe_cmd);
+    }
+
+    if (out_topic && out_topic_len > 0) {
+        strncpy(out_topic, topic, out_topic_len - 1);
+        out_topic[out_topic_len - 1] = '\0';
+    }
+    if (out_pulse_ms) {
+        *out_pulse_ms = (req_pulse_ms > 0) ? req_pulse_ms : 1000;
+    }
+
+    mqtt_publish(topic, "ON", 0);
+    queue_pulse_off(topic);
+    return 0;
+}
+
+static int mqtt_dispatch_button_pulse(const char *device_id, const char *dev_name, const char *command,
+                                      int press, char *out_topic, size_t out_len, int *out_pulse) {
+    (void)press;
+    int pulse_ms = 0;
+    int rc = mqtt_dispatch_button_pulse_topic(device_id, dev_name, command, NULL, 0, out_topic, out_len, &pulse_ms);
+    if (out_pulse) *out_pulse = (rc == 0) ? 1 : 0;
+    return rc;
+}
+
+static void handle_mqtt_command_dispatch(const char *topic, const char *payload) {
+    const char *prefix = "/command/";
+    const char *p = strstr(topic, prefix);
+    if (!p) return;
+    p += strlen(prefix);
+
+    const char *slash = strchr(p, '/');
+    if (!slash) return;
+
+    char dev[64] = {0};
+    size_t dev_len = (size_t)(slash - p);
+    if (dev_len >= sizeof(dev)) dev_len = sizeof(dev) - 1;
+    strncpy(dev, p, dev_len);
+
+    const char *cmd = slash + 1;
+    if (!dev[0] || !cmd[0]) return;
+
+    printf("[*] MQTT command topic dispatch: dev=%s cmd=%s payload=%s\n", dev, cmd, payload ? payload : "");
+    hw_device_command_send(dev, cmd);
+}
+
+static void trigger_remote_sleep(int slot) {
+    if (slot != 1 && slot != 2) return;
+    printf("[*] Triggering sleep for remote slot %d via RF proxy...\n", slot);
+
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return;
+
+    struct sockaddr_in saddr;
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons(8092);
+    inet_pton(AF_INET, "127.0.0.1", &saddr.sin_addr);
+
+    if (connect(sock, (struct sockaddr *)&saddr, sizeof(saddr)) == 0) {
+        char req[128];
+        snprintf(req, sizeof(req), "POST /api/rf/remote/%d/sleep HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n", slot);
+        write(sock, req, strlen(req));
+    }
+    close(sock);
+}
+
+static void on_mqtt_command(const char *topic, const char *payload, size_t len, void *ud) {
+    (void)len;
+    (void)ud;
+
+    char act_top[160];
+    snprintf(act_top, sizeof(act_top), "%s/activity/set", g_mqtt_base_topic);
+
+    char cmd_top[160];
+    snprintf(cmd_top, sizeof(cmd_top), "%s/send_command", g_mqtt_base_topic);
+
+    char sync_top[160];
+    snprintf(sync_top, sizeof(sync_top), "%s/sync", g_mqtt_base_topic);
+
+    char ha_status_top[160];
+    snprintf(ha_status_top, sizeof(ha_status_top), "%s/status", g_mqtt_discovery_prefix);
+
+    if (strcmp(topic, act_top) == 0) {
+        handle_mqtt_activity_set(payload);
+    } else if (strcmp(topic, cmd_top) == 0) {
+        handle_mqtt_send_command(payload);
+    } else if (strcmp(topic, sync_top) == 0) {
+        printf("[*] MQTT command: Hub Sync requested\n");
+        publish_mqtt_state_ex(1);
+    } else if (strcmp(topic, ha_status_top) == 0) {
+        if (payload && strcmp(payload, "online") == 0) {
+            printf("[*] Home Assistant birth message received, rediscovering...\n");
+            publish_ha_discovery_wrapper();
+        }
+    } else if (strcmp(topic, "harmony/ir/pronto") == 0) {
+        if (payload && payload[0]) {
+            printf("[*] MQTT Pronto code received\n");
+            hw_ir_send_pronto(payload, IR_PORT_ALL, 1);
+        }
+    } else if (strstr(topic, "/remote/1/sleep")) {
+        trigger_remote_sleep(1);
+    } else if (strstr(topic, "/remote/2/sleep")) {
+        trigger_remote_sleep(2);
+    } else if (strstr(topic, "/command/")) {
+        handle_mqtt_command_dispatch(topic, payload);
+    }
+}
+
+static void subscribe_mqtt_topics(void) {
+    char sub_buf[256];
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/activity/set", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/command/#", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/command", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/send_command", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/sync", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/remote/+/sleep", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/remote/sleep", g_mqtt_base_topic);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    snprintf(sub_buf, sizeof(sub_buf), "%s/status", g_mqtt_discovery_prefix);
+    mqtt_subscribe(sub_buf, on_mqtt_command, NULL);
+
+    mqtt_subscribe("harmony/ir/pronto", on_mqtt_command, NULL);
+}
+
+int daemon_mqtt_button_handler(const char *device_id, const char *dev_name, const char *command) {
+    char topic[256] = {0};
+    int pulse = 0;
+    return mqtt_dispatch_button_pulse(device_id, dev_name, command, 0, topic, sizeof(topic), &pulse);
+}
+
+static time_t g_last_mqtt_retry = 0;
+static time_t g_last_state_poll = 0;
+static int g_last_mqtt_connected = 0;
+static int g_mqtt_retry_interval = 5;
+
+int hub_mqtt_init(void) {
+    g_mqtt_enabled = load_mqtt_config(g_mqtt_host, &g_mqtt_port, g_mqtt_cid, g_mqtt_user, g_mqtt_pass);
+    if (!g_mqtt_enabled) {
+        printf("[*] MQTT disabled or config missing\n");
+        return 0;
+    }
+    printf("[+] MQTT config loaded: %s:%d (user=%s, client=%s, base=%s)\n",
+           g_mqtt_host, g_mqtt_port, g_mqtt_user[0] ? g_mqtt_user : "none", g_mqtt_cid, g_mqtt_base_topic);
+    mqtt_init(g_mqtt_host, g_mqtt_port, g_mqtt_cid, g_mqtt_user, g_mqtt_pass);
+    mqtt_set_lwt(g_status_topic, "offline", 1);
+    mqtt_set_birth(g_status_topic, "online", 1);
+    printf("[*] Connecting to MQTT broker %s:%d in background...\n", g_mqtt_host, g_mqtt_port);
+    mqtt_connect_async();
+    return 1;
+}
+
+void hub_mqtt_tick(void) {
+    if (!g_mqtt_enabled) return;
+
+    if (mqtt_is_connected()) {
+        if (!g_last_mqtt_connected) {
+            g_last_mqtt_connected = 1;
+            g_mqtt_retry_interval = 5;
+            printf("[+] Connected to MQTT broker %s:%d\n", g_mqtt_host, g_mqtt_port);
+            publish_ha_discovery_wrapper();
+            subscribe_mqtt_topics();
+            publish_mqtt_state_ex(1);
+        }
+        mqtt_tick();
+
+        time_t now_tick = time(NULL);
+        if (now_tick - g_last_state_poll >= 30) {
+            g_last_state_poll = now_tick;
+            publish_mqtt_state();
+        }
+    } else {
+        if (g_last_mqtt_connected) {
+            g_last_mqtt_connected = 0;
+            printf("[-] MQTT connection lost, will reconnect with backoff...\n");
+        }
+        time_t now = time(NULL);
+        if (now - g_last_mqtt_retry >= g_mqtt_retry_interval) {
+            g_last_mqtt_retry = now;
+            if (!mqtt_is_connecting()) {
+                mqtt_connect_async();
+                g_mqtt_retry_interval = (g_mqtt_retry_interval * 2 > 60) ? 60 : (g_mqtt_retry_interval * 2);
+            }
+        }
+    }
+}
+
+void hub_mqtt_shutdown(void) {
+    if (g_mqtt_enabled) {
+        mqtt_disconnect();
+    }
+}

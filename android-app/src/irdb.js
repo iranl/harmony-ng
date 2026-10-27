@@ -121,7 +121,7 @@ export function mapHarmonyDeviceType(typeId) {
   return map[typeId] || 'Generic';
 }
 
-export function buildCodexDeviceFromHarmony(deviceDetail, codesetData, customName) {
+export function buildDeviceFromHarmony(deviceDetail, codesetData, customName) {
   const mfg = deviceDetail.manufacturer || 'Generic';
   const model = deviceDetail.model || 'Device';
   const timing = deviceDetail.timing || {};
@@ -331,7 +331,7 @@ export function parseIrText(t, source, path) {
           }
         });
       }
-    } catch {}
+    } catch { }
   }
   if (!rows.length) {
     const pronto = /((?:0000|0100|5000|6000|7000)(?:\s+[0-9a-fA-F]{4}){6,})/g;

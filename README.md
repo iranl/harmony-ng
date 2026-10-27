@@ -48,23 +48,23 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 +---------------------------------------+---------------------------------------+
 |  Harmony Hub (Atheros AR9344 SoC - MIPS32 Linux)                              |
 |                                                                               |
-|  [codex_daemon] (Lean ~240KB Micro-Daemon)                                    |
+|  [hub_daemon] (Lean ~240KB Micro-Daemon)                                    |
 |   ├── Non-blocking select() event loop (CPU < 2%, RAM < 8MB)                  |
 |   ├── REST JSON API (/api/status, /api/inventory, /api/activities)            |
 |   ├── WebSocket Server (/ws - live status & bidirectional button streaming)  |
 |   ├── Activity Orchestrator (interlocks, start/stop step queues, delays)      |
 |   └── Native Hardware Drivers:                                                |
 |        ├── Direct I2S IR Engine (ir_i2s.c / ir_encoder.c - hardware pulsing)  |
-|        ├── CC2544 RF SPI Engine (codex_rf.c - Mode 0 packet ack framing)     |
-|        └── BTstack Bluetooth HID (codex_btstack - Apple TV, Shield, Fire TV)  |
+|        ├── CC2544 RF SPI Engine (hub_rf.c - Mode 0 packet ack framing)     |
+|        └── BTstack Bluetooth HID (hub_btstack - Apple TV, Shield, Fire TV)  |
 +---------------------------------------+---------------------------------------+
                                         | 2.4GHz RF (Mode 1 / Report 0x20)
                                         v
 +---------------------------------------+---------------------------------------+
 |  Harmony Elite 950 Remote (Handheld Remote)                                   |
-|   ├── Framebuffer graphics & touch UI (codex_elite.c)                         |
-|   ├── Direct input event handling (/dev/input/event0)                         |
-|   └── Low-power CC2544 RF transceiver (codex_sync / codex_rf_sniff)           |
+|   ├── Framebuffer graphics & touch UI (elite_ui.c)                          |
+|   ├── Direct input event handling (/dev/input/event0)                          |
+|   └── Low-power CC2544 RF transceiver (elite_rf.c)                          |
 +-------------------------------------------------------------------------------+
 ```
 
@@ -79,7 +79,7 @@ The table below details every major functional component for both the **Harmony 
 | Dimension | Stock Logitech Firmware | HarmonyNG Custom Firmware |
 | :--- | :--- | :--- |
 | **Cloud Dependency** | **100% Mandatory**: Requires Logitech AWS cloud servers for account authentication, provisioning, configuration sync, and unbricking. Bricked once servers go offline. | **0% Zero Cloud**: Fully autonomous local operation. No external servers, telemetry, or account sign-in required. Runs permanently offline. |
-| **Core Architecture** | **Monolithic Lua Runtime**: `luaworks` and Lua 5.1/LuaJIT consuming 12–16 MB RAM and 15–30% CPU, guarded by an aggressive watchdog (`/usr/bin/watchdog`). | **Native C Micro-Daemon**: `codex_daemon` compiled for MIPS 24Kc (< 600 KB binary, < 2% CPU, < 8 MB RAM). Non-blocking `select()` event loop. |
+| **Core Architecture** | **Monolithic Lua Runtime**: `luaworks` and Lua 5.1/LuaJIT consuming 12–16 MB RAM and 15–30% CPU, guarded by an aggressive watchdog (`/usr/bin/watchdog`). | **Native C Micro-Daemon**: `hub_daemon` compiled for MIPS 24Kc (< 600 KB binary, < 2% CPU, < 8 MB RAM). Non-blocking `select()` event loop. |
 | **Web & App Interface** | **Cloud-Mediated Mobile App**: iOS/Android app routes all initial discovery and setups through remote AWS endpoints. Local WebUI was completely removed in v4.x. | **Integrated Local WebUI & Android App**: Fast SPA served directly from the Hub flash (< 65 KB gzipped), with companion Capacitor Android app and live WebSocket streaming. |
 | **Networking & Ethernet** | **Wi-Fi 2.4 GHz Only**: Restricted to 802.11b/g/n wireless. Micro-USB port locked to device gadget mode (USB serial / HID). No Ethernet support. | **Dual Network (Wi-Fi + Ethernet)**: Supports both **Harmony Hub Pro 2400** (native onboard Atheros GMAC `eth1` with PoE / RJ45 port; USB gadget mode remains fully active for PC control) and **Standard Harmony Hub** (dynamic USB Host mode activator switching on-chip Atheros EHCI controller to 480 Mbps host mode with Realtek RTL8152/8153, ASIX, SMSC, CDC-Ethernet dongles). Seamless link-state failover (Ethernet prioritized, Wi-Fi standby), unified static IP handover. See [Ethernet & Network Setup Guide](docs/ETHERNET_AND_NETWORK_SETUP.md). |
 | **IR Transmission** | **HAL Subsystem**: Closed-source `hal` binary driving proprietary I2S kernel driver, restricted to fixed cloud database code sets. | **Direct I2S DMA Pulsing**: Clean-room hardware driver (`ir_i2s.c`) pulsing AR9344 I2S registers directly. Supports raw Pronto hex, NEC, RC5, RC6, Sony, Denon, and custom timings across Port 1, Port 2, or front blaster. |
@@ -93,7 +93,7 @@ The table below details every major functional component for both the **Harmony 
 
 | Dimension | Stock Logitech Firmware | HarmonyNG Custom Firmware |
 | :--- | :--- | :--- |
-| **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `codex_elite.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. TrueType vector typography via `stb_truetype`. |
+| **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `elite_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. TrueType vector typography via `stb_truetype`. |
 | **Touch & Physical Controls** | **Vendor Input Handlers**: Custom event pipes dependent on stock daemons. | **Direct Linux Input Multiplexing**: Linux `/dev/input/event0` (touch digitizer) and `/dev/input/event1` (physical keypad) with auto-repeat and tactile haptic feedback. |
 | **Hub Synchronization** | **Desktop USB Sync Required**: Updating button maps or activities required connecting the remote via USB to a PC running MyHarmony. | **Over-the-Air RF Sync**: Over-the-air synchronization over 2.4 GHz CC2544 RF using Report `0x20` protocol. Screen updates state immediately when an activity starts on WebUI or HA. |
 | **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: Configurable LIS3DH accelerometer rate (10/25/50 Hz, saving up to 60% standby power), night-mode button backlight scheduler, and configurable screen timeouts. |
@@ -150,15 +150,15 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   ├── modules/            # USB Ethernet kernel drivers (r8152, asix, cdc_ether, etc.)
 │   ├── scripts/            # Hub startup (init.sh), network manager, recovery AP
 │   └── source/             # Clean-room native C source code
-│       ├── codex_daemon.c  # Hub micro-daemon and master select() loop
+│       ├── hub_daemon.c  # Hub micro-daemon and master select() loop
 │       ├── config_store.c  # Atomic JSON device/activity configuration store
 │       ├── http_server.c   # Lightweight REST JSON API server
 │       ├── ws_server.c     # RFC 6455 WebSocket server
 │       ├── ir_i2s.c        # Direct AR9344 I2S hardware pulse transmitter
 │       ├── ir_encoder.c    # Protocol bit encoders (NEC, RC5, RC6, Sony, Pronto)
-│       ├── codex_rf.c      # CC2544 RF protocol engine
-│       ├── codex_btstack/  # BTstack Bluetooth HID daemon integration
-│       ├── codex_elite.c   # Elite framebuffer GUI & input application
+│       ├── hub_rf.c      # CC2544 RF protocol engine
+│       ├── hub_btstack/  # BTstack Bluetooth HID daemon integration
+│       ├── elite_ui.c   # Elite framebuffer GUI & input application
 │       ├── hub_dhcpd.c     # Clean-room RFC 2131 DHCP recovery server
 │       └── hub_portal.c    # Wi-Fi recovery captive portal
 └── tools/
@@ -166,7 +166,6 @@ While HarmonyNG restores complete local independence and dramatically reduces me
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
     ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
-    ├── root_remote_usb.py  # USB HID root unlock tool for Elite remote
     └── unbrick_recovery/   # SPI flash and Dropbear emergency recovery tools
 ```
 
@@ -230,7 +229,7 @@ All Hub partition backups and stock configuration restores (`tools/root_hub_usb.
 
 ## API Documentation & OpenAPI Specification
 
-Harmony Hub Codex exposes an extensive local REST and WebSocket API running on port `8089`.
+HarmonyNG exposes an extensive local REST and WebSocket API running on port `8089`.
 
 - **Interactive Swagger UI (GitHub Pages)**: [https://iranl.github.io/harmony-ng/](https://iranl.github.io/harmony-ng/)
   - Features real-time **"Try it out"** testing against your local Harmony Hub (e.g. `http://<hub-ip>:8089` or `http://harmony.local:8089`).

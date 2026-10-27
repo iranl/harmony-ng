@@ -58,7 +58,7 @@ To revert any changes, fix a boot-loop, or recover an unresponsive Hub without o
    - Once the front LED begins **flashing red rapidly**, release the Pair/Reset button.
 7. The Hub will execute U-Boot factory recovery:
    - Formats and clears the JFFS2 writable overlay partitions (`/data` and `/cache`).
-   - Removes all custom daemons (`codex_daemon`, `codex_rf`), startup scripts, and Dropbear keys.
+   - Removes all custom daemons (`hub_daemon`, `hub_rf`), startup scripts, and Dropbear keys.
    - Preserves the untouched, read-only factory SquashFS filesystem.
    - Automatically reboots into clean Logitech factory firmware (~30–45 seconds).
 8. Factory reset is complete when the front LED transitions to a **slow, steady red pulse** (indicating unconfigured factory state, waiting for setup).

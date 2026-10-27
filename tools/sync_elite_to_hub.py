@@ -5,9 +5,9 @@ and stream directly to Harmony Hub using extended BusyBox tar & gzip.
 
 Key principles:
 1. Old icons removed from Hub /data to free flash space.
-2. Icons stored in /cache/www/assets/icons and symlinked from /data/codex/www/assets/icons.
+2. Icons stored in /cache/www/assets/icons and symlinked from /data/harmony/www/assets/icons.
 3. NEVER touch or delete stock /data/resources/ or *List.json files on Hub or Elite.
-4. Checks /data/codex/config/.imported touch file to avoid duplicate reimports.
+4. Checks /data/harmony/config/.imported touch file to avoid duplicate reimports.
 """
 
 import argparse
@@ -79,18 +79,18 @@ def main():
     # 3. Step 1: Remove old icons from /data on Hub to reclaim critical NAND space
     print("\n[*] Cleaning old icon assets from Hub /data partition...")
     clean_cmd = (
-        "rm -rf /data/codex/www/assets/icons 2>/dev/null || true; "
-        "mkdir -p /cache/www/assets/icons /data/codex/www/assets; "
-        "ln -sfn /cache/www/assets/icons /data/codex/www/assets/icons"
+        "rm -rf /data/harmony/www/assets/icons 2>/dev/null || true; "
+        "mkdir -p /cache/www/assets/icons /data/harmony/www/assets; "
+        "ln -sfn /cache/www/assets/icons /data/harmony/www/assets/icons"
     )
     ok_clean, _, err_clean = run_ssh(args.hub, clean_cmd)
     if not ok_clean:
         print(f"[!] Warning cleaning icons on Hub: {err_clean}")
     else:
-        print("[+] Replaced /data/codex/www/assets/icons with symlink -> /cache/www/assets/icons")
+        print("[+] Replaced /data/harmony/www/assets/icons with symlink -> /cache/www/assets/icons")
 
     # 4. Check import flag on Hub
-    check_flag_cmd = "[ -f /data/codex/config/.imported ] && echo 'imported' || echo 'not_imported'"
+    check_flag_cmd = "[ -f /data/harmony/config/.imported ] && echo 'imported' || echo 'not_imported'"
     _, flag_out, _ = run_ssh(args.hub, check_flag_cmd)
     already_imported = "imported" in flag_out.strip()
     print(f"[*] Hub import flag status: {'ALREADY IMPORTED' if already_imported else 'NOT YET IMPORTED'}")
@@ -156,21 +156,21 @@ def main():
     # 6. Stream activities & devices from Elite to Hub
     if not args.skip_config:
         print("\n[*] Checking activities and devices on Elite...")
-        # Check if Elite has codex_elite_config.json
-        ok_cfg, cfg_content, _ = run_ssh(args.remote, "cat /data/codex_elite_config.json 2>/dev/null || true")
+        # Check if Elite has elite_ui.conf
+        ok_cfg, cfg_content, _ = run_ssh(args.remote, "cat /data/elite_ui.conf 2>/dev/null || true")
         if ok_cfg and cfg_content.strip().startswith("{"):
-            print("[+] Found active /data/codex_elite_config.json on Elite!")
+            print("[+] Found active Elite config on remote!")
             # Save to /cache/elite_transfer/ on Hub
             elite_save_cmd = (
                 "mkdir -p /cache/elite_transfer; "
-                "cat > /cache/elite_transfer/codex_elite_config.json"
+                "cat > /cache/elite_transfer/elite_ui.conf"
             )
             p_save = subprocess.Popen(
                 ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"root@{args.hub}", elite_save_cmd],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             p_save.communicate(cfg_content.encode("utf-8"))
-            print("[+] Saved Elite config to Hub: /cache/elite_transfer/codex_elite_config.json")
+            print("[+] Saved Elite config to Hub: /cache/elite_transfer/elite_ui.conf")
 
         # Stream stock resources from Elite if non-empty
         print("[*] Checking stock resources on Elite...")
@@ -189,27 +189,27 @@ def main():
             print("[*] Stock resources on Elite are empty or already migrated.")
 
     # 7. Check / set import flag on Hub
-    print("\n[*] Verifying /data/codex/config/ on Hub...")
+    print("\n[*] Verifying /data/harmony/config/ on Hub...")
     verify_hub_cfg = (
-        "if [ ! -f /data/codex/config/.imported ]; then "
-        "  if [ -s /data/codex/config/devices.json ] && [ -s /data/codex/config/activities.json ]; then "
-        "    touch /data/codex/config/.imported; "
-        "    echo 'flag_created'; "
-        "  else "
-        "    echo 'config_missing'; "
-        "  fi; "
-        "else "
+        "FLAG=''; "
+        "if [ -f /data/harmony/config/.imported ]; then "
         "  echo 'flag_exists'; "
+        "elif [ -s /data/harmony/config/devices.json ] && [ -s /data/harmony/config/activities.json ]; then "
+        "  mkdir -p /data/harmony/config; "
+        "  touch /data/harmony/config/.imported 2>/dev/null || true; "
+        "  echo 'flag_created'; "
+        "else "
+        "  echo 'config_missing'; "
         "fi"
     )
     _, flag_res, _ = run_ssh(args.hub, verify_hub_cfg)
     flag_res = flag_res.strip()
     if "flag_created" in flag_res:
-        print("[+] Created touch file /data/codex/config/.imported (future reimports disabled).")
+        print("[+] Created touch file /data/harmony/config/.imported (future reimports disabled).")
     elif "flag_exists" in flag_res:
-        print("[+] Touch file /data/codex/config/.imported is verified active.")
+        print("[+] Touch file /data/harmony/config/.imported is verified active.")
     else:
-        print("[!] Note: /data/codex/config/ missing devices or activities. Run codex_daemon to complete first-boot migration.")
+        print("[!] Note: /data/harmony/config/ missing devices or activities. Run hub_daemon to complete first-boot migration.")
 
     # 8. Check final Hub flash space
     print("\n[*] Final Hub filesystem usage:")

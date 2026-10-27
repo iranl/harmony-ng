@@ -3,7 +3,7 @@
 #include "ir_encoder.h"
 #include "ir_i2s.h"
 #include "config_store.h"
-#include "codex_bt_common.h"
+#include "bt_common.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -254,15 +254,16 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
         if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bt_host");
         if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
-        if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && codex_valid_bdaddr(j_bta->valuestring)) {
+        if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && hub_valid_bdaddr(j_bta->valuestring)) {
             strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
         }
 
+        const char *sh_bin = "/data/harmony/bt_reconnect.sh";
         char sh_cmd[256];
         if (target_bdaddr[0]) {
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &", target_bdaddr, dur, dly);
+            snprintf(sh_cmd, sizeof(sh_cmd), "%s %s %d %d >/dev/null 2>&1 &", sh_bin, target_bdaddr, dur, dly);
         } else {
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/codex/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &", dur, dly);
+            snprintf(sh_cmd, sizeof(sh_cmd), "%s \"\" %d %d >/dev/null 2>&1 &", sh_bin, dur, dly);
         }
         system(sh_cmd);
 
@@ -270,7 +271,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
             char cmd[128];
             if (target_bdaddr[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", target_bdaddr, dur);
             else snprintf(cmd, sizeof(cmd), "connect_host %d\n", dur);
-            codex_send_btstack_cmd(cmd);
+            hub_send_btstack_cmd(cmd);
         }
     }
 }
@@ -351,7 +352,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
     }
 
     if (!bdaddr[0]) {
-        FILE *bf = fopen("/data/codex/bt-devices.json", "r");
+        FILE *bf = fopen("/data/harmony/bt-devices.json", "r");
         if (bf) {
             fseek(bf, 0, SEEK_END);
             long sz = ftell(bf);
@@ -390,7 +391,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
     }
 
     if (!bdaddr[0]) {
-        FILE *tf = fopen("/data/codex/bthid_target", "r");
+        FILE *tf = fopen("/data/harmony/bthid_target", "r");
         if (tf) {
             char line[128];
             while (fgets(line, sizeof(line), tf)) {
@@ -586,7 +587,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
         if (g_mqtt_button_handler) {
             ret = g_mqtt_button_handler(device_id, dev_name, command);
         } else {
-            /* Dispatch MQTT button to codex_daemon on 127.0.0.1:8089 */
+            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:8089 */
             int mfd = socket(AF_INET, SOCK_STREAM, 0);
             if (mfd >= 0) {
                 struct sockaddr_in sin;

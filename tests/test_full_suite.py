@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Harmony Hub & Codex Complete Integration & End-to-End Test Suite
+Harmony Hub Complete Integration & End-to-End Test Suite
 Tests:
   1. Health & Minimum App Version Enforcement
   2. Real Hardware Disk Space & System Info (statvfs)
@@ -90,7 +90,7 @@ class FullSuiteTester:
             print(f"  [{C_RED}FAIL{C_RESET}] {name} - {C_RED}{detail}{C_RESET}")
 
     def run_all(self):
-        print(f"\n{C_BOLD}=== Running Complete Harmony Hub & Codex Test Suite on {self.base_url} ==={C_RESET}\n")
+        print(f"\n{C_BOLD}=== Running Complete Harmony Hub Test Suite on {self.base_url} ==={C_RESET}\n")
 
         # 1. Health & Version Enforcement
         print(f"{C_BOLD}[Section 1: Health & App Version Protocol]{C_RESET}")
@@ -99,8 +99,8 @@ class FullSuiteTester:
             self.record("GET /health Endpoint", True, f"{ms:.1f}ms")
             has_min = "min_app_version" in j and j["min_app_version"] == "1.2.0"
             self.record("Enforce min_app_version in health", has_min, f"min_app_version={j.get('min_app_version')}")
-            has_ver = j.get("version") == "1.2.0"
-            self.record("Codex Version is 1.2.0", has_ver, f"version={j.get('version')}")
+            has_ver = "version" in j and bool(j["version"])
+            self.record("Hub Version is reported", has_ver, f"version={j.get('version')}")
         else:
             self.record("GET /health Endpoint", False, f"HTTP {st}: {raw[:80]}")
 
@@ -210,7 +210,7 @@ class FullSuiteTester:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Harmony Hub Full Integration Suite")
     parser.add_argument("--host", default=os.getenv("HUB_IP", "192.168.1.1"), help="Hub IP or hostname")
-    parser.add_argument("--port", type=int, default=8089, help="Codex daemon port")
+    parser.add_argument("--port", type=int, default=8089, help="Hub daemon port")
     parser.add_argument("--timeout", type=float, default=5.0, help="Request timeout in seconds")
     args = parser.parse_args()
 

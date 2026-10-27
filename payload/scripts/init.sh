@@ -1,28 +1,28 @@
 #!/bin/sh
-PATH=/data/codex/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/data/harmony/bin:/cache/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 trap '' HUP
-LOG=/tmp/codex-init.log
+LOG=/tmp/harmony-init.log
 
 sync_fs() {
-  /data/codex/bin/codex_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || /data/codex/bin/sync 2>/dev/null || sync 2>/dev/null || true
+  /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
-echo "$(date) codex init start: $1" >> "$LOG"
+echo "$(date) harmony init start: $1" >> "$LOG"
 
 case "$1" in
   stop)
-    echo "$(date) Stopping codex services..." >> "$LOG"
-    killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
-    rm -f /tmp/codex_watchdog.pid 2>/dev/null || true
+    echo "$(date) Stopping harmony services..." >> "$LOG"
+    killall -9 hub_daemon hub_rf hub_btstack 2>/dev/null || true
+    rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
     exit 0
     ;;
   restart)
-    echo "$(date) Restarting codex services..." >> "$LOG"
-    killall -9 codex_daemon codex_rf codex_btstack 2>/dev/null || true
+    echo "$(date) Restarting harmony services..." >> "$LOG"
+    killall -9 hub_daemon hub_rf hub_btstack 2>/dev/null || true
     sleep 2
     # If supervisor loops already running from boot, let them respawn daemons
-    if [ -f /tmp/codex_watchdog.pid ]; then
-      _old=$(cat /tmp/codex_watchdog.pid 2>/dev/null)
+    if [ -f /tmp/harmony_watchdog.pid ]; then
+      _old=$(cat /tmp/harmony_watchdog.pid 2>/dev/null)
       if [ -n "$_old" ] && [ -d "/proc/$_old" ]; then
         exit 0
       fi
@@ -31,19 +31,19 @@ case "$1" in
 esac
 
 # Avoid duplicate supervisor loop spawns
-if [ -f /tmp/codex_watchdog.pid ]; then
-  _old=$(cat /tmp/codex_watchdog.pid 2>/dev/null)
+if [ -f /tmp/harmony_watchdog.pid ]; then
+  _old=$(cat /tmp/harmony_watchdog.pid 2>/dev/null)
   if [ -n "$_old" ] && [ -d "/proc/$_old" ] && [ "$_old" != "$$" ]; then
-    echo "$(date) codex supervisor already running (PID $_old)" >> "$LOG"
+    echo "$(date) harmony supervisor already running (PID $_old)" >> "$LOG"
     exit 0
   fi
 fi
-echo "$$" > /tmp/codex_watchdog.pid
+echo "$$" > /tmp/harmony_watchdog.pid
 
 # 5-minute stability timer in background
 (
   sleep 300
-  echo 0 > /data/codex/reboot_counter 2>/dev/null || true
+  echo 0 > /data/harmony/reboot_counter 2>/dev/null || true
   sync_fs
   echo "$(date) Hub uptime > 5m achieved, reboot counter reset" >> /tmp/boot_stability.log
 ) &
@@ -56,46 +56,32 @@ killall -9 watchdog 2>/dev/null || true
 export LD_PRELOAD=""
 
 # Set kernel printk loglevel according to debug logging config
-if [ -f /data/codex/debug_logging.conf ]; then
+if [ -f /data/harmony/debug_logging.conf ]; then
   echo "7 4 1 7" > /proc/sys/kernel/printk 2>/dev/null || true
 else
   echo "3 4 1 7" > /proc/sys/kernel/printk 2>/dev/null || true
 fi
 
 # 1. Clean up legacy flash artifacts to minimize flash wear and reclaim space
-rm -rf /data/codex-backups /data/codex/resource-backups /data/codex/bin/*.tmp-handoff* /data/*.tmp-handoff* 2>/dev/null || true
-rm -rf /cache/*.log /cache/codex-init.log /cache/crashlog-*.json /tmp/codex_bthid_remote.pid 2>/dev/null || true
+rm -rf /cache/*.log /cache/crashlog-*.json /tmp/harmony_bthid_remote.pid 2>/dev/null || true
 rm -rf /cache/www/assets/icons 2>/dev/null || true
 for _f in /cache/www/assets/*.js /cache/www/assets/*.css /cache/www/index.html; do
   [ -f "${_f}.gz" ] && rm -f "$_f" 2>/dev/null || true
 done
 rm -f /cache/www/assets/*.png.gz /cache/www/*.png.gz 2>/dev/null || true
-rm -f /data/*.ota* /data/*.tar.gz /data/*.zip /data/codex_elite.ota.gz /data/codex/*.log /data/codex/bin/*.old /data/codex/bin/*.bak 2>/dev/null || true
-rm -f /data/codex/bin/pair_b25.sh /data/codex/bin/do_pair.sh /data/codex/bin/test_ble_diag /data/codex/bin/test_smp /data/codex/bin/test_hci_sniff /data/codex/bin/codex_ir_send /data/codex/bin/codex_webui /data/codex/bin/codex_rf_query /data/codex/bin/codex_rf_sniff /data/rf_pair_test /data/test_hub_tx /data/codex_rf 2>/dev/null || true
-rm -f /data/codex/g_serial.ko /data/codex/mknod_bin /data/codex/mknod 2>/dev/null || true
-rm -f /data/codex/modules/*.bak 2>/dev/null || true
-for _mod in /data/codex/modules/*.ko; do
-  [ -f "$_mod" ] || continue
-  _b="${_mod##*/}"
-  [ -f "/data/codex/modules/usb_net/$_b" ] && rm -f "$_mod"
-done
+rm -f /data/*.ota* /data/*.tar.gz /data/*.zip /data/harmony/*.log /data/harmony/bin/*.old /data/harmony/bin/*.bak 2>/dev/null || true
+rm -f /data/harmony/bin/pair_b25.sh /data/harmony/bin/do_pair.sh /data/harmony/bin/test_ble_diag /data/harmony/bin/test_smp /data/harmony/bin/test_hci_sniff /data/rf_pair_test /data/test_hub_tx 2>/dev/null || true
+rm -f /data/harmony/g_serial.ko /data/harmony/mknod_bin /data/harmony/mknod 2>/dev/null || true
+rm -f /data/harmony/modules/*.bak 2>/dev/null || true
 
-# Migrate MQTT config to main /data/codex directory
-if [ -f /data/codexmqtt/config.json ]; then
-  if [ ! -f /data/codex/mqtt_config.json ]; then
-    cp -f /data/codexmqtt/config.json /data/codex/mqtt_config.json 2>/dev/null || true
-  fi
-  rm -rf /data/codexmqtt 2>/dev/null || true
-fi
-
-# Migrate WebUI from /data/codex/www to /cache/www to preserve critical /data flash space
-if [ -d /data/codex/www ] && [ ! -L /data/codex/www ]; then
+# Maintain WebUI in /cache/www to preserve critical /data flash space
+if [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ]; then
   mkdir -p /cache/www 2>/dev/null
-  cp -rf /data/codex/www/* /cache/www/ 2>/dev/null || true
-  rm -rf /data/codex/www 2>/dev/null || true
+  cp -rf /data/harmony/www/* /cache/www/ 2>/dev/null || true
+  rm -rf /data/harmony/www 2>/dev/null || true
 fi
 mkdir -p /cache/www/assets/icons 2>/dev/null || true
-[ -L /data/codex/www ] || ln -sfn /cache/www /data/codex/www 2>/dev/null || true
+[ -L /data/harmony/www ] || ln -sfn /cache/www /data/harmony/www 2>/dev/null || true
 
 # Prune unreferenced/orphaned web UI bundles in /cache/www/assets
 if [ -f /cache/www/index.html ] && [ -d /cache/www/assets ]; then
@@ -119,27 +105,29 @@ fi
 chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 (
   for i in 1 2 3 4 5; do
-    killall -9 luaworks luadraws lua netmonitor codex_bthid_remote 2>/dev/null || true
+    killall -9 luaworks luadraws lua netmonitor 2>/dev/null || true
     sleep 1
   done
 ) &
 
 # 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
 rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
+mkdir -p /data/harmony/bin /data/harmony/config 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/codex/bin/busybox 2>/dev/null || true
+  ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
 fi
-ln -sf /data/codex/bin/codex_sync /data/codex/bin/sync 2>/dev/null || true
-ln -sf /data/codex/bin/codex_sync /cache/bin/sync 2>/dev/null || true
-[ -f /data/codex/bin/safe_reboot.sh ] && chmod +x /data/codex/bin/safe_reboot.sh 2>/dev/null || true
-[ -f /data/codex/codex_user.sh ] && ln -sf /data/codex/codex_user.sh /data/codex/bin/codex_user.sh 2>/dev/null || true
+ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
+ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
+
+[ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+[ -f /data/harmony/safe_reboot.sh ] && ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
-cat <<'EOF' > /etc/profile.d/00-codex.sh
-export PATH=/cache/bin:/data/codex/bin:$PATH
+cat <<'EOF' > /etc/profile.d/00-harmony.sh
+export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
-chmod 644 /etc/profile.d/00-codex.sh 2>/dev/null || true
+chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true
 
 for prof in /root/.profile /home/root/.profile; do
   mkdir -p "$(dirname "$prof")" 2>/dev/null || true
@@ -152,19 +140,21 @@ elif [ -x /cache/busybox ]; then
 fi
 if [ -t 0 ] && [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
     export BB_EXTENDED=1
-    export PATH=/cache/bin:/data/codex/bin:$PATH
+    export PATH=/data/harmony/bin:/cache/bin:$PATH
     exec "$BB_PATH" sh -l
 fi
-export PATH=/cache/bin:/data/codex/bin:$PATH
+export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
   chmod 644 "$prof" 2>/dev/null || true
 done
 
-if [ -x /data/codex/bin/dropbear ]; then
-  cat <<'EOF' > /usr/sbin/dropbear
+_dropbear_bin=""
+[ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
+if [ -n "$_dropbear_bin" ]; then
+  cat <<EOF > /usr/sbin/dropbear
 #!/bin/sh
-export PATH=/cache/bin:/data/codex/bin:$PATH
-exec /data/codex/bin/dropbear -K 300 "$@"
+export PATH=/data/harmony/bin:/cache/bin:\$PATH
+exec "$_dropbear_bin" -K 300 "\$@"
 EOF
   chmod 755 /usr/sbin/dropbear
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
@@ -177,10 +167,12 @@ chmod -x /usr/bin/hal 2>/dev/null || true
 killall -9 hal 2>/dev/null || true
 
 # 5. Network Time Sync (SNTP)
-if [ -x /data/codex/bin/codex_sntp ]; then
+_sntp_bin=""
+[ -x /data/harmony/bin/hub_sntp ] && _sntp_bin=/data/harmony/bin/hub_sntp
+if [ -n "$_sntp_bin" ]; then
   (
     for i in 1 2 3 4 5 6 7 8 9 10; do
-      if /data/codex/bin/codex_sntp pool.ntp.org --set >> "$LOG" 2>&1; then
+      if "$_sntp_bin" pool.ntp.org --set >> "$LOG" 2>&1; then
         echo "$(date) NTP time sync succeeded" >> "$LOG"
         break
       fi
@@ -190,22 +182,24 @@ if [ -x /data/codex/bin/codex_sntp ]; then
 fi
 
 # 5.2 Network Manager (USB Gadget 15s check, Ethernet startup & Wi-Fi fallback)
-if [ -x /data/codex/network_manager.sh ]; then
-  /data/codex/network_manager.sh boot >> "$LOG" 2>&1 &
-elif [ -x /data/codex/bin/network_manager.sh ]; then
-  /data/codex/bin/network_manager.sh boot >> "$LOG" 2>&1 &
+_net_mgr=""
+[ -x /data/harmony/network_manager.sh ] && _net_mgr=/data/harmony/network_manager.sh
+[ -z "$_net_mgr" ] && [ -x /data/harmony/bin/network_manager.sh ] && _net_mgr=/data/harmony/bin/network_manager.sh
+if [ -n "$_net_mgr" ]; then
+  "$_net_mgr" boot >> "$LOG" 2>&1 &
 fi
 
-
-# 6. Unified Codex Daemon (WebUI on 8080, Orchestrator/WS/MQTT on 8089)
+# 6. Unified Hub Daemon (WebUI & API on 8089)
 (
   _delay=5
   while true; do
-    if [ -x /data/codex/bin/codex_daemon ]; then
-      if ! pidof codex_daemon >/dev/null 2>&1; then
-        echo "$(date) Starting codex_daemon..." >> "$LOG"
-        /data/codex/bin/codex_daemon 8089 >> "$LOG" 2>&1
-        echo "$(date) codex_daemon exited, retry in ${_delay}s" >> "$LOG"
+    _daemon=""
+    [ -x /data/harmony/bin/hub_daemon ] && _daemon=/data/harmony/bin/hub_daemon
+    if [ -n "$_daemon" ]; then
+      if ! pidof hub_daemon >/dev/null 2>&1; then
+        echo "$(date) Starting hub_daemon..." >> "$LOG"
+        "$_daemon" 8089 >> "$LOG" 2>&1
+        echo "$(date) hub_daemon exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
         continue
@@ -218,15 +212,14 @@ fi
 
 # 7. BTstack Bluetooth Engine (BlueZ 4 permanently disabled)
 chmod -x /usr/sbin/bluetoothd 2>/dev/null || true
-killall -9 bluetoothd codex_bthid_remote codex_bthid_keyboard 2>/dev/null || true
-rm -f /data/codex/bin/codex_bthid_remote /data/codex/bin/codex_bthid_keyboard 2>/dev/null || true
+killall -9 bluetoothd 2>/dev/null || true
 (
   _delay=5
   while true; do
-    if [ -f /data/codex/bt_disabled.conf ]; then
-      if pidof codex_btstack >/dev/null 2>&1; then
+    if [ -f /data/harmony/bt_disabled.conf ]; then
+      if pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) BT disabled flag detected, stopping BTstack..." >> "$LOG"
-        killall -9 codex_btstack 2>/dev/null || true
+        killall -9 hub_btstack 2>/dev/null || true
         hciconfig hci0 down 2>/dev/null || true
       fi
       sleep 5
@@ -239,11 +232,13 @@ rm -f /data/codex/bin/codex_bthid_remote /data/codex/bin/codex_bthid_keyboard 2>
       sleep 1
     fi
 
-    if [ -x /data/codex/bin/codex_btstack ]; then
-      if ! pidof codex_btstack >/dev/null 2>&1; then
+    _bt_bin=""
+    [ -x /data/harmony/bin/hub_btstack ] && _bt_bin=/data/harmony/bin/hub_btstack
+    if [ -n "$_bt_bin" ]; then
+      if ! pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) Starting BTstack backend..." >> "$LOG"
-        /data/codex/bin/codex_btstack >> "$LOG" 2>&1
-        echo "$(date) codex_btstack exited, retry in ${_delay}s" >> "$LOG"
+        "$_bt_bin" >> "$LOG" 2>&1
+        echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
         continue
@@ -258,20 +253,22 @@ rm -f /data/codex/bin/codex_bthid_remote /data/codex/bin/codex_bthid_keyboard 2>
 (
   _delay=5
   while true; do
-    if [ -f /data/codex/rf_disabled.conf ]; then
-      if pidof codex_rf >/dev/null 2>&1; then
-        echo "$(date) RF disabled flag detected, stopping codex_rf..." >> "$LOG"
-        killall -9 codex_rf 2>/dev/null || true
+    if [ -f /data/harmony/rf_disabled.conf ]; then
+      if pidof hub_rf >/dev/null 2>&1; then
+        echo "$(date) RF disabled flag detected, stopping RF..." >> "$LOG"
+        killall -9 hub_rf 2>/dev/null || true
       fi
       sleep 5
       continue
     fi
 
-    if [ -x /data/codex/bin/codex_rf ]; then
-      if ! pidof codex_rf >/dev/null 2>&1; then
-        echo "$(date) Starting codex_rf daemon..." >> "$LOG"
-        /data/codex/bin/codex_rf >> "$LOG" 2>&1
-        echo "$(date) codex_rf exited, retry in ${_delay}s" >> "$LOG"
+    _rf_bin=""
+    [ -x /data/harmony/bin/hub_rf ] && _rf_bin=/data/harmony/bin/hub_rf
+    if [ -n "$_rf_bin" ]; then
+      if ! pidof hub_rf >/dev/null 2>&1; then
+        echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        "$_rf_bin" >> "$LOG" 2>&1
+        echo "$(date) hub_rf exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
         continue
@@ -282,4 +279,4 @@ rm -f /data/codex/bin/codex_bthid_remote /data/codex/bin/codex_bthid_keyboard 2>
   done
 ) &
 
-echo "$(date) codex init done" >> "$LOG"
+echo "$(date) harmony init done" >> "$LOG"

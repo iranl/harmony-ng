@@ -24,7 +24,7 @@ Expected standby battery life on a fully charged battery is **~3 days**. This is
 In standard Linux framebuffers, `ioctl(fb_fd, FBIOBLANK, 1)` (`FB_BLANK_NORMAL`) is common. However, the TI DaVinci DM365 `davincifb` driver rejects value `1` with `EINVAL` (`-22`). As a result, the framebuffer remained active in the background, keeping the display controller and DDR memory DMA engine running continuously (~68 mA continuous waste).
 
 ### Fix:
-In `codex_elite.c`:
+In `elite_ui.c`:
 ```c
 /* Pass FB_BLANK_POWERDOWN (4) to actually shut down DaVinci LCD DMA */
 ioctl(fb_fd, FBIOBLANK, 4);
@@ -38,7 +38,7 @@ This properly cuts power to the display controller, saving ~68.5 mA and extendin
 When the remote is in standby, touchscreen taps should not wake the remote (accidental pocket/table touches). The Synaptics Clearpad capacitive matrix sensor consumes ~10.5 mA while actively scanning for finger contact.
 
 ### Fix:
-When entering standby (`fb_set_blank(true)`), `codex_elite` issues an SMBus byte write over I2C bus 1 to the Clearpad controller (`0x20`):
+When entering standby (`fb_set_blank(true)`), `elite_ui` issues an SMBus byte write over I2C bus 1 to the Clearpad controller (`0x20`):
 ```c
 static void clearpad_sleep(void) {
     int fd = open("/dev/i2c-1", O_RDWR);
@@ -63,7 +63,7 @@ Upon screen wake (`fb_set_blank(false)`), the Clearpad input event descriptor is
 
 ## 3. Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)
 
-The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `codex_elite`, motion wake is entirely **event-driven via hardware interrupt**:
+The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `elite_ui`, motion wake is entirely **event-driven via hardware interrupt**:
 
 1. **Light Standby (0 - 30 min)**:
    - Configures LIS3DH INT1 threshold (`int1_threshold=10`, `int1_duration=3`).

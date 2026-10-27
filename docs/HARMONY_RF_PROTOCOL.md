@@ -59,7 +59,7 @@ In stock `hal_hub` (`libhal/rf/hot.c`, host mode `DAT_00466f70 == 0`), all bidir
   - `0x50 | (seq & 0x0F)`: Single frame requesting immediate ACK (Bit 4 = `PacketAck`).
   - `0x40 | (seq & 0x0F)`: Standard frame without ACK requirement.
   - `0x60 | (seq & 0x0F)`: Multi-packet data chunk frame.
-- **Byte 3 (`Msg Type`)**: Codex / eQuad message type identifier (`RF_MSG_*`).
+- **Byte 3 (`Msg Type`)**: Harmony / eQuad message type identifier (`RF_MSG_*`).
 - **Byte 4 (`Flags`)**: Protocol control flags (e.g. `0x00` normal, `0x01` ACK_REQ, `0x02` IS_ACK).
 - **Bytes 5..29**: 25-byte application payload.
 
@@ -79,7 +79,7 @@ In stock `hal_remote` (`libhal/rf/hot.c`, device mode `DAT_0003b530 == 1`), the 
 - **Byte 2 (`0x12`)**: Sub-ID discriminator.
 - **Byte 3 (`0x01`)**: Pipe/Slot routing identifier.
 - **Byte 4 (`Hdr/Seq`)**: `0x50 | (seq & 0x0F)` (single frame + ACK requested) or `0x40 | (seq & 0x0F)`.
-- **Byte 5 (`Msg Type`)**: Codex / eQuad message type.
+- **Byte 5 (`Msg Type`)**: Harmony / eQuad message type.
 - **Byte 6 (`Flags`)**: Protocol control flags.
 - **Bytes 7..31**: 25-byte application payload.
 
@@ -131,7 +131,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 
 ---
 
-## 5. Application Layer Protocol (Codex / eQuad)
+## 5. Application Layer Protocol (Harmony / eQuad)
 
 All application messages are encapsulated in the payload section of Report `0x12` (Hub) or Report `0x20` (Remote).
 

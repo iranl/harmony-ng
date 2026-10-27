@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Harmony Hub Control (Codex) API
-  version: 1.14.0
+  title: Harmony Hub Control API
+  version: 2.0.0
   description: |
-    REST and WebSocket API for the open-source **Harmony Hub Codex** firmware and **Elite Remote** RF daemon.
+    REST and WebSocket API for the open-source **Harmony Hub** firmware and **Elite Remote** RF daemon.
     
-    Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `codex_rf` daemon on port `8092`.
+    Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
     
     ### Testing Locally
     Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
@@ -55,7 +55,7 @@ paths:
       tags:
         - System & Status
       summary: Health check
-      description: Returns service status of codex_daemon.
+      description: Returns service status of hub_daemon.
       responses:
         '200':
           description: Service is healthy
@@ -63,7 +63,7 @@ paths:
             application/json:
               example:
                 status: ok
-                service: codex_daemon
+                service: hub_daemon
 
   /api/status:
     get:
@@ -252,7 +252,7 @@ paths:
               example:
                 ok: true
                 source: daemon
-                log: "[INFO] Codex daemon listening on port 8089\n..."
+                log: "[INFO] Harmony hub daemon listening on port 8089\n..."
 
   /api/icons:
     get:
@@ -290,7 +290,7 @@ paths:
       tags:
         - Custom Icons
       summary: List custom PNG icons
-      description: Returns array of custom uploaded icons stored in /data/codex/custom_icons.
+      description: Returns array of custom uploaded icons stored in /data/harmony/custom_icons.
       responses:
         '200':
           description: Custom icons list
@@ -312,8 +312,8 @@ paths:
         - Custom Icons
       summary: Upload custom PNG icon
       description: |
-        Uploads base64-encoded PNG image (enforces <= 16 KB size limit) and saves to /data/codex/custom_icons.
-        Automatically notifies codex_rf over local socket (port 8092) to propagate icon to paired Elite remotes.
+        Uploads base64-encoded PNG image (enforces <= 16 KB size limit) and saves to /data/harmony/custom_icons.
+        Automatically notifies hub_rf over local socket (port 8092) to propagate icon to paired Elite remotes.
       requestBody:
         required: true
         content:
@@ -1659,7 +1659,7 @@ paths:
       tags:
         - RF & Elite Remote
       summary: CC2544 RF subsystem status
-      description: Proxied to codex_rf (port 8092). Returns remote RF addresses and active slots.
+      description: Proxied to hub_rf (port 8092). Returns remote RF addresses and active slots.
       responses:
         '200':
           description: RF status
@@ -2222,7 +2222,7 @@ paths:
       tags:
         - UI Remote Layout
       summary: Get customized web and touch UI remote button layouts
-      description: Retrieves layout definitions stored in /data/codex/web_remote_layouts.json.
+      description: Retrieves layout definitions stored in /data/harmony/web_remote_layouts.json.
       responses:
         '200':
           description: Layout configuration
@@ -2235,7 +2235,7 @@ paths:
       tags:
         - UI Remote Layout
       summary: Save web and touch UI remote button layout configuration
-      description: Persists layout definitions to /data/codex/web_remote_layouts.json.
+      description: Persists layout definitions to /data/harmony/web_remote_layouts.json.
       requestBody:
         required: true
         content:

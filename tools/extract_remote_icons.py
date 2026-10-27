@@ -79,7 +79,7 @@ def find_used_icon_patterns(repo_root):
     cfg_paths = [
         os.path.join(repo_root, "data", "resources", "ActivityList.json"),
         os.path.join(repo_root, "data", "resources", "DeviceList.json"),
-        os.path.join(repo_root, "payload", "source", "codex_elite.c")
+        os.path.join(repo_root, "payload", "source", "elite", "elite_main.c")
     ]
     for p in cfg_paths:
         if not os.path.isfile(p):
@@ -209,8 +209,8 @@ def main():
 
             # Extract on Hub and flatten
             extract_cmd = (
-                "mkdir -p /cache/www/assets/icons /data/codex/www/assets && "
-                "[ -L /data/codex/www/assets/icons ] || ln -sfn /cache/www/assets/icons /data/codex/www/assets/icons; "
+                "mkdir -p /cache/www/assets/icons /data/harmony/www/assets && "
+                "[ -L /data/harmony/www/assets/icons ] || ln -sfn /cache/www/assets/icons /data/harmony/www/assets/icons; "
                 "cd /cache/www/assets/icons && "
                 "unzip -o /tmp/icons.zip && "
                 "rm -f /tmp/icons.zip; "
@@ -226,7 +226,7 @@ def main():
             run_ssh(args.hub, extract_cmd)
             count_hub = run_ssh(args.hub, "ls /cache/www/assets/icons/*.png 2>/dev/null | wc -l")
             cnt_str = count_hub.strip() if count_hub else str(success_count)
-            print(f"[+] Successfully deployed {cnt_str} icons on Hub (/data/codex/www/assets/icons/)!")
+            print(f"[+] Successfully deployed {cnt_str} icons on Hub (/data/harmony/www/assets/icons/)!")
         finally:
             if os.path.exists(tmp_zip_path):
                 os.remove(tmp_zip_path)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Harmony Hub & Codex External API Test Suite
+Harmony Hub External API Test Suite
 Validates all HTTP REST endpoints and WebSocket protocols on a live or emulated Hub.
 Supports dry-run verification, schema validation, and timing analysis.
 """
@@ -33,7 +33,7 @@ class ApiTester:
 
     def http_request(self, path, method="GET", data=None, headers=None):
         url = f"{self.base_url}{path}"
-        req_headers = {"User-Agent": "CodexExternalApiTester/1.0", "Accept": "application/json"}
+        req_headers = {"User-Agent": "HarmonyHubExternalApiTester/1.0", "Accept": "application/json"}
         if headers:
             req_headers.update(headers)
         
@@ -103,7 +103,7 @@ class ApiTester:
             self.assert_test(test_name, False, f"Connection failed: {e}")
 
     def run_all(self):
-        print(f"\n{C_BOLD}=== Testing Harmony Codex API at {self.base_url} ==={C_RESET}\n")
+        print(f"\n{C_BOLD}=== Testing Harmony Hub API at {self.base_url} ==={C_RESET}\n")
 
         # 1. Health
         status, j, text, ms = self.http_request("/health")
@@ -159,7 +159,7 @@ class ApiTester:
 
         # 10. WebUI Index HTML
         status, j, text, ms = self.http_request("/")
-        html_ok = status == 200 and ("<html" in text.lower() or "codex" in text.lower())
+        html_ok = status == 200 and ("<html" in text.lower() or "harmony" in text.lower())
         self.assert_test("GET / (WebUI Root)", html_ok, f"{ms:.1f}ms, {len(text)} bytes")
 
         # 11. WebSocket Live Handshake
@@ -175,7 +175,7 @@ class ApiTester:
         return 0 if self.failed == 0 else 1
 
 def main():
-    parser = argparse.ArgumentParser(description="External API Test Suite for Logitech Harmony Codex Hub")
+    parser = argparse.ArgumentParser(description="External API Test Suite for Logitech Harmony Hub")
     parser.add_argument("--host", default="192.168.1.1", help="Target Hub IP address (default: 192.168.1.1)")
     parser.add_argument("--port", type=int, default=80, help="Target Hub HTTP/WS port (default: 80 or 8089)")
     parser.add_argument("--timeout", type=float, default=4.0, help="Socket timeout seconds (default: 4.0)")

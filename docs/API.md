@@ -1,6 +1,6 @@
 # Harmony Hub HTTP & WebSocket API Specification
 
-`codex_daemon` provides an ultra-lightweight REST and WebSocket interface running natively on port 8089 (HTTP / WebSocket). RF hardware calls are transparently proxied to `codex_rf` on port 8092 via `/api/rf/*`.
+`hub_daemon` provides an ultra-lightweight REST and WebSocket interface running natively on port 8089 (HTTP / WebSocket). RF hardware calls are transparently proxied to `hub_rf` on port 8092 via `/api/rf/*`.
 
 ---
 
@@ -13,7 +13,7 @@ Returns service status.
   ```json
   {
     "status": "ok",
-    "service": "codex_daemon"
+    "service": "hub_daemon"
   }
   ```
 
@@ -106,7 +106,7 @@ Returns active network interface, Wi-Fi (`ath0`), USB Ethernet (`eth0`/`usb0`), 
 
 ### 1.6 Background Services
 #### `GET /api/services`
-Queries status of optional background daemons (`codex_rf` and `codex_btstack`).
+Queries status of optional background daemons (`hub_rf` and `hub_btstack`).
 - **Response `200 OK`**:
   ```json
   {
@@ -119,12 +119,12 @@ Queries status of optional background daemons (`codex_rf` and `codex_btstack`).
   ```
 
 #### `POST /api/services/rf-toggle` or `POST /api/rf-toggle`
-Enables or disables the RF CC2544 daemon `codex_rf`.
+Enables or disables the RF CC2544 daemon `hub_rf`.
 - **Request Body**: `{"enable": true}`
 - **Response `200 OK`**: `{"ok": true, "rf_enabled": true}`
 
 #### `POST /api/services/bt-toggle` or `POST /api/bt-toggle`
-Enables or disables the Bluetooth stack `codex_btstack`.
+Enables or disables the Bluetooth stack `hub_btstack`.
 - **Request Body**: `{"enable": true}`
 - **Response `200 OK`**: `{"ok": true, "bt_running": true}`
 
@@ -137,7 +137,7 @@ Returns tail (up to 12KB) of requested daemon or system log.
   {
     "ok": true,
     "source": "daemon",
-    "log": "[INFO] Codex daemon listening on port 8089\n..."
+    "log": "[INFO] Harmony hub daemon listening on port 8089\n..."
   }
   ```
 
@@ -156,7 +156,7 @@ Returns list of available device and activity PNG icon filenames.
 
 ### 1.9 System Settings
 #### `GET /api/settings`
-Returns global hub settings from `/data/codex/config/settings.json`.
+Returns global hub settings from `/data/harmony/config/settings.json`.
 - **Response `200 OK`**:
   ```json
   {
@@ -257,7 +257,7 @@ Checks for newer release bundles.
 
 ### 2.3 Apply Update
 #### `POST /api/update-apply`
-Executes `/data/codex/update.sh` in the background and restarts services.
+Executes `/data/harmony/update.sh` in the background and restarts services.
 - **Response `200 OK`**:
   ```json
   {
@@ -273,7 +273,7 @@ Executes `/data/codex/update.sh` in the background and restarts services.
 
 ### 3.1 Get Inventory
 #### `GET /api/inventory`
-Returns all registered devices and basic commands from `/data/codex/config/devices.json`.
+Returns all registered devices and basic commands from `/data/harmony/config/devices.json`.
 - **Response `200 OK`**:
   ```json
   {
@@ -677,7 +677,7 @@ Saves BLE remote button mapping JSON.
 
 ## 7. Elite Remote & RF Subsystem (`/api/rf/*`)
 
-Requests starting with `/api/rf/*` are proxied to the native RF daemon `codex_rf` running on port 8092.
+Requests starting with `/api/rf/*` are proxied to the native RF daemon `hub_rf` running on port 8092.
 
 ### 7.1 RF Subsystem Status
 #### `GET /api/rf` or `GET /api/rf/status`
@@ -792,7 +792,7 @@ Starts background remote firmware flash update.
 Returns physical button and screen mappings for the Harmony Elite remote.
 
 #### `POST /api/elite-mapping-save`
-Saves Harmony Elite button assignments to `/data/codex/elite_remote_map.json`.
+Saves Harmony Elite button assignments to `/data/harmony/elite_remote_map.json`.
 
 #### `POST /api/ui-remote-layout`
 Saves virtual remote keypad layout for WebUI and Android App.

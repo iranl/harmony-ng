@@ -1,11 +1,11 @@
 #!/bin/sh
-# Codex BT Reconnect: fast reconnect tries for 30 seconds after activity start
-PID_FILE="/tmp/codex_bt_reconnect.pid"
-LOG="/tmp/codex-bt-reconnect.log"
+# Hub BT Reconnect: fast reconnect tries for 30 seconds after activity start
+PID_FILE="/tmp/hub_bt_reconnect.pid"
+LOG="/tmp/harmony-bt-reconnect.log"
 STATUS_FILE="/tmp/bthid_status"
-CMD_FILE="/tmp/codex_btstack_cmd"
-TARGET_FILE="/data/codex/bthid_target"
-HOST_TARGET_FILE="/data/codex/bthid_host_target"
+CMD_FILE="/tmp/hub_btstack_cmd"
+TARGET_FILE="/data/harmony/bthid_target"
+HOST_TARGET_FILE="/data/harmony/bthid_host_target"
 
 # Log rotation (tail not available on hub busybox)
 if [ -f "$LOG" ] && [ "$(wc -l < "$LOG" 2>/dev/null || echo 0)" -gt 300 ]; then
@@ -52,7 +52,7 @@ if [ -z "$TARGET" ]; then
         TARGET=$(awk 'match($0, /([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}/) {print substr($0, RSTART, RLENGTH); exit}' "$HOST_TARGET_FILE" 2>/dev/null)
     fi
     if [ -z "$TARGET" ]; then
-        for cfg in /data/codex/bt-devices.json /data/codex/config/devices.json /data/codex/devices.json; do
+        for cfg in /data/harmony/bt-devices.json /data/harmony/config/devices.json /data/harmony/devices.json; do
             if [ -f "$cfg" ]; then
                 TARGET=$(sed -n 's/.*"\(bdaddr\|BTAddress\|bt_host\)"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\2/p' "$cfg" 2>/dev/null | awk '{print; exit}')
                 [ -n "$TARGET" ] && break
@@ -80,7 +80,7 @@ fi
 log "BT reconnect supervision started for $TARGET (window=${DURATION}s, attempts=$MAX_ATTEMPTS)"
 
 # Trigger BTstack connection once
-if pidof codex_btstack >/dev/null 2>&1; then
+if pidof hub_btstack >/dev/null 2>&1; then
     echo "connect_host $TARGET $DURATION" > "$CMD_FILE"
 fi
 

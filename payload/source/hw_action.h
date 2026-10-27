@@ -1,15 +1,15 @@
-#ifndef CODEX_HW_ACTION_H
-#define CODEX_HW_ACTION_H
+#ifndef HARMONY_HW_ACTION_H
+#define HARMONY_HW_ACTION_H
 
 #include <stddef.h>
 #include <stdint.h>
 #include <unistd.h>
 
 #ifndef DEBUG_LOG_CONFIG
-#define DEBUG_LOG_CONFIG "/data/codex/debug_logging.conf"
+#define DEBUG_LOG_CONFIG "/data/harmony/debug_logging.conf"
 #endif
 #ifndef BT_DEBUG_FLAG
-#define BT_DEBUG_FLAG "/data/codex/bt_remote_debug"
+#define BT_DEBUG_FLAG "/data/harmony/bt_remote_debug"
 #endif
 
 static inline int is_debug_log_enabled(void) {
@@ -57,7 +57,7 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
 int hw_device_command_send(const char *device_id, const char *command);
 
 /*
- * Callback registration for in-process MQTT button dispatch (used by codex_daemon to avoid loopback socket deadlock).
+ * Callback registration for in-process MQTT button dispatch (used by hub_daemon to avoid loopback socket deadlock).
  */
 typedef int (*hw_mqtt_button_handler_t)(const char *device_id, const char *dev_name, const char *command);
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler);
@@ -71,4 +71,4 @@ int hw_bthid_send_report(const uint8_t *report, size_t len);
 }
 #endif
 
-#endif /* CODEX_HW_ACTION_H */
+#endif /* HARMONY_HW_ACTION_H */

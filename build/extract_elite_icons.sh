@@ -36,9 +36,9 @@ echo "[+] Successfully extracted $ICON_COUNT icons to $DEST_DIR"
 if [ -n "$HUB_HOST" ]; then
     echo "=== Packaging and Pushing Full Icon Archive to Harmony Hub ($HUB_HOST) ==="
     tar -czf "$REPO_ROOT/build/icons.tar.gz" -C "$DEST_DIR/.." icons
-    scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no "$REPO_ROOT/build/icons.tar.gz" "${REMOTE_USER}@${HUB_HOST}:/data/codex/icons.tar.gz" || {
+    scp -O -q -o BatchMode=yes -o StrictHostKeyChecking=no "$REPO_ROOT/build/icons.tar.gz" "${REMOTE_USER}@${HUB_HOST}:/data/harmony/icons.tar.gz" || {
         echo "[!] SCP to Hub failed. Ensure Hub is reachable at $HUB_HOST"
         exit 1
     }
-    echo "[+] Successfully pushed full icon archive (all $ICON_COUNT icons) to Hub at /data/codex/icons.tar.gz"
+    echo "[+] Successfully pushed full icon archive (all $ICON_COUNT icons) to Hub at /data/harmony/icons.tar.gz"
 fi

@@ -14,7 +14,7 @@
 #include <signal.h>
 
 #define I2S_DEVICE "/dev/i2s"
-#define I2S_LOCK_FILE "/tmp/codex_i2s.lock"
+#define I2S_LOCK_FILE "/tmp/harmony_i2s.lock"
 
 static int i2s_lock_acquire(void) {
     int lfd = open(I2S_LOCK_FILE, O_RDWR | O_CREAT, 0666);

@@ -1,6 +1,6 @@
 # Harmony Elite 950 & Pro 2400 Remote - First Time Installation & Rooting Guide
 
-This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`codex_elite`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010) and Harmony Pro 2400 Remote (Skin 116).
+This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`elite_ui`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010) and Harmony Pro 2400 Remote (Skin 116).
 
 > [!NOTE]
 > **Harmony Pro 2400 Remote, Ultimate (Home) & Touch Compatibility**:
@@ -24,7 +24,7 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 #### Option A: Release Bundle (Recommended — No Compilation)
 1. Download `harmony-elite-v*.zip` (Windows) or `harmony-elite-v*.tar.gz` (Linux/macOS) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases).
 2. Extract the archive into a folder on your PC.
-3. Open a terminal in the extracted folder. All required binaries (`codex_elite`, `dropbearmulti_musl`, `b64dec_tiny`), scripts, and deployment tools are pre-packaged and ready to run.
+3. Open a terminal in the extracted folder. All required binaries (`elite_ui`, `dropbearmulti_musl`, `b64dec_tiny`), scripts, and deployment tools are pre-packaged and ready to run.
 
 #### Option B: From Git Repository (Developers)
 ```bash
@@ -45,9 +45,8 @@ cd harmony-ng
 1. Connect the remote directly to your host PC via Micro-USB (bottom port).
 2. Run the automated all-in-one setup tool:
    ```bash
-   python elite/setup_remote.py
+   python tools/setup_remote.py
    ```
-   *(Or `python tools/root_remote_usb.py`)*
 
 The tool automatically:
 1. Connects to the remote over USB HID (`046D:C12B`).
@@ -92,7 +91,7 @@ ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/
 
 ## 4. Deploy HarmonyNG Firmware
 
-Run the deployment script to push `codex_elite` (touch UI & framebuffer engine) to the remote:
+Run the deployment script to push `elite_ui` (touch UI & framebuffer engine) to the remote:
 
 ### On Windows (PowerShell):
 ```powershell
@@ -113,10 +112,10 @@ python deploy_elite.py --ip 192.168.2.1
 ```
 
 The script:
-1. Copies `codex_elite` to `/data/codex_elite`.
+1. Copies `elite_ui` to `/data/elite_ui`.
 2. Installs safe startup persistence into `/etc/init.d/rcS.local`.
 3. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`.
-4. Starts `codex_elite` with immediate vector graphics rendering.
+4. Starts `elite_ui` with immediate vector graphics rendering.
 
 ---
 
@@ -131,7 +130,7 @@ The script:
 
 ## 6. Battery Life & Power Optimization Settings
 
-The custom `codex_elite` firmware includes power management settings to maximize battery life:
+The custom `elite_ui` firmware includes power management settings to maximize battery life:
 
 1. **Button Backlight Control**:
    - In **Settings** on the touch screen, tap **Button Backlight**:
@@ -148,7 +147,23 @@ The custom `codex_elite` firmware includes power management settings to maximize
 
 ## 7. Factory Reset & Reverting to Stock Firmware
 
-To completely remove HarmonyNG software and revert the Elite remote to official Logitech stock firmware:
+### Hardware Button Combination (Zero-SSH / Independent of Software)
+
+To reset the remote to factory state without SSH or even if userland software is unresponsive:
+
+1. **Press and hold simultaneously**:
+   - The **`Menu`** button (physical key directly above the `CH+` button).
+   - The **`Off`** button (power button at the top of the remote).
+2. **Hold continuously for ~20 seconds**:
+   - The screen will turn off, then reboot.
+   - > [!IMPORTANT]
+     > The graphic showing a remote with a circular arrow **flashes briefly first** before staying persistently on the screen. **You must keep holding both `Menu` and `Off` until the graphic stays permanently on the screen.** Do not release on the first flash.
+3. **Release both buttons** once the circular arrow graphic remains steadily on the display.
+4. The remote will wipe all user configurations and restore factory stock defaults.
+
+### Software Stock Revert (Over SSH / USB Network)
+
+To cleanly remove HarmonyNG software and restore stock Logitech binaries over SSH:
 
 ```bash
 # Using Python:
@@ -163,6 +178,7 @@ python elite/deploy_elite.py --ip 192.168.2.1 --factory-reset
 
 ---
 
+
 ## Appendix: Flash Storage Architecture & Memory Footprint
 
 > [!NOTE]
@@ -176,5 +192,5 @@ The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
 | `nand0,1` | `/data` | JFFS2/UBIFS | 64.0 MB | **~32 MB Free** | Generous writable partition. |
 | `nand0,2` | `/opt` | SquashFS/JFFS2 | 32.0 MB | ~8 MB Free | Stock Lua UI (`luadraws`) and HBUS binaries. |
 
-- `codex_elite` binary: **~718 KB**
+- `elite_ui` binary: **~718 KB**
 - Total HarmonyNG footprint on `/data`: **< 3 MB** out of 32 MB free space.
