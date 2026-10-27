@@ -63,10 +63,16 @@ static void execute_remote_reboot(void) {
     render_screen();
     log_power_debug("[*] System reboot initiated by user from Settings menu. Syncing and rebooting (-f)...\n");
     sync();
-    system("sync 2>/dev/null; reboot -f 2>/dev/null || (sleep 1; echo b > /proc/sysrq-trigger 2>/dev/null) &");
-    usleep(250000);
+    system("if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
+           "else killall -9 elite_watchdog.sh 2>/dev/null || true; "
+           "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; "
+           "sleep 1; "
+           "mount -o remount,ro /data 2>/dev/null || true; "
+           "/data/elite_sync 2>/dev/null || true; "
+           "(/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) & fi");
+    usleep(500000);
     reboot(RB_AUTOBOOT);
-    exit(0);
+    exit(1);
 }
 
 static void execute_elite_factory_reset(void) {
@@ -76,10 +82,10 @@ static void execute_elite_factory_reset(void) {
            "rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/elite_ui.log 2>/dev/null || true; "
            "if [ -f /data/factory_reset.sh ]; then /data/factory_reset.sh --confirm; "
            "elif [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-           "chmod 755 /etc/init.d/rcS.local; rm -f /data/elite_ui /data/dropbear*; sync; reboot -f; "
-           "else rm -f /etc/init.d/rcS.local /data/elite_ui /data/dropbear*; sync; reboot -f; fi &");
+           "chmod 755 /etc/init.d/rcS.local; rm -f /data/elite_ui /data/dropbear*; /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; /sbin/reboot -f 2>/dev/null || reboot -f; "
+           "else rm -f /etc/init.d/rcS.local /data/elite_ui /data/dropbear*; /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; /sbin/reboot -f 2>/dev/null || reboot -f; fi &");
     sleep(1);
-    exit(0);
+    exit(1);
 }
 
 void execute_settings_action(int idx) {

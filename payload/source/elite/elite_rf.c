@@ -279,11 +279,15 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
                 }
                 total += out_steps[count].delay_ms;
                 count++;
+                if (strcasecmp(out_steps[count - 1].name, "Activity switched") == 0 ||
+                    strcasecmp(out_steps[count - 1].name, "Switched") == 0) {
+                    break;
+                }
             }
         }
     }
 
-    if (total < 2000) total = 3500;
+    if (total < 1500) total = 2000;
     if (out_total_ms) *out_total_ms = total;
     return count;
 }

@@ -3,7 +3,7 @@
 # Automatic reboot recovery + USB Ethernet + Dropbear SSH
 
 sync_fs() {
-    sync 2>/dev/null || /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true
+    /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
 # 0. Early watchdog neuter and neuter stock binaries

@@ -299,7 +299,7 @@ void fb_set_blank(bool blank) {
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
-        clearpad_wake(sleep_sec >= 10);
+        clearpad_wake(sleep_sec >= 5);
         read_elite_battery();
         rf_wake_and_reconnect();
         g_screen_dirty = true;
@@ -586,27 +586,25 @@ void *power_manager(void *arg) {
             if (fpsrc) {
                 char psrc[16] = {0};
                 if (fscanf(fpsrc, "%15s", psrc) == 1) {
-                    bool was_charging = (strcmp(g_battery_info.powersource, "cradle") == 0 ||
-                                         strcmp(g_battery_info.powersource, "usb") == 0 ||
-                                         g_battery_info.charging);
-                    bool now_charging = (strcmp(psrc, "cradle") == 0 || strcmp(psrc, "usb") == 0);
+                    static char s_last_dock_psrc[16] = "";
+                    static uint64_t s_last_dock_wake_ms = 0;
+                    if (s_last_dock_psrc[0] == '\0') {
+                        strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
+                    }
+                    bool was_docked = (strcmp(s_last_dock_psrc, "cradle") == 0 || strcmp(s_last_dock_psrc, "usb") == 0);
+                    bool now_docked = (strcmp(psrc, "cradle") == 0 || strcmp(psrc, "usb") == 0);
 
-                    if (was_charging && !now_charging) {
-                        log_power_debug("[*] Dock disconnected (%s -> %s), waking display\n",
-                                        g_battery_info.powersource, psrc);
-                        printf("[*] Dock disconnected (%s -> %s), waking display\n",
-                               g_battery_info.powersource, psrc);
-                        s_last_batt_sample_ms = 0;
-                        read_elite_battery();
-                        g_wake_requested = 1;
-                    } else if (!was_charging && now_charging) {
-                        log_power_debug("[*] Dock connected (%s -> %s), waking display\n",
-                                        g_battery_info.powersource, psrc);
-                        printf("[*] Dock connected (%s -> %s), waking display\n",
-                               g_battery_info.powersource, psrc);
-                        s_last_batt_sample_ms = 0;
-                        read_elite_battery();
-                        g_wake_requested = 1;
+                    if (was_docked != now_docked) {
+                        uint64_t now_ms = get_monotonic_ms();
+                        if (now_ms - s_last_dock_wake_ms > 3000) {
+                            s_last_dock_wake_ms = now_ms;
+                            strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
+                            log_power_debug("[*] Dock state transition (%s -> %s), waking display\n",
+                                            was_docked ? "docked" : "battery", psrc);
+                            s_last_batt_sample_ms = 0;
+                            read_elite_battery();
+                            g_wake_requested = 1;
+                        }
                     }
                 }
                 fclose(fpsrc);

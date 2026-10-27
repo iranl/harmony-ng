@@ -50,5 +50,4 @@ rm -rf /data/elite_conf_p 2>/dev/null || true
 echo "[*] Syncing filesystems..."
 /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
 
-echo "[*] Rebooting into stock Logitech UI..."
-reboot -f
+/sbin/reboot -f 2>/dev/null || reboot -f

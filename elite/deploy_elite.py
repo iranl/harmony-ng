@@ -133,7 +133,7 @@ def main() -> None:
     # 2. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/safe_reboot.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
     if md5_res.returncode == 0 and md5_res.stdout:
         for line in md5_res.stdout.strip().splitlines():
             parts = line.strip().split()
@@ -154,30 +154,37 @@ def main() -> None:
         print(f"[*] Syncing /data/{watchdog_script.name} (MD5 check)...")
         deploy_file_if_changed(watchdog_script, f"/data/{watchdog_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
+    safe_reboot_script = SCRIPT_DIR / "safe_reboot.sh"
+    if safe_reboot_script.is_file():
+        print(f"[*] Syncing /data/{safe_reboot_script.name} (MD5 check)...")
+        deploy_file_if_changed(safe_reboot_script, f"/data/{safe_reboot_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
         print("[*] Syncing /etc/init.d/rcS.local (MD5 check)...")
         deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
     # 5. Set permissions and finalize
-    print("[*] Finalizing remote permissions...")
+    print("[*] Verifying system shell and flushing NAND flash buffers...")
     post = (
-        "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "if ! /bin/sh -c 'true' 2>/dev/null; then echo '[-] CRITICAL: /bin/sh verification failed. Aborting reboot!'; exit 1; fi; "
+        "chmod 755 /data/elite_* /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
         "[ -L /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "
         "[ -L /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; "
         "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/$a 2>/dev/null; done; fi; "
         "rm -f /cache/crashlog-*.json 2>/dev/null || true; "
-        "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; "
-        "if [ -x /data/elite_watchdog.sh ]; then ( /data/elite_watchdog.sh </dev/null >/tmp/elite_ui.log 2>&1 & ); else ( /data/elite_ui </dev/null >/tmp/elite_ui.log 2>&1 & ); fi; "
-        "sleep 1; pidof elite_ui || echo 'offline'"
+        "if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
+        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; "
+        "sleep 1; /data/elite_sync 2>/dev/null || true; sleep 2; mount -o remount,ro /data 2>/dev/null || true; /data/elite_sync 2>/dev/null || true; (/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) >/dev/null 2>&1 & fi"
     )
     final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
-    print(f"    elite_ui PID: {final_res.stdout.strip()}")
+    if final_res.stdout.strip():
+        print(f"    {final_res.stdout.strip()}")
 
     print()
-    print("[+] Deployment to Harmony Elite completed successfully!")
+    print("[+] Deployment complete! Elite Remote is rebooting safely.")
 
 
 if __name__ == "__main__":

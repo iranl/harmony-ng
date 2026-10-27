@@ -291,13 +291,13 @@ int main(int argc, char **argv) {
             FD_SET(g_btn_fd, &rfds);
             if (g_btn_fd > max_fd) max_fd = g_btn_fd;
         }
-        if (g_touch_fd >= 0 && g_screen_on) {
+        if (g_touch_fd >= 0) {
             FD_SET(g_touch_fd, &rfds);
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
         uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
         bool is_docked = is_elite_docked();
-        bool allow_gyro_wake = true;
+        bool allow_gyro_wake = !is_docked;
         if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
             FD_SET(g_gyro_fd, &rfds);
             if (g_gyro_fd > max_fd) max_fd = g_gyro_fd;
@@ -602,6 +602,12 @@ int main(int argc, char **argv) {
         if (g_touch_fd >= 0 && FD_ISSET(g_touch_fd, &rfds)) {
             struct input_event ev;
             while (read(g_touch_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                if (!g_screen_on) {
+                    reset_idle_timer();
+                    fb_set_blank(false);
+                    render_screen();
+                    continue;
+                }
                 if (ev.type == EV_KEY) {
                     if (ev.code == 102 || ev.code == 364) {
                         if (!g_cap_buttons_enabled) continue;
@@ -662,7 +668,8 @@ int main(int argc, char **argv) {
         if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
-            bool allow_gyro_wake = true;
+            bool is_docked = is_elite_docked();
+            bool allow_gyro_wake = !is_docked;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
                 reset_idle_timer();

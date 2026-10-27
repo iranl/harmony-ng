@@ -215,10 +215,15 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
                 g_is_ota_updating = false;
                 render_screen();
-                system("sync 2>/dev/null; reboot -f 2>/dev/null || (sleep 1; echo b > /proc/sysrq-trigger 2>/dev/null) &");
-                usleep(250000);
+                system("killall -9 elite_watchdog.sh 2>/dev/null || true; "
+                       "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; "
+                       "sleep 1; "
+                       "mount -o remount,ro /data 2>/dev/null || true; "
+                       "/data/elite_sync 2>/dev/null || true; "
+                       "(/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) &");
+                usleep(500000);
                 reboot(RB_AUTOBOOT);
-                exit(0);
+                exit(1);
             } else {
                 printf("[-] OTA ELF verification failed! Corrupted transfer.\n");
                 system("rm -rf /tmp/elite_ota_pkg /data/elite_ui.new /tmp/elite_ui.ota.gz 2>/dev/null || true");

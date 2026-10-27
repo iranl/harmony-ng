@@ -1,7 +1,7 @@
 #!/bin/sh
 
 sync_fs() {
-	sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || true
+	/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
 # 0. Neuter watchdog and luaworks immediately

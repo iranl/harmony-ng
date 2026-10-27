@@ -86,7 +86,7 @@ Write-Host "[*] Stopping existing runtime and stock processes (kill -9)..." -For
 $scpArgs = @("-O") + $sshArgs
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /data/factory_reset.sh /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/safe_reboot.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /data/factory_reset.sh /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -143,24 +143,30 @@ if (Test-Path $resetScript) {
     Deploy-EliteFileIfChanged -LocalFile $resetScript -RemoteFile "/data/factory_reset.sh" -Perm "755" | Out-Null
 }
 
+$safeRebootScript = Join-Path $ScriptDir "safe_reboot.sh"
+if (Test-Path $safeRebootScript) {
+    Write-Host "[*] Syncing /data/safe_reboot.sh (MD5 check)..." -ForegroundColor Yellow
+    Deploy-EliteFileIfChanged -LocalFile $safeRebootScript -RemoteFile "/data/safe_reboot.sh" -Perm "755" | Out-Null
+}
+
 $switchPng = Join-Path (Split-Path -Parent $ScriptDir) "payload\www\assets\icons\switch.png"
 if (Test-Path $switchPng) {
     & ssh @sshArgs $Target "mkdir -p /data/assets 2>/dev/null || true"
     Deploy-EliteFileIfChanged -LocalFile $switchPng -RemoteFile "/data/assets/switch.png" -Perm "644" | Out-Null
 }
 
-Write-Host "[*] Configuring permissions and starting elite_ui..." -ForegroundColor Yellow
-$postCmd = "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
+Write-Host "[*] Verifying system shell and flushing NAND flash buffers..." -ForegroundColor Yellow
+$postCmd = "if ! /bin/sh -c 'true' 2>/dev/null; then echo '[-] CRITICAL: /bin/sh verification failed. Aborting reboot!'; exit 1; fi; " +
+           "chmod 755 /data/elite_* /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
            "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; " +
            "[ -L /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; " +
            "[ -L /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; " +
            "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; " +
            "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/`$a 2>/dev/null; done; fi; " +
            "rm -f /cache/crashlog-*.json 2>/dev/null || true; " +
-           "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
-           "if [ -x /data/elite_watchdog.sh ]; then ( /data/elite_watchdog.sh </dev/null >/tmp/elite_ui.log 2>&1 & ); else ( /data/elite_ui </dev/null >/tmp/elite_ui.log 2>&1 & ); fi; " +
-           "sleep 1; pidof elite_ui || echo 'offline'"
+           "if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); " +
+           "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; " +
+           "sleep 1; /data/elite_sync 2>/dev/null || true; sleep 2; mount -o remount,ro /data 2>/dev/null || true; /data/elite_sync 2>/dev/null || true; (/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) >/dev/null 2>&1 & fi"
 
 $res = & ssh @sshArgs $Target $postCmd
-Write-Host "[+] Status: $res" -ForegroundColor Green
-Write-Host "[+] Elite deployment complete!" -ForegroundColor Cyan
+Write-Host "[+] Deployment complete! Elite Remote is rebooting safely." -ForegroundColor Green

@@ -50,15 +50,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
             if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
-                uint64_t elapsed = now_ms - g_switching_start_ms;
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
-                if (elapsed + 500 < g_switching_total_ms) {
-                    printf("[*] Hub confirmed activity switched to '%s' (%s) at %llums/%ums; continuing tail steps\n",
-                           act_name, act_id, (unsigned long long)elapsed, g_switching_total_ms);
-                    g_screen_dirty = true;
-                    break;
-                }
                 printf("[*] Hub confirmed switch complete to '%s' (%s), unlocking screen\n", act_name, act_id);
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;

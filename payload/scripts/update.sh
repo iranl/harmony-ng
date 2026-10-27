@@ -293,7 +293,7 @@ do_apply() {
   rm -rf "$TMPDIR" 2>/dev/null
 
   # 7. Sync filesystem
-  sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || true
+  /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 
   echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
   if [ -x /data/harmony/safe_reboot.sh ]; then

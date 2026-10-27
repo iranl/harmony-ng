@@ -50,7 +50,7 @@ while true; do
 
     NOW=$(date +%s 2>/dev/null || echo 0)
     echo "$(date) [WATCHDOG] $PROG died with exit code $EXIT_CODE (PID $PID). Restarting..." >> "$LOG_FILE" 2>/dev/null
-    sync 2>/dev/null || true
+    /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
 
     # Throttle rapid crash looping: count crashes in last 60 seconds
     NEW_TIMESTAMPS="$NOW"

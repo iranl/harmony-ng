@@ -159,12 +159,14 @@ build_elite() {
     mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
     echo "[-] Building elite_ui (ARM)..."
     "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/elite payload/source/elite/*.c payload/source/cJSON.c -o "$REPO_ROOT/elite/bin/elite_ui" -lpthread -lm
+    echo "[-] Building elite_sync (ARM)..."
+    "$ARM_CC" -static -Os -s -Wall payload/source/hub_sync.c -o "$REPO_ROOT/elite/bin/elite_sync"
     echo "[-] Packaging elite_ui.ota.gz (binary + scripts)..."
     mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
-    cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
-    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
+    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
     tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
-    cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 
