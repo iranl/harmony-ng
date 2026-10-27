@@ -36,7 +36,23 @@ export const APP_VERSION = '2.0.0';
 export let stockIconsAvailable = false;
 export let stockIconBaseUrl = '';
 export const failedIconUrls = new Set();
-const iconNameCache = new Map();
+
+export const STOCK_ICON_ALIASES = {
+  'watchtv.png': 'tv.png',
+  'smarttv.png': 'tv.png',
+  'watchtv': 'tv.png',
+  'smarttv': 'tv.png',
+  'movie.png': 'BAB09C4A-E61D-4284-B1F3-84135F562217_small.png',
+  'music.png': '72D0AAB4-2ED8-4644-84D2-0031BDAE356E_small.png',
+  'apple.png': '0F40F257-68C8-4F24-9561-3CB3441DA395_small.png',
+  'roku.png': '6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png',
+  'pc.png': 'computer.png',
+  'receiver.png': 'heos.png',
+  'light.png': 'bulb.png',
+  'poweroff.png': 'power_off.png',
+  'power.png': 'power_icon.png',
+  'generic.png': 'default.png'
+};
 
 export function setStockIconBaseUrl(url) {
   stockIconBaseUrl = (url || '').replace(/\/+$/, '');
@@ -326,6 +342,11 @@ export function getStockIconUrl(iconKey, hint = '') {
     else if (h.includes('switch') || h.includes('nintendo')) fn = 'switch.png';
   }
   if (!fn) return '';
+
+  const lowerFn = fn.toLowerCase();
+  if (STOCK_ICON_ALIASES[lowerFn]) {
+    fn = STOCK_ICON_ALIASES[lowerFn];
+  }
 
   // 1. Check local IndexedDB in-memory Blob URL cache first
   const cachedUrl = getCachedIconUrl(fn);

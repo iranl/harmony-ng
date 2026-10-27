@@ -192,6 +192,27 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
             snprintf(file_path, sizeof(file_path), "/cache/www%s", rel_path);
             if (access(file_path, F_OK) != 0 && strncmp(rel_path, "/assets/icons/", 14) == 0) {
                 snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s", rel_path + 14);
+                if (access(file_path, F_OK) != 0) {
+                    const char *ifn = rel_path + 14;
+                    const char *mapped = NULL;
+                    if (strcmp(ifn, "watchtv.png") == 0 || strcmp(ifn, "smarttv.png") == 0) mapped = "tv.png";
+                    else if (strcmp(ifn, "movie.png") == 0) mapped = "BAB09C4A-E61D-4284-B1F3-84135F562217_small.png";
+                    else if (strcmp(ifn, "music.png") == 0) mapped = "72D0AAB4-2ED8-4644-84D2-0031BDAE356E_small.png";
+                    else if (strcmp(ifn, "apple.png") == 0) mapped = "0F40F257-68C8-4F24-9561-3CB3441DA395_small.png";
+                    else if (strcmp(ifn, "roku.png") == 0) mapped = "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png";
+                    else if (strcmp(ifn, "pc.png") == 0) mapped = "computer.png";
+                    else if (strcmp(ifn, "receiver.png") == 0) mapped = "heos.png";
+                    else if (strcmp(ifn, "light.png") == 0) mapped = "bulb.png";
+                    else if (strcmp(ifn, "poweroff.png") == 0) mapped = "power_off.png";
+                    else if (strcmp(ifn, "generic.png") == 0) mapped = "default.png";
+
+                    if (mapped) {
+                        snprintf(file_path, sizeof(file_path), "/tmp/www/assets/icons/%s", mapped);
+                        if (access(file_path, F_OK) != 0) {
+                            snprintf(file_path, sizeof(file_path), "/cache/www/assets/icons/%s", mapped);
+                        }
+                    }
+                }
             }
         }
     }

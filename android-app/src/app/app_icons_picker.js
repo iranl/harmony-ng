@@ -53,6 +53,8 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppCore } from './app_core.js';
 
+const iconNameCache = new Map();
+
 export class HarmonyAppIconPicker extends HarmonyAppCore {
   async loadAvailableIcons(force = false) {
     if (!force && this.availableIcons && this.availableIcons.length > 0) return;
