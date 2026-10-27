@@ -156,6 +156,9 @@ void handle_screen_touch_tap(int x, int y) {
             g_settings_subview = SETTINGS_VIEW_UPDATE;
             g_selected_sub_item = 0;
             render_screen();
+        } else if (g_current_view == VIEW_DEVICE_BROWSER && x < 90) {
+            device_browser_back();
+            render_screen();
         }
         return;
     }
@@ -170,6 +173,13 @@ void handle_screen_touch_tap(int x, int y) {
                 g_current_view = VIEW_NOT_PAIRED;
             }
             printf("[*] Swipe (dx=%d) [unpaired lock] -> view %d\n", dx, g_current_view);
+            render_screen();
+            return;
+        }
+        if (g_current_view == VIEW_DEVICE_BROWSER) {
+            if (dx > 0) device_browser_back();
+            else g_current_view = VIEW_DEVICES;
+            printf("[*] Swipe (dx=%d) in device browser -> view %d\n", dx, g_current_view);
             render_screen();
             return;
         }
@@ -209,9 +219,11 @@ void handle_screen_touch_tap(int x, int y) {
                     else if (tot > 0) g_selected_device_cmd = tot - 1;
                 } else {
                     int cur_page = g_selected_activity / 4;
-                    if ((cur_page + 1) * 4 < g_activity_count) g_selected_activity = (cur_page + 1) * 4;
-                    else if (g_activity_count > 0) g_selected_activity = g_activity_count - 1;
+                    if ((cur_page + 1) * 4 < activity_list_count()) g_selected_activity = (cur_page + 1) * 4;
+                    else if (activity_list_count() > 0) g_selected_activity = activity_list_count() - 1;
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_page(1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int tot = get_active_dev_cmd_count();
                 int cur_page = g_selected_device_cmd / 6;
@@ -239,6 +251,8 @@ void handle_screen_touch_tap(int x, int y) {
                     if (cur_page > 0) g_selected_activity = (cur_page - 1) * 4;
                     else g_selected_activity = 0;
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_page(-1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int cur_page = g_selected_device_cmd / 6;
                 if (cur_page > 0) g_selected_device_cmd = (cur_page - 1) * 6;
@@ -320,45 +334,44 @@ void handle_screen_touch_tap(int x, int y) {
     if (!is_tap) return;
 
     int start_y = 38;
-    if (g_current_view == VIEW_ACTIVITIES) {
-        if (g_remote_mode == 1) {
-            int card_h = 34, spacing = 5, page_size = 6;
-            int page_start = (g_selected_device_cmd / page_size) * page_size;
-            int total = get_active_dev_cmd_count();
-            for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-                int cy = start_y + i * (card_h + spacing);
-                if (y >= cy && y < cy + card_h + spacing) {
-                    int idx = page_start + i;
-                    g_selected_device_cmd = idx;
-                    execute_active_dev_cmd(idx);
-                    render_screen();
-                    return;
-                }
-            }
-            return;
-        }
+    if (g_current_view == VIEW_ACTIVITIES && g_remote_mode != 1) {
         int card_h = 56, spacing = 4, page_size = 4;
         int page_start = (g_selected_activity / page_size) * page_size;
-        for (int i = 0; i < page_size && (page_start + i) < g_activity_count; i++) {
+        for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
             int cy = start_y + i * (card_h + spacing);
             if (y >= cy && y < cy + card_h + spacing) {
                 int idx = page_start + i;
                 g_selected_activity = idx;
+                if (idx == g_activity_count) {
+                    printf("[*] Touch selected Devices -> device browser\n");
+                    open_device_browser();
+                    render_screen();
+                    return;
+                }
                 printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
                 request_activity_switch_with_confirm(idx);
                 return;
             }
         }
-    } else if (g_current_view == VIEW_DEVICES) {
+    } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+        int page_start = (g_browse_sel / 6) * 6;
+        for (int i = 0; i < 6 && (page_start + i) < browser_item_count(); i++) {
+            int cy = start_y + i * (34 + 5);
+            if (y >= cy && y < cy + 34 + 5) {
+                device_browser_activate(page_start + i);
+                render_screen();
+                return;
+            }
+        }
+    } else if (g_current_view == VIEW_DEVICES || (g_current_view == VIEW_ACTIVITIES && g_remote_mode == 1)) {
         int card_h = 34, spacing = 5, page_size = 6;
         int page_start = (g_selected_device_cmd / page_size) * page_size;
         int total = get_active_dev_cmd_count();
         for (int i = 0; i < page_size && (page_start + i) < total; i++) {
             int cy = start_y + i * (card_h + spacing);
             if (y >= cy && y < cy + card_h + spacing) {
-                int idx = page_start + i;
-                g_selected_device_cmd = idx;
-                execute_active_dev_cmd(idx);
+                g_selected_device_cmd = page_start + i;
+                execute_active_dev_cmd(g_selected_device_cmd);
                 render_screen();
                 return;
             }
@@ -487,25 +500,14 @@ void handle_navigation_key(int code, int value) {
 
     switch (code) {
         case 78:  /* KEY_KPPLUS (RockerUp) */
-            if (g_current_view == VIEW_ACTIVITIES) {
-                if (g_remote_mode == 1) {
-                    int count = get_active_dev_cmd_count();
-                    if (count > 0) {
-                        if (g_selected_device_cmd > 0) g_selected_device_cmd--;
-                        else g_selected_device_cmd = count - 1;
-                    }
-                } else {
-                    if (g_activity_count > 0) {
-                        if (g_selected_activity > 0) g_selected_activity--;
-                        else g_selected_activity = g_activity_count - 1;
-                    }
-                }
-            } else if (g_current_view == VIEW_DEVICES) {
+            if (g_current_view == VIEW_DEVICES || (g_current_view == VIEW_ACTIVITIES && g_remote_mode == 1)) {
                 int count = get_active_dev_cmd_count();
-                if (count > 0) {
-                    if (g_selected_device_cmd > 0) g_selected_device_cmd--;
-                    else g_selected_device_cmd = count - 1;
-                }
+                if (count > 0) g_selected_device_cmd = (g_selected_device_cmd > 0) ? g_selected_device_cmd - 1 : count - 1;
+            } else if (g_current_view == VIEW_ACTIVITIES) {
+                int count = activity_list_count();
+                if (count > 0) g_selected_activity = (g_selected_activity > 0) ? g_selected_activity - 1 : count - 1;
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_move(-1);
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 5) % 6;
@@ -521,25 +523,14 @@ void handle_navigation_key(int code, int value) {
             break;
 
         case 74:  /* KEY_KPMINUS (RockerDown) */
-            if (g_current_view == VIEW_ACTIVITIES) {
-                if (g_remote_mode == 1) {
-                    int count = get_active_dev_cmd_count();
-                    if (count > 0) {
-                        if (g_selected_device_cmd < count - 1) g_selected_device_cmd++;
-                        else g_selected_device_cmd = 0;
-                    }
-                } else {
-                    if (g_activity_count > 0) {
-                        if (g_selected_activity < g_activity_count - 1) g_selected_activity++;
-                        else g_selected_activity = 0;
-                    }
-                }
-            } else if (g_current_view == VIEW_DEVICES) {
+            if (g_current_view == VIEW_DEVICES || (g_current_view == VIEW_ACTIVITIES && g_remote_mode == 1)) {
                 int count = get_active_dev_cmd_count();
-                if (count > 0) {
-                    if (g_selected_device_cmd < count - 1) g_selected_device_cmd++;
-                    else g_selected_device_cmd = 0;
-                }
+                if (count > 0) g_selected_device_cmd = (g_selected_device_cmd < count - 1) ? g_selected_device_cmd + 1 : 0;
+            } else if (g_current_view == VIEW_ACTIVITIES) {
+                int count = activity_list_count();
+                if (count > 0) g_selected_activity = (g_selected_activity < count - 1) ? g_selected_activity + 1 : 0;
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_move(1);
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 1) % 6;
@@ -585,7 +576,9 @@ void handle_navigation_key(int code, int value) {
                 render_screen();
                 break;
             }
-            if (g_current_view == VIEW_PAIRING) {
+            if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_back();
+            } else if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
@@ -641,7 +634,7 @@ void handle_navigation_key(int code, int value) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
                 g_selected_sub_item = 3;
-            } else if (g_current_view == VIEW_ACTIVITIES) {
+            } else if (g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICE_BROWSER) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
                 g_current_view = VIEW_SETTINGS;
@@ -703,10 +696,16 @@ void handle_navigation_key(int code, int value) {
                     execute_active_dev_cmd(g_selected_device_cmd);
                     render_screen();
                 } else {
-                    if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
+                    if (g_selected_activity == g_activity_count && g_rf_device_count > 0) {
+                        open_device_browser();
+                        render_screen();
+                    } else if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
                         request_activity_switch_with_confirm(g_selected_activity);
                     }
                 }
+            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_activate(g_browse_sel);
+                render_screen();
             } else if (g_current_view == VIEW_DEVICES) {
                 execute_active_dev_cmd(g_selected_device_cmd);
                 render_screen();
@@ -728,7 +727,9 @@ void handle_navigation_key(int code, int value) {
 
         case 158: /* KEY_BACK */
         case 202: /* KEY_PROG3 */
-            if (g_current_view == VIEW_PAIRING) {
+            if (g_current_view == VIEW_DEVICE_BROWSER) {
+                device_browser_back();
+            } else if (g_current_view == VIEW_PAIRING) {
                 if (g_unpair_confirm_active) {
                     g_unpair_confirm_active = false;
                 } else {

@@ -161,6 +161,7 @@ void rf_unpair(void) {
     g_activity_count = 0;
     g_rf_activity_count = 0;
     g_rf_device_count = 0;
+    g_rf_dev_cmd_count = 0;
     g_rf_button_count = 0;
     memset(g_activities, 0, sizeof(g_activities));
     memset(g_rf_activities, 0, sizeof(g_rf_activities));

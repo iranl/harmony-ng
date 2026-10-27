@@ -79,6 +79,7 @@ typedef enum {
     VIEW_SETTINGS,
     VIEW_PAIRING,
     VIEW_NOT_PAIRED,
+    VIEW_DEVICE_BROWSER, /* all Hub devices, then one device's commands */
     VIEW_COUNT
 } ui_view_t;
 
@@ -122,6 +123,14 @@ typedef struct {
     char id[13];
     char name[15];
 } rf_device_t;
+
+/* Device command names pushed by the Hub, for browsing devices on the remote */
+#define MAX_RF_DEV_CMDS 512
+typedef struct {
+    uint8_t dev_idx;  /* index into g_rf_devices */
+    uint8_t cmd_idx;  /* index into the device's commands on the Hub */
+    char name[23];
+} rf_dev_cmd_t;
 
 typedef struct {
     char context_id[13];  /* activity context ID, e.g. "53591842" or "-1" */
@@ -190,6 +199,11 @@ extern rf_activity_t g_rf_activities[MAX_RF_ACTIVITIES];
 extern int g_rf_activity_count;
 extern rf_device_t g_rf_devices[MAX_RF_DEVICES];
 extern int g_rf_device_count;
+extern rf_dev_cmd_t g_rf_dev_cmds[MAX_RF_DEV_CMDS];
+extern int g_rf_dev_cmd_count;
+extern int g_browse_dev;
+extern int g_browse_sel;
+void store_rf_dev_cmd(uint8_t dev_idx, uint8_t cmd_idx, const char *name);
 extern rf_button_t g_rf_buttons[MAX_RF_BUTTONS];
 extern int g_rf_button_count;
 extern rf_act_step_t g_rf_steps[MAX_RF_STEPS];

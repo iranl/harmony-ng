@@ -12,6 +12,15 @@
 #include <unistd.h>
 #include <pthread.h>
 
+/* Config frames are lost when the CC2544 NAKs a send; retry until the remote ACKs. */
+static int rf_send_config_frame(rf_frame_t *frame) {
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        if (rf_send_frame_acked(frame, 300) == 0) return 0;
+    }
+    printf("[-] No ACK for config frame type=0x%02X seq=%d after 3 attempts\n", frame->msg_type, frame->seq);
+    return -1;
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -63,7 +72,7 @@ void *config_push_worker(void *arg) {
         payload[0] = 0x00; /* clear */
         payload[1] = config_ver;
         rf_build_frame(&f, target_slot, RF_MSG_CONFIG_END, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 2);
-        rf_send_frame_acked(&f, 300);
+        rf_send_config_frame(&f);
     }
     usleep(20000);
 
@@ -146,7 +155,7 @@ void *config_push_worker(void *arg) {
                 strncpy((char *)&payload[11], acts[i].name, 14);
             }
             rf_build_frame(&f, target_slot, RF_MSG_ACTIVITY_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
@@ -156,6 +165,8 @@ void *config_push_worker(void *arg) {
         char id[13];
         char name[15];
     } devs[16];
+    cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
+    cJSON *dev_root = NULL;
     int dev_count = 0;
 
     FILE *fd = fopen("/data/harmony/config/devices.json", "r");
@@ -187,7 +198,7 @@ void *config_push_worker(void *arg) {
                             if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d_obj, "ContentProfileKey");
 
                             cJSON *jname = cJSON_GetObjectItemCaseSensitive(d_obj, "ParentDeviceModel");
-                            if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "Name");
+                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "Name"); /* also matches "name" in devices.json */
                             if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "Model");
                             if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d_obj, "FriendlyName");
 
@@ -201,12 +212,13 @@ void *config_push_worker(void *arg) {
                                     devs[dev_count].id[12] = '\0';
                                     strncpy(devs[dev_count].name, jname->valuestring, 14);
                                     devs[dev_count].name[14] = '\0';
+                                    dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
                                 }
                             }
                         }
                     }
-                    cJSON_Delete(root);
+                    dev_root = root;
                 }
             }
         }
@@ -222,10 +234,48 @@ void *config_push_worker(void *arg) {
             memcpy(&payload[2], devs[i].id, 10);
             memcpy(&payload[12], devs[i].name, 14);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
+
+    /* 3b. Device command names, for browsing devices on the remote. A remote without
+       device browsing drops these frames, so stop if the first one is never ACKed. */
+    int dev_cmd_count = 0;
+    for (int t = 0; t < num_targets; t++) {
+        uint8_t target_slot = target_slots[t];
+        dev_cmd_count = 0;
+        bool supported = true;
+        for (int i = 0; i < dev_count && supported; i++) {
+            if (!cJSON_IsArray(dev_cmds[i])) continue;
+            int total = cJSON_GetArraySize(dev_cmds[i]);
+            if (total > 255) total = 255;
+            int c = 0;
+            cJSON *cmd = NULL;
+            cJSON_ArrayForEach(cmd, dev_cmds[i]) {
+                if (c >= total) break;
+                cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
+                if (jn && cJSON_IsString(jn) && jn->valuestring[0]) {
+                    uint8_t payload[25] = {0};
+                    payload[0] = (uint8_t)i;
+                    payload[1] = (uint8_t)c;
+                    payload[2] = (uint8_t)total;
+                    strncpy((char *)&payload[3], jn->valuestring, 22);
+                    rf_build_frame(&f, target_slot, RF_MSG_DEVICE_CMD_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
+                    if (rf_send_config_frame(&f) == 0) {
+                        dev_cmd_count++;
+                    } else if (dev_cmd_count == 0) {
+                        printf("[-] Slot %d did not ACK device commands; remote has no device browsing\n", target_slot);
+                        supported = false;
+                        break;
+                    }
+                    usleep(15000);
+                }
+                c++;
+            }
+        }
+    }
+    cJSON_Delete(dev_root);
 
     /* 4. Buttons: Direct Mode vs Activity Mode per target slot */
     int btn_count = 0;
@@ -256,7 +306,7 @@ void *config_push_worker(void *arg) {
                             payload[24] = 0x01; /* device_cmd */
 
                             rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                            rf_send_frame_acked(&f, 300);
+                            rf_send_config_frame(&f);
                             btn_count++;
                             sidx++;
                             usleep(15000);
@@ -297,7 +347,7 @@ void *config_push_worker(void *arg) {
                                 payload[24] = 0x01; /* device_cmd */
 
                                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                rf_send_frame_acked(&f, 300);
+                                rf_send_config_frame(&f);
                                 btn_count++;
                                 sidx++;
                                 usleep(15000);
@@ -343,7 +393,7 @@ void *config_push_worker(void *arg) {
                                 payload[24] = atype;
 
                                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                rf_send_frame_acked(&f, 300);
+                                rf_send_config_frame(&f);
                                 btn_count++;
                                 b_idx++;
                                 usleep(15000);
@@ -363,7 +413,7 @@ void *config_push_worker(void *arg) {
                 payload[24] = 0x03; /* activity_stop */
 
                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                rf_send_frame_acked(&f, 300);
+                rf_send_config_frame(&f);
                 btn_count++;
                 usleep(15000);
             }
@@ -596,7 +646,7 @@ void *config_push_worker(void *arg) {
             strncpy((char *)&payload[14], act_steps[i].name, 11);
 
             rf_build_frame(&f, target_slot, RF_MSG_STEP_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
-            rf_send_frame_acked(&f, 300);
+            rf_send_config_frame(&f);
             usleep(15000);
         }
     }
@@ -679,11 +729,24 @@ void *config_push_worker(void *arg) {
         payload[0] = 0x01; /* complete */
         payload[1] = g_config_version;
         rf_build_frame(&f, target_slot, RF_MSG_CONFIG_END, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 2);
-        rf_send_frame_acked(&f, 300);
+        if (rf_send_config_frame(&f) == 0 && target_slot >= 1 && target_slot <= 2) {
+            /* The remote applies the config when it receives this frame, but it only sends
+               VERSION_REPORT on first link and every 24h, so record its new version here. */
+            int idx = target_slot - 1;
+            g_remote_versions[idx].config_version = payload[1];
+            char vpath[64];
+            snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", target_slot);
+            FILE *vf = fopen(vpath, "w");
+            if (vf) {
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
+                        target_slot, g_remote_versions[idx].sw_version, payload[1], (long)time(NULL));
+                fclose(vf);
+            }
+        }
     }
 
-    printf("[+] Config push complete (acts=%d devs=%d btns=%d steps=%d ver=%d)\n",
-           act_count, dev_count, btn_count, total_step_count, g_config_version);
+    printf("[+] Config push complete (acts=%d devs=%d dev_cmds=%d btns=%d steps=%d ver=%d)\n",
+           act_count, dev_count, dev_cmd_count, btn_count, total_step_count, g_config_version);
     unlink("/data/harmony/rf_sync_pending.flag");
     unlink("/data/harmony/rf_sync_pending_details.json");
 

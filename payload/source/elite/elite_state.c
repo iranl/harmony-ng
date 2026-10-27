@@ -33,6 +33,23 @@ rf_activity_t g_rf_activities[MAX_RF_ACTIVITIES];
 int g_rf_activity_count = 0;
 rf_device_t g_rf_devices[MAX_RF_DEVICES];
 int g_rf_device_count = 0;
+rf_dev_cmd_t g_rf_dev_cmds[MAX_RF_DEV_CMDS];
+int g_rf_dev_cmd_count = 0;
+int g_browse_dev = -1;
+int g_browse_sel = 0;
+
+/* Store or replace a command; a retried chunk must not add a duplicate */
+void store_rf_dev_cmd(uint8_t dev_idx, uint8_t cmd_idx, const char *name) {
+    int i = 0;
+    while (i < g_rf_dev_cmd_count &&
+           (g_rf_dev_cmds[i].dev_idx != dev_idx || g_rf_dev_cmds[i].cmd_idx != cmd_idx)) i++;
+    if (i >= MAX_RF_DEV_CMDS) return;
+    g_rf_dev_cmds[i].dev_idx = dev_idx;
+    g_rf_dev_cmds[i].cmd_idx = cmd_idx;
+    strncpy(g_rf_dev_cmds[i].name, name, sizeof(g_rf_dev_cmds[0].name) - 1);
+    g_rf_dev_cmds[i].name[sizeof(g_rf_dev_cmds[0].name) - 1] = '\0';
+    if (i == g_rf_dev_cmd_count) g_rf_dev_cmd_count++;
+}
 rf_button_t g_rf_buttons[MAX_RF_BUTTONS];
 int g_rf_button_count = 0;
 rf_act_step_t g_rf_steps[MAX_RF_STEPS];

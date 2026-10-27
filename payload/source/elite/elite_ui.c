@@ -32,6 +32,17 @@ void render_header(void) {
                         ((g_current_view == VIEW_DEVICES) ? (g_remote_mode == 1 ? "PAGE 2" : "DEVICES") :
                         ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" :
                         ((g_current_view == VIEW_NOT_PAIRED) ? "NOT PAIRED" : "SETTINGS")));
+    char browser_title[32];
+    if (g_current_view == VIEW_DEVICE_BROWSER) {
+        bool in_dev = (g_browse_dev >= 0 && g_browse_dev < g_rf_device_count);
+        snprintf(browser_title, sizeof(browser_title), "< %s", in_dev ? g_rf_devices[g_browse_dev].name : "DEVICES");
+        /* Keep the title clear of the RF badge at FB_WIDTH - 142 */
+        size_t len = strlen(browser_title);
+        while (len > 3 && fb_text_width_aa(browser_title, &g_font_title) > FB_WIDTH - 142 - 14) {
+            browser_title[--len] = '\0';
+        }
+        title = browser_title;
+    }
     fb_draw_text_aa(10, 9, title, RGB_WHITE, &g_font_title);
 
     if (g_update_config_available || g_update_ota_available) {
@@ -121,7 +132,8 @@ void render_footer(void) {
         int th = dock_h - 8;
         bool paired = is_remote_paired();
         bool is_disabled = !paired && (t == 0 || t == 1);
-        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING));
+        bool is_active_view = paired && ((g_current_view == (ui_view_t)t) || (t == 2 && g_current_view == VIEW_PAIRING) ||
+                                         (t == 0 && g_current_view == VIEW_DEVICE_BROWSER));
         if (!paired && t == 2 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) {
             is_active_view = true;
         }
@@ -247,6 +259,7 @@ void render_screen(void) {
             case VIEW_SETTINGS:   render_settings_screen();   break;
             case VIEW_PAIRING:    render_pairing_screen();    break;
             case VIEW_NOT_PAIRED: render_not_paired_screen(); break;
+            case VIEW_DEVICE_BROWSER: render_device_browser_view(); break;
             default: break;
         }
 

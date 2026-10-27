@@ -18,6 +18,10 @@
 #define RF_MSG_CONFIG_END          0x0F  /* Start/end config push (ACK'd) */
 #define RF_MSG_TIME_SYNC           0x10  /* Time & Timezone sync (epoch + tz) */
 #define RF_MSG_STEP_LIST_CHUNK     0x11  /* Activity sequence step + delay (ACK'd) */
+#define RF_MSG_DEVICE_CMD_CHUNK    0x12  /* One device command name (ACK'd) */
+
+/* Remote -> Hub (device browsing) */
+#define RF_MSG_DEVICE_CMD_INDEX    0x13  /* Send device command by index + name prefix */
 
 /* Remote -> Hub */
 #define RF_MSG_BUTTON_PRESS        0x14  /* Physical button event */
@@ -87,13 +91,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
     if (len >= 32 && raw[0] == RF_REPORT_ID && raw[2] == 0x12) {
         if ((raw[4] & 0xE0) == 0x40 || (raw[4] & 0xE0) == 0x60) {
             uint8_t t = raw[5];
-            return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
+            return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[4];
-        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
+        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
                (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);
@@ -101,13 +105,13 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
     if (len >= 30 && raw[0] == 0x12) {
         if ((raw[2] & 0xE0) == 0x40 || (raw[2] & 0xE0) == 0x60) {
             uint8_t t = raw[3];
-            return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
+            return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         uint8_t t = raw[2];
-        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_STEP_LIST_CHUNK) ||
+        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
                (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                (t == RF_MSG_ACK || t == RF_MSG_PING);

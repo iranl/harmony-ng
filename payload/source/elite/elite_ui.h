@@ -16,9 +16,19 @@ void render_switching_view(void);
 
 void render_activities_screen(void);
 void render_devices_screen(void);
+void render_device_browser_view(void);
 void render_settings_screen(void);
 void render_pairing_screen(void);
 void render_not_paired_screen(void);
+
+int activity_list_count(void);
+int browser_item_count(void);
+const rf_dev_cmd_t *browser_cmd(int n);
+void open_device_browser(void);
+void device_browser_back(void);
+void device_browser_move(int delta);
+void device_browser_page(int dir);
+void device_browser_activate(int n);
 
 void trigger_activity_switch(const char *target_id, const char *target_name);
 void trigger_activity_switch_external(const char *id, const char *name);

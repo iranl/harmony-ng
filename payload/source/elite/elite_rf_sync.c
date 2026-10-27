@@ -127,6 +127,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_sync_chunk_count = 0;
                 g_rf_activity_count = 0;
                 g_rf_device_count = 0;
+                g_rf_dev_cmd_count = 0;
                 g_rf_button_count = 0;
                 g_rf_step_count = 0;
                 init_act_triggers();
@@ -224,6 +225,25 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
             g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_DEVICE_CMD_CHUNK: {
+            /* [0] device index, [1] command index, [2] command total, [3..24] name */
+            if (!g_is_syncing_config) {
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+            }
+            g_sync_last_packet_ms = get_monotonic_ms();
+            g_sync_chunk_count++;
+            char cname[23] = {0};
+            memcpy(cname, &f->payload[3], 22);
+            if (f->payload[0] < MAX_RF_DEVICES && cname[0]) {
+                store_rf_dev_cmd(f->payload[0], f->payload[1], cname);
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
             break;
         }
 

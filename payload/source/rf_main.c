@@ -19,6 +19,62 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <time.h>
+#include "cJSON.h"
+
+/* RF_MSG_DEVICE_CMD_INDEX payload: [0..9] device id, [10] command index, [11..24] name prefix.
+   The index comes from the last config push; the name prefix guards against devices.json
+   having changed since then. */
+static void enqueue_browsed_device_cmd(const uint8_t *payload) {
+    char dev_id[11] = {0};
+    char prefix[15] = {0};
+    memcpy(dev_id, payload, 10);
+    int cmd_idx = payload[10];
+    memcpy(prefix, &payload[11], 14);
+
+    FILE *fd = fopen("/data/harmony/config/devices.json", "r");
+    if (!fd) return;
+    fseek(fd, 0, SEEK_END);
+    long sz = ftell(fd);
+    fseek(fd, 0, SEEK_SET);
+    char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
+    if (!buf) { fclose(fd); return; }
+    size_t n = fread(buf, 1, sz, fd);
+    buf[n] = '\0';
+    fclose(fd);
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) return;
+
+    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
+    const char *full_id = NULL;
+    const char *cmd_name = NULL;
+    cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs_arr) {
+        cJSON *jid = cJSON_GetObjectItem(dev, "id");
+        if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 10) != 0) continue;
+        full_id = jid->valuestring;
+        cJSON *cmds = cJSON_GetObjectItem(dev, "commands");
+        int c = 0;
+        cJSON *cmd = NULL;
+        cJSON_ArrayForEach(cmd, cmds) {
+            cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
+            if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 14) == 0) {
+                if (c == cmd_idx) { cmd_name = jn->valuestring; break; }
+                if (!cmd_name) cmd_name = jn->valuestring; /* index moved: first name match */
+            }
+            c++;
+        }
+        break;
+    }
+
+    if (full_id && cmd_name) {
+        printf("[*] Device browser command: dev=%s idx=%d -> %s\n", full_id, cmd_idx, cmd_name);
+        enqueue_elite_device_cmd(full_id, cmd_name);
+    } else {
+        printf("[-] Device browser command not found: dev=%s idx=%d name=%s\n", dev_id, cmd_idx, prefix);
+    }
+    cJSON_Delete(root);
+}
 
 void handle_rf_frame(const rf_frame_t *f) {
     if (f->dev_slot == 1 || f->dev_slot == 2) {
@@ -63,6 +119,10 @@ void handle_rf_frame(const rf_frame_t *f) {
             enqueue_elite_activity(act_id);
             break;
         }
+
+        case RF_MSG_DEVICE_CMD_INDEX:
+            enqueue_browsed_device_cmd(f->payload);
+            break;
 
         case RF_MSG_DEVICE_CMD_REQUEST: {
             uint8_t slot = (f->dev_slot & 0x0F);

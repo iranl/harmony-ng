@@ -346,6 +346,20 @@ void save_rf_config(void) {
         cJSON *d = cJSON_CreateObject();
         cJSON_AddStringToObject(d, "id", g_rf_devices[i].id);
         cJSON_AddStringToObject(d, "name", g_rf_devices[i].name);
+        int max_idx = -1;
+        for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+            if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx > max_idx) max_idx = g_rf_dev_cmds[c].cmd_idx;
+        }
+        if (max_idx >= 0) {
+            cJSON *cmds = cJSON_AddArrayToObject(d, "commands");
+            for (int k = 0; k <= max_idx; k++) {
+                const char *cname = "";
+                for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+                    if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx == k) { cname = g_rf_dev_cmds[c].name; break; }
+                }
+                cJSON_AddItemToArray(cmds, cJSON_CreateString(cname));
+            }
+        }
         cJSON_AddItemToArray(devs, d);
     }
 
@@ -435,6 +449,7 @@ void load_rf_config(void) {
 
     cJSON *devs = cJSON_GetObjectItem(root, "devices");
     g_rf_device_count = 0;
+    g_rf_dev_cmd_count = 0;
     if (devs && cJSON_IsArray(devs)) {
         cJSON *d = NULL;
         cJSON_ArrayForEach(d, devs) {
@@ -446,6 +461,13 @@ void load_rf_config(void) {
                 g_rf_devices[g_rf_device_count].id[12] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, 14);
                 g_rf_devices[g_rf_device_count].name[14] = '\0';
+                int k = 0;
+                cJSON *jc = NULL;
+                cJSON_ArrayForEach(jc, cJSON_GetObjectItem(d, "commands")) {
+                    if (k > 255) break;
+                    if (cJSON_IsString(jc) && jc->valuestring[0]) store_rf_dev_cmd(g_rf_device_count, k, jc->valuestring);
+                    k++;
+                }
                 g_rf_device_count++;
             }
         }
