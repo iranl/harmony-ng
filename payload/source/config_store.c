@@ -19,7 +19,7 @@ extern int g_dry_run;
 
 static cJSON *g_devices_json_cache = NULL;
 static cJSON *g_activities_json_cache = NULL;
-static pthread_mutex_t g_cfg_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_cfg_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 char *read_file_text(const char *path, size_t max_bytes) {
     if (!path) return NULL;
@@ -98,7 +98,7 @@ int config_store_init(void) {
         free(act_raw);
         if (g_activities_json_cache) {
             sanitize_activities_json(g_activities_json_cache);
-            migrate_activity_ids_to_short();
+            migrate_activity_ids_to_short(g_activities_json_cache);
         }
     }
     if (!g_activities_json_cache) {

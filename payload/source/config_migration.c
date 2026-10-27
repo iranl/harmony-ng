@@ -53,8 +53,7 @@ static void remap_activity_refs_in_json(cJSON *node, const struct id_pair *pairs
     }
 }
 
-void migrate_activity_ids_to_short(void) {
-    cJSON *root = config_store_get_activities_json();
+void migrate_activity_ids_to_short(cJSON *root) {
     if (!root) return;
 
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
