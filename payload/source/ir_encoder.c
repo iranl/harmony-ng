@@ -226,6 +226,39 @@ int ir_encode_pronto(const char *pronto_hex, uint8_t min_repeats, uint16_t pre_s
     return 0;
 }
 
+/* Appends a mark or space to an alternating mark/space timing list (marks at even
+ * indexes), merging it into the previous entry when that has the same level.
+ * A space before the first mark is idle line and is dropped. */
+static void timings_add(uint32_t *t, size_t *n, int is_mark, uint32_t us) {
+    if (*n == 0 && !is_mark) return;
+    if (*n > 0 && (((*n - 1) % 2 == 0) == (is_mark != 0))) {
+        t[*n - 1] += us;
+    } else {
+        t[(*n)++] = us;
+    }
+}
+
+static uint32_t timings_sum(const uint32_t *t, size_t n) {
+    uint32_t sum = 0;
+    for (size_t i = 0; i < n; i++) sum += t[i];
+    return sum;
+}
+
+/* Philips bi-phase bits, MSB first: 0 = mark then space, 1 = space then mark */
+static void timings_add_biphase(uint32_t *t, size_t *n, unsigned long val, int bits, uint32_t half_us) {
+    for (int b = bits - 1; b >= 0; b--) {
+        int one = (val >> b) & 1;
+        timings_add(t, n, !one, half_us);
+        timings_add(t, n, one, half_us);
+    }
+}
+
+/* Pads with space so the frame that started at segment_start_us lasts total_us */
+static void timings_pad_to(uint32_t *t, size_t *n, uint32_t segment_start_us, uint32_t total_us) {
+    uint32_t elapsed = timings_sum(t, *n) - segment_start_us;
+    if (elapsed < total_us) timings_add(t, n, 0, total_us - elapsed);
+}
+
 int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
                   uint8_t min_repeats, uint8_t **out_buf, size_t *out_len) {
     if (!timings_us || count == 0 || !out_buf || !out_len) return -1;
@@ -477,44 +510,28 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
             }
         }
         timings[timing_count++] = 25000; /* Trailing space: 25ms gap */
+    } else if (strstr(proto, "RC5Ex")) {
+        /* Philips RC5 extended ("0x<field,toggle,address>_1x<command,data>"): a start
+         * mark, 7 bits, a 3.5 ms gap, then 12 bits padded to 95.7 ms */
+        carrier_hz = 36000;
+        char *sep = NULL;
+        unsigned long address = strtoul(hex, &sep, 16);
+        if (*sep != '_' || !(sep = strchr(sep, 'x'))) return -3;
+        unsigned long command = strtoul(sep + 1, NULL, 16);
+        timings_add(timings, &timing_count, 1, 900);
+        timings_add_biphase(timings, &timing_count, address, 7, 900);
+        timings_add(timings, &timing_count, 0, 3515);
+        uint32_t command_start = timings_sum(timings, timing_count);
+        timings_add_biphase(timings, &timing_count, command, 12, 900);
+        timings_pad_to(timings, &timing_count, command_start, 95700);
     } else if (strstr(proto, "RC5") || strcasecmp(proto, "RC5") == 0) {
         carrier_hz = 36000;
-        const char *h = hex;
-        if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
-        unsigned long val = strtoul(h, NULL, 16);
-        /* Harmony "RC5 13 Bit" codes omit the first start bit, which is always 1 */
-        val |= 0x2000;
-        /* RC-5 Manchester encoding: 14 bits */
-        int half_bits[28];
-        for (int b = 0; b < 14; b++) {
-            int bit = (val >> (13 - b)) & 1;
-            if (bit) {
-                half_bits[b * 2] = 0;
-                half_bits[b * 2 + 1] = 1;
-            } else {
-                half_bits[b * 2] = 1;
-                half_bits[b * 2 + 1] = 0;
-            }
-        }
-        /* The start bit's first half is idle line; timings must begin with a pulse */
-        int cur_level = half_bits[1];
-        uint32_t cur_dur = 889;
-        for (int i = 2; i < 28; i++) {
-            if (half_bits[i] == cur_level) {
-                cur_dur += 889;
-            } else {
-                timings[timing_count++] = cur_dur;
-                cur_level = half_bits[i];
-                cur_dur = 889;
-            }
-        }
+        unsigned long val = strtoul(hex, NULL, 16);
+        /* Harmony "RC5 13 Bit" codes omit the first start bit, which is always 1;
+         * its first half is idle line, so the frame begins with a mark */
+        timings_add_biphase(timings, &timing_count, val | 0x2000, 14, 889);
         /* Pad the frame to the 113.8 ms RC-5 repeat period */
-        if (cur_level == 1) {
-            timings[timing_count++] = cur_dur;
-            timings[timing_count++] = 88900;
-        } else {
-            timings[timing_count++] = cur_dur + 88900;
-        }
+        timings_pad_to(timings, &timing_count, 0, 113792);
     } else {
         /* Standard NEC 32-bit / fallback */
         carrier_hz = 38000;
