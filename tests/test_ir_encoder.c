@@ -24,6 +24,8 @@ static const segment_t RC5 = { { 889 }, 13, { 889, -889 }, { -889, 889 }, { 0 },
 static const segment_t RC5EX = { { 900 }, 7, { 900, -900 }, { -900, 900 }, { -3515 }, 0 };
 static const segment_t RC5EX_1 = { { 0 }, 12, { 900, -900 }, { -900, 900 }, { 0 }, 95700 };
 static const segment_t SONY = { { 2400 }, 0, { -600, 600 }, { -600, 1200 }, { 0 }, 45000 };
+static const segment_t CAMBRIDGE = { { 9025, -4750 }, 32, { 525, -1740 }, { 525, -610 }, { 525, -41360 }, 0 };
+static const segment_t CAMBRIDGE_REPEAT = { { 9025, -2283 }, 0, { 0 }, { 0 }, { 525, -95419 }, 0 };
 
 typedef struct {
     int d[256];
@@ -126,6 +128,13 @@ int main(void) {
      * and receivers need the frame repeated (the keycode asks for 3) */
     check_frames("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 3);
     check_frames("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 3);
+
+    /* Apple TV: two frames once per press, then the repeat code */
+    wave_t start = { { 0 }, 0 }, repeat = { { 0 }, 0 };
+    wave_add_segment(&start, &CAMBRIDGE, 32, 0x881E057F);
+    wave_add_segment(&start, &CAMBRIDGE, 32, 0x881E5F7F);
+    wave_add_segment(&repeat, &CAMBRIDGE_REPEAT, 0, 0);
+    check("G:Cambridge 32 Bit Dual:(0x881E057F_0x881E5F7F)(Repeat)():3", 38000, &start, &repeat);
 
     printf("ALL IR ENCODER TESTS PASSED!\n");
     return 0;

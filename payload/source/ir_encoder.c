@@ -259,9 +259,34 @@ static void timings_pad_to(uint32_t *t, size_t *n, uint32_t segment_start_us, ui
     if (elapsed < total_us) timings_add(t, n, 0, total_us - elapsed);
 }
 
-int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
-                  uint8_t min_repeats, uint8_t **out_buf, size_t *out_len) {
-    if (!timings_us || count == 0 || !out_buf || !out_len) return -1;
+/* Writes one HAL timing sequence (word count, then mark/space words) and returns its offset */
+static uint16_t bb_append_sequence(byte_builder_t *bb, const uint32_t *timings_us, size_t count) {
+    uint16_t loc = (uint16_t)bb->len;
+    uint8_t zero_count[2] = {0, 0};
+    bb_append_bytes(bb, zero_count, 2);
+
+    uint16_t word_count = 0;
+    for (size_t i = 0; i < count; i++) {
+        int is_pulse = (i % 2 == 0);
+        int w = bb_append_duration(bb, timings_us[i], is_pulse);
+        if (w > 0) word_count += (uint16_t)w;
+    }
+    if (count % 2 != 0) {
+        /* Ends on pulse - append trailing silence to return IR line to idle level */
+        int w = bb_append_duration(bb, 40000, 0);
+        if (w > 0) word_count += (uint16_t)w;
+    }
+
+    write_be16(&bb->data[loc], word_count);
+    return loc;
+}
+
+/* Encodes a sequence sent once per press and a sequence repeated after it.
+ * Passing the same array for both makes the whole frame the repeat. */
+static int ir_encode_sequences(uint32_t freq_hz, const uint32_t *start_us, size_t start_count,
+                               const uint32_t *repeat_us, size_t repeat_count,
+                               uint8_t min_repeats, uint8_t **out_buf, size_t *out_len) {
+    if (!start_us || start_count == 0 || !repeat_us || repeat_count == 0 || !out_buf || !out_len) return -1;
 
     uint32_t period_ns = 26316; /* 38 kHz */
     if (freq_hz > 0) {
@@ -269,7 +294,7 @@ int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
     }
 
     byte_builder_t bb;
-    if (bb_init(&bb, count * 2 + IR_HEADER_SIZE + 32) != 0) return -1;
+    if (bb_init(&bb, (start_count + repeat_count) * 2 + IR_HEADER_SIZE + 32) != 0) return -1;
 
     uint8_t header[IR_HEADER_SIZE] = {0};
     header[0] = 0x01;
@@ -281,31 +306,22 @@ int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
 
     bb_append_bytes(&bb, header, IR_HEADER_SIZE);
 
-    uint16_t start_loc = (uint16_t)bb.len;
-    uint8_t zero_count[2] = {0, 0};
-    bb_append_bytes(&bb, zero_count, 2);
-
-    uint16_t word_count = 0;
-    for (size_t i = 0; i < count; i++) {
-        int is_pulse = (i % 2 == 0);
-        int w = bb_append_duration(&bb, timings_us[i], is_pulse);
-        if (w > 0) word_count += (uint16_t)w;
-    }
-    if (count % 2 != 0) {
-        /* Ends on pulse - append trailing silence to return IR line to idle level */
-        int w = bb_append_duration(&bb, 40000, 0);
-        if (w > 0) word_count += (uint16_t)w;
-    }
-
-    write_be16(&bb.data[start_loc], word_count);
+    uint16_t start_loc = bb_append_sequence(&bb, start_us, start_count);
+    uint16_t repeat_loc = start_loc;
+    if (repeat_us != start_us) repeat_loc = bb_append_sequence(&bb, repeat_us, repeat_count);
 
     write_be16(&bb.data[10], start_loc);
-    write_be16(&bb.data[12], start_loc);
+    write_be16(&bb.data[12], repeat_loc);
     write_be16(&bb.data[14], 0);
 
     *out_buf = bb.data;
     *out_len = bb.len;
     return 0;
+}
+
+int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
+                  uint8_t min_repeats, uint8_t **out_buf, size_t *out_len) {
+    return ir_encode_sequences(freq_hz, timings_us, count, timings_us, count, min_repeats, out_buf, out_len);
 }
 
 int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
@@ -515,6 +531,27 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
             }
             timings_pad_to(timings, &timing_count, frame_start, 45000);
         }
+    } else if (strstr(proto, "Cambridge 32 Bit Dual")) {
+        /* Two 32-bit frames ("0x<first>_0x<second>") sent once per press, MSB first
+         * with a long space for 0, then a short repeat code while the key is held */
+        carrier_hz = 38000;
+        char *sep = NULL;
+        unsigned long frames[2];
+        frames[0] = strtoul(hex, &sep, 16);
+        if (*sep != '_') return -3;
+        frames[1] = strtoul(sep + 1, NULL, 16);
+        for (int f = 0; f < 2; f++) {
+            timings_add(timings, &timing_count, 1, 9025);
+            timings_add(timings, &timing_count, 0, 4750);
+            for (int b = 31; b >= 0; b--) {
+                timings_add(timings, &timing_count, 1, 525);
+                timings_add(timings, &timing_count, 0, ((frames[f] >> b) & 1) ? 610 : 1740);
+            }
+            timings_add(timings, &timing_count, 1, 525);
+            timings_add(timings, &timing_count, 0, 41360);
+        }
+        const uint32_t repeat[] = { 9025, 2283, 525, 95419 };
+        return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, 4, parsed_repeats, out_buf, out_len);
     } else if (strstr(proto, "RC5Ex")) {
         /* Philips RC5 extended ("0x<field,toggle,address>_1x<command,data>"): a start
          * mark, 7 bits, a 3.5 ms gap, then 12 bits padded to 95.7 ms */
