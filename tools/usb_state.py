@@ -220,15 +220,32 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
         if check_firmware:
             try:
                 sysinfo = hid_instance.get_sysinfo()
-                sw_version = sysinfo.get("sw_version", "").strip()
+                sw_version = (
+                    sysinfo.get("fw_ver")
+                    or sysinfo.get("sw_version")
+                    or sysinfo.get("fw_version")
+                    or sysinfo.get("version")
+                    or ""
+                ).strip()
                 skin_str = str(sysinfo.get("skin", "99")).strip()
-                skin_id = int(skin_str) if skin_str.isdigit() else 99
+                if skin_str.startswith("0x") or skin_str.startswith("0X"):
+                    try:
+                        skin_id = int(skin_str, 16)
+                    except ValueError:
+                        skin_id = 99
+                elif skin_str.isdigit():
+                    skin_id = int(skin_str)
+                else:
+                    skin_id = 99
+
                 state.fw_version = sw_version if sw_version else None
                 state.fw_skin = skin_id
 
                 if state.fw_version:
                     from tools.harmony_firmware import query_latest_firmware
                     latest_res = query_latest_firmware(skin_id)
+                    if not latest_res or not latest_res.get("Id"):
+                        latest_res = query_latest_firmware(99)
                     if latest_res and latest_res.get("Id"):
                         state.fw_latest = latest_res["Id"]
                         state.fw_up_to_date = (state.fw_version == state.fw_latest)
@@ -370,7 +387,8 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
         print(f" Connection Mode:  [+] USB HID (Logitech 046D:{state.pid:04X})")
         print(f" Device Model:     {state.description}")
         if state.fw_version:
-            skin_name = "Elite 950 / Ultimate" if state.fw_skin == 99 else f"Skin {state.fw_skin}"
+            from tools.harmony_firmware import SKIN_NAMES
+            skin_name = SKIN_NAMES.get(state.fw_skin, f"Harmony Remote (Skin {state.fw_skin})")
             print(f" Hardware Skin:    {skin_name} (ID: {state.fw_skin})")
             print(f" Firmware Version: {state.fw_version}")
             if state.fw_latest:
@@ -428,9 +446,23 @@ def require_firmware_or_exit(hid, skin_default: int = 99) -> tuple[str, int]:
     """Retrieve firmware version over USB HID. Hard abort if retrieval fails."""
     try:
         sysinfo = hid.get_sysinfo()
-        sw_version = sysinfo.get("sw_version", "").strip()
+        sw_version = (
+            sysinfo.get("fw_ver")
+            or sysinfo.get("sw_version")
+            or sysinfo.get("fw_version")
+            or sysinfo.get("version")
+            or ""
+        ).strip()
         skin_str = str(sysinfo.get("skin", str(skin_default))).strip()
-        skin_id = int(skin_str) if skin_str.isdigit() else skin_default
+        if skin_str.startswith("0x") or skin_str.startswith("0X"):
+            try:
+                skin_id = int(skin_str, 16)
+            except ValueError:
+                skin_id = skin_default
+        elif skin_str.isdigit():
+            skin_id = int(skin_str)
+        else:
+            skin_id = skin_default
 
         if not sw_version:
             # Fallback direct read attempt
@@ -438,11 +470,14 @@ def require_firmware_or_exit(hid, skin_default: int = 99) -> tuple[str, int]:
             if raw:
                 text = raw.decode("utf-8", errors="replace")
                 for line in text.splitlines():
-                    if "sw_version" in line:
-                        parts = line.split(",", 1) if "," in line else line.split("=", 1)
+                    lower_line = line.lower()
+                    if "fw_ver" in lower_line or "sw_version" in lower_line or "version" in lower_line:
+                        parts = line.split(",", 1) if "," in line else (line.split("=", 1) if "=" in line else line.split(" ", 1))
                         if len(parts) == 2:
-                            sw_version = parts[1].strip()
-                            break
+                            val = parts[1].strip()
+                            if any(c.isdigit() for c in val):
+                                sw_version = val
+                                break
 
         if not sw_version:
             print("\n" + "!" * 70)

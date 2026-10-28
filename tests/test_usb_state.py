@@ -61,6 +61,17 @@ class TestUsbState(unittest.TestCase):
         self.assertEqual(fw, "4.15.330")
         self.assertEqual(skin, 99)
 
+    def test_require_firmware_fw_ver_and_hex_skin(self):
+        mock_hid = MagicMock()
+        mock_hid.get_sysinfo.return_value = {
+            "fw_ver": "4.15.330",
+            "skin": "0x6f",
+        }
+        fw, skin = require_firmware_or_exit(mock_hid)
+        self.assertEqual(fw, "4.15.330")
+        self.assertEqual(skin, 111)  # 0x6f == 111
+
+
     def test_require_firmware_fallback_read(self):
         mock_hid = MagicMock()
         mock_hid.get_sysinfo.return_value = {}
@@ -79,9 +90,10 @@ class TestUsbState(unittest.TestCase):
             require_firmware_or_exit(mock_hid)
         self.assertEqual(cm.exception.code, 1)
 
+    @patch("tools.harmony_hid.HarmonyHid.open", return_value=False)
     @patch("tools.usb_state._query_windows_state")
     @patch("tools.usb_state.probe_tcp")
-    def test_windows_driver_error_detection(self, mock_tcp, mock_win):
+    def test_windows_driver_error_detection(self, mock_tcp, mock_win, mock_hid_open):
         mock_tcp.return_value = False
         mock_win.return_value = (
             None,
@@ -101,9 +113,10 @@ class TestUsbState(unittest.TestCase):
             self.assertFalse(state.driver_ok)
             self.assertEqual(state.error_code, 28)
 
+    @patch("tools.harmony_hid.HarmonyHid.open", return_value=False)
     @patch("tools.usb_state._query_windows_state")
     @patch("tools.usb_state.probe_tcp")
-    def test_windows_ip_remediation_detection(self, mock_tcp, mock_win):
+    def test_windows_ip_remediation_detection(self, mock_tcp, mock_win, mock_hid_open):
         mock_tcp.return_value = False
         mock_win.return_value = (
             None,
@@ -124,6 +137,7 @@ class TestUsbState(unittest.TestCase):
             self.assertFalse(state.ip_valid)
             self.assertIn("192.168.2.2", state.remediation_cmd)
             self.assertIn("Ethernet 3", state.remediation_cmd)
+
 
 
 if __name__ == "__main__":

@@ -332,6 +332,10 @@ class WinHidDevice:
 
     def close(self) -> None:
         if self.handle and self.handle not in (INVALID_HANDLE_VALUE, -1):
+            try:
+                kernel32.CancelIo(self.handle)
+            except Exception:
+                pass
             kernel32.CloseHandle(self.handle)
             self.handle = 0
         if self.read_event and self.read_event not in (INVALID_HANDLE_VALUE, -1):
@@ -340,6 +344,7 @@ class WinHidDevice:
         if self.write_event and self.write_event not in (INVALID_HANDLE_VALUE, -1):
             kernel32.CloseHandle(self.write_event)
             self.write_event = 0
+
 
 
 def find_windows_device(target_pid: Optional[int] = None) -> Optional[str]:
@@ -780,7 +785,9 @@ class HarmonyHid:
             ev_r = kernel32.CreateEventW(None, True, False, None)
             ev_w = kernel32.CreateEventW(None, True, False, None)
             self.dev = WinHidDevice(h, ev_r, ev_w, path)
+            self.drain_input()
             return True
+
         elif sys.platform.startswith("linux"):
             path = find_linux_device(self.pid)
             if not path:
@@ -1082,10 +1089,15 @@ class HarmonyHid:
                         continue
                     info[k.strip()] = v.strip()
                 if info:
+                    if "fw_ver" in info and "sw_version" not in info:
+                        info["sw_version"] = info["fw_ver"]
+                    elif "sw_version" in info and "fw_ver" not in info:
+                        info["fw_ver"] = info["sw_version"]
                     return info
             except Exception:
                 continue
         return {}
+
 
     def reset_filesystem(self, timeout_ms: int = 5000) -> bool:
         """Reset USB file system state on device via cmd 0xFF 0x66."""

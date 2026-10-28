@@ -77,7 +77,7 @@ SKIN_NAMES = {
     105: "Harmony Ultimate Home Remote",
     106: "Harmony Hub (Creemore)",
     108: "Harmony Smart Keyboard Remote",
-    111: "Harmony Ultimate One Remote",
+    111: "Harmony Elite / Touch / Ultimate Remote",
     112: "Harmony 950 Remote",
     115: "Harmony Pro Hub (2400)",
     116: "Harmony Pro Remote (2400)",

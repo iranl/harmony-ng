@@ -260,7 +260,9 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         return False
 
     print("[*] Connecting to Harmony Remote over USB HID...")
+    time.sleep(0.3)
     hid = None
+
     for pid in (ELITE_PID, 0xC132):
         h = HarmonyHid(pid=pid)
         if h.open():
@@ -276,7 +278,8 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
     try:
         # 1. Mandatory firmware version check & display over USB HID
         current_fw, target_skin = require_firmware_or_exit(hid)
-        skin_name = "Harmony Elite 950 / Ultimate" if target_skin == 99 else f"Harmony Pro 2400 (Skin {target_skin})"
+        from tools.harmony_firmware import SKIN_NAMES
+        skin_name = SKIN_NAMES.get(target_skin, f"Harmony Remote (Skin {target_skin})")
         print(f"[*] Detected Remote Hardware: {skin_name}")
         print(f"[*] Current Firmware Version: {current_fw}")
 
@@ -289,7 +292,10 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                 flash_firmware,
             )
             res = query_latest_firmware(target_skin)
+            if not res or not res.get("Id"):
+                res = query_latest_firmware(99)
             if res and res.get("Id"):
+
                 latest_fw = res["Id"]
                 if current_fw != latest_fw:
                     print(f"\n[!] Elite Remote firmware is {current_fw}, but latest official firmware is {latest_fw}.")
@@ -824,7 +830,16 @@ def print_success(priv_path: pathlib.Path):
     print(f"    ssh -i {priv_path} root@{REMOTE_IP}")
     print(" or simply:")
     print(f"    ssh root@{REMOTE_IP}")
+    print()
+    print(" Next Step: Install HarmonyNG Custom Firmware & UI:")
+    if sys.platform == "win32":
+        print(f"    powershell .\\elite\\deploy_elite.ps1 -KeyPath {priv_path}")
+        print(" or via Python:")
+        print(f"    python elite/deploy_elite.py --key {priv_path}")
+    else:
+        print(f"    python elite/deploy_elite.py --key {priv_path}")
     print("=" * 70 + "\n")
+
 
 
 if __name__ == "__main__":
