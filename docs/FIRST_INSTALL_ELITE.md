@@ -43,23 +43,27 @@ cd harmony-ng
 > **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.330** for Elite / 950). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
 
 1. Connect the remote directly to your host PC via Micro-USB (bottom port).
-2. Run the automated all-in-one setup tool:
+2. Check USB connection and driver status at any time:
    ```bash
-   python tools/setup_remote.py
+   python elite/setup_remote.py --check-usb
+   ```
+3. Run the automated all-in-one setup tool:
+   ```bash
+   python elite/setup_remote.py
    ```
 
 The tool automatically:
-1. Connects to the remote over USB HID (`046D:C12B`).
-2. **Checks Firmware Version**: Queries `/sys/sysinfo` and compares with Logitech update servers. If the remote is not on latest v4.15.330, it prompts:
+1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
+2. **Validates Windows Driver & Host Static IP**: Confirms the host network adapter has IP `192.168.2.2/24` assigned, giving exact PowerShell commands if unconfigured.
+3. **Validates & Displays Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against official Logitech SUS servers. *(Failure to read firmware mode over USB HID safely halts execution).* If the remote is not on latest v4.15.330, it prompts:
    ```text
    [!] Elite Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
    [?] Download and install latest official firmware (4.15.330) first? (y/N):
    ```
    If confirmed, it downloads `elite_99_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
-3. Stages the self-extracting ARM Dropbear payload to `/sys/dropbear`.
-4. Arms persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
-5. Sends reboot signal to `/sys/reboot`.
-6. Remote boots with Dropbear SSH listening on `192.168.2.1:22`.
+4. **Dynamic Execution**: If already in USB Ethernet mode with HTTP/SSH active, it skips HID staging and proceeds directly to permanent installation. Otherwise, it stages the self-extracting Dropbear payload to `/sys/dropbear`, arms `/tde/enable`, and reboots into multi-user mode.
+5. **Post-Step Status**: Prints verified connection state upon completion.
+
 
 > [!TIP]
 > You can also check, download, or flash Elite firmware and extract UI icons at any time with the standalone tool:

@@ -34,6 +34,17 @@ REMOTE_USB_VID = 0x046D
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 
+if str(REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_DIR))
+
+from tools.usb_state import (
+    detect_remote_usb_state,
+    print_usb_state_banner,
+    require_firmware_or_exit,
+    UsbMode,
+    UsbState,
+)
+
 
 def find_candidate(candidates: list[pathlib.Path]) -> pathlib.Path:
     for c in candidates:
@@ -263,56 +274,52 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         return False
 
     try:
-        # 1. Firmware version check against official Logitech update servers
+        # 1. Mandatory firmware version check & display over USB HID
+        current_fw, target_skin = require_firmware_or_exit(hid)
+        skin_name = "Harmony Elite 950 / Ultimate" if target_skin == 99 else f"Harmony Pro 2400 (Skin {target_skin})"
+        print(f"[*] Detected Remote Hardware: {skin_name}")
+        print(f"[*] Current Firmware Version: {current_fw}")
+
         if not skip_fw_check:
-            print("[*] Checking Remote firmware version over USB HID...")
-            try:
-                sysinfo = hid.get_sysinfo()
-                current_fw = sysinfo.get("sw_version", "")
-                remote_skin = sysinfo.get("skin", 99)
-                target_skin = 116 if remote_skin == 116 else 99  # SUS skin IDs (99: Elite / Touch / Ultimate)
-                if current_fw:
-                    print(f"[*] Remote reports firmware version: {current_fw} (Skin: {remote_skin})")
-                    from tools.harmony_firmware import (
-                        query_latest_firmware,
-                        download_file,
-                        parse_hfw2_bundle,
-                        flash_firmware,
-                    )
-                    res = query_latest_firmware(target_skin)
-                    if res and res.get("Id"):
-                        latest_fw = res["Id"]
-                        if current_fw != latest_fw:
-                            print(f"\n[!] Elite Remote firmware is {current_fw}, but latest official firmware is {latest_fw}.")
-                            ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
-                            if ans.strip().lower() == "y":
-                                fw_dir = REPO_DIR / "firmware"
-                                fw_file = fw_dir / f"elite_{target_skin}_{latest_fw}.hfw2"
-                                if not fw_file.is_file():
-                                    if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
-                                        print("[-] Firmware download failed. Proceeding with current firmware...")
-                                if fw_file.is_file():
-                                    bundle = parse_hfw2_bundle(fw_file)
-                                    print("[*] Installing latest firmware over USB HID...")
-                                    hid.close()
-                                    if flash_firmware(bundle, target_device="elite", skip_confirm=True):
-                                        print("[*] Waiting 30s for Remote to complete reboot and flash...")
-                                        time.sleep(15)
-                                        t_reconnect = time.time() + 60
-                                        hid = HarmonyHid(pid=ELITE_PID)
-                                        while time.time() < t_reconnect:
-                                            if hid.open():
-                                                print("\n[+] Remote re-enumerated on USB after firmware upgrade!")
-                                                break
-                                            time.sleep(2)
-                                            print(".", end="", flush=True)
-                                        else:
-                                            print("\n[-] Timed out waiting for Remote to re-enumerate on USB after upgrade.")
-                                            sys.exit(1)
-                        else:
-                            print(f"[+] Remote is running the latest official firmware ({latest_fw}).")
-            except Exception as e:
-                print(f"[-] Firmware version check failed ({e}), continuing...")
+            print("[*] Checking official Logitech SUS update servers...")
+            from tools.harmony_firmware import (
+                query_latest_firmware,
+                download_file,
+                parse_hfw2_bundle,
+                flash_firmware,
+            )
+            res = query_latest_firmware(target_skin)
+            if res and res.get("Id"):
+                latest_fw = res["Id"]
+                if current_fw != latest_fw:
+                    print(f"\n[!] Elite Remote firmware is {current_fw}, but latest official firmware is {latest_fw}.")
+                    ans = input(f"[?] Download and install latest official firmware ({latest_fw}) first? (y/N): ")
+                    if ans.strip().lower() == "y":
+                        fw_dir = REPO_DIR / "firmware"
+                        fw_file = fw_dir / f"elite_{target_skin}_{latest_fw}.hfw2"
+                        if not fw_file.is_file():
+                            if not download_file(res["URI"], fw_file, progress_desc=f"Downloading {fw_file.name}"):
+                                print("[-] Firmware download failed. Proceeding with current firmware...")
+                        if fw_file.is_file():
+                            bundle = parse_hfw2_bundle(fw_file)
+                            print("[*] Installing latest firmware over USB HID...")
+                            hid.close()
+                            if flash_firmware(bundle, target_device="elite", skip_confirm=True):
+                                print("[*] Waiting 30s for Remote to complete reboot and flash...")
+                                time.sleep(15)
+                                t_reconnect = time.time() + 60
+                                hid = HarmonyHid(pid=ELITE_PID)
+                                while time.time() < t_reconnect:
+                                    if hid.open():
+                                        print("\n[+] Remote re-enumerated on USB after firmware upgrade!")
+                                        break
+                                    time.sleep(2)
+                                    print(".", end="", flush=True)
+                                else:
+                                    print("\n[-] Timed out waiting for Remote to re-enumerate on USB after upgrade.")
+                                    sys.exit(1)
+                else:
+                    print(f"[+] Remote is running the latest official firmware ({latest_fw}).")
 
         payload = build_payload(pubkey_str)
         print(f"[+] Self-extracting ARM Dropbear payload built: {len(payload):,} bytes")
@@ -658,9 +665,17 @@ def main():
     parser.add_argument("--step", type=int, choices=[1, 2], help="Run step 1 or 2 individually.")
     parser.add_argument("--key", type=pathlib.Path, default=DEFAULT_KEY_PATH, help="Path to SSH key.")
     parser.add_argument("--skip-fw-check", action="store_true", help="Skip checking for latest official Logitech firmware.")
+    parser.add_argument("--check-usb", "--status", dest="check_usb", action="store_true", help="Check and display USB HID / Ethernet / driver state and exit.")
     parser.add_argument("--factory-reset", action="store_true", help="Revert Harmony Elite to official stock firmware.")
     parser.add_argument("--no-screen", action="store_true", help="Install in no-screen mode (for remotes with broken screens).")
     args = parser.parse_args()
+
+    # Pre-execution USB & Network State Detection
+    pre_state = detect_remote_usb_state(check_firmware=True)
+    print_usb_state_banner(pre_state, label="CURRENT USB DEVICE & NETWORK STATE")
+
+    if args.check_usb:
+        sys.exit(0)
 
     print("=" * 70)
     print(" LOGITECH HARMONY ELITE / 950 - ALL-IN-ONE SETUP")
@@ -700,11 +715,15 @@ def main():
     pub_str = pub_path.read_text(encoding="utf-8").strip()
 
     if args.step == 1:
+        if pre_state.mode != UsbMode.USB_HID and pre_state.mode != UsbMode.DISCONNECTED:
+            print(f"[!] Note: Device currently in {pre_state.mode} mode, Step 1 will attempt USB HID staging.")
         if not step1_enable_usb_debug(pub_str, skip_fw_check=args.skip_fw_check):
             sys.exit(1)
         print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:22...")
         if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
             print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+            post_state = detect_remote_usb_state(check_firmware=False)
+            print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
             print_success(priv_path)
         else:
             print(f"\n[-] Timed out waiting for Dropbear SSH on {REMOTE_IP}:22.")
@@ -714,34 +733,69 @@ def main():
     if args.step == 2:
         if not probe_remote():
             print(f"[-] Cannot reach {REMOTE_IP}:{REMOTE_PORT}. Ensure USB Ethernet is enabled.")
+            if pre_state.remediation_cmd:
+                print(f"    Remediation: {pre_state.remediation_cmd}")
             sys.exit(1)
         if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
             sys.exit(1)
+        post_state = detect_remote_usb_state(check_firmware=False)
+        print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
         return
 
-    # Default: Run automated setup flow
-    if probe_tcp(REMOTE_IP, 22, timeout_s=0.5):
-        print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:22!")
-        print_success(priv_path)
-        return
+    # Dynamic Automated Execution based on USB State
+    if pre_state.mode == UsbMode.DISCONNECTED:
+        print("[-] Remote is not detected on USB bus.")
+        print("    Ensure remote is plugged in via direct Micro-USB cable (bottom port) and powered ON.")
+        sys.exit(1)
 
-    if probe_remote():
-        print(f"[+] Remote USB Ethernet already active at {REMOTE_IP}:{REMOTE_PORT}. Running Step 2...")
-        if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
-            print("[-] Step 2 failed.")
-        else:
+    if pre_state.mode == UsbMode.DRIVER_ERROR:
+        print("[-] Windows RNDIS driver error detected.")
+        print("    Please follow driver installation instructions above before continuing.")
+        sys.exit(1)
+
+    if pre_state.mode == UsbMode.USB_ETHERNET:
+        if not pre_state.ip_valid and pre_state.remediation_cmd:
+            print(f"[!] Warning: Host network adapter lacks static IP 192.168.2.2.")
+            print(f"    Action required: {pre_state.remediation_cmd}")
+
+        if probe_tcp(REMOTE_IP, 22, timeout_s=0.5):
+            print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:22!")
+            post_state = detect_remote_usb_state(check_firmware=False)
+            print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
             print_success(priv_path)
-        return
+            return
 
-    # Neither SSH nor HTTP active -> Stage Dropbear directly over USB HID and reboot
+        if probe_remote():
+            print(f"[+] Remote USB Ethernet active at {REMOTE_IP}:{REMOTE_PORT}. Running Step 2 directly...")
+            if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
+                print("[-] Step 2 failed.")
+                sys.exit(1)
+            post_state = detect_remote_usb_state(check_firmware=False)
+            print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
+            print_success(priv_path)
+            return
+
+    # In USB HID mode -> Stage Dropbear directly over USB HID and reboot
     if not step1_enable_usb_debug(pub_str, skip_fw_check=args.skip_fw_check):
         print("[-] USB HID staging failed. Aborting.")
         sys.exit(1)
 
-    print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:22 (up to 60s)...")
+    print("[*] Monitoring device reboot and USB Ethernet enumeration...")
+    t_end = time.time() + 60
+    while time.time() < t_end:
+        trans_state = detect_remote_usb_state(check_firmware=False)
+        if trans_state.mode in (UsbMode.USB_ETHERNET, UsbMode.DRIVER_ERROR):
+            print_usb_state_banner(trans_state, label="DEVICE TRANSITION DETECTED")
+            break
+        time.sleep(2)
+        print(".", end="", flush=True)
+
+    print(f"\n[*] Waiting for Dropbear SSH on {REMOTE_IP}:22 (up to 60s)...")
     if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+        post_state = detect_remote_usb_state(check_firmware=False)
+        print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
         return
 
@@ -750,6 +804,8 @@ def main():
     print("[*] Re-checking for SSH connection (press Ctrl+C to cancel)...")
     if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+        post_state = detect_remote_usb_state(check_firmware=False)
+        print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
         return
     sys.exit(1)
