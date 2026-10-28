@@ -167,6 +167,9 @@ int main(int argc, char **argv) {
         load_activities();
     }
     printf("[+] Loaded %d activities (has_hub_config=%d)\n", g_activity_count, g_has_hub_config);
+    if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
+        open_device_browser();
+    }
 
     if (!g_no_screen_mode) {
         g_fb_fd = open(FB_DEV, O_RDWR);
@@ -538,7 +541,7 @@ int main(int argc, char **argv) {
                             }
                         }
 
-                        if (matched_trig && g_remote_mode == 0) {
+                        if (matched_trig) {
                             if (ev.value == 1) {
                                 const char *target_id = matched_trig->target_act_id;
                                 if (matched_trig->atype == 0x03) target_id = "-1";

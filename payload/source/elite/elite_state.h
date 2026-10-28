@@ -174,7 +174,6 @@ typedef struct {
 /* Shared Globals */
 extern ui_view_t g_current_view;
 extern settings_subview_t g_settings_subview;
-extern int g_remote_mode;
 extern bool g_no_screen_mode;
 extern int g_log_level;
 
@@ -317,6 +316,7 @@ bool is_remote_paired(void);
 void reset_idle_timer(void);
 void show_notice(const char *msg, int duration_ms);
 void log_power_debug(const char *fmt, ...);
+bool has_configured_activities(void);
 int get_active_dev_cmd_count(void);
 int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len);
 

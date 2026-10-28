@@ -39,13 +39,6 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 memcpy(act_name, &f->payload[12], 14);
             }
 
-            if (g_remote_mode == 1) {
-                /* In direct mode, ignore activity sync popups */
-                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
-                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
-                break;
-            }
-
             uint64_t now_ms = get_monotonic_ms();
 
             /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
@@ -144,6 +137,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
                     strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
                     g_activity_count++;
+                }
+                if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
+                    open_device_browser();
                 }
                 g_screen_dirty = true;
             }
@@ -326,7 +322,6 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             g_nav_toggle_mode = f->payload[7];
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
-            if (f->payload[10] <= 1) g_remote_mode = f->payload[10];
 
             /* Extended settings fields */
             if (f->payload[11] > 0) g_gyro_rate_hz = f->payload[11];
@@ -349,9 +344,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d mode=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d pwrdbg=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d pwrdbg=%d\n",
                    g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
-                   g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity, g_remote_mode,
+                   g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode, g_power_debug);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -558,7 +553,11 @@ void *rf_rx_worker(void *arg) {
                 if (g_pairing_state == 1) {
                     g_pairing_state = 2;
                     if (g_current_view == VIEW_PAIRING) {
-                        g_current_view = VIEW_ACTIVITIES;
+                        if (has_configured_activities()) {
+                            g_current_view = VIEW_ACTIVITIES;
+                        } else {
+                            open_device_browser();
+                        }
                         render_screen();
                     }
                 } else if (g_pairing_state == 0) {

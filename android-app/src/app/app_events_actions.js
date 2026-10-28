@@ -237,7 +237,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const sc = document.getElementById('eliteScreenButtonsCard');
       if (aW) aW.style.display = isDev ? 'none' : 'block';
       if (dW) dW.style.display = isDev ? 'block' : 'none';
-      if (sc && this.eliteRemoteMode !== 1) sc.style.display = isDev ? 'none' : 'block';
+      if (sc) sc.style.display = isDev ? 'none' : 'block';
       this.updateEliteButtonStates();
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
     });
@@ -247,22 +247,6 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
     });
     document.getElementById('btnEliteAddScreenBtn')?.addEventListener('click', () => this.addEliteScreenButton());
-    document.getElementById('btnEliteDirectPage1')?.addEventListener('click', () => {
-      this.eliteDirectPage = 1;
-      const b1 = document.getElementById('btnEliteDirectPage1');
-      const b2 = document.getElementById('btnEliteDirectPage2');
-      if (b1) b1.className = 'btn btn-xs btn-primary';
-      if (b2) b2.className = 'btn btn-xs btn-ghost';
-      this.renderEliteScreenButtons();
-    });
-    document.getElementById('btnEliteDirectPage2')?.addEventListener('click', () => {
-      this.eliteDirectPage = 2;
-      const b1 = document.getElementById('btnEliteDirectPage1');
-      const b2 = document.getElementById('btnEliteDirectPage2');
-      if (b1) b1.className = 'btn btn-xs btn-ghost';
-      if (b2) b2.className = 'btn btn-xs btn-primary';
-      this.renderEliteScreenButtons();
-    });
     document.getElementById('eliteActionType')?.addEventListener('change', () => this.toggleEliteActionFields());
     document.getElementById('eliteTargetDevice')?.addEventListener('change', () => this.updateEliteCommandDropdown());
     document.getElementById('eliteApplyBtn')?.addEventListener('click', () => this.applyEliteMapping());

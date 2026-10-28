@@ -294,7 +294,7 @@ void *api_server_worker(void *arg) {
                             int nav_mode = jnm ? jnm->valueint : 1;
                             int confirm_act = (jca && (cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0))) ? 1 : 0;
                             int touch_sens = (jts && jts->valueint >= 1 && jts->valueint <= 3) ? jts->valueint : 2;
-                            int remote_mode = (jrm && jrm->valueint == 1) ? 1 : 0;
+                            int remote_mode = 0;
                             int gyro_rate = (jgr && jgr->valueint > 0) ? jgr->valueint : 25;
                             int btn_backlight = (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) ? jbb->valueint : 2;
                             int night_start = (jns && jns->valueint >= 0 && jns->valueint <= 23) ? jns->valueint : 22;

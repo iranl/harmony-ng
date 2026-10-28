@@ -25,7 +25,7 @@ static const char *get_nav_key_name(int key) {
 int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
-        case SETTINGS_VIEW_ACTIVITIES: return 4;
+        case SETTINGS_VIEW_ACTIVITIES: return 3;
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 4;
@@ -350,25 +350,22 @@ void render_settings_screen(void) {
             render_settings_categories();
             break;
         case SETTINGS_VIEW_ACTIVITIES: {
-            const char *labels[4] = { "Confirm Switch", "Remote Mode", "Sync Config from Hub", "< Back" };
-            char values[4][32];
+            const char *labels[3] = { "Confirm Switch", "Sync Config from Hub", "< Back" };
+            char values[3][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_confirm_activity ? "PROMPT" : "INSTANT");
-            snprintf(values[1], sizeof(values[1]), "[ %s ]", (g_remote_mode == 1) ? "DIRECT" : "ACTIVITY");
-            snprintf(values[2], sizeof(values[2]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
-            values[3][0] = '\0';
-            uint16_t cols[4] = {
+            snprintf(values[1], sizeof(values[1]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
+            values[2][0] = '\0';
+            uint16_t cols[3] = {
                 g_confirm_activity ? RGB_GREEN : RGB_TEXT_MUTED,
-                (g_remote_mode == 1) ? RGB_YELLOW : RGB_CYAN,
                 g_update_config_available ? RGB_YELLOW : RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[4] = {
+            const char *icons[3] = {
                 "/opt/luadraws/appscommon/asset/settings/checkmark.png",
-                "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("ACTIVITIES & MODES", 4, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("ACTIVITIES", 3, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {

@@ -52,12 +52,6 @@ static void cycle_touch_sensitivity(void) {
     save_settings_conf();
 }
 
-static void cycle_remote_mode(void) {
-    g_remote_mode = !g_remote_mode;
-    save_settings_conf();
-    rf_send_sync_query();
-}
-
 static void execute_remote_reboot(void) {
     show_notice("Rebooting Remote...", 4000);
     render_screen();
@@ -105,10 +99,6 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1:
-                cycle_remote_mode();
-                save_settings_conf();
-                break;
-            case 2:
                 if (!g_rf_link_connected) {
                     show_notice("Hub not connected", 2500);
                 } else {
@@ -116,7 +106,7 @@ void execute_settings_action(int idx) {
                     show_notice("Syncing config from Hub...", 3000);
                 }
                 break;
-            case 3:
+            case 2:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

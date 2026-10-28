@@ -16,7 +16,7 @@ void execute_active_dev_cmd(int filtered_idx) {
         } else if (atype == 3) {
             trigger_activity_switch("-1", "PowerOff");
         } else {
-            const char *ctx = (g_remote_mode == 1) ? ((g_current_view == VIEW_ACTIVITIES) ? "page1" : "page2") : g_active_activity_id;
+            const char *ctx = g_active_activity_id;
             rf_send_screen_button_press(ctx, btn_idx, label);
         }
     }

@@ -133,49 +133,13 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       }
     }
 
-    this.eliteRemoteMode = 0;
-    this.eliteDirectPage = 1;
-    this.eliteDirectData = { page1: [], page2: [], buttons: {} };
-
-    try {
-      const rfCfgResp = await fetch('/api/rf/remote-config?slot=1');
-      if (rfCfgResp.ok) {
-        const rc = await rfCfgResp.json();
-        this.eliteRemoteMode = rc.remote_mode || 0;
-      }
-    } catch (e) {
-      console.warn('Could not read remote mode:', e);
-    }
-
     const actCard = document.getElementById('eliteActivitySelectCard');
-    const directCard = document.getElementById('eliteDirectModeCard');
-    const pageTabs = document.getElementById('eliteDirectPageTabs');
     const screenTitle = document.getElementById('eliteScreenSectionTitle');
     const screenHelp = document.getElementById('eliteScreenSectionHelp');
 
-    if (this.eliteRemoteMode === 1) {
-      if (actCard) actCard.style.display = 'none';
-      if (directCard) directCard.style.display = 'block';
-      if (pageTabs) pageTabs.style.display = 'flex';
-      if (screenTitle) screenTitle.textContent = '3. On-Screen Direct Buttons (Page 1 & 2)';
-      if (screenHelp) screenHelp.textContent = 'Fixed buttons shown on the 2 pages of the Elite remote screen.';
-
-      try {
-        const dresp = await fetch('/api/rf/remote-direct-buttons?slot=1');
-        if (dresp.ok) {
-          const dj = await dresp.json();
-          if (dj) this.eliteDirectData = dj;
-        }
-      } catch (e) {
-        console.warn('Failed to load direct buttons:', e);
-      }
-    } else {
-      if (actCard) actCard.style.display = 'block';
-      if (directCard) directCard.style.display = 'none';
-      if (pageTabs) pageTabs.style.display = 'none';
-      if (screenTitle) screenTitle.textContent = '3. On-Screen "DEVICES" Touch Buttons';
-      if (screenHelp) screenHelp.textContent = 'Buttons shown on the Elite touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
-    }
+    if (actCard) actCard.style.display = 'block';
+    if (screenTitle) screenTitle.textContent = '3. On-Screen "DEVICES" Touch Buttons';
+    if (screenHelp) screenHelp.textContent = 'Buttons shown on the Elite touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
 
     try {
       const m = await this.client.getEliteMapping();
@@ -211,10 +175,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     if (modalActLbl) modalActLbl.textContent = actName;
 
     let mapping = null;
-    if (this.eliteRemoteMode === 1) {
-      mapping = this.eliteDirectData?.buttons?.[btnId];
-      if (modalActLbl) modalActLbl.textContent = 'Direct Mode';
-    } else if (this.eliteContextMode === 'device') {
+    if (this.eliteContextMode === 'device') {
       const devSel = document.getElementById('eliteDeviceSelect');
       const devId = this.eliteSelectedDeviceId || devSel?.value || (this.inventory.devices?.[0]?.id);
       const devName = devSel ? devSel.options[devSel.selectedIndex]?.text || devId : devId;
@@ -329,14 +290,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       };
     }
 
-    if (this.eliteRemoteMode === 1) {
-      if (!this.eliteDirectData.buttons) this.eliteDirectData.buttons = {};
-      if (type === 'none' || !mapObj) {
-        delete this.eliteDirectData.buttons[this.eliteSelectedBtn];
-      } else {
-        this.eliteDirectData.buttons[this.eliteSelectedBtn] = mapObj;
-      }
-    } else if (this.eliteContextMode === 'device') {
+    if (this.eliteContextMode === 'device') {
       const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
       if (devId) {
         if (!this.eliteMapData.devices) this.eliteMapData.devices = {};
@@ -364,11 +318,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   }
 
   clearEliteMapping() {
-    if (this.eliteRemoteMode === 1) {
-      if (this.eliteDirectData?.buttons) {
-        delete this.eliteDirectData.buttons[this.eliteSelectedBtn];
-      }
-    } else if (this.eliteContextMode === 'device') {
+    if (this.eliteContextMode === 'device') {
       const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
       if (devId && this.eliteMapData.devices?.[devId]) {
         delete this.eliteMapData.devices[devId][this.eliteSelectedBtn];
@@ -387,9 +337,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
 
   updateEliteButtonStates() {
     let actMap = {};
-    if (this.eliteRemoteMode === 1) {
-      actMap = this.eliteDirectData?.buttons || {};
-    } else if (this.eliteContextMode === 'device') {
+    if (this.eliteContextMode === 'device') {
       const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
       actMap = this.eliteMapData?.devices?.[devId] || {};
     } else {
@@ -412,21 +360,8 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const btn = document.getElementById('eliteSaveAllBtn');
     try {
       if (btn) btn.textContent = 'Saving...';
-      if (this.eliteRemoteMode === 1) {
-        const resp = await fetch('/api/rf/remote-direct-buttons?slot=1', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.eliteDirectData)
-        });
-        if (resp.ok) {
-          this.showToast('Harmony Elite direct buttons saved & pushed to remote!', 'success');
-        } else {
-          this.showToast('Failed to save direct buttons.', 'danger');
-        }
-      } else {
-        await this.client.saveEliteMapping(this.eliteMapData);
-        this.showToast('Harmony Elite mappings saved to Hub!', 'success');
-      }
+      await this.client.saveEliteMapping(this.eliteMapData);
+      this.showToast('Harmony Elite mappings saved to Hub!', 'success');
     } catch (err) {
       this.showToast('Save failed: ' + (err.message || err), 'danger');
     } finally {
@@ -509,24 +444,14 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const preview = document.getElementById('eliteScreenPreview');
     const devs = this.inventory.devices || [];
 
-    let sbtns;
-    if (this.eliteRemoteMode === 1) {
-      if (!this.eliteDirectData) this.eliteDirectData = { physical: {}, page1: [], page2: [] };
-      const pKey = this.eliteDirectPage === 2 ? 'page2' : 'page1';
-      if (!Array.isArray(this.eliteDirectData[pKey])) {
-        this.eliteDirectData[pKey] = [];
-      }
-      sbtns = this.eliteDirectData[pKey];
-    } else {
-      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
-      if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
-      if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
-      const actObj = this.eliteMapData.activities[actId];
-      if (!Array.isArray(actObj.screen_buttons)) {
-        actObj.screen_buttons = [];
-      }
-      sbtns = actObj.screen_buttons;
+    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
+    if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
+    if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
+    const actObj = this.eliteMapData.activities[actId];
+    if (!Array.isArray(actObj.screen_buttons)) {
+      actObj.screen_buttons = [];
     }
+    const sbtns = actObj.screen_buttons;
 
     // Update screen preview inside the vector remote visual
     if (preview) {
@@ -554,9 +479,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     // Update screen buttons list editor
     if (!sbtnsList) return;
     if (sbtns.length === 0) {
-      const msg = this.eliteRemoteMode === 1
-        ? `No touch buttons configured for ${this.eliteDirectPage === 2 ? 'Page 2' : 'Page 1'} yet. Click "+ Add Screen Button" above.`
-        : `No touch buttons configured for this activity yet. Click "+ Add Screen Button" above.`;
+      const msg = `No touch buttons configured for this activity yet. Click "+ Add Screen Button" above.`;
       sbtnsList.innerHTML = `<div class="subtle" style="font-size: 13px; padding: 8px 0;">${msg}</div>`;
       return;
     }
@@ -646,24 +569,14 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   }
 
   addEliteScreenButton() {
-    let sbtns;
-    if (this.eliteRemoteMode === 1) {
-      if (!this.eliteDirectData) this.eliteDirectData = { physical: {}, page1: [], page2: [] };
-      const pKey = this.eliteDirectPage === 2 ? 'page2' : 'page1';
-      if (!Array.isArray(this.eliteDirectData[pKey])) {
-        this.eliteDirectData[pKey] = [];
-      }
-      sbtns = this.eliteDirectData[pKey];
-    } else {
-      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
-      if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
-      if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
-      const actObj = this.eliteMapData.activities[actId];
-      if (!Array.isArray(actObj.screen_buttons)) {
-        actObj.screen_buttons = [];
-      }
-      sbtns = actObj.screen_buttons;
+    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
+    if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
+    if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
+    const actObj = this.eliteMapData.activities[actId];
+    if (!Array.isArray(actObj.screen_buttons)) {
+      actObj.screen_buttons = [];
     }
+    const sbtns = actObj.screen_buttons;
 
     if (sbtns.length >= 48) {
       return alert(t("max_screen_buttons"));

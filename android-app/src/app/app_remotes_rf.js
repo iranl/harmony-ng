@@ -256,11 +256,10 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         const touchSens = cfg.touch_sensitivity || cfg.touchSensitivity || 2;
         document.getElementById('rfCfgTouchSens').value = String(touchSens);
 
-        let remoteMode = typeof cfg.remote_mode !== 'undefined' ? cfg.remote_mode : (cfg.remoteMode || 0);
-        if (cfg.no_screen || cfg.noScreen) {
-          remoteMode = 2;
+        const noScreenVal = cfg.no_screen || cfg.noScreen ? 1 : 0;
+        if (document.getElementById('rfCfgNoScreen')) {
+          document.getElementById('rfCfgNoScreen').value = String(noScreenVal);
         }
-        document.getElementById('rfCfgRemoteMode').value = String(remoteMode);
 
         const navKey = cfg.nav_key || cfg.navToggleKey || 139;
         document.getElementById('rfCfgNavKey').value = String(navKey);
@@ -315,7 +314,6 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const touch = parseInt(document.getElementById('rfCfgTouch')?.value || '1', 10);
     const cap_buttons = parseInt(document.getElementById('rfCfgCapButtons')?.value || '1', 10);
     const touch_sensitivity = parseInt(document.getElementById('rfCfgTouchSens')?.value || '2', 10);
-    let remote_mode = parseInt(document.getElementById('rfCfgRemoteMode')?.value || '0', 10);
     const nav_key = parseInt(document.getElementById('rfCfgNavKey')?.value || '139', 10);
     const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '1', 10);
     const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '1', 10);
@@ -328,8 +326,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const usbeth = parseInt(document.getElementById('rfCfgUsbEth')?.value || '0', 10);
     const power_debug = parseInt(document.getElementById('rfCfgPowerDebug')?.value || '0', 10);
 
-    let no_screen = 0;
-    if (remote_mode === 2) {
+    let no_screen = parseInt(document.getElementById('rfCfgNoScreen')?.value || '0', 10);
+    if (no_screen === 1) {
       const confirm1 = await showConfirm(
         t('confirm_no_screen_1'),
         { title: t('title_enable_no_screen'), okText: t('btn_understand_continue'), danger: true }
@@ -340,8 +338,6 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         { title: t('title_confirm_black_screen'), okText: t('btn_yes_disable_screen'), danger: true }
       );
       if (!confirm2) return;
-      no_screen = 1;
-      remote_mode = 0;
     }
 
     const payload = {
@@ -354,8 +350,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       capButtonsEnabled: cap_buttons === 1,
       touch_sensitivity: touch_sensitivity,
       touchSensitivity: touch_sensitivity,
-      remote_mode: remote_mode,
-      remoteMode: remote_mode,
+      remote_mode: 0,
+      remoteMode: 0,
       nav_key: nav_key,
       navToggleKey: nav_key,
       nav_mode: nav_mode,

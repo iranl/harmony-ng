@@ -63,21 +63,8 @@ cJSON *get_elite_map(void) {
 }
 
 int is_slot_direct_mode(uint8_t slot) {
-    if (slot < 1 || slot > 2) slot = 1;
-    char path[128];
-    snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
-    FILE *f = fopen(path, "r");
-    if (!f) return 0;
-    char buf[4096] = {0};
-    size_t rn = fread(buf, 1, sizeof(buf) - 1, f);
-    buf[rn] = '\0';
-    fclose(f);
-    cJSON *root = cJSON_Parse(buf);
-    if (!root) return 0;
-    cJSON *rm = cJSON_GetObjectItem(root, "remoteMode");
-    int direct = (rm && rm->valueint == 1) ? 1 : 0;
-    cJSON_Delete(root);
-    return direct;
+    (void)slot;
+    return 0;
 }
 
 cJSON *get_elite_direct_map(int slot) {
@@ -188,32 +175,6 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
                 }
             }
             fclose(fd);
-        }
-        return;
-    }
-
-    /* If remote is in Direct Device Mode, look up in direct buttons */
-    if (is_slot_direct_mode(slot)) {
-        cJSON *dmap = get_elite_direct_map(slot);
-        if (dmap) {
-            cJSON *btns = cJSON_GetObjectItem(dmap, "buttons");
-            if (btns && cJSON_IsObject(btns)) {
-                cJSON *b = cJSON_GetObjectItem(btns, button_name);
-                if (b && cJSON_IsObject(b)) {
-                    cJSON *jdev = cJSON_GetObjectItem(b, "deviceId");
-                    if (!jdev) jdev = cJSON_GetObjectItem(b, "targetDevice");
-                    cJSON *jcmd = cJSON_GetObjectItem(b, "command");
-                    if (jdev && jcmd && jdev->valuestring && jcmd->valuestring) {
-                        char body[256];
-                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                                 jdev->valuestring, jcmd->valuestring);
-                        printf("[*] RF Dispatch Direct Button: %s -> dev=%s cmd=%s\n",
-                               button_name, jdev->valuestring, jcmd->valuestring);
-                        http_post_local(WEBUI_PORT, "/api/ir-send", body);
-                    }
-                }
-            }
-            cJSON_Delete(dmap);
         }
         return;
     }

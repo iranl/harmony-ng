@@ -711,7 +711,6 @@ void *config_push_worker(void *arg) {
                 if (jnm) nav_mode = jnm->valueint;
                 if (jca) confirm_act = cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0) ? 1 : 0;
                 if (jts && jts->valueint >= 1 && jts->valueint <= 3) touch_sens = jts->valueint;
-                if (jrm && jrm->valueint == 1) remote_mode = 1;
                 if (jgr && jgr->valueint > 0) gyro_rate = jgr->valueint;
                 if (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) btn_backlight = jbb->valueint;
                 if (jns && jns->valueint >= 0 && jns->valueint <= 23) night_start = jns->valueint;

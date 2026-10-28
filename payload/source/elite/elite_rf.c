@@ -327,7 +327,7 @@ void send_remote_config_backup_rf(void) {
     payload[7] = (uint8_t)(g_confirm_activity ? 1 : 0);
     payload[8] = (uint8_t)g_config_version;
     payload[9] = (uint8_t)g_touch_sensitivity;
-    payload[10] = (uint8_t)g_remote_mode;
+    payload[10] = 0; /* remote_mode: always 0 = activity mode */
     payload[11] = (uint8_t)(g_gyro_enabled ? 1 : 0);
     payload[12] = (uint8_t)g_gyro_rate_hz;
     payload[13] = (uint8_t)g_btn_backlight_mode;

@@ -2536,11 +2536,10 @@
                 </select>
               </div>
               <div>
-                <label for="rfCfgRemoteMode">Remote Operating Mode</label>
-                <select id="rfCfgRemoteMode" class="form-control">
-                  <option value="0" selected>Activity Mode (Default - synced activities &amp; dynamic buttons)</option>
-                  <option value="1">Direct Device Mode (No activities - 2 fixed button pages)</option>
-                  <option value="2">No-Screen Mode (Headless - screen/touch/gyro disabled)</option>
+                <label for="rfCfgNoScreen">Headless / No-Screen Mode</label>
+                <select id="rfCfgNoScreen" class="form-control">
+                  <option value="0" selected>Disabled (Normal Screen)</option>
+                  <option value="1">Enabled (Headless - screen/touch/gyro disabled)</option>
                 </select>
               </div>
             </div>
@@ -2691,19 +2690,6 @@
             <button type="button" id="rfConfigSaveBtn" class="btn btn-sm btn-primary" data-i18n="save_push_remote">Save
               & Push to Remote</button>
           </div>
-        </div>
-      </div>
-
-      <!-- Direct Mode Banner (visible in direct mode) -->
-      <div class="card" id="eliteDirectModeCard"
-        style="margin-bottom: 14px; display: none; background: rgba(58, 134, 255, 0.1); border-left: 4px solid var(--accent);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h3 style="font-size: 15px; margin: 0; color: var(--accent);">Direct Device Mode Active</h3>
-            <div class="help" style="margin-top: 4px;">Activities disabled on remote. Physical keys perform fixed
-              actions and screen offers 2 fixed button pages.</div>
-          </div>
-          <span class="badge ok">DIRECT</span>
         </div>
       </div>
 
@@ -2937,13 +2923,6 @@
               </div>
               <button id="btnEliteAddScreenBtn" type="button" class="btn btn-xs btn-primary"
                 data-i18n="add_screen_button">+ Add Screen Button</button>
-            </div>
-            <!-- Page Selector Tabs for Direct Mode -->
-            <div id="eliteDirectPageTabs" style="display: none; margin-top: 8px; gap: 8px;">
-              <button type="button" id="btnEliteDirectPage1" class="btn btn-xs btn-primary"
-                data-i18n="page_1_buttons">Page 1 Buttons</button>
-              <button type="button" id="btnEliteDirectPage2" class="btn btn-xs btn-ghost"
-                data-i18n="page_2_buttons">Page 2 Buttons</button>
             </div>
             <div id="eliteScreenButtonsList" style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
               <!-- Dynamically populated per activity -->

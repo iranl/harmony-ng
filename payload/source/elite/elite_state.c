@@ -3,7 +3,6 @@
 /* UI Views & Remote Modes */
 ui_view_t g_current_view = VIEW_ACTIVITIES;
 settings_subview_t g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-int g_remote_mode = 0;         /* 0 = Activities, 1 = Direct Device Mode */
 bool g_no_screen_mode = false;
 int g_log_level = LOG_LEVEL_INFO;
 
@@ -207,14 +206,20 @@ void log_power_debug(const char *fmt, ...) {
     pthread_mutex_unlock(&g_power_log_mutex);
 }
 
+bool has_configured_activities(void) {
+    for (int i = 0; i < g_activity_count; i++) {
+        if (strcmp(g_activities[i].id, "-1") != 0 && g_activities[i].id[0] != '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
 int get_active_dev_cmd_count(void) {
     if (!g_has_hub_config || g_rf_button_count == 0) {
         return 0;
     }
     const char *target_ctx = g_active_activity_id;
-    if (g_remote_mode == 1) {
-        target_ctx = (g_current_view == VIEW_ACTIVITIES) ? "page1" : "page2";
-    }
     int count = 0;
     for (int i = 0; i < g_rf_button_count; i++) {
         if (g_rf_buttons[i].context_type != 0x01) {
@@ -232,9 +237,6 @@ int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len,
         return -1;
     }
     const char *target_ctx = g_active_activity_id;
-    if (g_remote_mode == 1) {
-        target_ctx = (g_current_view == VIEW_ACTIVITIES) ? "page1" : "page2";
-    }
     int cur = 0;
     for (int i = 0; i < g_rf_button_count; i++) {
         if (g_rf_buttons[i].context_type != 0x01) {

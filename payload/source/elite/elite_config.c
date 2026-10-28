@@ -599,7 +599,6 @@ void load_settings_conf(void) {
             if (strcmp(key, "touch") == 0) g_touch_enabled = (val != 0);
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
-            else if (strcmp(key, "remote_mode") == 0) g_remote_mode = (val == 1) ? 1 : 0;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
             else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = (val > 0) ? val : 25;
             else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = val;
@@ -642,7 +641,6 @@ void save_settings_conf(void) {
     fprintf(f, "touch=%d\n", g_touch_enabled ? 1 : 0);
     fprintf(f, "cap_buttons=%d\n", g_cap_buttons_enabled ? 1 : 0);
     fprintf(f, "touch_sens=%d\n", g_touch_sensitivity);
-    fprintf(f, "remote_mode=%d\n", g_remote_mode);
     fprintf(f, "gyro=%d\n", g_gyro_enabled ? 1 : 0);
     fprintf(f, "gyro_rate=%d\n", g_gyro_rate_hz);
     fprintf(f, "btn_backlight=%d\n", g_btn_backlight_mode);

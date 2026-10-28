@@ -125,9 +125,8 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     int ts = (p[9] >= 1 && p[9] <= 3) ? p[9] : 2;
     cJSON_AddNumberToObject(root, "touchSensitivity", ts);
     cJSON_AddNumberToObject(root, "touch_sensitivity", ts);
-    int rm = p[10] == 1 ? 1 : 0;
-    cJSON_AddNumberToObject(root, "remoteMode", rm);
-    cJSON_AddNumberToObject(root, "remote_mode", rm);
+    cJSON_AddNumberToObject(root, "remoteMode", 0);
+    cJSON_AddNumberToObject(root, "remote_mode", 0);
     cJSON_AddBoolToObject(root, "gyroEnabled", gyro != 0);
     cJSON_AddNumberToObject(root, "gyro", gyro != 0 ? 1 : 0);
     cJSON_AddNumberToObject(root, "gyroRate", gyro_rate);
@@ -198,7 +197,7 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
     payload[7] = (uint8_t)nav_mode;
     payload[8] = (uint8_t)(confirm_act ? 1 : 0);
     payload[9] = (uint8_t)(touch_sens >= 1 && touch_sens <= 3 ? touch_sens : 2);
-    payload[10] = (uint8_t)(remote_mode == 1 ? 1 : 0);
+    payload[10] = 0; /* remote_mode: always 0 (activity mode) */
     payload[11] = (uint8_t)(gyro_rate > 0 ? gyro_rate : 25);
     payload[12] = (uint8_t)(btn_backlight >= 0 && btn_backlight <= 2 ? btn_backlight : 2);
     payload[13] = (uint8_t)(night_start >= 0 && night_start <= 23 ? night_start : 22);
