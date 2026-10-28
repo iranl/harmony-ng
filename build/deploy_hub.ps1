@@ -16,6 +16,7 @@ param(
     [string]$KeyPath = "",
     [switch]$DebugBusybox,
     [switch]$DevMode,
+    [switch]$Reboot,
     [switch]$FactoryReset
 )
 
@@ -107,8 +108,24 @@ $scpArgs = @("-O") + $sshArgs
 Write-Host "[*] Preserving stock configuration backup..." -ForegroundColor Yellow
 & ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
-Write-Host "[*] Stopping existing daemons (killall -9)..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true"
+Write-Host "[*] Stopping existing daemons cleanly (quiescing RF & SPI flash)..." -ForegroundColor Yellow
+$stopCmd = @'
+touch /tmp/harmony_stop 2>/dev/null || true
+if [ -x /data/harmony/init.sh ]; then
+    /data/harmony/init.sh stop
+elif [ -x /data/harmony/scripts/init.sh ]; then
+    /data/harmony/scripts/init.sh stop
+else
+    killall -15 hub_rf 2>/dev/null || true
+    sleep 1
+    killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+fi
+for _p in $(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
+    [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true
+done
+/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
+'@
+& ssh @sshArgs $Target "$stopCmd"
 
 Write-Host "[*] Migrating legacy codex paths and preparing directories..." -ForegroundColor Yellow
 & ssh @sshArgs $Target "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www /data/harmony/www/assets /data/harmony/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/harmony/www/assets/icons ] || ln -s /cache/www/assets/icons /data/harmony/www/assets/icons"
@@ -151,7 +168,8 @@ function Install-HubFileIfChanged {
             return $false
         }
         & ssh @sshArgs $Target "chmod $Perm $tmpRemote 2>/dev/null; mv -f $tmpRemote $RemoteFile 2>/dev/null || true"
-    } else {
+    }
+    else {
         & scp @scpArgs $LocalFile "${Target}:${RemoteFile}"
         if ($LASTEXITCODE -ne 0) {
             Write-Host "    [-] Upload failed for $fileName!" -ForegroundColor Red
@@ -169,7 +187,7 @@ $bins = Get-ChildItem -Path $BinDir -File | Where-Object {
     $_.Name -notmatch '^\.|\.txt$|^FILES$' -and $_.Name -ne 'busybox'
 }
 foreach ($b in $bins) {
-    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" -UseAtomicNew | Out-Null
+    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" | Out-Null
 }
 # 1b. Upload Elite RF OTA image to /cache/elite_ui.ota.gz if available
 $eliteOtaSrc = Join-Path $RepoRoot "elite\bin\elite_ui.ota.gz"
@@ -248,19 +266,23 @@ if (Test-Path $WwwDir) {
     if ($hasRemoteIcons) {
         Write-Host "    -> icons.tar.gz (present on Hub - skipped)" -ForegroundColor DarkGray
         & ssh @sshArgs $Target "if [ -f /data/harmony/icons.tar.gz ] && [ ! -L /data/harmony/icons.tar.gz ]; then rm -f /data/harmony/icons.tar.gz 2>/dev/null; fi; [ -L /data/harmony/icons.tar.gz ] || ln -sf /cache/icons.tar.gz /data/harmony/icons.tar.gz 2>/dev/null"
-    } else {
+    }
+    else {
         $iconsTar = $null
         $fwTool = $null
         if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "build\icons.tar.gz"))) {
             $iconsTar = Join-Path $RepoRoot "build\icons.tar.gz"
-        } elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
+        }
+        elseif (Test-Path (Join-Path $ScriptDir "icons.tar.gz")) {
             $iconsTar = Join-Path $ScriptDir "icons.tar.gz"
-        } else {
+        }
+        else {
             # Release bundle ships tools\harmony_firmware.py next to this script; a repo checkout has it under the repo root
             if (Test-Path (Join-Path $ScriptDir "tools\harmony_firmware.py")) {
                 $fwTool = Join-Path $ScriptDir "tools\harmony_firmware.py"
                 $archiveOut = Join-Path $ScriptDir "icons.tar.gz"
-            } elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
+            }
+            elseif ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "tools\harmony_firmware.py"))) {
                 $fwTool = Join-Path $RepoRoot "tools\harmony_firmware.py"
                 $archiveOut = Join-Path $RepoRoot "build\icons.tar.gz"
             }
@@ -293,9 +315,34 @@ if (Test-Path $rcsSrc) {
     Install-HubFileIfChanged -LocalFile $rcsSrc -RemoteFile "/etc/init.d/rcS.local" -Perm "755" | Out-Null
 }
 
-# 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
-Write-Host "[*] Verifying system shell and flushing NOR flash buffers..." -ForegroundColor Yellow
-$verifyCmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/harmony/bin/hub_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
-& ssh @sshArgs $Target "$verifyCmd"
-
-Write-Host "[+] Deployment complete! Hub is rebooting safely." -ForegroundColor Green
+# 5. Post-deployment: safe reboot OR hot service restart (default)
+if ($Reboot) {
+    Write-Host "[*] Pre-reboot verification and safe reboot (flush SPI NOR flash)..." -ForegroundColor Yellow
+    $rebootCmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; (sleep 2 && /data/harmony/safe_reboot.sh) >/dev/null 2>&1 &'
+    & ssh @sshArgs $Target "$rebootCmd"
+    Write-Host "[+] Deployment complete! Hub is rebooting safely." -ForegroundColor Green
+}
+else {
+    Write-Host "[*] Flushing NOR flash buffers and hot-restarting services (no reboot)..." -ForegroundColor Yellow
+    $restartCmd = @'
+chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true
+mkdir -p /data/harmony/scripts 2>/dev/null || true
+ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true
+ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
+ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
+/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
+rm -f /tmp/harmony_stop 2>/dev/null || true
+if [ -x /data/harmony/init.sh ]; then
+    /data/harmony/init.sh start >/dev/null 2>&1 &
+fi
+'@.Replace("`r", "")
+    & ssh @sshArgs $Target "$restartCmd"
+    Start-Sleep -Seconds 3
+    $runningPids = & ssh @sshArgs $Target "pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true"
+    if ($runningPids) {
+        Write-Host "[+] Deployment complete! Hub services running (PIDs: $runningPids)." -ForegroundColor Green
+    }
+    else {
+        Write-Host "[+] Deployment complete! Services started." -ForegroundColor Green
+    }
+}

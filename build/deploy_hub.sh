@@ -6,11 +6,16 @@ HUB_USER="root"
 DEBUG_BUSYBOX="${DEBUG_BUSYBOX:-0}"
 SSH_KEY="${SSH_KEY:-}"
 
+REBOOT_HUB=0
+
 # Parse optional flags
 for arg in "$@"; do
     case "$arg" in
         --debug|--debug-busybox|--dev)
             DEBUG_BUSYBOX=1
+            ;;
+        --reboot)
+            REBOOT_HUB=1
             ;;
         --host=*|-h=*)
             HUB_HOST="${arg#*=}"
@@ -78,10 +83,10 @@ SSH_KEY="$SSH_KEY" bash "$SCRIPT_DIR/backup_hub.sh" "$HUB_HOST"
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
     "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
-# 2. Stop existing processes with kill -9
-echo "[2/5] Stopping old hub processes..."
+# 2. Stop existing processes cleanly (quiescing RF & SPI flash)
+echo "[2/5] Stopping old hub processes cleanly..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "killall -9 hub_daemon codex_daemon hub_rf codex_rf hub_btstack codex_btstack hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 1"
+    "touch /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; else killall -15 hub_rf 2>/dev/null || true; sleep 1; killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; for _p in \$(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"\$_p\" ] && [ \"\$_p\" != \"\$\$\" ] && kill -9 \"\$_p\" 2>/dev/null || true; done; /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
 
 # 3. One-way migration from /data/codex to /data/harmony and cleanup of old binaries
 echo "[3/5] Migrating legacy codex paths and querying remote checksums..."
@@ -202,9 +207,21 @@ fi
 
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod 755 /cache/www /cache/www/assets 2>/dev/null || true"
 
-# 5. Pre-reboot integrity check & safe reboot (flush SPI NOR flash)
-echo "[5/5] Verifying system shell and flushing NOR flash buffers..."
-ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; killall -9 init.sh hub_daemon codex_daemon hub_btstack codex_btstack hub_rf codex_rf hub_dhcpd codex_dhcpd hub_portal codex_portal hal luaworks luadraws lua 2>/dev/null || true; sleep 2; /data/harmony/bin/hub_sync 2>/dev/null || true; sleep 6; mount -o remount,ro /data 2>/dev/null || true; mount -o remount,ro /cache 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || true; (sleep 3 && reboot -f) >/dev/null 2>&1 &'
-
-echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting safely. ==="
+# 5. Post-deployment: safe reboot OR hot service restart (default)
+if [ "$REBOOT_HUB" = "1" ]; then
+    echo "[5/5] Verifying system shell and flushing NOR flash buffers (rebooting)..."
+    ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
+        'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; chmod +x /data/harmony/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; (sleep 2 && /data/harmony/safe_reboot.sh) >/dev/null 2>&1 &'
+    echo "=== Deployment to $HUB_HOST Complete! Hub is rebooting safely. ==="
+else
+    echo "[5/5] Flushing NOR flash buffers and hot-restarting services (no reboot)..."
+    ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
+        'chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true; mkdir -p /data/harmony/scripts 2>/dev/null || true; ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; rm -f /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh start >/dev/null 2>&1 & fi'
+    sleep 3
+    PROCS=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true")
+    if [ -n "$PROCS" ]; then
+        echo "=== Deployment to $HUB_HOST Complete! Hub services running (PIDs: $PROCS). ==="
+    else
+        echo "=== Deployment to $HUB_HOST Complete! Services started. ==="
+    fi
+fi

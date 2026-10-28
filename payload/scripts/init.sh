@@ -12,32 +12,57 @@ echo "$(date) harmony init start: $1" >> "$LOG"
 case "$1" in
   stop)
     echo "$(date) Stopping harmony services..." >> "$LOG"
-    killall -9 hub_daemon hub_rf hub_btstack 2>/dev/null || true
+    touch /tmp/harmony_stop
+    # Gracefully terminate hub_rf so it releases SPI device and closes /dev/rfspi
+    killall -15 hub_rf 2>/dev/null || true
+    sleep 1
+    # Terminate recorded supervisor loops
+    if [ -f /tmp/harmony_supervisors.pid ]; then
+      for _spid in $(cat /tmp/harmony_supervisors.pid 2>/dev/null); do
+        kill -9 "$_spid" 2>/dev/null || true
+      done
+      rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
+    fi
+    # Terminate any legacy or untracked init.sh subshell loops
+    for _p in $(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
+      [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true
+    done
+    # Terminate all daemon processes
+    killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
+    sync_fs
     exit 0
     ;;
   restart)
     echo "$(date) Restarting harmony services..." >> "$LOG"
-    killall -9 hub_daemon hub_rf hub_btstack 2>/dev/null || true
-    sleep 2
-    # If supervisor loops already running from boot, let them respawn daemons
-    if [ -f /tmp/harmony_watchdog.pid ]; then
-      _old=$(cat /tmp/harmony_watchdog.pid 2>/dev/null)
-      if [ -n "$_old" ] && [ -d "/proc/$_old" ]; then
-        exit 0
-      fi
-    fi
+    $0 stop
+    sleep 1
+    $0 start &
+    exit 0
+    ;;
+  start)
+    # Continue below
     ;;
 esac
 
+# Clear stop trigger flag
+rm -f /tmp/harmony_stop 2>/dev/null || true
+
 # Avoid duplicate supervisor loop spawns
-if [ -f /tmp/harmony_watchdog.pid ]; then
-  _old=$(cat /tmp/harmony_watchdog.pid 2>/dev/null)
-  if [ -n "$_old" ] && [ -d "/proc/$_old" ] && [ "$_old" != "$$" ]; then
-    echo "$(date) harmony supervisor already running (PID $_old)" >> "$LOG"
+if [ -f /tmp/harmony_supervisors.pid ]; then
+  _any_alive=0
+  for _spid in $(cat /tmp/harmony_supervisors.pid 2>/dev/null); do
+    if [ -d "/proc/$_spid" ]; then
+      _any_alive=1
+      break
+    fi
+  done
+  if [ "$_any_alive" = "1" ]; then
+    echo "$(date) harmony supervisors already running" >> "$LOG"
     exit 0
   fi
 fi
+rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
 echo "$$" > /tmp/harmony_watchdog.pid
 
 # 5-minute stability timer in background
@@ -193,12 +218,14 @@ fi
 (
   _delay=5
   while true; do
+    [ -f /tmp/harmony_stop ] && exit 0
     _daemon=""
     [ -x /data/harmony/bin/hub_daemon ] && _daemon=/data/harmony/bin/hub_daemon
     if [ -n "$_daemon" ]; then
       if ! pidof hub_daemon >/dev/null 2>&1; then
         echo "$(date) Starting hub_daemon..." >> "$LOG"
         "$_daemon" 8089 >> "$LOG" 2>&1
+        [ -f /tmp/harmony_stop ] && exit 0
         echo "$(date) hub_daemon exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -209,6 +236,7 @@ fi
     sleep 5
   done
 ) &
+echo "$!" >> /tmp/harmony_supervisors.pid
 
 # 7. BTstack Bluetooth Engine (BlueZ 4 permanently disabled)
 chmod -x /usr/sbin/bluetoothd 2>/dev/null || true
@@ -216,6 +244,7 @@ killall -9 bluetoothd 2>/dev/null || true
 (
   _delay=5
   while true; do
+    [ -f /tmp/harmony_stop ] && exit 0
     if [ -f /data/harmony/bt_disabled.conf ]; then
       if pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) BT disabled flag detected, stopping BTstack..." >> "$LOG"
@@ -238,6 +267,7 @@ killall -9 bluetoothd 2>/dev/null || true
       if ! pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) Starting BTstack backend..." >> "$LOG"
         "$_bt_bin" >> "$LOG" 2>&1
+        [ -f /tmp/harmony_stop ] && exit 0
         echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -248,11 +278,13 @@ killall -9 bluetoothd 2>/dev/null || true
     sleep 5
   done
 ) &
+echo "$!" >> /tmp/harmony_supervisors.pid
 
 # 8. CC2544 RF Daemon (Logitech HAL replacement for Elite Remote RF)
 (
   _delay=5
   while true; do
+    [ -f /tmp/harmony_stop ] && exit 0
     if [ -f /data/harmony/rf_disabled.conf ]; then
       if pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) RF disabled flag detected, stopping RF..." >> "$LOG"
@@ -268,6 +300,7 @@ killall -9 bluetoothd 2>/dev/null || true
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
         "$_rf_bin" >> "$LOG" 2>&1
+        [ -f /tmp/harmony_stop ] && exit 0
         echo "$(date) hub_rf exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -278,5 +311,6 @@ killall -9 bluetoothd 2>/dev/null || true
     sleep 5
   done
 ) &
+echo "$!" >> /tmp/harmony_supervisors.pid
 
 echo "$(date) harmony init done" >> "$LOG"
