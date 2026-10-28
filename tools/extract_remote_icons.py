@@ -72,39 +72,11 @@ def list_remote_icons(remote_ip):
     lines = [line.strip() for line in out.splitlines() if line.strip().endswith(".png")]
     return sorted(list(set(lines)))
 
-
-def find_used_icon_patterns(repo_root):
-    """Scan local config files for icon references."""
-    used = set()
-    cfg_paths = [
-        os.path.join(repo_root, "data", "resources", "ActivityList.json"),
-        os.path.join(repo_root, "data", "resources", "DeviceList.json"),
-        os.path.join(repo_root, "payload", "source", "elite", "elite_main.c")
-    ]
-    for p in cfg_paths:
-        if not os.path.isfile(p):
-            continue
-        try:
-            with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            # Find UUIDs or named PNGs
-            matches = re.findall(r'([A-Za-z0-9_\-]+\.png)', content)
-            for m in matches:
-                used.add(m.lower())
-                # Also strip _small, _smallon, etc.
-                base = re.sub(r'_(small|smallon|on|off)$', '', m.lower().replace('.png', ''))
-                used.add(base)
-        except Exception:
-            pass
-    return used
-
-
 def main():
     parser = argparse.ArgumentParser(description="Extract Harmony Elite icons and push to Hub.")
     parser.add_argument("--remote", default=DEFAULT_REMOTE_IP, help=f"Elite remote IP (default: {DEFAULT_REMOTE_IP})")
     parser.add_argument("--hub", default=DEFAULT_HUB_IP, help=f"Harmony Hub IP (default: {DEFAULT_HUB_IP}, or '' to skip push)")
     parser.add_argument("--output", default="", help="Local destination directory for extracted icons")
-    parser.add_argument("--used-only", action="store_true", help="Only extract icons referenced in config files")
     parser.add_argument("--skip-push", action="store_true", help="Do not push icons to Hub")
     args = parser.parse_args()
 
@@ -136,27 +108,10 @@ def main():
 
     print(f"[+] Found {len(remote_files)} total icon assets on remote.")
 
-    filter_used = args.used_only
-    used_patterns = set()
-    if filter_used:
-        used_patterns = find_used_icon_patterns(repo_root)
-        print(f"[*] Filtering by {len(used_patterns)} detected icon keys in config...")
-
     files_to_pull = []
     for rf in remote_files:
         fn = os.path.basename(rf).lower()
-        if not filter_used:
-            files_to_pull.append(rf)
-            continue
-        # Check if matched in used patterns
-        base = re.sub(r'_(small|smallon|on|off)\.png$', '.png', fn)
-        base_no_ext = base.replace('.png', '')
-        if fn in used_patterns or base in used_patterns or base_no_ext in used_patterns:
-            files_to_pull.append(rf)
-
-    if not files_to_pull:
-        print("[!] No icons matched filter criteria. Pulling all core UI icons instead.")
-        files_to_pull = [rf for rf in remote_files if any(k in rf for k in ["footer", "hopsactivity", "juniperactivity", "commands"])]
+        files_to_pull.append(rf)
 
     print(f"[*] Extracting {len(files_to_pull)} icons to local cache...")
     success_count = 0

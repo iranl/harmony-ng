@@ -575,15 +575,15 @@ void handle_navigation_key(int code, int value) {
                 if (g_current_view == VIEW_PAIRING) {
                     g_current_view = VIEW_SETTINGS;
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                    g_selected_sub_item = 3;
+                    g_selected_sub_item = 1;
                 } else if (g_current_view == VIEW_SETTINGS) {
                     if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
                         bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
                         bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
-                        g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                        g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
                         g_factory_reset_stage = 0;
                         g_suspend_countdown_start_ms = 0;
-                        g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
+                        g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 2 : 3);
                     } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                         g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                         g_factory_reset_stage = 0;
@@ -607,15 +607,15 @@ void handle_navigation_key(int code, int value) {
             } else if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 3;
+                g_selected_sub_item = 1;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
                     bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
-                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
-                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
+                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 2 : 3);
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
@@ -745,8 +745,7 @@ void handle_navigation_key(int code, int value) {
             }
             break;
 
-        case 158: /* KEY_BACK */
-        case 202: /* KEY_PROG3 */
+        case 158: case 202: /* KEY_BACK / KEY_PROG3 */
             if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_back();
             } else if (g_current_view == VIEW_PAIRING) {
@@ -758,23 +757,23 @@ void handle_navigation_key(int code, int value) {
                     } else {
                         g_current_view = VIEW_SETTINGS;
                         g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                        g_selected_sub_item = 3;
+                        g_selected_sub_item = 1;
                     }
                 }
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
                     bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
                     bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
-                    g_settings_subview = SETTINGS_VIEW_SYSTEM;
+                    g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
-                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 5 : 6);
+                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 2 : 3);
                 } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                     g_factory_reset_stage = 0;
                     g_suspend_countdown_start_ms = 0;
                 } else {
-                    g_current_view = is_remote_paired() ? VIEW_DEVICES : VIEW_NOT_PAIRED;
+                    if (is_remote_paired()) open_device_browser(); else g_current_view = VIEW_NOT_PAIRED;
                 }
             } else if (g_current_view == VIEW_NOT_PAIRED) {
                 break;

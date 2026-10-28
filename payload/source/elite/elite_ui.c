@@ -29,13 +29,17 @@ void render_header(void) {
     }
 
     const char *title = (g_current_view == VIEW_ACTIVITIES) ? "ACTIVITIES" :
-                        ((g_current_view == VIEW_DEVICES) ? "DEVICES" :
+                        ((g_current_view == VIEW_DEVICES) ? "COMMANDS" :
                         ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" :
                         ((g_current_view == VIEW_NOT_PAIRED) ? "NOT PAIRED" : "SETTINGS")));
     char browser_title[32];
     if (g_current_view == VIEW_DEVICE_BROWSER) {
         bool in_dev = (g_browse_dev >= 0 && g_browse_dev < g_rf_device_count);
-        snprintf(browser_title, sizeof(browser_title), "< %s", in_dev ? g_rf_devices[g_browse_dev].name : "DEVICES");
+        if (in_dev) {
+            snprintf(browser_title, sizeof(browser_title), "< %s", g_rf_devices[g_browse_dev].name);
+        } else {
+            snprintf(browser_title, sizeof(browser_title), "DEVICES");
+        }
         /* Keep the title clear of the RF badge at FB_WIDTH - 142 */
         size_t len = strlen(browser_title);
         while (len > 3 && fb_text_width_aa(browser_title, &g_font_title) > FB_WIDTH - 142 - 14) {

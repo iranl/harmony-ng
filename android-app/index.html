@@ -2120,7 +2120,8 @@
           <h3 style="margin: 0; font-size: 15px;" data-i18n="bt_mqtt_mirroring">MQTT Button Mirroring</h3>
           <span id="btMqttStatusBadge" class="badge">MQTT</span>
         </div>
-        <div class="help" data-i18n="bt_mqtt_help">Mirror physical Bluetooth remote button presses to MQTT for Home Assistant automations.</div>
+        <div class="help" data-i18n="bt_mqtt_help">Mirror physical Bluetooth remote button presses to MQTT for Home
+          Assistant automations.</div>
         <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
             <input type="checkbox" id="btRemoteMqttEnabled">
@@ -2129,12 +2130,15 @@
           <div id="btMqttTopicWrap" class="row" style="margin-top: 2px;">
             <div style="flex: 1;">
               <label for="btRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-              <input id="btRemoteMqttTopic" class="form-control" placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button}/state)">
-              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code> placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}/state</code>.</div>
+              <input id="btRemoteMqttTopic" class="form-control"
+                placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button}/state)">
+              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
+                placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}/state</code>.</div>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-            <button id="btMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT Settings</button>
+            <button id="btMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
+              Settings</button>
             <span id="btMqttSaveStatus" class="subtle mini"></span>
           </div>
         </div>
@@ -2699,7 +2703,8 @@
           <h3 style="margin: 0; font-size: 15px;" data-i18n="elite_mqtt_mirroring">MQTT Button Mirroring</h3>
           <span id="eliteMqttStatusBadge" class="badge">MQTT</span>
         </div>
-        <div class="help" data-i18n="elite_mqtt_help">Mirror physical Harmony Elite button presses to MQTT for Home Assistant automations.</div>
+        <div class="help" data-i18n="elite_mqtt_help">Mirror physical Harmony Elite button presses to MQTT for Home
+          Assistant automations.</div>
         <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
           <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
             <input type="checkbox" id="eliteRemoteMqttEnabled">
@@ -2708,12 +2713,15 @@
           <div id="eliteMqttTopicWrap" class="row" style="margin-top: 2px;">
             <div style="flex: 1;">
               <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-              <input id="eliteRemoteMqttTopic" class="form-control" placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/elite/{button}/state)">
-              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code> placeholder or defaults to <code>{baseTopic}/remotes/elite/{button}/state</code>.</div>
+              <input id="eliteRemoteMqttTopic" class="form-control"
+                placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/elite/{button}/state)">
+              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
+                placeholder or defaults to <code>{baseTopic}/remotes/elite/{button}/state</code>.</div>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-            <button id="eliteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT Settings</button>
+            <button id="eliteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
+              Settings</button>
             <span id="eliteMqttSaveStatus" class="subtle mini"></span>
           </div>
         </div>
@@ -2737,7 +2745,7 @@
               </select>
             </div>
             <div id="eliteDeviceSelectWrap" style="flex: 1; min-width: 180px; display: none;">
-              <label for="eliteDeviceSelect" style="font-weight: 600; font-size: 13px;">Device Context (PR10):</label>
+              <label for="eliteDeviceSelect" style="font-weight: 600; font-size: 13px;">Device Context:</label>
               <select id="eliteDeviceSelect" class="form-control" style="margin-top: 6px;">
               </select>
             </div>

@@ -51,7 +51,7 @@ int hw_ir_cancel(uint8_t ports);
 int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats);
 
 /*
- * Direct device command dispatcher: looks up device and command in DeviceList.json,
+ * Direct device command dispatcher: looks up device and command in json,
  * encodes protocol waveform, and sends directly via I2S, BTstack FIFO, or MQTT.
  */
 int hw_device_command_send(const char *device_id, const char *command);

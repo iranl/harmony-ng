@@ -32,7 +32,7 @@ void render_devices_screen(void) {
     if (total <= 0) {
         fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
         fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, "No Device Buttons", RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(24, start_y + 30, "No Commands", RGB_WHITE, &g_font_title);
         fb_draw_text_aa(24, start_y + 55, "Configure in WebUI", RGB_CYAN, &g_font_main);
         fb_draw_text_aa(24, start_y + 75, "for this activity", RGB_TEXT_MUTED, &g_font_main);
         return;

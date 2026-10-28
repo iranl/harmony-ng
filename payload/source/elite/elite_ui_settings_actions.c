@@ -197,6 +197,24 @@ void execute_settings_action(int idx) {
                 break;
             }
             case 3:
+                if (g_power_debug) {
+                    log_power_debug("[*] Power debugging disabled from Power menu\n");
+                    g_power_debug = false;
+                    save_settings_conf();
+                    show_notice("Power Debug: DISABLED", 2000);
+                } else {
+                    g_power_debug = true;
+                    save_settings_conf();
+                    log_power_debug("[*] Power debugging enabled from Power menu\n");
+                    show_notice("Power Debug: ENABLED", 2000);
+                }
+                break;
+            case 4:
+                g_settings_subview = SETTINGS_VIEW_SUSPEND;
+                g_suspend_countdown_start_ms = get_monotonic_ms();
+                g_selected_sub_item = 0;
+                break;
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -206,30 +224,11 @@ void execute_settings_action(int idx) {
 
     if (g_settings_subview == SETTINGS_VIEW_SYSTEM) {
         switch (idx) {
-            case 0: {
-                char vmsg[64];
-                snprintf(vmsg, sizeof(vmsg), "Elite v%s (cfg=%d)", HARMONY_ELITE_VERSION, g_config_version);
-                show_notice(vmsg, 2500);
-                break;
-            }
-            case 1:
+            case 0:
                 toggle_usbeth();
                 save_settings_conf();
                 break;
-            case 2:
-                if (g_power_debug) {
-                    log_power_debug("[*] Power debugging disabled from System menu\n");
-                    g_power_debug = false;
-                    save_settings_conf();
-                    show_notice("Power Debug: DISABLED", 2000);
-                } else {
-                    g_power_debug = true;
-                    save_settings_conf();
-                    log_power_debug("[*] Power debugging enabled from System menu\n");
-                    show_notice("Power Debug: ENABLED", 2000);
-                }
-                break;
-            case 3:
+            case 1:
                 g_current_view = VIEW_PAIRING;
                 g_selected_pair_opt = 0;
                 g_unpair_confirm_active = false;
@@ -241,21 +240,16 @@ void execute_settings_action(int idx) {
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
                 }
                 break;
-            case 4:
-                g_settings_subview = SETTINGS_VIEW_SUSPEND;
-                g_suspend_countdown_start_ms = get_monotonic_ms();
-                g_selected_sub_item = 0;
-                break;
-            case 5:
+            case 2:
                 g_settings_subview = SETTINGS_VIEW_REBOOT;
                 g_selected_sub_item = 0;
                 break;
-            case 6:
+            case 3:
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
                 break;
-            case 7:
+            case 4:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -302,12 +296,12 @@ void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_SUSPEND) {
         if (idx == 0) {
             g_suspend_countdown_start_ms = 0;
-            g_settings_subview = SETTINGS_VIEW_SYSTEM;
+            g_settings_subview = SETTINGS_VIEW_POWER;
             g_selected_sub_item = 4;
         } else if (idx == 1) {
             g_suspend_countdown_start_ms = 0;
             trigger_manual_suspend_to_ram();
-            g_settings_subview = SETTINGS_VIEW_SYSTEM;
+            g_settings_subview = SETTINGS_VIEW_POWER;
             g_selected_sub_item = 4;
         }
         return;
@@ -316,7 +310,7 @@ void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_REBOOT) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 5;
+            g_selected_sub_item = 2;
         } else if (idx == 1) {
             execute_remote_reboot();
         }
@@ -327,7 +321,7 @@ void execute_settings_action(int idx) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
             g_factory_reset_stage = 0;
-            g_selected_sub_item = 6;
+            g_selected_sub_item = 3;
         } else if (idx == 1) {
             if (g_factory_reset_stage == 0) {
                 g_factory_reset_stage = 1;

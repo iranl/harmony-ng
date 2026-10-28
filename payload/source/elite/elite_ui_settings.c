@@ -28,8 +28,8 @@ int get_settings_sub_count(void) {
         case SETTINGS_VIEW_ACTIVITIES: return 3;
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
-        case SETTINGS_VIEW_POWER:      return 4;
-        case SETTINGS_VIEW_SYSTEM:     return 8;
+        case SETTINGS_VIEW_POWER:      return 6;
+        case SETTINGS_VIEW_SYSTEM:     return 5;
         case SETTINGS_VIEW_UPDATE:     return 3;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
@@ -45,7 +45,7 @@ static void render_settings_categories(void) {
     int total = 6;
 
     const char *cat_names[6] = {
-        "ACTIVITIES & MODES",
+        "CONFIG",
         "DISPLAY",
         "TOUCH",
         "POWER",
@@ -53,10 +53,10 @@ static void render_settings_categories(void) {
         "FIRMWARE UPDATE"
     };
     const char *cat_descs[6] = {
-        "Confirm switch, direct mode, sync",
+        "Confirm switch, config sync",
         "Brightness, timeout, night",
         "Sensitivity, nav buttons",
-        "Tilt wake, battery health",
+        "Tilt wake, battery, suspend",
         "USB ethernet, pairing, reset",
         "Software update & OTA transfer"
     };
@@ -365,7 +365,7 @@ void render_settings_screen(void) {
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("ACTIVITIES", 3, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("CONFIG", 3, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {
@@ -429,71 +429,67 @@ void render_settings_screen(void) {
             break;
         }
         case SETTINGS_VIEW_POWER: {
-            const char *labels[4] = { "Motion / Gyro Wake", "Gyro Sampling Rate", "Battery Status", "< Back" };
-            char values[4][32];
+            const char *labels[6] = { "Motion / Gyro Wake", "Gyro Sampling Rate", "Battery Status", "Power Debug Log", "Suspend to RAM", "< Back" };
+            char values[6][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_gyro_enabled ? "ON" : "OFF");
             snprintf(values[1], sizeof(values[1]), "[ %dHz ]", g_gyro_rate_hz);
             read_elite_battery();
             snprintf(values[2], sizeof(values[2]), "[ %d%% %dmV ]", g_battery_info.percent, g_battery_info.voltage_mv);
-            values[3][0] = '\0';
-            uint16_t cols[4] = {
+            snprintf(values[3], sizeof(values[3]), "[ %s ]", g_power_debug ? "ON" : "OFF");
+            snprintf(values[4], sizeof(values[4]), "[ SLEEP ]");
+            values[5][0] = '\0';
+            uint16_t cols[6] = {
                 g_gyro_enabled ? RGB_GREEN : RGB_RED,
                 RGB_TEAL,
                 (g_battery_info.percent < 20) ? RGB_RED : RGB_GREEN,
+                g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED,
+                RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[4] = {
+            const char *icons[6] = {
                 "/opt/luadraws/appscommon/asset/footer/flip.png",
                 "/opt/luadraws/appscommon/asset/footer/flip.png",
                 "/opt/luadraws/appscommon/asset/battery/level100.png",
+                "/opt/luadraws/appscommon/asset/header/charging.png",
+                "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("POWER", 4, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("POWER", 6, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[8] = { "Software Version", "USB Ethernet Mode", "Power Debug Log", "RF Pairing Menu", "Suspend to RAM", "Reboot Remote", "Factory Reset", "< Back" };
-            char values[8][32];
-            uint16_t cols[8];
-
-            snprintf(values[0], sizeof(values[0]), "v" HARMONY_ELITE_VERSION);
-            cols[0] = RGB_GREEN;
+            const char *labels[5] = { "USB Ethernet Mode", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
+            char values[5][32];
+            uint16_t cols[5];
 
             if (!g_usbeth_enabled) {
-                snprintf(values[1], sizeof(values[1]), "[ OFF ]");
-                cols[1] = RGB_TEXT_MUTED;
+                snprintf(values[0], sizeof(values[0]), "[ OFF ]");
+                cols[0] = RGB_TEXT_MUTED;
             } else {
                 if (g_usb_connected) {
-                    snprintf(values[1], sizeof(values[1]), "[ ACTIVE ]");
-                    cols[1] = RGB_GREEN;
+                    snprintf(values[0], sizeof(values[0]), "[ ACTIVE ]");
+                    cols[0] = RGB_GREEN;
                 } else {
-                    snprintf(values[1], sizeof(values[1]), "[ UNPLUGGED ]");
-                    cols[1] = RGB_YELLOW;
+                    snprintf(values[0], sizeof(values[0]), "[ UNPLUGGED ]");
+                    cols[0] = RGB_YELLOW;
                 }
             }
-            snprintf(values[2], sizeof(values[2]), "[ %s ]", g_power_debug ? "ON" : "OFF");
-            cols[2] = g_power_debug ? RGB_GREEN : RGB_TEXT_MUTED;
-            snprintf(values[3], sizeof(values[3]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
-            cols[3] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
-            snprintf(values[4], sizeof(values[4]), "[ SLEEP ]");
-            cols[4] = RGB_TEAL;
-            snprintf(values[5], sizeof(values[5]), "[ REBOOT ]");
-            cols[5] = RGB_YELLOW;
-            snprintf(values[6], sizeof(values[6]), "[ REVERT ]");
-            cols[6] = RGB_RED;
-            values[7][0] = '\0';
-            cols[7] = RGB_CYAN;
-            const char *icons[8] = {
-                "/opt/luadraws/appscommon/asset/footer/settings.png",
+            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
+            cols[1] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
+            snprintf(values[2], sizeof(values[2]), "[ REBOOT ]");
+            cols[2] = RGB_YELLOW;
+            snprintf(values[3], sizeof(values[3]), "[ REVERT ]");
+            cols[3] = RGB_RED;
+            values[4][0] = '\0';
+            cols[4] = RGB_CYAN;
+            const char *icons[5] = {
                 "/opt/luadraws/appscommon/asset/header/usb.png",
-                "/opt/luadraws/appscommon/asset/header/charging.png",
                 "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
-                "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
                 "/opt/luadraws/appscommon/asset/home/power_icon.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("SYSTEM", 8, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("SYSTEM", 5, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_UPDATE:

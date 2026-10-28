@@ -465,6 +465,9 @@ void load_rf_config(void) {
             if (g_rf_device_count >= MAX_RF_DEVICES) break;
             cJSON *jid = cJSON_GetObjectItem(d, "id");
             cJSON *jname = cJSON_GetObjectItem(d, "name");
+            if (!jname) jname = cJSON_GetObjectItem(d, "Name");
+            if (!jname) jname = cJSON_GetObjectItem(d, "label");
+            if (!jname) jname = cJSON_GetObjectItem(d, "FriendlyName");
             if (jid && jname && cJSON_IsString(jid) && cJSON_IsString(jname)) {
                 strncpy(g_rf_devices[g_rf_device_count].id, jid->valuestring, sizeof(g_rf_devices[0].id) - 1);
                 g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
