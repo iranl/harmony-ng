@@ -36,11 +36,6 @@ static void i2s_lock_release(int lfd) {
     }
 }
 
-static volatile sig_atomic_t g_i2s_timeout = 0;
-static void i2s_alarm_handler(int sig) {
-    (void)sig;
-    g_i2s_timeout = 1;
-}
 
 /* ath_i2s ioctl commands: _IOW('N', nr, int) = 0x80044e00 | nr */
 #define I2S_VOLUME 0x80044e20

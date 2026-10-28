@@ -46,7 +46,7 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
     "$PYTHON" "$REPO_ROOT/scripts/bump_version.py" --sync
 fi
 
-CFLAGS="-Os -static -s -DNDEBUG"
+CFLAGS="-Wall -Os -static -s -DNDEBUG"
 COMPAT_SRC=""
 
 TARGET="${1:-all}"

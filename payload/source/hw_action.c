@@ -24,28 +24,6 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
     g_mqtt_button_handler = handler;
 }
 
-static char *build_ir_send_json(int enable, unsigned int ports, int key_latency) {
-    cJSON *j = cJSON_CreateObject();
-    if (!j) return NULL;
-    cJSON_AddBoolToObject(j, "enable", enable ? 1 : 0);
-    if (key_latency >= 0) {
-        cJSON_AddNumberToObject(j, "keyLatency", key_latency);
-    }
-    cJSON_AddNumberToObject(j, "ports", ports);
-    char *out = cJSON_PrintUnformatted(j);
-    cJSON_Delete(j);
-    return out;
-}
-
-static char *build_bthid_json(const char *bdaddr) {
-    cJSON *j = cJSON_CreateObject();
-    if (!j) return NULL;
-    cJSON_AddStringToObject(j, "type", "btkeyboard");
-    cJSON_AddStringToObject(j, "bdaddr", bdaddr ? bdaddr : "");
-    char *out = cJSON_PrintUnformatted(j);
-    cJSON_Delete(j);
-    return out;
-}
 
 static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command) {
     cJSON *j = cJSON_CreateObject();

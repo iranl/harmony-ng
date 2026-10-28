@@ -211,7 +211,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: /api/rf/* proxy to RF daemon (127.0.0.1:8092) */
+    /* Route: /api/rf/... proxy to RF daemon (127.0.0.1:8092) */
     if (strncmp(clean_path, "/api/rf", 7) == 0) {
         int rfsock = socket(AF_INET, SOCK_STREAM, 0);
         if (rfsock >= 0) {

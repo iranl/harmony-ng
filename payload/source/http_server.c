@@ -248,7 +248,7 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         int has_idx_gz = (stat(idx_gz, &st_gz) == 0);
 
         if (client_gzip || !has_idx_raw) {
-            if (stat(idx_gz, &st_gz) == 0) {
+            if (has_idx_gz) {
                 if (!has_idx_raw || st_gz.st_mtime >= st_raw.st_mtime) {
                     f = fopen(idx_gz, "rb");
                     if (f) is_gzip = 1;
