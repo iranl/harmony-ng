@@ -399,7 +399,16 @@ void save_rf_config(void) {
 
 void load_rf_config(void) {
     FILE *f = fopen(RF_CONFIG_FILE, "r");
-    if (!f) return;
+    if (!f) {
+        f = fopen(LEGACY_SETTINGS_FILE, "r");
+        if (f) {
+            int c = fgetc(f);
+            ungetc(c, f);
+            if (c != '{') { fclose(f); return; }
+        } else {
+            return;
+        }
+    }
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -570,8 +579,17 @@ void load_rf_config(void) {
 }
 
 void load_settings_conf(void) {
-    FILE *f = fopen("/data/elite_ui.conf", "r");
-    if (!f) return;
+    FILE *f = fopen(SETTINGS_CONFIG_FILE, "r");
+    if (!f) {
+        f = fopen(LEGACY_SETTINGS_FILE, "r");
+        if (f) {
+            int c = fgetc(f);
+            ungetc(c, f);
+            if (c == '{') { fclose(f); return; }
+        } else {
+            return;
+        }
+    }
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {0};
@@ -619,7 +637,7 @@ void load_settings_conf(void) {
 }
 
 void save_settings_conf(void) {
-    FILE *f = fopen("/data/elite_ui.conf", "w");
+    FILE *f = fopen(SETTINGS_CONFIG_FILE, "w");
     if (!f) return;
     fprintf(f, "touch=%d\n", g_touch_enabled ? 1 : 0);
     fprintf(f, "cap_buttons=%d\n", g_cap_buttons_enabled ? 1 : 0);

@@ -35,7 +35,8 @@ chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /
 
 echo "[*] Preserving user configuration..."
 mkdir -p /data/elite_conf_p 2>/dev/null || true
-cp -f /data/elite_ui_config.json /data/elite_conf_p/ 2>/dev/null || true
+cp -f /data/elite_rf_config.json /data/elite_conf_p/ 2>/dev/null || true
+cp -f /data/elite_settings.conf /data/elite_conf_p/ 2>/dev/null || true
 cp -f /data/elite_ui.conf /data/elite_conf_p/ 2>/dev/null || true
 
 echo "[*] Removing custom binaries and Dropbear symlinks..."

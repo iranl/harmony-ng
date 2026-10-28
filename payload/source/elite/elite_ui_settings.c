@@ -25,12 +25,12 @@ static const char *get_nav_key_name(int key) {
 int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
-        case SETTINGS_VIEW_ACTIVITIES: return 3;
+        case SETTINGS_VIEW_ACTIVITIES: return 4;
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 4;
         case SETTINGS_VIEW_SYSTEM:     return 8;
-        case SETTINGS_VIEW_UPDATE:     return 5;
+        case SETTINGS_VIEW_UPDATE:     return 3;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
         case SETTINGS_VIEW_SUSPEND:       return 2;
@@ -45,20 +45,20 @@ static void render_settings_categories(void) {
     int total = 6;
 
     const char *cat_names[6] = {
-        "ACTIVITIES",
+        "ACTIVITIES & MODES",
         "DISPLAY",
         "TOUCH",
         "POWER",
         "SYSTEM",
-        "UPDATE & SYNC"
+        "FIRMWARE UPDATE"
     };
     const char *cat_descs[6] = {
-        "Confirm switch, remote mode",
+        "Confirm switch, direct mode, sync",
         "Brightness, timeout, night",
         "Sensitivity, nav buttons",
         "Tilt wake, battery health",
         "USB ethernet, pairing, reset",
-        "OTA, config pull, settings push"
+        "Software update & OTA transfer"
     };
     const char *cat_icons[6] = {
         "/opt/luadraws/appscommon/asset/footer/devices.png",
@@ -84,9 +84,10 @@ static void render_settings_categories(void) {
         fb_draw_text_aa(text_x, y + 19, cat_descs[i], RGB_TEXT_MUTED, &g_font_main);
 
         bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
-        if (i == 5 && (g_update_config_available || ota_avail)) {
-            uint16_t ucol = ota_avail ? RGB_YELLOW : RGB_TEAL;
-            fb_draw_text_aa(FB_WIDTH - 64, y + 10, "[UPDATE]", ucol, &g_font_main);
+        if (i == 5 && ota_avail) {
+            fb_draw_text_aa(FB_WIDTH - 64, y + 10, "[UPDATE]", RGB_YELLOW, &g_font_main);
+        } else if (i == 0 && g_update_config_available) {
+            fb_draw_text_aa(FB_WIDTH - 55, y + 10, "[SYNC]", RGB_TEAL, &g_font_main);
         } else {
             fb_draw_text_aa(FB_WIDTH - 20, y + 9, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_title);
         }
@@ -143,7 +144,7 @@ static void render_settings_factory_reset(void) {
         fb_draw_text_aa(16, card_y + 36, "Removes custom software", RGB_WHITE, &g_font_main);
         fb_draw_text_aa(16, card_y + 56, "and restores official Logitech UI.", RGB_WHITE, &g_font_main);
         fb_draw_text_aa(16, card_y + 82, "Configs preserved on flash:", RGB_TEAL, &g_font_main);
-        fb_draw_text_aa(16, card_y + 100, "/data/elite_ui.conf", RGB_GREEN, &g_font_main);
+        fb_draw_text_aa(16, card_y + 100, "/data/elite_settings.conf", RGB_GREEN, &g_font_main);
     } else {
         fb_draw_text_aa(16, card_y + 10, "ARE YOU ABSOLUTELY SURE?", RGB_RED, &g_font_title);
         fb_draw_text_aa(16, card_y + 36, "Remote will restore stock startup,", RGB_WHITE, &g_font_main);
@@ -272,7 +273,7 @@ static void render_settings_suspend(void) {
 
 static void render_settings_update(void) {
     fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
-    fb_draw_text_aa(14, 10, "UPDATE & SYNC", RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(14, 10, "FIRMWARE UPDATE", RGB_CYAN, &g_font_title);
 
     int start_y = 38;
     int card_h = 76;
@@ -282,76 +283,63 @@ static void render_settings_update(void) {
 
     char sw_str[48];
     snprintf(sw_str, sizeof(sw_str), "Elite SW: v%s", HARMONY_ELITE_VERSION);
-    fb_draw_text_aa(16, start_y + 8, sw_str, RGB_WHITE, &g_font_main);
-
-    char cfg_str[48];
-    snprintf(cfg_str, sizeof(cfg_str), "Remote Config: v%d", g_config_version);
-    fb_draw_text_aa(16, start_y + 25, cfg_str, RGB_TEXT_MUTED, &g_font_main);
-
-    char hub_cfg_str[48];
-    if (g_hub_config_version > 0) {
-        snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: v%d %s",
-                 g_hub_config_version,
-                 (g_hub_config_version > g_config_version) ? "[NEW]" : "[OK]");
-    } else {
-        snprintf(hub_cfg_str, sizeof(hub_cfg_str), "Hub Config: [UNKNOWN]");
-    }
-    fb_draw_text_aa(16, start_y + 42, hub_cfg_str,
-                    (g_hub_config_version > g_config_version) ? RGB_TEAL : RGB_TEXT_MUTED,
-                    &g_font_main);
+    fb_draw_text_aa(16, start_y + 10, sw_str, RGB_WHITE, &g_font_title);
 
     char hub_ota_str[48];
     bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
     if (ota_avail) {
-        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub OTA: %s [READY]",
+        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub Image: %s [READY]",
                  g_hub_ota_version[0] ? g_hub_ota_version : "Update");
-        fb_draw_text_aa(16, start_y + 59, hub_ota_str, RGB_YELLOW, &g_font_main);
+        fb_draw_text_aa(16, start_y + 34, hub_ota_str, RGB_YELLOW, &g_font_main);
     } else {
-        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub OTA: [UP TO DATE]");
-        fb_draw_text_aa(16, start_y + 59, hub_ota_str, RGB_GREEN, &g_font_main);
+        snprintf(hub_ota_str, sizeof(hub_ota_str), "Hub Image: [UP TO DATE]");
+        fb_draw_text_aa(16, start_y + 34, hub_ota_str, RGB_GREEN, &g_font_main);
     }
 
-    const char *labels[5] = {
-        "Pull Config from Hub",
+    read_elite_battery();
+    char batt_str[48];
+    snprintf(batt_str, sizeof(batt_str), "Battery: %d%% (%s)",
+             g_battery_info.percent,
+             g_battery_info.charging ? "Charging" : (g_battery_info.percent >= 40 ? "Ready" : "Req >=40%"));
+    fb_draw_text_aa(16, start_y + 54, batt_str,
+                    (g_battery_info.charging || g_battery_info.percent >= 40) ? RGB_TEXT_MUTED : RGB_RED,
+                    &g_font_main);
+
+    const char *labels[3] = {
         "Pull Firmware OTA from Hub",
-        "Push Settings to Hub",
         "Check for Updates",
         "< Back to Settings"
     };
-    const char *icons[5] = {
-        "/opt/luadraws/appscommon/asset/footer/devices.png",
+    const char *icons[3] = {
         "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
-        "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
         "/opt/luadraws/appscommon/asset/footer/settings.png",
         "/opt/luadraws/appscommon/asset/footer/close.png"
     };
 
-    int item_y_start = start_y + card_h + 4;
-    int item_h = 30;
-    int spacing = 3;
+    int item_y_start = start_y + card_h + 6;
+    int item_h = 34;
+    int spacing = 5;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 3; i++) {
         int y = item_y_start + i * (item_h + spacing);
         bool is_sel = (i == g_selected_sub_item);
-        bool is_back = (i == 4);
+        bool is_back = (i == 2);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
         uint16_t border = is_sel ? (is_back ? RGB_TEXT_MUTED : RGB_TEAL) : 0x2945;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, item_h, bg);
         fb_draw_rect(8, y, FB_WIDTH - 16, item_h, border);
 
-        bool has_icon = blit_png_file(14, y + 5, 20, 20, icons[i]);
+        bool has_icon = blit_png_file(14, y + 7, 20, 20, icons[i]);
         int tx = has_icon ? 40 : 14;
 
         uint16_t fg = is_sel ? RGB_WHITE : (is_back ? RGB_TEXT_MUTED : RGB_CYAN);
-        fb_draw_text_aa(tx, y + 7, labels[i], fg, &g_font_main);
+        fb_draw_text_aa(tx, y + 9, labels[i], fg, &g_font_main);
 
-        if (i == 0 && g_update_config_available) {
-            fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_TEAL, &g_font_main);
-        } else if (i == 1 && ota_avail) {
-            fb_draw_text_aa(FB_WIDTH - 55, y + 7, "[NEW]", RGB_YELLOW, &g_font_main);
+        if (i == 0 && ota_avail) {
+            fb_draw_text_aa(FB_WIDTH - 55, y + 9, "[READY]", RGB_YELLOW, &g_font_main);
         } else if (!is_back) {
-            fb_draw_text_aa(FB_WIDTH - 20, y + 7, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_main);
+            fb_draw_text_aa(FB_WIDTH - 20, y + 9, ">", is_sel ? RGB_TEAL : RGB_TEXT_MUTED, &g_font_main);
         }
     }
 }
@@ -362,22 +350,25 @@ void render_settings_screen(void) {
             render_settings_categories();
             break;
         case SETTINGS_VIEW_ACTIVITIES: {
-            const char *labels[3] = { "Confirm Switch", "Remote Mode", "< Back" };
-            char values[3][32];
+            const char *labels[4] = { "Confirm Switch", "Remote Mode", "Sync Config from Hub", "< Back" };
+            char values[4][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_confirm_activity ? "PROMPT" : "INSTANT");
             snprintf(values[1], sizeof(values[1]), "[ %s ]", (g_remote_mode == 1) ? "DIRECT" : "ACTIVITY");
-            values[2][0] = '\0';
-            uint16_t cols[3] = {
+            snprintf(values[2], sizeof(values[2]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
+            values[3][0] = '\0';
+            uint16_t cols[4] = {
                 g_confirm_activity ? RGB_GREEN : RGB_TEXT_MUTED,
                 (g_remote_mode == 1) ? RGB_YELLOW : RGB_CYAN,
+                g_update_config_available ? RGB_YELLOW : RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[3] = {
+            const char *icons[4] = {
                 "/opt/luadraws/appscommon/asset/settings/checkmark.png",
+                "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("ACTIVITIES", 3, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items("ACTIVITIES & MODES", 4, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {

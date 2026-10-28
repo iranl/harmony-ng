@@ -109,6 +109,14 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 2:
+                if (!g_rf_link_connected) {
+                    show_notice("Hub not connected", 2500);
+                } else {
+                    rf_send_full_sync_request();
+                    show_notice("Syncing config from Hub...", 3000);
+                }
+                break;
+            case 3:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -271,14 +279,6 @@ void execute_settings_action(int idx) {
                 if (!g_rf_link_connected) {
                     show_notice("Hub not connected", 2500);
                 } else {
-                    rf_send_full_sync_request();
-                    show_notice("Pulling config from Hub...", 3000);
-                }
-                break;
-            case 1:
-                if (!g_rf_link_connected) {
-                    show_notice("Hub not connected", 2500);
-                } else {
                     read_elite_battery();
                     if (g_battery_info.percent < 40 && !g_battery_info.charging) {
                         show_notice("Low battery (<40%) - connect charger", 3500);
@@ -291,15 +291,7 @@ void execute_settings_action(int idx) {
                     }
                 }
                 break;
-            case 2:
-                if (!g_rf_link_connected) {
-                    show_notice("Hub not connected", 2500);
-                } else {
-                    send_remote_config_backup_rf();
-                    show_notice("Settings pushed to Hub!", 2500);
-                }
-                break;
-            case 3:
+            case 1:
                 if (!g_rf_link_connected) {
                     show_notice("Hub not connected", 2500);
                 } else {
@@ -308,7 +300,7 @@ void execute_settings_action(int idx) {
                     show_notice("Checking for updates...", 2000);
                 }
                 break;
-            case 4:
+            case 2:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 g_selected_category = 5;
                 break;

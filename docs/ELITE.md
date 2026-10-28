@@ -317,7 +317,7 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
 1. **Hub -> Remote Push (`RF_MSG_SETTINGS_PUSH`, `0x0E`)**:
    - Sent when settings are POSTed to the Hub API, or during full config sync (`RF_MSG_CONFIG_END`).
    - Requires ACK from Remote (`RF_FLAG_ACK_REQ`).
-   - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/elite_ui.conf`, and repaints the screen.
+   - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/elite_settings.conf`, and repaints the screen.
 2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`)**:
    - Sent whenever settings are modified in the Elite on-screen menu, or when the user selects `PUSH TO HUB`.
    - The Hub receives the frame and persists the configuration to `/data/harmony/elite_slot<slot>_config.json`.

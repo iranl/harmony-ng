@@ -46,9 +46,11 @@ if [ "$COUNT" -gt 5 ]; then
 fi
 
 # 4. Normal Boot: USB Ethernet & Dropbear SSH disabled by default on battery to save power;
-# enabled only if explicitly configured in /data/elite_ui.conf (usbeth=1)
 USBETH_CONF=0
-ELITE_CONF="/data/elite_ui.conf"
+ELITE_CONF="/data/elite_settings.conf"
+if [ ! -f "$ELITE_CONF" ]; then
+    ELITE_CONF="/data/elite_ui.conf"
+fi
 if [ -f "$ELITE_CONF" ]; then
     VAL=$(grep '^usbeth=' "$ELITE_CONF" 2>/dev/null | cut -d= -f2)
     if [ "$VAL" = "1" ]; then USBETH_CONF=1; fi

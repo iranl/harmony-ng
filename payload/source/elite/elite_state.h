@@ -47,7 +47,9 @@ extern "C" {
 #define RFSPI_DEV               "/dev/rfspi"
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
 #define STOCK_ACTIVITY_JSON_FILE  "/data/resources/ActivityList.json"
-#define RF_CONFIG_FILE            "/data/elite_ui.conf"
+#define RF_CONFIG_FILE            "/data/elite_rf_config.json"
+#define SETTINGS_CONFIG_FILE      "/data/elite_settings.conf"
+#define LEGACY_SETTINGS_FILE      "/data/elite_ui.conf"
 
 #define FB_WIDTH            240
 #define FB_HEIGHT           320
