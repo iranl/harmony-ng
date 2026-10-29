@@ -83,10 +83,11 @@ SSH_KEY="$SSH_KEY" bash "$SCRIPT_DIR/backup_hub.sh" "$HUB_HOST"
 ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
     "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
-# 2. Stop existing processes cleanly (quiescing RF & SPI flash)
+# 2. Stop existing processes cleanly (quiescing RF & SPI flash). v1.x runs codex_* binaries and
+#    scripts from /data/codex, which would keep port 8089 and /dev/rfspi from the new services.
 echo "[2/5] Stopping old hub processes cleanly..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "touch /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; else killall -15 hub_rf 2>/dev/null || true; sleep 1; killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; for _p in \$(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"\$_p\" ] && [ \"\$_p\" != \"\$\$\" ] && kill -9 \"\$_p\" 2>/dev/null || true; done; /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
+    "touch /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; else killall -15 hub_rf 2>/dev/null || true; sleep 1; killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; for _p in \$(ps | grep '/data/codex/' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"\$_p\" ] && [ \"\$_p\" != \"\$\$\" ] && kill -9 \"\$_p\" 2>/dev/null || true; done; for _p in \$(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do [ -n \"\$_p\" ] && [ \"\$_p\" != \"\$\$\" ] && kill -9 \"\$_p\" 2>/dev/null || true; done; /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
 
 # 3. One-way migration from /data/codex to /data/harmony and cleanup of old binaries
 echo "[3/5] Migrating legacy codex paths and querying remote checksums..."

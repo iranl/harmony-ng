@@ -109,7 +109,26 @@ Write-Host "[*] Preserving stock configuration backup..." -ForegroundColor Yello
 & ssh @sshArgs $Target "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; fi; fi"
 
 Write-Host "[*] Stopping existing daemons cleanly (quiescing RF & SPI flash)..." -ForegroundColor Yellow
-$stopCmd = 'touch /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh stop; elif [ -x /data/harmony/scripts/init.sh ]; then /data/harmony/scripts/init.sh stop; else killall -15 hub_rf 2>/dev/null || true; sleep 1; killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true; fi; for _p in $(ps | grep "init\.sh" | sed "s/^[ ]*//" | cut -d" " -f1 2>/dev/null); do [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true; done; /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true'
+$stopCmd = @'
+touch /tmp/harmony_stop 2>/dev/null || true
+if [ -x /data/harmony/init.sh ]; then
+    /data/harmony/init.sh stop
+elif [ -x /data/harmony/scripts/init.sh ]; then
+    /data/harmony/scripts/init.sh stop
+else
+    killall -15 hub_rf 2>/dev/null || true
+    sleep 1
+    killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+fi
+# v1.x runs codex_* binaries and scripts from /data/codex; they would keep port 8089 and /dev/rfspi
+for _p in $(ps | grep '/data/codex/' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
+    [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true
+done
+for _p in $(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
+    [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true
+done
+/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
+'@
 & ssh @sshArgs $Target "$stopCmd"
 
 Write-Host "[*] Migrating legacy codex paths and preparing directories..." -ForegroundColor Yellow
