@@ -159,8 +159,8 @@ Write-Host "[*] Verifying system shell and flushing NAND flash buffers..." -Fore
 $postCmd = "if ! /bin/sh -c 'true' 2>/dev/null; then echo '[-] CRITICAL: /bin/sh verification failed. Aborting reboot!'; exit 1; fi; " +
            "chmod 755 /data/elite_* /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
            "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; " +
-           "[ -L /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; " +
-           "[ -L /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; " +
+           "[ -e /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; " +
+           "[ -e /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; " +
            "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; " +
            "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/`$a 2>/dev/null; done; fi; " +
            "rm -f /cache/crashlog-*.json 2>/dev/null || true; " +
