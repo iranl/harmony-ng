@@ -270,9 +270,8 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
                                 cJSON_DeleteItemFromObjectCaseSensitive(d, "BTAddress");
                                 cJSON_DeleteItemFromObjectCaseSensitive(d, "bt_host");
                                 cJSON_DeleteItemFromObjectCaseSensitive(d, "btHost");
-                                cJSON_AddStringToObject(d, "BTAddress", addr_str);
-                                cJSON_AddStringToObject(d, "bt_host", addr_str);
-                                cJSON_AddStringToObject(d, "btHost", addr_str);
+                                cJSON_DeleteItemFromObjectCaseSensitive(d, "bdaddr");
+                                cJSON_AddStringToObject(d, "bdaddr", addr_str);
                                 char *dout = cJSON_Print(droot);
                                 if (dout) {
                                     char tmp_dpath[128];

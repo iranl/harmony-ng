@@ -53,20 +53,31 @@ static void cycle_touch_sensitivity(void) {
 }
 
 static void execute_remote_reboot(void) {
-    show_notice("Rebooting Remote...", 4000);
+    bool docked = is_elite_docked();
+    show_notice(docked ? "Rebooting OS..." : "Restarting Remote...", 4000);
     render_screen();
-    log_power_debug("[*] System reboot initiated by user from Settings menu. Syncing and rebooting (-f)...\n");
+    log_power_debug("[*] System reboot initiated from Settings (docked=%d)...\n", docked);
     sync();
-    system("if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
-           "else killall -9 elite_watchdog.sh 2>/dev/null || true; "
-           "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; "
-           "sleep 1; "
-           "mount -o remount,ro /data 2>/dev/null || true; "
-           "/data/elite_sync 2>/dev/null || true; "
-           "(/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) & fi");
-    usleep(500000);
-    reboot(RB_AUTOBOOT);
-    exit(1);
+    system("/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true");
+
+    if (docked) {
+        system("if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
+               "else killall -9 elite_watchdog.sh 2>/dev/null || true; "
+               "sleep 1; "
+               "mount -o remount,ro /data 2>/dev/null || true; "
+               "/data/elite_sync 2>/dev/null || true; "
+               "(/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) & fi");
+        usleep(500000);
+        reboot(RB_AUTOBOOT);
+        exit(1);
+    } else {
+        /* On battery, SoC hardware reset causes PMIC power-off. Restart runtime cleanly via execv. */
+        usleep(250000);
+        char *const args[] = { "/data/elite_ui", NULL };
+        execv("/data/elite_ui", args);
+        /* Fallback: exit with 143 so watchdog restarts elite_ui */
+        exit(143);
+    }
 }
 
 static void execute_elite_factory_reset(void) {

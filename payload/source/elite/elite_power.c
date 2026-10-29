@@ -331,7 +331,7 @@ void fb_set_blank(bool blank) {
         if (turn_on) {
             if (g_btn_backlight_mode == 0) turn_on = false;
             else if (g_btn_backlight_mode == 1) turn_on = true;
-            else if (g_btn_backlight_mode == 2) turn_on = !is_night_time();
+            else if (g_btn_backlight_mode == 2) turn_on = is_night_time();
         }
         write(lfd, turn_on ? "255\n" : "0\n", turn_on ? 4 : 2);
         close(lfd);
@@ -664,14 +664,14 @@ void init_gyro_interrupt(void) {
     }
     int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
     if (fdt >= 0) {
-        write(fdt, "3\n", 2);
+        write(fdt, "8\n", 2);
         close(fdt);
     }
     int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
     if (fdd >= 0) {
-        write(fdd, "1\n", 2);
+        write(fdd, "2\n", 2);
         close(fdd);
     }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=3, dur=1)\n",
+    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=8, dur=2)\n",
            g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
 }

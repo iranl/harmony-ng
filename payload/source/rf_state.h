@@ -27,6 +27,13 @@
 extern int g_log_level;
 #define RF_LOG(level, fmt, ...) do { if (g_log_level >= (level)) { printf(fmt, ##__VA_ARGS__); fflush(stdout); } } while (0)
 
+typedef enum {
+    REMOTE_MODEL_UNKNOWN = 0,
+    REMOTE_MODEL_ELITE,
+    REMOTE_MODEL_COMPANION,
+    REMOTE_MODEL_SMART_CONTROL
+} remote_model_t;
+
 typedef struct {
     uint8_t slot;
     uint8_t rf_addr[4];
@@ -34,6 +41,8 @@ typedef struct {
     bool active;
     bool link_lost;
     uint64_t last_seen_ms;
+    remote_model_t model;
+    uint16_t equad_id;
 } paired_remote_t;
 
 typedef struct {
@@ -88,6 +97,8 @@ uint64_t get_monotonic_ms(void);
 void mark_remote_slot_active(uint8_t slot);
 bool is_ota_busy(void);
 void http_post_local(int port, const char *endpoint, const char *json_body);
+bool is_companion_slot(uint8_t slot);
+const char *get_remote_model_name(remote_model_t model);
 
 #ifdef __cplusplus
 }

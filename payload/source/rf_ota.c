@@ -46,6 +46,12 @@ void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
     if (target_slot < 1 || target_slot > 2) target_slot = g_remote_slot ? g_remote_slot : 1;
 
+    if (is_companion_slot(target_slot)) {
+        printf("[-] Hub RF OTA rejected: slot %d is a Companion remote (no OTA support)\n", target_slot);
+        ota_set_status(-1, false, "Remote model does not support OTA");
+        return NULL;
+    }
+
     pthread_mutex_lock(&g_ota_lock);
     g_rf_ota.in_progress = true;
     g_rf_ota.target_slot = target_slot;

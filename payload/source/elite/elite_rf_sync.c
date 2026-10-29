@@ -41,6 +41,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             uint64_t now_ms = get_monotonic_ms();
 
+            /* While config sync or OTA update is running, do not clobber sync screen with activity view */
+            if (g_is_syncing_config || g_is_ota_updating) {
+                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
+                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+                break;
+            }
+
             /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
             if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
@@ -55,7 +62,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     g_current_view = VIEW_ACTIVITIES;
                 }
                 g_selected_device_cmd = 0;
-                reset_idle_timer();
+                if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
                 break;
             }
@@ -84,7 +91,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     g_current_view = VIEW_ACTIVITIES;
                 }
                 g_selected_device_cmd = 0;
-                reset_idle_timer();
+                if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
                 break;
             }
@@ -97,7 +104,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
             strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
             g_selected_device_cmd = 0;
-            reset_idle_timer();
+            if (g_screen_on) reset_idle_timer();
             g_screen_dirty = true;
             break;
         }
@@ -386,18 +393,21 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (tz_str[0]) {
                 char full_tz[48] = {0};
                 expand_timezone(tz_str, full_tz, sizeof(full_tz));
-                if (full_tz[0] && strcmp(g_timezone_str, full_tz) != 0) {
+                if (full_tz[0]) {
+                    bool tz_changed = (strcmp(g_timezone_str, full_tz) != 0);
+                    strncpy(g_timezone_str, full_tz, sizeof(g_timezone_str) - 1);
+                    g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
+                    setenv("TZ", g_timezone_str, 1);
+                    tzset();
                     FILE *ftz = fopen("/etc/TZ", "w");
                     if (ftz) {
                         fprintf(ftz, "%s\n", full_tz);
                         fclose(ftz);
                     }
-                    strncpy(g_timezone_str, full_tz, sizeof(g_timezone_str) - 1);
-                    g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
-                    setenv("TZ", g_timezone_str, 1);
-                    tzset();
-                    save_settings_conf();
-                    printf("[+] Timezone updated to: %s\n", g_timezone_str);
+                    if (tz_changed) {
+                        save_settings_conf();
+                        printf("[+] Timezone updated to: %s\n", g_timezone_str);
+                    }
                 }
             }
 

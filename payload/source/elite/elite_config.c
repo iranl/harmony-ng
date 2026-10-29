@@ -412,7 +412,7 @@ void load_rf_config(void) {
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (sz <= 0 || sz > 50000) { fclose(f); return; }
+    if (sz <= 0 || sz > 524288) { fclose(f); return; }
     char *buf = malloc(sz + 1);
     if (!buf) { fclose(f); return; }
     size_t rd = fread(buf, 1, sz, f);
@@ -440,8 +440,14 @@ void load_rf_config(void) {
             cJSON *jid = cJSON_GetObjectItem(a, "id");
             cJSON *jname = cJSON_GetObjectItem(a, "name");
             cJSON *jico = cJSON_GetObjectItem(a, "icon");
-            if (jid && jname && cJSON_IsString(jid) && cJSON_IsString(jname)) {
-                strncpy(g_rf_activities[g_rf_activity_count].id, jid->valuestring, sizeof(g_rf_activities[0].id) - 1);
+            char act_id_str[32] = {0};
+            if (jid && cJSON_IsString(jid)) {
+                strncpy(act_id_str, jid->valuestring, sizeof(act_id_str) - 1);
+            } else if (jid && cJSON_IsNumber(jid)) {
+                snprintf(act_id_str, sizeof(act_id_str), "%lld", (long long)jid->valuedouble);
+            }
+            if (act_id_str[0] && jname && cJSON_IsString(jname)) {
+                strncpy(g_rf_activities[g_rf_activity_count].id, act_id_str, sizeof(g_rf_activities[0].id) - 1);
                 g_rf_activities[g_rf_activity_count].id[sizeof(g_rf_activities[0].id) - 1] = '\0';
                 strncpy(g_rf_activities[g_rf_activity_count].name, jname->valuestring, sizeof(g_rf_activities[0].name) - 1);
                 g_rf_activities[g_rf_activity_count].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
@@ -468,8 +474,14 @@ void load_rf_config(void) {
             if (!jname) jname = cJSON_GetObjectItem(d, "Name");
             if (!jname) jname = cJSON_GetObjectItem(d, "label");
             if (!jname) jname = cJSON_GetObjectItem(d, "FriendlyName");
-            if (jid && jname && cJSON_IsString(jid) && cJSON_IsString(jname)) {
-                strncpy(g_rf_devices[g_rf_device_count].id, jid->valuestring, sizeof(g_rf_devices[0].id) - 1);
+            char dev_id_str[32] = {0};
+            if (jid && cJSON_IsString(jid)) {
+                strncpy(dev_id_str, jid->valuestring, sizeof(dev_id_str) - 1);
+            } else if (jid && cJSON_IsNumber(jid)) {
+                snprintf(dev_id_str, sizeof(dev_id_str), "%lld", (long long)jid->valuedouble);
+            }
+            if (dev_id_str[0] && jname && cJSON_IsString(jname)) {
+                strncpy(g_rf_devices[g_rf_device_count].id, dev_id_str, sizeof(g_rf_devices[0].id) - 1);
                 g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, sizeof(g_rf_devices[0].name) - 1);
                 g_rf_devices[g_rf_device_count].name[sizeof(g_rf_devices[0].name) - 1] = '\0';

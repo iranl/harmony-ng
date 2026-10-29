@@ -574,7 +574,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     try {
       await this.client.saveDeviceDetails({
         deviceId: devId,
-        bt_reconnect_delay_sec: delay
+        btReconnectDelaySec: delay
       });
       showToast(`Saved ${delay}s Bluetooth delay override for this device!`, 'success');
       document.getElementById('btDelayCalibrateModal').style.display = 'none';

@@ -6,8 +6,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-static cJSON *g_elite_map_cache = NULL;
-static time_t g_elite_map_mtime = 0;
+static cJSON *g_remote_map_cache[2] = {NULL, NULL};
+static time_t g_remote_map_mtime[2] = {0, 0};
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void get_current_activity(char *out, size_t outlen) {
@@ -25,19 +25,29 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
-static const char *resolve_map_file(void) {
-    return ELITE_MAP_FILE;
-}
+cJSON *get_remote_map(uint8_t slot) {
+    if (slot < 1 || slot > 2) slot = 1;
+    int idx = slot - 1;
 
-cJSON *get_elite_map(void) {
-    const char *map_file = resolve_map_file();
+    char slot_path[64];
+    snprintf(slot_path, sizeof(slot_path), "/data/harmony/remote_slot%d_map.json", slot);
+
+    const char *map_file = slot_path;
     struct stat st;
-    if (stat(map_file, &st) != 0) return NULL;
+    if (stat(map_file, &st) != 0) {
+        if (slot == 1) {
+            map_file = ELITE_MAP_FILE;
+            if (stat(map_file, &st) != 0) return NULL;
+        } else {
+            return NULL;
+        }
+    }
+
     pthread_mutex_lock(&g_map_lock);
-    if (st.st_mtime != g_elite_map_mtime || !g_elite_map_cache) {
-        if (g_elite_map_cache) {
-            cJSON_Delete(g_elite_map_cache);
-            g_elite_map_cache = NULL;
+    if (st.st_mtime != g_remote_map_mtime[idx] || !g_remote_map_cache[idx]) {
+        if (g_remote_map_cache[idx]) {
+            cJSON_Delete(g_remote_map_cache[idx]);
+            g_remote_map_cache[idx] = NULL;
         }
         FILE *mf = fopen(map_file, "r");
         if (mf) {
@@ -49,17 +59,21 @@ cJSON *get_elite_map(void) {
                 if (buf) {
                     size_t n = fread(buf, 1, sz, mf);
                     buf[n] = '\0';
-                    g_elite_map_cache = cJSON_Parse(buf);
+                    g_remote_map_cache[idx] = cJSON_Parse(buf);
                     free(buf);
                 }
             }
             fclose(mf);
         }
-        g_elite_map_mtime = st.st_mtime;
-        printf("[+] (Re)loaded elite remote map cache (size=%ld bytes)\n", (long)st.st_size);
+        g_remote_map_mtime[idx] = st.st_mtime;
+        printf("[+] (Re)loaded remote slot %d map cache (%s, size=%ld bytes)\n", slot, map_file, (long)st.st_size);
     }
     pthread_mutex_unlock(&g_map_lock);
-    return g_elite_map_cache;
+    return g_remote_map_cache[idx];
+}
+
+cJSON *get_elite_map(void) {
+    return get_remote_map(1);
 }
 
 int is_slot_direct_mode(uint8_t slot) {
@@ -105,9 +119,15 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
 
     if (!is_press) return;
 
+    if (strcmp(button_name, "PowerOffActivity") == 0) {
+        printf("[*] RF Dispatch: PowerOffActivity -> Stopping activity\n");
+        http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
+        return;
+    }
+
     /* If button pressed while browsing a specific device, dispatch to that device */
     if (dev_id && dev_id[0]) {
-        cJSON *map = get_elite_map();
+        cJSON *map = get_remote_map(slot);
         if (map) {
             pthread_mutex_lock(&g_map_lock);
             cJSON *devs_map = cJSON_GetObjectItemCaseSensitive(map, "devices");
@@ -180,7 +200,7 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
     }
 
     /* Standard Activity-Based mapping */
-    cJSON *map = get_elite_map();
+    cJSON *map = get_remote_map(slot);
     if (!map) return;
 
     char act_id[32] = "-1";
@@ -253,7 +273,8 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
 }
 
 typedef enum {
-    RF_EV_BUTTON = 0,
+    RF_EV_NONE = 0,
+    RF_EV_BUTTON,
     RF_EV_DEVICE_CMD,
     RF_EV_ACTIVITY
 } rf_ev_kind_t;
@@ -275,6 +296,22 @@ static pthread_cond_t g_rf_q_cond = PTHREAD_COND_INITIALIZER;
 
 void enqueue_elite_button(uint8_t slot, const char *name, const char *action, const char *dev_id) {
     pthread_mutex_lock(&g_rf_q_mutex);
+    if (action && strcmp(action, "release") == 0) {
+        /* On button release, purge any pending queued repeats for this button to stop runaway execution */
+        int purged = 0;
+        int i = g_rf_q_tail;
+        while (i != g_rf_q_head) {
+            if (g_rf_queue[i].kind == RF_EV_BUTTON && g_rf_queue[i].slot == slot &&
+                strcmp(g_rf_queue[i].param1, name ? name : "") == 0) {
+                g_rf_queue[i].kind = RF_EV_NONE;
+                purged++;
+            }
+            i = (i + 1) % RF_QUEUE_SIZE;
+        }
+        if (purged > 0) {
+            printf("[*] Purged %d queued repeated presses on release of %s\n", purged, name ? name : "");
+        }
+    }
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
     if (next != g_rf_q_tail) {
         g_rf_queue[g_rf_q_head].kind = RF_EV_BUTTON;
@@ -330,9 +367,114 @@ void enqueue_elite_activity(const char *act_id) {
     pthread_mutex_unlock(&g_rf_q_mutex);
 }
 
+static struct {
+    uint16_t current_key;
+    char current_name[32];
+    uint64_t press_start_ms;
+    uint64_t last_repeat_ms;
+    bool hold_sent;
+} s_companion_state[MAX_PAIRED_REMOTES];
+
+void check_companion_timeouts(void) {
+    uint64_t now_ms = get_monotonic_ms();
+    for (int s = 0; s < MAX_PAIRED_REMOTES; s++) {
+        if (s_companion_state[s].current_key != 0) {
+            /* Trigger HOLD when held longer than 300ms */
+            if (!s_companion_state[s].hold_sent && (now_ms - s_companion_state[s].press_start_ms >= 300)) {
+                s_companion_state[s].hold_sent = true;
+                printf("[*] Companion button HOLD: slot=%d code=0x%04X name=%s (held %llums)\n",
+                       s + 1, s_companion_state[s].current_key, s_companion_state[s].current_name,
+                       (unsigned long long)(now_ms - s_companion_state[s].press_start_ms));
+                enqueue_elite_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
+            }
+            /* Safety timeout: only release if link lost or stuck for >30 seconds */
+            else if (now_ms - s_companion_state[s].press_start_ms > 30000) {
+                printf("[*] Companion button AUTO-RELEASE (safety timeout): slot=%d name=%s\n",
+                       s + 1, s_companion_state[s].current_name);
+                enqueue_elite_button(s + 1, s_companion_state[s].current_name, "release", NULL);
+                s_companion_state[s].current_key = 0;
+                s_companion_state[s].current_name[0] = '\0';
+                s_companion_state[s].hold_sent = false;
+            }
+        }
+    }
+}
+
+void handle_companion_packet(const uint8_t *pkt, size_t len) {
+    if (len < 5) return;
+    uint8_t slot = pkt[1] & 0x0F;
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
+    mark_remote_slot_active(slot);
+    if (g_paired_remotes[slot - 1].model != REMOTE_MODEL_SMART_CONTROL &&
+        g_paired_remotes[slot - 1].model != REMOTE_MODEL_COMPANION) {
+        g_paired_remotes[slot - 1].model = REMOTE_MODEL_COMPANION;
+    }
+
+    uint8_t sub_id = pkt[2];
+    uint16_t key_code = 0;
+
+    if (sub_id == 0x03) {
+        /* Consumer Control / Media / Activity */
+        key_code = ((uint16_t)pkt[4] << 8) | pkt[3];
+    } else if (sub_id == 0x01) {
+        /* Keyboard */
+        key_code = pkt[4];
+    } else {
+        printf("[*] Companion RX (slot=%d sub=0x%02X unknown): len=%zu\n", slot, sub_id, len);
+        return;
+    }
+
+    int sidx = slot - 1;
+    uint64_t now_ms = get_monotonic_ms();
+
+    printf("[*] Companion RX (slot=%d sub=0x%02X): raw=[%02X %02X %02X %02X %02X %02X %02X] -> key=0x%04X\n",
+           slot, sub_id, pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], (len > 5 ? pkt[5] : 0), (len > 6 ? pkt[6] : 0), key_code);
+
+    if (key_code == 0) {
+        if (s_companion_state[sidx].current_key != 0) {
+            uint64_t held_ms = now_ms - s_companion_state[sidx].press_start_ms;
+            printf("[*] Companion button RELEASE: slot=%d name=%s (held %llums, hold_sent=%d)\n",
+                   slot, s_companion_state[sidx].current_name, (unsigned long long)held_ms, s_companion_state[sidx].hold_sent);
+            enqueue_elite_button(slot, s_companion_state[sidx].current_name, "release", NULL);
+            s_companion_state[sidx].current_key = 0;
+            s_companion_state[sidx].current_name[0] = '\0';
+            s_companion_state[sidx].hold_sent = false;
+        }
+        return;
+    }
+
+    const char *name = map_button_code(key_code >> 8, key_code & 0xFF);
+    if (!name) name = "Unknown";
+
+    if (s_companion_state[sidx].current_key != key_code) {
+        if (s_companion_state[sidx].current_key != 0) {
+            enqueue_elite_button(slot, s_companion_state[sidx].current_name, "release", NULL);
+        }
+        s_companion_state[sidx].current_key = key_code;
+        strncpy(s_companion_state[sidx].current_name, name, sizeof(s_companion_state[sidx].current_name) - 1);
+        s_companion_state[sidx].current_name[sizeof(s_companion_state[sidx].current_name) - 1] = '\0';
+        s_companion_state[sidx].press_start_ms = now_ms;
+        s_companion_state[sidx].last_repeat_ms = now_ms;
+        s_companion_state[sidx].hold_sent = false;
+
+        printf("[*] Companion button PRESS: slot=%d code=0x%04X name=%s\n", slot, key_code, name);
+        enqueue_elite_button(slot, name, "press", NULL);
+    } else {
+        s_companion_state[sidx].last_repeat_ms = now_ms;
+        if (!s_companion_state[sidx].hold_sent && (now_ms - s_companion_state[sidx].press_start_ms >= 300)) {
+            s_companion_state[sidx].hold_sent = true;
+            printf("[*] Companion button HOLD: slot=%d code=0x%04X name=%s (held %llums)\n",
+                   slot, key_code, name, (unsigned long long)(now_ms - s_companion_state[sidx].press_start_ms));
+            enqueue_elite_button(slot, name, "hold", NULL);
+        }
+    }
+}
+
 void *dispatch_worker(void *arg) {
     (void)arg;
     while (g_running) {
+        check_companion_timeouts();
+
         rf_event_t ev;
         bool has_event = false;
 
@@ -349,7 +491,9 @@ void *dispatch_worker(void *arg) {
             continue;
         }
 
-        if (ev.kind == RF_EV_DEVICE_CMD) {
+        if (ev.kind == RF_EV_NONE) {
+            continue;
+        } else if (ev.kind == RF_EV_DEVICE_CMD) {
             char body[256];
             snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
                      ev.param1, ev.param2);
@@ -393,11 +537,18 @@ const char *map_button_code(uint8_t k0, uint8_t k1) {
     uint16_t key = ((uint16_t)k0 << 8) | k1;
     switch (key) {
         case 0x01EC: return "PowerOffActivity";
+        case 0x01ED: return "WatchTVActivity";
+        case 0x01E8: return "MusicActivity";
+        case 0x01E9: return "MovieActivity";
+        case 0x004B: return "UpArrow";
+        case 0x004E: return "DownArrow";
         case 0x0052: return "DirectionUp";
         case 0x0051: return "DirectionDown";
         case 0x0050: return "DirectionLeft";
         case 0x004F: return "DirectionRight";
         case 0x0058: return "Select";
+        case 0x0028: return "NumberEnter";
+        case 0x0046: return "Back";
         case 0x0225: return "Back";
         case 0x0065: return "Menu";
         case 0x0094: return "Exit";
@@ -421,6 +572,17 @@ const char *map_button_code(uint8_t k0, uint8_t k1) {
         case 0x01F6: return "Green";
         case 0x01F5: return "Yellow";
         case 0x01F4: return "Blue";
+        case 0x001E: return "Number1";
+        case 0x001F: return "Number2";
+        case 0x0020: return "Number3";
+        case 0x0021: return "Number4";
+        case 0x0022: return "Number5";
+        case 0x0023: return "Number6";
+        case 0x0024: return "Number7";
+        case 0x0025: return "Number8";
+        case 0x0026: return "Number9";
+        case 0x0027: return "Number0";
+        case 0x0056: return "NumberPlus";
         case 0x0FF2: return "Ha1";
         case 0x0FF3: return "Ha2";
         case 0x0FF4: return "Ha3";

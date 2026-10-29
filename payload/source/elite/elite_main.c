@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
         uint64_t now_ms = get_monotonic_ms();
         bool has_paired_hub = (g_paired_hub_addr[0] != 0 || g_paired_hub_addr[1] != 0 ||
                                g_paired_hub_addr[2] != 0 || g_paired_hub_addr[3] != 0);
-        if (g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && has_paired_hub && (now_ms - last_sync_query_ms >= 800)) {
+        if (g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && has_paired_hub && !g_is_syncing_config && !g_is_ota_updating && (now_ms - last_sync_query_ms >= 800)) {
             rf_send_sync_query();
             last_sync_query_ms = now_ms;
         }
@@ -387,10 +387,15 @@ int main(int argc, char **argv) {
 
         static uint64_t last_battery_report_ms = 0;
         static uint8_t last_charging_state = 0xFF;
-        if (g_screen_on && g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
+        static uint8_t last_reported_percent = 0xFF;
+        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
             read_elite_battery();
-            if (now_ms - last_battery_report_ms >= 3600000 || g_battery_info.charging != last_charging_state) {
+            bool pct_changed = (last_reported_percent == 0xFF || abs((int)g_battery_info.percent - (int)last_reported_percent) >= 2);
+            bool chg_changed = (g_battery_info.charging != last_charging_state);
+            bool interval_elapsed = (last_battery_report_ms == 0 || now_ms - last_battery_report_ms >= 300000);
+            if (interval_elapsed || chg_changed || (g_screen_on && pct_changed)) {
                 last_charging_state = g_battery_info.charging;
+                last_reported_percent = g_battery_info.percent;
                 last_battery_report_ms = now_ms;
                 send_battery_status_rf();
             }
@@ -606,9 +611,12 @@ int main(int argc, char **argv) {
             struct input_event ev;
             while (read(g_touch_fd, &ev, sizeof(ev)) == sizeof(ev)) {
                 if (!g_screen_on) {
-                    reset_idle_timer();
-                    fb_set_blank(false);
-                    render_screen();
+                    if (ev.type == EV_KEY && ev.value == 1 &&
+                        (ev.code == 330 || (g_cap_buttons_enabled && (ev.code == 102 || ev.code == 364)))) {
+                        reset_idle_timer();
+                        fb_set_blank(false);
+                        render_screen();
+                    }
                     continue;
                 }
                 if (ev.type == EV_KEY) {

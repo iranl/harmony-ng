@@ -87,7 +87,7 @@ void *key_repeat_thread(void *arg) {
         uint16_t key = g_held_rf_code;
         pthread_mutex_unlock(&g_repeat_mutex);
 
-        usleep(300000); /* 300ms initial hold delay */
+        usleep(450000); /* 450ms initial hold delay (prevents accidental double taps) */
 
         while (g_running) {
             pthread_mutex_lock(&g_repeat_mutex);
@@ -98,7 +98,7 @@ void *key_repeat_thread(void *arg) {
             pthread_mutex_unlock(&g_repeat_mutex);
 
             rf_send_button_event(key, 1);
-            usleep(100000); /* 100ms repeat rate */
+            usleep(150000); /* 150ms repeat rate */
         }
     }
     return NULL;

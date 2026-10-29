@@ -521,6 +521,32 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddStringToObject(cfg, "eliteRemoteTopic", p_elt->valuestring);
             }
 
+            cJSON *p_s1e = cJSON_GetObjectItemCaseSensitive(params, "slot1RemoteEvents");
+            if (p_s1e) {
+                int s1_val = cJSON_IsTrue(p_s1e) || (cJSON_IsNumber(p_s1e) && p_s1e->valueint > 0) || (cJSON_IsString(p_s1e) && (strcmp(p_s1e->valuestring, "1") == 0 || strcasecmp(p_s1e->valuestring, "true") == 0));
+                cJSON_DeleteItemFromObject(cfg, "slot1RemoteEvents");
+                cJSON_AddBoolToObject(cfg, "slot1RemoteEvents", s1_val);
+            }
+
+            cJSON *p_s1t = cJSON_GetObjectItemCaseSensitive(params, "slot1RemoteTopic");
+            if (p_s1t && cJSON_IsString(p_s1t)) {
+                cJSON_DeleteItemFromObject(cfg, "slot1RemoteTopic");
+                cJSON_AddStringToObject(cfg, "slot1RemoteTopic", p_s1t->valuestring);
+            }
+
+            cJSON *p_s2e = cJSON_GetObjectItemCaseSensitive(params, "slot2RemoteEvents");
+            if (p_s2e) {
+                int s2_val = cJSON_IsTrue(p_s2e) || (cJSON_IsNumber(p_s2e) && p_s2e->valueint > 0) || (cJSON_IsString(p_s2e) && (strcmp(p_s2e->valuestring, "1") == 0 || strcasecmp(p_s2e->valuestring, "true") == 0));
+                cJSON_DeleteItemFromObject(cfg, "slot2RemoteEvents");
+                cJSON_AddBoolToObject(cfg, "slot2RemoteEvents", s2_val);
+            }
+
+            cJSON *p_s2t = cJSON_GetObjectItemCaseSensitive(params, "slot2RemoteTopic");
+            if (p_s2t && cJSON_IsString(p_s2t)) {
+                cJSON_DeleteItemFromObject(cfg, "slot2RemoteTopic");
+                cJSON_AddStringToObject(cfg, "slot2RemoteTopic", p_s2t->valuestring);
+            }
+
             cJSON_DeleteItemFromObject(cfg, "pollSeconds");
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");

@@ -21,7 +21,7 @@ int daemon_mqtt_button_handler(const char *device_id, const char *dev_name, cons
 int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
                                      const char *topic_in, int req_pulse_ms,
                                      char *out_topic, size_t out_topic_len, int *out_pulse_ms);
-int mqtt_dispatch_remote_button(const char *source, const char *action, const char *cmd_name,
+int mqtt_dispatch_remote_button(const char *source, const char *action, const char *cmd_name, int slot,
                                 const char *topic_in, int req_pulse_ms,
                                 char *out_topic, size_t out_topic_len, int *out_pulse_ms);
 void mqtt_cmd_tick(void);

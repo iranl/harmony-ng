@@ -81,7 +81,11 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                 } else {
                     int slot = strstr(buf, "slot=2") ? 2 : 1;
-                    rf_frame_t pull_frame;
+                    if (is_companion_slot((uint8_t)slot)) {
+                        const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not support config pull\",\"ok\":false}";
+                        write(cli, res, strlen(res));
+                    } else {
+                        rf_frame_t pull_frame;
                     memset(&pull_frame, 0, sizeof(pull_frame));
                     pull_frame.report_id = 0x20;
                     pull_frame.sub_id = 0x12;
@@ -90,10 +94,11 @@ void *api_server_worker(void *arg) {
                     pull_frame.hdr_flag = 0x50 | (pull_frame.seq & 0x0F);
                     pull_frame.msg_type = RF_MSG_CONFIG_PULL_REQ;
                     rf_send_frame(&pull_frame);
-                    char res[128];
-                    int rlen = snprintf(res, sizeof(res),
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
-                    write(cli, res, rlen);
+                        char res[128];
+                        int rlen = snprintf(res, sizeof(res),
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pull_requested\",\"slot\":%d,\"ok\":true}", slot);
+                        write(cli, res, rlen);
+                    }
                 }
             } else if (strstr(buf, "GET /api/rf/sleep") == buf || strstr(buf, "POST /api/rf/sleep") == buf) {
                 if (is_ota_busy()) {
@@ -105,6 +110,7 @@ void *api_server_worker(void *arg) {
                     for (int s = 1; s <= 2; s++) {
                         if (slot != 0 && slot != s) continue;
                         if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
+                        if (is_companion_slot((uint8_t)s)) continue;
                         rf_frame_t f;
                         memset(&f, 0, sizeof(f));
                         f.report_id = 0x20;
@@ -224,18 +230,24 @@ void *api_server_worker(void *arg) {
                 }
             } else if (strstr(buf, "GET /api/rf/remote-config") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
-                char path[64];
-                snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
                 char res_body[4096] = {0};
-                FILE *f = fopen(path, "r");
-                if (f) {
-                    size_t rn = fread(res_body, 1, sizeof(res_body) - 1, f);
-                    res_body[rn] = '\0';
-                    fclose(f);
-                } else {
+                if (is_companion_slot((uint8_t)slot)) {
                     snprintf(res_body, sizeof(res_body),
-                        "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0}",
+                        "{\"slot\":%d,\"model\":\"companion\",\"has_screen\":false,\"supports_ota\":false,\"in_sync\":true}",
                         slot);
+                } else {
+                    char path[64];
+                    snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
+                    FILE *f = fopen(path, "r");
+                    if (f) {
+                        size_t rn = fread(res_body, 1, sizeof(res_body) - 1, f);
+                        res_body[rn] = '\0';
+                        fclose(f);
+                    } else {
+                        snprintf(res_body, sizeof(res_body),
+                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0}",
+                            slot);
+                    }
                 }
                 char header[256];
                 int hlen = snprintf(header, sizeof(header),
@@ -248,7 +260,11 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                 } else {
                     int slot = strstr(buf, "slot=2") ? 2 : 1;
-                    char *body_start = strstr(buf, "\r\n\r\n");
+                    if (is_companion_slot((uint8_t)slot)) {
+                        const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not have screen or motion configuration\",\"ok\":false}";
+                        write(cli, res, strlen(res));
+                    } else {
+                        char *body_start = strstr(buf, "\r\n\r\n");
                     if (body_start) {
                         body_start += 4;
                         cJSON *root = cJSON_Parse(body_start);
@@ -373,6 +389,7 @@ void *api_server_worker(void *arg) {
                     }
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved_and_pushed\",\"ok\":true}";
                     write(cli, res, strlen(res));
+                    }
                 }
             } else if (strstr(buf, "GET /api/rf/remote-direct-buttons") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
@@ -438,9 +455,15 @@ void *api_server_worker(void *arg) {
                 write(cli, res_body, strlen(res_body));
             } else if (strstr(buf, "POST /api/rf/ota-start") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
-                int started = 0;
-                int busy_slot = 0;
-                pthread_mutex_lock(&g_ota_lock);
+                if (is_companion_slot((uint8_t)slot)) {
+                    char res[256];
+                    int rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unsupported\",\"slot\":%d,\"error\":\"Companion remotes do not support OTA\",\"ok\":false}", slot);
+                    write(cli, res, rlen);
+                } else {
+                    int started = 0;
+                    int busy_slot = 0;
+                    pthread_mutex_lock(&g_ota_lock);
                 if (!g_rf_ota.in_progress) {
                     g_rf_ota.in_progress = true;
                     g_rf_ota.target_slot = slot;
@@ -458,16 +481,17 @@ void *api_server_worker(void *arg) {
                     busy_slot = g_rf_ota.target_slot;
                 }
                 pthread_mutex_unlock(&g_ota_lock);
-                if (started) {
-                    char res[128];
-                    int rlen = snprintf(res, sizeof(res),
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"started\",\"slot\":%d,\"ok\":true}", slot);
-                    write(cli, res, rlen);
-                } else {
-                    char res[256];
-                    int rlen = snprintf(res, sizeof(res),
-                        "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"already_in_progress\",\"slot\":%d,\"error\":\"RF OTA already in progress on slot %d\",\"ok\":false}", busy_slot, busy_slot);
-                    write(cli, res, rlen);
+                    if (started) {
+                        char res[128];
+                        int rlen = snprintf(res, sizeof(res),
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"started\",\"slot\":%d,\"ok\":true}", slot);
+                        write(cli, res, rlen);
+                    } else {
+                        char res[256];
+                        int rlen = snprintf(res, sizeof(res),
+                            "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"already_in_progress\",\"slot\":%d,\"error\":\"RF OTA already in progress on slot %d\",\"ok\":false}", busy_slot, busy_slot);
+                        write(cli, res, rlen);
+                    }
                 }
             } else {
                 /* Status endpoint */
@@ -482,10 +506,34 @@ void *api_server_worker(void *arg) {
                              g_paired_remotes[1].rf_addr[0], g_paired_remotes[1].rf_addr[1], g_paired_remotes[1].rf_addr[2], g_paired_remotes[1].rf_addr[3]);
                 }
 
-                char name1[32] = "Harmony Remote (Slot 1)";
-                char name2[32] = "Harmony Elite (Slot 2)";
-                if (g_paired_remotes[0].name[0]) snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
-                if (g_paired_remotes[1].name[0]) snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
+                bool is_comp1 = is_companion_slot(1);
+                bool is_comp2 = is_companion_slot(2);
+                const char *model1 = get_remote_model_name(g_paired_remotes[0].model);
+                const char *model2 = get_remote_model_name(g_paired_remotes[1].model);
+                if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].active) {
+                    model1 = is_comp1 ? "smart_control" : "elite";
+                }
+                if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].active) {
+                    model2 = is_comp2 ? "smart_control" : "elite";
+                }
+
+                char name1[48] = "Harmony Remote (Slot 1)";
+                char name2[48] = "Harmony Elite (Slot 2)";
+                if (strcmp(model1, "smart_control") == 0) {
+                    snprintf(name1, sizeof(name1), "Harmony Smart Control (Slot 1)");
+                } else if (strcmp(model1, "companion") == 0) {
+                    snprintf(name1, sizeof(name1), "Harmony Companion (Slot 1)");
+                } else if (g_paired_remotes[0].name[0]) {
+                    snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
+                }
+
+                if (strcmp(model2, "smart_control") == 0) {
+                    snprintf(name2, sizeof(name2), "Harmony Smart Control (Slot 2)");
+                } else if (strcmp(model2, "companion") == 0) {
+                    snprintf(name2, sizeof(name2), "Harmony Companion (Slot 2)");
+                } else if (g_paired_remotes[1].name[0]) {
+                    snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
+                }
 
                 if ((g_hub_rf_addr[0] | g_hub_rf_addr[1] | g_hub_rf_addr[2] | g_hub_rf_addr[3]) == 0) {
                     uint8_t q[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
@@ -518,8 +566,20 @@ void *api_server_worker(void *arg) {
                     fclose(pdf);
                 }
 
-                bool slot1_in_sync = (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
-                bool slot2_in_sync = (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
+                if (sync_pending) {
+                    if ((pending_slot == 1 && is_comp1) || (pending_slot == 2 && is_comp2)) {
+                        sync_pending = false;
+                    }
+                    if ((!g_paired_remotes[0].active || is_comp1) && (!g_paired_remotes[1].active || is_comp2)) {
+                        sync_pending = false;
+                    }
+                }
+
+                bool slot1_in_sync = is_comp1 ? true : (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
+                bool slot2_in_sync = is_comp2 ? true : (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
+
+                const char *ver1_str = (is_comp1 && strcmp(g_remote_versions[0].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[0].sw_version;
+                const char *ver2_str = (is_comp2 && strcmp(g_remote_versions[1].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[1].sw_version;
 
                 pthread_mutex_lock(&g_ota_lock);
                 bool ota_in_prog = g_rf_ota.in_progress;
@@ -539,8 +599,8 @@ void *api_server_worker(void *arg) {
                     "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
                     "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
                     "\"slots\":["
-                    "{\"slot\":1,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
-                    "{\"slot\":2,\"name\":\"%s\",\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
+                    "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
+                    "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
                     "]}",
                     g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
                     hub_rf_str, hub_rf_str,
@@ -548,11 +608,13 @@ void *api_server_worker(void *arg) {
                     sync_pending ? "true" : "false",
                     pending_slot, pending_diff, g_config_version,
                     ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
-                    name1, g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
-                    g_remote_versions[0].sw_version, g_remote_versions[0].config_version,
+                    name1, model1, is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
+                    g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
+                    ver1_str, is_comp1 ? 0 : g_remote_versions[0].config_version,
                     g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv,
-                    name2, g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
-                    g_remote_versions[1].sw_version, g_remote_versions[1].config_version,
+                    name2, model2, is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
+                    g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
+                    ver2_str, is_comp2 ? 0 : g_remote_versions[1].config_version,
                     g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", g_remote_batteries[1].voltage_mv);
 
                 char header[256];

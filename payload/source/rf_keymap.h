@@ -16,8 +16,11 @@ void enqueue_elite_button(uint8_t slot, const char *name, const char *action, co
 void enqueue_elite_device_cmd(const char *dev_id, const char *cmd);
 void enqueue_elite_activity(const char *act_id);
 void *dispatch_worker(void *arg);
+void handle_companion_packet(const uint8_t *pkt, size_t len);
+void check_companion_timeouts(void);
 
 cJSON *get_elite_map(void);
+cJSON *get_remote_map(uint8_t slot);
 int is_slot_direct_mode(uint8_t slot);
 cJSON *get_elite_direct_map(int slot);
 

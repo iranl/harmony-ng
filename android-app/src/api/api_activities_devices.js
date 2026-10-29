@@ -6,72 +6,66 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
   async getInventory() {
     const data = await this.request('/api/inventory');
     if (!data) return { devices: [] };
-    const rawDevs = data.DevicesWithFeatures || data.devices || data.device || (Array.isArray(data) ? data : []);
+    const rawDevs = data.devices || data.DevicesWithFeatures || data.device || (Array.isArray(data) ? data : []);
     const normalized = rawDevs.map(d => {
       const dev = d.Device || d;
-      const rawCmds = d.Commands || d.commands || [];
-      const devTypeStr = String(dev.type || dev.DeviceTypeDisplayName || '').toLowerCase();
-      const devMfg = String(dev.Manufacturer || dev.manufacturer || '').toLowerCase();
-      const isBt = Number(dev.Transport) === 32 || Number(dev.transport) === 32 || devTypeStr === 'bt' || devTypeStr.includes('bluetooth') || devMfg.includes('bluetooth');
-      const isMqtt = devTypeStr === 'mqtt' || devTypeStr.includes('mqtt') || devMfg.includes('mqtt');
-      const cleanType = isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR');
+      const rawCmds = dev.commands || d.commands || d.Commands || [];
+      const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : (dev.type === 'IR' ? 'IR' : (dev.transport === 32 ? 'BT' : 'IR')));
+      const isBt = cleanType === 'BT';
+      const isMqtt = cleanType === 'MQTT';
+      const hostAddr = dev.bdaddr || dev.btHost || dev.bt_host || dev.BTAddress || '';
 
       return {
-          id: String(dev['Id-'] || dev.id || dev.Id || ''),
-          name: dev.Name || dev.name || 'Device',
-          type: cleanType,
-          manufacturer: dev.Manufacturer || dev.manufacturer || '',
-          model: dev.Model || dev.model || '',
-          controlPort: dev.ControlPort !== undefined ? Number(dev.ControlPort) : (dev.controlPort !== undefined ? Number(dev.controlPort) : 7),
-          icon: dev.Icon || dev.icon || '',
-          interDeviceDelay: dev.interDeviceDelay !== undefined ? Number(dev.interDeviceDelay) : 500,
-          interKeyDelay: dev.interKeyDelay !== undefined ? Number(dev.interKeyDelay) : 100,
-          holdInterKeyDelay: dev.holdInterKeyDelay !== undefined ? Number(dev.holdInterKeyDelay) : 200,
-          defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
-          powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
-          isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn || dev.is_power_always_on),
-          is_power_always_on: Boolean(dev.isPowerAlwaysOn || dev.is_power_always_on),
-          btHost: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
-          bt_host: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
-          BTAddress: dev.BTAddress || dev.bt_host || dev.btHost || dev.bdaddr || '',
-          btAutoReconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1),
-          bt_auto_reconnect: dev.bt_auto_reconnect !== undefined ? Number(dev.bt_auto_reconnect) : (dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1),
-          btReconnectDuration: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
-          bt_reconnect_duration_sec: dev.bt_reconnect_duration_sec !== undefined ? Number(dev.bt_reconnect_duration_sec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : (dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0)),
-          btReconnectDelay: dev.bt_reconnect_delay_sec !== undefined ? Number(dev.bt_reconnect_delay_sec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : (dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1)),
-          bt_reconnect_delay_sec: dev.bt_reconnect_delay_sec !== undefined ? Number(dev.bt_reconnect_delay_sec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : (dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1)),
-          bt_trigger_device_id: dev.bt_trigger_device_id || dev.btTriggerDeviceId || '',
-          bt_trigger_command_name: dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '',
-          powerOnSequence: dev.powerOnSequence || dev.PowerOnActions || [],
-          powerOffSequence: dev.powerOffSequence || dev.PowerOffActions || [],
-          isBt: isBt,
-          transport: dev.Transport !== undefined ? Number(dev.Transport) : (dev.transport !== undefined ? Number(dev.transport) : (isBt ? 32 : 0)),
-          isKeyboardAssociated: Boolean(dev.IsKeyboardAssociated || dev.isKeyboardAssociated || isBt),
-          mqttEnabled: isMqtt || !!(dev.MQTTEnabled || dev.mqtt_enabled || dev.mqttEnabled),
-          mqttTopic: dev.MQTTTopic || dev.mqtt_topic || dev.mqttTopic || '{base_topic}/button/{device}/{command}',
-          mqttPulseMs: Number(dev.MQTTPulseMs !== undefined ? dev.MQTTPulseMs : (dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : (dev.mqtt_pulse_ms !== undefined ? dev.mqtt_pulse_ms : (dev.mqttPulse !== undefined ? dev.mqttPulse : 1000)))),
-          mqttPulse: Number(dev.MQTTPulseMs !== undefined ? dev.MQTTPulseMs : (dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : (dev.mqtt_pulse_ms !== undefined ? dev.mqtt_pulse_ms : (dev.mqttPulse !== undefined ? dev.mqttPulse : 1000)))),
-          commands: rawCmds.map(c => {
-            if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
-            const kCode = c.KeyCode || c.keyCode || '';
-            const rawStr = c.Raw || c.raw || '';
-            const isBtCmd = isBt || kCode.startsWith('HID:') || rawStr.startsWith('HID:') || kCode.startsWith('G:HID') || rawStr.startsWith('G:HID');
-            const isMqttCmd = isMqtt || kCode.startsWith('G:MQTT') || rawStr.startsWith('G:MQTT');
-            const cmdObj = {
-              name: c.Name || c.name || '',
-              id: c['Id-'] || c.id || 0,
-              keyCode: kCode,
-              raw: rawStr
-            };
-            if (!isBtCmd && !isMqttCmd) {
-              cmdObj.repeats = c.Repeats || c.repeats || 3;
-              cmdObj.port = c.ControlPort || c.controlPort || 0;
-            }
-            return cmdObj;
-          })
-        };
-      });
-      return { devices: normalized };
+        id: String(dev.id || dev['Id-'] || dev.Id || ''),
+        name: dev.name || dev.Name || 'Device',
+        type: cleanType,
+        manufacturer: dev.manufacturer || dev.Manufacturer || '',
+        model: dev.model || dev.Model || '',
+        controlPort: dev.controlPort !== undefined ? Number(dev.controlPort) : 7,
+        icon: dev.icon || dev.Icon || '',
+        interDeviceDelay: dev.interDeviceDelay !== undefined ? Number(dev.interDeviceDelay) : 500,
+        interKeyDelay: dev.interKeyDelay !== undefined ? Number(dev.interKeyDelay) : 100,
+        holdInterKeyDelay: dev.holdInterKeyDelay !== undefined ? Number(dev.holdInterKeyDelay) : 200,
+        defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
+        powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
+        isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn || dev.is_power_always_on),
+        bdaddr: hostAddr,
+        btHost: hostAddr,
+        btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,
+        btReconnectDurationSec: dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : 0),
+        btReconnectDelaySec: dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : -1),
+        btTriggerDeviceId: dev.btTriggerDeviceId || dev.bt_trigger_device_id || '',
+        btTriggerCommandName: dev.btTriggerCommandName || dev.bt_trigger_command_name || '',
+        powerOnSequence: dev.powerOnSequence || dev.PowerOnActions || [],
+        powerOffSequence: dev.powerOffSequence || dev.PowerOffActions || [],
+        isBt: isBt,
+        transport: isBt ? 32 : (dev.transport !== undefined ? Number(dev.transport) : 0),
+        isKeyboardAssociated: isBt,
+        mqttEnabled: isMqtt || !!(dev.mqttEnabled || dev.mqtt_enabled),
+        mqttTopic: dev.mqttTopic || dev.mqtt_topic || '{base_topic}/button/{device}/{command}',
+        mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
+        commands: rawCmds.map(c => {
+          if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
+          const kCode = c.keyCode || c.KeyCode || '';
+          const rawStr = c.raw || c.Raw || '';
+          const isBtCmd = isBt || kCode.startsWith('HID:') || rawStr.startsWith('HID:');
+          const isMqttCmd = isMqtt || kCode.startsWith('G:MQTT') || rawStr.startsWith('G:MQTT');
+          const cmdObj = {
+            name: c.name || c.Name || '',
+            id: c.id || c['Id-'] || 0,
+            keyCode: kCode,
+            raw: rawStr
+          };
+          if (!isBtCmd && !isMqttCmd) {
+            cmdObj.repeats = c.repeats !== undefined ? c.repeats : (c.Repeats || 3);
+            cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
+          }
+          if (c.isMacro) cmdObj.isMacro = true;
+          return cmdObj;
+        })
+      };
+    });
+    return { devices: normalized };
     }
 
     async getActivities(options = {}) {

@@ -234,17 +234,17 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const isDev = this.eliteContextMode === 'device';
       const aW = document.getElementById('eliteActivitySelectWrap');
       const dW = document.getElementById('eliteDeviceSelectWrap');
-      const sc = document.getElementById('eliteScreenButtonsCard');
       if (aW) aW.style.display = isDev ? 'none' : 'block';
       if (dW) dW.style.display = isDev ? 'block' : 'none';
-      if (sc) sc.style.display = isDev ? 'none' : 'block';
       this.updateEliteButtonStates();
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
+      this.renderEliteScreenButtons();
     });
     document.getElementById('eliteDeviceSelect')?.addEventListener('change', (e) => {
       this.eliteSelectedDeviceId = e.target.value;
       this.updateEliteButtonStates();
       this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
+      this.renderEliteScreenButtons();
     });
     document.getElementById('btnEliteAddScreenBtn')?.addEventListener('click', () => this.addEliteScreenButton());
     document.getElementById('eliteActionType')?.addEventListener('change', () => this.toggleEliteActionFields());
@@ -277,6 +277,9 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
     document.getElementById('rfSlot1UpdateBtn')?.addEventListener('click', () => this.startEliteOta(1));
     document.getElementById('rfSlot2UpdateBtn')?.addEventListener('click', () => this.startEliteOta(2));
+    document.getElementById('rfSlotSelect1Btn')?.addEventListener('click', () => this.switchRemoteSlot(1));
+    document.getElementById('rfSlotSelect2Btn')?.addEventListener('click', () => this.switchRemoteSlot(2));
+    document.getElementById('rfCopySlotMappingBtn')?.addEventListener('click', () => this.copySlotMappings());
     document.getElementById('eliteMqttSaveBtn')?.addEventListener('click', () => this.saveEliteRemoteMqttSettings());
 
     // MQTT Actions

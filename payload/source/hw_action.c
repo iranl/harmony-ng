@@ -139,8 +139,8 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         if (j_isbt && cJSON_IsTrue(j_isbt)) is_bt = 1;
         if (!is_bt) continue;
 
-        cJSON *j_rec = cJSON_GetObjectItemCaseSensitive(dev, "bt_auto_reconnect");
-        if (!j_rec) j_rec = cJSON_GetObjectItemCaseSensitive(dev, "btAutoReconnect");
+        cJSON *j_rec = cJSON_GetObjectItemCaseSensitive(dev, "btAutoReconnect");
+        if (!j_rec) j_rec = cJSON_GetObjectItemCaseSensitive(dev, "bt_auto_reconnect");
         if (j_rec) {
             int rec_val = cJSON_IsNumber(j_rec) ? (int)j_rec->valuedouble : (cJSON_IsBool(j_rec) ? (cJSON_IsTrue(j_rec) ? 1 : 0) : (j_rec->valuestring ? atoi(j_rec->valuestring) : 1));
             if (rec_val == 0) continue;
@@ -163,25 +163,22 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         }
 
         int target_dev_delay = -1;
-        cJSON *jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
-        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
-        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelay");
+        cJSON *jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDelaySec");
+        if (!jd_dly) jd_dly = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_delay_sec");
         if (jd_dly && cJSON_IsNumber(jd_dly) && jd_dly->valueint >= 0) target_dev_delay = jd_dly->valueint;
 
         int dur = 0;
-        cJSON *jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
-        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
-        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDuration");
+        cJSON *jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "btReconnectDurationSec");
+        if (!jd_dur) jd_dur = cJSON_GetObjectItemCaseSensitive(dev, "bt_reconnect_duration_sec");
         if (jd_dur && cJSON_IsNumber(jd_dur) && jd_dur->valueint > 0) dur = jd_dur->valueint;
         if (dur <= 0) dur = 30;
 
-        cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_device_id");
-        if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerDeviceId");
+        cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerDeviceId");
+        if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_device_id");
         const char *trig_did = (j_trig_dev && cJSON_IsString(j_trig_dev)) ? j_trig_dev->valuestring : "";
 
-        cJSON *j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command_name");
-        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommandName");
-        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command");
+        cJSON *j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommandName");
+        if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "bt_trigger_command_name");
         if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerCommand");
         const char *trig_cmd = (j_trig_cmd && cJSON_IsString(j_trig_cmd)) ? j_trig_cmd->valuestring : "";
 
@@ -229,9 +226,9 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         if (!should_reconnect) continue;
 
         char target_bdaddr[32] = {0};
-        cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
+        cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
         if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bt_host");
-        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
         if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && hub_valid_bdaddr(j_bta->valuestring)) {
             strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
         }

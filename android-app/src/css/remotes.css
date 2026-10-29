@@ -267,7 +267,7 @@
     grid-template-columns: 1fr;
   }
 }
-.elite-remote-shell {
+.elite-remote-shell, .companion-remote-shell {
   width: 100%;
   display: flex;
   justify-content: center;
@@ -284,6 +284,15 @@
   background: linear-gradient(180deg, #1f2532 0%, #11151d 55%, #080a0e 100%);
   border: 2px solid #2e3846;
   border-radius: 34px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.companion-remote-skin {
+  position: relative;
+  width: min(100%, 250px);
+  aspect-ratio: 300/1050;
+  background: linear-gradient(180deg, #1b212c 0%, #10141c 50%, #090c11 100%);
+  border: 2px solid #2e3846;
+  border-radius: 42px;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 .elite-hotspot {

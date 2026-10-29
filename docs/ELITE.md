@@ -343,6 +343,59 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
 
 ---
 
+## Harmony Companion & Smart Control Screenless Remotes
+
+HarmonyNG provides complete, native support for Logitech's button-only screenless RF remotes: the **Harmony Companion** and **Harmony Smart Control**.
+
+### Hardware Comparison
+
+| Feature | Harmony Elite 950 | Harmony Companion | Harmony Smart Control |
+| :--- | :--- | :--- | :--- |
+| **Model ID / eQuad ID** | `0x4021` (`"Juniper"`) | `0x4026` / `0x4027` (`"Companion"`, `"Home Control"`) | `0x401E` (`"20+"`) |
+| **Display** | 240x320 RGB565 LCD + ClearPad Touch | None (Button-only) | None (Button-only) |
+| **Operating System** | Embedded Linux (TI DaVinci ARM9) | Ultra-low-power RF micro-controller | Ultra-low-power RF micro-controller |
+| **Power Source** | 1300 mAh Li-ion Rechargeable | 1x CR2032 Coin Cell | 1x CR2032 Coin Cell |
+| **Rooting / USB Setup** | Required (USB rooting, `elite_ui`) | **None** (Zero-touch, native RF) | **None** (Zero-touch, native RF) |
+| **Home Automation Keys** | Touchscreen devices & smart home | Dedicated physical buttons (Lights 1/2, Plugs 1/2, Dimmer +/-) | Standard media/nav buttons only |
+| **Web UI Visual Skin** | Elite touchscreen shell | Companion shell with smart home keys | Smart Control layout |
+
+### Zero-Touch Pairing (No Rooting Needed)
+
+Unlike the Elite 950, Companion and Smart Control remotes do not run Linux and have no USB interface. They communicate directly with the Hub via the Texas Instruments CC2544 2.4 GHz RF link:
+
+1. **Start Pairing on Hub**:
+   - In the HarmonyNG Web UI, navigate to the **Remotes** tab and click **Pair Remote** under Slot 1 or Slot 2.
+   - Alternatively, call the REST API: `POST /api/rf/pair?slot=1` (or `slot=2`), or press the physical **Pair/Reset** button on the back of the Harmony Hub.
+2. **Put Remote into Pairing Mode**:
+   - Hold **`Menu`** and **`Mute`** buttons simultaneously until the status LED at the top of the remote starts flashing rapidly.
+3. **Automatic Binding**:
+   - The Hub radio exchanges pairing keys, assigns the remote to the selected slot, and persists the RF pairing table.
+   - The Web UI immediately detects the remote type, updates the status badge (e.g. `Harmony Companion (Slot 1)`), and loads the appropriate button layout.
+
+### eQuad RF Framing & Key Dispatching
+
+When a button is pressed or released on a Companion or Smart Control remote, it transmits 32-byte eQuad frames over Report `0x20`:
+- **HID Keyboard Reports (Sub-ID `0x01`)**: Carries standard alphanumeric and modifier codes (e.g. `KEY_1`..`KEY_9`, `KEY_0`, `KEY_ENTER`, `KEY_MENU`).
+- **HID Consumer Control Reports (Sub-ID `0x03`)**: Carries 16-bit consumer page usages (e.g. `0x00E9` Volume Up, `0x00EA` Volume Down, `0x00E2` Mute, `0x00B5` Scan Next, `0x0041` Menu Pick).
+
+`hub_rf` decodes these reports in real-time within `rf_spi.c` and `rf_keymap.c`, tracking press, hold, and release states without CPU overhead. Mapped commands are executed immediately on the Hub:
+- **IR Pulsing**: Pulses hardware I2S registers with zero latency.
+- **Bluetooth HID**: Transmits media keys or HID strokes to paired Apple TV, Fire TV, or Shield devices.
+- **Activity Switching**: Top activity keys (Watch TV, Watch Movie, Listen to Music, All Off) trigger the orchestrator.
+- **MQTT Event Mirroring**: Publishes real-time button events to your home automation broker.
+
+### Per-Slot Configuration & Mapping Copy
+
+- **Independent Mapping Files**:
+  - Slot 1 mappings are stored in `/data/harmony/remote_slot1_map.json` (falling back to legacy `elite_remote_map.json` for backwards compatibility).
+  - Slot 2 mappings are stored in `/data/harmony/remote_slot2_map.json`.
+- **Copy Mappings Between Slots**:
+  - If you use identical remotes or want to replicate mappings from Slot 1 to Slot 2, use the **Copy to other slot** button in the Web UI, or invoke `POST /api/remote-mapping-copy?from=1&to=2`.
+- **Dynamic Feature Hiding**:
+  - For screenless remotes, the Web UI automatically hides touchscreen configuration ("DEVICES" touch buttons) and over-the-air firmware updates (`/api/rf/ota-*`), focusing purely on physical button assignments.
+
+---
+
 ## Official Firmware Management & Icon Extraction
 
 The custom firmware environment includes a clean-room HID flashing tool (`tools/harmony_firmware.py`) that queries official Logitech SUS update servers, downloads official signed firmware bundles (`.hfw2`), flashes devices over USB HID without Logitech software, and extracts all remote UI assets.

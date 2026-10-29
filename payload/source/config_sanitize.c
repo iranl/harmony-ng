@@ -47,151 +47,314 @@ void convert_legacy_hid_code(const char *in, char *out, size_t outsz) {
 }
 
 /* Sanitize devices JSON:
- * 1. Switch device type to 'IR', 'BT', or 'MQTT'
- * 2. Ensure IR timings and BT reconnect settings exist
- * 3. Convert legacy G:HID codes to clean HID:<page>:<usage>
- * 4. Add undeletable Connect & Disconnect commands for BT devices
- * 5. Deduplicate MQTT settings and strip IR fields from BT/MQTT
+ * 1. Convert root to canonical {"devices": [...]}
+ * 2. Unwrap legacy stock {"Device": ..., "Commands": ...} structures
+ * 3. Normalize all fields to clean camelCase canonical schema
+ * 4. Deduplicate camelCase/snake_case/PascalCase fields and prune stock bloat
+ * 5. Normalize commands and power sequences
  */
 void sanitize_devices_json(cJSON *root) {
     if (!root) return;
+
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
+    if (!devs) {
+        devs = cJSON_DetachItemFromObjectCaseSensitive(root, "DevicesWithFeatures");
+        if (devs) {
+            cJSON_AddItemToObject(root, "devices", devs);
+        }
+    }
+    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return;
+
+    cJSON *clean_devs = cJSON_CreateArray();
 
     cJSON *dev_item = NULL;
     cJSON_ArrayForEach(dev_item, devs) {
-        cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-        if (!d) d = dev_item;
+        cJSON *src_d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
+        if (!src_d || !cJSON_IsObject(src_d)) src_d = dev_item;
 
-        cJSON *dev_type_item = cJSON_GetObjectItemCaseSensitive(d, "deviceType");
-        if (!dev_type_item) dev_type_item = cJSON_GetObjectItemCaseSensitive(d, "type");
-        const char *orig_type = dev_type_item ? dev_type_item->valuestring : "";
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(src_d, "id");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(src_d, "Id-");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(src_d, "Id");
+        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(src_d, "ContentProfileKey");
+        char id_str[64] = {0};
+        if (jid && cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
+        else if (jid && cJSON_IsString(jid) && jid->valuestring) strncpy(id_str, jid->valuestring, sizeof(id_str) - 1);
+        if (!id_str[0]) continue;
 
-        /* Determine transport category: BT, MQTT, or IR */
-        int is_bt = 0;
-        int is_mqtt = 0;
-        cJSON *mqtt_en = cJSON_GetObjectItemCaseSensitive(d, "mqtt_enabled");
-        if (mqtt_en && (cJSON_IsTrue(mqtt_en) || (cJSON_IsNumber(mqtt_en) && mqtt_en->valueint == 1))) {
-            is_mqtt = 1;
-        }
+        cJSON *cdev = cJSON_CreateObject();
+        cJSON_AddStringToObject(cdev, "id", id_str);
 
-        if (strcasecmp(orig_type, "BT") == 0 ||
-            strcasecmp(orig_type, "Bluetooth") == 0 ||
-            strcasecmp(orig_type, "BTKeyboard") == 0 ||
-            strcasecmp(orig_type, "BTHID") == 0 ||
-            strcasecmp(orig_type, "AppleTV") == 0 ||
-            strcasecmp(orig_type, "FireTV") == 0 ||
-            strcasecmp(orig_type, "Shield") == 0 ||
-            strcasecmp(orig_type, "PlayStation") == 0 ||
-            strcasecmp(orig_type, "PS4") == 0) {
-            is_bt = 1;
-        }
+        cJSON *jname = cJSON_GetObjectItemCaseSensitive(src_d, "name");
+        if (!jname) jname = cJSON_GetObjectItemCaseSensitive(src_d, "Name");
+        if (!jname) jname = cJSON_GetObjectItemCaseSensitive(src_d, "FriendlyName");
+        if (!jname) jname = cJSON_GetObjectItemCaseSensitive(src_d, "label");
+        const char *name_str = (jname && jname->valuestring && jname->valuestring[0]) ? jname->valuestring : "Device";
+        cJSON_AddStringToObject(cdev, "name", name_str);
 
-        /* Sanitize type string */
+        cJSON *jmfg = cJSON_GetObjectItemCaseSensitive(src_d, "manufacturer");
+        if (!jmfg) jmfg = cJSON_GetObjectItemCaseSensitive(src_d, "Manufacturer");
+        const char *mfg_str = (jmfg && jmfg->valuestring) ? jmfg->valuestring : "";
+        cJSON_AddStringToObject(cdev, "manufacturer", mfg_str);
+
+        cJSON *jmdl = cJSON_GetObjectItemCaseSensitive(src_d, "model");
+        if (!jmdl) jmdl = cJSON_GetObjectItemCaseSensitive(src_d, "Model");
+        if (!jmdl) jmdl = cJSON_GetObjectItemCaseSensitive(src_d, "ParentDeviceModel");
+        const char *mdl_str = (jmdl && jmdl->valuestring) ? jmdl->valuestring : "";
+        cJSON_AddStringToObject(cdev, "model", mdl_str);
+
+        cJSON *jtype = cJSON_GetObjectItemCaseSensitive(src_d, "type");
+        if (!jtype) jtype = cJSON_GetObjectItemCaseSensitive(src_d, "deviceType");
+        if (!jtype) jtype = cJSON_GetObjectItemCaseSensitive(src_d, "DeviceTypeDisplayName");
+        const char *type_str = (jtype && jtype->valuestring) ? jtype->valuestring : "";
+
+        cJSON *jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "mqttEnabled");
+        if (!jmqtt_en) jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "mqtt_enabled");
+        if (!jmqtt_en) jmqtt_en = cJSON_GetObjectItemCaseSensitive(src_d, "MQTTEnabled");
+        int is_mqtt = (strcasecmp(type_str, "MQTT") == 0 ||
+                       (jmqtt_en && (cJSON_IsTrue(jmqtt_en) || (cJSON_IsNumber(jmqtt_en) && jmqtt_en->valueint == 1))));
+
+        cJSON *jtrans = cJSON_GetObjectItemCaseSensitive(src_d, "transport");
+        if (!jtrans) jtrans = cJSON_GetObjectItemCaseSensitive(src_d, "Transport");
+        int is_bt = (!is_mqtt) && ((jtrans && cJSON_IsNumber(jtrans) && jtrans->valueint == 32) ||
+                       strcasecmp(type_str, "BT") == 0 || strcasecmp(type_str, "Bluetooth") == 0 ||
+                       strcasestr(type_str, "bluetooth") != NULL || strcasestr(mfg_str, "bluetooth") != NULL ||
+                       strcasecmp(type_str, "BTHID") == 0 || strcasecmp(type_str, "AppleTV") == 0 ||
+                       strcasecmp(type_str, "FireTV") == 0 || strcasecmp(type_str, "Shield") == 0 ||
+                       strcasecmp(type_str, "PlayStation") == 0 || strcasecmp(type_str, "PS4") == 0);
+
+        const char *final_type = "IR";
         if (is_mqtt) {
-            cJSON_DeleteItemFromObject(d, "deviceType");
-            cJSON_DeleteItemFromObject(d, "type");
-            cJSON_AddStringToObject(d, "type", "MQTT");
+            final_type = (type_str && type_str[0]) ? type_str : "MQTT";
         } else if (is_bt) {
-            cJSON_DeleteItemFromObject(d, "deviceType");
-            cJSON_DeleteItemFromObject(d, "type");
-            cJSON_AddStringToObject(d, "type", "BT");
-        } else {
-            cJSON_DeleteItemFromObject(d, "deviceType");
-            cJSON_DeleteItemFromObject(d, "type");
-            cJSON_AddStringToObject(d, "type", "IR");
+            final_type = (type_str && type_str[0]) ? type_str : "BT";
+        } else if (type_str && type_str[0]) {
+            final_type = type_str;
+        }
+        cJSON_AddStringToObject(cdev, "type", final_type);
+
+        cJSON *jicon = cJSON_GetObjectItemCaseSensitive(src_d, "icon");
+        if (!jicon) jicon = cJSON_GetObjectItemCaseSensitive(src_d, "Icon");
+        if (jicon) {
+            if (cJSON_IsString(jicon) && jicon->valuestring) cJSON_AddStringToObject(cdev, "icon", jicon->valuestring);
+            else if (cJSON_IsNumber(jicon)) cJSON_AddNumberToObject(cdev, "icon", jicon->valueint);
         }
 
-        /* Clean up unused protocol/transport fields */
-        if (is_bt || is_mqtt) {
-            cJSON_DeleteItemFromObject(d, "controlPort");
-            cJSON_DeleteItemFromObject(d, "ControlPort");
-            cJSON_DeleteItemFromObject(d, "protocolId");
-            cJSON_DeleteItemFromObject(d, "transport");
-        }
-
-        /* Standardize IR timings if IR */
         if (!is_bt && !is_mqtt) {
-            if (!cJSON_GetObjectItemCaseSensitive(d, "interDeviceDelay")) {
-                cJSON_AddNumberToObject(d, "interDeviceDelay", 500);
-            }
-            if (!cJSON_GetObjectItemCaseSensitive(d, "interKeyDelay")) {
-                cJSON_AddNumberToObject(d, "interKeyDelay", 100);
-            }
-            if (!cJSON_GetObjectItemCaseSensitive(d, "holdInterKeyDelay")) {
-                cJSON_AddNumberToObject(d, "holdInterKeyDelay", 200);
-            }
+            cJSON *jcp = cJSON_GetObjectItemCaseSensitive(src_d, "controlPort");
+            if (!jcp) jcp = cJSON_GetObjectItemCaseSensitive(src_d, "ControlPort");
+            int cp_val = (jcp && cJSON_IsNumber(jcp)) ? jcp->valueint : 7;
+            cJSON_AddNumberToObject(cdev, "controlPort", (cp_val >= 0 && cp_val <= 7) ? cp_val : 7);
         }
 
-        /* Standardize Bluetooth reconnect settings */
+        /* Timings */
+        cJSON *jidd = cJSON_GetObjectItemCaseSensitive(src_d, "interDeviceDelay");
+        if (!jidd) jidd = cJSON_GetObjectItemCaseSensitive(src_d, "inter_device_delay");
+        if (!jidd) jidd = cJSON_GetObjectItemCaseSensitive(src_d, "InterDeviceDelay");
+        int idd = (jidd && cJSON_IsNumber(jidd)) ? jidd->valueint : (jidd && cJSON_IsString(jidd) ? atoi(jidd->valuestring) : 500);
+        cJSON_AddNumberToObject(cdev, "interDeviceDelay", idd >= 0 ? idd : 500);
+
+        cJSON *jikd = cJSON_GetObjectItemCaseSensitive(src_d, "interKeyDelay");
+        if (!jikd) jikd = cJSON_GetObjectItemCaseSensitive(src_d, "inter_key_delay");
+        if (!jikd) jikd = cJSON_GetObjectItemCaseSensitive(src_d, "InterKeyDelay");
+        int ikd = (jikd && cJSON_IsNumber(jikd)) ? jikd->valueint : (jikd && cJSON_IsString(jikd) ? atoi(jikd->valuestring) : 100);
+        cJSON_AddNumberToObject(cdev, "interKeyDelay", ikd >= 0 ? ikd : 100);
+
+        cJSON *jhikd = cJSON_GetObjectItemCaseSensitive(src_d, "holdInterKeyDelay");
+        if (!jhikd) jhikd = cJSON_GetObjectItemCaseSensitive(src_d, "hold_inter_key_delay");
+        if (!jhikd) jhikd = cJSON_GetObjectItemCaseSensitive(src_d, "HoldInterKeyDelay");
+        int hikd = (jhikd && cJSON_IsNumber(jhikd)) ? jhikd->valueint : (jhikd && cJSON_IsString(jhikd) ? atoi(jhikd->valuestring) : 200);
+        cJSON_AddNumberToObject(cdev, "holdInterKeyDelay", hikd >= 0 ? hikd : 200);
+
+        cJSON *jdidd = cJSON_GetObjectItemCaseSensitive(src_d, "defaultInterDeviceDelay");
+        if (!jdidd) jdidd = cJSON_GetObjectItemCaseSensitive(src_d, "DefaultInterDeviceDelay");
+        int didd = (jdidd && cJSON_IsNumber(jdidd)) ? jdidd->valueint : 500;
+        cJSON_AddNumberToObject(cdev, "defaultInterDeviceDelay", didd >= 0 ? didd : 500);
+
+        cJSON *jpod = cJSON_GetObjectItemCaseSensitive(src_d, "powerOnDelay");
+        if (!jpod) jpod = cJSON_GetObjectItemCaseSensitive(src_d, "power_on_delay");
+        if (!jpod) jpod = cJSON_GetObjectItemCaseSensitive(src_d, "PowerOnDelay");
+        int pod = (jpod && cJSON_IsNumber(jpod)) ? jpod->valueint : (jpod && cJSON_IsString(jpod) ? atoi(jpod->valuestring) : 1500);
+        cJSON_AddNumberToObject(cdev, "powerOnDelay", pod >= 0 ? pod : 1500);
+
+        cJSON *jpao = cJSON_GetObjectItemCaseSensitive(src_d, "isPowerAlwaysOn");
+        if (!jpao) jpao = cJSON_GetObjectItemCaseSensitive(src_d, "is_power_always_on");
+        if (!jpao) jpao = cJSON_GetObjectItemCaseSensitive(src_d, "IsPowerAlwaysOn");
+        int pao = (jpao && (cJSON_IsTrue(jpao) || (cJSON_IsNumber(jpao) && jpao->valuedouble > 0) ||
+                   (cJSON_IsString(jpao) && (strcmp(jpao->valuestring, "1") == 0 || strcasecmp(jpao->valuestring, "true") == 0))));
+        cJSON_AddBoolToObject(cdev, "isPowerAlwaysOn", pao ? 1 : 0);
+
+        /* BT Reconnect */
         if (is_bt) {
-            if (!cJSON_GetObjectItemCaseSensitive(d, "bt_auto_reconnect")) {
-                cJSON_AddNumberToObject(d, "bt_auto_reconnect", 1);
+            cJSON *jbd = cJSON_GetObjectItemCaseSensitive(src_d, "bdaddr");
+            if (!jbd) jbd = cJSON_GetObjectItemCaseSensitive(src_d, "BTAddress");
+            if (!jbd) jbd = cJSON_GetObjectItemCaseSensitive(src_d, "bt_host");
+            if (!jbd) jbd = cJSON_GetObjectItemCaseSensitive(src_d, "btHost");
+            cJSON_AddStringToObject(cdev, "bdaddr", (jbd && jbd->valuestring) ? jbd->valuestring : "");
+
+            cJSON *jrec = cJSON_GetObjectItemCaseSensitive(src_d, "btAutoReconnect");
+            if (!jrec) jrec = cJSON_GetObjectItemCaseSensitive(src_d, "bt_auto_reconnect");
+            int rec = (jrec && cJSON_IsNumber(jrec)) ? jrec->valueint : (jrec && cJSON_IsBool(jrec) ? (cJSON_IsTrue(jrec) ? 1 : 0) : 1);
+            cJSON_AddNumberToObject(cdev, "btAutoReconnect", rec);
+
+            cJSON *jrdur = cJSON_GetObjectItemCaseSensitive(src_d, "btReconnectDurationSec");
+            if (!jrdur) jrdur = cJSON_GetObjectItemCaseSensitive(src_d, "btReconnectDuration");
+            if (!jrdur) jrdur = cJSON_GetObjectItemCaseSensitive(src_d, "bt_reconnect_duration_sec");
+            int rdur = (jrdur && cJSON_IsNumber(jrdur)) ? jrdur->valueint : 30;
+            cJSON_AddNumberToObject(cdev, "btReconnectDurationSec", rdur >= 0 ? rdur : 30);
+
+            cJSON *jrdly = cJSON_GetObjectItemCaseSensitive(src_d, "btReconnectDelaySec");
+            if (!jrdly) jrdly = cJSON_GetObjectItemCaseSensitive(src_d, "btReconnectDelay");
+            if (!jrdly) jrdly = cJSON_GetObjectItemCaseSensitive(src_d, "bt_reconnect_delay_sec");
+            int rdly = (jrdly && cJSON_IsNumber(jrdly)) ? jrdly->valueint : 2;
+            cJSON_AddNumberToObject(cdev, "btReconnectDelaySec", rdly >= 0 ? rdly : 2);
+
+            cJSON *jtd = cJSON_GetObjectItemCaseSensitive(src_d, "btTriggerDeviceId");
+            if (!jtd) jtd = cJSON_GetObjectItemCaseSensitive(src_d, "bt_trigger_device_id");
+            if (jtd && jtd->valuestring && jtd->valuestring[0]) {
+                cJSON_AddStringToObject(cdev, "btTriggerDeviceId", jtd->valuestring);
             }
-            if (!cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_duration_sec")) {
-                cJSON_AddNumberToObject(d, "bt_reconnect_duration_sec", 30);
-            }
-            if (!cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_delay_sec")) {
-                cJSON_AddNumberToObject(d, "bt_reconnect_delay_sec", 2);
+
+            cJSON *jtc = cJSON_GetObjectItemCaseSensitive(src_d, "btTriggerCommandName");
+            if (!jtc) jtc = cJSON_GetObjectItemCaseSensitive(src_d, "bt_trigger_command_name");
+            if (!jtc) jtc = cJSON_GetObjectItemCaseSensitive(src_d, "bt_trigger_command");
+            if (!jtc) jtc = cJSON_GetObjectItemCaseSensitive(src_d, "btTriggerCommand");
+            if (jtc && jtc->valuestring && jtc->valuestring[0]) {
+                cJSON_AddStringToObject(cdev, "btTriggerCommandName", jtc->valuestring);
             }
         }
 
-        /* Sanitize commands array */
-        cJSON *cmds = cJSON_GetObjectItemCaseSensitive(d, "commands");
-        if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(d, "Commands");
+        /* MQTT */
+        if (is_mqtt) {
+            cJSON_AddBoolToObject(cdev, "mqttEnabled", 1);
+            cJSON *jtop = cJSON_GetObjectItemCaseSensitive(src_d, "mqttTopic");
+            if (!jtop) jtop = cJSON_GetObjectItemCaseSensitive(src_d, "mqtt_topic");
+            if (!jtop) jtop = cJSON_GetObjectItemCaseSensitive(src_d, "MQTTTopic");
+            cJSON_AddStringToObject(cdev, "mqttTopic", (jtop && jtop->valuestring && jtop->valuestring[0]) ? jtop->valuestring : "{base_topic}/button/{device}/{command}");
+
+            cJSON *jpulse = cJSON_GetObjectItemCaseSensitive(src_d, "mqttPulseMs");
+            if (!jpulse) jpulse = cJSON_GetObjectItemCaseSensitive(src_d, "mqtt_pulse_ms");
+            if (!jpulse) jpulse = cJSON_GetObjectItemCaseSensitive(src_d, "MQTTPulseMs");
+            if (!jpulse) jpulse = cJSON_GetObjectItemCaseSensitive(src_d, "mqttPulse");
+            int pulse = (jpulse && cJSON_IsNumber(jpulse) && jpulse->valueint > 0) ? jpulse->valueint : 1000;
+            cJSON_AddNumberToObject(cdev, "mqttPulseMs", pulse);
+        }
+
+        /* Power Sequences */
+        cJSON *jpo = cJSON_GetObjectItemCaseSensitive(src_d, "powerOnSequence");
+        if (!jpo) jpo = cJSON_GetObjectItemCaseSensitive(src_d, "power_on_sequence");
+        if (!jpo) jpo = cJSON_GetObjectItemCaseSensitive(src_d, "PowerOnActions");
+        if (!jpo) jpo = cJSON_GetObjectItemCaseSensitive(dev_item, "PowerOnActions");
+        if (jpo && cJSON_IsArray(jpo)) {
+            cJSON *po_dup = cJSON_Duplicate(jpo, 1);
+            sanitize_activity_steps(po_dup);
+            cJSON_AddItemToObject(cdev, "powerOnSequence", po_dup);
+        }
+
+        cJSON *jpf = cJSON_GetObjectItemCaseSensitive(src_d, "powerOffSequence");
+        if (!jpf) jpf = cJSON_GetObjectItemCaseSensitive(src_d, "power_off_sequence");
+        if (!jpf) jpf = cJSON_GetObjectItemCaseSensitive(src_d, "PowerOffActions");
+        if (!jpf) jpf = cJSON_GetObjectItemCaseSensitive(dev_item, "PowerOffActions");
+        if (jpf && cJSON_IsArray(jpf)) {
+            cJSON *pf_dup = cJSON_Duplicate(jpf, 1);
+            sanitize_activity_steps(pf_dup);
+            cJSON_AddItemToObject(cdev, "powerOffSequence", pf_dup);
+        }
+
+        /* Commands */
+        cJSON *cmds = cJSON_GetObjectItemCaseSensitive(src_d, "commands");
+        if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(src_d, "Commands");
+        if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "commands");
+        if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "Commands");
+
+        cJSON *clean_cmds = cJSON_AddArrayToObject(cdev, "commands");
+        int has_connect = 0, has_disconnect = 0;
+
         if (cmds && cJSON_IsArray(cmds)) {
-            int has_connect = 0;
-            int has_disconnect = 0;
-            cJSON *cmd_item = NULL;
-            cJSON_ArrayForEach(cmd_item, cmds) {
-                cJSON *c = cJSON_GetObjectItemCaseSensitive(cmd_item, "Command");
-                if (!c) c = cmd_item;
+            cJSON *c_item = NULL;
+            cJSON_ArrayForEach(c_item, cmds) {
+                cJSON *c = cJSON_GetObjectItemCaseSensitive(c_item, "Command");
+                if (!c) c = c_item;
 
                 cJSON *cname = cJSON_GetObjectItemCaseSensitive(c, "name");
                 if (!cname) cname = cJSON_GetObjectItemCaseSensitive(c, "Name");
-                const char *cn = cname ? cname->valuestring : "";
+                if (!cname || !cname->valuestring || !cname->valuestring[0]) continue;
+                const char *cn = cname->valuestring;
 
                 if (strcasecmp(cn, "Connect") == 0) has_connect = 1;
                 if (strcasecmp(cn, "Disconnect") == 0) has_disconnect = 1;
 
-                /* Sanitize keycode/action for BT */
-                if (is_bt) {
-                    cJSON *kc = cJSON_GetObjectItemCaseSensitive(c, "action");
-                    if (!kc) kc = cJSON_GetObjectItemCaseSensitive(c, "keycode");
-                    if (!kc) kc = cJSON_GetObjectItemCaseSensitive(c, "IRCode");
-                    if (kc && kc->valuestring) {
-                        char clean[128] = {0};
-                        convert_legacy_hid_code(kc->valuestring, clean, sizeof(clean));
-                        cJSON_DeleteItemFromObject(c, "action");
-                        cJSON_DeleteItemFromObject(c, "keycode");
-                        cJSON_DeleteItemFromObject(c, "IRCode");
-                        cJSON_AddStringToObject(c, "action", clean);
-                    }
-                    /* Strip raw IR data if mistakenly attached */
-                    cJSON_DeleteItemFromObject(c, "raw");
-                    cJSON_DeleteItemFromObject(c, "ir_raw");
-                }
-            }
+                cJSON *ccmd = cJSON_CreateObject();
+                cJSON_AddStringToObject(ccmd, "name", cn);
 
-            /* Add built-in Connect/Disconnect helper commands if missing on BT device */
-            if (is_bt) {
-                if (!has_connect) {
-                    cJSON *ccmd = cJSON_CreateObject();
-                    cJSON_AddStringToObject(ccmd, "name", "Connect");
-                    cJSON_AddStringToObject(ccmd, "action", "BT:CONNECT");
-                    cJSON_AddItemToArray(cmds, ccmd);
+                cJSON *ckc = cJSON_GetObjectItemCaseSensitive(c, "keyCode");
+                if (!ckc) ckc = cJSON_GetObjectItemCaseSensitive(c, "KeyCode");
+                if (!ckc) ckc = cJSON_GetObjectItemCaseSensitive(c, "action");
+                if (!ckc) ckc = cJSON_GetObjectItemCaseSensitive(c, "IRCode");
+                const char *kc_str = (ckc && ckc->valuestring) ? ckc->valuestring : "";
+
+                cJSON *craw = cJSON_GetObjectItemCaseSensitive(c, "raw");
+                if (!craw) craw = cJSON_GetObjectItemCaseSensitive(c, "Raw");
+                const char *raw_str = (craw && craw->valuestring) ? craw->valuestring : "";
+
+                char clean_key[128] = {0};
+                convert_legacy_hid_code(kc_str, clean_key, sizeof(clean_key));
+                cJSON_AddStringToObject(ccmd, "keyCode", clean_key[0] ? clean_key : kc_str);
+
+                char clean_raw[128] = {0};
+                convert_legacy_hid_code(raw_str, clean_raw, sizeof(clean_raw));
+                cJSON_AddStringToObject(ccmd, "raw", clean_raw[0] ? clean_raw : (raw_str[0] ? raw_str : clean_key));
+
+                if (!is_bt && !is_mqtt) {
+                    cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
+                    if (!cp_item) cp_item = cJSON_GetObjectItemCaseSensitive(c, "controlPort");
+                    if (!cp_item) cp_item = cJSON_GetObjectItemCaseSensitive(c, "ControlPort");
+                    cJSON *dev_cp = cJSON_GetObjectItemCaseSensitive(cdev, "controlPort");
+                    int port_val = (cp_item && cJSON_IsNumber(cp_item)) ? cp_item->valueint : (dev_cp ? dev_cp->valueint : 7);
+                    cJSON_AddNumberToObject(ccmd, "port", port_val);
+
+                    cJSON *crep = cJSON_GetObjectItemCaseSensitive(c, "repeats");
+                    if (!crep) crep = cJSON_GetObjectItemCaseSensitive(c, "Repeats");
+                    int rep_val = (crep && cJSON_IsNumber(crep)) ? crep->valueint : 3;
+                    cJSON_AddNumberToObject(ccmd, "repeats", rep_val);
                 }
-                if (!has_disconnect) {
-                    cJSON *dcmd = cJSON_CreateObject();
-                    dcmd = cJSON_CreateObject();
-                    cJSON_AddStringToObject(dcmd, "name", "Disconnect");
-                    cJSON_AddStringToObject(dcmd, "action", "BT:DISCONNECT");
-                    cJSON_AddItemToArray(cmds, dcmd);
-                }
+
+                cJSON *cmacro = cJSON_GetObjectItemCaseSensitive(c, "isMacro");
+                if (cmacro && cJSON_IsTrue(cmacro)) cJSON_AddBoolToObject(ccmd, "isMacro", 1);
+
+                cJSON_AddItemToArray(clean_cmds, ccmd);
             }
         }
+
+        if (is_bt) {
+            if (!has_connect) {
+                cJSON *cc = cJSON_CreateObject();
+                cJSON_AddStringToObject(cc, "name", "Connect");
+                cJSON_AddStringToObject(cc, "keyCode", "CONNECT");
+                cJSON_AddStringToObject(cc, "raw", "CONNECT");
+                cJSON_AddItemToArray(clean_cmds, cc);
+            }
+            if (!has_disconnect) {
+                cJSON *dc = cJSON_CreateObject();
+                cJSON_AddStringToObject(dc, "name", "Disconnect");
+                cJSON_AddStringToObject(dc, "keyCode", "DISCONNECT");
+                cJSON_AddStringToObject(dc, "raw", "DISCONNECT");
+                cJSON_AddItemToArray(clean_cmds, dc);
+            }
+        }
+
+        cJSON_AddItemToArray(clean_devs, cdev);
     }
+
+    /* Replace elements in devs with clean_devs */
+    while (cJSON_GetArraySize(devs) > 0) {
+        cJSON_DeleteItemFromArray(devs, 0);
+    }
+    while (cJSON_GetArraySize(clean_devs) > 0) {
+        cJSON *item = cJSON_DetachItemFromArray(clean_devs, 0);
+        cJSON_AddItemToArray(devs, item);
+    }
+    cJSON_Delete(clean_devs);
 }
 
 /* Sanitize activity step arrays (PowerOn/PowerOff sequences, startSequence, stopSequence):

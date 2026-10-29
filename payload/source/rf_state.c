@@ -61,6 +61,36 @@ void mark_remote_slot_active(uint8_t slot) {
     }
 }
 
+bool is_companion_slot(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return false;
+    int idx = slot - 1;
+    if (g_paired_remotes[idx].model == REMOTE_MODEL_COMPANION ||
+        g_paired_remotes[idx].model == REMOTE_MODEL_SMART_CONTROL) return true;
+    if (g_paired_remotes[idx].equad_id == 0x401E ||
+        strstr(g_paired_remotes[idx].name, "20+") != NULL ||
+        strstr(g_paired_remotes[idx].name, "Smart") != NULL) {
+        g_paired_remotes[idx].model = REMOTE_MODEL_SMART_CONTROL;
+        return true;
+    }
+    if (g_paired_remotes[idx].equad_id == 0x4026 ||
+        g_paired_remotes[idx].equad_id == 0x4027 ||
+        strstr(g_paired_remotes[idx].name, "Companion") != NULL ||
+        strstr(g_paired_remotes[idx].name, "Home") != NULL) {
+        g_paired_remotes[idx].model = REMOTE_MODEL_COMPANION;
+        return true;
+    }
+    return false;
+}
+
+const char *get_remote_model_name(remote_model_t model) {
+    switch (model) {
+        case REMOTE_MODEL_SMART_CONTROL: return "smart_control";
+        case REMOTE_MODEL_COMPANION: return "companion";
+        case REMOTE_MODEL_ELITE: return "elite";
+        default: return "unknown";
+    }
+}
+
 void http_post_local(int port, const char *endpoint, const char *json_body) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return;

@@ -35,6 +35,10 @@ static int  g_mqtt_bt_events = 0;
 static char g_mqtt_bt_topic[160] = "";
 static int  g_mqtt_elite_events = 1;
 static char g_mqtt_elite_topic[160] = "";
+static int  g_mqtt_slot1_events = -1;
+static char g_mqtt_slot1_topic[160] = "";
+static int  g_mqtt_slot2_events = -1;
+static char g_mqtt_slot2_topic[160] = "";
 static char g_status_topic[160] = "harmony/hub/status";
 static char g_state_topic[160] = "harmony/hub/state";
 
@@ -177,6 +181,28 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
         g_mqtt_elite_topic[sizeof(g_mqtt_elite_topic) - 1] = '\0';
     } else {
         g_mqtt_elite_topic[0] = '\0';
+    }
+
+    cJSON *s1e = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteEvents");
+    g_mqtt_slot1_events = s1e ? ((cJSON_IsTrue(s1e) || (cJSON_IsNumber(s1e) && s1e->valueint > 0)) ? 1 : 0) : -1;
+
+    cJSON *s1t = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteTopic");
+    if (s1t && cJSON_IsString(s1t) && s1t->valuestring) {
+        strncpy(g_mqtt_slot1_topic, s1t->valuestring, sizeof(g_mqtt_slot1_topic) - 1);
+        g_mqtt_slot1_topic[sizeof(g_mqtt_slot1_topic) - 1] = '\0';
+    } else {
+        g_mqtt_slot1_topic[0] = '\0';
+    }
+
+    cJSON *s2e = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteEvents");
+    g_mqtt_slot2_events = s2e ? ((cJSON_IsTrue(s2e) || (cJSON_IsNumber(s2e) && s2e->valueint > 0)) ? 1 : 0) : -1;
+
+    cJSON *s2t = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteTopic");
+    if (s2t && cJSON_IsString(s2t) && s2t->valuestring) {
+        strncpy(g_mqtt_slot2_topic, s2t->valuestring, sizeof(g_mqtt_slot2_topic) - 1);
+        g_mqtt_slot2_topic[sizeof(g_mqtt_slot2_topic) - 1] = '\0';
+    } else {
+        g_mqtt_slot2_topic[0] = '\0';
     }
 
     snprintf(g_status_topic, sizeof(g_status_topic), "%s/status", g_mqtt_base_topic);
@@ -543,7 +569,7 @@ static void format_button_topic(const char *tpl, const char *default_prefix, con
     }
 }
 
-int mqtt_dispatch_remote_button(const char *source, const char *action, const char *cmd_name,
+int mqtt_dispatch_remote_button(const char *source, const char *action, const char *cmd_name, int slot,
                                 const char *topic_in, int req_pulse_ms,
                                 char *out_topic, size_t out_topic_len, int *out_pulse_ms) {
     if (!mqtt_is_connected()) return -1;
@@ -554,10 +580,22 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
         return 0;
     }
 
-    int is_elite = (source && (strcasecmp(source, "elite_rf") == 0 || strcasecmp(source, "elite") == 0));
+    int is_rf = (source && (strcasecmp(source, "elite_rf") == 0 || strcasecmp(source, "elite") == 0 || strcasecmp(source, "rf_remote") == 0));
     int is_bt = (source && (strcasecmp(source, "bt_remote") == 0 || strcasecmp(source, "bt") == 0));
 
-    if (is_elite && !g_mqtt_elite_events) {
+    int rf_events_enabled = g_mqtt_elite_events;
+    const char *rf_custom_topic = g_mqtt_elite_topic;
+    char default_rf_subpath[32] = "remotes/slot1";
+    if (slot == 2) {
+        if (g_mqtt_slot2_events >= 0) rf_events_enabled = g_mqtt_slot2_events;
+        if (g_mqtt_slot2_topic[0]) rf_custom_topic = g_mqtt_slot2_topic;
+        snprintf(default_rf_subpath, sizeof(default_rf_subpath), "remotes/slot2");
+    } else {
+        if (g_mqtt_slot1_events >= 0) rf_events_enabled = g_mqtt_slot1_events;
+        if (g_mqtt_slot1_topic[0]) rf_custom_topic = g_mqtt_slot1_topic;
+    }
+
+    if (is_rf && !rf_events_enabled) {
         return 1; /* disabled */
     }
     if (is_bt && !g_mqtt_bt_events) {
@@ -571,8 +609,8 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
     if (topic_in && topic_in[0]) {
         strncpy(topic, topic_in, sizeof(topic) - 1);
         topic[sizeof(topic) - 1] = '\0';
-    } else if (is_elite) {
-        format_button_topic(g_mqtt_elite_topic, "remotes/elite", safe_cmd, topic, sizeof(topic));
+    } else if (is_rf) {
+        format_button_topic(rf_custom_topic, default_rf_subpath, safe_cmd, topic, sizeof(topic));
     } else if (is_bt) {
         format_button_topic(g_mqtt_bt_topic, "remotes/bt", safe_cmd, topic, sizeof(topic));
     } else {

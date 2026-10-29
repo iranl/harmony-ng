@@ -1,16 +1,16 @@
-# Logitech Harmony Hub & Elite Remote RF Protocol Specification
+# Logitech Harmony Hub & Physical Remotes RF Protocol Specification
 
 ## 1. Overview & Architecture
 
-Logitech Harmony Hub and Harmony Elite (and Companion) remotes communicate locally using a proprietary 2.4 GHz RF protocol implemented on **Texas Instruments CC2544** 2.4 GHz RF SoCs. The host processors communicate with the CC2544 over synchronous SPI via the `/dev/rfspi` character device.
+Logitech Harmony Hub communicates locally with paired physical remotes—including the **Harmony Elite 950**, **Harmony Pro 2400**, **Harmony Companion**, and **Harmony Smart Control**—using a proprietary 2.4 GHz RF protocol implemented on **Texas Instruments CC2544** 2.4 GHz RF SoCs. The host processors communicate with the CC2544 over synchronous SPI via the `/dev/rfspi` character device.
 
 ```
 +------------------------------------+              2.4 GHz eQuad RF Link             +------------------------------------+
-|       Harmony Hub (Host Mode)      |                                                |      Harmony Elite (Device Mode)   |
+|       Harmony Hub (Host Mode)      |                                                |   Harmony Remotes (Device Mode)    |
 |                                    |                                                |                                    |
-| Atheros AR9344 SoC (MIPS 24Kc)    |                                                | TI DaVinci DM365 SoC (ARM926EJ-S)  |
-|   |                                |                                                |   |                                |
-|   | /dev/rfspi (SPI Master)        |                                                |   | /dev/rfspi (SPI Master)        |
+| Atheros AR9344 SoC (MIPS 24Kc)    |                                                | • Elite/Pro: TI DaVinci DM365 ARM  |
+|   |                                |                                                | • Companion/Smart: CC2544/MCU      |
+|   | /dev/rfspi (SPI Master)        |                                                |   |                                |
 |   v                                |                                                |   v                                |
 | TI CC2544 (Host / Dongle Firmware) | <============================================> | TI CC2544 (Device Firmware)        |
 +------------------------------------+                                                +------------------------------------+
@@ -63,8 +63,8 @@ In stock `hal_hub` (`libhal/rf/hot.c`, host mode `DAT_00466f70 == 0`), all bidir
 - **Byte 4 (`Flags`)**: Protocol control flags (e.g. `0x00` normal, `0x01` ACK_REQ, `0x02` IS_ACK).
 - **Bytes 5..29**: 25-byte application payload.
 
-### 3.2 Remote Device Framing (32-byte Report `0x20`)
-In stock `hal_remote` (`libhal/rf/hot.c`, device mode `DAT_0003b530 == 1`), the CC2544 operates in device mode. All data frames over `/dev/rfspi` use **Report `0x20`**:
+### 3.2 Elite Remote Device Framing (32-byte Report `0x20`, Sub-ID `0x12`)
+In stock `hal_remote` (`libhal/rf/hot.c`, device mode `DAT_0003b530 == 1`), the CC2544 on screened remotes operates in device mode. All application data frames over `/dev/rfspi` use **Report `0x20`** with Sub-ID `0x12`:
 
 ```
 +--------+--------+--------+--------+----------+----------+--------+--------------------------+
@@ -76,14 +76,43 @@ In stock `hal_remote` (`libhal/rf/hot.c`, device mode `DAT_0003b530 == 1`), the 
 - **Byte 1 (`0x21`)**: `(Pipe & 0x0F) | PowerMode`:
   - `PowerMode = 0x20` (Active mode).
   - `Pipe = 0x01` (Hub downlink pipe).
-- **Byte 2 (`0x12`)**: Sub-ID discriminator.
+- **Byte 2 (`0x12`)**: Sub-ID discriminator for Harmony application messaging.
 - **Byte 3 (`0x01`)**: Pipe/Slot routing identifier.
 - **Byte 4 (`Hdr/Seq`)**: `0x50 | (seq & 0x0F)` (single frame + ACK requested) or `0x40 | (seq & 0x0F)`.
 - **Byte 5 (`Msg Type`)**: Harmony / eQuad message type.
 - **Byte 6 (`Flags`)**: Protocol control flags.
 - **Bytes 7..31**: 25-byte application payload.
 
-### 3.3 Active Dongle Sync Pulse (10 bytes)
+### 3.3 Companion & Smart Control Screenless Remote Framing (Report `0x20`, Sub-ID `0x01` & `0x03`)
+Screenless remotes (Harmony Companion and Smart Control) communicate directly via eQuad HID uplink frames over Report `0x20` rather than the bidirectional application protocol:
+
+#### 1. HID Keyboard / Keypad Reports (Sub-ID `0x01`)
+```
++--------+---------------+--------+-----------+----------+-----------+-----+
+| Byte 0 |    Byte 1     | Byte 2 |  Byte 3   |  Byte 4  |  Byte 5   | ... |
+|  0x20  | 0x20 | PipeId |  0x01  | Modifiers | Reserved | Keycode 1 | ... |
++--------+---------------+--------+-----------+----------+-----------+-----+
+```
+- **Byte 0 (`0x20`)**: Vendor Report ID.
+- **Byte 1**: `0x20 | (pipe & 0x0F)` (`0x21` for Slot 1, `0x22` for Slot 2).
+- **Byte 2 (`0x01`)**: Sub-ID discriminator for standard HID Keyboard reports.
+- **Byte 3**: Modifier bitmask (Ctrl, Shift, Alt, GUI).
+- **Byte 4**: Reserved (0x00).
+- **Byte 5..10**: Up to 6 simultaneous HID keycodes (e.g. `0x1E` KEY_1..`0x27` KEY_0, `0x28` KEY_ENTER, `0x76` KEY_MENU). All zeros indicate button release.
+
+#### 2. HID Consumer Control Reports (Sub-ID `0x03`)
+```
++--------+---------------+--------+------------+------------+
+| Byte 0 |    Byte 1     | Byte 2 |   Byte 3   |   Byte 4   |
+|  0x20  | 0x20 | PipeId |  0x03  | Usage (LE) | Usage (LE) |
++--------+---------------+--------+------------+------------+
+```
+- **Byte 0 (`0x20`)**: Vendor Report ID.
+- **Byte 1**: `0x20 | (pipe & 0x0F)` (`0x21` for Slot 1, `0x22` for Slot 2).
+- **Byte 2 (`0x03`)**: Sub-ID discriminator for HID Consumer Control reports.
+- **Bytes 3..4**: 16-bit little-endian HID consumer usage code (e.g. `0x00E9` Volume Up, `0x00EA` Volume Down, `0x00E2` Mute, `0x00B5` Scan Next, `0x00B6` Scan Prev, `0x00CD` Play/Pause). `0x0000` indicates button release.
+
+### 3.4 Active Dongle Sync Pulse (10 bytes)
 On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-spectrum (FHSS) engine must synchronize with the Hub beacon:
 ```
 12 01 00 00 00 00 00 00 00 00
@@ -108,7 +137,10 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Hub Responses (`11 FF 83 B5 <pipe> ...`)**:
   - `pipe 0x03`: Hub's own 4-byte RF address (`11 FF 83 B5 03 <addr:4> ...`).
-  - `pipe 0x20..0x25`: Slot identification / EquadID (`11 FF 83 B5 20 <EquadID:2> ...`, `0x4021` = Juniper remote).
+  - `pipe 0x20..0x25`: Slot identification / EquadID (`11 FF 83 B5 20 <EquadID:2> ...`):
+    - `0x4021`: Harmony Elite 950 / Pro 2400 (`"Juniper"`)
+    - `0x401E`: Harmony Smart Control (`"20+"`)
+    - `0x4026`, `0x4027`: Harmony Companion (`"Companion"`, `"Home Control"`)
   - `pipe 0x30..0x35`: Remote 4-byte RF address for slot (`11 FF 83 B5 30 <addr:4> ...`).
   - `pipe 0x40..0x45`: Remote name string for slot (`11 FF 83 B5 40 <len> <name...>`).
 - **Remote Responses**:

@@ -675,13 +675,13 @@ Saves BLE remote button mapping JSON.
 
 ---
 
-## 7. Elite Remote & RF Subsystem (`/api/rf/*`)
+## 7. RF Subsystem & Physical Remotes (`/api/rf/*`, Elite, Companion, Smart Control)
 
 Requests starting with `/api/rf/*` are proxied to the native RF daemon `hub_rf` running on port 8092.
 
 ### 7.1 RF Subsystem Status
 #### `GET /api/rf` or `GET /api/rf/status`
-Returns CC2544 radio state, paired remotes, and channel hopping status.
+Returns CC2544 radio state, paired remote slots, model identification, screen capabilities, and channel hopping status.
 - **Response `200 OK`**:
   ```json
   {
@@ -694,15 +694,31 @@ Returns CC2544 radio state, paired remotes, and channel hopping status.
     "rf_address": "00000000",
     "hub_rf_address": "00000000",
     "slots": [
-      {"slot": 1, "active": true, "address": "00000000", "rf_address": "00000000"},
-      {"slot": 2, "active": false, "address": "None", "rf_address": "None"}
+      {
+        "slot": 1,
+        "active": true,
+        "address": "12345678",
+        "rf_address": "12345678",
+        "model": "Harmony Companion",
+        "has_screen": false,
+        "supports_ota": false
+      },
+      {
+        "slot": 2,
+        "active": false,
+        "address": "None",
+        "rf_address": "None",
+        "model": "None",
+        "has_screen": false,
+        "supports_ota": false
+      }
     ]
   }
   ```
 
 ### 7.2 RF Pairing
 #### `GET /api/rf/pair?slot={1|2}` or `POST /api/rf/pair`
-Initiates RF pairing beacon on slot 1 or slot 2.
+Initiates RF pairing beacon on slot 1 or slot 2 for Harmony Elite, Harmony Companion, or Harmony Smart Control remotes.
 - **Response `200 OK`**: `{"status": "pairing_started"}`
 
 #### `GET /api/rf/stop-pair`
@@ -761,9 +777,9 @@ Puts paired Elite remotes to sleep (immediate Suspend-to-RAM on battery).
 - **MQTT equivalent**: Publish to `harmony/hub/remote/1/sleep` or `harmony/hub/remote/sleep`.
 - **Home Assistant**: Auto-discovered as `button.<hub>_remote_1_sleep`.
 
-### 7.5 Direct Buttons & Firmware OTA
+### 7.5 Direct Buttons & Firmware OTA (Elite Remotes)
 #### `GET /api/rf/remote-direct-buttons?slot={1|2}`
-Returns touch screen direct command button grid.
+Returns touch screen direct command button grid for Elite remotes.
 
 #### `POST /api/rf/remote-direct-buttons?slot={1|2}`
 Saves direct touch buttons configuration.
@@ -785,14 +801,29 @@ Returns remote firmware chunk update progress.
   ```
 
 #### `POST /api/rf/ota-start?slot={1|2}`
-Starts background remote firmware flash update.
+Starts background remote firmware flash update (Elite remotes only).
 
-### 7.6 Elite Remote Key Mappings
-#### `GET /api/elite-mapping`
-Returns physical button and screen mappings for the Harmony Elite remote.
+### 7.6 Physical Remote Key Mappings (Elite, Companion, Smart Control)
+#### `GET /api/elite-mapping?slot={1|2}`
+Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
+- **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
+- **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json` (fallback `/data/harmony/elite_remote_map.json`); Slot 2 uses `/data/harmony/remote_slot2_map.json`.
+- **Remote Model Awareness**: Mappings apply to any paired remote in that slot—Harmony Elite, Harmony Companion, or Harmony Smart Control.
 
-#### `POST /api/elite-mapping-save`
-Saves Harmony Elite button assignments to `/data/harmony/elite_remote_map.json`.
+#### `POST /api/elite-mapping-save?slot={1|2}`
+Saves button assignments for the specified slot.
+- **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
+
+#### `POST /api/remote-mapping-copy?from={1|2}&to={1|2}`
+Copies entire button mapping configuration from one remote slot to another.
+- **Query Parameters**: `from` (source slot, 1 or 2), `to` (destination slot, 1 or 2).
+- **Response `200 OK`**:
+  ```json
+  {
+    "ok": true,
+    "message": "Copied mapping from slot 1 to slot 2"
+  }
+  ```
 
 #### `POST /api/ui-remote-layout`
 Saves virtual remote keypad layout for WebUI and Android App.
@@ -803,7 +834,7 @@ Saves virtual remote keypad layout for WebUI and Android App.
 
 ### 8.1 MQTT Settings
 #### `POST /api/mqtt-save` or `POST /mqtt`
-Configures hub MQTT broker credentials, port, and base topic.
+Configures hub MQTT broker credentials, port, base topic, and per-slot remote button event mirroring.
 - **Request Body**:
   ```json
   {
@@ -813,7 +844,11 @@ Configures hub MQTT broker credentials, port, and base topic.
     "username": "homeassistant",
     "password": "password",
     "baseTopic": "harmony/hub",
-    "clientId": "harmony_hub"
+    "clientId": "harmony_hub",
+    "slot1RemoteEvents": true,
+    "slot1RemoteTopic": "harmony/hub/remote/1/events",
+    "slot2RemoteEvents": false,
+    "slot2RemoteTopic": "harmony/hub/remote/2/events"
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`

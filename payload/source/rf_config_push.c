@@ -55,6 +55,7 @@ void *config_push_worker(void *arg) {
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         uint8_t s = g_paired_remotes[i].slot;
+        if (is_companion_slot(s)) continue;
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
             if ((g_paired_remotes[i].last_seen_ms > 0 && (now_ms - g_paired_remotes[i].last_seen_ms < 60000)) ||
                 (s == g_remote_slot && g_remote_slot != 0)) {
@@ -63,7 +64,19 @@ void *config_push_worker(void *arg) {
         }
     }
     if (num_targets == 0) {
-        target_slots[num_targets++] = g_remote_slot ? g_remote_slot : 0x02;
+        if (g_remote_slot != 0 && !is_companion_slot(g_remote_slot)) {
+            target_slots[num_targets++] = g_remote_slot;
+        } else if (!is_companion_slot(0x02) && (g_paired_remotes[1].active || !g_paired_remotes[0].active)) {
+            target_slots[num_targets++] = 0x02;
+        }
+    }
+
+    if (num_targets == 0) {
+        printf("[*] Config push skipped: no active Elite remotes\n");
+        unlink("/data/harmony/rf_sync_pending.flag");
+        unlink("/data/harmony/rf_sync_pending_details.json");
+        pthread_mutex_unlock(&push_lock);
+        return NULL;
     }
 
     for (int t = 0; t < num_targets; t++) {

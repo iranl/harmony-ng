@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "rf_spi.h"
 #include "rf_pairing.h"
+#include "rf_keymap.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,6 +130,12 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
         printf("[*] RX (len=%zd): ", len);
         for (size_t i = 0; i < len; i++) printf("%02X ", pkt[i]);
         printf("\n");
+    }
+
+    /* Route Companion / eQuad HID keyboard & consumer reports (Report 0x20, Sub-ID 0x01 or 0x03) */
+    if (len >= 5 && pkt[0] == 0x20 && (pkt[2] == 0x01 || pkt[2] == 0x03)) {
+        handle_companion_packet(pkt, len);
+        return;
     }
 
     /* Route RF protocol frames */
@@ -286,7 +293,16 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 if (sidx < MAX_PAIRED_REMOTES && equad_id != 0) {
                     g_paired_remotes[sidx].active = true;
                     g_has_paired_device = true;
-                    printf("[+] Slot %d identified: EquadID=0x%04X\n", sidx + 1, equad_id);
+                    g_paired_remotes[sidx].equad_id = equad_id;
+                    if (equad_id == 0x401E) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_SMART_CONTROL;
+                    } else if (equad_id == 0x4026 || equad_id == 0x4027) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_COMPANION;
+                    } else if (equad_id == 0x4021) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_ELITE;
+                    }
+                    printf("[+] Slot %d identified: EquadID=0x%04X (model=%s)\n",
+                           sidx + 1, equad_id, get_remote_model_name(g_paired_remotes[sidx].model));
                 }
                 return;
             }
@@ -310,7 +326,15 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                     if (nlen > 15) nlen = 15;
                     memcpy(g_paired_remotes[sidx].name, &pkt[6], nlen);
                     g_paired_remotes[sidx].name[nlen] = '\0';
-                    printf("[+] Slot %d Device Name: '%s'\n", sidx + 1, g_paired_remotes[sidx].name);
+                    if (strstr(g_paired_remotes[sidx].name, "20+") != NULL ||
+                        strstr(g_paired_remotes[sidx].name, "Smart") != NULL) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_SMART_CONTROL;
+                    } else if (strstr(g_paired_remotes[sidx].name, "Companion") != NULL ||
+                               strstr(g_paired_remotes[sidx].name, "Home") != NULL) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_COMPANION;
+                    }
+                    printf("[+] Slot %d Device Name: '%s' (model=%s)\n",
+                           sidx + 1, g_paired_remotes[sidx].name, get_remote_model_name(g_paired_remotes[sidx].model));
                 }
                 return;
             }

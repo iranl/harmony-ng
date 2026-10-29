@@ -40,3 +40,5 @@ elite/bin/*
 payload/www/*
 !payload/www/.gitkeep
 plan.md
+.projectmem/
+.github/context-mode/

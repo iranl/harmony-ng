@@ -77,33 +77,38 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
           badge.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
         }
 
-        // Slot 1: Elite
+        // Slot 1
         const s1 = (st.slots && st.slots.find(s => s.slot === 1)) || { active: st.paired, address: null, rf_address: null };
+        const isComp1 = s1.model === 'companion' || (s1.name && s1.name.includes('Companion'));
         const b1 = document.getElementById('rfSlot1Badge');
         const a1 = document.getElementById('rfSlot1Addr');
         const batt1 = document.getElementById('rfSlot1Battery');
         const ver1 = document.getElementById('rfSlot1Ver');
         const cfgVer1 = document.getElementById('rfSlot1CfgVer');
         const otaWrap1 = document.getElementById('rfSlot1UpdateWrap');
+        const pull1 = document.getElementById('rfPullSlot1Btn');
+        const cfgBtn1 = document.getElementById('rfConfigSlot1Btn');
         const s1Addr = (s1 && (s1.address || s1.rf_address)) || '';
         const s1Active = Boolean((s1.active || st.paired) && s1Addr && s1Addr !== 'None' && s1Addr !== '00000000');
         if (b1) {
-          b1.className = `badge ${s1Active ? 'ok' : 'subtle'}`;
-          b1.textContent = s1Active ? 'PAIRED' : 'EMPTY';
+          b1.className = `badge ${s1Active ? (isComp1 ? 'info' : 'ok') : 'subtle'}`;
+          b1.textContent = s1Active ? (isComp1 ? 'COMPANION' : 'PAIRED') : 'EMPTY';
         }
         if (a1) a1.textContent = s1Active ? s1Addr : 'None';
         if (batt1) {
-          if (s1.battery && typeof s1.battery.percent === 'number') {
+          if (s1.battery && typeof s1.battery.percent === 'number' && s1.battery.percent > 0) {
             const chg = s1.battery.charging ? ' ⚡ (Charging)' : '';
             batt1.textContent = `${s1.battery.percent}% (${s1.battery.voltage_mv} mV)${chg}`;
           } else {
-            batt1.textContent = s1Active ? 'Waiting for report...' : '--';
+            batt1.textContent = s1Active ? (isComp1 ? 'Coin Cell (CR2032)' : 'Waiting for report...') : '--';
           }
         }
-        if (ver1) ver1.textContent = s1.sw_version || 'Unknown';
+        if (ver1) ver1.textContent = isComp1 ? 'N/A (Companion)' : (s1.sw_version || 'Unknown');
         if (cfgVer1) {
           if (!s1Active) {
             cfgVer1.textContent = '--';
+          } else if (isComp1) {
+            cfgVer1.innerHTML = `<span class="badge ok mini" style="font-size:10px;padding:1px 5px;">IN SYNC (DIRECT RF)</span>`;
           } else {
             const cVer = s1.config_version ? `v${s1.config_version}` : 'v0';
             const inSync = s1.in_sync !== false;
@@ -112,39 +117,46 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
             cfgVer1.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
           }
         }
+        if (pull1) pull1.style.display = isComp1 ? 'none' : 'inline-block';
+        if (cfgBtn1) cfgBtn1.title = isComp1 ? 'Companion remote has no screen settings' : '';
         if (otaWrap1) {
           const latestElite = this.latestEliteVersion || '1.3.0';
-          const needsOta = s1Active && s1.sw_version && s1.sw_version !== 'unknown' && this.isVersionOlder(s1.sw_version, latestElite);
+          const needsOta = !isComp1 && s1Active && s1.sw_version && s1.sw_version !== 'unknown' && this.isVersionOlder(s1.sw_version, latestElite);
           otaWrap1.style.display = needsOta ? 'block' : 'none';
         }
 
-        // Slot 2: Companion
+        // Slot 2
         const s2 = (st.slots && st.slots.find(s => s.slot === 2)) || { active: false, address: null, rf_address: null };
+        const isComp2 = s2.model === 'companion' || (s2.name && s2.name.includes('Companion'));
         const b2 = document.getElementById('rfSlot2Badge');
         const a2 = document.getElementById('rfSlot2Addr');
         const batt2 = document.getElementById('rfSlot2Battery');
         const ver2 = document.getElementById('rfSlot2Ver');
         const cfgVer2 = document.getElementById('rfSlot2CfgVer');
         const otaWrap2 = document.getElementById('rfSlot2UpdateWrap');
+        const pull2 = document.getElementById('rfPullSlot2Btn');
+        const cfgBtn2 = document.getElementById('rfConfigSlot2Btn');
         const s2Addr = (s2 && (s2.address || s2.rf_address)) || '';
         const s2Active = Boolean(s2.active && s2Addr && s2Addr !== 'None' && s2Addr !== '00000000');
         if (b2) {
-          b2.className = `badge ${s2Active ? 'ok' : 'subtle'}`;
-          b2.textContent = s2Active ? 'PAIRED' : 'EMPTY';
+          b2.className = `badge ${s2Active ? (isComp2 ? 'info' : 'ok') : 'subtle'}`;
+          b2.textContent = s2Active ? (isComp2 ? 'COMPANION' : 'PAIRED') : 'EMPTY';
         }
         if (a2) a2.textContent = s2Active ? s2Addr : 'None';
         if (batt2) {
-          if (s2.battery && typeof s2.battery.percent === 'number') {
+          if (s2.battery && typeof s2.battery.percent === 'number' && s2.battery.percent > 0) {
             const chg = s2.battery.charging ? ' ⚡ (Charging)' : '';
             batt2.textContent = `${s2.battery.percent}% (${s2.battery.voltage_mv} mV)${chg}`;
           } else {
-            batt2.textContent = s2Active ? 'Waiting for report...' : '--';
+            batt2.textContent = s2Active ? (isComp2 ? 'Coin Cell (CR2032)' : 'Waiting for report...') : '--';
           }
         }
-        if (ver2) ver2.textContent = s2.sw_version || 'Unknown';
+        if (ver2) ver2.textContent = isComp2 ? 'N/A (Companion)' : (s2.sw_version || 'Unknown');
         if (cfgVer2) {
           if (!s2Active) {
             cfgVer2.textContent = '--';
+          } else if (isComp2) {
+            cfgVer2.innerHTML = `<span class="badge ok mini" style="font-size:10px;padding:1px 5px;">IN SYNC (DIRECT RF)</span>`;
           } else {
             const cVer = s2.config_version ? `v${s2.config_version}` : 'v0';
             const inSync = s2.in_sync !== false;
@@ -153,9 +165,11 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
             cfgVer2.innerHTML = `${cVer} <span class="badge ${bCls} mini" style="font-size:10px;padding:1px 5px;margin-left:4px;">${bTxt}</span>`;
           }
         }
+        if (pull2) pull2.style.display = isComp2 ? 'none' : 'inline-block';
+        if (cfgBtn2) cfgBtn2.title = isComp2 ? 'Companion remote has no screen settings' : '';
         if (otaWrap2) {
           const latestElite = this.latestEliteVersion || '1.3.0';
-          const needsOta = s2Active && s2.sw_version && s2.sw_version !== 'unknown' && this.isVersionOlder(s2.sw_version, latestElite);
+          const needsOta = !isComp2 && s2Active && s2.sw_version && s2.sw_version !== 'unknown' && this.isVersionOlder(s2.sw_version, latestElite);
           otaWrap2.style.display = needsOta ? 'block' : 'none';
         }
 

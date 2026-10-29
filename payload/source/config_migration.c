@@ -314,6 +314,8 @@ void migrate_device_ids_to_short(cJSON *root) {
 
     const char *map_files[] = {
         "/data/harmony/elite_remote_map.json",
+        "/data/harmony/remote_slot1_map.json",
+        "/data/harmony/remote_slot2_map.json",
         "/data/harmony/bt_remote_map.json",
         NULL
     };

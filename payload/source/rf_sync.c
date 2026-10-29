@@ -47,6 +47,7 @@ void publish_remote_battery_mqtt(uint8_t slot, uint8_t pct, uint8_t chg, uint16_
 }
 
 void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
+    if (is_companion_slot((uint8_t)slot)) return;
     char diff[256] = {0};
     int diff_len = 0;
     cJSON *old_root = (old_json_str && *old_json_str) ? cJSON_Parse(old_json_str) : NULL;
@@ -185,6 +186,7 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
                                int night_start, int night_end, int usbeth, int no_screen,
                                int cap_buttons, int power_debug) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
     rf_frame_t f;
     uint8_t payload[26] = {0};
     payload[0] = (uint8_t)(bright < 1 ? 1 : (bright > 5 ? 5 : bright));
@@ -213,6 +215,7 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
 
 void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
 
     char act_name[24] = {0};
     get_activity_name_by_id(act_id, act_name, sizeof(act_name));
@@ -237,6 +240,7 @@ void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq) {
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
+            if (is_companion_slot(g_paired_remotes[i].slot)) continue;
             rf_send_hub_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot, 0x00);
             usleep(10000);
         }
@@ -313,6 +317,7 @@ void rf_notify_update_available(uint8_t target_slot) {
 
 void rf_send_hub_time_sync_slot(uint8_t slot) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
 
     rf_frame_t f;
     uint8_t payload[26] = {0};
@@ -367,6 +372,7 @@ void rf_send_hub_time_sync(void) {
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
+            if (is_companion_slot(g_paired_remotes[i].slot)) continue;
             rf_send_hub_time_sync_slot(g_paired_remotes[i].slot);
             usleep(10000);
         }

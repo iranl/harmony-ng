@@ -2257,8 +2257,17 @@ paths:
   /api/elite-mapping:
     get:
       tags:
-        - RF & Elite Remote
-      summary: Get Harmony Elite button mapping
+        - RF & Physical Remotes
+      summary: Get physical remote button mapping (Elite, Companion, Smart Control)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+          description: Remote slot number (1 or 2)
       responses:
         '200':
           description: Mapping array
@@ -2271,8 +2280,17 @@ paths:
   /api/elite-mapping-save:
     post:
       tags:
-        - RF & Elite Remote
-      summary: Save Harmony Elite button mapping
+        - RF & Physical Remotes
+      summary: Save physical remote button mapping (Elite, Companion, Smart Control)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+          description: Remote slot number (1 or 2)
       requestBody:
         required: true
         content:
@@ -2285,6 +2303,35 @@ paths:
             application/json:
               example:
                 ok: true
+
+  /api/remote-mapping-copy:
+    post:
+      tags:
+        - RF & Physical Remotes
+      summary: Copy physical remote button mapping from one slot to another
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [1, 2]
+          description: Source remote slot
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [1, 2]
+          description: Destination remote slot
+      responses:
+        '200':
+          description: Mapping copied
+          content:
+            application/json:
+              example:
+                ok: true
+                message: Copied mapping from slot 1 to slot 2
 
   /api/mqtt-status:
     get:

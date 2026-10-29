@@ -62,7 +62,6 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       const rfBadge = document.getElementById('rfStatusBadge');
       const rfPairBtn = document.getElementById('rfPairBtn');
       const rfUnpairBtn = document.getElementById('rfUnpairBtn');
-      const rfRefreshBtn = document.getElementById('rfRefreshBtn');
 
       if (svcs && svcs.rf_enabled === false) {
         if (rfBanner) rfBanner.style.display = 'block';
@@ -83,14 +82,112 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       console.warn('Services check failed:', e);
     }
 
+    // Query RF status to check paired slots & remote models
+    let rfStatus = null;
+    try {
+      rfStatus = await this.client.getRfStatus();
+    } catch (e) {
+      console.warn('Failed to get RF status:', e);
+    }
+
+    const s1 = rfStatus?.slots?.find(s => s.slot === 1);
+    const s2 = rfStatus?.slots?.find(s => s.slot === 2);
+    const s1Addr = s1?.address || s1?.rf_address || '';
+    const s1Active = Boolean((s1?.active || rfStatus?.paired) && s1Addr && s1Addr !== 'None' && s1Addr !== '00000000');
+    const s2Addr = s2?.address || s2?.rf_address || '';
+    const s2Active = Boolean(s2?.active && s2Addr && s2Addr !== 'None' && s2Addr !== '00000000');
+
+    const slotBar = document.getElementById('rfRemoteSlotSelectorBar');
+    const noRemotesMsg = document.getElementById('rfNoRemotesPairedMsg');
+    const mappingContainer = document.getElementById('rfRemoteMappingContainer');
+
+    if (!s1Active && !s2Active) {
+      if (slotBar) slotBar.style.display = 'none';
+      if (mappingContainer) mappingContainer.style.display = 'none';
+      if (noRemotesMsg) noRemotesMsg.style.display = 'block';
+      return;
+    }
+
+    if (noRemotesMsg) noRemotesMsg.style.display = 'none';
+    if (mappingContainer) mappingContainer.style.display = 'block';
+
+    // Manage active slot selection
+    if (!this.selectedRemoteSlot) this.selectedRemoteSlot = 1;
+    if (this.selectedRemoteSlot === 1 && !s1Active && s2Active) this.selectedRemoteSlot = 2;
+    if (this.selectedRemoteSlot === 2 && !s2Active && s1Active) this.selectedRemoteSlot = 1;
+
+    // Show slot selector if both paired
+    if (slotBar) {
+      if (s1Active && s2Active) {
+        slotBar.style.display = 'flex';
+        const tab1 = document.getElementById('rfSlotSelect1Btn');
+        const tab2 = document.getElementById('rfSlotSelect2Btn');
+        const lbl1 = document.getElementById('rfSlotSelect1Label');
+        const lbl2 = document.getElementById('rfSlotSelect2Label');
+        if (lbl1) lbl1.textContent = s1?.name || 'Slot 1: Remote 1';
+        if (lbl2) lbl2.textContent = s2?.name || 'Slot 2: Remote 2';
+        if (tab1) tab1.classList.toggle('active', this.selectedRemoteSlot === 1);
+        if (tab2) tab2.classList.toggle('active', this.selectedRemoteSlot === 2);
+      } else {
+        slotBar.style.display = 'none';
+      }
+    }
+
+    const curSlot = this.selectedRemoteSlot;
+    const curSlotInfo = curSlot === 1 ? s1 : s2;
+    const curModel = curSlotInfo?.model || 'unknown';
+    const isScreenless = curModel === 'smart_control' || curModel === 'companion' || curSlotInfo?.has_screen === false;
+
+    // Toggle skin visual: Elite vs Companion
+    const eliteShell = document.getElementById('eliteRemoteShell');
+    const compShell = document.getElementById('companionRemoteShell');
+    if (eliteShell) eliteShell.style.display = isScreenless ? 'none' : 'flex';
+    if (compShell) compShell.style.display = isScreenless ? 'flex' : 'none';
+
+    // Hide/show screen section
+    const screenSec = document.getElementById('eliteSectionScreen');
+    if (screenSec) screenSec.style.display = isScreenless ? 'none' : 'block';
+
+    // Hide/show push to remote button (Elite only)
+    const pushBtn = document.getElementById('elitePushRemoteBtn');
+    if (pushBtn) pushBtn.style.display = isScreenless ? 'none' : 'inline-block';
+
+    // Copy mappings button if both slots have same remote type
+    const copyBtn = document.getElementById('rfCopySlotMappingBtn');
+    if (copyBtn) {
+      const sameType = s1Active && s2Active && (
+        s1.model === s2.model ||
+        ((s1.model === 'smart_control' || s1.model === 'companion') &&
+         (s2.model === 'smart_control' || s2.model === 'companion'))
+      );
+      if (sameType) {
+        const otherSlot = curSlot === 1 ? 2 : 1;
+        copyBtn.style.display = 'inline-block';
+        copyBtn.textContent = `📋 Copy Mappings from Slot ${otherSlot}`;
+      } else {
+        copyBtn.style.display = 'none';
+      }
+    }
+
+    // MQTT status & config for this slot
     try {
       const mqRes = await this.client.getMqttStatus().catch(() => null);
       if (mqRes && mqRes.config) {
         const enCb = document.getElementById('eliteRemoteMqttEnabled');
         const topIn = document.getElementById('eliteRemoteMqttTopic');
         const badge = document.getElementById('eliteMqttStatusBadge');
-        if (enCb) enCb.checked = Boolean(mqRes.config.eliteRemoteEvents !== undefined ? mqRes.config.eliteRemoteEvents : true);
-        if (topIn) topIn.value = mqRes.config.eliteRemoteTopic || '';
+        const lbl = document.getElementById('eliteRemoteMqttLabel');
+
+        const slotEv = curSlot === 1 ?
+          (mqRes.config.slot1RemoteEvents !== undefined ? mqRes.config.slot1RemoteEvents : (mqRes.config.eliteRemoteEvents !== undefined ? mqRes.config.eliteRemoteEvents : true)) :
+          (mqRes.config.slot2RemoteEvents !== undefined ? mqRes.config.slot2RemoteEvents : false);
+        const slotTop = curSlot === 1 ?
+          (mqRes.config.slot1RemoteTopic || mqRes.config.eliteRemoteTopic || '') :
+          (mqRes.config.slot2RemoteTopic || '');
+
+        if (enCb) enCb.checked = Boolean(slotEv);
+        if (topIn) topIn.value = slotTop;
+        if (lbl) lbl.textContent = `Mirror Slot ${curSlot} (${curSlotInfo?.name || 'Remote'}) button presses to MQTT`;
         if (badge) {
           badge.textContent = mqRes.connected ? 'CONNECTED' : (mqRes.enabled ? 'ONLINE' : 'MQTT OFF');
           badge.className = 'badge ' + (mqRes.connected ? 'ok' : 'subtle');
@@ -133,28 +230,46 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       }
     }
 
-    const actCard = document.getElementById('eliteActivitySelectCard');
-    const screenTitle = document.getElementById('eliteScreenSectionTitle');
-    const screenHelp = document.getElementById('eliteScreenSectionHelp');
-
-    if (actCard) actCard.style.display = 'block';
-    if (screenTitle) screenTitle.textContent = '3. On-Screen "DEVICES" Touch Buttons';
-    if (screenHelp) screenHelp.textContent = 'Buttons shown on the Elite touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
-
     try {
-      const m = await this.client.getEliteMapping();
+      const m = await this.client.getEliteMapping(this.selectedRemoteSlot);
       if (m) {
         if (!m.activities) m.activities = {};
         if (!m.devices) m.devices = {};
         this.eliteMapData = m;
+      } else {
+        this.eliteMapData = { activities: {}, devices: {} };
       }
     } catch (e) {
-      console.warn('Failed to load Elite mappings:', e);
+      console.warn(`Failed to load slot ${this.selectedRemoteSlot} mappings:`, e);
+      this.eliteMapData = { activities: {}, devices: {} };
     }
 
     this.selectEliteButton('Select', false);
     this.updateEliteButtonStates();
-    this.renderEliteScreenButtons();
+    if (!isScreenless) {
+      this.renderEliteScreenButtons();
+    }
+  }
+
+  async switchRemoteSlot(slot) {
+    if (slot !== 1 && slot !== 2) return;
+    this.selectedRemoteSlot = slot;
+    await this.loadEliteView();
+  }
+
+  async copySlotMappings() {
+    const curSlot = this.selectedRemoteSlot || 1;
+    const otherSlot = curSlot === 1 ? 2 : 1;
+    const confirmed = confirm(`Copy all activity and device button mappings from Slot ${otherSlot} to Slot ${curSlot}? Any existing mappings on Slot ${curSlot} will be overwritten.`);
+    if (!confirmed) return;
+
+    try {
+      await this.client.copyRemoteMapping(otherSlot, curSlot);
+      this.showToast(`Mappings copied from Slot ${otherSlot} to Slot ${curSlot}!`, 'success');
+      await this.loadEliteView();
+    } catch (err) {
+      this.showToast(`Copy failed: ${err.message || err}`, 'danger');
+    }
   }
 
   selectEliteButton(btnId, openModal = false) {
@@ -187,27 +302,46 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     }
 
     const typeSel = document.getElementById('eliteActionType');
+    const devSel = document.getElementById('eliteTargetDevice');
     if (typeSel) {
-      if (!mapping) typeSel.value = 'none';
-      else if (mapping.type === 'activity_start' || mapping.action === 'activity_start') typeSel.value = 'activity_start';
-      else if (mapping.type === 'activity_stop' || mapping.action === 'activity_stop' || mapping.action === 'poweroff') typeSel.value = 'activity_stop';
-      else if (mapping.type) typeSel.value = mapping.type;
-      else if (mapping.action === 'device_cmd' || mapping.command) typeSel.value = 'command';
-      else typeSel.value = 'none';
+      if (this.eliteContextMode === 'device') {
+        Array.from(typeSel.options).forEach(opt => {
+          opt.disabled = (opt.value !== 'command' && opt.value !== 'none');
+          opt.style.display = (opt.value !== 'command' && opt.value !== 'none') ? 'none' : '';
+        });
+        if (!mapping || typeSel.value === 'none') typeSel.value = 'none';
+        else typeSel.value = 'command';
+      } else {
+        Array.from(typeSel.options).forEach(opt => {
+          opt.disabled = false;
+          opt.style.display = '';
+        });
+        if (!mapping) typeSel.value = 'none';
+        else if (mapping.type === 'activity_start' || mapping.action === 'activity_start') typeSel.value = 'activity_start';
+        else if (mapping.type === 'activity_stop' || mapping.action === 'activity_stop' || mapping.action === 'poweroff') typeSel.value = 'activity_stop';
+        else if (mapping.type) typeSel.value = mapping.type;
+        else if (mapping.action === 'device_cmd' || mapping.command) typeSel.value = 'command';
+        else typeSel.value = 'none';
+      }
       this.toggleEliteActionFields();
+    }
+
+    if (devSel) {
+      if (this.eliteContextMode === 'device') {
+        const curDev = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+        if (curDev) devSel.value = curDev;
+        devSel.disabled = true;
+      } else {
+        devSel.disabled = false;
+        if (mapping && mapping.deviceId) {
+          devSel.value = mapping.deviceId;
+        }
+      }
     }
 
     if (mapping && (mapping.activityId || mapping.targetActivity)) {
       const actTgt = document.getElementById('eliteTargetActivity');
       if (actTgt) actTgt.value = mapping.activityId || mapping.targetActivity;
-    }
-    if (mapping && mapping.deviceId) {
-      const devSel = document.getElementById('eliteTargetDevice');
-      if (devSel) devSel.value = mapping.deviceId;
-    } else if (this.eliteContextMode === 'device') {
-      const curDev = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
-      const devSel = document.getElementById('eliteTargetDevice');
-      if (devSel && curDev) devSel.value = curDev;
     }
     if (mapping && mapping.sequence) {
       const seqSel = document.getElementById('eliteTargetSequence');
@@ -358,10 +492,11 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
 
   async saveAllEliteMappings() {
     const btn = document.getElementById('eliteSaveAllBtn');
+    const slot = this.selectedRemoteSlot || 1;
     try {
       if (btn) btn.textContent = 'Saving...';
-      await this.client.saveEliteMapping(this.eliteMapData);
-      this.showToast('Harmony Elite mappings saved to Hub!', 'success');
+      await this.client.saveEliteMapping(this.eliteMapData, slot);
+      this.showToast(`Slot ${slot} mappings saved to Hub!`, 'success');
     } catch (err) {
       this.showToast('Save failed: ' + (err.message || err), 'danger');
     } finally {
@@ -443,15 +578,54 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const sbtnsList = document.getElementById('eliteScreenButtonsList');
     const preview = document.getElementById('eliteScreenPreview');
     const devs = this.inventory.devices || [];
+    const isDevScope = (this.eliteContextMode === 'device');
 
-    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
-    if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
-    if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
-    const actObj = this.eliteMapData.activities[actId];
-    if (!Array.isArray(actObj.screen_buttons)) {
-      actObj.screen_buttons = [];
+    const titleEl = document.getElementById('eliteScreenSectionTitle');
+    const helpEl = document.getElementById('eliteScreenSectionHelp');
+    if (titleEl) {
+      titleEl.textContent = isDevScope ? 'Touch Screen Buttons (Device Commands)' : 'On-Screen "DEVICES" Touch Buttons';
     }
-    const sbtns = actObj.screen_buttons;
+    if (helpEl) {
+      helpEl.textContent = isDevScope
+        ? 'Buttons shown on the Elite touchscreen when browsing this device (commands can be reordered, renamed, or deleted).'
+        : 'Buttons shown on the Elite touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
+    }
+
+    let sbtns = [];
+    let curDev = null;
+
+    if (isDevScope) {
+      const devSel = document.getElementById('eliteDeviceSelect');
+      const devId = this.eliteSelectedDeviceId || devSel?.value || (devs[0]?.id);
+      if (!this.eliteMapData.devices) this.eliteMapData.devices = {};
+      if (!this.eliteMapData.devices[devId]) this.eliteMapData.devices[devId] = {};
+      const devObj = this.eliteMapData.devices[devId];
+      curDev = devs.find(d => String(d.id) === String(devId)) || devs[0];
+
+      // Auto-populate with all device commands by default if not populated yet
+      if (!Array.isArray(devObj.screen_buttons)) {
+        if (curDev && Array.isArray(curDev.commands) && curDev.commands.length > 0) {
+          devObj.screen_buttons = curDev.commands.map(c => ({
+            label: (c.name || '').slice(0, 12),
+            deviceId: String(devId),
+            command: c.name,
+            icon: ''
+          }));
+        } else {
+          devObj.screen_buttons = [];
+        }
+      }
+      sbtns = devObj.screen_buttons;
+    } else {
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
+      if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
+      if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
+      const actObj = this.eliteMapData.activities[actId];
+      if (!Array.isArray(actObj.screen_buttons)) {
+        actObj.screen_buttons = [];
+      }
+      sbtns = actObj.screen_buttons;
+    }
 
     // Update screen preview inside the vector remote visual
     if (preview) {
@@ -479,15 +653,19 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     // Update screen buttons list editor
     if (!sbtnsList) return;
     if (sbtns.length === 0) {
-      const msg = `No touch buttons configured for this activity yet. Click "+ Add Screen Button" above.`;
+      const msg = isDevScope
+        ? `No touch buttons configured for this device yet. Click "+ Add Screen Button" above.`
+        : `No touch buttons configured for this activity yet. Click "+ Add Screen Button" above.`;
       sbtnsList.innerHTML = `<div class="subtle" style="font-size: 13px; padding: 8px 0;">${msg}</div>`;
       return;
     }
 
     sbtnsList.innerHTML = sbtns.map((btn, idx) => {
-      const devOpts = devs.map(d => `<option value="${d.id}" ${String(d.id) === String(btn.deviceId) ? 'selected' : ''}>${d.name || d.id}</option>`).join('');
-      const curDev = devs.find(d => String(d.id) === String(btn.deviceId)) || devs[0];
-      const cmds = curDev?.commands || [];
+      const devOpts = isDevScope
+        ? `<option value="${curDev?.id}">${curDev?.name || curDev?.id}</option>`
+        : devs.map(d => `<option value="${d.id}" ${String(d.id) === String(btn.deviceId) ? 'selected' : ''}>${d.name || d.id}</option>`).join('');
+      const targetDev = isDevScope ? curDev : (devs.find(d => String(d.id) === String(btn.deviceId)) || devs[0]);
+      const cmds = targetDev?.commands || [];
       const cmdOpts = cmds.map(c => `<option value="${c.name}" ${c.name === btn.command ? 'selected' : ''}>${c.name}</option>`).join('');
       const iconUrl = btn.icon ? getStockIconUrl(btn.icon) : '';
       const iconDispName = btn.icon ? this.formatIconDisplayName(btn.icon) : 'Pick Icon';
@@ -496,12 +674,16 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       return `
         <div class="screen-btn-row" data-idx="${idx}">
           <span class="screen-btn-num">${idx + 1}</span>
+          <div style="display: flex; gap: 2px;">
+            <button type="button" class="btn btn-xs btn-ghost screen-btn-up" title="Move Up" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▲</button>
+            <button type="button" class="btn btn-xs btn-ghost screen-btn-down" title="Move Down" ${idx === sbtns.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▼</button>
+          </div>
           <input type="text" class="form-control screen-btn-label" maxlength="12" value="${btn.label || ''}" placeholder="Label (max 12)" style="font-size: 12px; padding: 4px 8px;">
           <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="Choose Icon" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
             ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${btn.icon}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
             <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${iconDispName}</span>
           </button>
-          <select class="form-control screen-btn-dev" style="font-size: 12px; padding: 4px 6px;">
+          <select class="form-control screen-btn-dev" style="font-size: 12px; padding: 4px 6px; ${isDevScope ? 'display:none;' : ''}" ${isDevScope ? 'disabled' : ''}>
             ${devOpts}
           </select>
           <select class="form-control screen-btn-cmd" style="font-size: 12px; padding: 4px 6px;">
@@ -520,6 +702,8 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       const devSel = row.querySelector('.screen-btn-dev');
       const cmdSel = row.querySelector('.screen-btn-cmd');
       const delBtn = row.querySelector('.screen-btn-del');
+      const upBtn = row.querySelector('.screen-btn-up');
+      const downBtn = row.querySelector('.screen-btn-down');
 
       const updatePreviewTile = () => {
         if (preview && idx < 6) {
@@ -547,6 +731,22 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
         }, sbtns[idx].icon);
       });
 
+      upBtn?.addEventListener('click', () => {
+        if (idx > 0) {
+          const item = sbtns.splice(idx, 1)[0];
+          sbtns.splice(idx - 1, 0, item);
+          this.renderEliteScreenButtons();
+        }
+      });
+
+      downBtn?.addEventListener('click', () => {
+        if (idx < sbtns.length - 1) {
+          const item = sbtns.splice(idx, 1)[0];
+          sbtns.splice(idx + 1, 0, item);
+          this.renderEliteScreenButtons();
+        }
+      });
+
       devSel?.addEventListener('change', (e) => {
         const newDevId = e.target.value;
         sbtns[idx].deviceId = newDevId;
@@ -569,25 +769,40 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   }
 
   addEliteScreenButton() {
-    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
-    if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
-    if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
-    const actObj = this.eliteMapData.activities[actId];
-    if (!Array.isArray(actObj.screen_buttons)) {
-      actObj.screen_buttons = [];
+    let sbtns = null;
+    let targetDevId = '';
+    let firstCmd = '';
+
+    if (this.eliteContextMode === 'device') {
+      const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value || (this.inventory.devices?.[0]?.id);
+      if (!this.eliteMapData.devices) this.eliteMapData.devices = {};
+      if (!this.eliteMapData.devices[devId]) this.eliteMapData.devices[devId] = {};
+      const devObj = this.eliteMapData.devices[devId];
+      if (!Array.isArray(devObj.screen_buttons)) devObj.screen_buttons = [];
+      sbtns = devObj.screen_buttons;
+      targetDevId = String(devId);
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+      firstCmd = dev?.commands?.[0]?.name || '';
+    } else {
+      const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
+      if (!this.eliteMapData.activities) this.eliteMapData.activities = {};
+      if (!this.eliteMapData.activities[actId]) this.eliteMapData.activities[actId] = {};
+      const actObj = this.eliteMapData.activities[actId];
+      if (!Array.isArray(actObj.screen_buttons)) actObj.screen_buttons = [];
+      sbtns = actObj.screen_buttons;
+      const devs = this.inventory.devices || [];
+      const firstDev = devs[0];
+      targetDevId = firstDev ? String(firstDev.id) : '';
+      firstCmd = firstDev?.commands?.[0]?.name || '';
     }
-    const sbtns = actObj.screen_buttons;
 
     if (sbtns.length >= 48) {
       return alert(t("max_screen_buttons"));
     }
-    const devs = this.inventory.devices || [];
-    const firstDev = devs[0];
-    const firstCmd = firstDev?.commands?.[0]?.name || '';
     sbtns.push({
       label: `Btn ${sbtns.length + 1}`,
       icon: '',
-      deviceId: firstDev ? String(firstDev.id) : '',
+      deviceId: targetDevId,
       command: firstCmd
     });
     this.renderEliteScreenButtons();
@@ -597,9 +812,20 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const status = document.getElementById('eliteMqttSaveStatus');
     const enabled = document.getElementById('eliteRemoteMqttEnabled')?.checked ? 1 : 0;
     const topic = document.getElementById('eliteRemoteMqttTopic')?.value.trim() || '';
+    const slot = this.selectedRemoteSlot || 1;
     try {
       if (status) status.textContent = 'Saving...';
-      await this.client.saveMqtt({ eliteRemoteEvents: enabled, eliteRemoteTopic: topic });
+      const payload = {};
+      if (slot === 1) {
+        payload.slot1RemoteEvents = enabled;
+        payload.slot1RemoteTopic = topic;
+        payload.eliteRemoteEvents = enabled;
+        payload.eliteRemoteTopic = topic;
+      } else {
+        payload.slot2RemoteEvents = enabled;
+        payload.slot2RemoteTopic = topic;
+      }
+      await this.client.saveMqtt(payload);
       if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
       setTimeout(() => { if (status) status.textContent = ''; }, 3000);
     } catch (err) {

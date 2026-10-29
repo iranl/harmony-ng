@@ -79,6 +79,9 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
 void handle_rf_frame(const rf_frame_t *f) {
     if (f->dev_slot == 1 || f->dev_slot == 2) {
         mark_remote_slot_active(f->dev_slot);
+        if (g_paired_remotes[f->dev_slot - 1].model != REMOTE_MODEL_COMPANION) {
+            g_paired_remotes[f->dev_slot - 1].model = REMOTE_MODEL_ELITE;
+        }
     }
     switch (f->msg_type) {
         case RF_MSG_ACK: {
@@ -232,6 +235,16 @@ void handle_rf_frame(const rf_frame_t *f) {
             g_remote_batteries[idx].last_update_ms = get_monotonic_ms();
             printf("[*] BATTERY_STATUS: Slot %d: %d%% (chg=%d, %umV)\n",
                    slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
+            char bpath[64];
+            snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
+            FILE *bf = fopen(bpath, "w");
+            if (bf) {
+                fprintf(bf, "{\"slot\":%d,\"percent\":%d,\"charging\":%s,\"voltage_mv\":%u,\"timestamp\":%ld}\n",
+                        slot, g_remote_batteries[idx].percent,
+                        g_remote_batteries[idx].charging ? "true" : "false",
+                        g_remote_batteries[idx].voltage_mv, (long)time(NULL));
+                fclose(bf);
+            }
             publish_remote_battery_mqtt(slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
             if (!is_ota_busy()) {
                 rf_frame_t ack;
@@ -429,6 +442,27 @@ int main(int argc, char **argv) {
                 }
             }
             fclose(fv);
+        }
+
+        /* Load last known remote battery status from disk */
+        char bpath[64];
+        snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
+        FILE *fb = fopen(bpath, "r");
+        if (fb) {
+            char bbuf[256] = {0};
+            if (fread(bbuf, 1, sizeof(bbuf) - 1, fb) > 0) {
+                cJSON *broot = cJSON_Parse(bbuf);
+                if (broot) {
+                    cJSON *jp = cJSON_GetObjectItem(broot, "percent");
+                    cJSON *jc = cJSON_GetObjectItem(broot, "charging");
+                    cJSON *jv = cJSON_GetObjectItem(broot, "voltage_mv");
+                    if (jp && cJSON_IsNumber(jp)) g_remote_batteries[slot - 1].percent = (uint8_t)jp->valueint;
+                    if (jc) g_remote_batteries[slot - 1].charging = (cJSON_IsTrue(jc) || (cJSON_IsNumber(jc) && jc->valueint));
+                    if (jv && cJSON_IsNumber(jv)) g_remote_batteries[slot - 1].voltage_mv = (uint16_t)jv->valueint;
+                    cJSON_Delete(broot);
+                }
+            }
+            fclose(fb);
         }
     }
 

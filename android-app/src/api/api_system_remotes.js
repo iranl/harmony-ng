@@ -18,13 +18,17 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postJson('/api/ui-remote-layout', layouts);
   }
 
-  /* Harmony Elite RF Remote & Mapping */
-  async getEliteMapping() {
-    return this.request('/api/elite-mapping');
+  /* Harmony Elite / Companion RF Remote & Mapping */
+  async getEliteMapping(slot = 1) {
+    return this.request(`/api/elite-mapping?slot=${slot}`);
   }
 
-  async saveEliteMapping(data) {
-    return this.postJson('/api/elite-mapping-save', data);
+  async saveEliteMapping(data, slot = 1) {
+    return this.postJson(`/api/elite-mapping-save?slot=${slot}`, data);
+  }
+
+  async copyRemoteMapping(fromSlot, toSlot) {
+    return this.request(`/api/remote-mapping-copy?from=${fromSlot}&to=${toSlot}`, { method: 'POST' });
   }
 
   async getHealth() {
@@ -164,6 +168,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
         haDiscovery: data.haDiscovery !== undefined ? Boolean(data.haDiscovery) : (cfg.haDiscovery !== undefined ? Boolean(cfg.haDiscovery) : true),
         btRemoteEvents: Boolean(data.btRemoteEvents !== undefined ? data.btRemoteEvents : (cfg.btRemoteEvents !== undefined ? cfg.btRemoteEvents : false)),
         btRemoteTopic: data.btRemoteTopic || cfg.btRemoteTopic || '',
+        slot1RemoteEvents: Boolean(data.slot1RemoteEvents !== undefined ? data.slot1RemoteEvents : (cfg.slot1RemoteEvents !== undefined ? cfg.slot1RemoteEvents : (data.eliteRemoteEvents !== undefined ? data.eliteRemoteEvents : true))),
+        slot1RemoteTopic: data.slot1RemoteTopic || cfg.slot1RemoteTopic || data.eliteRemoteTopic || cfg.eliteRemoteTopic || '',
+        slot2RemoteEvents: Boolean(data.slot2RemoteEvents !== undefined ? data.slot2RemoteEvents : (cfg.slot2RemoteEvents !== undefined ? cfg.slot2RemoteEvents : false)),
+        slot2RemoteTopic: data.slot2RemoteTopic || cfg.slot2RemoteTopic || '',
         eliteRemoteEvents: Boolean(data.eliteRemoteEvents !== undefined ? data.eliteRemoteEvents : (cfg.eliteRemoteEvents !== undefined ? cfg.eliteRemoteEvents : true)),
         eliteRemoteTopic: data.eliteRemoteTopic || cfg.eliteRemoteTopic || ''
       }

@@ -1,6 +1,6 @@
 # HarmonyNG
 
-Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub** and **Harmony Elite 950** handheld remote. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
+Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub**, **Harmony Elite 950**, **Harmony Companion**, and **Harmony Smart Control** remotes. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
 
 <div align="center">
   <table>
@@ -29,6 +29,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | :--- | :--- | :--- |
 | **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) |
 | **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(Ultimate/Touch/Pro 2400 fully supported, untested on physical hardware)* |
+| **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/ELITE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **Ethernet Setup** | [**Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | Native onboard RJ45/PoE (Pro 2400) or OTG Micro-USB Ethernet Adapter (Standard Hub) |
@@ -58,14 +59,16 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 |        ├── CC2544 RF SPI Engine (hub_rf.c - Mode 0 packet ack framing)     |
 |        └── BTstack Bluetooth HID (hub_btstack - Apple TV, Shield, Fire TV)  |
 +---------------------------------------+---------------------------------------+
-                                        | 2.4GHz RF (Mode 1 / Report 0x20)
-                                        v
-+---------------------------------------+---------------------------------------+
-|  Harmony Elite 950 Remote (Handheld Remote)                                   |
-|   ├── Framebuffer graphics & touch UI (elite_ui.c)                          |
-|   ├── Direct input event handling (/dev/input/event0)                          |
-|   └── Low-power CC2544 RF transceiver (elite_rf.c)                          |
-+-------------------------------------------------------------------------------+
+                                        | 2.4GHz RF (CC2544 Mode 1 / Reports 0x12 & 0x20)
+                     +------------------+------------------+
+                     |                                     |
+                     v                                     v
++---------------------------------------+ +---------------------------------------+
+|  Harmony Elite 950 & Pro 2400 Remote  | |  Harmony Companion & Smart Control    |
+|   ├── Framebuffer UI (elite_ui.c)     | |   ├── CR2032 coin cell, screenless    |
+|   ├── Touch & physical controls       | |   ├── eQuad HID keyboard & consumer   |
+|   └── Low-power CC2544 transceiver    | |   └── Direct Hub IR/BT/MQTT dispatch  |
++---------------------------------------+ +---------------------------------------+
 ```
 
 ---
@@ -84,7 +87,7 @@ The table below details every major functional component for both the **Harmony 
 | **Networking & Ethernet** | **Wi-Fi 2.4 GHz Only**: Restricted to 802.11b/g/n wireless. Micro-USB port locked to device gadget mode (USB serial / HID). No Ethernet support. | **Dual Network (Wi-Fi + Ethernet)**: Supports both **Harmony Hub Pro 2400** (native onboard Atheros GMAC `eth1` with PoE / RJ45 port; USB gadget mode remains fully active for PC control) and **Standard Harmony Hub** (dynamic USB Host mode activator switching on-chip Atheros EHCI controller to 480 Mbps host mode with Realtek RTL8152/8153, ASIX, SMSC, CDC-Ethernet dongles). Seamless link-state failover (Ethernet prioritized, Wi-Fi standby), unified static IP handover. See [Ethernet & Network Setup Guide](docs/ETHERNET_AND_NETWORK_SETUP.md). |
 | **IR Transmission** | **HAL Subsystem**: Closed-source `hal` binary driving proprietary I2S kernel driver, restricted to fixed cloud database code sets. | **Direct I2S DMA Pulsing**: Clean-room hardware driver (`ir_i2s.c`) pulsing AR9344 I2S registers directly. Supports raw Pronto hex, NEC, RC5, RC6, Sony, Denon, and custom timings across Port 1, Port 2, or front blaster. |
 | **Bluetooth Engine** | **BlueZ 4 Stack**: Legacy BlueZ daemon with heavy D-Bus overhead, prone to random disconnections and pairing drops. | **BlueKitchen BTstack**: Direct UART HCI transport (`/dev/ttyATH0`), persistent pairing table, media keys, and automated reconnect daemon (`bt_reconnect.sh`). |
-| **RF Remote Engine** | **Proprietary eQuad Protocol**: Managed by `hal_hub` via `/dev/rfspi`. Locked to stock remote pairings and cloud IDs. | **Clean-Room CC2544 Driver**: Direct `/dev/rfspi` SPI Report `0x12` framing with ACK tracking, dynamic pairing, and instantaneous bidirectional synchronization with Elite remotes. |
+| **RF Remote Engine** | **Proprietary eQuad Protocol**: Managed by `hal_hub` via `/dev/rfspi`. Locked to stock remote pairings and cloud IDs. | **Clean-Room CC2544 Driver**: Direct `/dev/rfspi` SPI Report `0x12` & `0x20` framing with ACK tracking, dynamic pairing, instantaneous bidirectional synchronization with Elite remotes, and native decoding for Harmony Companion & Smart Control screenless remotes with dual-slot activity mappings and MQTT event mirroring. |
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` tracks discrete device power states, interlocks, step queues, and delays, with live WebSocket and MQTT progress feeds. |
 | **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (`homeassistant/remote/` and `homeassistant/select/`). Full REST & WebSocket API. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). Automatic reboot loop counter resets Hub into Safe Recovery mode if 5 boot crashes occur. |
@@ -101,18 +104,39 @@ The table below details every major functional component for both the **Harmony 
 
 ---
 
-## Known Regressions & Differences (Compared to Stock Logitech Software)
+## Supported Remote Hardware
 
-While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following differences from stock Logitech firmware:
+HarmonyNG supports all major Logitech Harmony physical remotes:
 
-1. **No Harmony Companion / Smart Control Remote Support (Yet)**:
-   - Harmony Elite 950 handheld touchscreen remotes are fully supported via the CC2544 2.4GHz RF engine.
-   - Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling as Elite, but are currently untested, try at your own risk.
-   - The button-only Harmony Companion and Smart Control remotes utilize a different RF pairing and payload handshake that is not yet implemented. Protocol contributions and pull requests are warmly welcomed!
-   - **Physical Bluetooth BLE Remotes (e.g. Homatics B25)**: Fully supported via the Hub Bluetooth stack with per-activity button mapping in the Web UI. *Note: When a sleeping BLE remote is pressed, the first button press wakes the remote (showing a red light on the B25) and will drop; the second button press will register once the BLE remote finishes reconnecting to the Harmony Hub.*
-2. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
-   - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on native hardware-direct IR (I2S DMA register pulsing) and Bluetooth HID control.
-   - **Mitigation via Home Assistant / MQTT**: This is easily mitigated by connecting HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**. Home Assistant natively supports thousands of IP-controlled devices (Roku, Apple TV, Philips Hue, Android TV) and can be triggered seamlessly by Harmony activities and remote button presses.
+1. **Harmony Elite 950 & Harmony Pro 2400 (Handheld Remotes with Screen)**:
+   - Full native framebuffer UI (`elite_ui.c`) at 240x320 RGB565.
+   - Dynamic touch digitizer & physical button mapping.
+   - Instant bidirectional RF state sync (time, activities, settings, device browser) over CC2544 Report `0x12`/`0x20`.
+   - Two-tier hardware power management (Light and Deep standby with motion wake).
+   - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
+   - *Harmony Ultimate (Home) and Harmony Touch share this architecture and are supported by the same binaries.*
+
+2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
+   - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
+   - Simply put the remote in pairing mode to register it to Hub Remote Slot 1 or Slot 2.
+   - Real-time decoding of eQuad HID Keyboard (Sub-ID `0x01`) and Consumer Control (Sub-ID `0x03`) frames directly in `hub_rf`.
+   - Dispatches mapped IR commands, Bluetooth HID keys, activity switches, and MQTT button events instantly with zero lag.
+   - Full per-activity physical button mapping in the Web UI with custom visual skins (including home automation buttons for Companion).
+   - Independent per-slot configuration (`/data/harmony/remote_slot1_map.json` and `remote_slot2_map.json`), one-click mapping copy between slots, and slot-specific MQTT event topics.
+
+3. **Physical Bluetooth BLE Remotes (e.g. Homatics B25)**:
+   - Fully supported via the Hub Bluetooth stack with per-activity button mapping in the Web UI.
+   - *Note: When a sleeping BLE remote is pressed, the first button press wakes the remote (showing a red light on the B25) and will drop; the second button press will register once the BLE remote finishes reconnecting to the Harmony Hub.*
+
+---
+
+## Known Differences (Compared to Stock Logitech Software)
+
+While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
+
+1. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
+   - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on native hardware-direct IR (I2S DMA register pulsing), Bluetooth HID, and 2.4 GHz RF remotes.
+   - **Mitigation via Home Assistant / MQTT**: This is easily handled by connecting HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**. Home Assistant natively supports thousands of IP-controlled devices (Roku, Apple TV, Philips Hue, Android TV) and can be triggered seamlessly by Harmony activities and remote button presses.
 
 ---
 

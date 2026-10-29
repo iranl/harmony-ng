@@ -61,7 +61,14 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
 
     /* Route: GET /api/elite-mapping */
     if (strcmp(clean_path, "/api/elite-mapping") == 0 && strcmp(method, "GET") == 0) {
-        FILE *f = fopen(config_store_path("elite_remote_map.json"), "r");
+        int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
+        char fname[64];
+        snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
+        const char *path = config_store_path(fname);
+        FILE *f = fopen(path, "r");
+        if (!f && slot == 1) {
+            f = fopen(config_store_path("elite_remote_map.json"), "r");
+        }
         if (f) {
             fseek(f, 0, SEEK_END);
             long sz = ftell(f);
@@ -290,6 +297,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         char req_action[32] = {0};
         int req_pulse_ms = 0;
         char req_topic[256] = {0};
+        int req_slot = 1;
 
         cJSON *req_j = body ? cJSON_Parse(body) : NULL;
         if (req_j) {
@@ -317,7 +325,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
 
             cJSON *jp = cJSON_GetObjectItemCaseSensitive(req_j, "pulseMs");
             if (!jp) jp = cJSON_GetObjectItemCaseSensitive(req_j, "pulse_ms");
-            if (jp && cJSON_IsNumber(jp) && jp->valueint > 0) req_pulse_ms = jp->valueint;
+            cJSON *js = cJSON_GetObjectItemCaseSensitive(req_j, "slot");
+            if (js && cJSON_IsNumber(js) && js->valueint >= 1 && js->valueint <= 2) req_slot = js->valueint;
             cJSON_Delete(req_j);
         }
 
@@ -332,7 +341,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         int mrc = -1;
 
         if (req_source[0]) {
-            mrc = mqtt_dispatch_remote_button(req_source, req_action, cmd_name, req_topic[0] ? req_topic : NULL, req_pulse_ms,
+            mrc = mqtt_dispatch_remote_button(req_source, req_action, cmd_name, req_slot, req_topic[0] ? req_topic : NULL, req_pulse_ms,
                                               final_topic, sizeof(final_topic), &final_pulse_ms);
         } else {
             if (!dev_name[0]) {
@@ -380,17 +389,76 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/elite-mapping-save (Harmony Elite RF remote) */
+    /* Route: POST /api/elite-mapping-save (Harmony RF remotes) */
     if (strcmp(clean_path, "/api/elite-mapping-save") == 0 && strcmp(method, "POST") == 0) {
         if (body && body[0]) {
+            int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
+            cJSON *bj = cJSON_Parse(body);
+            if (bj) {
+                cJSON *js = cJSON_GetObjectItemCaseSensitive(bj, "slot");
+                if (js && cJSON_IsNumber(js) && js->valueint == 2) slot = 2;
+                cJSON_Delete(bj);
+            }
+            char fname[64];
+            snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
             system("mkdir -p /data/harmony 2>/dev/null");
-            write_file_atomic(config_store_path("elite_remote_map.json"), body);
+            write_file_atomic(config_store_path(fname), body);
+            if (slot == 1) {
+                write_file_atomic(config_store_path("elite_remote_map.json"), body);
+            }
             notify_rf_push_config();
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/remote-mapping-copy */
+    if (strcmp(clean_path, "/api/remote-mapping-copy") == 0 && strcmp(method, "POST") == 0) {
+        int from_slot = 1;
+        int to_slot = 2;
+        if (query) {
+            if (strstr(query, "from=2")) from_slot = 2;
+            if (strstr(query, "to=1")) to_slot = 1;
+        }
+        if (body && body[0]) {
+            cJSON *bj = cJSON_Parse(body);
+            if (bj) {
+                cJSON *jf = cJSON_GetObjectItemCaseSensitive(bj, "from");
+                cJSON *jt = cJSON_GetObjectItemCaseSensitive(bj, "to");
+                if (jf && cJSON_IsNumber(jf) && jf->valueint >= 1 && jf->valueint <= 2) from_slot = jf->valueint;
+                if (jt && cJSON_IsNumber(jt) && jt->valueint >= 1 && jt->valueint <= 2) to_slot = jt->valueint;
+                cJSON_Delete(bj);
+            }
+        }
+        char src_name[64], dst_name[64];
+        snprintf(src_name, sizeof(src_name), "remote_slot%d_map.json", from_slot);
+        snprintf(dst_name, sizeof(dst_name), "remote_slot%d_map.json", to_slot);
+        size_t flen = 0;
+        char *content = read_file_text_alloc(config_store_path(src_name), 500000, &flen);
+        if (!content && from_slot == 1) {
+            content = read_file_text_alloc(config_store_path("elite_remote_map.json"), 500000, &flen);
+        }
+        if (content) {
+            system("mkdir -p /data/harmony 2>/dev/null");
+            write_file_atomic(config_store_path(dst_name), content);
+            if (to_slot == 1) {
+                write_file_atomic(config_store_path("elite_remote_map.json"), content);
+            }
+            free(content);
+            notify_rf_push_config();
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "ok", 1);
+            cJSON_AddNumberToObject(resp, "from", from_slot);
+            cJSON_AddNumberToObject(resp, "to", to_slot);
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        } else {
+            send_json_error(client_fd, 404, "Source slot mapping not found");
+        }
         close(client_fd);
         return 1;
     }
@@ -674,9 +742,9 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             cJSON_DeleteItemFromObjectCaseSensitive(d, "BTAddress");
                             cJSON_DeleteItemFromObjectCaseSensitive(d, "bt_host");
                             cJSON_DeleteItemFromObjectCaseSensitive(d, "btHost");
+                            cJSON_DeleteItemFromObjectCaseSensitive(d, "bdaddr");
                             if (bdaddr[0]) {
-                                cJSON_AddStringToObject(d, "BTAddress", bdaddr);
-                                cJSON_AddStringToObject(d, "bt_host", bdaddr);
+                                cJSON_AddStringToObject(d, "bdaddr", bdaddr);
                             }
                             config_store_save_devices(root);
                             success = 1;

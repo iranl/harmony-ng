@@ -97,27 +97,22 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
 
                                 if (cmd_match) {
-                                    if (cJSON_GetObjectItemCaseSensitive(cmd_match, "name"))
-                                        cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "name", cJSON_CreateString(name));
-                                    else
-                                        cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "Name", cJSON_CreateString(name));
+                                    cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Name");
+                                    cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "name");
+                                    cJSON_AddStringToObject(cmd_match, "name", name);
 
                                     if (raw_data[0]) {
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "keyCode"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "keyCode", cJSON_CreateString(raw_data));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "KeyCode", cJSON_CreateString(raw_data));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "KeyCode");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "keyCode");
+                                        cJSON_AddStringToObject(cmd_match, "keyCode", raw_data);
 
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "raw"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "raw", cJSON_CreateString(raw_data));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "Raw", cJSON_CreateString(raw_data));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Raw");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
+                                        cJSON_AddStringToObject(cmd_match, "raw", raw_data);
                                     }
                                     if (is_macro) {
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "isMacro"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "isMacro", cJSON_CreateBool(1));
-                                        else
-                                            cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "isMacro");
+                                        cJSON_AddBoolToObject(cmd_match, "isMacro", 1);
                                     }
                                     if (is_bt_cmd || is_mqtt_cmd) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
@@ -127,21 +122,19 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Port");
                                     } else {
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "repeats"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "repeats", cJSON_CreateNumber(repeats));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "Repeats", cJSON_CreateNumber(repeats));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Repeats");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
+                                        cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
 
                                         if (port > 0) {
-                                            if (cJSON_GetObjectItemCaseSensitive(cmd_match, "controlPort"))
-                                                cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "controlPort", cJSON_CreateNumber(port));
-                                            else
-                                                cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "ControlPort", cJSON_CreateNumber(port));
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "ControlPort");
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "controlPort");
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
+                                            cJSON_AddNumberToObject(cmd_match, "port", port);
                                         }
                                     }
                                 } else {
                                     cJSON *new_cmd = cJSON_CreateObject();
-                                    cJSON_AddStringToObject(new_cmd, "id", name);
                                     cJSON_AddStringToObject(new_cmd, "name", name);
                                     cJSON_AddStringToObject(new_cmd, "keyCode", raw_data);
                                     cJSON_AddStringToObject(new_cmd, "raw", raw_data);
@@ -150,9 +143,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     if (!is_bt_cmd && !is_mqtt_cmd) {
                                         cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
-                                        if (port > 0) cJSON_AddNumberToObject(new_cmd, "controlPort", port);
+                                        if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
                                     }
-                                    cJSON_AddBoolToObject(new_cmd, "isLearned", 1);
                                     cJSON_AddItemToArray(cmds, new_cmd);
                                 }
                                 config_store_save_devices(root);
@@ -236,36 +228,31 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         }
                                     }
                                     if (cmd_match) {
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "keyCode"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "keyCode", cJSON_CreateString(raw_data));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "KeyCode", cJSON_CreateString(raw_data));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "KeyCode");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "keyCode");
+                                        cJSON_AddStringToObject(cmd_match, "keyCode", raw_data);
 
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "raw"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "raw", cJSON_CreateString(raw_data));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "Raw", cJSON_CreateString(raw_data));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Raw");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
+                                        cJSON_AddStringToObject(cmd_match, "raw", raw_data);
 
-                                        if (cJSON_GetObjectItemCaseSensitive(cmd_match, "repeats"))
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "repeats", cJSON_CreateNumber(repeats));
-                                        else
-                                            cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "Repeats", cJSON_CreateNumber(repeats));
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Repeats");
+                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
+                                        cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
 
                                         if (port > 0) {
-                                            if (cJSON_GetObjectItemCaseSensitive(cmd_match, "controlPort"))
-                                                cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "controlPort", cJSON_CreateNumber(port));
-                                            else
-                                                cJSON_ReplaceItemInObjectCaseSensitive(cmd_match, "ControlPort", cJSON_CreateNumber(port));
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "ControlPort");
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "controlPort");
+                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
+                                            cJSON_AddNumberToObject(cmd_match, "port", port);
                                         }
                                     } else {
                                         cJSON *new_cmd = cJSON_CreateObject();
-                                        cJSON_AddStringToObject(new_cmd, "id", name);
                                         cJSON_AddStringToObject(new_cmd, "name", name);
                                         cJSON_AddStringToObject(new_cmd, "keyCode", raw_data);
                                         cJSON_AddStringToObject(new_cmd, "raw", raw_data);
                                         cJSON_AddNumberToObject(new_cmd, "repeats", repeats);
-                                        if (port > 0) cJSON_AddNumberToObject(new_cmd, "controlPort", port);
-                                        cJSON_AddBoolToObject(new_cmd, "isLearned", 1);
+                                        if (port > 0) cJSON_AddNumberToObject(new_cmd, "port", port);
                                         cJSON_AddItemToArray(cmds, new_cmd);
                                     }
                                     saved_count++;
