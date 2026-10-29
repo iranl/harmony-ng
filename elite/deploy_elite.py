@@ -60,6 +60,8 @@ def main() -> None:
                         help="Install modified extended BusyBox build to /data/busybox (default: False)")
     parser.add_argument("--factory-reset", action="store_true",
                         help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
+    parser.add_argument("--reboot", action="store_true",
+                        help="Perform hardware reboot after deployment (default: False, hot-restarts services)")
     args = parser.parse_args()
 
     target = f"{args.user}@{args.ip}"
@@ -97,6 +99,7 @@ def main() -> None:
             sys.exit(1)
         print("[*] Performing stock revert...")
         revert_cmd = (
+            "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
             "killall -9 elite_ui codex_elite elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
             "if [ -f /data/stock_backup/rcS.local.orig ]; then "
             "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
@@ -106,7 +109,7 @@ def main() -> None:
             "fi; "
             "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
             "rm -f /etc/nowatchdog /data/reboot_counter /data/codex_elite.conf /tmp/codex_elite.log /tmp/elite_ui.log 2>/dev/null || true; "
-            "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
             "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
@@ -118,9 +121,14 @@ def main() -> None:
     # Preserve stock rcS.local backup before installing
     run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
 
-    # 1. Stop existing runtime and stock processes (kill -9 before deletion to free flash memory)
-    print("[*] Stopping existing runtime and stock processes...")
-    run_cmd(["ssh"] + ssh_opts + [target, "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; sleep 1"])
+    # 1. Stop existing runtime using /data/init.sh stop if present, else fallback
+    print("[*] Stopping existing runtime services (/data/init.sh stop)...")
+    stop_cmd = (
+        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
+        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
+        "sleep 1"
+    )
+    run_cmd(["ssh"] + ssh_opts + [target, stop_cmd])
 
     # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
@@ -133,7 +141,7 @@ def main() -> None:
     # 2. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/elite_watchdog.sh /data/safe_reboot.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
     if md5_res.returncode == 0 and md5_res.stdout:
         for line in md5_res.stdout.strip().splitlines():
             parts = line.strip().split()
@@ -148,6 +156,11 @@ def main() -> None:
         src = BIN_DIR / b
         if src.is_file():
             deploy_file_if_changed(src, f"/data/{b}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+
+    init_script = SCRIPT_DIR / "init.sh"
+    if init_script.is_file():
+        print(f"[*] Syncing /data/{init_script.name} (MD5 check)...")
+        deploy_file_if_changed(init_script, f"/data/{init_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
     watchdog_script = SCRIPT_DIR / "elite_watchdog.sh"
     if watchdog_script.is_file():
@@ -165,26 +178,32 @@ def main() -> None:
         deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
     # 5. Set permissions and finalize
-    print("[*] Verifying system shell and flushing NAND flash buffers...")
+    print("[*] Verifying permissions and flushing NAND flash buffers...")
     post = (
-        "if ! /bin/sh -c 'true' 2>/dev/null; then echo '[-] CRITICAL: /bin/sh verification failed. Aborting reboot!'; exit 1; fi; "
-        "chmod 755 /data/elite_* /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
         "[ -e /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "
         "[ -e /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; "
-        "if [ -x /data/busybox ] && [ ! -L /usr/bin/head ]; then for a in head tail which find tar xargs xz bzcat bunzip2 lzma unlzma diff patch awk sed; do ln -sf /data/busybox /usr/bin/$a 2>/dev/null; done; fi; "
         "rm -f /cache/crashlog-*.json 2>/dev/null || true; "
-        "if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
-        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; "
-        "sleep 1; /data/elite_sync 2>/dev/null || true; sleep 2; mount -o remount,ro /data 2>/dev/null || true; /data/elite_sync 2>/dev/null || true; (/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) >/dev/null 2>&1 & fi"
+        "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true"
     )
     final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
     if final_res.stdout.strip():
         print(f"    {final_res.stdout.strip()}")
 
+    if args.reboot:
+        print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
+        reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
+        run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
+        print("[+] Deployment complete! Elite Remote is rebooting safely.")
+    else:
+        print("[*] Hot-restarting Elite runtime services (/data/init.sh start)...")
+        restart_cmd = "rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &)"
+        run_cmd(["ssh"] + ssh_opts + [target, restart_cmd])
+        print("[+] Deployment complete! elite_ui hot-restarted (no reboot).")
     print()
-    print("[+] Deployment complete! Elite Remote is rebooting safely.")
+    print("[+] Deployment complete!")
 
 
 if __name__ == "__main__":

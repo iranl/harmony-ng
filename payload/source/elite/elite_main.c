@@ -428,24 +428,13 @@ int main(int argc, char **argv) {
             g_screen_dirty = true;
         }
 
-        /* Config sync watchdog. A Hub that sends a chunk total paces a frame at least every
-           second and abandons the push when the remote misses one, so 15s of silence means the
-           push is over. Older Hubs (no total) push slot by slot and can pause longer, so give
-           them 45s. Put back the last complete config instead of keeping the partial one.
-           The RX thread can stamp a packet after now_ms was read; don't let that wrap. */
+        /* Config sync watchdog: if a sync is active and no packets arrived for 15s (with total) or 30s (without total) */
         pthread_mutex_lock(&g_sync_lock);
         uint64_t last_sync_packet_ms = g_sync_last_packet_ms;
-        uint64_t silent_ms = now_ms > last_sync_packet_ms ? now_ms - last_sync_packet_ms : 0;
+        uint64_t silent_ms = (now_ms > last_sync_packet_ms) ? (now_ms - last_sync_packet_ms) : 0;
         bool restore_config = false;
-        if (g_is_syncing_config && g_sync_awaiting_start && silent_ms >= 5000) {
-            printf("[!] Hub did not start the requested config sync within 5s. Unlocking UI.\n");
-            g_is_syncing_config = false;
-            g_sync_awaiting_start = false;
-            g_sync_failed_ms = now_ms;
-            g_screen_dirty = true;
-        } else if (g_is_syncing_config && !g_sync_awaiting_start &&
-                   silent_ms >= (g_sync_total > 0 ? 15000 : 45000)) {
-            printf("[!] Config sync stalled (%llus without packets). Restoring last complete config.\n",
+        if (g_is_syncing_config && silent_ms >= (g_sync_total > 0 ? 15000 : 30000)) {
+            printf("[!] Config sync stalled (%llus without packets). Unlocking UI.\n",
                    (unsigned long long)(silent_ms / 1000));
             g_is_syncing_config = false;
             g_sync_failed_ms = now_ms;
@@ -453,20 +442,21 @@ int main(int argc, char **argv) {
         }
         pthread_mutex_unlock(&g_sync_lock);
         if (restore_config) {
-            init_act_triggers(); /* triggers come only from button chunks; drop the partial push's */
-            load_rf_config();
+            if (g_has_hub_config) {
+                init_act_triggers();
+                load_rf_config();
+            }
             g_screen_dirty = true;
         }
 
-        /* Keep the sync screen's progress moving while input is locked */
+        /* Keep sync overlay animated while input is locked */
         static uint64_t last_sync_render_ms = 0;
         if (g_is_syncing_config && now_ms - last_sync_render_ms >= 500) {
             last_sync_render_ms = now_ms;
             g_screen_dirty = true;
         }
 
-        uint64_t last_ota_packet_ms = g_ota_last_packet_ms;
-        if (g_is_ota_updating && now_ms > last_ota_packet_ms && now_ms - last_ota_packet_ms >= 20000) {
+        if (g_is_ota_updating && (now_ms - g_ota_last_packet_ms >= 20000)) {
             printf("[!] OTA update timed out (20s without packets). Unlocking UI.\n");
             g_is_ota_updating = false;
             if (g_ota_file) {

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "hw_action.h"
 #include "resource_cache.h"
 #include "ir_encoder.h"
@@ -378,9 +379,37 @@ int hw_device_command_send(const char *device_id, const char *command) {
         }
     }
 
+    /* Check if target device or command is MQTT */
+    int is_mqtt = 0;
+    cJSON *j_mqtt = cJSON_GetObjectItemCaseSensitive(target_dev, "mqtt");
+    if (j_mqtt && cJSON_IsObject(j_mqtt)) {
+        cJSON *j_men = cJSON_GetObjectItemCaseSensitive(j_mqtt, "enabled");
+        if (j_men && cJSON_IsTrue(j_men)) is_mqtt = 1;
+    }
+    cJSON *j_men2 = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttEnabled");
+    if (!j_men2) j_men2 = cJSON_GetObjectItemCaseSensitive(target_dev, "MQTTEnabled");
+    if (j_men2) {
+        if (cJSON_IsTrue(j_men2)) is_mqtt = 1;
+        else if (cJSON_IsNumber(j_men2) && j_men2->valueint > 0) is_mqtt = 1;
+        else if (cJSON_IsString(j_men2) && (strcmp(j_men2->valuestring, "1") == 0 || strcasecmp(j_men2->valuestring, "true") == 0)) is_mqtt = 1;
+    }
+    cJSON *j_dtype = cJSON_GetObjectItemCaseSensitive(target_dev, "type");
+    if (!j_dtype) j_dtype = cJSON_GetObjectItemCaseSensitive(target_dev, "DeviceTypeDisplayName");
+    if (j_dtype && cJSON_IsString(j_dtype) && strcasestr(j_dtype->valuestring, "mqtt")) is_mqtt = 1;
+
+    cJSON *j_dmfg = cJSON_GetObjectItemCaseSensitive(target_dev, "manufacturer");
+    if (!j_dmfg) j_dmfg = cJSON_GetObjectItemCaseSensitive(target_dev, "Manufacturer");
+    if (j_dmfg && cJSON_IsString(j_dmfg) && strcasestr(j_dmfg->valuestring, "mqtt")) is_mqtt = 1;
+
+    cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
+    if (!j_mtop) j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "MQTTTopic");
+    if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
+
     /* Find Command */
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_item, "commands");
     if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(target_item, "Commands");
+    if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
+    if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "Commands");
     cJSON *target_cmd = NULL;
 
     const char *alt = NULL;
@@ -412,24 +441,28 @@ int hw_device_command_send(const char *device_id, const char *command) {
         }
     }
 
-    if (!target_cmd) {
+    if (!target_cmd && !is_mqtt) {
         return -6;
     }
 
     check_and_trigger_bt_reconnect_for_command(devs, device_id, dev_name, command);
 
     char keycode_str[4096] = {0};
-    cJSON *j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "keyCode");
-    if (!j_kc) j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "KeyCode");
-    if (j_kc && cJSON_IsString(j_kc) && j_kc->valuestring && j_kc->valuestring[0]) {
-        strncpy(keycode_str, j_kc->valuestring, sizeof(keycode_str) - 1);
-    } else {
-        cJSON *j_raw = cJSON_GetObjectItemCaseSensitive(target_cmd, "raw");
-        if (!j_raw) j_raw = cJSON_GetObjectItemCaseSensitive(target_cmd, "Raw");
-        if (j_raw && cJSON_IsString(j_raw) && j_raw->valuestring && j_raw->valuestring[0]) {
-            strncpy(keycode_str, j_raw->valuestring, sizeof(keycode_str) - 1);
+    if (target_cmd) {
+        cJSON *j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "keyCode");
+        if (!j_kc) j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "KeyCode");
+        if (j_kc && cJSON_IsString(j_kc) && j_kc->valuestring && j_kc->valuestring[0]) {
+            strncpy(keycode_str, j_kc->valuestring, sizeof(keycode_str) - 1);
+        } else {
+            cJSON *j_raw = cJSON_GetObjectItemCaseSensitive(target_cmd, "raw");
+            if (!j_raw) j_raw = cJSON_GetObjectItemCaseSensitive(target_cmd, "Raw");
+            if (j_raw && cJSON_IsString(j_raw) && j_raw->valuestring && j_raw->valuestring[0]) {
+                strncpy(keycode_str, j_raw->valuestring, sizeof(keycode_str) - 1);
+            }
         }
     }
+
+    if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
 
     uint8_t ir_ports = IR_PORT_ALL;
     cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(target_dev, "controlPort");
@@ -440,19 +473,6 @@ int hw_device_command_send(const char *device_id, const char *command) {
             ir_ports = (uint8_t)cp_val;
         }
     }
-
-    /* Check if target device or command is MQTT */
-    int is_mqtt = 0;
-    cJSON *j_mqtt = cJSON_GetObjectItemCaseSensitive(target_dev, "mqtt");
-    if (j_mqtt && cJSON_IsObject(j_mqtt)) {
-        cJSON *j_men = cJSON_GetObjectItemCaseSensitive(j_mqtt, "enabled");
-        if (j_men && cJSON_IsTrue(j_men)) is_mqtt = 1;
-    }
-    cJSON *j_men2 = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttEnabled");
-    if (!j_men2) j_men2 = cJSON_GetObjectItemCaseSensitive(target_dev, "MQTTEnabled");
-    if (j_men2 && (cJSON_IsTrue(j_men2) || (cJSON_IsNumber(j_men2) && j_men2->valueint > 0))) is_mqtt = 1;
-
-    if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
 
     if (strncmp(keycode_str, "HID:", 4) == 0 || strncmp(keycode_str, "hid:", 4) == 0 ||
         strcasecmp(command, "Connect") == 0 || strcasecmp(command, "Disconnect") == 0 ||

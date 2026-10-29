@@ -35,12 +35,8 @@ cJSON *get_remote_map(uint8_t slot) {
     const char *map_file = slot_path;
     struct stat st;
     if (stat(map_file, &st) != 0) {
-        if (slot == 1) {
-            map_file = ELITE_MAP_FILE;
-            if (stat(map_file, &st) != 0) return NULL;
-        } else {
-            return NULL;
-        }
+        map_file = ELITE_MAP_FILE;
+        if (stat(map_file, &st) != 0) return NULL;
     }
 
     pthread_mutex_lock(&g_map_lock);

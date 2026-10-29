@@ -158,6 +158,8 @@ int config_store_save_devices(cJSON *devices_json);
 int config_store_save_activities(cJSON *activities_json);
 int config_store_get_settings(struct hub_settings *settings);
 int config_store_save_settings(const struct hub_settings *settings);
+cJSON *config_store_get_mqtt_json(void);
+int config_store_save_mqtt_json(cJSON *mqtt_json);
 void config_store_invalidate_cache(void);
 void notify_rf_push_config(void);
 

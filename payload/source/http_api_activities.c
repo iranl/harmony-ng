@@ -77,7 +77,7 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
             cJSON_AddStringToObject(step, "command", cmd);
             cJSON_AddNumberToObject(step, "delay", delay_ms >= 0 ? delay_ms : 0);
         } else {
-            cJSON_AddStringToObject(step, "type", "IRCommand");
+            cJSON_AddStringToObject(step, "type", "Command");
             cJSON_AddStringToObject(step, "deviceId", dev_id);
             cJSON_AddStringToObject(step, "command", cmd);
             cJSON_AddNumberToObject(step, "delay", delay_ms >= 0 ? delay_ms : 0);

@@ -241,33 +241,28 @@ void render_sync_overlay(void) {
     fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
     fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    if (g_sync_awaiting_start) {
-        fb_draw_text_aa(22, card_y + 20, "REQUESTING CONFIG", RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(22, card_y + 46, "Waiting for the Hub to start...", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 20, "UPDATING FROM HUB", RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(22, card_y + 46, "Syncing activities & mappings...", RGB_TEXT_MUTED, &g_font_main);
+
+    char items_str[48];
+    snprintf(items_str, sizeof(items_str), "Acts: %d | Devs: %d | Btns: %d",
+             g_rf_activity_count, g_rf_device_count, g_rf_button_count);
+    fb_draw_text_aa(22, card_y + 80, items_str, RGB_TEAL, &g_font_main);
+
+    char chunks_str[40];
+    if (g_sync_total > 0) {
+        int done = g_sync_chunk_count < g_sync_total ? g_sync_chunk_count : g_sync_total;
+        snprintf(chunks_str, sizeof(chunks_str), "Received %d of %d", done, g_sync_total);
     } else {
-        fb_draw_text_aa(22, card_y + 20, "UPDATING FROM HUB", RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(22, card_y + 46, "Syncing activities & mappings...", RGB_TEXT_MUTED, &g_font_main);
-
-        char items_str[48];
-        snprintf(items_str, sizeof(items_str), "Acts: %d | Devs: %d | Btns: %d",
-                 g_rf_activity_count, g_rf_device_count, g_rf_button_count);
-        fb_draw_text_aa(22, card_y + 80, items_str, RGB_TEAL, &g_font_main);
-
-        char chunks_str[40];
-        if (g_sync_total > 0) /* resent frames count twice, so clamp */
-            snprintf(chunks_str, sizeof(chunks_str), "Received %d of %d",
-                     g_sync_chunk_count < g_sync_total ? g_sync_chunk_count : g_sync_total, g_sync_total);
-        else
-            snprintf(chunks_str, sizeof(chunks_str), "Chunks received: %d", g_sync_chunk_count);
-        fb_draw_text_aa(22, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
+        snprintf(chunks_str, sizeof(chunks_str), "Chunks received: %d", g_sync_chunk_count);
     }
+    fb_draw_text_aa(22, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
 
-    /* Progress bar when the Hub sent a total, otherwise an animated pulse */
     int bar_x = 22;
     int max_w = FB_WIDTH - 44;
     fb_fill_rect(bar_x, card_y + 140, max_w, 8, RGB_BG);
     fb_draw_rect(bar_x, card_y + 140, max_w, 8, 0x2945);
-    if (g_sync_total > 0 && !g_sync_awaiting_start) {
+    if (g_sync_total > 0) {
         int done = g_sync_chunk_count < g_sync_total ? g_sync_chunk_count : g_sync_total;
         fb_fill_rect(bar_x, card_y + 140, max_w * done / g_sync_total, 8, RGB_CYAN);
     } else {

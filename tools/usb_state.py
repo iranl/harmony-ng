@@ -80,13 +80,15 @@ def _query_windows_state() -> tuple[Optional[str], Optional[dict], list[dict], l
     """Query Windows PnP devices, network adapters, and IP addresses via PowerShell."""
     ps_script = """
 $pnp = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
-    $_.FriendlyName -like '*RNDIS*' -or
-    $_.FriendlyName -like '*Ethernet Gadget*' -or
-    $_.FriendlyName -like '*Composite Gadget*' -or
-    $_.InstanceId -like '*VID_046D&PID_C12B*' -or
-    $_.InstanceId -like '*VID_046D&PID_C132*' -or
-    $_.InstanceId -like '*VID_0525&PID_A4A2*' -or
-    $_.InstanceId -like '*VID_050D&PID_010D*'
+    $_.Class -ne 'HIDClass' -and (
+        $_.FriendlyName -like '*RNDIS*' -or
+        $_.FriendlyName -like '*Ethernet Gadget*' -or
+        $_.FriendlyName -like '*Composite Gadget*' -or
+        $_.InstanceId -like '*VID_046D&PID_C12B*' -or
+        $_.InstanceId -like '*VID_046D&PID_C132*' -or
+        $_.InstanceId -like '*VID_0525&PID_A4A2*' -or
+        $_.InstanceId -like '*VID_050D&PID_010D*'
+    )
 } | Select-Object FriendlyName, InstanceId, Status, Class, Problem
 
 $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Select-Object Name, InterfaceDescription, Status, MacAddress

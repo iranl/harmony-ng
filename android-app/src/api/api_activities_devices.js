@@ -82,12 +82,17 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
           const cName = s.CommandName || s.IRCommandName || s.Command || s.command || '';
           const isSw = (s.type === 'Switched' || s.type === 'ActivitySwitched' || (s.__type && s.__type.includes('Switched')) || cName === 'Switched');
           const isDl = (s.type === 'Delay' || s.__type === 'DelayActivityAction' || (!isSw && s.type === 'Delay'));
+          const rawDelay = s.delay !== undefined ? s.delay :
+                           (s.delay_ms !== undefined ? s.delay_ms :
+                           (s.delayMs !== undefined ? s.delayMs :
+                           (s.Delay !== undefined ? s.Delay :
+                           (s.Duration !== undefined ? s.Duration : 0))));
           return {
             id: s.Id || s.id || idx,
-            type: isDl ? 'Delay' : (isSw ? 'Switched' : 'Command'),
+            type: isDl ? 'Delay' : (isSw ? 'Switched' : (s.type === 'BTCommand' ? 'BTCommand' : 'Command')),
             deviceId: String(s['DeviceId-'] || s.DeviceId || s.deviceId || '0'),
             command: isSw ? (cName || 'Switched') : cName,
-            delay: Number(s.Duration !== undefined ? s.Duration : (s.Delay !== undefined ? s.Delay : (s.delay || 0))),
+            delay: Number(rawDelay) || 0,
             order: s.Order !== undefined ? s.Order : (s.ActionOrder !== undefined ? s.ActionOrder : idx)
           };
         });
@@ -96,12 +101,17 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
           const cName = s.CommandName || s.IRCommandName || s.Command || s.command || '';
           const isSw = (s.type === 'Switched' || s.type === 'ActivitySwitched' || (s.__type && s.__type.includes('Switched')) || cName === 'Switched');
           const isDl = (s.type === 'Delay' || s.__type === 'DelayActivityAction' || (!isSw && s.type === 'Delay'));
+          const rawDelay = s.delay !== undefined ? s.delay :
+                           (s.delay_ms !== undefined ? s.delay_ms :
+                           (s.delayMs !== undefined ? s.delayMs :
+                           (s.Delay !== undefined ? s.Delay :
+                           (s.Duration !== undefined ? s.Duration : 0))));
           return {
             id: s.Id || s.id || idx,
-            type: isDl ? 'Delay' : (isSw ? 'Switched' : 'Command'),
+            type: isDl ? 'Delay' : (isSw ? 'Switched' : (s.type === 'BTCommand' ? 'BTCommand' : 'Command')),
             deviceId: String(s['DeviceId-'] || s.DeviceId || s.deviceId || '0'),
             command: isSw ? (cName || 'Switched') : cName,
-            delay: Number(s.Duration !== undefined ? s.Duration : (s.Delay !== undefined ? s.Delay : (s.delay || 0))),
+            delay: Number(rawDelay) || 0,
             order: s.Order !== undefined ? s.Order : (s.ActionOrder !== undefined ? s.ActionOrder : idx)
           };
         });

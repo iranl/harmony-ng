@@ -358,9 +358,9 @@ void sanitize_devices_json(cJSON *root) {
 }
 
 /* Sanitize activity step arrays (PowerOn/PowerOff sequences, startSequence, stopSequence):
- * 1. Convert string delay_ms to integers
+ * 1. Convert string delay_ms/delay to integers
  * 2. Prune invalid steps without command or delay
- * 3. Normalize step types to 'DeviceCommand', 'Delay', 'BTCommand'
+ * 3. Normalize step types to 'Command', 'Delay', 'Switched', 'BTCommand'
  */
 void sanitize_activity_steps(cJSON *steps) {
     if (!steps || !cJSON_IsArray(steps)) return;
@@ -377,27 +377,45 @@ void sanitize_activity_steps(cJSON *steps) {
 
         cJSON *cmd_item = cJSON_GetObjectItemCaseSensitive(s, "command");
         if (!cmd_item) cmd_item = cJSON_GetObjectItemCaseSensitive(s, "Command");
+        if (!cmd_item) cmd_item = cJSON_GetObjectItemCaseSensitive(s, "CommandName");
+        if (!cmd_item) cmd_item = cJSON_GetObjectItemCaseSensitive(s, "IRCommandName");
         const char *cmd = cmd_item ? cmd_item->valuestring : "";
 
         cJSON *dev_item = cJSON_GetObjectItemCaseSensitive(s, "deviceId");
         if (!dev_item) dev_item = cJSON_GetObjectItemCaseSensitive(s, "device_id");
         if (!dev_item) dev_item = cJSON_GetObjectItemCaseSensitive(s, "DeviceId");
+        if (!dev_item) dev_item = cJSON_GetObjectItemCaseSensitive(s, "DeviceId-");
         const char *dev_id = dev_item ? dev_item->valuestring : "";
 
-        cJSON *delay_item = cJSON_GetObjectItemCaseSensitive(s, "delay_ms");
+        cJSON *delay_item = cJSON_GetObjectItemCaseSensitive(s, "delay");
+        if (!delay_item) delay_item = cJSON_GetObjectItemCaseSensitive(s, "delay_ms");
         if (!delay_item) delay_item = cJSON_GetObjectItemCaseSensitive(s, "delayMs");
         if (!delay_item) delay_item = cJSON_GetObjectItemCaseSensitive(s, "Delay");
+        if (!delay_item) delay_item = cJSON_GetObjectItemCaseSensitive(s, "Duration");
         int delay_val = 0;
         if (delay_item) {
             if (cJSON_IsNumber(delay_item)) delay_val = delay_item->valueint;
-            else if (cJSON_IsString(delay_item)) delay_val = atoi(delay_item->valuestring);
+            else if (cJSON_IsString(delay_item) && delay_item->valuestring) delay_val = atoi(delay_item->valuestring);
+        }
+
+        /* Check for Switched pseudo-step */
+        if (strcasecmp(tstr, "Switched") == 0 || strcasecmp(tstr, "ActivitySwitched") == 0 || strcasecmp(cmd, "Switched") == 0) {
+            cJSON *clean_step = cJSON_CreateObject();
+            cJSON_AddStringToObject(clean_step, "type", "Switched");
+            cJSON_AddStringToObject(clean_step, "command", "Switched");
+            cJSON_AddStringToObject(clean_step, "deviceId", "0");
+            cJSON_AddNumberToObject(clean_step, "delay", 0);
+            cJSON_AddItemToArray(new_arr, clean_step);
+            continue;
         }
 
         /* Check for delay step */
         if (strcasecmp(tstr, "Delay") == 0 || (delay_val > 0 && (!cmd || !cmd[0]))) {
             cJSON *clean_step = cJSON_CreateObject();
             cJSON_AddStringToObject(clean_step, "type", "Delay");
-            cJSON_AddNumberToObject(clean_step, "delay_ms", delay_val > 0 ? delay_val : 100);
+            cJSON_AddStringToObject(clean_step, "command", "");
+            cJSON_AddStringToObject(clean_step, "deviceId", "0");
+            cJSON_AddNumberToObject(clean_step, "delay", delay_val > 0 ? delay_val : 1000);
             cJSON_AddItemToArray(new_arr, clean_step);
             continue;
         }
@@ -408,14 +426,12 @@ void sanitize_activity_steps(cJSON *steps) {
             if (strcasecmp(tstr, "BTCommand") == 0 || strncmp(cmd, "HID:", 4) == 0 || strncmp(cmd, "BT:", 3) == 0) {
                 cJSON_AddStringToObject(clean_step, "type", "BTCommand");
             } else {
-                cJSON_AddStringToObject(clean_step, "type", "DeviceCommand");
+                cJSON_AddStringToObject(clean_step, "type", "Command");
             }
             cJSON_AddStringToObject(clean_step, "command", cmd);
-            if (dev_id && dev_id[0]) {
-                cJSON_AddStringToObject(clean_step, "deviceId", dev_id);
-            }
+            cJSON_AddStringToObject(clean_step, "deviceId", (dev_id && dev_id[0]) ? dev_id : "0");
             if (delay_val > 0) {
-                cJSON_AddNumberToObject(clean_step, "delay_ms", delay_val);
+                cJSON_AddNumberToObject(clean_step, "delay", delay_val);
             }
             cJSON_AddItemToArray(new_arr, clean_step);
         }

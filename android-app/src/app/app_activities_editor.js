@@ -253,7 +253,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     }
     steps.forEach((st, idx) => {
       let type = st.type || (st.__type === 'DelayActivityAction' ? 'Delay' : 'Command');
-      if (type === 'IRCommand') type = 'Command';
+      if (type === 'IRCommand' || type === 'DeviceCommand') type = 'Command';
       const cName = st.command || st.Command || st.CommandName || '';
       if (type === 'Switched' || type === 'ActivitySwitched' || (st.__type && st.__type.includes('Switched')) || cName === 'Switched') {
         type = 'Switched';
@@ -272,16 +272,17 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     row.className = 'queue-row';
     const initCmd = initialData?.command || initialData?.Command || initialData?.CommandName || '';
     const isSwitchedExplicit = (type === 'Switched' || type === 'ActivitySwitched' || initCmd === 'Switched' || initialData?.type === 'Switched' || initialData?.type === 'ActivitySwitched');
-    const normType = isSwitchedExplicit ? 'Switched' : ((type === 'IRCommand') ? 'Command' : (type || 'Command'));
+    const normType = isSwitchedExplicit ? 'Switched' : ((type === 'IRCommand' || type === 'DeviceCommand') ? 'Command' : (type || 'Command'));
     const isDelay = (normType === 'Delay');
     const isSwitched = (normType === 'Switched');
 
     const devices = this.inventory.devices || [];
     const initDevId = initialData?.deviceId ? String(initialData.deviceId) : (devices[0]?.id || '');
     const initDelay = initialData?.delay !== undefined ? initialData.delay :
+                      (initialData?.delay_ms !== undefined ? initialData.delay_ms :
+                      (initialData?.delayMs !== undefined ? initialData.delayMs :
                       (initialData?.Delay !== undefined ? initialData.Delay :
-                      (initialData?.Duration !== undefined ? initialData.Duration :
-                      (initialData?.delayMs !== undefined ? initialData.delayMs : (isDelay ? 1000 : 0))));
+                      (initialData?.Duration !== undefined ? initialData.Duration : (isDelay ? 1000 : 0)))));
 
     row.innerHTML = `
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1;">

@@ -106,6 +106,10 @@ export class HarmonyAppCore {
   }
 
   recordFailure(err) {
+    if (err?.message && (err.message.includes('Authentication') || err.message.includes('401'))) {
+      if (!this.isHubOnline) this.setHubStatus(true);
+      return;
+    }
     this.consecutiveFailures++;
     // Only drop offline when 3 consecutive checks fail
     if (this.consecutiveFailures >= 3 && this.isHubOnline) {

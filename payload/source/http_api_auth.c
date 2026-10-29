@@ -42,8 +42,9 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddBoolToObject(resp, "auth_enabled", auth_on);
-        cJSON_AddStringToObject(resp, "username", current_user[0] ? current_user : "admin");
-        cJSON_AddStringToObject(resp, "role", current_role == ROLE_USER ? "user" : "admin");
+        cJSON_AddBoolToObject(resp, "authenticated", current_role != ROLE_NONE);
+        cJSON_AddStringToObject(resp, "username", current_user[0] ? current_user : (current_role != ROLE_NONE ? "admin" : "anonymous"));
+        cJSON_AddStringToObject(resp, "role", current_role == ROLE_USER ? "user" : (current_role == ROLE_ADMIN ? "admin" : "anonymous"));
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -401,15 +402,25 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             ucnt++;
         }
 
+        cJSON *j_en = cJSON_GetObjectItemCaseSensitive(params, "auth_enabled");
+        if (j_en) {
+            if (cJSON_IsBool(j_en)) auth_on = cJSON_IsTrue(j_en) ? 1 : 0;
+            else if (cJSON_IsNumber(j_en)) auth_on = j_en->valueint != 0;
+        }
+
         int admin_count = 0;
         for (int i = 0; i < ucnt; i++) {
             if (ulist[i].role == ROLE_ADMIN) admin_count++;
         }
-        if (admin_count == 0) {
-            ulist[0].role = ROLE_ADMIN;
+        if (admin_count == 0 && ucnt < MAX_HTTP_USERS) {
+            strncpy(ulist[ucnt].username, "admin", sizeof(ulist[ucnt].username) - 1);
+            strncpy(ulist[ucnt].password, "admin", sizeof(ulist[ucnt].password) - 1);
+            compute_ha1("admin", HARMONY_AUTH_REALM, "admin", ulist[ucnt].ha1);
+            ulist[ucnt].role = ROLE_ADMIN;
+            ucnt++;
         }
 
-        save_user_accounts(ulist, ucnt, auth_on ? 1 : (ucnt > 0 ? 1 : 0));
+        save_user_accounts(ulist, ucnt, auth_on);
         cJSON_Delete(params);
 
         cJSON *resp = cJSON_CreateObject();

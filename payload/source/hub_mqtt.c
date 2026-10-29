@@ -63,12 +63,7 @@ void daemon_get_mqtt_info(char *host, size_t hlen, int *port, char *base, size_t
 }
 
 static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *pass) {
-    const char *path = HARMONY_MQTT_FILE;
-    char *raw = read_file_text(path, 64 * 1024);
-    if (!raw) return 0;
-
-    cJSON *root = cJSON_Parse(raw);
-    free(raw);
+    cJSON *root = config_store_get_mqtt_json();
     if (!root) return 0;
 
     cJSON *en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
@@ -172,7 +167,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     if (ele) {
         g_mqtt_elite_events = (cJSON_IsTrue(ele) || (cJSON_IsNumber(ele) && ele->valueint > 0)) ? 1 : 0;
     } else {
-        g_mqtt_elite_events = 1;
+        g_mqtt_elite_events = 0;
     }
 
     cJSON *elt = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteTopic");
@@ -184,7 +179,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     }
 
     cJSON *s1e = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteEvents");
-    g_mqtt_slot1_events = s1e ? ((cJSON_IsTrue(s1e) || (cJSON_IsNumber(s1e) && s1e->valueint > 0)) ? 1 : 0) : -1;
+    g_mqtt_slot1_events = s1e ? ((cJSON_IsTrue(s1e) || (cJSON_IsNumber(s1e) && s1e->valueint > 0)) ? 1 : 0) : g_mqtt_elite_events;
 
     cJSON *s1t = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteTopic");
     if (s1t && cJSON_IsString(s1t) && s1t->valuestring) {
@@ -195,7 +190,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     }
 
     cJSON *s2e = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteEvents");
-    g_mqtt_slot2_events = s2e ? ((cJSON_IsTrue(s2e) || (cJSON_IsNumber(s2e) && s2e->valueint > 0)) ? 1 : 0) : -1;
+    g_mqtt_slot2_events = s2e ? ((cJSON_IsTrue(s2e) || (cJSON_IsNumber(s2e) && s2e->valueint > 0)) ? 1 : 0) : g_mqtt_elite_events;
 
     cJSON *s2t = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteTopic");
     if (s2t && cJSON_IsString(s2t) && s2t->valuestring) {
@@ -439,28 +434,39 @@ static void handle_mqtt_activity_set(const char *payload) {
 
 struct mqtt_pulse_entry {
     char topic[256];
-    time_t release_time;
+    char off_payload[16];
+    uint64_t off_deadline_ms;
     int active;
 };
 static struct mqtt_pulse_entry g_pulse_queue[16];
 
-static void queue_pulse_off(const char *topic) {
-    time_t now = time(NULL);
+static void queue_pulse_off_ex(const char *topic, const char *off_val, int pulse_ms) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    uint64_t deadline = now_ms + (pulse_ms > 0 ? (uint64_t)pulse_ms : 50ULL);
+
     for (int i = 0; i < 16; i++) {
         if (!g_pulse_queue[i].active) {
             strncpy(g_pulse_queue[i].topic, topic, sizeof(g_pulse_queue[i].topic) - 1);
-            g_pulse_queue[i].release_time = now + 1;
+            g_pulse_queue[i].topic[sizeof(g_pulse_queue[i].topic) - 1] = '\0';
+            strncpy(g_pulse_queue[i].off_payload, off_val ? off_val : "0", sizeof(g_pulse_queue[i].off_payload) - 1);
+            g_pulse_queue[i].off_payload[sizeof(g_pulse_queue[i].off_payload) - 1] = '\0';
+            g_pulse_queue[i].off_deadline_ms = deadline;
             g_pulse_queue[i].active = 1;
             return;
         }
     }
+    mqtt_publish(topic, off_val ? off_val : "0", 0);
 }
 
 void mqtt_cmd_tick(void) {
-    time_t now = time(NULL);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
     for (int i = 0; i < 16; i++) {
-        if (g_pulse_queue[i].active && now >= g_pulse_queue[i].release_time) {
-            mqtt_publish(g_pulse_queue[i].topic, "OFF", 0);
+        if (g_pulse_queue[i].active && now_ms >= g_pulse_queue[i].off_deadline_ms) {
+            mqtt_publish(g_pulse_queue[i].topic, g_pulse_queue[i].off_payload, 0);
             g_pulse_queue[i].active = 0;
         }
     }
@@ -509,7 +515,6 @@ static void handle_mqtt_send_command(const char *payload) {
 int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
                                      const char *topic_in, int req_pulse_ms,
                                      char *out_topic, size_t out_topic_len, int *out_pulse_ms) {
-    if (!mqtt_is_connected()) return -1;
     if (!cmd_name || !cmd_name[0]) return -1;
 
     char dev_name[128] = {0};
@@ -518,32 +523,151 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
     } else if (dev_id && dev_id[0]) {
         strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
     } else {
-        strncpy(dev_name, "global", sizeof(dev_name) - 1);
+        strncpy(dev_name, "device", sizeof(dev_name) - 1);
     }
 
-    char safe_dev[128] = {0};
-    char safe_cmd[128] = {0};
-    safe_id(dev_name, safe_dev, sizeof(safe_dev));
-    safe_id(cmd_name, safe_cmd, sizeof(safe_cmd));
+    char base_topic[128] = "harmony/hub";
+    if (g_mqtt_base_topic[0]) {
+        strncpy(base_topic, g_mqtt_base_topic, sizeof(base_topic) - 1);
+    }
 
-    char topic[256];
+    char topic_pattern[256] = "{root}/button/{device}/{command}";
+    int pulse_ms = 1000;
+
     if (topic_in && topic_in[0]) {
-        strncpy(topic, topic_in, sizeof(topic) - 1);
-        topic[sizeof(topic) - 1] = '\0';
+        strncpy(topic_pattern, topic_in, sizeof(topic_pattern) - 1);
+    } else if (dev_id && dev_id[0]) {
+        cJSON *droot = config_store_get_devices_json();
+        if (droot) {
+            cJSON *darr = cJSON_GetObjectItemCaseSensitive(droot, "devices");
+            if (!darr) darr = cJSON_GetObjectItemCaseSensitive(droot, "DevicesWithFeatures");
+            if (darr && cJSON_IsArray(darr)) {
+                cJSON *di = NULL;
+                cJSON_ArrayForEach(di, darr) {
+                    cJSON *d = cJSON_GetObjectItemCaseSensitive(di, "Device");
+                    if (!d) d = di;
+                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id");
+                    char d_id_str[64] = {0};
+                    if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
+                    else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
+
+                    cJSON *jname = cJSON_GetObjectItemCaseSensitive(d, "name");
+                    if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d, "Name");
+                    const char *d_name_str = (jname && cJSON_IsString(jname)) ? jname->valuestring : "";
+
+                    if ((d_id_str[0] && strcmp(d_id_str, dev_id) == 0) ||
+                        (d_name_str[0] && (strcmp(d_name_str, dev_id) == 0 || (dev_name_in && strcmp(d_name_str, dev_name_in) == 0)))) {
+                        if ((!dev_name_in || !dev_name_in[0]) && d_name_str[0]) {
+                            strncpy(dev_name, d_name_str, sizeof(dev_name) - 1);
+                        }
+                        cJSON *jtop = cJSON_GetObjectItemCaseSensitive(d, "mqttTopic");
+                        if (!jtop) jtop = cJSON_GetObjectItemCaseSensitive(d, "MQTTTopic");
+                        if (jtop && cJSON_IsString(jtop) && jtop->valuestring && jtop->valuestring[0]) {
+                            strncpy(topic_pattern, jtop->valuestring, sizeof(topic_pattern) - 1);
+                        }
+                        cJSON *jp = cJSON_GetObjectItemCaseSensitive(d, "mqttPulseMs");
+                        if (!jp) jp = cJSON_GetObjectItemCaseSensitive(d, "MQTTPulseMs");
+                        if (!jp) jp = cJSON_GetObjectItemCaseSensitive(d, "mqttPulse");
+                        if (jp && cJSON_IsNumber(jp) && jp->valueint > 0) pulse_ms = jp->valueint;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (req_pulse_ms > 0) {
+        pulse_ms = req_pulse_ms;
+    }
+
+    char final_topic[256];
+    char temp[256];
+    strncpy(temp, topic_pattern, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+
+    /* Replace {base_topic}, {baseTopic}, {base}, or {root} */
+    char *bt_pos = strstr(temp, "{base_topic}");
+    int bt_len = 12;
+    if (!bt_pos) {
+        bt_pos = strstr(temp, "{baseTopic}");
+        bt_len = 11;
+    }
+    if (!bt_pos) {
+        bt_pos = strstr(temp, "{base}");
+        bt_len = 6;
+    }
+    if (!bt_pos) {
+        bt_pos = strstr(temp, "{root}");
+        bt_len = 6;
+    }
+    if (bt_pos) {
+        char buf[256];
+        *bt_pos = '\0';
+        snprintf(buf, sizeof(buf), "%s%s%s", temp, base_topic, bt_pos + bt_len);
+        strncpy(temp, buf, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+    } else if (temp[0] == '/') {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s%s", base_topic, temp);
+        strncpy(temp, buf, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+    }
+
+    /* Replace {device_id}, {deviceId}, or {device} */
+    char *d_pos = strstr(temp, "{device_id}");
+    int d_len = 11;
+    if (!d_pos) {
+        d_pos = strstr(temp, "{deviceId}");
+        d_len = 10;
+    }
+    if (!d_pos) {
+        d_pos = strstr(temp, "{device}");
+        d_len = 8;
+    }
+    if (!d_pos) {
+        d_pos = strstr(temp, "{deviceName}");
+        d_len = 12;
+    }
+    if (d_pos) {
+        char buf[256];
+        *d_pos = '\0';
+        snprintf(buf, sizeof(buf), "%s%s%s", temp, dev_name, d_pos + d_len);
+        strncpy(temp, buf, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+    }
+
+    /* Replace {command} or {button} */
+    char *c_pos = strstr(temp, "{command}");
+    int c_len = 9;
+    if (!c_pos) {
+        c_pos = strstr(temp, "{button}");
+        c_len = 8;
+    }
+    if (c_pos) {
+        char buf[256];
+        *c_pos = '\0';
+        snprintf(buf, sizeof(buf), "%s%s%s", temp, cmd_name, c_pos + c_len);
+        strncpy(final_topic, buf, sizeof(final_topic) - 1);
+        final_topic[sizeof(final_topic) - 1] = '\0';
     } else {
-        snprintf(topic, sizeof(topic), "%s/button/%s/%s/state", g_mqtt_base_topic, safe_dev, safe_cmd);
+        strncpy(final_topic, temp, sizeof(final_topic) - 1);
+        final_topic[sizeof(final_topic) - 1] = '\0';
     }
 
     if (out_topic && out_topic_len > 0) {
-        strncpy(out_topic, topic, out_topic_len - 1);
+        strncpy(out_topic, final_topic, out_topic_len - 1);
         out_topic[out_topic_len - 1] = '\0';
     }
     if (out_pulse_ms) {
-        *out_pulse_ms = (req_pulse_ms > 0) ? req_pulse_ms : 1000;
+        *out_pulse_ms = pulse_ms;
     }
 
-    mqtt_publish(topic, "ON", 0);
-    queue_pulse_off(topic);
+    if (!mqtt_is_connected()) return -1;
+
+    mqtt_publish(final_topic, "1", 0);
+    queue_pulse_off_ex(final_topic, "0", pulse_ms);
     return 0;
 }
 
@@ -626,7 +750,7 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
     }
 
     mqtt_publish(topic, "ON", 0);
-    queue_pulse_off(topic);
+    queue_pulse_off_ex(topic, "OFF", (req_pulse_ms > 0) ? req_pulse_ms : 1000);
     return 0;
 }
 

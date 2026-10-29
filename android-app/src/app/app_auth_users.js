@@ -141,11 +141,34 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const p = document.getElementById('authPassword')?.value;
     try {
       await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
-      if (status) status.innerHTML = '<span style="color:var(--success)">Admin account & sign-in saved!</span>';
+      if (status) {
+        status.innerHTML = `<span style="color:var(--success)">${on ? 'Authentication requirement enabled & admin saved!' : 'Authentication requirement disabled!'}</span>`;
+        setTimeout(() => { if (status) status.textContent = ''; }, 3500);
+      }
+      const passInp = document.getElementById('authPassword');
+      if (passInp) passInp.value = '';
+      this.authEnabled = Boolean(on);
+
+      if (on) {
+        if (p && u) {
+          try {
+            await this.client.login(u, p);
+          } catch (loginErr) {
+            this.showLoginModal();
+          }
+        } else if (!this.client.token) {
+          this.showLoginModal();
+        }
+      }
+
       await this.loadUserAccounts();
       this.checkAuthStatus();
+      this.applyRoleRestrictions();
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (err.message && (err.message.includes('Authentication') || err.message.includes('401'))) {
+        this.showLoginModal();
+      }
     }
   }
 
@@ -239,6 +262,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       });
     }
 
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+
     if (form) {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -248,7 +277,15 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         try {
           await this.client.login(u, p);
           if (modal) modal.style.display = 'none';
-          this.checkAuthStatus();
+          const pInp = document.getElementById('loginPassword');
+          if (pInp) pInp.value = '';
+          this.recordSuccess();
+          this.setHubStatus(true);
+          await this.checkAuthStatus();
+          await this.refreshData();
+          if (this.currentTab === 'system') {
+            await this.loadUserAccounts();
+          }
         } catch (err) {
           if (errBox) {
             errBox.textContent = err.message || 'Invalid username or password';
@@ -264,6 +301,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           if (confirm('Log out from Harmony Hub?')) {
             await this.client.logout();
             this.checkAuthStatus();
+            await this.refreshData();
             this.showLoginModal();
           }
         } else {
@@ -296,7 +334,16 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const modal = document.getElementById('loginModalOverlay');
     const errBox = document.getElementById('loginErrorMsg');
     if (errBox) errBox.style.display = 'none';
-    if (modal) modal.style.display = 'flex';
+    if (modal) {
+      modal.style.display = 'flex';
+      const u = document.getElementById('loginUsername');
+      if (u && !u.value) {
+        setTimeout(() => u.focus(), 60);
+      } else {
+        const p = document.getElementById('loginPassword');
+        if (p) setTimeout(() => p.focus(), 60);
+      }
+    }
   }
 
   async checkAuthStatus() {
@@ -308,17 +355,30 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     try {
       const me = await this.client.getAuthMe();
       if (me && me.auth_enabled) {
+        this.authEnabled = true;
         if (btnSession) btnSession.style.display = 'inline-flex';
         if (userDisplay) userDisplay.textContent = me.username || 'User';
         if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
-      } else if (btnSession) {
-        btnSession.style.display = 'none';
+        const hasToken = Boolean(this.client.token);
+        if (!hasToken) {
+          this.showLoginModal();
+        } else {
+          const modal = document.getElementById('loginModalOverlay');
+          if (modal) modal.style.display = 'none';
+        }
+      } else {
+        this.authEnabled = false;
+        if (btnSession) btnSession.style.display = 'none';
+        const modal = document.getElementById('loginModalOverlay');
+        if (modal) modal.style.display = 'none';
       }
     } catch (e) {
-      if (this.client?.token && btnSession) {
-        btnSession.style.display = 'inline-flex';
+      if (e?.message && (e.message.includes('Authentication') || e.message.includes('401'))) {
+        this.authEnabled = true;
+        if (btnSession) btnSession.style.display = 'inline-flex';
         if (userDisplay) userDisplay.textContent = 'Auth required';
         if (btnAction) btnAction.textContent = 'Login';
+        this.showLoginModal();
       }
     }
   }

@@ -456,6 +456,10 @@ void *config_push_worker(void *arg) {
                                     cJSON *cname = cJSON_GetObjectItem(sitem, "command");
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "delay_ms");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "delayMs");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "Delay");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "Duration");
                                     int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
                                     if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
                                         strncpy(local_steps[local_count].act_id, act_id, 11);
@@ -502,7 +506,11 @@ void *config_push_worker(void *arg) {
                                     if (local_count >= 6) break;
                                     cJSON *cname = cJSON_GetObjectItem(ea, "CommandName");
                                     if (!cname) cname = cJSON_GetObjectItem(ea, "Command");
-                                    cJSON *cdelay = cJSON_GetObjectItem(ea, "Delay");
+                                    cJSON *cdelay = cJSON_GetObjectItem(ea, "delay");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "delay_ms");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "delayMs");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "Delay");
+                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "Duration");
                                     if (cname && cJSON_IsString(cname)) {
                                         strncpy(local_steps[local_count].act_id, act_id, 11);
                                         local_steps[local_count].act_id[11] = '\0';
@@ -556,6 +564,8 @@ void *config_push_worker(void *arg) {
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
                                         if (!ctype) ctype = cJSON_GetObjectItem(st_item, "Type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
+                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "delay_ms");
+                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "delayMs");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Delay");
                                         if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Duration");
                                         int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;

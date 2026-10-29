@@ -245,8 +245,9 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       this.recordSuccess();
     } catch (err) {
       console.warn('Failed to load hub data:', err);
+      const isAuthErr = err?.message && (err.message.includes('Authentication') || err.message.includes('401'));
       this.recordFailure(err);
-      this.activitiesData = { activities: [], currentId: '-1', currentName: 'Offline', isOffline: true };
+      this.activitiesData = { activities: [], currentId: '-1', currentName: isAuthErr ? 'Sign In Required' : 'Offline', isOffline: !isAuthErr };
       this.inventory = { devices: [] };
     }
     this.updateActivityBanner();

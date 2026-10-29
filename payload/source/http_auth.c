@@ -75,7 +75,7 @@ void compute_ha1(const char *username, const char *realm, const char *password, 
     sha256_hex((const uint8_t *)buf, strlen(buf), ha1_out);
 }
 
-static void generate_digest_nonce(const char *client_ip, char *out_nonce, size_t out_len) {
+__attribute__((unused)) static void generate_digest_nonce(const char *client_ip, char *out_nonce, size_t out_len) {
     ensure_digest_secret();
     uint32_t ts = (uint32_t)time(NULL);
     char ts_str[16];
@@ -313,13 +313,13 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
             if (arr && cJSON_IsArray(arr)) {
                 const cJSON *it = NULL;
                 cJSON_ArrayForEach(it, arr) {
-                    if (count >= max_users) break;
+                    if (users && count >= max_users) break;
                     cJSON *ju = cJSON_GetObjectItemCaseSensitive(it, "username");
                     cJSON *jp = cJSON_GetObjectItemCaseSensitive(it, "password");
                     cJSON *jha = cJSON_GetObjectItemCaseSensitive(it, "ha1");
                     cJSON *jr = cJSON_GetObjectItemCaseSensitive(it, "role");
                     if (ju && cJSON_IsString(ju)) {
-                        if (users) {
+                        if (users && count < max_users) {
                             strncpy(users[count].username, ju->valuestring, sizeof(users[count].username) - 1);
                             if (jp && cJSON_IsString(jp)) {
                                 strncpy(users[count].password, jp->valuestring, sizeof(users[count].password) - 1);
@@ -342,7 +342,7 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
             }
             if (auth_enabled) *auth_enabled = (count > 0 && is_en);
             cJSON_Delete(root);
-            if (count > 0) return count;
+            return count;
         }
     }
 
@@ -351,7 +351,8 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
     if (!f) return 0;
 
     char line[256];
-    while (fgets(line, sizeof(line), f) && count < max_users) {
+    while (fgets(line, sizeof(line), f)) {
+        if (users && count >= max_users) break;
         char *nl = strchr(line, '\n'); if (nl) *nl = '\0';
         nl = strchr(line, '\r'); if (nl) *nl = '\0';
         char *p = line;
@@ -370,7 +371,7 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
             role_str = c2 + 1;
         }
 
-        if (users) {
+        if (users && count < max_users) {
             strncpy(users[count].username, user, sizeof(users[count].username) - 1);
             strncpy(users[count].password, pass, sizeof(users[count].password) - 1);
             compute_ha1(user, HARMONY_AUTH_REALM, pass, users[count].ha1);
@@ -513,6 +514,12 @@ enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len) {
     if (out_user && out_user_len > 0) out_user[0] = '\0';
 
+    /* Local loopback IPC (hub_rf, hub_btstack) is always trusted as admin */
+    if (client_ip && (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0)) {
+        if (out_user && out_user_len > 0) strncpy(out_user, "admin", out_user_len - 1);
+        return ROLE_ADMIN;
+    }
+
     struct user_account users[MAX_HTTP_USERS];
     int auth_enabled = 0;
     int count = load_user_accounts(users, MAX_HTTP_USERS, &auth_enabled);
@@ -654,21 +661,18 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
 }
 
 void http_auth_send_challenge(int client_fd, const char *client_ip) {
-    char nonce[96] = {0};
-    generate_digest_nonce(client_ip, nonce, sizeof(nonce));
-
+    (void)client_ip;
     char unauth[512];
     snprintf(unauth, sizeof(unauth),
         "HTTP/1.1 401 Unauthorized\r\n"
-        "WWW-Authenticate: Digest realm=\"%s\", nonce=\"%s\", qop=\"auth\", algorithm=SHA-256\r\n"
-        "WWW-Authenticate: Basic realm=\"%s\"\r\n"
+        "WWW-Authenticate: Bearer realm=\"%s\"\r\n"
         "Content-Type: application/json\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
         "Content-Length: 35\r\n"
         "Connection: close\r\n\r\n"
         "{\"ok\":false,\"error\":\"Unauthorized\"}",
-        HARMONY_AUTH_REALM, nonce, HARMONY_AUTH_REALM);
+        HARMONY_AUTH_REALM);
     send(client_fd, unauth, strlen(unauth), 0);
     close(client_fd);
 }

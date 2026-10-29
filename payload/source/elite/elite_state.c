@@ -73,7 +73,6 @@ uint64_t g_sync_last_packet_ms = 0;
 uint64_t g_sync_failed_ms = 0;
 int g_sync_chunk_count = 0;
 int g_sync_total = 0;
-bool g_sync_awaiting_start = false;
 pthread_mutex_t g_sync_lock = PTHREAD_MUTEX_INITIALIZER;
 
 bool g_is_ota_updating = false;

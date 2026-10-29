@@ -24,9 +24,7 @@
 
 extern int g_dry_run;
 
-static FILE *open_mqtt_config_read(void) {
-    return fopen(config_store_path("mqtt.json"), "r");
-}
+
 
 static void get_disk_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     struct statvfs sv;
@@ -184,24 +182,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddNumberToObject(resp, "port", mport);
         cJSON_AddStringToObject(resp, "baseTopic", mbase);
 
-        FILE *f = open_mqtt_config_read();
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            long sz = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            if (sz > 0 && sz < 65536) {
-                char *b = (char *)malloc((size_t)sz + 1);
-                if (b) {
-                    size_t nr = fread(b, 1, (size_t)sz, f);
-                    b[nr] = '\0';
-                    cJSON *cfg = cJSON_Parse(b);
-                    free(b);
-                    if (cfg) {
-                        cJSON_AddItemToObject(resp, "config", cfg);
-                    }
-                }
-            }
-            fclose(f);
+        cJSON *cfg = config_store_get_mqtt_json();
+        if (cfg) {
+            cJSON_AddItemToObject(resp, "config", cfg);
         }
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
@@ -400,23 +383,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
     if ((strcmp(clean_path, "/mqtt") == 0 || strcmp(clean_path, "/api/mqtt-save") == 0) && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         if (params) {
-            cJSON *cfg = NULL;
-            FILE *f = open_mqtt_config_read();
-            if (f) {
-                fseek(f, 0, SEEK_END);
-                long sz = ftell(f);
-                fseek(f, 0, SEEK_SET);
-                if (sz > 0 && sz < 65536) {
-                    char *b = (char *)malloc((size_t)sz + 1);
-                    if (b) {
-                        size_t nr = fread(b, 1, (size_t)sz, f);
-                        b[nr] = '\0';
-                        cfg = cJSON_Parse(b);
-                        free(b);
-                    }
-                }
-                fclose(f);
-            }
+            cJSON *cfg = config_store_get_mqtt_json();
             if (!cfg) cfg = cJSON_CreateObject();
 
             cJSON *p_en = cJSON_GetObjectItemCaseSensitive(params, "enabled");
@@ -551,11 +518,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");
 
-            char *out_json = cJSON_Print(cfg);
-            if (out_json) {
-                write_file_content(config_store_path("mqtt.json"), out_json);
-                free(out_json);
-            }
+            config_store_save_mqtt_json(cfg);
             cJSON_Delete(cfg);
             cJSON_Delete(params);
 
@@ -626,6 +589,72 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_Delete(params);
                 cJSON *resp = cJSON_CreateObject();
                 cJSON_AddBoolToObject(resp, "ok", 1);
+                send_cjson_resp(client_fd, 200, resp);
+                cJSON_Delete(resp);
+                close(client_fd);
+                return 1;
+            } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "auth") == 0) {
+                int new_auth_enabled = 0;
+                cJSON *j_en = cJSON_GetObjectItemCaseSensitive(params, "authEnabled");
+                if (j_en) {
+                    if (cJSON_IsBool(j_en)) new_auth_enabled = cJSON_IsTrue(j_en) ? 1 : 0;
+                    else if (cJSON_IsNumber(j_en)) new_auth_enabled = (j_en->valueint != 0);
+                    else if (cJSON_IsString(j_en)) {
+                        new_auth_enabled = (strcmp(j_en->valuestring, "1") == 0 ||
+                                            strcasecmp(j_en->valuestring, "true") == 0);
+                    }
+                }
+
+                cJSON *j_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
+                cJSON *j_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
+                const char *uname = (j_u && cJSON_IsString(j_u)) ? j_u->valuestring : "";
+                const char *pass = (j_p && cJSON_IsString(j_p)) ? j_p->valuestring : "";
+
+                struct user_account ulist[MAX_HTTP_USERS];
+                int curr_auth_enabled = 0;
+                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &curr_auth_enabled);
+
+                int admin_idx = -1;
+                for (int i = 0; i < ucnt; i++) {
+                    if (ulist[i].role == ROLE_ADMIN) {
+                        admin_idx = i;
+                        break;
+                    }
+                }
+
+                if (admin_idx >= 0) {
+                    if (uname[0]) {
+                        strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
+                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
+                    }
+                    if (pass[0]) {
+                        strncpy(ulist[admin_idx].password, pass, sizeof(ulist[admin_idx].password) - 1);
+                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
+                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
+                    } else if (uname[0] && ulist[admin_idx].password[0]) {
+                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, ulist[admin_idx].password, ulist[admin_idx].ha1);
+                    }
+                } else {
+                    if (ucnt < MAX_HTTP_USERS) {
+                        admin_idx = ucnt++;
+                        const char *final_user = uname[0] ? uname : "admin";
+                        const char *final_pass = pass[0] ? pass : "admin";
+                        strncpy(ulist[admin_idx].username, final_user, sizeof(ulist[admin_idx].username) - 1);
+                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
+                        strncpy(ulist[admin_idx].password, final_pass, sizeof(ulist[admin_idx].password) - 1);
+                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
+                        compute_ha1(final_user, HARMONY_AUTH_REALM, final_pass, ulist[admin_idx].ha1);
+                        ulist[admin_idx].role = ROLE_ADMIN;
+                    }
+                }
+
+                save_user_accounts(ulist, ucnt, new_auth_enabled);
+                cJSON_Delete(params);
+
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddBoolToObject(resp, "ok", 1);
+                cJSON_AddBoolToObject(resp, "auth_enabled", new_auth_enabled);
+                cJSON_AddStringToObject(resp, "message", "Authentication settings updated");
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);

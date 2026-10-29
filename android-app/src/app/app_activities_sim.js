@@ -111,7 +111,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
       ...s,
       type: s.type || s.Type || 'Command',
       command: s.command || s.Command || s.CommandName || '',
-      delay: s.delay !== undefined ? s.delay : (s.Delay !== undefined ? s.Delay : 0)
+      delay: s.delay !== undefined ? s.delay : (s.delay_ms !== undefined ? s.delay_ms : (s.delayMs !== undefined ? s.delayMs : (s.Delay !== undefined ? s.Delay : 0)))
     }));
 
     const stopSwitchedIdx = fromStop.findIndex(s => {
@@ -218,7 +218,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
       ...s,
       type: s.type || s.Type || 'Command',
       command: s.command || s.Command || s.CommandName || '',
-      delay: s.delay !== undefined ? s.delay : (s.Delay !== undefined ? s.Delay : 0)
+      delay: s.delay !== undefined ? s.delay : (s.delay_ms !== undefined ? s.delay_ms : (s.delayMs !== undefined ? s.delayMs : (s.Delay !== undefined ? s.Delay : 0)))
     }));
 
     let maxWarmup = 0;

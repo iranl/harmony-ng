@@ -45,20 +45,20 @@ if [ "$COUNT" -gt 5 ]; then
     exit 0
 fi
 
-# 4. Normal Boot: USB Ethernet & Dropbear SSH disabled by default on battery to save power;
-USBETH_CONF=0
+# 4. Normal Boot: USB Ethernet & Dropbear SSH active by default on USB
+USBETH_CONF=1
 ELITE_CONF="/data/elite_settings.conf"
 if [ ! -f "$ELITE_CONF" ]; then
     ELITE_CONF="/data/elite_ui.conf"
 fi
 if [ -f "$ELITE_CONF" ]; then
     VAL=$(grep '^usbeth=' "$ELITE_CONF" 2>/dev/null | cut -d= -f2)
-    if [ "$VAL" = "1" ]; then USBETH_CONF=1; fi
+    if [ "$VAL" = "0" ]; then USBETH_CONF=0; fi
 fi
 
-PSRC=$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null || echo "")
+PSRC=$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null || echo "usb")
 
-if [ "$USBETH_CONF" = "1" ] && [ "$PSRC" = "usb" ]; then
+if [ "$USBETH_CONF" = "1" ] || [ "$PSRC" = "usb" ]; then
     chmod -x /usr/bin/usbhid 2>/dev/null || true
     /usr/bin/usbeth start 2>/dev/null || true
     if [ -x /data/dropbear ]; then
@@ -66,10 +66,6 @@ if [ "$USBETH_CONF" = "1" ] && [ "$PSRC" = "usb" ]; then
     elif [ -x /usr/sbin/dropbear ]; then
         /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null || /usr/sbin/dropbear -R -B
     fi
-else
-    chmod +x /usr/bin/usbhid 2>/dev/null || true
-    /usr/bin/usbeth stop 2>/dev/null || true
-    killall -9 dropbear dropbearmulti 2>/dev/null || true
 fi
 
 SYNC_BIN=""
@@ -101,3 +97,5 @@ elif [ -x /data/elite_watchdog.sh ]; then
 elif [ -x /data/elite_ui ]; then
     /data/elite_ui > /tmp/elite_ui.log 2>&1 &
 fi
+
+exit 0

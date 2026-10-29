@@ -438,10 +438,15 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
             if (!st->command[0]) strncpy(st->command, "Switched", sizeof(st->command) - 1);
         }
 
-        const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "Duration");
+        const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
+        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "delay_ms");
+        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "delayMs");
         if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "Delay");
-        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "delay");
-        if (del && cJSON_IsNumber(del)) st->delay_ms = (int)del->valuedouble;
+        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "Duration");
+        if (del) {
+            if (cJSON_IsNumber(del)) st->delay_ms = (int)del->valuedouble;
+            else if (cJSON_IsString(del) && del->valuestring) st->delay_ms = atoi(del->valuestring);
+        }
 
         const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "Order");
         if (!order) order = cJSON_GetObjectItemCaseSensitive(item, "ActionOrder");
@@ -728,3 +733,38 @@ int config_store_save_settings(const struct hub_settings *settings) {
     free(out);
     return rc;
 }
+
+cJSON *config_store_get_mqtt_json(void) {
+    char *raw = read_file_text(config_store_path("mqtt.json"), 64 * 1024);
+    char *raw_legacy = read_file_text(HARMONY_MQTT_FILE, 64 * 1024);
+    cJSON *root = raw ? cJSON_Parse(raw) : NULL;
+    cJSON *legacy = raw_legacy ? cJSON_Parse(raw_legacy) : NULL;
+    if (raw) free(raw);
+    if (raw_legacy) free(raw_legacy);
+
+    if (!root && !legacy) return NULL;
+    if (!root) return legacy;
+    if (!legacy) return root;
+
+    /* Merge any keys from legacy that are missing in root */
+    cJSON *item = legacy->child;
+    while (item) {
+        if (!cJSON_GetObjectItemCaseSensitive(root, item->string)) {
+            cJSON_AddItemToObject(root, item->string, cJSON_Duplicate(item, 1));
+        }
+        item = item->next;
+    }
+    cJSON_Delete(legacy);
+    return root;
+}
+
+int config_store_save_mqtt_json(cJSON *mqtt_json) {
+    if (!mqtt_json) return -1;
+    char *out_json = cJSON_Print(mqtt_json);
+    if (!out_json) return -1;
+    write_file_atomic(config_store_path("mqtt.json"), out_json);
+    write_file_atomic(HARMONY_MQTT_FILE, out_json);
+    free(out_json);
+    return 0;
+}
+

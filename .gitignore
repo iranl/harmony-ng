@@ -42,3 +42,4 @@ payload/www/*
 plan.md
 .projectmem/
 .github/context-mode/
+build/*.json

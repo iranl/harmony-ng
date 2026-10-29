@@ -323,6 +323,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
     // System Actions
     document.getElementById('btnSaveDebug')?.addEventListener('click', () => this.saveDebugLogging());
+    document.getElementById('authEnabledCheck')?.addEventListener('change', () => this.saveWebUiAuth());
     document.getElementById('btnSaveAuth')?.addEventListener('click', () => this.saveWebUiAuth());
     document.getElementById('btnAddNonAdminUser')?.addEventListener('click', () => this.addNonAdminUser());
     document.getElementById('btnSaveHubName')?.addEventListener('click', async () => {

@@ -116,7 +116,6 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (phase == 0x00) {
                 pthread_mutex_lock(&g_sync_lock);
                 g_is_syncing_config = true;
-                g_sync_awaiting_start = false;
                 g_sync_start_ms = get_monotonic_ms();
                 g_sync_last_packet_ms = g_sync_start_ms;
                 g_sync_chunk_count = 0;
@@ -129,7 +128,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 init_act_triggers();
                 pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
-            } else if (!g_is_syncing_config || g_sync_awaiting_start) {
+            } else if (!g_is_syncing_config) {
                 /* A resend after our ACK was lost is fine to ACK again. Any other "complete"
                    arrived after this remote gave up on the sync; don't stamp its version on
                    the restored config, and leave it unACKed so the Hub reports the failure. */
@@ -138,6 +137,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     break;
                 }
             } else {
+                pthread_mutex_lock(&g_sync_lock);
                 g_is_syncing_config = false;
                 g_config_version = version;
                 g_has_hub_config = true;
@@ -160,6 +160,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
                     open_device_browser();
                 }
+                pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
             }
             rf_frame_t ack;
@@ -169,9 +170,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_ACTIVITY_LIST_CHUNK: {
-            /* Config chunks belong to a sync opened by CONFIG_END clear. Outside one, this
-               remote has given up on the push; leave the chunk unACKed so the Hub stops too. */
-            if (!g_is_syncing_config || g_sync_awaiting_start) break;
+            if (!g_is_syncing_config) {
+                pthread_mutex_lock(&g_sync_lock);
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+                g_sync_chunk_count = 0;
+                g_sync_total = 0;
+                pthread_mutex_unlock(&g_sync_lock);
+            }
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -214,7 +220,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_DEVICE_LIST_CHUNK: {
-            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
+            if (!g_is_syncing_config) {
+                pthread_mutex_lock(&g_sync_lock);
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+                g_sync_chunk_count = 0;
+                g_sync_total = 0;
+                pthread_mutex_unlock(&g_sync_lock);
+            }
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -234,7 +247,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
         case RF_MSG_DEVICE_CMD_CHUNK: {
             /* [0] device index, [1] command index, [2] command total, [3..24] name */
-            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
+            if (!g_is_syncing_config) {
+                pthread_mutex_lock(&g_sync_lock);
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+                g_sync_chunk_count = 0;
+                g_sync_total = 0;
+                pthread_mutex_unlock(&g_sync_lock);
+            }
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             char cname[23] = {0};
@@ -249,7 +269,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_BUTTON_LIST_CHUNK: {
-            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
+            if (!g_is_syncing_config) {
+                pthread_mutex_lock(&g_sync_lock);
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+                g_sync_chunk_count = 0;
+                g_sync_total = 0;
+                pthread_mutex_unlock(&g_sync_lock);
+            }
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -286,7 +313,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_STEP_LIST_CHUNK: {
-            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
+            if (!g_is_syncing_config) {
+                pthread_mutex_lock(&g_sync_lock);
+                g_is_syncing_config = true;
+                g_sync_start_ms = get_monotonic_ms();
+                g_sync_chunk_count = 0;
+                g_sync_total = 0;
+                pthread_mutex_unlock(&g_sync_lock);
+            }
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t chunk_idx = f->payload[0];
