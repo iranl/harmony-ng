@@ -82,12 +82,16 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     let iconVal = act ? (act.icon || 'watchtv.png') : 'watchtv.png';
     if (!iconVal.endsWith('.png')) iconVal += '.png';
     if (iconInput) {
+      iconInput.querySelectorAll('option[data-legacy]').forEach(o => o.remove());
       iconInput.value = iconVal;
       if (!iconInput.value) {
-        iconInput.value = iconVal.replace('_small.png', '.png');
-      }
-      if (!iconInput.value) {
-        iconInput.value = 'generic.png';
+        // Older configs stored stock image names; keep them until a keyword is picked
+        const opt = document.createElement('option');
+        opt.dataset.legacy = '1';
+        opt.value = iconVal;
+        opt.textContent = this.formatIconDisplayName(iconVal);
+        iconInput.appendChild(opt);
+        iconInput.value = iconVal;
       }
       this.updateBadgeForSelect(iconInput, 'actIconPreviewBadge');
     }

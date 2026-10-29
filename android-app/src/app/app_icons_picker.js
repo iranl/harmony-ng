@@ -45,6 +45,7 @@ import {
   isDarkMonochromeIcon,
   getStockIconUrl,
   getActivityIconSvg,
+  activityIconPreview,
   getRawActivityIconSvg,
   getScreenBtnIconSvg,
   getRawScreenBtnIconSvg,
@@ -140,6 +141,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
 
       const frag = document.createDocumentFragment();
       this.iconCatalog.forEach(item => {
+        if (id === 'actEditIcon' && !item.isCustom) return;
         const val = item.fn;
         const valNoExt = val.replace(/\.png$/i, '');
         if (!existingVals.has(val) && !existingVals.has(valNoExt)) {
@@ -196,7 +198,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const badge = document.getElementById(badgeId);
     if (!badge || !sel) return;
     const val = sel.value;
-    const url = getStockIconUrl(val);
+    const url = getStockIconUrl((sel.id === 'actEditIcon' && activityIconPreview(val)) || val);
     if (url) {
       const shouldInvert = isDarkMonochromeIcon(val);
       badge.innerHTML = `<img src="${url}" data-icon-key="${val}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" style="width: 22px; height: 22px;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />`;
@@ -302,7 +304,25 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const s = (searchTerm || '').toLowerCase().trim();
     const cat = this.currentIconCategory || 'all';
 
-    this.currentFilteredIcons = this.iconCatalog.filter(item => {
+    let source = this.iconCatalog;
+    if (this.currentIconPickerTarget === 'actEditIcon' || this.iconPickerContext?.type === 'activity') {
+      // The remote can only draw keyword icons (or a custom icon pushed for the activity)
+      const keywordItems = Array.from(document.getElementById('actEditIcon')?.options || [])
+        .filter(o => !o.dataset.legacy && activityIconPreview(o.value))
+        .map(o => ({
+          fn: o.value,
+          title: o.textContent,
+          lowerTitle: o.textContent.toLowerCase(),
+          lowerFn: o.value.toLowerCase(),
+          category: 'activity',
+          isCustom: false,
+          tags: '',
+          url: getStockIconUrl(activityIconPreview(o.value))
+        }));
+      source = keywordItems.concat(this.iconCatalog.filter(item => item.isCustom));
+    }
+
+    this.currentFilteredIcons = source.filter(item => {
       if (cat !== 'all') {
         if (cat === 'custom') {
           if (!item.isCustom) return false;
