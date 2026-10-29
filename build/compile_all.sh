@@ -132,7 +132,7 @@ build_sync() {
 
 build_rf() {
     echo "[-] Building hub_rf..."
-    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_api.c payload/source/rf_main.c"
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_api.c payload/source/rf_main.c"
     "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c $COMPAT_SRC -lpthread -lm
 }
 

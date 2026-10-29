@@ -10,6 +10,11 @@ extern "C" {
 void publish_remote_battery_mqtt(uint8_t slot, uint8_t pct, uint8_t chg, uint16_t mv);
 void record_config_diff(int slot, const char *old_json_str, cJSON *norm);
 void save_remote_config_backup(uint8_t slot, const uint8_t *p);
+void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout, int touch, int gyro,
+                            int nav_key, int nav_mode, int confirm_act, int touch_sens,
+                            int remote_mode, int gyro_rate, int btn_backlight,
+                            int night_start, int night_end, int usbeth, int no_screen,
+                            int cap_buttons, int power_debug);
 void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
