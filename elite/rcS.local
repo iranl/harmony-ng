@@ -77,8 +77,8 @@ for b in /data/elite_sync; do
     if [ -x "$b" ]; then SYNC_BIN="$b"; break; fi
 done
 if [ -n "$SYNC_BIN" ]; then
-    [ -L /data/sync ] || ln -sf "$SYNC_BIN" /data/sync 2>/dev/null || true
-    [ -L /usr/bin/sync ] || ln -sf "$SYNC_BIN" /usr/bin/sync 2>/dev/null || true
+    [ -e /data/sync ] || ln -sf "$SYNC_BIN" /data/sync 2>/dev/null || true
+    [ -e /usr/bin/sync ] || ln -sf "$SYNC_BIN" /usr/bin/sync 2>/dev/null || true
 fi
 
 # Ensure /dev/i2c-1 exists for Clearpad touchscreen
