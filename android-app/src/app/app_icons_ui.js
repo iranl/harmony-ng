@@ -290,7 +290,7 @@ const STOCK_DARK_ICONS = new Set([
   "f30d50e9-96a2-4a44-92d5-9a42431f83da_smallon.png", "fa224ad1-a6b0-4fb3-84a1-9ee204c0dcd9_smallon.png",
   "fad05710-2621-4042-9dd4-b3466665a584_off.png", "fad05710-2621-4042-9dd4-b3466665a584_smallon.png",
   "fcf344ce-4029-406c-8e11-582d7a7bfb08_smallon.png", "fdc89d40-dbbf-469b-9fc9-b24a6651fe6a_smallon.png",
-  "gesture_bg.png", "gesture_cue.png", "heos.png", "hopsdevice_blaster.png",
+  "firetv.png", "gesture_bg.png", "gesture_cue.png", "heos.png", "hopsdevice_blaster.png",
   "hopsdevice_group2.png", "hopsdevice_group3.png", "hopsdevice_group4.png", "hopsgesture_box.png",
   "hopsmenu.png", "hopsmenu_sleeptimer.png", "hopspower_icon.png", "lamp_off.png",
   "lock_lock.png", "menu-bg.png", "minus_normal.png", "myharmonyblocking.png",
@@ -369,9 +369,41 @@ function renderWithStockIconFallback(imgUrl, fallbackSvg, size, originalIconKey 
   return `<span class="stock-icon-wrap"><img src="${imgUrl}" data-icon-key="${keyToCheck}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" width="${size}" height="${size}" onload="if(window.__harmonyCacheIcon)window.__harmonyCacheIcon(this.src);if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
 }
 
+// Activity icons are keywords; the Hub sends them to the Elite, which draws its stock icon
+// for each keyword (resolve_activity_icon in elite/elite_config.c). These are the same stock images,
+// so the web UI shows what the remote shows.
+const ACTIVITY_ICON_PREVIEWS = {
+  watchtv: '3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png',
+  tv: '3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png',
+  smarttv: '3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png',
+  movie: 'BAB09C4A-E61D-4284-B1F3-84135F562217_small.png',
+  music: '72D0AAB4-2ED8-4644-84D2-0031BDAE356E_small.png',
+  game: '9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png',
+  switch: '9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png',
+  ps: 'ps.png',
+  xbox: 'xbox.png',
+  shield: 'shield.png',
+  apple: '0F40F257-68C8-4F24-9561-3CB3441DA395_small.png',
+  roku: '6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png',
+  firetv: 'firetv.png',
+  pc: '468668AB-2587-4662-9E89-CF66BD70F314_small.png',
+  sonos: 'sonos.png',
+  receiver: '53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png',
+  light: '53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png',
+  power: '116.png',
+  poweroff: '116.png',
+  generic: '53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png'
+};
+
+export function activityIconPreview(iconKey) {
+  const k = String(iconKey || '').split('/').pop().trim().toLowerCase().replace(/\.png$/, '');
+  return ACTIVITY_ICON_PREVIEWS[k] || '';
+}
+
 export function getActivityIconSvg(iconKey, actType, size = 14) {
   const fallbackSvg = getRawActivityIconSvg(iconKey, actType, size);
-  return renderWithStockIconFallback(getStockIconUrl(iconKey, actType), fallbackSvg, size, iconKey || actType);
+  const previewKey = activityIconPreview(iconKey) || iconKey;
+  return renderWithStockIconFallback(getStockIconUrl(previewKey, actType), fallbackSvg, size, previewKey || actType);
 }
 
 export function getRawActivityIconSvg(iconKey, actType, size = 14) {
