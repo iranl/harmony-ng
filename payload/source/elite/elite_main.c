@@ -683,9 +683,7 @@ int main(int argc, char **argv) {
             bool allow_gyro_wake = !is_docked;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
-                reset_idle_timer();
-                fb_set_blank(false);
-                render_screen();
+                reset_idle_timer(); /* wakes and redraws; a second fb_set_blank(false) would reset the touch controller again */
             }
         }
     }
