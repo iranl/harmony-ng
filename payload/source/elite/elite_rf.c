@@ -58,7 +58,8 @@ void rf_send_full_sync_request(void) {
 }
 
 void rf_wake_and_reconnect(void) {
-    if (g_rf_fd < 0) return;
+    /* Re-syncing the CC2544 mid-transfer drops frames, and a sync or OTA proves the link is up */
+    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
     uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
     if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
