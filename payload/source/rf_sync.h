@@ -22,7 +22,6 @@ uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);
 void rf_send_hub_time_sync_slot(uint8_t slot);
 void rf_send_hub_time_sync(void);
-uint8_t map_activity_icon_type(const char *icon, const char *name, const char *type);
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str);
 void *activity_sync_worker(void *arg);
 

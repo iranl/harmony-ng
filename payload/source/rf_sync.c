@@ -379,31 +379,6 @@ void rf_send_hub_time_sync(void) {
     }
 }
 
-uint8_t map_activity_icon_type(const char *icon, const char *name, const char *type) {
-    char low[64] = {0};
-    const char *src = (icon && icon[0]) ? icon : ((name && name[0]) ? name : (type ? type : ""));
-    for (int k = 0; src[k] && k < 63; k++) low[k] = tolower((unsigned char)src[k]);
-
-    if (strstr(low, "watchtv") || strstr(low, "tv") || strstr(low, "television")) return 1;
-    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "netflix") || strstr(low, "plex")) return 2;
-    if (strstr(low, "music") || strstr(low, "audio") || strstr(low, "radio") || strstr(low, "spotify")) return 3;
-    if (strstr(low, "game") || strstr(low, "console")) return 4;
-    if (strstr(low, "ps") || strstr(low, "playstation")) return 5;
-    if (strstr(low, "xbox")) return 6;
-    if (strstr(low, "switch") || strstr(low, "nintendo")) return 7;
-    if (strstr(low, "shield")) return 8;
-    if (strstr(low, "apple")) return 9;
-    if (strstr(low, "roku")) return 10;
-    if (strstr(low, "firetv") || strstr(low, "amazon") || strstr(low, "fire")) return 11;
-    if (strstr(low, "pc") || strstr(low, "computer") || strstr(low, "laptop")) return 12;
-    if (strstr(low, "smarttv") || strstr(low, "smart")) return 13;
-    if (strstr(low, "sonos")) return 14;
-    if (strstr(low, "receiver") || strstr(low, "avr") || strstr(low, "amp") || strstr(low, "heos") || strstr(low, "denon")) return 15;
-    if (strstr(low, "light") || strstr(low, "lamp") || strstr(low, "bulb")) return 16;
-    if (strstr(low, "power") || strstr(low, "off")) return 17;
-    return 1;
-}
-
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {
     if (target_slot < 1 || target_slot > 2) target_slot = 1;
     if (!id_str || !id_str[0]) return -1;

@@ -3,6 +3,7 @@
 #include "config_store.h"
 #include "config_sanitize.h"
 #include "cJSON.h"
+#include "rf_proto.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -563,17 +564,19 @@ void migrate_stock_activities(void) {
             }
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "Name");
-            cJSON_AddStringToObject(nact, "name", (name && name->valuestring) ? name->valuestring : (strcmp(id_str, "-1") == 0 ? "PowerOff" : "Activity"));
+            const char *name_str = (name && name->valuestring) ? name->valuestring : (strcmp(id_str, "-1") == 0 ? "PowerOff" : "Activity");
+            cJSON_AddStringToObject(nact, "name", name_str);
 
             const cJSON *type = cJSON_GetObjectItemCaseSensitive(a, "SuggestedDisplay");
             if (!type) type = cJSON_GetObjectItemCaseSensitive(a, "Type");
-            cJSON_AddStringToObject(nact, "type", (type && type->valuestring) ? type->valuestring : "Generic");
+            const char *type_str = (type && type->valuestring) ? type->valuestring : "Generic";
+            cJSON_AddStringToObject(nact, "type", type_str);
 
             const cJSON *order = cJSON_GetObjectItemCaseSensitive(a, "ActivityOrder");
             if (!order) order = cJSON_GetObjectItemCaseSensitive(a, "Order");
             cJSON_AddNumberToObject(nact, "order", (order && cJSON_IsNumber(order)) ? order->valueint : 0);
 
-            cJSON_AddStringToObject(nact, "icon", "tv");
+            cJSON_AddStringToObject(nact, "icon", rf_activity_icon_keyword(rf_activity_icon_type(NULL, name_str, type_str)));
 
             /* deviceIds: sort roles by PowerOnOrder */
             cJSON *dev_ids = cJSON_AddArrayToObject(nact, "deviceIds");
