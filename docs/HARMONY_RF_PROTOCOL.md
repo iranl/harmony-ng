@@ -203,6 +203,11 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[20]`: Config version number.
   - `payload[21..24]`: Hub's 4-byte RF address.
 
+#### `RF_MSG_ACTIVITY_LIST_CHUNK` (`0x0B`)
+- `payload[0]`: Activity index; `payload[1]`: activity count.
+- `payload[2]`: Icon type, `1`..`17` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
+- `payload[3..]`: Activity ID and name.
+
 #### `RF_MSG_DEVICE_LIST_CHUNK` (`0x0C`)
 - Hub transmits list of Hub devices during config push (ACK'd):
   - `payload[0]`: Device 1-based index.

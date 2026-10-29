@@ -127,7 +127,7 @@ void *config_push_worker(void *arg) {
                                     acts[act_count].id[sizeof(acts[0].id) - 1] = '\0';
                                     strncpy(acts[act_count].name, j_name->valuestring, sizeof(acts[0].name) - 1);
                                     acts[act_count].name[sizeof(acts[0].name) - 1] = '\0';
-                                    acts[act_count].icon_type = map_activity_icon_type(icon_str, j_name->valuestring, type_str);
+                                    acts[act_count].icon_type = rf_activity_icon_type(icon_str, j_name->valuestring, type_str);
                                     act_count++;
                                 }
                             }

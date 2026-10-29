@@ -1,6 +1,7 @@
 #ifndef HARMONY_RF_PROTO_H
 #define HARMONY_RF_PROTO_H
 
+#include <ctype.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -144,6 +145,84 @@ static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_s
     f->flags = RF_FLAG_IS_ACK;
     f->payload[0] = acked_seq;
     f->payload[1] = status;
+}
+
+/* Activity icons are stored as keywords and sent over RF as a one-byte type (1..17).
+   The remote turns the type back into the keyword and draws its themed icon for it. */
+static inline const char *rf_activity_icon_keyword(uint8_t type) {
+    static const char *const names[] = {
+        "watchtv", "movie", "music", "game", "ps", "xbox", "switch", "shield", "apple",
+        "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power"
+    };
+    return (type >= 1 && type <= 17) ? names[type - 1] : names[0];
+}
+
+/* True if word occurs in s with no letter directly before or after it, so "ps" matches
+   "PS5" and "ps.png" but not "Apps" or "Upstairs". */
+static inline int rf_has_word(const char *s, const char *word) {
+    size_t n = strlen(word);
+    for (const char *p = strstr(s, word); p; p = strstr(p + 1, word)) {
+        if ((p == s || !isalpha((unsigned char)p[-1])) && !isalpha((unsigned char)p[n])) return 1;
+    }
+    return 0;
+}
+
+/* Icon type for a keyword, activity name or Logitech activity type; 0 when nothing matches. */
+static inline uint8_t rf_activity_icon_match(const char *s) {
+    char low[64] = {0};
+    for (int k = 0; s && s[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)s[k]);
+    if (!low[0]) return 0;
+    /* Music before brands ("Apple Music"), brands before generic words ("Apple TV") */
+    if (strstr(low, "music") || strstr(low, "audio") || strstr(low, "radio") || strstr(low, "spotify")) return 3;
+    if (strstr(low, "apple")) return 9;
+    if (strstr(low, "roku")) return 10;
+    if (strstr(low, "firetv") || strstr(low, "amazon") || rf_has_word(low, "fire")) return 11;
+    if (strstr(low, "shield")) return 8;
+    if (strstr(low, "xbox")) return 6;
+    if (strstr(low, "smarttv") || strstr(low, "smart tv")) return 13;
+    if (strstr(low, "watchtv") || rf_has_word(low, "tv") || strstr(low, "television")) return 1;
+    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "netflix") ||
+        strstr(low, "plex") || strstr(low, "dvd") || strstr(low, "blu")) return 2;
+    if (strstr(low, "game") || strstr(low, "console")) return 4;
+    if (rf_has_word(low, "ps") || strstr(low, "playstation")) return 5;
+    if (strstr(low, "switch") || strstr(low, "nintendo")) return 7;
+    if (rf_has_word(low, "pc") || strstr(low, "computer") || strstr(low, "laptop")) return 12;
+    if (strstr(low, "sonos")) return 14;
+    if (strstr(low, "receiver") || rf_has_word(low, "avr") || rf_has_word(low, "amp") ||
+        strstr(low, "heos") || strstr(low, "denon")) return 15;
+    if (strstr(low, "light") || strstr(low, "lamp") || strstr(low, "bulb")) return 16;
+    if (strstr(low, "power") || rf_has_word(low, "off")) return 17;
+    return 0;
+}
+
+/* Icon type for an activity. Accepts keywords and the stock Logitech image names that
+   older web UIs stored; falls back to the activity name, then its type, then TV. */
+static inline uint8_t rf_activity_icon_type(const char *icon, const char *name, const char *type) {
+    static const struct { const char *guid; uint8_t type; } stock[] = {
+        { "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd", 1 },
+        { "bab09c4a-e61d-4284-b1f3-84135f562217", 2 },
+        { "72d0aab4-2ed8-4644-84d2-0031bdae356e", 3 },
+        { "dec07396-b858-47e8-ae50-4ab346af1d98", 5 },
+        { "9d24eb35-468b-4148-a6a2-bb764aa9609c", 7 },
+        { "0f40f257-68c8-4f24-9561-3cb3441da395", 9 },
+        { "6ebd03b8-c815-48be-adbb-d36e06caac5e", 10 },
+        { "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285", 11 },
+        { "468668ab-2587-4662-9e89-cf66bd70f314", 12 },
+    };
+    if (icon && icon[0]) {
+        const char *base = strrchr(icon, '/');
+        base = base ? base + 1 : icon;
+        char low[40] = {0};
+        for (int k = 0; base[k] && k < 36; k++) low[k] = (char)tolower((unsigned char)base[k]);
+        for (size_t i = 0; i < sizeof(stock) / sizeof(stock[0]); i++) {
+            if (strcmp(low, stock[i].guid) == 0) return stock[i].type;
+        }
+        uint8_t t = rf_activity_icon_match(base);
+        if (t) return t;
+    }
+    uint8_t t = rf_activity_icon_match(name);
+    if (!t) t = rf_activity_icon_match(type);
+    return t ? t : 1;
 }
 
 /* Short button name mapping (key_code -> 12-byte short name) */

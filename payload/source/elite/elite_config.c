@@ -5,34 +5,15 @@
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len) {
     if (!out || out_len == 0) return;
     out[0] = '\0';
-    switch (type) {
-        case 1:  strncpy(out, "watchtv", out_len - 1); break;
-        case 2:  strncpy(out, "movie", out_len - 1); break;
-        case 3:  strncpy(out, "music", out_len - 1); break;
-        case 4:  strncpy(out, "game", out_len - 1); break;
-        case 5:  strncpy(out, "ps", out_len - 1); break;
-        case 6:  strncpy(out, "xbox", out_len - 1); break;
-        case 7:  strncpy(out, "switch", out_len - 1); break;
-        case 8:  strncpy(out, "shield", out_len - 1); break;
-        case 9:  strncpy(out, "apple", out_len - 1); break;
-        case 10: strncpy(out, "roku", out_len - 1); break;
-        case 11: strncpy(out, "firetv", out_len - 1); break;
-        case 12: strncpy(out, "pc", out_len - 1); break;
-        case 13: strncpy(out, "smarttv", out_len - 1); break;
-        case 14: strncpy(out, "sonos", out_len - 1); break;
-        case 15: strncpy(out, "receiver", out_len - 1); break;
-        case 16: strncpy(out, "light", out_len - 1); break;
-        case 17: strncpy(out, "power", out_len - 1); break;
-        default:
-            if (name && name[0]) {
-                char low[64] = {0};
-                for (int k = 0; name[k] && k < 63; k++) low[k] = tolower((unsigned char)name[k]);
-                if (strstr(low, "switch") || strstr(low, "nintendo")) strncpy(out, "switch", out_len - 1);
-                else strncpy(out, name, out_len - 1);
-            } else {
-                strncpy(out, "watchtv", out_len - 1);
-            }
-            break;
+    if (type >= 1 && type <= 17) {
+        strncpy(out, rf_activity_icon_keyword(type), out_len - 1);
+    } else if (name && name[0]) {
+        char low[64] = {0};
+        for (int k = 0; name[k] && k < 63; k++) low[k] = tolower((unsigned char)name[k]);
+        if (strstr(low, "switch") || strstr(low, "nintendo")) strncpy(out, "switch", out_len - 1);
+        else strncpy(out, name, out_len - 1);
+    } else {
+        strncpy(out, "watchtv", out_len - 1);
     }
     out[out_len - 1] = '\0';
 }
