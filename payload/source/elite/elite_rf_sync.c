@@ -107,17 +107,29 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t version = f->payload[1];
             printf("[*] CONFIG_END: phase=%s version=%d\n", phase == 0 ? "clear" : "complete", version);
             if (phase == 0x00) {
+                pthread_mutex_lock(&g_sync_lock);
                 g_is_syncing_config = true;
+                g_sync_awaiting_start = false;
                 g_sync_start_ms = get_monotonic_ms();
                 g_sync_last_packet_ms = g_sync_start_ms;
                 g_sync_chunk_count = 0;
+                g_sync_total = f->payload[2] | (f->payload[3] << 8); /* 0 from older Hubs */
                 g_rf_activity_count = 0;
                 g_rf_device_count = 0;
                 g_rf_dev_cmd_count = 0;
                 g_rf_button_count = 0;
                 g_rf_step_count = 0;
                 init_act_triggers();
+                pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
+            } else if (!g_is_syncing_config || g_sync_awaiting_start) {
+                /* A resend after our ACK was lost is fine to ACK again. Any other "complete"
+                   arrived after this remote gave up on the sync; don't stamp its version on
+                   the restored config, and leave it unACKed so the Hub reports the failure. */
+                if (version != g_config_version) {
+                    printf("[-] Ignoring CONFIG_END complete v%d outside a sync\n", version);
+                    break;
+                }
             } else {
                 g_is_syncing_config = false;
                 g_config_version = version;
@@ -150,10 +162,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_ACTIVITY_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-            }
+            /* Config chunks belong to a sync opened by CONFIG_END clear. Outside one, this
+               remote has given up on the push; leave the chunk unACKed so the Hub stops too. */
+            if (!g_is_syncing_config || g_sync_awaiting_start) break;
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -196,10 +207,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_DEVICE_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-            }
+            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -219,10 +227,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
         case RF_MSG_DEVICE_CMD_CHUNK: {
             /* [0] device index, [1] command index, [2] command total, [3..24] name */
-            if (!g_is_syncing_config) {
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-            }
+            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             char cname[23] = {0};
@@ -237,10 +242,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_BUTTON_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-            }
+            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
@@ -277,10 +279,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_STEP_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-            }
+            if (!g_is_syncing_config || g_sync_awaiting_start) break; /* see RF_MSG_ACTIVITY_LIST_CHUNK */
             g_sync_last_packet_ms = get_monotonic_ms();
             g_sync_chunk_count++;
             uint8_t chunk_idx = f->payload[0];
@@ -418,7 +417,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (hub_ver > g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
                 static uint64_t last_ver_check_ms = 0;
                 uint64_t now_ms = get_monotonic_ms();
-                if (now_ms - last_ver_check_ms > 8000) {
+                if (!sync_backoff_active(now_ms) && now_ms - last_ver_check_ms > 8000) {
                     last_ver_check_ms = now_ms;
                     printf("[*] Remote detected Hub config version mismatch (hub=%d, local=%d). Requesting full sync...\n",
                            hub_ver, g_config_version);
@@ -563,7 +562,7 @@ void *rf_rx_worker(void *arg) {
                 } else if (g_pairing_state == 0) {
                     g_pairing_state = 2;
                 }
-                if (g_activity_count <= 1 && !g_has_hub_config) {
+                if (g_activity_count <= 1 && !g_has_hub_config && !sync_backoff_active(get_monotonic_ms())) {
                     rf_send_full_sync_request();
                     render_screen();
                 }

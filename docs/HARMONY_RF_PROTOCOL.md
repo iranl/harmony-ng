@@ -126,7 +126,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
   - `status & 0x40 != 0`: Link **LOST** (`0x47`, `0x40`).
   - `status & 0x40 == 0`: Link **ESTABLISHED** (`0x07`, `0x0B`).
 - **Hardware TX Status Report** (`20 <slot> 42 <status>`):
-  - `status == 0x00`: Packet delivered and ACKed over RF.
+  - `status == 0x00`: The remote's radio received the packet. The remote application can still drop it, so this does not count as delivery; only `RF_MSG_ACK` does.
   - `status != 0x00`: TX failure / drop.
 
 ---
@@ -143,7 +143,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x0C` | `RF_MSG_DEVICE_LIST_CHUNK` | Hub -> Remote | Device list sync item chunk (ACK'd) |
 | `0x0D` | `RF_MSG_BUTTON_LIST_CHUNK` | Hub -> Remote | Screen button list sync chunk (ACK'd) |
 | `0x0E` | `RF_MSG_SETTINGS_PUSH` | Hub -> Remote | Remote display, timeout, and sensor settings push (ACK'd) |
-| `0x0F` | `RF_MSG_CONFIG_END` | Hub -> Remote | End config sync transaction (ACK'd) |
+| `0x0F` | `RF_MSG_CONFIG_END` | Hub -> Remote | Open (clear) or close (complete) a config push (ACK'd) |
 | `0x10` | `RF_MSG_TIME_SYNC` | Hub -> Remote | Epoch time, timezone, and Hub RF address sync |
 | `0x11` | `RF_MSG_STEP_LIST_CHUNK` | Hub -> Remote | Activity macro step list chunk (ACK'd) |
 | `0x12` | `RF_MSG_DEVICE_CMD_CHUNK` | Hub -> Remote | Device command name for device browsing (ACK'd) |
@@ -216,6 +216,14 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
   - `payload[3..18]`: Short button name string (up to 16 chars).
   - `payload[20..24]`: Device context ID string (up to 4 chars + NUL) when the remote is browsing a device in the Hub Device Browser view (`VIEW_DEVICE_BROWSER`). Hub routes physical buttons to this device or falls back to matching command names. When not browsing a device, bytes 20..24 are zeroed.
+
+#### `RF_MSG_CONFIG_END` (`0x0F`) and the config push
+- `payload[0]`: `0x00` clear (opens the push), `0x01` complete (closes it).
+- `payload[1]`: Config version being pushed.
+- `payload[2..3]` (clear only): Number of chunk frames (`0x0B`, `0x0C`, `0x0D`, `0x11`, `0x12`) that follow, 16-bit little-endian. `0` from Hubs that do not send it; the remote then shows no progress total.
+- A push is: clear, the chunk frames and `RF_MSG_SETTINGS_PUSH`, then complete. Every frame requests an ACK and is retried up to 3 times. The Hub stops pushing to a slot at the first frame that slot never ACKs, so a remote never receives complete for a partial config.
+- The remote accepts chunk frames only between clear and complete, and leaves stray ones unACKed. It applies the config and adopts the version on complete.
+- If no frame arrives for 15 s (45 s when the clear carried no total), the remote abandons the push and restores its last complete config. It then waits 60 s before requesting a full sync on its own again.
 
 #### `RF_MSG_DEVICE_CMD_CHUNK` (`0x12`)
 - Hub sends one per command during a config push, after the `RF_MSG_DEVICE_LIST_CHUNK` frames:
