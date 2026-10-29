@@ -48,6 +48,18 @@ void rf_send_full_sync_request(void) {
     if (now - last_sync_req_ms < 5000) return;
     last_sync_req_ms = now;
 
+    /* Lock and show the sync screen now; the watchdog unlocks if the Hub never starts.
+       Set before sending so the Hub's CONFIG_END clear can't arrive first. */
+    pthread_mutex_lock(&g_sync_lock);
+    g_is_syncing_config = true;
+    g_sync_awaiting_start = true;
+    g_sync_start_ms = now;
+    g_sync_last_packet_ms = now;
+    g_sync_chunk_count = 0;
+    g_sync_total = 0;
+    pthread_mutex_unlock(&g_sync_lock);
+    g_screen_dirty = true;
+
     rf_frame_t f;
     uint8_t payload[25] = {0};
     payload[0] = 0x02; /* full config */

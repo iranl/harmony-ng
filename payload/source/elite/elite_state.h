@@ -224,7 +224,17 @@ extern uint32_t g_switching_total_ms;
 extern bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;
 extern uint64_t g_sync_last_packet_ms;
+extern uint64_t g_sync_failed_ms;         /* when the last config sync stalled, for retry backoff */
 extern int g_sync_chunk_count;
+extern int g_sync_total;                  /* chunk frames in this push, from CONFIG_END clear; 0 if unknown */
+extern bool g_sync_awaiting_start;        /* full sync requested, Hub has not sent CONFIG_END clear yet */
+/* Guards sync state changes made by both the RX thread (CONFIG_END clear) and the main loop watchdog */
+extern pthread_mutex_t g_sync_lock;
+
+/* After a failed sync, automatic requests wait a minute so a weak link doesn't keep the screen locked */
+static inline bool sync_backoff_active(uint64_t now_ms) {
+    return g_sync_failed_ms != 0 && now_ms - g_sync_failed_ms < 60000;
+}
 
 extern bool g_is_ota_updating;
 extern uint64_t g_ota_start_ms;
