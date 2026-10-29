@@ -179,13 +179,11 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     }
 }
 
-void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
-                               int nav_key, int nav_mode, int confirm_act, int touch_sens,
-                               int remote_mode, int gyro_rate, int btn_backlight,
-                               int night_start, int night_end, int usbeth, int no_screen,
-                               int cap_buttons, int power_debug) {
-    if (g_rf_fd < 0 || !g_has_paired_device) return;
-    rf_frame_t f;
+void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout, int touch, int gyro,
+                            int nav_key, int nav_mode, int confirm_act, int touch_sens,
+                            int remote_mode, int gyro_rate, int btn_backlight,
+                            int night_start, int night_end, int usbeth, int no_screen,
+                            int cap_buttons, int power_debug) {
     uint8_t payload[26] = {0};
     payload[0] = (uint8_t)(bright < 1 ? 1 : (bright > 5 ? 5 : bright));
     payload[1] = (uint8_t)(touch ? 1 : 0);
@@ -207,7 +205,19 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
     payload[17] = (uint8_t)(no_screen ? 1 : 0);
     payload[18] = (uint8_t)(cap_buttons ? 1 : 2);
     payload[19] = (uint8_t)(power_debug ? 1 : 2);
-    rf_build_frame(&f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 20);
+    rf_build_frame(f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 20);
+}
+
+void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
+                               int nav_key, int nav_mode, int confirm_act, int touch_sens,
+                               int remote_mode, int gyro_rate, int btn_backlight,
+                               int night_start, int night_end, int usbeth, int no_screen,
+                               int cap_buttons, int power_debug) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    rf_frame_t f;
+    rf_build_settings_push(&f, slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens,
+                           remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen,
+                           cap_buttons, power_debug);
     rf_send_frame_acked(&f, 300);
 }
 
