@@ -574,7 +574,9 @@ void *power_manager(void *arg) {
                 usleep(500000);
             } else {
                 read_elite_battery();
-                if (strcmp(g_battery_info.powersource, "battery") == 0) {
+                if (g_is_syncing_config || g_is_ota_updating) {
+                    usleep(500000); /* a transfer that started with the screen off: suspend after it */
+                } else if (strcmp(g_battery_info.powersource, "battery") == 0) {
                     enter_kernel_suspend();
                     usleep(100000);
                 } else {
@@ -633,7 +635,8 @@ void *power_manager(void *arg) {
         if (g_timeout_seconds > 0 && g_screen_on) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
-                if (g_is_ota_updating) {
+                /* Blanking suspends a battery-powered remote, which would kill the transfer */
+                if (g_is_ota_updating || g_is_syncing_config) {
                     reset_idle_timer();
                 } else {
                     printf("[*] Idle timeout reached (%ds), blanking display\n", g_timeout_seconds);
