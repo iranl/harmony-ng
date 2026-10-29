@@ -122,10 +122,10 @@ def main() -> None:
     print("[*] Stopping existing runtime and stock processes...")
     run_cmd(["ssh"] + ssh_opts + [target, "killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; sleep 1"])
 
-    # One-way migration: move old configs and remove old codex binaries
+    # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
-        "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite_config.json /data/elite_ui.conf 2>/dev/null || true; fi; "
-        "if [ -f /data/codex_elite.conf ] && [ ! -f /data/elite_ui.conf ]; then mv /data/codex_elite.conf /data/elite_ui.conf 2>/dev/null || true; fi; "
+        "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/elite_rf_config.json ]; then mv /data/codex_elite_config.json /data/elite_rf_config.json 2>/dev/null || true; fi; "
+        "if [ -f /data/codex_elite.conf ] && [ ! -f /data/elite_settings.conf ]; then mv /data/codex_elite.conf /data/elite_settings.conf 2>/dev/null || true; fi; "
         "rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
     )
     run_cmd(["ssh"] + ssh_opts + [target, migration_cmd])
