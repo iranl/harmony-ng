@@ -1,0 +1,27 @@
+/* Setup & Subviews CSS */
+
+.setup-menu-card {
+  transition: all 0.15s ease;
+}
+
+.setup-menu-card:hover {
+  background: var(--bg-card-hover) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  transform: translateX(2px);
+}
+
+.setup-menu-card.active {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.setup-content-pane {
+  max-width: 800px;
+}
+
+@media (max-width: 767px) {
+  .setup-container {
+    display: block;
+    padding: 10px;
+  }
+}

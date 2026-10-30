@@ -1,0 +1,257 @@
+/* Remote Control View Styles */
+
+.remote-view-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 12px;
+  overflow-y: auto;
+}
+
+/* Activity Selector Horizontal Scroll */
+.activity-selector-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 10px;
+  flex-shrink: 0;
+}
+
+.activity-selector-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-round);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.activity-chip:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.activity-chip.active {
+  background: var(--primary);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+.activity-chip.poweroff-chip {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: var(--danger);
+}
+
+.activity-chip.poweroff-chip.active {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+/* Remote Sub-Tabs Bar */
+.remote-subtabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.subtabs-group {
+  display: flex;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.subtab-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.subtab-btn.active {
+  background: var(--bg-btn);
+  color: var(--text-main);
+}
+
+/* 5x8 Remote Grid */
+.remote-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(8, minmax(46px, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin: 0 auto 16px;
+  touch-action: manipulation;
+}
+
+.remote-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-btn);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  padding: 4px 2px;
+  min-height: 44px;
+  transition: all 0.12s ease;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.remote-btn:active {
+  background: var(--accent);
+  color: #000000;
+  transform: scale(0.94);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.remote-btn-primary {
+  background: var(--primary);
+  border-color: var(--accent);
+}
+
+.remote-btn-accent {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.remote-btn-warning {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.remote-btn-danger {
+  background: rgba(244, 63, 94, 0.25);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.remote-btn-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.remote-slot-empty {
+  min-height: 44px;
+}
+
+/* Keypad Grid (3x4) */
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 320px;
+  margin: 16px auto;
+}
+
+.keypad-btn {
+  min-height: 56px;
+  font-size: 18px;
+  font-weight: 700;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.keypad-btn:active {
+  background: var(--accent);
+  color: #000000;
+  transform: scale(0.95);
+}
+
+/* Commands List View */
+.commands-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+}
+
+.commands-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.command-item-btn {
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s ease;
+}
+
+.command-item-btn:active {
+  background: var(--accent);
+  color: #000;
+  transform: scale(0.96);
+}
+
+/* Transition Progress Overlay Banner */
+.transition-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(2, 132, 199, 0.95);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 16px var(--primary-glow);
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+}

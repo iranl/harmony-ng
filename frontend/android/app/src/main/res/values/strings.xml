@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Harmony Remote</string>
+    <string name="title_activity_main">Harmony Remote</string>
+    <string name="package_name">com.harmony.hubcontrol</string>
+    <string name="custom_url_scheme">com.harmony.hubcontrol</string>
+</resources>
