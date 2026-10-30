@@ -681,7 +681,13 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     try {
       const url = this.client.baseUrl ? `${this.client.baseUrl}/export/${target}` : `/export/${target}`;
       const res = await fetch(url, { headers: this.client.getHeaders() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          showToast(`No saved ${target} data on Hub to export.`, 'info');
+          return;
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       const blob = await res.blob();
       const a = document.createElement('a');
       const filename = target === 'bundle' ? 'harmony_backup_bundle.json' :

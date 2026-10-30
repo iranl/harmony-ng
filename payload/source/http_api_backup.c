@@ -55,6 +55,12 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                         cJSON_AddStringToObject(bundle, b_files[i].key, txt);
                     }
                     free(txt);
+                } else {
+                    if (strcmp(b_files[i].key, "devices") == 0 || strcmp(b_files[i].key, "activities") == 0) {
+                        cJSON_AddItemToObject(bundle, b_files[i].key, cJSON_CreateArray());
+                    } else if (strcmp(b_files[i].key, "settings") == 0 || strcmp(b_files[i].key, "mqtt") == 0) {
+                        cJSON_AddItemToObject(bundle, b_files[i].key, cJSON_CreateObject());
+                    }
                 }
             }
 
@@ -105,55 +111,74 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
         const char *file_to_send = NULL;
         const char *download_name = "backup.json";
         const char *ctype = "application/json; charset=utf-8";
+        const char *fallback_content = NULL;
 
         if (strcmp(tgt, "devices") == 0) {
             file_to_send = config_store_path("config/devices.json");
             download_name = "devices.json";
+            fallback_content = "[]\n";
         } else if (strcmp(tgt, "activities") == 0) {
             file_to_send = config_store_path("config/activities.json");
             download_name = "activities.json";
+            fallback_content = "[]\n";
         } else if (strcmp(tgt, "settings") == 0) {
             file_to_send = config_store_path("config/settings.json");
             download_name = "settings.json";
+            fallback_content = "{}\n";
         } else if (strcmp(tgt, "mqtt") == 0) {
             file_to_send = config_store_path("mqtt.json");
             download_name = "mqtt.json";
+            fallback_content = "{}\n";
         } else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) {
             file_to_send = config_store_path("ethernet.conf");
             download_name = "ethernet.conf";
             ctype = "text/plain; charset=utf-8";
+            fallback_content = "# No static ethernet configured (DHCP active)\n";
         } else if (strcmp(tgt, "wifi") == 0) {
             file_to_send = "/etc/wpa_supplicant.conf";
             download_name = "wpa_supplicant.conf";
             ctype = "text/plain; charset=utf-8";
+            fallback_content = "# No custom Wi-Fi configured\n";
         } else if (strcmp(tgt, "bluetooth") == 0) {
             file_to_send = config_store_path("bt-devices.json");
             download_name = "bt-devices.json";
+            fallback_content = "{\"devices\":[]}\n";
         } else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
             file_to_send = config_store_path("bt_remote_map.json");
             download_name = "bt_remote_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Homatics B25\"},\"activities\":{}}\n";
         } else if (strcmp(tgt, "remote_slot1_map") == 0) {
             file_to_send = config_store_path("remote_slot1_map.json");
             download_name = "remote_slot1_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 1\"},\"activities\":{},\"devices\":{}}\n";
         } else if (strcmp(tgt, "remote_slot2_map") == 0) {
             file_to_send = config_store_path("remote_slot2_map.json");
             download_name = "remote_slot2_map.json";
+            fallback_content = "{\"remote\":{\"name\":\"Harmony Slot 2\"},\"activities\":{},\"devices\":{}}\n";
         } else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) {
             file_to_send = config_store_path("web_remote_layouts.json");
             download_name = "web_remote_layouts.json";
+            fallback_content = "{}\n";
         } else if (strcmp(tgt, "auth") == 0) {
             file_to_send = config_store_path("webui_auth.conf");
             download_name = "webui_auth.conf";
             ctype = "text/plain; charset=utf-8";
+            fallback_content = "# WebUI authentication disabled (default)\n";
         } else if (strcmp(tgt, "users") == 0) {
             file_to_send = config_store_path("users.json");
             download_name = "users.json";
+            fallback_content = "{\"users\":[]}\n";
         }
 
         if (file_to_send) {
             size_t flen = 0;
             char *buf = read_file_text_alloc(file_to_send, 2000000, &flen);
-            if (buf) {
+            const char *content_ptr = buf;
+            if (!content_ptr && fallback_content) {
+                content_ptr = fallback_content;
+                flen = strlen(fallback_content);
+            }
+            if (content_ptr) {
                 char header[512];
                 int hlen = snprintf(header, sizeof(header),
                     "HTTP/1.1 200 OK\r\n"
@@ -164,8 +189,8 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     "Connection: close\r\n\r\n",
                     ctype, download_name, flen);
                 send(client_fd, header, (size_t)hlen, 0);
-                send(client_fd, buf, flen, 0);
-                free(buf);
+                send(client_fd, content_ptr, flen, 0);
+                if (buf) free(buf);
                 close(client_fd);
                 return 1;
             }
