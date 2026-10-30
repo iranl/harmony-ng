@@ -10,8 +10,42 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define REGISTRY_FILE       "/data/harmony/custom_icons_registry.json"
-#define PUSHED_TRACKER_FILE "/data/harmony/custom_icons_pushed.json"
+static const char *get_registry_file(void) {
+    const char *env = getenv("HARMONY_DATA_DIR");
+    if (env && env[0]) {
+        static char s_reg[512];
+        snprintf(s_reg, sizeof(s_reg), "%s/custom_icons_registry.json", env);
+        return s_reg;
+    }
+    if (access("/data/harmony", W_OK) != 0) {
+        static char s_tmp[512];
+        const char *t = getenv("TMPDIR");
+        if (!t || !t[0]) t = "/tmp";
+        snprintf(s_tmp, sizeof(s_tmp), "%s/custom_icons_registry.json", t);
+        return s_tmp;
+    }
+    return "/data/harmony/custom_icons_registry.json";
+}
+
+static const char *get_pushed_tracker_file(void) {
+    const char *env = getenv("HARMONY_DATA_DIR");
+    if (env && env[0]) {
+        static char s_trk[512];
+        snprintf(s_trk, sizeof(s_trk), "%s/custom_icons_pushed.json", env);
+        return s_trk;
+    }
+    if (access("/data/harmony", W_OK) != 0) {
+        static char s_tmp[512];
+        const char *t = getenv("TMPDIR");
+        if (!t || !t[0]) t = "/tmp";
+        snprintf(s_tmp, sizeof(s_tmp), "%s/custom_icons_pushed.json", t);
+        return s_tmp;
+    }
+    return "/data/harmony/custom_icons_pushed.json";
+}
+
+#define REGISTRY_FILE       get_registry_file()
+#define PUSHED_TRACKER_FILE get_pushed_tracker_file()
 
 static pthread_mutex_t s_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 

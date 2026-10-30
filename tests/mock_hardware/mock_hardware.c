@@ -25,6 +25,7 @@ static int (*real_ioctl)(int fd, unsigned long request, ...) = NULL;
 static void *(*real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
 static FILE *(*real_fopen)(const char *path, const char *mode) = NULL;
 static FILE *(*real_fopen64)(const char *path, const char *mode) = NULL;
+static int (*real_unlink)(const char *pathname) = NULL;
 
 static int g_fb_mock_fd = -1;
 static int g_touch_mock_fd = -1;
@@ -41,6 +42,7 @@ static void init_real_functions(void) {
         real_mmap = dlsym(RTLD_NEXT, "mmap");
         real_fopen = dlsym(RTLD_NEXT, "fopen");
         real_fopen64 = dlsym(RTLD_NEXT, "fopen64");
+        real_unlink = dlsym(RTLD_NEXT, "unlink");
         if (!real_open64) real_open64 = real_open;
         if (!real_fopen64) real_fopen64 = real_fopen;
     }
@@ -174,7 +176,26 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
+    /* 6. Virtualize /data/ directory if physical /data is not writable */
+    if (strncmp(pathname, "/data/", 6) == 0 && access("/data", W_OK) != 0) {
+        snprintf(resolved, max_len, "%s/data/%s", md, pathname + 6);
+        char dtmp[512];
+        snprintf(dtmp, sizeof(dtmp), "%s/data", md);
+        mkdir(dtmp, 0777);
+        snprintf(dtmp, sizeof(dtmp), "%s/data/harmony", md);
+        mkdir(dtmp, 0777);
+        return resolved;
+    }
+
     return pathname;
+}
+
+int unlink(const char *pathname) {
+    init_real_functions();
+    char resolved[512];
+    int special_type = 0;
+    const char *target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
+    return real_unlink(target);
 }
 
 int open(const char *pathname, int flags, ...) {

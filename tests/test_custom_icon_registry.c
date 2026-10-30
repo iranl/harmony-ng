@@ -18,6 +18,8 @@ int main(void) {
     /* Clean up any test registry */
     unlink("/data/harmony/custom_icons_registry.json");
     unlink("/data/harmony/custom_icons_pushed.json");
+    unlink("/tmp/custom_icons_registry.json");
+    unlink("/tmp/custom_icons_pushed.json");
 
     uint16_t id1 = custom_icon_registry_get_id("switch.png");
     assert(id1 == 0x8001);
