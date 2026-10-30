@@ -15,7 +15,7 @@ param(
     [string]$HubIp = "192.168.1.1",
     [string]$KeyPath = "",
     [ValidateSet('new', 'v3', 'frontend', 'legacy', 'old', 'android-app')]
-    [string]$Ui = "new",
+    [string]$Ui = "legacy",
     [switch]$WebUiOnly,
     [switch]$DebugBusybox,
     [switch]$DevMode,

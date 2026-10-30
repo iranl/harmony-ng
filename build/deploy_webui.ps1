@@ -1,7 +1,7 @@
 param(
     [string]$HubIp = "10.234.234.98",
     [string]$KeyPath = "$HOME\.ssh\id_rsa",
-    [ValidateSet("new", "v3", "frontend", "legacy", "old", "android-app")][string]$Ui = "new",
+    [ValidateSet("new", "v3", "frontend", "legacy", "old", "android-app")][string]$Ui = "legacy",
     [switch]$SkipBuild,
     [switch]$RestartServer
 )

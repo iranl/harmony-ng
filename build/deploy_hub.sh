@@ -7,7 +7,7 @@ DEBUG_BUSYBOX="${DEBUG_BUSYBOX:-0}"
 SSH_KEY="${SSH_KEY:-}"
 
 REBOOT_HUB=0
-UI_CHOICE="${UI_CHOICE:-new}"
+UI_CHOICE="${UI_CHOICE:-legacy}"
 WEBUI_ONLY=0
 
 # Parse optional flags

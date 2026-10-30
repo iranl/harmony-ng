@@ -6,7 +6,7 @@
 #>
 param(
     [ValidateSet('new', 'v3', 'frontend', 'legacy', 'old', 'android-app')]
-    [string]$Ui = "new"
+    [string]$Ui = "legacy"
 )
 
 $ErrorActionPreference = "Stop"
