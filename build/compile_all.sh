@@ -86,7 +86,6 @@ build_daemon() {
         payload/source/http_api_system.c \
         payload/source/config_store.c \
         payload/source/config_sanitize.c \
-        payload/source/config_migration.c \
         payload/source/orchestrator.c \
         payload/source/orchestrator_queue.c \
         payload/source/hub_mqtt.c \

@@ -45,23 +45,12 @@ export class RemoteEngineBase {
       if (Array.isArray(act.deviceIds)) {
         act.deviceIds.forEach(id => set.add(String(id)));
       }
-      if (Array.isArray(act.participatingDeviceIds)) {
-        act.participatingDeviceIds.forEach(id => set.add(String(id)));
-      }
-      if (Array.isArray(act.Roles || act.roles)) {
-        (act.Roles || act.roles).forEach(r => {
-          const devId = r.DeviceId || r['DeviceId-'] || r.deviceId;
-          if (devId) set.add(String(devId));
-        });
-      }
       const seq = [
-        ...(act.startSteps || act.startSequence || []),
-        ...(act.stopSteps || act.stopSequence || []),
-        ...(act.EnterActions || []),
-        ...(act.LeaveActions || [])
+        ...(act.startSequence || []),
+        ...(act.stopSequence || [])
       ];
       seq.forEach(s => {
-        const did = s.deviceId || s.DeviceId || s['DeviceId-'];
+        const did = s.deviceId;
         if (did && String(did) !== '0') set.add(String(did));
       });
       if (set.size > 0) {

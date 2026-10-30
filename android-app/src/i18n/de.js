@@ -103,7 +103,7 @@ export default {
     "card_bt_remote_sub": "Homatics B25 & BLE-Fernbedienungen koppeln und Tasten belegen",
     "card_bt_settings_sub": "BTstack-Status, Host-Kopplung, Reconnect-Überwachung & Logs",
     "card_devices_sub": "Geräte-Studio, Signale anlernen, IRDB-Suche & Blaster-Zuweisung",
-    "card_elite_sub": "RF-Fernbedienung (950 / Elite), Touchscreen-Layout & Tastenbelegung",
+    "card_elite_sub": "RF-Fernbedienung, Touchscreen-Layout & Tastenbelegung",
     "card_footer_configure": "Konfigurieren →",
     "card_footer_manage": "Verwalten →",
     "card_footer_open_kb": "Tastatur öffnen →",

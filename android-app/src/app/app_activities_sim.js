@@ -85,8 +85,8 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         act.participatingDeviceIds.forEach(id => set.add(String(id)));
       }
       const seq = [
-        ...(act.startSteps || act.startSequence || []),
-        ...(act.stopSteps || act.stopSequence || [])
+        ...(act.startSequence || []),
+        ...(act.stopSequence || [])
       ];
       seq.forEach(s => {
         if (s.deviceId && String(s.deviceId) !== '0') set.add(String(s.deviceId));
@@ -107,11 +107,11 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
     let actionCount = 0;
 
     // 1. Stop sequence of leaving activity (PowerOff is a regular activity)
-    const fromStop = (fromAct?.stopSteps || fromAct?.stopSequence || []).map(s => ({
+    const fromStop = (fromAct?.stopSequence || []).map(s => ({
       ...s,
-      type: s.type || s.Type || 'Command',
-      command: s.command || s.Command || s.CommandName || '',
-      delay: s.delay !== undefined ? s.delay : (s.delay_ms !== undefined ? s.delay_ms : (s.delayMs !== undefined ? s.delayMs : (s.Delay !== undefined ? s.Delay : 0)))
+      type: s.type || 'Command',
+      command: s.command || '',
+      delay: s.delay !== undefined ? s.delay : 0
     }));
 
     const stopSwitchedIdx = fromStop.findIndex(s => {
@@ -212,30 +212,30 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
     // 3. Power ON arriving devices (not present in old activity)
     const enteringDevs = enteringDevIds
       .map(id => allDevs.find(d => String(d.id) === String(id)))
-      .filter(d => d && !d.is_power_always_on && !d.isPowerAlwaysOn);
+      .filter(d => d && !d.isPowerAlwaysOn);
 
-    const toStartRaw = (toAct?.startSteps || toAct?.startSequence || []).map(s => ({
+    const toStartRaw = (toAct?.startSequence || []).map(s => ({
       ...s,
-      type: s.type || s.Type || 'Command',
-      command: s.command || s.Command || s.CommandName || '',
-      delay: s.delay !== undefined ? s.delay : (s.delay_ms !== undefined ? s.delay_ms : (s.delayMs !== undefined ? s.delayMs : (s.Delay !== undefined ? s.Delay : 0)))
+      type: s.type || 'Command',
+      command: s.command || '',
+      delay: s.delay !== undefined ? s.delay : 0
     }));
 
     let maxWarmup = 0;
     enteringDevs.forEach(dev => {
       const inStartSeq = toStartRaw.some(s => {
         if (String(s.deviceId) !== String(dev.id)) return false;
-        const c = (s.command || s.Command || s.CommandName || '').toLowerCase();
+        const c = (s.command || '').toLowerCase();
         return c === 'poweron' || c === 'powertoggle' || c === 'power';
       });
       if (inStartSeq) return;
 
-      const pOnSeq = dev.powerOnSequence || dev.power_on_sequence || dev.PowerOnActions || [];
+      const pOnSeq = dev.powerOnSequence || [];
       if (Array.isArray(pOnSeq) && pOnSeq.length > 0) {
         pOnSeq.forEach(s => {
           const isDl = (s.type || '').toLowerCase() === 'delay';
-          const del = s.delay !== undefined ? s.delay : (s.delayMs || 0);
-          const dl = isDl ? (del || 50) : (del > 0 ? del : (dev.inter_device_delay || dev.interDeviceDelay || 250));
+          const del = s.delay !== undefined ? s.delay : 0;
+          const dl = isDl ? (del || 50) : (del > 0 ? del : (dev.interDeviceDelay !== undefined ? dev.interDeviceDelay : 250));
           mainSteps.push({
             ...s,
             deviceId: s.deviceId || dev.id,
@@ -253,7 +253,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
           return n === 'poweron' || n === 'powertoggle' || n === 'power';
         });
         if (pwrCmd) {
-          const dl = dev.inter_device_delay || dev.interDeviceDelay || 250;
+          const dl = dev.interDeviceDelay !== undefined ? dev.interDeviceDelay : 250;
           mainSteps.push({
             type: 'Command',
             deviceId: dev.id,
@@ -265,7 +265,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
           tMain += dl;
         }
       }
-      const pwrDelay = dev.power_on_delay !== undefined ? dev.power_on_delay : (dev.powerOnDelay || 0);
+      const pwrDelay = dev.powerOnDelay || 0;
       if (pwrDelay > maxWarmup) maxWarmup = pwrDelay;
     });
 

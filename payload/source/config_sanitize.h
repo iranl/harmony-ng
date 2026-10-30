@@ -8,7 +8,6 @@
 extern "C" {
 #endif
 
-void convert_legacy_hid_code(const char *in, char *out, size_t outsz);
 void sanitize_devices_json(cJSON *root);
 void sanitize_activity_steps(cJSON *steps);
 void sanitize_activities_json(cJSON *root);

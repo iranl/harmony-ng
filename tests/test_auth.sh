@@ -27,7 +27,6 @@ gcc -Wall -O2 -g -DTEST_HARNESS=1 \
     "$REPO_ROOT/payload/source/http_api_system.c" \
     "$REPO_ROOT/payload/source/config_store.c" \
     "$REPO_ROOT/payload/source/config_sanitize.c" \
-    "$REPO_ROOT/payload/source/config_migration.c" \
     "$REPO_ROOT/payload/source/orchestrator.c" \
     "$REPO_ROOT/payload/source/orchestrator_queue.c" \
     "$REPO_ROOT/payload/source/hub_mqtt.c" \

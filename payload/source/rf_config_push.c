@@ -424,19 +424,14 @@ void *config_push_worker(void *arg) {
                 cJSON *root = cJSON_Parse(buf);
                 free(buf);
                 if (root) {
-                    cJSON *acts_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "Activities");
-                    if (!acts_arr) acts_arr = cJSON_GetObjectItem(root, "activities");
+                    cJSON *acts_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "activities");
                     if (acts_arr && cJSON_IsArray(acts_arr)) {
                         cJSON *elem = NULL;
                         cJSON_ArrayForEach(elem, acts_arr) {
                             if (total_step_count >= 60) break;
                             cJSON *act_obj = elem;
-                            cJSON *inner = cJSON_GetObjectItemCaseSensitive(elem, "Activity");
-                            if (inner && cJSON_IsObject(inner)) act_obj = inner;
 
-                            cJSON *j_id = cJSON_GetObjectItem(act_obj, "Id-");
-                            if (!j_id) j_id = cJSON_GetObjectItem(act_obj, "Id");
-                            if (!j_id) j_id = cJSON_GetObjectItem(act_obj, "id");
+                            cJSON *j_id = cJSON_GetObjectItem(act_obj, "id");
                             char act_id[32] = {0};
                             if (j_id) {
                                 if (cJSON_IsNumber(j_id)) snprintf(act_id, sizeof(act_id), "%d", j_id->valueint);
@@ -456,10 +451,6 @@ void *config_push_worker(void *arg) {
                                     cJSON *cname = cJSON_GetObjectItem(sitem, "command");
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "delay_ms");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "delayMs");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "Delay");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(sitem, "Duration");
                                     int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
                                     if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
                                         strncpy(local_steps[local_count].act_id, act_id, 11);
@@ -474,53 +465,6 @@ void *config_push_worker(void *arg) {
                                         if (local_count > 0 && d > 0) {
                                             local_steps[local_count - 1].delay_ms += (uint16_t)d;
                                         }
-                                    }
-                                }
-                            }
-
-                            /* Roles -> Input selection steps */
-                            cJSON *roles = cJSON_GetObjectItem(act_obj, "Roles");
-                            if (roles && cJSON_IsArray(roles)) {
-                                cJSON *r_item = NULL;
-                                cJSON_ArrayForEach(r_item, roles) {
-                                    if (local_count >= 3) break;
-                                    cJSON *sel_in = cJSON_GetObjectItem(r_item, "SelectedInput");
-                                    if (sel_in && cJSON_IsObject(sel_in)) {
-                                        cJSON *in_name = cJSON_GetObjectItem(sel_in, "Name");
-                                        if (in_name && cJSON_IsString(in_name) && in_name->valuestring[0]) {
-                                            strncpy(local_steps[local_count].act_id, act_id, 11);
-                                            local_steps[local_count].act_id[11] = '\0';
-                                            snprintf(local_steps[local_count].name, sizeof(local_steps[local_count].name), "%s", in_name->valuestring);
-                                            local_steps[local_count].delay_ms = 1500;
-                                            local_count++;
-                                        }
-                                    }
-                                }
-                            }
-
-                            /* EnterActions -> Power / Initial Command steps */
-                            cJSON *enter_acts = cJSON_GetObjectItem(act_obj, "EnterActions");
-                            if (enter_acts && cJSON_IsArray(enter_acts)) {
-                                cJSON *ea = NULL;
-                                cJSON_ArrayForEach(ea, enter_acts) {
-                                    if (local_count >= 6) break;
-                                    cJSON *cname = cJSON_GetObjectItem(ea, "CommandName");
-                                    if (!cname) cname = cJSON_GetObjectItem(ea, "Command");
-                                    cJSON *cdelay = cJSON_GetObjectItem(ea, "delay");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "delay_ms");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "delayMs");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "Delay");
-                                    if (!cdelay) cdelay = cJSON_GetObjectItem(ea, "Duration");
-                                    if (cname && cJSON_IsString(cname)) {
-                                        strncpy(local_steps[local_count].act_id, act_id, 11);
-                                        local_steps[local_count].act_id[11] = '\0';
-                                        strncpy(local_steps[local_count].name, cname->valuestring, 15);
-                                        local_steps[local_count].name[15] = '\0';
-                                        int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 1000;
-                                        if (d <= 0) d = 300;
-                                        if (d > 20000) d = 20000;
-                                        local_steps[local_count].delay_ms = (uint16_t)d;
-                                        local_count++;
                                     }
                                 }
                             }
@@ -552,22 +496,14 @@ void *config_push_worker(void *arg) {
                             /* Append stop/leave sequence step(s) for this activity */
                             if (total_step_count < 63) {
                                 cJSON *stop_seq = cJSON_GetObjectItem(act_obj, "stopSequence");
-                                if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "StopSequence");
-                                if (!stop_seq) stop_seq = cJSON_GetObjectItem(act_obj, "LeaveActions");
                                 int stop_cnt = 0;
                                 if (stop_seq && cJSON_IsArray(stop_seq)) {
                                     cJSON *st_item = NULL;
                                     cJSON_ArrayForEach(st_item, stop_seq) {
                                         if (total_step_count >= 63 || stop_cnt >= 8) break;
                                         cJSON *cname = cJSON_GetObjectItem(st_item, "command");
-                                        if (!cname) cname = cJSON_GetObjectItem(st_item, "Command");
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
-                                        if (!ctype) ctype = cJSON_GetObjectItem(st_item, "Type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
-                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "delay_ms");
-                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "delayMs");
-                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Delay");
-                                        if (!cdelay) cdelay = cJSON_GetObjectItem(st_item, "Duration");
                                         int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
 
                                         if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
@@ -602,6 +538,7 @@ void *config_push_worker(void *arg) {
                             }
                         }
                     }
+
                     cJSON_Delete(root);
                 }
             }

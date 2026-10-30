@@ -25,8 +25,8 @@ int main(void) {
     assert(cJSON_GetObjectItemCaseSensitive(s0, "Duration") == NULL);
     cJSON_Delete(steps1);
 
-    /* 2. Test migration from legacy "delay_ms": 3500 */
-    cJSON *steps2 = cJSON_Parse("[{\"type\":\"Delay\",\"delay_ms\":3500}]");
+    /* 2. Test delay with string representation "delay": "3500" */
+    cJSON *steps2 = cJSON_Parse("[{\"type\":\"Delay\",\"delay\":\"3500\"}]");
     assert(steps2 != NULL);
     sanitize_activity_steps(steps2);
     s0 = cJSON_GetArrayItem(steps2, 0);
@@ -37,14 +37,14 @@ int main(void) {
     assert(cJSON_GetObjectItemCaseSensitive(s0, "delayMs") == NULL);
     cJSON_Delete(steps2);
 
-    /* 3. Test migration from legacy string "Duration": "4000" */
-    cJSON *steps3 = cJSON_Parse("[{\"type\":\"Delay\",\"Duration\":\"4000\"}]");
+    /* 3. Test Delay type step with default delay when delay is 0 */
+    cJSON *steps3 = cJSON_Parse("[{\"type\":\"Delay\"}]");
     assert(steps3 != NULL);
     sanitize_activity_steps(steps3);
     s0 = cJSON_GetArrayItem(steps3, 0);
     assert(s0 != NULL);
     d0 = cJSON_GetObjectItemCaseSensitive(s0, "delay");
-    assert(d0 && d0->valueint == 4000);
+    assert(d0 && d0->valueint == 1000);
     assert(cJSON_GetObjectItemCaseSensitive(s0, "Duration") == NULL);
     assert(cJSON_GetObjectItemCaseSensitive(s0, "delay_ms") == NULL);
     cJSON_Delete(steps3);

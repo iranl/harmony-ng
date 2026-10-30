@@ -64,8 +64,6 @@ void *rf_ota_sender_worker(void *arg) {
     pthread_mutex_unlock(&g_ota_lock);
 
     const char *ota_path = "/cache/elite_ui.ota.gz";
-    if (access(ota_path, R_OK) != 0) ota_path = "/data/elite_ui.ota.gz";
-    if (access(ota_path, R_OK) != 0) ota_path = "/tmp/elite_ui.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
         char err[128];

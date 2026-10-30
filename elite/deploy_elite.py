@@ -134,7 +134,8 @@ def main() -> None:
     migration_cmd = (
         "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/elite_rf_config.json ]; then mv /data/codex_elite_config.json /data/elite_rf_config.json 2>/dev/null || true; fi; "
         "if [ -f /data/codex_elite.conf ] && [ ! -f /data/elite_settings.conf ]; then mv /data/codex_elite.conf /data/elite_settings.conf 2>/dev/null || true; fi; "
-        "rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
+        "if [ -f /data/elite_ui.conf ] && [ ! -f /data/elite_settings.conf ]; then mv /data/elite_ui.conf /data/elite_settings.conf 2>/dev/null || true; fi; "
+        "rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /data/elite_ui.conf /data/resources/ActivityList.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
     )
     run_cmd(["ssh"] + ssh_opts + [target, migration_cmd])
 

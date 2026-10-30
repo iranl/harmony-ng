@@ -38,7 +38,7 @@ mkdir -p /data/preserved_config 2>/dev/null || true
 if [ -d /data/harmony/config ]; then
     cp -rf /data/harmony/config/* /data/preserved_config/ 2>/dev/null || true
 fi
-[ -f /data/harmony/mqtt_config.json ] && cp -f /data/harmony/mqtt_config.json /data/preserved_config/ 2>/dev/null || true
+[ -f /data/harmony/mqtt.json ] && cp -f /data/harmony/mqtt.json /data/preserved_config/ 2>/dev/null || true
 
 echo "[*] Removing custom binaries and temporary state..."
 rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/hub_rf 2>/dev/null || true
@@ -48,11 +48,11 @@ rm -f /data/harmony/*.conf /data/harmony/current_activity /data/harmony/config_v
 echo "[*] Restoring preserved configuration for future re-install..."
 mkdir -p /data/harmony/config 2>/dev/null || true
 cp -rf /data/preserved_config/* /data/harmony/config/ 2>/dev/null || true
-[ -f /data/preserved_config/mqtt_config.json ] && cp -f /data/preserved_config/mqtt_config.json /data/harmony/mqtt_config.json 2>/dev/null || true
+[ -f /data/preserved_config/mqtt.json ] && cp -f /data/preserved_config/mqtt.json /data/harmony/mqtt.json 2>/dev/null || true
 rm -rf /data/preserved_config 2>/dev/null || true
 
 echo "[*] Syncing filesystems..."
-sync 2>/dev/null || true
+/data/codex/bin/codex_sync 2>/dev/null || sync 2>/dev/null || true
 
 echo "[*] Rebooting into stock firmware..."
 reboot -f

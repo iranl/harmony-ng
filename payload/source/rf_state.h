@@ -14,7 +14,6 @@
 #define DAEMON_PORT        8089
 #define WEBUI_PORT         8089
 #define RF_API_PORT        8092
-#define ELITE_MAP_FILE         "/data/harmony/elite_remote_map.json"
 #define CURRENT_ACT_FILE       "/data/harmony/current_activity"
 
 #define MAX_PAIRED_REMOTES 2

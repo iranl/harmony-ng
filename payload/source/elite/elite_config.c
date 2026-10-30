@@ -221,10 +221,7 @@ bool resolve_button_icon(const char *icon_key, const char *label, char *out_path
 
 void load_activities(void) {
     g_activity_count = 0;
-    const char *act_path = ACTIVITY_JSON_FILE;
-    if (access(act_path, F_OK) != 0) act_path = "/data/harmony/config/activities.json";
-    if (access(act_path, F_OK) != 0) act_path = STOCK_ACTIVITY_JSON_FILE;
-    FILE *f = fopen(act_path, "r");
+    FILE *f = fopen(ACTIVITY_JSON_FILE, "r");
     if (!f) return;
 
     fseek(f, 0, SEEK_END);
@@ -243,19 +240,14 @@ void load_activities(void) {
     if (!root) return;
 
     cJSON *acts = cJSON_GetObjectItem(root, "activities");
-    if (!acts) acts = cJSON_GetObjectItem(root, "Activities");
     if (acts && cJSON_IsArray(acts)) {
         cJSON *item = NULL;
         cJSON_ArrayForEach(item, acts) {
             if (g_activity_count >= MAX_ACTIVITIES - 1) break;
             cJSON *j_name = cJSON_GetObjectItem(item, "name");
-            if (!j_name) j_name = cJSON_GetObjectItem(item, "Name");
             cJSON *j_id = cJSON_GetObjectItem(item, "id");
-            if (!j_id) j_id = cJSON_GetObjectItem(item, "Id");
             cJSON *j_type = cJSON_GetObjectItem(item, "type");
-            if (!j_type) j_type = cJSON_GetObjectItem(item, "Type");
             cJSON *j_icon = cJSON_GetObjectItem(item, "icon");
-            if (!j_icon) j_icon = cJSON_GetObjectItem(item, "Icon");
 
             if (j_name && j_id) {
                 const char *name = j_name->valuestring;
@@ -380,16 +372,7 @@ void save_rf_config(void) {
 
 void load_rf_config(void) {
     FILE *f = fopen(RF_CONFIG_FILE, "r");
-    if (!f) {
-        f = fopen(LEGACY_SETTINGS_FILE, "r");
-        if (f) {
-            int c = fgetc(f);
-            ungetc(c, f);
-            if (c != '{') { fclose(f); return; }
-        } else {
-            return;
-        }
-    }
+    if (!f) return;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -576,16 +559,7 @@ void load_rf_config(void) {
 
 void load_settings_conf(void) {
     FILE *f = fopen(SETTINGS_CONFIG_FILE, "r");
-    if (!f) {
-        f = fopen(LEGACY_SETTINGS_FILE, "r");
-        if (f) {
-            int c = fgetc(f);
-            ungetc(c, f);
-            if (c == '{') { fclose(f); return; }
-        } else {
-            return;
-        }
-    }
+    if (!f) return;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {0};

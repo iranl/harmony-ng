@@ -25,28 +25,26 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             cJSON_AddNumberToObject(bundle, "version", 1);
             cJSON_AddNumberToObject(bundle, "timestamp", (double)time(NULL));
 
-            static const struct { const char *key; const char *path; const char *fallback; } b_files[] = {
-                { "devices", "/data/harmony/config/devices.json", NULL },
-                { "activities", "/data/harmony/config/activities.json", NULL },
-                { "settings", "/data/harmony/config/settings.json", NULL },
-                { "mqtt", "/data/harmony/mqtt.json", NULL },
-                { "network", "/data/harmony/ethernet.conf", NULL },
-                { "wifi", "/etc/wpa_supplicant.conf", "/etc/wpa_supplicant.ath0.conf" },
-                { "bluetooth", "/data/harmony/bt_devices.json", NULL },
-                { "bt_remote_map", "/data/harmony/bt_remote_map.json", NULL },
-                { "elite_remote_map", "/data/harmony/elite_remote_map.json", NULL },
-                { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", NULL },
-                { "auth", "/data/harmony/webui_auth.conf", NULL },
-                { "users", "/data/harmony/users.json", NULL },
-                { "hub_id", "/data/harmony/hub_id", NULL },
-                { NULL, NULL, NULL }
+            static const struct { const char *key; const char *path; } b_files[] = {
+                { "devices", "/data/harmony/config/devices.json" },
+                { "activities", "/data/harmony/config/activities.json" },
+                { "settings", "/data/harmony/config/settings.json" },
+                { "mqtt", "/data/harmony/mqtt.json" },
+                { "network", "/data/harmony/ethernet.conf" },
+                { "wifi", "/etc/wpa_supplicant.conf" },
+                { "bluetooth", "/data/harmony/bt-devices.json" },
+                { "bt_remote_map", "/data/harmony/bt_remote_map.json" },
+                { "remote_slot1_map", "/data/harmony/remote_slot1_map.json" },
+                { "remote_slot2_map", "/data/harmony/remote_slot2_map.json" },
+                { "ui_remote_layout", "/data/harmony/web_remote_layouts.json" },
+                { "auth", "/data/harmony/webui_auth.conf" },
+                { "users", "/data/harmony/users.json" },
+                { "hub_id", "/data/harmony/hub_id" },
+                { NULL, NULL }
             };
 
             for (int i = 0; b_files[i].key; i++) {
                 const char *use_path = b_files[i].path;
-                if (access(use_path, F_OK) != 0 && b_files[i].fallback && access(b_files[i].fallback, F_OK) == 0) {
-                    use_path = b_files[i].fallback;
-                }
                 size_t flen = 0;
                 char *txt = read_file_text_alloc(use_path, 2000000, &flen);
                 if (txt) {
@@ -119,7 +117,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             download_name = "settings.json";
         } else if (strcmp(tgt, "mqtt") == 0) {
             file_to_send = config_store_path("mqtt.json");
-            download_name = "mqtt_config.json";
+            download_name = "mqtt.json";
         } else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) {
             file_to_send = config_store_path("ethernet.conf");
             download_name = "ethernet.conf";
@@ -129,14 +127,17 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             download_name = "wpa_supplicant.conf";
             ctype = "text/plain; charset=utf-8";
         } else if (strcmp(tgt, "bluetooth") == 0) {
-            file_to_send = config_store_path("bt_devices.json");
-            download_name = "bt_devices.json";
+            file_to_send = config_store_path("bt-devices.json");
+            download_name = "bt-devices.json";
         } else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
             file_to_send = config_store_path("bt_remote_map.json");
             download_name = "bt_remote_map.json";
-        } else if (strcmp(tgt, "elite_remote_map") == 0) {
-            file_to_send = config_store_path("elite_remote_map.json");
-            download_name = "elite_remote_map.json";
+        } else if (strcmp(tgt, "remote_slot1_map") == 0) {
+            file_to_send = config_store_path("remote_slot1_map.json");
+            download_name = "remote_slot1_map.json";
+        } else if (strcmp(tgt, "remote_slot2_map") == 0) {
+            file_to_send = config_store_path("remote_slot2_map.json");
+            download_name = "remote_slot2_map.json";
         } else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) {
             file_to_send = config_store_path("web_remote_layouts.json");
             download_name = "web_remote_layouts.json";
@@ -197,21 +198,22 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 else bundle = params;
 
                 if (bundle) {
-                    static const struct { const char *key; const char *path; const char *legacy; int is_net; } b_files[] = {
-                        { "devices", "/data/harmony/config/devices.json", NULL, 0 },
-                        { "activities", "/data/harmony/config/activities.json", NULL, 0 },
-                        { "settings", "/data/harmony/config/settings.json", NULL, 0 },
-                        { "mqtt", "/data/harmony/mqtt.json", NULL, 0 },
-                        { "network", "/data/harmony/ethernet.conf", NULL, 1 },
-                        { "wifi", "/etc/wpa_supplicant.conf", NULL, 1 },
-                        { "bluetooth", "/data/harmony/bt_devices.json", NULL, 0 },
-                        { "bt_remote_map", "/data/harmony/bt_remote_map.json", NULL, 0 },
-                        { "elite_remote_map", "/data/harmony/elite_remote_map.json", NULL, 0 },
-                        { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", NULL, 0 },
-                        { "auth", "/data/harmony/webui_auth.conf", NULL, 0 },
-                        { "users", "/data/harmony/users.json", NULL, 0 },
-                        { "hub_id", "/data/harmony/hub_id", NULL, 0 },
-                        { NULL, NULL, NULL, 0 }
+                    static const struct { const char *key; const char *path; int is_net; } b_files[] = {
+                        { "devices", "/data/harmony/config/devices.json", 0 },
+                        { "activities", "/data/harmony/config/activities.json", 0 },
+                        { "settings", "/data/harmony/config/settings.json", 0 },
+                        { "mqtt", "/data/harmony/mqtt.json", 0 },
+                        { "network", "/data/harmony/ethernet.conf", 1 },
+                        { "wifi", "/etc/wpa_supplicant.conf", 1 },
+                        { "bluetooth", "/data/harmony/bt-devices.json", 0 },
+                        { "bt_remote_map", "/data/harmony/bt_remote_map.json", 0 },
+                        { "remote_slot1_map", "/data/harmony/remote_slot1_map.json", 0 },
+                        { "remote_slot2_map", "/data/harmony/remote_slot2_map.json", 0 },
+                        { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", 0 },
+                        { "auth", "/data/harmony/webui_auth.conf", 0 },
+                        { "users", "/data/harmony/users.json", 0 },
+                        { "hub_id", "/data/harmony/hub_id", 0 },
+                        { NULL, NULL, 0 }
                     };
 
                     for (int i = 0; b_files[i].key; i++) {
@@ -234,15 +236,10 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                             }
                             if (cJSON_IsString(sec)) {
                                 write_file_atomic(b_files[i].path, sec->valuestring);
-                                if (b_files[i].legacy) write_file_atomic(b_files[i].legacy, sec->valuestring);
-                                if (strcmp(b_files[i].key, "wifi") == 0) {
-                                    write_file_atomic("/etc/wpa_supplicant.ath0.conf", sec->valuestring);
-                                }
                             } else {
                                 char *pstr = cJSON_PrintUnformatted(sec);
                                 if (pstr) {
                                     write_file_atomic(b_files[i].path, pstr);
-                                    if (b_files[i].legacy) write_file_atomic(b_files[i].legacy, pstr);
                                     free(pstr);
                                 }
                             }
@@ -279,9 +276,10 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 else if (strcmp(tgt, "mqtt") == 0) { file_to_write = "/data/harmony/mqtt.json"; }
                 else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) { file_to_write = "/data/harmony/ethernet.conf"; }
                 else if (strcmp(tgt, "wifi") == 0) { file_to_write = "/etc/wpa_supplicant.conf"; }
-                else if (strcmp(tgt, "bluetooth") == 0) { file_to_write = "/data/harmony/bt_devices.json"; }
+                else if (strcmp(tgt, "bluetooth") == 0) { file_to_write = "/data/harmony/bt-devices.json"; }
                 else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) { file_to_write = "/data/harmony/bt_remote_map.json"; }
-                else if (strcmp(tgt, "elite_remote_map") == 0) { file_to_write = "/data/harmony/elite_remote_map.json"; }
+                else if (strcmp(tgt, "remote_slot1_map") == 0) { file_to_write = "/data/harmony/remote_slot1_map.json"; }
+                else if (strcmp(tgt, "remote_slot2_map") == 0) { file_to_write = "/data/harmony/remote_slot2_map.json"; }
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
                 else if (strcmp(tgt, "users") == 0) { file_to_write = "/data/harmony/users.json"; }
@@ -302,7 +300,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     if (success) {
                         invalidate_device_list_cache();
                         config_store_init();
-                        if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 || strcmp(tgt, "elite_remote_map") == 0) {
+                        if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 || strcmp(tgt, "remote_slot1_map") == 0 || strcmp(tgt, "remote_slot2_map") == 0) {
                             notify_rf_push_config();
                         }
                         if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {

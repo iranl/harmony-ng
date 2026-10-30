@@ -220,9 +220,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       }
     }
 
-    // Render Sequences (support startSequence/stopSequence or startSteps/stopSteps)
-    let rawStart = act?.startSequence || act?.startSteps || [];
-    let rawStop = act?.stopSequence || act?.stopSteps || [];
+    // Render Sequences
+    let rawStart = act?.startSequence || [];
+    let rawStop = act?.stopSequence || [];
     if (typeof rawStart === 'string') {
       rawStart = rawStart.split('\n').filter(Boolean).map(l => {
         const p = l.split('|');
@@ -252,10 +252,9 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       return;
     }
     steps.forEach((st, idx) => {
-      let type = st.type || (st.__type === 'DelayActivityAction' ? 'Delay' : 'Command');
-      if (type === 'IRCommand' || type === 'DeviceCommand') type = 'Command';
-      const cName = st.command || st.Command || st.CommandName || '';
-      if (type === 'Switched' || type === 'ActivitySwitched' || (st.__type && st.__type.includes('Switched')) || cName === 'Switched') {
+      let type = st.type || 'Command';
+      const cName = st.command || '';
+      if (type === 'Switched' || cName === 'Switched') {
         type = 'Switched';
       }
       this.addSequenceStep(containerId, type, st, idx);
@@ -270,19 +269,15 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
 
     const row = document.createElement('div');
     row.className = 'queue-row';
-    const initCmd = initialData?.command || initialData?.Command || initialData?.CommandName || '';
-    const isSwitchedExplicit = (type === 'Switched' || type === 'ActivitySwitched' || initCmd === 'Switched' || initialData?.type === 'Switched' || initialData?.type === 'ActivitySwitched');
-    const normType = isSwitchedExplicit ? 'Switched' : ((type === 'IRCommand' || type === 'DeviceCommand') ? 'Command' : (type || 'Command'));
+    const initCmd = initialData?.command || '';
+    const isSwitchedExplicit = (type === 'Switched' || initCmd === 'Switched' || initialData?.type === 'Switched');
+    const normType = isSwitchedExplicit ? 'Switched' : (type || 'Command');
     const isDelay = (normType === 'Delay');
     const isSwitched = (normType === 'Switched');
 
     const devices = this.inventory.devices || [];
     const initDevId = initialData?.deviceId ? String(initialData.deviceId) : (devices[0]?.id || '');
-    const initDelay = initialData?.delay !== undefined ? initialData.delay :
-                      (initialData?.delay_ms !== undefined ? initialData.delay_ms :
-                      (initialData?.delayMs !== undefined ? initialData.delayMs :
-                      (initialData?.Delay !== undefined ? initialData.Delay :
-                      (initialData?.Duration !== undefined ? initialData.Duration : (isDelay ? 1000 : 0)))));
+    const initDelay = initialData?.delay !== undefined ? initialData.delay : (isDelay ? 1000 : 0);
 
     row.innerHTML = `
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1;">

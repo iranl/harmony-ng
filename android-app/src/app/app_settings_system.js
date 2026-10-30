@@ -654,7 +654,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   async toggleRfService() {
     const isEnabled = this.servicesState ? this.servicesState.rf_enabled : false;
     const action = isEnabled ? 'disable' : 'enable';
-    if (!await showConfirm(`${action === 'disable' ? 'Disable' : 'Enable'} Harmony Elite RF receiver service?`, { title: `${action === 'disable' ? 'Disable' : 'Enable'} RF Service`, okText: action === 'disable' ? 'Disable' : 'Enable' })) return;
+    if (!await showConfirm(`${action === 'disable' ? 'Disable' : 'Enable'} Harmony Remote RF receiver service?`, { title: `${action === 'disable' ? 'Disable' : 'Enable'} RF Service`, okText: action === 'disable' ? 'Disable' : 'Enable' })) return;
 
     try {
       await this.client.toggleRfService(!isEnabled);

@@ -52,7 +52,7 @@ if [ -z "$TARGET" ]; then
         TARGET=$(awk 'match($0, /([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}/) {print substr($0, RSTART, RLENGTH); exit}' "$HOST_TARGET_FILE" 2>/dev/null)
     fi
     if [ -z "$TARGET" ]; then
-        for cfg in /data/harmony/bt-devices.json /data/harmony/config/devices.json /data/harmony/devices.json; do
+        for cfg in /data/harmony/bt-devices.json /data/harmony/config/devices.json; do
             if [ -f "$cfg" ]; then
                 TARGET=$(sed -n 's/.*"\(bdaddr\|BTAddress\|bt_host\)"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\2/p' "$cfg" 2>/dev/null | awk '{print; exit}')
                 [ -n "$TARGET" ] && break

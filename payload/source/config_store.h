@@ -11,8 +11,6 @@
 #define MAX_ACTIVITY_STEPS 64
 #define MAX_BT_SCRIPT_LEN 2048
 
-#define DEVICE_LIST_FILE "/data/resources/DeviceList.json"
-#define ACTIVITY_LIST_FILE "/data/resources/ActivityList.json"
 #define BT_TEXT_FIFO "/tmp/bthid_input"
 
 #define HARMONY_DIR "/data/harmony"
@@ -21,11 +19,7 @@
 #define HARMONY_ACTIVITIES_FILE "/data/harmony/config/activities.json"
 #define HARMONY_REMOTES_FILE "/data/harmony/config/remotes.json"
 #define HARMONY_SETTINGS_FILE "/data/harmony/config/settings.json"
-#define HARMONY_STOCK_IMPORT_FLAG "/data/harmony/config/.imported"
-#define HARMONY_MQTT_FILE "/data/harmony/mqtt_config.json"
-#define HARMONY_MQTT_FILE_ALT "/data/harmony/mqtt.json"
-
-#define STOCK_IMPORT_FLAG HARMONY_STOCK_IMPORT_FLAG
+#define HARMONY_MQTT_FILE "/data/harmony/mqtt.json"
 
 struct activity_step {
     char type[32];

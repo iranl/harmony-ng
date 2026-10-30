@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "config_store.h"
 #include "config_sanitize.h"
-#include "config_migration.h"
 #include "bt_common.h"
 #include "cJSON.h"
 
@@ -60,19 +59,6 @@ int config_store_init(void) {
     mkdir(HARMONY_DIR, 0755);
     mkdir(HARMONY_CONFIG_DIR, 0755);
 
-    /* Stock import on first boot only: skip if import flag already present */
-    if (access(HARMONY_STOCK_IMPORT_FLAG, F_OK) != 0) {
-        migrate_stock_devices();
-        migrate_stock_activities();
-        if (access(HARMONY_DEVICES_FILE, F_OK) == 0 && access(HARMONY_ACTIVITIES_FILE, F_OK) == 0) {
-            FILE *flag = fopen(HARMONY_STOCK_IMPORT_FLAG, "w");
-            if (flag) {
-                fprintf(flag, "imported %ld\n", (long)time(NULL));
-                fclose(flag);
-            }
-        }
-    }
-
     pthread_mutex_lock(&g_cfg_lock);
     if (g_devices_json_cache) { cJSON_Delete(g_devices_json_cache); g_devices_json_cache = NULL; }
     if (g_activities_json_cache) { cJSON_Delete(g_activities_json_cache); g_activities_json_cache = NULL; }
@@ -84,7 +70,6 @@ int config_store_init(void) {
         free(dev_raw);
         if (g_devices_json_cache) {
             sanitize_devices_json(g_devices_json_cache);
-            migrate_device_ids_to_short(g_devices_json_cache);
         }
     }
     if (!g_devices_json_cache) {
@@ -99,7 +84,6 @@ int config_store_init(void) {
         free(act_raw);
         if (g_activities_json_cache) {
             sanitize_activities_json(g_activities_json_cache);
-            migrate_activity_ids_to_short(g_activities_json_cache);
         }
     }
     if (!g_activities_json_cache) {
@@ -197,19 +181,19 @@ static void parse_steps(const cJSON *arr, const char *dev_id, struct activity_st
         if (dev_id && dev_id[0]) {
             strncpy(steps[cnt].device_id, dev_id, sizeof(steps[cnt].device_id) - 1);
         }
-        const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "Order");
+        const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "order");
         if (order && cJSON_IsNumber(order)) steps[cnt].order = order->valueint;
-        const cJSON *cmd = cJSON_GetObjectItemCaseSensitive(item, "Command");
+        const cJSON *cmd = cJSON_GetObjectItemCaseSensitive(item, "command");
         if (cmd && cJSON_IsString(cmd) && cmd->valuestring) {
             strncpy(steps[cnt].command, cmd->valuestring, sizeof(steps[cnt].command) - 1);
         }
-        const cJSON *type = cJSON_GetObjectItemCaseSensitive(item, "Type");
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(item, "type");
         if (type && cJSON_IsString(type) && type->valuestring) {
             strncpy(steps[cnt].type, type->valuestring, sizeof(steps[cnt].type) - 1);
         } else {
             strncpy(steps[cnt].type, "IRCommand", sizeof(steps[cnt].type) - 1);
         }
-        const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "Delay");
+        const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
         if (del && cJSON_IsNumber(del)) steps[cnt].delay_ms = del->valueint;
         cnt++;
     }
@@ -231,7 +215,6 @@ int load_ir_inventory(struct ir_inventory *inv) {
         cJSON_ArrayForEach(d, clean_devs) {
             if (inv->device_count >= MAX_IR_DEVICES) break;
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id");
             long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
             if (id <= 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
             if (id <= 0) continue;
@@ -272,11 +255,9 @@ int load_ir_inventory(struct ir_inventory *inv) {
             const cJSON *pod = cJSON_GetObjectItemCaseSensitive(d, "powerOnDelay");
             dev->power_on_delay = (pod && cJSON_IsNumber(pod)) ? pod->valueint : 1500;
             const cJSON *pao = cJSON_GetObjectItemCaseSensitive(d, "isPowerAlwaysOn");
-            if (!pao) pao = cJSON_GetObjectItemCaseSensitive(d, "is_power_always_on");
             dev->is_power_always_on = (pao && (cJSON_IsTrue(pao) || (cJSON_IsNumber(pao) && pao->valueint > 0))) ? 1 : 0;
 
-            const cJSON *bar = cJSON_GetObjectItemCaseSensitive(d, "bt_auto_reconnect");
-            if (!bar) bar = cJSON_GetObjectItemCaseSensitive(d, "btAutoReconnect");
+            const cJSON *bar = cJSON_GetObjectItemCaseSensitive(d, "btAutoReconnect");
             if (bar) {
                 if (cJSON_IsNumber(bar)) dev->bt_auto_reconnect = bar->valueint;
                 else if (cJSON_IsBool(bar)) dev->bt_auto_reconnect = cJSON_IsTrue(bar) ? 1 : 0;
@@ -285,25 +266,17 @@ int load_ir_inventory(struct ir_inventory *inv) {
                 dev->bt_auto_reconnect = 1;
             }
 
-            const cJSON *brdur = cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_duration_sec");
-            if (!brdur) brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDurationSec");
-            if (!brdur) brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDuration");
+            const cJSON *brdur = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDurationSec");
             dev->bt_reconnect_duration_sec = (brdur && cJSON_IsNumber(brdur)) ? brdur->valueint : 0;
 
-            const cJSON *brdel = cJSON_GetObjectItemCaseSensitive(d, "bt_reconnect_delay_sec");
-            if (!brdel) brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelaySec");
-            if (!brdel) brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelay");
+            const cJSON *brdel = cJSON_GetObjectItemCaseSensitive(d, "btReconnectDelaySec");
             dev->bt_reconnect_delay_sec = (brdel && cJSON_IsNumber(brdel)) ? brdel->valueint : -1;
 
-            const cJSON *j_btd = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_device_id");
-            if (!j_btd) j_btd = cJSON_GetObjectItemCaseSensitive(d, "btTriggerDeviceId");
+            const cJSON *j_btd = cJSON_GetObjectItemCaseSensitive(d, "btTriggerDeviceId");
             if (j_btd && cJSON_IsString(j_btd) && j_btd->valuestring) {
                 strncpy(dev->bt_trigger_device_id, j_btd->valuestring, sizeof(dev->bt_trigger_device_id) - 1);
             }
-            const cJSON *j_btc = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_command_name");
-            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "btTriggerCommandName");
-            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "bt_trigger_command");
-            if (!j_btc) j_btc = cJSON_GetObjectItemCaseSensitive(d, "btTriggerCommand");
+            const cJSON *j_btc = cJSON_GetObjectItemCaseSensitive(d, "btTriggerCommandName");
             if (j_btc && cJSON_IsString(j_btc) && j_btc->valuestring) {
                 const char *colon = strchr(j_btc->valuestring, ':');
                 if (colon && !dev->bt_trigger_device_id[0]) {
@@ -318,19 +291,14 @@ int load_ir_inventory(struct ir_inventory *inv) {
             }
 
             const cJSON *po = cJSON_GetObjectItemCaseSensitive(d, "powerOnSequence");
-            if (!po) po = cJSON_GetObjectItemCaseSensitive(d, "PowerOnActions");
             if (po) parse_steps(po, dev->id, &dev->power_on_steps, &dev->power_on_count);
 
             const cJSON *pf = cJSON_GetObjectItemCaseSensitive(d, "powerOffSequence");
-            if (!pf) pf = cJSON_GetObjectItemCaseSensitive(d, "PowerOffActions");
             if (pf) parse_steps(pf, dev->id, &dev->power_off_steps, &dev->power_off_count);
 
             const cJSON *mqe = cJSON_GetObjectItemCaseSensitive(d, "mqttEnabled");
-            if (!mqe) mqe = cJSON_GetObjectItemCaseSensitive(d, "MQTTEnabled");
             const cJSON *mqt = cJSON_GetObjectItemCaseSensitive(d, "mqttTopic");
-            if (!mqt) mqt = cJSON_GetObjectItemCaseSensitive(d, "MQTTTopic");
             const cJSON *mqp = cJSON_GetObjectItemCaseSensitive(d, "mqttPulseMs");
-            if (!mqp) mqp = cJSON_GetObjectItemCaseSensitive(d, "MQTTPulseMs");
             if (mqe || mqt || mqp) {
                 dev->mqtt_enabled = (mqe && (cJSON_IsTrue(mqe) || (cJSON_IsNumber(mqe) && mqe->valueint > 0))) ? 1 : 0;
                 if (mqt && cJSON_IsString(mqt) && mqt->valuestring) strncpy(dev->mqtt_topic, mqt->valuestring, sizeof(dev->mqtt_topic) - 1);
@@ -405,51 +373,35 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
         struct activity_step *st = &steps[cnt];
         memset(st, 0, sizeof(*st));
 
-        const cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "DeviceId-");
-        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(item, "DeviceId");
-        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
+        const cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
         if (jid) {
             if (cJSON_IsNumber(jid)) snprintf(st->device_id, sizeof(st->device_id), "%ld", (long)jid->valuedouble);
             else if (cJSON_IsString(jid) && jid->valuestring) strncpy(st->device_id, jid->valuestring, sizeof(st->device_id) - 1);
         }
 
-        const cJSON *cmd = cJSON_GetObjectItemCaseSensitive(item, "CommandName");
-        if (!cmd) cmd = cJSON_GetObjectItemCaseSensitive(item, "IRCommandName");
-        if (!cmd) cmd = cJSON_GetObjectItemCaseSensitive(item, "Command");
-        if (!cmd) cmd = cJSON_GetObjectItemCaseSensitive(item, "command");
+        const cJSON *cmd = cJSON_GetObjectItemCaseSensitive(item, "command");
         if (cmd && cJSON_IsString(cmd) && cmd->valuestring) {
             strncpy(st->command, cmd->valuestring, sizeof(st->command) - 1);
         }
 
-        const cJSON *type = cJSON_GetObjectItemCaseSensitive(item, "Type");
-        if (!type) type = cJSON_GetObjectItemCaseSensitive(item, "type");
-        const cJSON *ttype = cJSON_GetObjectItemCaseSensitive(item, "__type");
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(item, "type");
         if (type && cJSON_IsString(type) && type->valuestring) {
             strncpy(st->type, type->valuestring, sizeof(st->type) - 1);
-        } else if (ttype && cJSON_IsString(ttype) && ttype->valuestring) {
-            if (strstr(ttype->valuestring, "Delay")) strncpy(st->type, "Delay", sizeof(st->type) - 1);
-            else if (strstr(ttype->valuestring, "Switched")) strncpy(st->type, "Switched", sizeof(st->type) - 1);
-            else strncpy(st->type, "IRCommand", sizeof(st->type) - 1);
         } else {
             strncpy(st->type, "IRCommand", sizeof(st->type) - 1);
         }
-        if (strcasecmp(st->type, "Switched") == 0 || strcasecmp(st->type, "ActivitySwitched") == 0 || strcasecmp(st->command, "Switched") == 0) {
+        if (strcasecmp(st->type, "Switched") == 0 || strcasecmp(st->command, "Switched") == 0) {
             strncpy(st->type, "Switched", sizeof(st->type) - 1);
             if (!st->command[0]) strncpy(st->command, "Switched", sizeof(st->command) - 1);
         }
 
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
-        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "delay_ms");
-        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "delayMs");
-        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "Delay");
-        if (!del) del = cJSON_GetObjectItemCaseSensitive(item, "Duration");
         if (del) {
             if (cJSON_IsNumber(del)) st->delay_ms = (int)del->valuedouble;
             else if (cJSON_IsString(del) && del->valuestring) st->delay_ms = atoi(del->valuestring);
         }
 
-        const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "Order");
-        if (!order) order = cJSON_GetObjectItemCaseSensitive(item, "ActionOrder");
+        const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "order");
         if (order && cJSON_IsNumber(order)) st->order = (int)order->valuedouble;
 
         cnt++;
@@ -473,19 +425,13 @@ int load_activity_inventory(struct activity_inventory *inv) {
     cJSON *root = config_store_get_activities_json();
     if (!root) return -1;
 
-    cJSON *arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities");
-    if (!arr) arr = cJSON_GetObjectItemCaseSensitive(root, "Activities");
+    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "activities");
     if (arr && cJSON_IsArray(arr)) {
-        const cJSON *entry = NULL;
-        cJSON_ArrayForEach(entry, arr) {
+        const cJSON *a = NULL;
+        cJSON_ArrayForEach(a, arr) {
             if (inv->count >= MAX_ACTIVITIES) break;
-            const cJSON *a = entry;
-            const cJSON *inner = cJSON_GetObjectItemCaseSensitive(entry, "Activity");
-            if (inner && cJSON_IsObject(inner)) a = inner;
 
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
-            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(a, "Id-");
-            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(a, "Id");
             long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
             if (id == 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
             if (id == 0) continue;
@@ -495,21 +441,17 @@ int load_activity_inventory(struct activity_inventory *inv) {
             if (id > 0 && id > inv->max_id) inv->max_id = id;
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
-            if (!name) name = cJSON_GetObjectItemCaseSensitive(a, "Name");
             if (name && cJSON_IsString(name) && name->valuestring) {
                 strncpy(act->name, name->valuestring, sizeof(act->name) - 1);
             } else if (id == -1) {
                 strncpy(act->name, "PowerOff", sizeof(act->name) - 1);
             }
             const cJSON *type = cJSON_GetObjectItemCaseSensitive(a, "type");
-            if (!type) type = cJSON_GetObjectItemCaseSensitive(a, "Type");
-            if (!type) type = cJSON_GetObjectItemCaseSensitive(a, "SuggestedDisplay");
             if (type && cJSON_IsString(type) && type->valuestring) {
                 strncpy(act->type, type->valuestring, sizeof(act->type) - 1);
             }
 
             const cJSON *devs = cJSON_GetObjectItemCaseSensitive(a, "deviceIds");
-            if (!devs) devs = cJSON_GetObjectItemCaseSensitive(a, "Devices");
             if (devs && cJSON_IsArray(devs)) {
                 const cJSON *d = NULL;
                 cJSON_ArrayForEach(d, devs) {
@@ -522,42 +464,10 @@ int load_activity_inventory(struct activity_inventory *inv) {
                 }
             }
 
-            /* Extract devices from Roles */
-            const cJSON *roles = cJSON_GetObjectItemCaseSensitive(a, "Roles");
-            if (roles && cJSON_IsArray(roles)) {
-                const cJSON *r = NULL;
-                cJSON_ArrayForEach(r, roles) {
-                    if (act->device_count >= 16) break;
-                    const cJSON *rdid = cJSON_GetObjectItemCaseSensitive(r, "DeviceId-");
-                    if (!rdid) rdid = cJSON_GetObjectItemCaseSensitive(r, "DeviceId");
-                    if (!rdid) rdid = cJSON_GetObjectItemCaseSensitive(r, "deviceId");
-                    char dstr[32] = {0};
-                    if (rdid && cJSON_IsNumber(rdid)) snprintf(dstr, sizeof(dstr), "%ld", (long)rdid->valuedouble);
-                    else if (rdid && cJSON_IsString(rdid) && rdid->valuestring) strncpy(dstr, rdid->valuestring, sizeof(dstr) - 1);
-                    if (dstr[0] && strcmp(dstr, "0") != 0) {
-                        int dup = 0;
-                        for (int di = 0; di < act->device_count; di++) {
-                            if (strcmp(act->device_ids[di], dstr) == 0) { dup = 1; break; }
-                        }
-                        if (!dup) strncpy(act->device_ids[act->device_count++], dstr, 31);
-                    }
-                }
-            }
-
-            /* Parse StartSequence or EnterActions */
             const cJSON *start_arr = cJSON_GetObjectItemCaseSensitive(a, "startSequence");
-            if (!start_arr) start_arr = cJSON_GetObjectItemCaseSensitive(a, "StartSequence");
-            if (!start_arr || !cJSON_IsArray(start_arr) || cJSON_GetArraySize(start_arr) == 0) {
-                start_arr = cJSON_GetObjectItemCaseSensitive(a, "EnterActions");
-            }
             parse_activity_steps_array(start_arr, act->start_steps, MAX_ACTIVITY_STEPS, &act->start_count);
 
-            /* Parse StopSequence or LeaveActions */
             const cJSON *stop_arr = cJSON_GetObjectItemCaseSensitive(a, "stopSequence");
-            if (!stop_arr) stop_arr = cJSON_GetObjectItemCaseSensitive(a, "StopSequence");
-            if (!stop_arr || !cJSON_IsArray(stop_arr) || cJSON_GetArraySize(stop_arr) == 0) {
-                stop_arr = cJSON_GetObjectItemCaseSensitive(a, "LeaveActions");
-            }
             parse_activity_steps_array(stop_arr, act->stop_steps, MAX_ACTIVITY_STEPS, &act->stop_count);
 
             /* Extract any devices present in actions if not yet recorded */
@@ -735,26 +645,10 @@ int config_store_save_settings(const struct hub_settings *settings) {
 }
 
 cJSON *config_store_get_mqtt_json(void) {
-    char *raw = read_file_text(config_store_path("mqtt.json"), 64 * 1024);
-    char *raw_legacy = read_file_text(HARMONY_MQTT_FILE, 64 * 1024);
-    cJSON *root = raw ? cJSON_Parse(raw) : NULL;
-    cJSON *legacy = raw_legacy ? cJSON_Parse(raw_legacy) : NULL;
-    if (raw) free(raw);
-    if (raw_legacy) free(raw_legacy);
-
-    if (!root && !legacy) return NULL;
-    if (!root) return legacy;
-    if (!legacy) return root;
-
-    /* Merge any keys from legacy that are missing in root */
-    cJSON *item = legacy->child;
-    while (item) {
-        if (!cJSON_GetObjectItemCaseSensitive(root, item->string)) {
-            cJSON_AddItemToObject(root, item->string, cJSON_Duplicate(item, 1));
-        }
-        item = item->next;
-    }
-    cJSON_Delete(legacy);
+    char *raw = read_file_text(HARMONY_MQTT_FILE, 64 * 1024);
+    if (!raw) return NULL;
+    cJSON *root = cJSON_Parse(raw);
+    free(raw);
     return root;
 }
 
@@ -762,9 +656,8 @@ int config_store_save_mqtt_json(cJSON *mqtt_json) {
     if (!mqtt_json) return -1;
     char *out_json = cJSON_Print(mqtt_json);
     if (!out_json) return -1;
-    write_file_atomic(config_store_path("mqtt.json"), out_json);
-    write_file_atomic(HARMONY_MQTT_FILE, out_json);
+    int rc = write_file_atomic(HARMONY_MQTT_FILE, out_json);
     free(out_json);
-    return 0;
+    return rc;
 }
 

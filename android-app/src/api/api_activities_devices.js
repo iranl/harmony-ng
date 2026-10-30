@@ -6,58 +6,57 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
   async getInventory() {
     const data = await this.request('/api/inventory');
     if (!data) return { devices: [] };
-    const rawDevs = data.devices || data.DevicesWithFeatures || data.device || (Array.isArray(data) ? data : []);
-    const normalized = rawDevs.map(d => {
-      const dev = d.Device || d;
-      const rawCmds = dev.commands || d.commands || d.Commands || [];
-      const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : (dev.type === 'IR' ? 'IR' : (dev.transport === 32 ? 'BT' : 'IR')));
+    const rawDevs = data.devices || (Array.isArray(data) ? data : []);
+    const normalized = rawDevs.map(dev => {
+      const rawCmds = dev.commands || [];
+      const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR');
       const isBt = cleanType === 'BT';
       const isMqtt = cleanType === 'MQTT';
-      const hostAddr = dev.bdaddr || dev.btHost || dev.bt_host || dev.BTAddress || '';
+      const hostAddr = dev.bdaddr || dev.btHost || '';
 
       return {
-        id: String(dev.id || dev['Id-'] || dev.Id || ''),
-        name: dev.name || dev.Name || 'Device',
+        id: String(dev.id || ''),
+        name: dev.name || 'Device',
         type: cleanType,
-        manufacturer: dev.manufacturer || dev.Manufacturer || '',
-        model: dev.model || dev.Model || '',
+        manufacturer: dev.manufacturer || '',
+        model: dev.model || '',
         controlPort: dev.controlPort !== undefined ? Number(dev.controlPort) : 7,
-        icon: dev.icon || dev.Icon || '',
+        icon: dev.icon || '',
         interDeviceDelay: dev.interDeviceDelay !== undefined ? Number(dev.interDeviceDelay) : 500,
         interKeyDelay: dev.interKeyDelay !== undefined ? Number(dev.interKeyDelay) : 100,
         holdInterKeyDelay: dev.holdInterKeyDelay !== undefined ? Number(dev.holdInterKeyDelay) : 200,
         defaultInterDeviceDelay: dev.defaultInterDeviceDelay !== undefined ? Number(dev.defaultInterDeviceDelay) : 500,
         powerOnDelay: dev.powerOnDelay !== undefined ? Number(dev.powerOnDelay) : 1500,
-        isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn || dev.is_power_always_on),
+        isPowerAlwaysOn: Boolean(dev.isPowerAlwaysOn),
         bdaddr: hostAddr,
         btHost: hostAddr,
         btAutoReconnect: dev.btAutoReconnect !== undefined ? Number(dev.btAutoReconnect) : 1,
-        btReconnectDurationSec: dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : (dev.btReconnectDuration !== undefined ? Number(dev.btReconnectDuration) : 0),
-        btReconnectDelaySec: dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : (dev.btReconnectDelay !== undefined ? Number(dev.btReconnectDelay) : -1),
-        btTriggerDeviceId: dev.btTriggerDeviceId || dev.bt_trigger_device_id || '',
-        btTriggerCommandName: dev.btTriggerCommandName || dev.bt_trigger_command_name || '',
-        powerOnSequence: dev.powerOnSequence || dev.PowerOnActions || [],
-        powerOffSequence: dev.powerOffSequence || dev.PowerOffActions || [],
+        btReconnectDurationSec: dev.btReconnectDurationSec !== undefined ? Number(dev.btReconnectDurationSec) : 0,
+        btReconnectDelaySec: dev.btReconnectDelaySec !== undefined ? Number(dev.btReconnectDelaySec) : -1,
+        btTriggerDeviceId: dev.btTriggerDeviceId || '',
+        btTriggerCommandName: dev.btTriggerCommandName || '',
+        powerOnSequence: dev.powerOnSequence || [],
+        powerOffSequence: dev.powerOffSequence || [],
         isBt: isBt,
         transport: isBt ? 32 : (dev.transport !== undefined ? Number(dev.transport) : 0),
         isKeyboardAssociated: isBt,
-        mqttEnabled: isMqtt || !!(dev.mqttEnabled || dev.mqtt_enabled),
-        mqttTopic: dev.mqttTopic || dev.mqtt_topic || '{base_topic}/button/{device}/{command}',
+        mqttEnabled: isMqtt || !!dev.mqttEnabled,
+        mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
         mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
-        commands: rawCmds.map(c => {
+        commands: rawCmds.map((c, idx) => {
           if (typeof c === 'string') return { name: c, keyCode: '', raw: '' };
-          const kCode = c.keyCode || c.KeyCode || '';
-          const rawStr = c.raw || c.Raw || '';
+          const kCode = c.keyCode || '';
+          const rawStr = c.raw || '';
           const isBtCmd = isBt || kCode.startsWith('HID:') || rawStr.startsWith('HID:');
           const isMqttCmd = isMqtt || kCode.startsWith('G:MQTT') || rawStr.startsWith('G:MQTT');
           const cmdObj = {
-            name: c.name || c.Name || '',
-            id: c.id || c['Id-'] || 0,
+            name: c.name || '',
+            id: c.id !== undefined ? c.id : idx,
             keyCode: kCode,
             raw: rawStr
           };
           if (!isBtCmd && !isMqttCmd) {
-            cmdObj.repeats = c.repeats !== undefined ? c.repeats : (c.Repeats || 3);
+            cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
             cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
           }
           if (c.isMacro) cmdObj.isMacro = true;
@@ -66,84 +65,43 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
       };
     });
     return { devices: normalized };
-    }
+  }
 
-    async getActivities(options = {}) {
-      const [data, status] = await Promise.all([
-        this.request('/api/activities', options),
-        this.request('/api/status', options).catch(() => null)
-      ]);
-      if (!data) return { activities: [], currentId: '-1', currentName: 'PowerOff' };
-      const rawActs = data.Activities || data.activities || data.activity || (Array.isArray(data) ? data : []);
-      const normalized = rawActs.map(a => {
-        const roles = a.Roles || a.roles || [];
-        const startSeq = a.startSequence || a.StartSequence || a.EnterActions || a.startSteps || [];
-        const normStart = startSeq.map((s, idx) => {
-          const cName = s.CommandName || s.IRCommandName || s.Command || s.command || '';
-          const isSw = (s.type === 'Switched' || s.type === 'ActivitySwitched' || (s.__type && s.__type.includes('Switched')) || cName === 'Switched');
-          const isDl = (s.type === 'Delay' || s.__type === 'DelayActivityAction' || (!isSw && s.type === 'Delay'));
-          const rawDelay = s.delay !== undefined ? s.delay :
-                           (s.delay_ms !== undefined ? s.delay_ms :
-                           (s.delayMs !== undefined ? s.delayMs :
-                           (s.Delay !== undefined ? s.Delay :
-                           (s.Duration !== undefined ? s.Duration : 0))));
-          return {
-            id: s.Id || s.id || idx,
-            type: isDl ? 'Delay' : (isSw ? 'Switched' : (s.type === 'BTCommand' ? 'BTCommand' : 'Command')),
-            deviceId: String(s['DeviceId-'] || s.DeviceId || s.deviceId || '0'),
-            command: isSw ? (cName || 'Switched') : cName,
-            delay: Number(rawDelay) || 0,
-            order: s.Order !== undefined ? s.Order : (s.ActionOrder !== undefined ? s.ActionOrder : idx)
-          };
-        });
-        const stopSeq = a.stopSequence || a.StopSequence || a.LeaveActions || a.stopSteps || [];
-        const normStop = stopSeq.map((s, idx) => {
-          const cName = s.CommandName || s.IRCommandName || s.Command || s.command || '';
-          const isSw = (s.type === 'Switched' || s.type === 'ActivitySwitched' || (s.__type && s.__type.includes('Switched')) || cName === 'Switched');
-          const isDl = (s.type === 'Delay' || s.__type === 'DelayActivityAction' || (!isSw && s.type === 'Delay'));
-          const rawDelay = s.delay !== undefined ? s.delay :
-                           (s.delay_ms !== undefined ? s.delay_ms :
-                           (s.delayMs !== undefined ? s.delayMs :
-                           (s.Delay !== undefined ? s.Delay :
-                           (s.Duration !== undefined ? s.Duration : 0))));
-          return {
-            id: s.Id || s.id || idx,
-            type: isDl ? 'Delay' : (isSw ? 'Switched' : (s.type === 'BTCommand' ? 'BTCommand' : 'Command')),
-            deviceId: String(s['DeviceId-'] || s.DeviceId || s.deviceId || '0'),
-            command: isSw ? (cName || 'Switched') : cName,
-            delay: Number(rawDelay) || 0,
-            order: s.Order !== undefined ? s.Order : (s.ActionOrder !== undefined ? s.ActionOrder : idx)
-          };
-        });
-
-      let devIds = [];
-      if (Array.isArray(a.deviceIds) && a.deviceIds.length > 0) {
-        devIds = a.deviceIds.map(String).filter(Boolean);
-      } else if (typeof a.deviceIds === 'string' && a.deviceIds.trim().length > 0) {
-        devIds = a.deviceIds.split(',').map(s => s.trim()).filter(Boolean);
-      } else if (Array.isArray(roles) && roles.length > 0) {
-        const sortedRoles = [...roles].sort((r1, r2) => {
-          const o1 = Number(r1.PowerOnOrder !== undefined ? r1.PowerOnOrder : (r1.order !== undefined ? r1.order : 999));
-          const o2 = Number(r2.PowerOnOrder !== undefined ? r2.PowerOnOrder : (r2.order !== undefined ? r2.order : 999));
-          return o1 - o2;
-        });
-        devIds = sortedRoles.map(r => String(r['DeviceId-'] || r.DeviceId || r.deviceId || '')).filter(Boolean);
-      } else {
-        const seqDevIds = [...normStart, ...normStop].map(s => String(s.deviceId || '')).filter(d => d && d !== '0');
-        devIds = Array.from(new Set(seqDevIds));
-      }
+  async getActivities(options = {}) {
+    const [data, status] = await Promise.all([
+      this.request('/api/activities', options),
+      this.request('/api/status', options).catch(() => null)
+    ]);
+    if (!data) return { activities: [], currentId: '-1', currentName: 'PowerOff' };
+    const rawActs = data.activities || (Array.isArray(data) ? data : []);
+    const normalized = rawActs.map(a => {
+      const normStart = (a.startSequence || []).map((s, idx) => ({
+        id: s.id !== undefined ? s.id : idx,
+        type: s.type || 'Command',
+        deviceId: String(s.deviceId || '0'),
+        command: s.command || '',
+        delay: Number(s.delay !== undefined ? s.delay : 0),
+        order: s.order !== undefined ? s.order : idx
+      }));
+      const normStop = (a.stopSequence || []).map((s, idx) => ({
+        id: s.id !== undefined ? s.id : idx,
+        type: s.type || 'Command',
+        deviceId: String(s.deviceId || '0'),
+        command: s.command || '',
+        delay: Number(s.delay !== undefined ? s.delay : 0),
+        order: s.order !== undefined ? s.order : idx
+      }));
+      const devIds = Array.isArray(a.deviceIds) ? a.deviceIds.map(String).filter(Boolean) : [];
 
       return {
         ...a,
-        id: String(a['Id-'] || a.id || a.Id || ''),
-        name: a.Name || a.name || 'Activity',
-        type: a.SuggestedDisplay || a.type || '',
-        order: Number(a.ActivityOrder !== undefined ? a.ActivityOrder : (a.order || 0)),
-        isDefault: Boolean(a.IsDefault || a.isDefault),
+        id: String(a.id || ''),
+        name: a.name || 'Activity',
+        type: a.type || '',
+        icon: a.icon || '',
+        order: Number(a.order || 0),
+        isDefault: Boolean(a.isDefault),
         deviceIds: devIds,
-        participatingDeviceIds: devIds,
-        roles: roles,
-        Roles: roles,
         startSequence: normStart,
         stopSequence: normStop
       };

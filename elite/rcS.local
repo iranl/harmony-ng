@@ -48,9 +48,6 @@ fi
 # 4. Normal Boot: USB Ethernet & Dropbear SSH active by default on USB
 USBETH_CONF=1
 ELITE_CONF="/data/elite_settings.conf"
-if [ ! -f "$ELITE_CONF" ]; then
-    ELITE_CONF="/data/elite_ui.conf"
-fi
 if [ -f "$ELITE_CONF" ]; then
     VAL=$(grep '^usbeth=' "$ELITE_CONF" 2>/dev/null | cut -d= -f2)
     if [ "$VAL" = "0" ]; then USBETH_CONF=0; fi

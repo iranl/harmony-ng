@@ -92,7 +92,29 @@ ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
 # 3. One-way migration from /data/codex to /data/harmony and cleanup of old binaries
 echo "[3/5] Migrating legacy codex paths and querying remote checksums..."
 ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-    "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
+    "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; [ -f /data/harmony/mqtt_config.json ] && [ ! -f /data/harmony/mqtt.json ] && mv -f /data/harmony/mqtt_config.json /data/harmony/mqtt.json 2>/dev/null || true; [ -f /data/harmony/elite_remote_map.json ] && [ ! -f /data/harmony/remote_slot1_map.json ] && mv -f /data/harmony/elite_remote_map.json /data/harmony/remote_slot1_map.json 2>/dev/null || true; [ -f /data/harmony/bt_devices.json ] && [ ! -f /data/harmony/bt-devices.json ] && mv -f /data/harmony/bt_devices.json /data/harmony/bt-devices.json 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/elite_ui.ota.gz /data/elite_ui.version 2>/dev/null || true; rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
+
+# If no devices.json exists yet, check if stock Logitech resources are present and migrate them
+HAS_DEV=$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0" 2>/dev/null || echo 0)
+if [ "$HAS_DEV" = "0" ]; then
+    HAS_STOCK=$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0" 2>/dev/null || echo 0)
+    if [ "$HAS_STOCK" = "1" ] && [ -f "$REPO_ROOT/tools/migrate_hub_configs.py" ]; then
+        echo "[*] Migrating stock Logitech configurations to canonical v2.0 format..."
+        TMP_MIG=$(mktemp -d 2>/dev/null || mktemp -d -t 'harmig')
+        scp -O -r "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}:/data/resources" "$TMP_MIG/" 2>/dev/null || true
+        PY_BIN="python3"
+        command -v python3 >/dev/null 2>&1 || PY_BIN="python"
+        $PY_BIN "$REPO_ROOT/tools/migrate_hub_configs.py" --src "$TMP_MIG/resources" --dest "$TMP_MIG/out" 2>/dev/null || true
+        if [ -f "$TMP_MIG/out/config/devices.json" ]; then
+            scp -O "${SSH_OPTS[@]}" "$TMP_MIG/out/config/"* "${HUB_USER}@${HUB_HOST}:/data/harmony/config/" 2>/dev/null || true
+            for _mf in "$TMP_MIG/out/"*.json; do
+                [ -f "$_mf" ] && scp -O "${SSH_OPTS[@]}" "$_mf" "${HUB_USER}@${HUB_HOST}:/data/harmony/" 2>/dev/null || true
+            done
+            echo "[+] Stock configurations converted and uploaded successfully."
+        fi
+        rm -rf "$TMP_MIG" 2>/dev/null || true
+    fi
+fi
 
 REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
 

@@ -103,7 +103,7 @@ export default {
     "card_bt_remote_sub": "Homatics B25 & BLE-afstandsbedieningen koppelen en toewijzen",
     "card_bt_settings_sub": "BTstack-servicestatus, host-koppeling, toezicht & logs",
     "card_devices_sub": "Apparaatstudio, signalen inleren, IRDB-database & blaster-toewijzing",
-    "card_elite_sub": "RF-afstandsbediening (950 / Elite), touchscreen-indeling & knoppen",
+    "card_elite_sub": "RF-afstandsbediening, touchscreen-indeling & knoppen",
     "card_footer_configure": "Configureren →",
     "card_footer_manage": "Beheren →",
     "card_footer_open_kb": "Toetsenbord openen →",

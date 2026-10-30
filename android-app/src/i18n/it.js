@@ -103,7 +103,7 @@ export default {
     "card_bt_remote_sub": "Accoppiamento Homatics B25 e telecomandi BLE per attività",
     "card_bt_settings_sub": "Stato servizio BTstack, accoppiamento host, supervisione e log",
     "card_devices_sub": "Gestione dispositivi, apprendimento IR, ricerca IRDB e blaster",
-    "card_elite_sub": "Telecomando RF (950 / Elite), layout touchscreen e pulsanti",
+    "card_elite_sub": "Telecomando RF, layout touchscreen e pulsanti",
     "card_footer_configure": "Configura →",
     "card_footer_manage": "Gestisci →",
     "card_footer_open_kb": "Apri tastiera →",

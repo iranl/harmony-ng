@@ -279,12 +279,10 @@ uint8_t rf_check_update_flags(uint8_t slot) {
         flags |= 0x01;
     }
 
-    /* 2. OTA update check: Hub has OTA file in /cache or /data with higher version than remote */
+    /* 2. OTA update check: Hub has OTA file in /cache with higher version than remote */
     const char *ota_path = "/cache/elite_ui.ota.gz";
-    if (access(ota_path, R_OK) != 0) ota_path = "/data/elite_ui.ota.gz";
     if (access(ota_path, R_OK) == 0) {
         FILE *vf = fopen("/cache/elite_ui.version", "r");
-        if (!vf) vf = fopen("/data/elite_ui.version", "r");
         if (vf) {
             char ota_ver[32] = {0};
             if (fgets(ota_ver, sizeof(ota_ver), vf)) {
@@ -310,7 +308,6 @@ void rf_notify_update_available(uint8_t target_slot) {
     payload[0] = flags;
     payload[1] = g_config_version;
     FILE *vf = fopen("/cache/elite_ui.version", "r");
-    if (!vf) vf = fopen("/data/elite_ui.version", "r");
     if (vf) {
         unsigned int maj = 0, min = 0, pat = 0;
         if (fscanf(vf, "%u.%u.%u", &maj, &min, &pat) >= 2) {
@@ -396,11 +393,8 @@ int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_st
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s_%s.png", type_str, id_str);
     if (access(file_path, R_OK) != 0) {
-        snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s.png", id_str);
-        if (access(file_path, R_OK) != 0) {
-            printf("[-] Icon push: file not found for %s / %s\n", type_str, id_str);
-            return -1;
-        }
+        printf("[-] Icon push: file not found for %s / %s\n", type_str, id_str);
+        return -1;
     }
 
     FILE *f = fopen(file_path, "rb");
