@@ -290,23 +290,38 @@ export class HarmonyAppCore {
     this.client.onWsMessage = (data) => {
       if (!data) return;
       if (data.type === 'activity_progress') {
-        const isFinished = (data.state === 2 || data.state === 0);
+        const isFinished = (data.state === 2 || data.state === 0 || data.state === 'running' || data.state === 'idle' || data.stateCode === 2 || data.stateCode === 0);
+        const actId = String(data.activityId || data.activity || '');
+        const step = data.currentStep ?? data.step ?? 0;
+        const total = data.totalSteps ?? data.total ?? 0;
+        const desc = data.stepDesc || data.desc || '';
+
         this.activitiesData.isTransitioning = !isFinished;
-        this.activitiesData.transitionTarget = String(data.activity || '');
-        this.activitiesData.transitionStep = data.step || 0;
-        this.activitiesData.transitionTotal = data.total || 0;
-        this.activitiesData.transitionDesc = data.desc || '';
-        this.wsProgress = isFinished ? null : data;
+        this.activitiesData.transitionTarget = actId;
+        this.activitiesData.transitionStep = step;
+        this.activitiesData.transitionTotal = total;
+        this.activitiesData.transitionDesc = desc;
+        this.wsProgress = isFinished ? null : {
+          ...data,
+          activity: actId,
+          activityId: actId,
+          step,
+          currentStep: step,
+          total,
+          totalSteps: total,
+          desc,
+          stepDesc: desc
+        };
 
         if (isFinished) {
           if (this.actPollTimer) {
             clearTimeout(this.actPollTimer);
             this.actPollTimer = null;
           }
-          const actId = (data.state === 0 || String(data.activity) === '-1') ? '-1' : String(data.activity);
-          this.activitiesData.currentId = actId;
-          const curAct = (this.activitiesData.activities || []).find(a => String(a.id) === actId);
-          this.activitiesData.currentName = curAct ? (curAct.name || curAct.label) : (actId === '-1' ? 'PowerOff' : actId);
+          const finalActId = (data.state === 0 || data.state === 'idle' || data.stateCode === 0 || actId === '-1') ? '-1' : actId;
+          this.activitiesData.currentId = finalActId;
+          const curAct = (this.activitiesData.activities || []).find(a => String(a.id) === finalActId);
+          this.activitiesData.currentName = curAct ? (curAct.name || curAct.label) : (finalActId === '-1' ? 'PowerOff' : finalActId);
           this.refreshActivityState().then(() => {
             this.updateActivityBanner();
             if (this.currentTab === 'activity-remote') this.renderActivityRemote();

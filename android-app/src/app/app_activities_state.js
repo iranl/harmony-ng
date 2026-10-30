@@ -448,7 +448,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     if (transCard) {
       if (isTransitioning) {
         transCard.style.display = 'block';
-        const targetId = String(this.wsProgress?.activity || this.activitiesData?.transitionTarget || '');
+        const targetId = String(this.wsProgress?.activityId || this.wsProgress?.activity || this.activitiesData?.transitionTarget || '');
         const targetAct = acts.find(a => String(a.id) === targetId);
         let titleText = 'Switching Activity...';
         if (targetId === '-1' || targetId === '0') {
@@ -457,9 +457,9 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
           titleText = `Starting ${targetAct.name || targetAct.label}...`;
         }
 
-        const step = this.wsProgress?.step ?? this.activitiesData?.transitionStep ?? 0;
-        const total = this.wsProgress?.total ?? this.activitiesData?.transitionTotal ?? 0;
-        const descText = this.wsProgress?.desc || this.activitiesData?.transitionDesc || (step > 0 ? `Step ${step} of ${total}` : 'Please wait...');
+        const step = this.wsProgress?.currentStep ?? this.wsProgress?.step ?? this.activitiesData?.transitionStep ?? 0;
+        const total = this.wsProgress?.totalSteps ?? this.wsProgress?.total ?? this.activitiesData?.transitionTotal ?? 0;
+        const descText = this.wsProgress?.stepDesc || this.wsProgress?.desc || this.activitiesData?.transitionDesc || (step > 0 ? `Step ${step} of ${total}` : 'Please wait...');
         const pct = total > 0 ? Math.min(100, Math.max(10, Math.round((step / total) * 100))) : 40;
 
         if (transName) transName.textContent = titleText;

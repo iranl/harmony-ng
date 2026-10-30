@@ -50,7 +50,20 @@ int main(void) {
     expect(NULL, "PowerOff", "", "power");
     expect(NULL, "Kitchen", "VirtualDvd", "movie");
 
+    /* Device icon cases from WebUI / Android */
+    expect("shield.png", "Shield TV", "MediaStreamer", "shield");
+    expect("xbox.png", "Xbox Series X", "GameConsole", "xbox");
+    expect("sonos.png", "Living Room Sonos", "AudioSystem", "sonos");
+    expect("heos.png", "Denon AVR", "StereoReceiver", "receiver");
+    expect("bulb.png", "Hue Lamp", "Light", "light");
+    expect("tv.png", "LG OLED", "Television", "watchtv");
+    expect(NULL, "Apple TV", "MediaStreamer", "apple");
+    expect(NULL, "Denon AVR-X2700H", "StereoReceiver", "receiver");
+    expect(NULL, "PlayStation 5", "GameConsole", "ps");
+    expect(NULL, "Nintendo Switch", "GameConsole", "switch");
+    expect(NULL, "Roku Ultra", "MediaStreamer", "roku");
+
     if (failures) return 1;
-    printf("ALL ACTIVITY ICON MAPPING TESTS PASSED!\n");
+    printf("ALL ICON MAPPING TESTS PASSED!\n");
     return 0;
 }

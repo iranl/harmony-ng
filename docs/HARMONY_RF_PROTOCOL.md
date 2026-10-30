@@ -193,6 +193,9 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | 24-byte binary payload chunk |
 | `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | OTA block completion ACK |
 | `0x25` | `RF_MSG_OTA_END` | Hub -> Remote | OTA transfer complete and checksum verify |
+| `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate (target_type, size, md5) |
+| `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk (23 bytes payload) |
+| `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
 
 ### 5.2 Key Payload Structures
 
@@ -237,15 +240,24 @@ Both frames use a 17-byte standardized configuration payload:
 
 #### `RF_MSG_ACTIVITY_LIST_CHUNK` (`0x0B`)
 - `payload[0]`: Activity index; `payload[1]`: activity count.
-- `payload[2]`: Icon type, `1`..`17` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
-- `payload[3..]`: Activity ID and name.
+- `payload[2]`: Legacy icon type, `1`..`17` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
+- `payload[3..22]`: Activity ID and name.
+- `payload[23..24]`: 16-bit Icon ID (little-endian):
+  - `0x0001` .. `0x7FFF`: Stock icon index into canonical stock asset table (`/opt/luadraws/appscommon/asset/...`).
+  - `0x8001` .. `0xFFFF`: Custom user icon index (`/data/assets/custom/{icon_id}.png`), wirelessly synced over RF.
+  - `0x0000`: Fallback to legacy keyword from `payload[2]`.
 
 #### `RF_MSG_DEVICE_LIST_CHUNK` (`0x0C`)
 - Hub transmits list of Hub devices during config push (ACK'd):
-  - `payload[0]`: Device 1-based index.
+  - `payload[0]`: Device 0-based index.
   - `payload[1]`: Total device count.
-  - `payload[2..5]`: Shortened device ID string (null-terminated, up to 4 bytes).
-  - `payload[6..25]`: Friendly device name string (null-terminated, up to 20 bytes).
+  - `payload[2]`: Legacy icon type, `1`..`17` (`< 0x20`), matching activity icon types or `0` for fallback (`payload[2] >= 0x20` starts legacy 4-byte ID).
+  - `payload[3..6]`: Shortened device ID string (null-terminated, up to 4 bytes).
+  - `payload[7..22]`: Friendly device name string (null-terminated, up to 16 bytes).
+  - `payload[23..24]`: 16-bit Icon ID (little-endian):
+    - `0x0001` .. `0x7FFF`: Stock icon index into canonical stock asset table (`/opt/luadraws/appscommon/asset/...`).
+    - `0x8001` .. `0xFFFF`: Custom user icon index (`/data/assets/custom/{icon_id}.png`), wirelessly synced over RF.
+    - `0x0000`: Fallback to legacy keyword from `payload[2]`.
 
 #### `RF_MSG_BUTTON_PRESS` (`0x14`)
 - Remote transmits on key events:

@@ -17,17 +17,34 @@ void on_orch_progress(const char *activity_id, orch_state_t state,
                       int current_step, int total_steps,
                       const char *step_desc, void *user_data) {
     (void)user_data;
-    char json_msg[512];
+    const char *act_id = (activity_id && activity_id[0]) ? activity_id : "-1";
     const char *st_str = (state == ORCH_STATE_STARTING) ? "starting" :
                          (state == ORCH_STATE_STOPPING) ? "stopping" :
                          (state == ORCH_STATE_RUNNING) ? "running" : "idle";
-    snprintf(json_msg, sizeof(json_msg),
-             "{\"type\":\"activity_progress\",\"activityId\":\"%s\",\"state\":\"%s\","
-             "\"currentStep\":%d,\"totalSteps\":%d,\"stepDesc\":\"%s\"}",
-             activity_id ? activity_id : "-1", st_str, current_step, total_steps,
-             step_desc ? step_desc : "");
-    ws_broadcast_text(json_msg);
-    hub_mqtt_publish_progress(json_msg);
+    const char *desc = step_desc ? step_desc : "";
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return;
+    cJSON_AddStringToObject(root, "type", "activity_progress");
+    cJSON_AddStringToObject(root, "activity", act_id);
+    cJSON_AddStringToObject(root, "activityId", act_id);
+    cJSON_AddStringToObject(root, "state", st_str);
+    cJSON_AddNumberToObject(root, "stateCode", (int)state);
+    cJSON_AddNumberToObject(root, "step", current_step);
+    cJSON_AddNumberToObject(root, "currentStep", current_step);
+    cJSON_AddNumberToObject(root, "total", total_steps);
+    cJSON_AddNumberToObject(root, "totalSteps", total_steps);
+    cJSON_AddStringToObject(root, "desc", desc);
+    cJSON_AddStringToObject(root, "stepDesc", desc);
+
+    char *json_msg = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (json_msg) {
+        ws_broadcast_text(json_msg);
+        hub_mqtt_publish_progress(json_msg);
+        free(json_msg);
+    }
 }
 
 void handle_ws_client_message(int cfd) {

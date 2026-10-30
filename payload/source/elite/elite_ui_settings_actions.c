@@ -83,14 +83,24 @@ static void execute_remote_reboot(void) {
 static void execute_elite_factory_reset(void) {
     show_notice("Restoring stock & rebooting...", 6000);
     render_screen();
-    system("chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
-           "rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/elite_ui.log 2>/dev/null || true; "
+    system("if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
+           "killall -9 init.sh elite_watchdog.sh 2>/dev/null || true; "
            "if [ -f /data/factory_reset.sh ]; then /data/factory_reset.sh --confirm; "
-           "elif [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-           "chmod 755 /etc/init.d/rcS.local; rm -f /data/elite_ui /data/dropbear*; /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; /sbin/reboot -f 2>/dev/null || reboot -f; "
-           "else rm -f /etc/init.d/rcS.local /data/elite_ui /data/dropbear*; /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || true; /sbin/reboot -f 2>/dev/null || reboot -f; fi &");
+           "else "
+           "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
+           "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /tmp/elite_ui.log /tmp/elite-init.log /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
+           "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
+           "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
+           "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
+           "cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; "
+           "else "
+           "printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi; "
+           "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
+           "rm -f /data/elite_ui /data/elite_ui.new /data/elite_sync /data/init.sh /data/safe_reboot.sh /data/elite_watchdog.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+           "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
+           "/sbin/reboot -f 2>/dev/null || reboot -f; fi &");
     sleep(1);
-    exit(1);
+    exit(0);
 }
 
 void execute_settings_action(int idx) {

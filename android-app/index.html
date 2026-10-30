@@ -283,8 +283,8 @@
             data-i18n="nav_bt_keyboard_sub">Virtual keyboard & scripts</small></div>
       </button>
       <button type="button" class="drawer-item" data-view-target="rf-remote">
-        <span class="drawer-icon">EL</span>
-        <div><strong data-i18n="harmony_elite">Harmony Elite</strong><small data-i18n="nav_harmony_elite_sub">RF Remote
+        <span class="drawer-icon">RF</span>
+        <div><strong data-i18n="harmony_elite">Harmony (RF) Remote</strong><small data-i18n="nav_harmony_elite_sub">RF Remote
             & Screen map</small></div>
       </button>
       <button type="button" class="drawer-item" data-view-target="remotes">
@@ -430,10 +430,8 @@
             style="cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
               <div>
-                <strong style="font-size: 15px; color: var(--accent);" data-i18n="harmony_elite">Harmony Elite
-                  Remote</strong>
-                <div class="muted mini" style="margin-top: 3px;" data-i18n="card_elite_sub">Physical RF remote (950 /
-                  Elite) pairing, touchscreen layout & button mapping</div>
+                <strong style="font-size: 15px; color: var(--accent);" data-i18n="harmony_elite">Harmony (RF) Remote</strong>
+                <div class="muted mini" style="margin-top: 3px;" data-i18n="card_elite_sub">Physical RF remote pairing, touchscreen layout & button mapping</div>
               </div>
               <span class="badge" id="dashEliteBadge">RF Remote</span>
             </div>
@@ -2513,7 +2511,7 @@
             <strong style="font-size: 14px; display: block; margin-bottom: 2px;">⚠️ RF Receiver is Disabled on
               Hub</strong>
             <span style="font-size: 12px; opacity: 0.95;">Hardware RF daemon (hub_rf) is disabled to prevent SPI flash
-              arbitration lockups. Elite remote pairing and RF input are inactive.</span>
+              arbitration lockups. Harmony remote pairing and RF input are inactive.</span>
           </div>
           <button type="button" class="btn btn-xs btn-primary" id="btnEliteGoEnableRf">Enable RF Service</button>
         </div>
@@ -2862,7 +2860,7 @@
               <div style="flex: 1;">
                 <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
                 <input id="eliteRemoteMqttTopic" class="form-control"
-                  placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/slot{slot}/{button}/state)">
+                  placeholder="harmony/hub/remotes/slot{slot} (default: {baseTopic}/remotes/slot{slot}/{button}/state)">
                 <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
                   placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}/state</code>.</div>
               </div>
@@ -2905,9 +2903,7 @@
                 All
                 to Hub</button>
               <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary"
-                title="Transmit full configuration over RF to physical Elite remote" data-i18n="push_elite_remote">Push
-                to
-                Elite Remote</button>
+                title="Transmit full configuration over RF to physical Harmony remote" data-i18n="push_elite_remote">Push to Remote</button>
             </div>
           </div>
         </div>

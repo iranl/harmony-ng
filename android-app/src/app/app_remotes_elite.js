@@ -510,14 +510,14 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       if (btn) btn.textContent = 'Pushing...';
       const res = await this.client.pushRfConfig();
       if (res && res.status === 'push_started') {
-        this.showToast('Configuration push started over RF to Elite remote!', 'success');
+        this.showToast(t('config_push_started', 'Configuration push started over RF to Harmony remote!'), 'success');
       } else {
-        this.showToast('Configuration push triggered successfully.', 'success');
+        this.showToast(t('config_push_success', 'Configuration push triggered successfully.'), 'success');
       }
     } catch (err) {
-      this.showToast('Push failed: ' + (err.message || err), 'danger');
+      this.showToast((t('push_failed', 'Push failed: ')) + (err.message || err), 'danger');
     } finally {
-      if (btn) btn.textContent = 'Push to Elite Remote';
+      if (btn) btn.textContent = t('push_elite_remote', 'Push to Remote');
     }
   }
 

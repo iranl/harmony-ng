@@ -5,6 +5,8 @@
 #include "rf_ota.h"
 #include "rf_sync.h"
 #include "rf_push_queue.h"
+#include "elite_stock_icons.h"
+#include "custom_icon_registry.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,6 +83,8 @@ void *config_push_worker(void *arg) {
     struct {
         char id[13];
         char name[24];
+        char icon_name[64];
+        uint16_t icon_id;
         uint8_t icon_type;
     } acts[16];
     int act_count = 0;
@@ -129,6 +133,33 @@ void *config_push_worker(void *arg) {
                                     strncpy(acts[act_count].name, j_name->valuestring, sizeof(acts[0].name) - 1);
                                     acts[act_count].name[sizeof(acts[0].name) - 1] = '\0';
                                     acts[act_count].icon_type = rf_activity_icon_type(icon_str, j_name->valuestring, type_str);
+
+                                    uint16_t icon_id = 0;
+                                    char custom_name[64] = {0};
+                                    if (icon_str && icon_str[0] && custom_icon_registry_has_file(icon_str)) {
+                                        icon_id = custom_icon_registry_get_id(icon_str);
+                                        strncpy(custom_name, icon_str, sizeof(custom_name) - 1);
+                                    } else if (icon_str && icon_str[0]) {
+                                        icon_id = lookup_stock_icon_id(icon_str);
+                                    }
+                                    if (icon_id == 0 && j_name->valuestring && j_name->valuestring[0]) {
+                                        if (custom_icon_registry_has_file(j_name->valuestring)) {
+                                            icon_id = custom_icon_registry_get_id(j_name->valuestring);
+                                            strncpy(custom_name, j_name->valuestring, sizeof(custom_name) - 1);
+                                        } else {
+                                            icon_id = lookup_stock_icon_id(j_name->valuestring);
+                                        }
+                                    }
+                                    if (icon_id == 0 && id_str[0]) {
+                                        if (custom_icon_registry_has_file(id_str)) {
+                                            icon_id = custom_icon_registry_get_id(id_str);
+                                            strncpy(custom_name, id_str, sizeof(custom_name) - 1);
+                                        }
+                                    }
+                                    acts[act_count].icon_id = icon_id;
+                                    strncpy(acts[act_count].icon_name, custom_name, sizeof(acts[0].icon_name) - 1);
+                                    acts[act_count].icon_name[sizeof(acts[0].icon_name) - 1] = '\0';
+
                                     act_count++;
                                 }
                             }
@@ -150,11 +181,13 @@ void *config_push_worker(void *arg) {
             payload[2] = acts[i].icon_type;
             if (strlen(acts[i].id) <= 2 || strcmp(acts[i].id, "-1") == 0) {
                 strncpy((char *)&payload[3], acts[i].id, 3);
-                strncpy((char *)&payload[6], acts[i].name, 19);
+                strncpy((char *)&payload[6], acts[i].name, 17);
             } else {
                 strncpy((char *)&payload[3], acts[i].id, 8);
-                strncpy((char *)&payload[11], acts[i].name, 14);
+                strncpy((char *)&payload[11], acts[i].name, 12);
             }
+            payload[23] = (uint8_t)(acts[i].icon_id & 0xFF);
+            payload[24] = (uint8_t)((acts[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_ACTIVITY_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
         }
@@ -164,6 +197,9 @@ void *config_push_worker(void *arg) {
     struct {
         char id[8];
         char name[24];
+        char icon_name[64];
+        uint16_t icon_id;
+        uint8_t icon_type;
     } devs[16];
     cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
     cJSON *dev_root = NULL;
@@ -204,6 +240,16 @@ void *config_push_worker(void *arg) {
                             if (!jname) jname = cJSON_GetObjectItem(d_obj, "Model");
                             if (!jname) jname = cJSON_GetObjectItem(d_obj, "ParentDeviceModel");
 
+                            cJSON *j_icon = cJSON_GetObjectItem(d_obj, "icon");
+                            if (!j_icon) j_icon = cJSON_GetObjectItem(d_obj, "Icon");
+                            const char *icon_str = (j_icon && cJSON_IsString(j_icon)) ? j_icon->valuestring : "";
+
+                            cJSON *j_type = cJSON_GetObjectItem(d_obj, "type");
+                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "Type");
+                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "deviceType");
+                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "DeviceTypeDisplayName");
+                            const char *type_str = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "";
+
                             if (jid && jname && cJSON_IsString(jname)) {
                                 char id_str[32] = {0};
                                 if (cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%d", jid->valueint);
@@ -214,6 +260,34 @@ void *config_push_worker(void *arg) {
                                     devs[dev_count].id[7] = '\0';
                                     strncpy(devs[dev_count].name, jname->valuestring, 21);
                                     devs[dev_count].name[21] = '\0';
+                                    devs[dev_count].icon_type = rf_activity_icon_type(icon_str, jname->valuestring, type_str);
+
+                                    uint16_t icon_id = 0;
+                                    char custom_name[64] = {0};
+                                    if (icon_str && icon_str[0] && custom_icon_registry_has_file(icon_str)) {
+                                        icon_id = custom_icon_registry_get_id(icon_str);
+                                        strncpy(custom_name, icon_str, sizeof(custom_name) - 1);
+                                    } else if (icon_str && icon_str[0]) {
+                                        icon_id = lookup_stock_icon_id(icon_str);
+                                    }
+                                    if (icon_id == 0 && jname->valuestring && jname->valuestring[0]) {
+                                        if (custom_icon_registry_has_file(jname->valuestring)) {
+                                            icon_id = custom_icon_registry_get_id(jname->valuestring);
+                                            strncpy(custom_name, jname->valuestring, sizeof(custom_name) - 1);
+                                        } else {
+                                            icon_id = lookup_stock_icon_id(jname->valuestring);
+                                        }
+                                    }
+                                    if (icon_id == 0 && id_str[0]) {
+                                        if (custom_icon_registry_has_file(id_str)) {
+                                            icon_id = custom_icon_registry_get_id(id_str);
+                                            strncpy(custom_name, id_str, sizeof(custom_name) - 1);
+                                        }
+                                    }
+                                    devs[dev_count].icon_id = icon_id;
+                                    strncpy(devs[dev_count].icon_name, custom_name, sizeof(devs[0].icon_name) - 1);
+                                    devs[dev_count].icon_name[sizeof(devs[0].icon_name) - 1] = '\0';
+
                                     dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
                                 }
@@ -233,8 +307,11 @@ void *config_push_worker(void *arg) {
             uint8_t payload[26] = {0};
             payload[0] = (uint8_t)i;
             payload[1] = (uint8_t)dev_count;
-            memcpy(&payload[2], devs[i].id, 4);
-            memcpy(&payload[6], devs[i].name, 20);
+            payload[2] = devs[i].icon_type;
+            memcpy(&payload[3], devs[i].id, 4);
+            memcpy(&payload[7], devs[i].name, 16);
+            payload[23] = (uint8_t)(devs[i].icon_id & 0xFF);
+            payload[24] = (uint8_t)((devs[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
         }
@@ -676,6 +753,18 @@ void *config_push_worker(void *arg) {
             continue;
         }
         printf("[+] Config v%d delivered to slot %d (%d device commands)\n", config_ver, target_slot, sent);
+
+        /* 8b. Wirelessly sync custom icons to the remote over RF if needed */
+        for (int i = 0; i < act_count; i++) {
+            if ((acts[i].icon_id & 0x8000) && acts[i].icon_name[0]) {
+                custom_icon_registry_sync_remote(target_slot, acts[i].icon_id, acts[i].icon_name);
+            }
+        }
+        for (int i = 0; i < dev_count; i++) {
+            if ((devs[i].icon_id & 0x8000) && devs[i].icon_name[0]) {
+                custom_icon_registry_sync_remote(target_slot, devs[i].icon_id, devs[i].icon_name);
+            }
+        }
         if (target_slot >= 1 && target_slot <= 2) {
             /* The remote applies the config when it receives this frame, but it only sends
                VERSION_REPORT on first link and every 24h, so record its new version here. */

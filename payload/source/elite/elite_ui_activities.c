@@ -180,7 +180,16 @@ void render_switching_view(void) {
     fb_draw_text_aa(22, card_y + 36, g_switching_target_name, RGB_WHITE, &g_font_title);
 
     char switch_icon[128] = {0};
-    resolve_activity_icon(NULL, g_switching_target_name, switch_icon, sizeof(switch_icon));
+    uint16_t act_icon_id = 0;
+    const char *act_icon_key = NULL;
+    for (int i = 0; i < g_rf_activity_count; i++) {
+        if (strcmp(g_rf_activities[i].id, g_switching_target_id) == 0) {
+            act_icon_id = g_rf_activities[i].icon_id;
+            act_icon_key = g_rf_activities[i].icon;
+            break;
+        }
+    }
+    resolve_activity_icon(act_icon_id, act_icon_key, g_switching_target_name, switch_icon, sizeof(switch_icon));
     if (switch_icon[0]) {
         blit_png_file(FB_WIDTH - 20 - 52, card_y + 14, 44, 44, switch_icon);
     }

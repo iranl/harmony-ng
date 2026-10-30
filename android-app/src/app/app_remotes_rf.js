@@ -178,7 +178,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         if (msg) {
           if (st.pairing_active) {
             msg.style.display = 'block';
-            msg.textContent = t('rf_pairing_active_note', 'Hub pairing active! On your Elite remote, navigate to Settings and enable pairing.');
+            msg.textContent = t('rf_pairing_active_note', 'Hub pairing active! On Elite remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.');
           } else {
             msg.style.display = 'none';
           }

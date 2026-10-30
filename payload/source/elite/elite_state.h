@@ -28,6 +28,7 @@
 #include "rf_proto.h"
 #include "font_aa.h"
 #include "harmony_version.h"
+#include "elite_stock_icons.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,11 +118,14 @@ typedef struct {
     char id[13];
     char name[24];
     char icon[24];
+    uint16_t icon_id;
 } rf_activity_t;
 
 typedef struct {
     char id[8];
     char name[24];
+    char icon[24];
+    uint16_t icon_id;
 } rf_device_t;
 
 /* Device command names pushed by the Hub, for browsing devices on the remote */

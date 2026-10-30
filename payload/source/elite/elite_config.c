@@ -1,6 +1,7 @@
 #include "elite_config.h"
 #include "elite_rf.h"
 #include "elite_power.h"
+#include "elite_stock_icons.h"
 
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len) {
     if (!out || out_len == 0) return;
@@ -18,9 +19,26 @@ void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_
     out[out_len - 1] = '\0';
 }
 
-void resolve_activity_icon(const char *image_key, const char *clean_name, char *out_path, size_t max_len) {
+void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len) {
     if (!out_path || max_len == 0) return;
     out_path[0] = '\0';
+
+    if (icon_id & 0x8000) {
+        char test_path[128];
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%u.png", (unsigned int)icon_id);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            out_path[max_len - 1] = '\0';
+            return;
+        }
+    } else if (icon_id > 0 && icon_id < 0x8000) {
+        const char *stock = get_stock_icon_path(icon_id);
+        if (stock && stock[0]) {
+            strncpy(out_path, stock, max_len - 1);
+            out_path[max_len - 1] = '\0';
+            return;
+        }
+    }
 
     char base[64] = {0};
     if (image_key && image_key[0]) {
@@ -103,6 +121,110 @@ void resolve_activity_icon(const char *image_key, const char *clean_name, char *
     } else {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png");
     }
+}
+
+bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev_name, const char *dev_id, char *out_path, size_t max_len) {
+    if (!out_path || max_len == 0) return false;
+    out_path[0] = '\0';
+
+    if (icon_id & 0x8000) {
+        char test_path[128];
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%u.png", (unsigned int)icon_id);
+        if (access(test_path, R_OK) == 0) {
+            strncpy(out_path, test_path, max_len - 1);
+            out_path[max_len - 1] = '\0';
+            return true;
+        }
+    } else if (icon_id > 0 && icon_id < 0x8000) {
+        const char *stock = get_stock_icon_path(icon_id);
+        if (stock && stock[0]) {
+            strncpy(out_path, stock, max_len - 1);
+            out_path[max_len - 1] = '\0';
+            return true;
+        }
+    }
+
+    char base[64] = {0};
+    if (icon_key && icon_key[0]) {
+        const char *slash = strrchr(icon_key, '/');
+        const char *fn = slash ? slash + 1 : icon_key;
+        strncpy(base, fn, sizeof(base) - 1);
+        char *dot = strrchr(base, '.');
+        if (dot) *dot = '\0';
+        size_t blen = strlen(base);
+        if (blen > 6 && strcmp(base + blen - 6, "_small") == 0) {
+            base[blen - 6] = '\0';
+        }
+    }
+
+    char test_path[128];
+    if (dev_id && dev_id[0]) {
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", dev_id);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", dev_id);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+    }
+    if (base[0]) {
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", base);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", base);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        snprintf(test_path, sizeof(test_path), "/data/assets/%s.png", base);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+    }
+    if (dev_name && dev_name[0]) {
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", dev_name);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", dev_name);
+        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+    }
+
+    char low[64] = {0};
+    const char *src = base[0] ? base : (dev_name ? dev_name : "");
+    for (int k = 0; src[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)src[k]);
+
+    if (strstr(low, "shield")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/shield.png");
+    } else if (strstr(low, "xbox")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/xbox.png");
+    } else if (strstr(low, "ps") || strstr(low, "playstation")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/ps.png");
+    } else if (strstr(low, "firetv") || strstr(low, "amazon") || rf_has_word(low, "fire")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/firetv.png");
+    } else if (strstr(low, "sonos")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/sonos.png");
+    } else if (strstr(low, "heos") || strstr(low, "denon") || strstr(low, "marantz")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/heos.png");
+    } else if (strstr(low, "receiver") || rf_has_word(low, "avr") || rf_has_word(low, "amp") || strstr(low, "audio") || strstr(low, "soundbar")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/5.png");
+    } else if (strstr(low, "watchtv") || rf_has_word(low, "tv") || strstr(low, "television") || strstr(low, "display") || strstr(low, "smarttv") || strstr(low, "oled") || strstr(low, "qled")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/1.png");
+    } else if (strstr(low, "movie") || strstr(low, "dvd") || strstr(low, "blu") || strstr(low, "disc") || strstr(low, "player") || strstr(low, "stream") || strstr(low, "netflix") || strstr(low, "plex")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/10.png");
+    } else if (strstr(low, "apple")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/0F40F257-68C8-4F24-9561-3CB3441DA395_small.png");
+    } else if (strstr(low, "roku")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png");
+    } else if (strstr(low, "switch") || strstr(low, "nintendo")) {
+        if (access("/data/assets/switch.png", R_OK) == 0) {
+            snprintf(out_path, max_len, "/data/assets/switch.png");
+        } else if (access("/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png", R_OK) == 0) {
+            snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
+        } else {
+            snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
+        }
+    } else if (rf_has_word(low, "pc") || strstr(low, "computer") || strstr(low, "laptop")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/468668AB-2587-4662-9E89-CF66BD70F314_small.png");
+    } else if (strstr(low, "light") || strstr(low, "lamp") || strstr(low, "bulb")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/bulb_on.png");
+    } else if (strstr(low, "plug") || strstr(low, "outlet")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/plug_on.png");
+    } else if (strstr(low, "blind") || strstr(low, "shade")) {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/blinds_on.png");
+    } else {
+        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/default.png");
+    }
+    return (out_path[0] != '\0');
 }
 
 bool resolve_button_icon(const char *icon_key, const char *label, char *out_path, size_t max_len) {
@@ -267,7 +389,7 @@ void load_activities(void) {
                     strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
                 } else {
                     const char *img_key = (j_icon && j_icon->valuestring) ? j_icon->valuestring : (j_type ? j_type->valuestring : "");
-                    resolve_activity_icon(img_key, name, g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
+                    resolve_activity_icon(0, img_key, name, g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
                 }
                 g_activity_count++;
             }
@@ -311,6 +433,9 @@ void save_rf_config(void) {
         if (g_rf_activities[i].icon[0]) {
             cJSON_AddStringToObject(a, "icon", g_rf_activities[i].icon);
         }
+        if (g_rf_activities[i].icon_id > 0) {
+            cJSON_AddNumberToObject(a, "icon_id", g_rf_activities[i].icon_id);
+        }
         cJSON_AddItemToArray(acts, a);
     }
 
@@ -319,6 +444,12 @@ void save_rf_config(void) {
         cJSON *d = cJSON_CreateObject();
         cJSON_AddStringToObject(d, "id", g_rf_devices[i].id);
         cJSON_AddStringToObject(d, "name", g_rf_devices[i].name);
+        if (g_rf_devices[i].icon[0]) {
+            cJSON_AddStringToObject(d, "icon", g_rf_devices[i].icon);
+        }
+        if (g_rf_devices[i].icon_id > 0) {
+            cJSON_AddNumberToObject(d, "icon_id", g_rf_devices[i].icon_id);
+        }
         int max_idx = -1;
         for (int c = 0; c < g_rf_dev_cmd_count; c++) {
             if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx > max_idx) max_idx = g_rf_dev_cmds[c].cmd_idx;
@@ -421,6 +552,8 @@ void load_rf_config(void) {
                 } else {
                     map_icon_type_to_str(0, g_rf_activities[g_rf_activity_count].name, g_rf_activities[g_rf_activity_count].icon, sizeof(g_rf_activities[0].icon));
                 }
+                cJSON *j_icon_id = cJSON_GetObjectItem(a, "icon_id");
+                g_rf_activities[g_rf_activity_count].icon_id = (j_icon_id && cJSON_IsNumber(j_icon_id)) ? (uint16_t)j_icon_id->valueint : 0;
                 g_rf_activity_count++;
             }
         }
@@ -449,6 +582,15 @@ void load_rf_config(void) {
                 g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, sizeof(g_rf_devices[0].name) - 1);
                 g_rf_devices[g_rf_device_count].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
+                cJSON *jico = cJSON_GetObjectItem(d, "icon");
+                if (jico && cJSON_IsString(jico) && jico->valuestring[0]) {
+                    strncpy(g_rf_devices[g_rf_device_count].icon, jico->valuestring, sizeof(g_rf_devices[0].icon) - 1);
+                    g_rf_devices[g_rf_device_count].icon[sizeof(g_rf_devices[0].icon) - 1] = '\0';
+                } else {
+                    map_icon_type_to_str(0, g_rf_devices[g_rf_device_count].name, g_rf_devices[g_rf_device_count].icon, sizeof(g_rf_devices[0].icon));
+                }
+                cJSON *j_dev_icon_id = cJSON_GetObjectItem(d, "icon_id");
+                g_rf_devices[g_rf_device_count].icon_id = (j_dev_icon_id && cJSON_IsNumber(j_dev_icon_id)) ? (uint16_t)j_dev_icon_id->valueint : 0;
                 int k = 0;
                 cJSON *jc = NULL;
                 cJSON_ArrayForEach(jc, cJSON_GetObjectItem(d, "commands")) {
@@ -543,8 +685,11 @@ void load_rf_config(void) {
             if (access(cpath, R_OK) == 0) {
                 strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
             } else {
-                resolve_activity_icon(g_rf_activities[i].icon, g_rf_activities[i].name,
-                                      g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
+                resolve_activity_icon(g_rf_activities[i].icon_id,
+                                      g_rf_activities[i].icon,
+                                      g_rf_activities[i].name,
+                                      g_activities[g_activity_count].icon_path,
+                                      sizeof(g_activities[0].icon_path));
             }
             g_activity_count++;
         }

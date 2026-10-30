@@ -172,7 +172,21 @@ void render_device_browser_view(void) {
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
         fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : 0x2945);
-        fb_draw_text_aa(16, y + 9, label, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+
+        char dev_icon_path[128] = {0};
+        bool has_icon = false;
+        if (g_browse_dev < 0) {
+            if (resolve_device_icon(g_rf_devices[idx].icon_id, g_rf_devices[idx].icon, g_rf_devices[idx].name, g_rf_devices[idx].id, dev_icon_path, sizeof(dev_icon_path))) {
+                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+            }
+        } else {
+            if (resolve_button_icon(NULL, label, dev_icon_path, sizeof(dev_icon_path))) {
+                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+            }
+        }
+
+        int text_x = has_icon ? 42 : 16;
+        fb_draw_text_aa(text_x, y + 9, label, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
         if (g_browse_dev < 0) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }

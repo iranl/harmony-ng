@@ -385,15 +385,11 @@ void rf_send_hub_time_sync(void) {
     }
 }
 
-int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {
+int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str) {
     if (target_slot < 1 || target_slot > 2) target_slot = 1;
-    if (!id_str || !id_str[0]) return -1;
-    if (!type_str || !type_str[0]) type_str = "activity";
-
-    char file_path[256];
-    snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s_%s.png", type_str, id_str);
+    if (!id_str || !id_str[0] || !file_path || !file_path[0]) return -1;
     if (access(file_path, R_OK) != 0) {
-        printf("[-] Icon push: file not found for %s / %s\n", type_str, id_str);
+        printf("[-] Icon push: file not found %s\n", file_path);
         return -1;
     }
 
@@ -405,7 +401,7 @@ int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_st
 
     if (fsz <= 0 || fsz > 16384) {
         fclose(f);
-        printf("[-] Icon push: invalid file size %ld\n", fsz);
+        printf("[-] Icon push: invalid file size %ld for %s\n", fsz, file_path);
         return -1;
     }
 
@@ -422,17 +418,19 @@ int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_st
     uint32_t tot_bytes = (uint32_t)fsz;
     uint16_t tot_chunks = (uint16_t)((tot_bytes + 21) / 22);
 
-    printf("[*] Starting RF Custom Icon push to slot %d: %s_%s (%u bytes, %u chunks, CRC16=0x%04X)\n",
-           target_slot, type_str, id_str, tot_bytes, tot_chunks, crc);
+    printf("[*] Starting RF Custom Icon push to slot %d: %s (%u bytes, %u chunks, CRC16=0x%04X)\n",
+           target_slot, id_str, tot_bytes, tot_chunks, crc);
 
     /* 1. RF_MSG_ICON_START */
     rf_frame_t frame;
     uint8_t start_payload[25] = {0};
-    uint8_t type_code = (strcmp(type_str, "device") == 0) ? 1 : (strcmp(type_str, "button") == 0 ? 2 : 0);
+    uint8_t type_code = 0;
     start_payload[0] = type_code;
     start_payload[1] = (uint8_t)(tot_bytes & 0xFF);
     start_payload[2] = (uint8_t)((tot_bytes >> 8) & 0xFF);
     start_payload[3] = (uint8_t)(tot_chunks & 0xFF);
+    start_payload[4] = (uint8_t)((tot_chunks >> 8) & 0xFF);
+    strncpy((char *)&start_payload[5], id_str, 19);
     start_payload[4] = (uint8_t)((tot_chunks >> 8) & 0xFF);
     strncpy((char *)&start_payload[5], id_str, 19);
 
@@ -503,8 +501,15 @@ int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_st
         return -1;
     }
 
-    printf("[+] RF Custom Icon %s_%s transferred successfully to slot %d!\n", type_str, id_str, target_slot);
+    printf("[+] RF Custom Icon %s transferred successfully to slot %d!\n", id_str, target_slot);
     return 0;
+}
+
+int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {
+    if (!type_str || !type_str[0]) type_str = "activity";
+    char file_path[256];
+    snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s_%s.png", type_str, id_str ? id_str : "");
+    return rf_push_custom_icon_file(target_slot, file_path, id_str);
 }
 
 void *activity_sync_worker(void *arg) {

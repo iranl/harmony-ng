@@ -147,8 +147,11 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
                     strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
                     strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-                    resolve_activity_icon(g_rf_activities[i].icon, g_rf_activities[i].name,
-                                          g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
+                    resolve_activity_icon(g_rf_activities[i].icon_id,
+                                          g_rf_activities[i].icon,
+                                          g_rf_activities[i].name,
+                                          g_activities[g_activity_count].icon_path,
+                                          sizeof(g_activities[0].icon_path));
                     g_activity_count++;
                 }
                 if (g_activity_count < MAX_ACTIVITIES) {
@@ -183,34 +186,44 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_ACTIVITIES) {
                 uint8_t itype = 0;
+                uint16_t icon_id = (uint16_t)f->payload[23] | ((uint16_t)f->payload[24] << 8);
                 if (f->payload[2] < 0x20) {
                     itype = f->payload[2];
                     if (f->payload[4] == '\0' || f->payload[5] == '\0' || f->payload[3] == '-') {
-                        /* Short ID format (1-2 byte ID + null terminator): up to 19 bytes for activity name! */
+                        /* Short ID format (1-2 byte ID + null terminator): up to 17 bytes for activity name */
                         strncpy(g_rf_activities[idx].id, (const char *)&f->payload[3], sizeof(g_rf_activities[0].id) - 1);
                         g_rf_activities[idx].id[sizeof(g_rf_activities[0].id) - 1] = '\0';
-                        strncpy(g_rf_activities[idx].name, (const char *)&f->payload[6], sizeof(g_rf_activities[0].name) - 1);
+                        char tmp_name[18] = {0};
+                        memcpy(tmp_name, &f->payload[6], 17);
+                        strncpy(g_rf_activities[idx].name, tmp_name, sizeof(g_rf_activities[0].name) - 1);
                         g_rf_activities[idx].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                     } else if (f->payload[11] >= 0x20) {
                         memcpy(g_rf_activities[idx].id, &f->payload[3], 8);
                         g_rf_activities[idx].id[8] = '\0';
-                        memcpy(g_rf_activities[idx].name, &f->payload[11], 14);
-                        g_rf_activities[idx].name[14] = '\0';
+                        char tmp_name[13] = {0};
+                        memcpy(tmp_name, &f->payload[11], 12);
+                        strncpy(g_rf_activities[idx].name, tmp_name, sizeof(g_rf_activities[0].name) - 1);
+                        g_rf_activities[idx].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                     } else {
                         memcpy(g_rf_activities[idx].id, &f->payload[3], 10);
                         g_rf_activities[idx].id[10] = '\0';
-                        memcpy(g_rf_activities[idx].name, &f->payload[13], 12);
-                        g_rf_activities[idx].name[12] = '\0';
+                        char tmp_name[11] = {0};
+                        memcpy(tmp_name, &f->payload[13], 10);
+                        strncpy(g_rf_activities[idx].name, tmp_name, sizeof(g_rf_activities[0].name) - 1);
+                        g_rf_activities[idx].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                     }
                 } else {
                     memcpy(g_rf_activities[idx].id, &f->payload[2], 10);
                     g_rf_activities[idx].id[10] = '\0';
-                    memcpy(g_rf_activities[idx].name, &f->payload[12], 14);
-                    g_rf_activities[idx].name[14] = '\0';
+                    char tmp_name[12] = {0};
+                    memcpy(tmp_name, &f->payload[12], 11);
+                    strncpy(g_rf_activities[idx].name, tmp_name, sizeof(g_rf_activities[0].name) - 1);
+                    g_rf_activities[idx].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                 }
+                g_rf_activities[idx].icon_id = icon_id;
                 map_icon_type_to_str(itype, g_rf_activities[idx].name, g_rf_activities[idx].icon, sizeof(g_rf_activities[idx].icon));
                 if (idx >= g_rf_activity_count) g_rf_activity_count = idx + 1;
-                printf("[*] Activity chunk %d: %s (%s, icon=%s)\n", idx, g_rf_activities[idx].name, g_rf_activities[idx].id, g_rf_activities[idx].icon);
+                printf("[*] Activity chunk %d: %s (%s, icon=%s, icon_id=0x%04X)\n", idx, g_rf_activities[idx].name, g_rf_activities[idx].id, g_rf_activities[idx].icon, icon_id);
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -232,11 +245,28 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             g_sync_chunk_count++;
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_DEVICES) {
-                memcpy(g_rf_devices[idx].id, &f->payload[2], 4);
-                g_rf_devices[idx].id[4] = '\0';
-                memcpy(g_rf_devices[idx].name, &f->payload[6], 20);
-                g_rf_devices[idx].name[20] = '\0';
+                uint8_t itype = 0;
+                uint16_t icon_id = (uint16_t)f->payload[23] | ((uint16_t)f->payload[24] << 8);
+                if (f->payload[2] < 0x20) {
+                    itype = f->payload[2];
+                    memcpy(g_rf_devices[idx].id, &f->payload[3], 4);
+                    g_rf_devices[idx].id[4] = '\0';
+                    char tmp_name[17] = {0};
+                    memcpy(tmp_name, &f->payload[7], 16);
+                    strncpy(g_rf_devices[idx].name, tmp_name, sizeof(g_rf_devices[0].name) - 1);
+                    g_rf_devices[idx].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
+                } else {
+                    memcpy(g_rf_devices[idx].id, &f->payload[2], 4);
+                    g_rf_devices[idx].id[4] = '\0';
+                    char tmp_name[18] = {0};
+                    memcpy(tmp_name, &f->payload[6], 17);
+                    strncpy(g_rf_devices[idx].name, tmp_name, sizeof(g_rf_devices[0].name) - 1);
+                    g_rf_devices[idx].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
+                }
+                g_rf_devices[idx].icon_id = icon_id;
+                map_icon_type_to_str(itype, g_rf_devices[idx].name, g_rf_devices[idx].icon, sizeof(g_rf_devices[idx].icon));
                 if (idx >= g_rf_device_count) g_rf_device_count = idx + 1;
+                printf("[*] Device chunk %d: %s (%s, icon=%s, icon_id=0x%04X)\n", idx, g_rf_devices[idx].name, g_rf_devices[idx].id, g_rf_devices[idx].icon, icon_id);
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);

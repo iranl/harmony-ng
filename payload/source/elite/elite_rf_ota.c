@@ -333,8 +333,11 @@ bool handle_icon_frame(const rf_frame_t *f) {
                 fb_invalidate_png_cache(g_icon_rx_id);
 
                 for (int i = 0; i < g_activity_count; i++) {
-                    if (strcmp(g_activities[i].id, g_icon_rx_id) == 0) {
-                        strncpy(g_activities[i].icon_path, dst_path, sizeof(g_activities[i].icon_path) - 1);
+                    if (strcmp(g_activities[i].id, g_icon_rx_id) == 0 ||
+                        (i < g_rf_activity_count && g_rf_activities[i].icon_id == (uint16_t)atoi(g_icon_rx_id))) {
+                        char cpath[128];
+                        snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_icon_rx_id);
+                        strncpy(g_activities[i].icon_path, cpath, sizeof(g_activities[i].icon_path) - 1);
                     }
                 }
                 g_screen_dirty = true;

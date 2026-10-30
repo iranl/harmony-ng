@@ -569,7 +569,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
 
     # 7. Make persistent in /etc/init.d/rcS.local
     print("[*] Preserving stock configuration backup...")
-    rce("mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi")
+    rce("mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite_ui' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi")
     print("[*] Installing boot persistence (/etc/init.d/rcS.local)...")
     rcs = "#!/bin/sh\\n/usr/bin/usbeth start &\\n/usr/sbin/dropbear -R -p 0.0.0.0:22\\n"
     rce(f"echo -e '{rcs}' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local")
@@ -707,13 +707,17 @@ def main():
             sys.exit(1)
         print("[*] Reverting remote to stock configuration...")
         revert_cmds = [
-            "killall -9 elite_watchdog.sh elite_ui 2>/dev/null || true",
-            "if [ -f /data/stock_backup/rcS.local.orig ]; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else rm -f /etc/init.d/rcS.local; fi",
-            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true",
-            "rm -f /etc/nowatchdog /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log 2>/dev/null || true",
-            "rm -f /data/elite_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
+            "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi",
+            "killall -9 init.sh elite_watchdog.sh elite_ui 2>/dev/null || true",
+            "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; else printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi",
+            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true",
+            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log /tmp/elite-init.log /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true",
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true",
+            "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true",
             "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true",
+            "sleep 1",
+            "rm -f /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true",
+            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true",
             "reboot -f 2>/dev/null &",
         ]
         rce("; ".join(revert_cmds))

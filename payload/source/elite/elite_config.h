@@ -13,7 +13,8 @@ void load_rf_config(void);
 void save_rf_config(void);
 void load_activities(void);
 void init_act_triggers(void);
-void resolve_activity_icon(const char *image_key, const char *clean_name, char *out_path, size_t max_len);
+void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len);
+bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev_name, const char *dev_id, char *out_path, size_t max_len);
 bool resolve_button_icon(const char *icon_key, const char *label, char *out_path, size_t max_len);
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len);
 
