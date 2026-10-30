@@ -138,11 +138,20 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const curModel = curSlotInfo?.model || 'unknown';
     const isScreenless = curModel === 'smart_control' || curModel === 'companion' || curSlotInfo?.has_screen === false;
 
-    // Toggle skin visual: Elite vs Companion
+    // Toggle skin visual: Elite vs Screenless (Companion / Smart Control)
     const eliteShell = document.getElementById('eliteRemoteShell');
     const compShell = document.getElementById('companionRemoteShell');
     if (eliteShell) eliteShell.style.display = isScreenless ? 'none' : 'flex';
     if (compShell) compShell.style.display = isScreenless ? 'flex' : 'none';
+
+    // Toggle Smart Control vs Companion specific rows
+    const isSmartControl = curModel === 'smart_control' || (curSlotInfo?.name && curSlotInfo.name.includes('Smart'));
+    const compHaRows = document.querySelectorAll('.comp-ha-row');
+    const compPlaybackMidRows = document.querySelectorAll('.comp-playback-mid-row');
+    const smartPlaybackTopRows = document.querySelectorAll('.smart-playback-top-row');
+    compHaRows.forEach(el => el.style.display = isSmartControl ? 'none' : 'flex');
+    compPlaybackMidRows.forEach(el => el.style.display = isSmartControl ? 'none' : 'flex');
+    smartPlaybackTopRows.forEach(el => el.style.display = isSmartControl ? 'flex' : 'none');
 
     // Hide/show screen section
     const screenSec = document.getElementById('eliteSectionScreen');

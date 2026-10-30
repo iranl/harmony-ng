@@ -289,7 +289,7 @@
 .companion-remote-skin {
   position: relative;
   width: min(100%, 250px);
-  aspect-ratio: 300/1050;
+  aspect-ratio: 300/1250;
   background: linear-gradient(180deg, #1b212c 0%, #10141c 50%, #090c11 100%);
   border: 2px solid #2e3846;
   border-radius: 42px;

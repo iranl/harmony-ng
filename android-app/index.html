@@ -284,7 +284,8 @@
       </button>
       <button type="button" class="drawer-item" data-view-target="rf-remote">
         <span class="drawer-icon">RF</span>
-        <div><strong data-i18n="harmony_elite">Harmony (RF) Remote</strong><small data-i18n="nav_harmony_elite_sub">RF Remote
+        <div><strong data-i18n="harmony_elite">Harmony (RF) Remote</strong><small data-i18n="nav_harmony_elite_sub">RF
+            Remote
             & Screen map</small></div>
       </button>
       <button type="button" class="drawer-item" data-view-target="remotes">
@@ -430,8 +431,10 @@
             style="cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
               <div>
-                <strong style="font-size: 15px; color: var(--accent);" data-i18n="harmony_elite">Harmony (RF) Remote</strong>
-                <div class="muted mini" style="margin-top: 3px;" data-i18n="card_elite_sub">Physical RF remote pairing, touchscreen layout & button mapping</div>
+                <strong style="font-size: 15px; color: var(--accent);" data-i18n="harmony_elite">Harmony (RF)
+                  Remote</strong>
+                <div class="muted mini" style="margin-top: 3px;" data-i18n="card_elite_sub">Physical RF remote pairing,
+                  touchscreen layout & button mapping</div>
               </div>
               <span class="badge" id="dashEliteBadge">RF Remote</span>
             </div>
@@ -1307,7 +1310,8 @@
         <!-- Right Panel: Add Commands Studio -->
         <div id="irStudioColRight" class="card" style="display: flex; flex-direction: column; gap: 14px;">
           <!-- Tabs for IR Mode -->
-          <div id="irAddTabsRow" style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <div id="irAddTabsRow"
+            style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddLearn" class="btn btn-sm btn-primary ir-add-tab active"
               data-add-mode="learn" data-i18n="learn_signal">Learn Signal</button>
             <button type="button" id="tabAddDb" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="database"
@@ -1317,7 +1321,8 @@
           </div>
 
           <!-- Tabs for BT Mode -->
-          <div id="btAddTabsRow" style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <div id="btAddTabsRow"
+            style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddBtPresets" class="btn btn-sm btn-primary bt-add-tab active"
               data-bt-mode="presets">Standard Keys</button>
             <button type="button" id="tabAddBtCustom" class="btn btn-sm btn-ghost bt-add-tab"
@@ -1325,7 +1330,8 @@
           </div>
 
           <!-- Tabs for MQTT Mode -->
-          <div id="mqttAddTabsRow" style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <div id="mqttAddTabsRow"
+            style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddMqtt" class="btn btn-sm btn-primary mqtt-add-tab active"
               data-mqtt-mode="mqtt">Add MQTT Command</button>
           </div>
@@ -1560,16 +1566,19 @@
           <div id="addModeBtPresets" class="bt-add-panel" style="display: none;">
             <div class="callout" style="margin-bottom: 12px;">
               <strong>Bluetooth HID Key Catalog.</strong>
-              Add standard navigation, media playback, volume, and keyboard keys. Emulated over Bluetooth HID to the paired host.
+              Add standard navigation, media playback, volume, and keyboard keys. Emulated over Bluetooth HID to the
+              paired host.
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px;">
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px;">
               <input type="text" id="btPresetsFilter" class="form-control form-control-sm"
                 placeholder="Filter keys (e.g. Home, Play, Enter)..." style="flex: 1; font-size: 11px;">
               <div id="btPresetsStatus" class="subtle mini" style="white-space: nowrap;"></div>
             </div>
 
-            <div id="btPresetsContainer" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px;">
+            <div id="btPresetsContainer"
+              style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px;">
               <!-- Populated dynamically by HarmonyAppDevicesStudio -->
             </div>
           </div>
@@ -1585,23 +1594,31 @@
               <div class="row">
                 <div style="flex: 1;">
                   <label for="btCustomCmdName">Command Name</label>
-                  <input id="btCustomCmdName" class="form-control" required placeholder="e.g. VoiceSearch, Subtitle, AppMacro">
+                  <input id="btCustomCmdName" class="form-control" required
+                    placeholder="e.g. VoiceSearch, Subtitle, AppMacro">
                 </div>
                 <div style="flex: 1;">
                   <label for="btCustomCmdCode">HID Code or Script</label>
-                  <input id="btCustomCmdCode" class="form-control" required placeholder="e.g. HID:0C:0221 or BT:SCRIPT:...">
+                  <input id="btCustomCmdCode" class="form-control" required
+                    placeholder="e.g. HID:0C:0221 or BT:SCRIPT:...">
                 </div>
               </div>
 
               <div style="margin-top: 8px;">
                 <span class="muted mini">Quick suggestions:</span>
                 <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Search" data-code="HID:0C:0221">Voice Search</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Context" data-code="HID:07:0065">Context Menu</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Guide" data-code="HID:0C:008D">Guide</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageUp" data-code="HID:07:004B">Page Up</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageDown" data-code="HID:07:004E">Page Down</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PowerToggle" data-code="HID:0C:0030">Power Toggle</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Search"
+                    data-code="HID:0C:0221">Voice Search</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Context"
+                    data-code="HID:07:0065">Context Menu</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Guide"
+                    data-code="HID:0C:008D">Guide</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageUp"
+                    data-code="HID:07:004B">Page Up</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageDown"
+                    data-code="HID:07:004E">Page Down</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PowerToggle"
+                    data-code="HID:0C:0030">Power Toggle</button>
                 </div>
               </div>
 
@@ -1616,7 +1633,8 @@
 
               <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
                 <button id="btnTestBtCustom" type="button" class="btn btn-sm btn-secondary">▶ Test Key</button>
-                <button id="btnSaveBtCustom" type="button" class="btn btn-sm btn-primary">Save Command to Device</button>
+                <button id="btnSaveBtCustom" type="button" class="btn btn-sm btn-primary">Save Command to
+                  Device</button>
               </div>
             </form>
           </div>
@@ -1631,22 +1649,27 @@
             <form id="mqttAddCmdForm" onsubmit="return false;">
               <div>
                 <label for="mqttNewCmdName">Command Name</label>
-                <input id="mqttNewCmdName" class="form-control" required placeholder="e.g. PowerToggle, NightMode, Preset1">
+                <input id="mqttNewCmdName" class="form-control" required
+                  placeholder="e.g. PowerToggle, NightMode, Preset1">
               </div>
 
               <div style="margin-top: 8px;">
                 <span class="muted mini">Common Actions:</span>
                 <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
-                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerToggle">PowerToggle</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip"
+                    data-cmd="PowerToggle">PowerToggle</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerOn">PowerOn</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerOff">PowerOff</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="VolumeUp">VolumeUp</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="VolumeDown">VolumeDown</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip"
+                    data-cmd="VolumeDown">VolumeDown</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Mute">Mute</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Play">Play</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Pause">Pause</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="ChannelUp">ChannelUp</button>
-                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="ChannelDown">ChannelDown</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip"
+                    data-cmd="ChannelUp">ChannelUp</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip"
+                    data-cmd="ChannelDown">ChannelDown</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Select">Select</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="LightOn">LightOn</button>
                   <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="LightOff">LightOff</button>
@@ -1654,17 +1677,22 @@
               </div>
 
               <!-- Topic / Payload Preview -->
-              <div style="margin-top: 12px; padding: 10px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+              <div
+                style="margin-top: 12px; padding: 10px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm);">
                 <div class="mini muted">Triggered MQTT Topic:</div>
-                <div id="mqttCmdTopicPreview" style="font-family: monospace; font-size: 11px; color: var(--accent); margin-top: 2px; word-break: break-all;">-</div>
-                <div class="mini muted" style="margin-top: 6px;">Published Payload: <code>1</code> (pulse duration resets to <code>0</code>)</div>
+                <div id="mqttCmdTopicPreview"
+                  style="font-family: monospace; font-size: 11px; color: var(--accent); margin-top: 2px; word-break: break-all;">
+                  -</div>
+                <div class="mini muted" style="margin-top: 6px;">Published Payload: <code>1</code> (pulse duration
+                  resets to <code>0</code>)</div>
               </div>
 
               <div id="mqttNewCmdStatus" class="subtle" style="margin-top: 8px;"></div>
 
               <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
                 <button id="btnTestNewMqttCmd" type="button" class="btn btn-sm btn-secondary">▶ Test Publish</button>
-                <button id="btnSaveNewMqttCmd" type="button" class="btn btn-sm btn-primary">Save Command to Device</button>
+                <button id="btnSaveNewMqttCmd" type="button" class="btn btn-sm btn-primary">Save Command to
+                  Device</button>
               </div>
             </form>
           </div>
@@ -2256,9 +2284,9 @@
             <div style="flex: 1;">
               <label for="btRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
               <input id="btRemoteMqttTopic" class="form-control"
-                placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button}/state)">
+                placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button})">
               <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
-                placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}/state</code>.</div>
+                placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}</code>.</div>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
@@ -2497,7 +2525,7 @@
       </button>
       <div class="section-head">
         <div>
-          <h2>Physical RF Remote</h2>
+          <h2>Harmony RF Remote</h2>
           <div class="section-lead">Harmony RF remote (Elite / Smart Control / Companion) button mapping per activity.
           </div>
         </div>
@@ -2549,22 +2577,22 @@
 
         <!-- 2 Remote Slots Grid -->
         <div class="rf-slots-grid">
-          <!-- Slot 1: Elite -->
+          <!-- Slot 1: Elite / Smart Control / Companion -->
           <div
             style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong style="font-size: 14px;" data-i18n="rf_slot1_title">Slot 1: Remote 1 (Elite /
+                <strong id="rfSlot1Title" style="font-size: 14px;" data-i18n="rf_slot1_title">Slot 1: Remote 1 (Elite /
                   Companion)</strong>
                 <span id="rfSlot1Badge" class="badge">EMPTY</span>
               </div>
-              <div class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot1Ver"
+              <div id="rfSlot1FwRow" class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot1Ver"
                   style="color:var(--text-bright);">--</strong> • Config: <strong id="rfSlot1CfgVer"
                   style="color:var(--text-bright);">--</strong></div>
               <div class="muted mini" style="margin-bottom: 6px;">RF Address: <strong id="rfSlot1Addr"
                   style="color:var(--text-bright); font-family: monospace;">None</strong></div>
-              <div class="muted mini" style="margin-bottom: 8px;">Battery: <strong id="rfSlot1Battery"
-                  style="color:var(--teal);">--</strong></div>
+              <div id="rfSlot1BattRow" class="muted mini" style="margin-bottom: 8px;">Battery: <strong
+                  id="rfSlot1Battery" style="color:var(--teal);">--</strong></div>
               <div id="rfSlot1UpdateWrap" style="display: none; margin-bottom: 8px;">
                 <button id="rfSlot1UpdateBtn" type="button" class="btn btn-xs btn-warning"
                   style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px;">
@@ -2592,17 +2620,17 @@
             style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <strong style="font-size: 14px;" data-i18n="rf_slot2_title">Slot 2: Remote 2 (Elite /
+                <strong id="rfSlot2Title" style="font-size: 14px;" data-i18n="rf_slot2_title">Slot 2: Remote 2 (Elite /
                   Companion)</strong>
                 <span id="rfSlot2Badge" class="badge">EMPTY</span>
               </div>
-              <div class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot2Ver"
+              <div id="rfSlot2FwRow" class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot2Ver"
                   style="color:var(--text-bright);">--</strong> • Config: <strong id="rfSlot2CfgVer"
                   style="color:var(--text-bright);">--</strong></div>
               <div class="muted mini" style="margin-bottom: 6px;">RF Address: <strong id="rfSlot2Addr"
                   style="color:var(--text-bright); font-family: monospace;">None</strong></div>
-              <div class="muted mini" style="margin-bottom: 8px;">Battery: <strong id="rfSlot2Battery"
-                  style="color:var(--teal);">--</strong></div>
+              <div id="rfSlot2BattRow" class="muted mini" style="margin-bottom: 8px;">Battery: <strong
+                  id="rfSlot2Battery" style="color:var(--teal);">--</strong></div>
               <div id="rfSlot2UpdateWrap" style="display: none; margin-bottom: 8px;">
                 <button id="rfSlot2UpdateBtn" type="button" class="btn btn-xs btn-warning"
                   style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px;">
@@ -2871,9 +2899,9 @@
               <div style="flex: 1;">
                 <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
                 <input id="eliteRemoteMqttTopic" class="form-control"
-                  placeholder="harmony/hub/remotes/slot{slot} (default: {baseTopic}/remotes/slot{slot}/{button}/state)">
+                  placeholder="harmony/hub/remotes/slot{slot} (default: {baseTopic}/remotes/slot{slot}/{button})">
                 <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
-                  placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}/state</code>.</div>
+                  placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}</code>.</div>
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
@@ -2914,7 +2942,8 @@
                 All
                 to Hub</button>
               <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary"
-                title="Transmit full configuration over RF to physical Harmony remote" data-i18n="push_elite_remote">Push to Remote</button>
+                title="Transmit full configuration over RF to physical Harmony remote"
+                data-i18n="push_elite_remote">Push to Remote</button>
             </div>
           </div>
         </div>
@@ -3078,174 +3107,202 @@
             <!-- Companion / Smart Control Remote Shell & Hotspots -->
             <div class="companion-remote-shell" id="companionRemoteShell" style="display: none;">
               <div class="companion-remote-skin">
-                <!-- Top Activities (Movie, TV, Music, Off) -->
-                <button type="button" class="elite-hotspot"
-                  style="left:11.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MovieActivity"
-                  title="Movie Activity">🎬</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:32.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="WatchTVActivity"
-                  title="Watch TV Activity">📺</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:53.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MusicActivity"
-                  title="Music Activity">🎵</button>
+                <!-- 1. Power Off button above 3 activity buttons -->
                 <button type="button" class="elite-hotspot btn-elite-power"
-                  style="left:74.0%;top:3.6%;width:15.0%;height:3.0%;font-size:10px;font-weight:700;"
+                  style="left:41.0%;top:2.8%;width:18.0%;height:2.6%;font-size:10px;font-weight:700;"
                   data-btn="PowerOffActivity" title="Power Off (All Off)">Off</button>
 
-                <!-- Media Playback Cluster -->
-                <!-- Row 1: Rewind, Play, FastForward -->
+                <!-- 2. 3 Activity buttons (Music, Watch TV, Movie) directly below Off -->
                 <button type="button" class="elite-hotspot"
-                  style="left:13.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="Rewind"
-                  title="Rewind / Skip Back">|◀◀</button>
+                  style="left:15.0%;top:6.0%;width:20.0%;height:2.8%;font-size:11px;" data-btn="MusicActivity"
+                  title="Music Activity">🎵</button>
                 <button type="button" class="elite-hotspot"
-                  style="left:39.5%;top:8.4%;width:21.0%;height:3.0%;font-size:11px;" data-btn="Play"
-                  title="Play">▶</button>
+                  style="left:40.0%;top:6.0%;width:20.0%;height:2.8%;font-size:11px;" data-btn="WatchTVActivity"
+                  title="Watch TV Activity">📺</button>
                 <button type="button" class="elite-hotspot"
-                  style="left:66.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="FastForward"
-                  title="Fast Forward / Skip Next">▶▶|</button>
+                  style="left:65.0%;top:6.0%;width:20.0%;height:2.8%;font-size:11px;" data-btn="MovieActivity"
+                  title="Movie Activity">🎬</button>
 
-                <!-- Row 2: Record, Pause, Stop -->
-                <button type="button" class="elite-hotspot"
-                  style="left:13.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Record"
-                  title="Record"><span style="color:#ef476f;">⏺</span></button>
-                <button type="button" class="elite-hotspot"
-                  style="left:39.5%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Pause"
-                  title="Pause">⏸</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:66.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Stop"
-                  title="Stop">⏹</button>
-
-                <!-- Exit / Menu Row -->
-                <button type="button" class="elite-hotspot"
-                  style="left:14.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Exit"
-                  title="Exit">Exit</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:54.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Menu"
-                  title="Menu">Menu</button>
-
-                <!-- Directional D-Pad Cluster -->
-                <button type="button" class="elite-hotspot"
-                  style="left:34.0%;top:21.0%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionUp"
-                  title="Up">▲</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:14.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionLeft"
-                  title="Left">◀</button>
-                <button type="button" class="elite-hotspot btn-elite-dpad-ok"
-                  style="left:35.0%;top:25.8%;width:30.0%;height:5.2%;font-size:11px;font-weight:700;" data-btn="Select"
-                  title="OK">OK</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:68.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionRight"
-                  title="Right">▶</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:34.0%;top:31.6%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionDown"
-                  title="Down">▼</button>
-
-                <!-- Back / Info Row -->
-                <button type="button" class="elite-hotspot"
-                  style="left:14.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;" data-btn="Back" title="Back">↩
-                  Back</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:54.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;font-weight:700;" data-btn="Info"
-                  title="Info">Info</button>
-
-                <!-- Volume, Mute/Prev, Channel -->
-                <!-- Volume Rocker (Left) -->
-                <button type="button" class="elite-hotspot rect"
-                  style="left:13.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
-                  data-btn="VolumeUp" title="Volume Up">+</button>
-                <button type="button" class="elite-hotspot rect"
-                  style="left:13.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
-                  data-btn="VolumeDown" title="Volume Down">−</button>
-
-                <!-- Center: Mute / Prev -->
-                <button type="button" class="elite-hotspot"
-                  style="left:39.5%;top:42.0%;width:21.0%;height:4.2%;font-size:11px;" data-btn="VolumeMute"
-                  title="Mute">🔇</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:39.5%;top:47.2%;width:21.0%;height:4.2%;font-size:9px;font-weight:700;"
-                  data-btn="PrevChannel" title="Previous Channel">Prev</button>
-
-                <!-- Channel Rocker (Right) -->
-                <button type="button" class="elite-hotspot rect"
-                  style="left:66.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
-                  data-btn="ChannelUp" title="Channel Up">∧</button>
-                <button type="button" class="elite-hotspot rect"
-                  style="left:66.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
-                  data-btn="ChannelDown" title="Channel Down">∨</button>
-
-                <!-- Color Buttons Row -->
-                <button type="button" class="elite-hotspot elite-color-red"
-                  style="left:13.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Red" title="Red"></button>
-                <button type="button" class="elite-hotspot elite-color-green"
-                  style="left:32.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Green" title="Green"></button>
-                <button type="button" class="elite-hotspot elite-color-yellow"
-                  style="left:51.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Yellow" title="Yellow"></button>
-                <button type="button" class="elite-hotspot elite-color-blue"
-                  style="left:70.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Blue" title="Blue"></button>
-
-                <!-- Numpad (1-9, Clear/Plus, 0, Enter) -->
-                <button type="button" class="elite-hotspot"
-                  style="left:15.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number1"
-                  title="1">1</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:40.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number2"
-                  title="2">2</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number3"
-                  title="3">3</button>
-
-                <button type="button" class="elite-hotspot"
-                  style="left:15.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number4"
-                  title="4">4</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:40.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number5"
-                  title="5">5</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number6"
-                  title="6">6</button>
-
-                <button type="button" class="elite-hotspot"
-                  style="left:15.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number7"
-                  title="7">7</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:40.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number8"
-                  title="8">8</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number9"
-                  title="9">9</button>
-
-                <button type="button" class="elite-hotspot"
-                  style="left:15.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;" data-btn="NumberPlus"
-                  title="Clear / Plus">+/-</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:40.0%;top:70.2%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number0"
-                  title="0">0</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;font-weight:700;"
-                  data-btn="NumberEnter" title="Enter">E</button>
-
-                <!-- Smart Home Control Keys (Companion Bottom) -->
+                <!-- 3. Smart home control buttons (2x3) directly below on Companion -->
                 <!-- Row 1: Light 1, Dimmer +, Socket 1 -->
-                <button type="button" class="elite-hotspot"
-                  style="left:13.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha1"
+                <button type="button" class="elite-hotspot comp-ha-row"
+                  style="left:14.0%;top:9.6%;width:22.0%;height:3.0%;font-size:10px;" data-btn="Ha1"
                   title="Light 1 (•)">💡 1</button>
-                <button type="button" class="elite-hotspot rect"
-                  style="left:40.0%;top:75.2%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;"
+                <button type="button" class="elite-hotspot rect comp-ha-row"
+                  style="left:41.0%;top:9.6%;width:18.0%;height:3.0%;font-size:11px;font-weight:700;"
                   data-btn="RockerUp" title="Dimmer +">+</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha2"
+                <button type="button" class="elite-hotspot comp-ha-row"
+                  style="left:64.0%;top:9.6%;width:22.0%;height:3.0%;font-size:10px;" data-btn="Ha2"
                   title="Socket 1 (••)">🔌 1</button>
 
                 <!-- Row 2: Light 2, Dimmer -, Socket 2 -->
-                <button type="button" class="elite-hotspot"
-                  style="left:13.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha3"
+                <button type="button" class="elite-hotspot comp-ha-row"
+                  style="left:14.0%;top:13.2%;width:22.0%;height:3.0%;font-size:10px;" data-btn="Ha3"
                   title="Light 2 (∴)">💡 2</button>
-                <button type="button" class="elite-hotspot rect"
-                  style="left:40.0%;top:80.4%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;"
+                <button type="button" class="elite-hotspot rect comp-ha-row"
+                  style="left:41.0%;top:13.2%;width:18.0%;height:3.0%;font-size:11px;font-weight:700;"
                   data-btn="RockerDown" title="Dimmer −">−</button>
-                <button type="button" class="elite-hotspot"
-                  style="left:65.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha4"
+                <button type="button" class="elite-hotspot comp-ha-row"
+                  style="left:64.0%;top:13.2%;width:22.0%;height:3.0%;font-size:10px;" data-btn="Ha4"
                   title="Socket 2 (::)">🔌 2</button>
+
+                <!-- On Smart Control remote: playback buttons here (Rewind, Play, Fast Forward / Record, Pause, Stop) -->
+                <!-- Smart Control Row 1: Rewind, Play, FastForward -->
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:14.0%;top:9.6%;width:21.0%;height:3.0%;font-size:9px;display:none;" data-btn="Rewind"
+                  title="Rewind / Skip Back">|◀◀</button>
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:39.5%;top:9.6%;width:21.0%;height:3.0%;font-size:11px;display:none;" data-btn="Play"
+                  title="Play">▶</button>
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:65.0%;top:9.6%;width:21.0%;height:3.0%;font-size:9px;display:none;" data-btn="FastForward"
+                  title="Fast Forward / Skip Next">▶▶|</button>
+
+                <!-- Smart Control Row 2: Record, Pause, Stop -->
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:14.0%;top:13.2%;width:21.0%;height:3.0%;font-size:10px;display:none;" data-btn="Record"
+                  title="Record"><span style="color:#ef476f;">⏺</span></button>
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:39.5%;top:13.2%;width:21.0%;height:3.0%;font-size:10px;display:none;" data-btn="Pause"
+                  title="Pause">⏸</button>
+                <button type="button" class="elite-hotspot smart-playback-top-row"
+                  style="left:65.0%;top:13.2%;width:21.0%;height:3.0%;font-size:10px;display:none;" data-btn="Stop"
+                  title="Stop">⏹</button>
+
+                <!-- 4. Color buttons (Red, Green, Yellow, Blue) -->
+                <button type="button" class="elite-hotspot elite-color-red"
+                  style="left:14.0%;top:17.2%;width:16.0%;height:2.2%;" data-btn="Red" title="Red"></button>
+                <button type="button" class="elite-hotspot elite-color-green"
+                  style="left:33.0%;top:17.2%;width:16.0%;height:2.2%;" data-btn="Green" title="Green"></button>
+                <button type="button" class="elite-hotspot elite-color-yellow"
+                  style="left:51.0%;top:17.2%;width:16.0%;height:2.2%;" data-btn="Yellow" title="Yellow"></button>
+                <button type="button" class="elite-hotspot elite-color-blue"
+                  style="left:70.0%;top:17.2%;width:16.0%;height:2.2%;" data-btn="Blue" title="Blue"></button>
+
+                <!-- 5. Row with DVR, Guide and Info -->
+                <button type="button" class="elite-hotspot"
+                  style="left:14.0%;top:20.2%;width:22.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Dvr"
+                  title="DVR">DVR</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:39.0%;top:20.2%;width:22.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Guide"
+                  title="Guide">Guide</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:64.0%;top:20.2%;width:22.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Info"
+                  title="Info">Info</button>
+
+                <!-- 6. Row with Exit and Menu -->
+                <button type="button" class="elite-hotspot"
+                  style="left:18.0%;top:23.6%;width:28.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Exit"
+                  title="Exit">Exit</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.0%;top:23.6%;width:28.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Menu"
+                  title="Menu">Menu</button>
+
+                <!-- 7. Volume Up/Down (left), D-pad (center), Channel/Page Up/Down (right) -->
+                <!-- Volume Rocker (Left) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:11.0%;top:28.0%;width:16.0%;height:5.2%;font-size:11px;font-weight:700;"
+                  data-btn="VolumeUp" title="Volume Up">+</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:11.0%;top:34.0%;width:16.0%;height:5.2%;font-size:11px;font-weight:700;"
+                  data-btn="VolumeDown" title="Volume Down">−</button>
+
+                <!-- Directional D-Pad Cluster (Center) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:38.0%;top:27.2%;width:24.0%;height:3.6%;font-size:10px;" data-btn="DirectionUp"
+                  title="Up">▲</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:29.0%;top:31.4%;width:12.0%;height:4.6%;font-size:10px;" data-btn="DirectionLeft"
+                  title="Left">◀</button>
+                <button type="button" class="elite-hotspot btn-elite-dpad-ok"
+                  style="left:42.5%;top:31.4%;width:15.0%;height:4.6%;font-size:11px;font-weight:700;" data-btn="Select"
+                  title="OK">OK</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:59.0%;top:31.4%;width:12.0%;height:4.6%;font-size:10px;" data-btn="DirectionRight"
+                  title="Right">▶</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:38.0%;top:36.6%;width:24.0%;height:3.6%;font-size:10px;" data-btn="DirectionDown"
+                  title="Down">▼</button>
+
+                <!-- Channel / Page Rocker (Right) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:73.0%;top:28.0%;width:16.0%;height:5.2%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelUp" title="Channel Up">∧</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:73.0%;top:34.0%;width:16.0%;height:5.2%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelDown" title="Channel Down">∨</button>
+
+                <!-- 8. Mute and Back row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:18.0%;top:41.2%;width:28.0%;height:2.8%;font-size:10px;" data-btn="VolumeMute"
+                  title="Mute">🔇 Mute</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.0%;top:41.2%;width:28.0%;height:2.8%;font-size:10px;font-weight:700;" data-btn="Back"
+                  title="Back">↩ Back</button>
+
+                <!-- 9. On Companion: Playback Cluster (Rewind, Play, Fast Forward / Record, Pause, Stop) -->
+                <!-- Row 1: Rewind, Play, Fast Forward -->
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:14.0%;top:45.4%;width:21.0%;height:2.8%;font-size:9px;" data-btn="Rewind"
+                  title="Rewind / Skip Back">|◀◀</button>
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:39.5%;top:45.4%;width:21.0%;height:2.8%;font-size:11px;" data-btn="Play"
+                  title="Play">▶</button>
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:65.0%;top:45.4%;width:21.0%;height:2.8%;font-size:9px;" data-btn="FastForward"
+                  title="Fast Forward / Skip Next">▶▶|</button>
+
+                <!-- Row 2: Record, Pause, Stop -->
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:14.0%;top:49.0%;width:21.0%;height:2.8%;font-size:10px;" data-btn="Record"
+                  title="Record"><span style="color:#ef476f;">⏺</span></button>
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:39.5%;top:49.0%;width:21.0%;height:2.8%;font-size:10px;" data-btn="Pause"
+                  title="Pause">⏸</button>
+                <button type="button" class="elite-hotspot comp-playback-mid-row"
+                  style="left:65.0%;top:49.0%;width:21.0%;height:2.8%;font-size:10px;" data-btn="Stop"
+                  title="Stop">⏹</button>
+
+                <!-- 10. Numbers pad (1-9, then +/-, 0, E) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:53.2%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number1"
+                  title="1">1</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:53.2%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number2"
+                  title="2">2</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:53.2%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number3"
+                  title="3">3</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:57.0%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number4"
+                  title="4">4</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:57.0%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number5"
+                  title="5">5</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:57.0%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number6"
+                  title="6">6</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:60.8%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number7"
+                  title="7">7</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:60.8%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number8"
+                  title="8">8</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:60.8%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number9"
+                  title="9">9</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:64.6%;width:20.0%;height:3.0%;font-size:10px;" data-btn="NumberPlus"
+                  title="Plus / Minus">+/-</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:64.6%;width:20.0%;height:3.0%;font-size:11px;" data-btn="Number0"
+                  title="0">0</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:64.6%;width:20.0%;height:3.0%;font-size:10px;font-weight:700;"
+                  data-btn="NumberEnter" title="Enter">E</button>
               </div>
             </div>
             <div class="help" style="margin-top: 8px;">💡 Tap any button to configure its mapping.</div>
@@ -3560,7 +3617,8 @@ harmony_send_command:
           <span class="badge subtle mini">script.harmony_send_command</span>
         </div>
         <div class="help" style="margin-bottom: 12px;">
-          Build ready-to-use <code>script.harmony_send_command</code> automation actions for Home Assistant (HA 2024.8+). Select a device, queue one or more commands, adjust timing parameters, and copy the generated YAML.
+          Build ready-to-use <code>script.harmony_send_command</code> automation actions for Home Assistant (HA
+          2024.8+). Select a device, queue one or more commands, adjust timing parameters, and copy the generated YAML.
         </div>
 
         <div class="row">
@@ -3580,27 +3638,38 @@ harmony_send_command:
         <!-- Command Sequence List -->
         <div style="margin-top: 10px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Command Sequence (<span id="haHelperCmdCount">0</span>)</label>
-            <button type="button" id="btnHaHelperClearCmds" class="btn btn-xs btn-ghost" style="font-size: 10px; color: var(--danger); padding: 2px 6px;">Clear Sequence</button>
+            <label
+              style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Command
+              Sequence (<span id="haHelperCmdCount">0</span>)</label>
+            <button type="button" id="btnHaHelperClearCmds" class="btn btn-xs btn-ghost"
+              style="font-size: 10px; color: var(--danger); padding: 2px 6px;">Clear Sequence</button>
           </div>
-          <div id="haHelperCmdQueue" class="queue-list" style="min-height: 48px; max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px;">
-            <div class="muted mini" style="text-align: center; padding: 10px;">No commands added yet. Pick a command above and click "+ Add".</div>
+          <div id="haHelperCmdQueue" class="queue-list"
+            style="min-height: 48px; max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px;">
+            <div class="muted mini" style="text-align: center; padding: 10px;">No commands added yet. Pick a command
+              above and click "+ Add".</div>
           </div>
         </div>
 
         <!-- Timing & Repeat Parameters -->
         <div class="row" style="margin-top: 10px;">
           <div>
-            <label for="haHelperDelay" style="font-size: 11px; font-weight: 600;" title="Delay between commands in seconds">Delay (seconds)</label>
-            <input type="number" id="haHelperDelay" class="form-control form-control-sm" value="0.4" min="0" max="60" step="0.1">
+            <label for="haHelperDelay" style="font-size: 11px; font-weight: 600;"
+              title="Delay between commands in seconds">Delay (seconds)</label>
+            <input type="number" id="haHelperDelay" class="form-control form-control-sm" value="0.4" min="0" max="60"
+              step="0.1">
           </div>
           <div>
-            <label for="haHelperHold" style="font-size: 11px; font-weight: 600;" title="Hold / pulse duration in seconds">Hold (seconds)</label>
-            <input type="number" id="haHelperHold" class="form-control form-control-sm" value="0" min="0" max="10" step="0.1">
+            <label for="haHelperHold" style="font-size: 11px; font-weight: 600;"
+              title="Hold / pulse duration in seconds">Hold (seconds)</label>
+            <input type="number" id="haHelperHold" class="form-control form-control-sm" value="0" min="0" max="10"
+              step="0.1">
           </div>
           <div>
-            <label for="haHelperRepeats" style="font-size: 11px; font-weight: 600;" title="Times to repeat command or sequence">Repeats</label>
-            <input type="number" id="haHelperRepeats" class="form-control form-control-sm" value="1" min="1" max="50" step="1">
+            <label for="haHelperRepeats" style="font-size: 11px; font-weight: 600;"
+              title="Times to repeat command or sequence">Repeats</label>
+            <input type="number" id="haHelperRepeats" class="form-control form-control-sm" value="1" min="1" max="50"
+              step="1">
           </div>
         </div>
 
@@ -3615,14 +3684,18 @@ harmony_send_command:
         <!-- Generated YAML Preview & Actions -->
         <div style="margin-top: 10px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Generated YAML</label>
+            <label
+              style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Generated
+              YAML</label>
             <div style="display: flex; gap: 6px; align-items: center;">
               <span id="haHelperActionStatus" class="mini subtle"></span>
-              <button type="button" id="btnHaHelperTest" class="btn btn-xs btn-secondary" title="Test command sequence live on Hub">▶ Test on Hub</button>
+              <button type="button" id="btnHaHelperTest" class="btn btn-xs btn-secondary"
+                title="Test command sequence live on Hub">▶ Test on Hub</button>
               <button type="button" id="btnHaHelperCopy" class="btn btn-xs btn-primary">📋 Copy YAML</button>
             </div>
           </div>
-          <pre id="haHelperYamlPreview" class="mini" style="margin: 0; font-family: monospace; background: var(--bg-dark); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow-x: auto; color: var(--text-bright); line-height: 1.45;"></pre>
+          <pre id="haHelperYamlPreview" class="mini"
+            style="margin: 0; font-family: monospace; background: var(--bg-dark); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow-x: auto; color: var(--text-bright); line-height: 1.45;"></pre>
         </div>
       </div>
     </section>
