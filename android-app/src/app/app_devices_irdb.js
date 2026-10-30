@@ -78,8 +78,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       if (resBox) {
         resBox.style.display = matches.length ? 'block' : 'none';
         resBox.innerHTML = matches.map(m => `
-          <button type="button" class="btn btn-xs btn-ghost irdb-pick" data-path="${m.path}" data-source="${m.source}" style="width: 100%; text-align: left; margin-bottom: 4px;">
-            <strong>[${sourceLabel(m.source)}]</strong> ${m.path}
+          <button type="button" class="btn btn-xs btn-ghost irdb-pick" data-path="${escapeHtml(m.path)}" data-source="${escapeHtml(m.source)}" style="width: 100%; text-align: left; margin-bottom: 4px;">
+            <strong>[${sourceLabel(m.source)}]</strong> ${escapeHtml(m.path)}
           </button>
         `).join('');
 
@@ -175,7 +175,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
   async saveSelectedIrdbCommands() {
     const devId = document.getElementById('manageDeviceSelect')?.value || document.getElementById('irdbDevice')?.value;
     const prefix = document.getElementById('irdbPrefix')?.value || '';
-    if (!devId) return alert('Select a device first.');
+    if (!devId) return alert(t('select_device_first_dot', 'Select a device first.'));
 
     const targetDev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
     const targetPort = targetDev ? ((targetDev.controlPort !== undefined) ? targetDev.controlPort : 7) : 7;
@@ -211,7 +211,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       await this.refreshData();
       this.renderIrView(devId);
     } catch (err) {
-      alert('Import failed: ' + err.message);
+      alert(t('import_failed', 'Import failed: ') + err.message);
     }
   }
 
@@ -273,7 +273,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       if (status) status.innerHTML = '<span style="color:var(--success)">✓ Command saved!</span>';
       await this.refreshData();
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -282,11 +282,11 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const cmdSel = document.getElementById('verifyCommand');
     if (!devSel || !cmdSel) return;
     const devs = this.inventory.devices || [];
-    devSel.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+    devSel.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
 
     const updateCmds = () => {
       const d = devs.find(x => String(x.id) === String(devSel.value));
-      cmdSel.innerHTML = (d?.commands || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+      cmdSel.innerHTML = (d?.commands || []).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
     };
     devSel.onchange = updateCmds;
     updateCmds();
@@ -313,7 +313,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
     const previousId = selectedId || sel.value;
     const devs = this.inventory.devices || [];
-    sel.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+    sel.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
 
     if (previousId && devs.some(d => String(d.id) === String(previousId))) {
       sel.value = String(previousId);
@@ -497,12 +497,12 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         listEl.innerHTML = filtered.map(c => `
           <div class="queue-row" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 4px; background: rgba(255,255,255,0.02);">
             <div>
-              <strong style="font-size: 13px;">${c.name}</strong>
-              <div class="muted mini">Proto ${c.protocolId || c.protocol_id || 'IR'}${c.learned ? ' • Learned' : ''}${c.raw ? ' • Raw' : ''}</div>
+              <strong style="font-size: 13px;">${escapeHtml(c.name)}</strong>
+              <div class="muted mini">Proto ${escapeHtml(c.protocolId || c.protocol_id || 'IR')}${c.learned ? ' • Learned' : ''}${c.raw ? ' • Raw' : ''}</div>
             </div>
             <div style="display: flex; gap: 6px;">
-              <button type="button" class="btn btn-xs btn-primary btn-mgr-test-cmd" data-cmd="${c.name}">Send</button>
-              <button type="button" class="btn btn-xs btn-danger btn-mgr-del-cmd" data-cmd="${c.name}">Delete</button>
+              <button type="button" class="btn btn-xs btn-primary btn-mgr-test-cmd" data-cmd="${escapeHtml(c.name)}">Send</button>
+              <button type="button" class="btn btn-xs btn-danger btn-mgr-del-cmd" data-cmd="${escapeHtml(c.name)}">Delete</button>
             </div>
           </div>
         `).join('');

@@ -196,7 +196,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
                 await this.refreshData();
                 this.loadBtView();
               } catch (err) {
-                alert('Assign failed: ' + err.message);
+                alert(t('assign_failed', 'Assign failed: ') + err.message);
               }
             }
           });
@@ -212,7 +212,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
 
       if (hostSel) {
         hostSel.innerHTML = '<option value="">Auto (Active Host)</option>' +
-          hosts.map(d => `<option value="${d.addr}">${d.name || d.addr}</option>`).join('');
+          hosts.map(d => `<option value="${escapeHtml(d.addr)}">${escapeHtml(d.name || d.addr)}</option>`).join('');
       }
     } catch (err) {
       if (desc) desc.textContent = 'Error: ' + err.message;
@@ -231,7 +231,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
         await this.client.setBtPairing(false);
         showToast(t("bt_pairing_stopped"), 'info');
       } catch (err) {
-        alert('Failed to stop pairing: ' + err.message);
+        alert(t('failed_stop_pairing', 'Failed to stop pairing: ') + err.message);
       } finally {
         await this.loadBtView();
       }
@@ -248,7 +248,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       const devObj = (this.inventory.devices || []).find(d => String(d.id) === String(target));
       showToast('Hub is now discoverable as "' + name + '" for ' + (devObj ? devObj.name : target) + '. Pair from your host device.', 'success');
     } catch (err) {
-      alert('Pairing mode failed: ' + err.message);
+      alert(t('pairing_mode_failed', 'Pairing mode failed: ') + err.message);
     } finally {
       await this.loadBtView();
     }
@@ -362,7 +362,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           await this.refreshData();
           this.renderBtSavedCommands();
         } catch (e) {
-          alert('Delete failed: ' + e.message);
+          alert(t('delete_failed', 'Delete failed: ') + e.message);
         }
       });
     });

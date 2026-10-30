@@ -910,7 +910,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       await this.client.toggleRfService(!isEnabled);
       await this.refreshServiceStatuses();
     } catch (err) {
-      alert('Failed to toggle RF: ' + err.message);
+      alert(t('failed_toggle_rf', 'Failed to toggle RF: ') + err.message);
     }
   }
 
@@ -923,7 +923,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       await this.client.toggleBtService(!isEnabled);
       await this.refreshServiceStatuses();
     } catch (err) {
-      alert('Failed to toggle Bluetooth: ' + err.message);
+      alert(t('failed_toggle_bt', 'Failed to toggle Bluetooth: ') + err.message);
     }
   }
 

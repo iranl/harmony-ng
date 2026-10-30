@@ -193,7 +193,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       await this.client.saveSystemAction('rediscover');
       if (status) status.innerHTML = '<span style="color:var(--success)">Discovery triggered!</span>';
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -291,10 +291,10 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         <div class="card" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <strong>${h.name}</strong>
+              <strong>${escapeHtml(h.name)}</strong>
               ${isCur ? '<span class="badge ok">Active</span>' : ''}
             </div>
-            <div class="muted mini">${h.host}:${h.port || 8080}</div>
+            <div class="muted mini">${escapeHtml(h.host)}:${escapeHtml(h.port || 8080)}</div>
           </div>
           <div style="display: flex; gap: 6px;">
             ${!isCur ? `<button type="button" class="btn btn-xs btn-primary btn-select-hub" data-id="${h.id}">Connect</button>` : ''}
@@ -555,7 +555,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       });
       const res = await c.testConnection();
       if (res.ok) stat.innerHTML = '<span style="color:var(--success)">✓ Connected!</span>';
-      else stat.innerHTML = `<span style="color:var(--danger)">✗ ${res.error}</span>`;
+      else stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(res.error)}</span>`;
     };
 
     modal.querySelector('#btnHubSave').onclick = async () => {

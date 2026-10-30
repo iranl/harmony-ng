@@ -176,13 +176,13 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
       if (c.raw) lines.push(`${c.name}|raw|${c.raw}`);
       else if (c.keycode) lines.push(`${c.name}|${c.keycode}`);
     });
-    if (!lines.length) return alert('No commands selected.');
+    if (!lines.length) return alert(t('no_cmds_selected', 'No commands selected.'));
     try {
       await this.client.importIrdb({ deviceId: devId, payload: lines.join('\n') });
       alert(t("imported_n_cmds").replace("{count}", lines.length));
       await this.refreshData();
     } catch (err) {
-      alert('Import failed: ' + err.message);
+      alert(t('import_failed', 'Import failed: ') + err.message);
     }
   }
 

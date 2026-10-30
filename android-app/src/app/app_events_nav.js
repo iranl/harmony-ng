@@ -541,7 +541,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           } catch { }
         }, 2000);
       } catch (err) {
-        alert('Could not start Bluetooth pairing: ' + err.message);
+        alert(t('could_not_start_bt_pairing', 'Could not start Bluetooth pairing: ') + err.message);
         if (helpBox) helpBox.style.display = 'none';
         if (startBtn) startBtn.disabled = false;
       }
@@ -567,10 +567,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       if (!addr) return alert(t("no_bt_host_linked"));
       try {
         await this.client.connectBt(addr);
-        alert('Connection command sent to host ' + addr);
+        alert(t('connection_cmd_sent', 'Connection command sent to host ') + addr);
         setTimeout(() => this.updateStudioDeviceView(), 1000);
       } catch (err) {
-        alert('Connect failed: ' + err.message);
+        alert(t('connect_failed', 'Connect failed: ') + err.message);
       }
     });
 
@@ -582,7 +582,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         alert(t("disconnect_cmd_sent"));
         setTimeout(() => this.updateStudioDeviceView(), 1000);
       } catch (err) {
-        alert('Disconnect failed: ' + err.message);
+        alert(t('disconnect_failed', 'Disconnect failed: ') + err.message);
       }
     });
 
@@ -595,7 +595,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         await this.refreshData();
         this.updateStudioDeviceView();
       } catch (err) {
-        alert('Unpair failed: ' + err.message);
+        alert(t('unpair_failed', 'Unpair failed: ') + err.message);
       }
     });
 
@@ -607,9 +607,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         await this.client.linkBtDevice(addr, devId);
         await this.refreshData();
         this.updateStudioDeviceView();
-        alert('Device linked to ' + addr);
+        alert(t('device_linked_to', 'Device linked to ') + addr);
       } catch (err) {
-        alert('Link failed: ' + err.message);
+        alert(t('link_failed', 'Link failed: ') + err.message);
       }
     });
 

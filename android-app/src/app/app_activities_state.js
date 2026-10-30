@@ -123,7 +123,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
             The connected hub requires a newer version of the Android App. Please update your app.
           </p>
           <div class="muted mini" style="margin-bottom:16px;">
-            Current: <strong>v${curVer}</strong> • Required: <strong>v${minVer}+</strong>
+            Current: <strong>v${escapeHtml(curVer)}</strong> • Required: <strong>v${escapeHtml(minVer)}+</strong>
           </div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
             <button type="button" class="btn btn-primary" onclick="window.location.reload(true)">Reload</button>
@@ -348,7 +348,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       }
       this.pollActivityTransition(actId);
     } catch (err) {
-      alert('Failed to start activity: ' + (err.message || err));
+      alert(t('failed_start_act', 'Failed to start activity: ') + (err.message || err));
       this.activitiesData.isTransitioning = false;
       this.updateActivityBanner();
     }
@@ -373,7 +373,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       }
       this.pollActivityTransition('-1');
     } catch (err) {
-      alert('Failed to stop activity: ' + (err.message || err));
+      alert(t('failed_stop_act', 'Failed to stop activity: ') + (err.message || err));
       this.activitiesData.isTransitioning = false;
       this.updateActivityBanner();
     }

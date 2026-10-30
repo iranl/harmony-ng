@@ -267,7 +267,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
                 setTimeout(() => { btn.textContent = '▶ Test'; }, 1000);
               } catch (err) {
                 btn.textContent = '✗';
-                alert('Test blast failed: ' + err.message);
+                alert(t('test_blast_failed', 'Test blast failed: ') + err.message);
                 setTimeout(() => { btn.textContent = '▶ Test'; }, 1500);
               }
             });
@@ -340,8 +340,8 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         await this.refreshData();
         this.renderIrView(targetDevId);
       } catch (err) {
-        alert('Failed to import commands: ' + err.message);
-        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+        alert(t('failed_import_cmds', 'Failed to import commands: ') + err.message);
+        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
       } finally {
         importBtn.disabled = false;
         updateSelectedCount();

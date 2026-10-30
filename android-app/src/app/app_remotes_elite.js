@@ -216,12 +216,12 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const presetDev = document.getElementById('elitePresetDevice');
     const tgtAct = document.getElementById('eliteTargetActivity');
     const devs = this.inventory.devices || [];
-    if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
-    if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
-    if (tgtAct) tgtAct.innerHTML = filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+    if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
+    if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
+    if (tgtAct) tgtAct.innerHTML = filteredActs.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
     const devSelect = document.getElementById('eliteDeviceSelect');
     if (devSelect) {
-      devSelect.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+      devSelect.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
       if (this.eliteSelectedDeviceId && devs.some(d => String(d.id) === String(this.eliteSelectedDeviceId))) {
         devSelect.value = this.eliteSelectedDeviceId;
       } else if (devs.length > 0) {
@@ -372,7 +372,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     if (!cmdSel) return;
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
     const cmds = (dev?.commands || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    cmdSel.innerHTML = cmds.map(c => `<option value="${c.name}" ${c.name === curVal ? 'selected' : ''}>${c.name}</option>`).join('');
+    cmdSel.innerHTML = cmds.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === curVal ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
   }
 
   toggleEliteActionFields() {
@@ -524,9 +524,9 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   autoMapElitePreset() {
     const devId = document.getElementById('elitePresetDevice')?.value;
     const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
-    if (!devId) return alert('Select target device first.');
+    if (!devId) return alert(t('select_target_dev_first', 'Select target device first.'));
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-    if (!dev || !dev.commands) return alert('Device has no commands.');
+    if (!dev || !dev.commands) return alert(t('dev_has_no_cmds', 'Device has no commands.'));
 
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const aliases = {
@@ -641,9 +641,9 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
         preview.innerHTML = sbtns.slice(0, 6).map((b, idx) => {
           const text = b.label || 'Btn ' + (idx + 1);
           return `
-            <div class="elite-screen-tile" title="${text}" style="display:flex;align-items:center;justify-content:center;gap:4px;overflow:hidden;padding:0 3px;">
+            <div class="elite-screen-tile" title="${escapeHtml(text)}" style="display:flex;align-items:center;justify-content:center;gap:4px;overflow:hidden;padding:0 3px;">
               ${getScreenBtnIconSvg(b.icon, b.label, 11)}
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${text}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(text)}</span>
             </div>
           `;
         }).join('');
@@ -662,11 +662,11 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
 
     sbtnsList.innerHTML = sbtns.map((btn, idx) => {
       const devOpts = isDevScope
-        ? `<option value="${curDev?.id}">${curDev?.name || curDev?.id}</option>`
-        : devs.map(d => `<option value="${d.id}" ${String(d.id) === String(btn.deviceId) ? 'selected' : ''}>${d.name || d.id}</option>`).join('');
+        ? `<option value="${escapeHtml(curDev?.id)}">${escapeHtml(curDev?.name || curDev?.id)}</option>`
+        : devs.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === String(btn.deviceId) ? 'selected' : ''}>${escapeHtml(d.name || d.id)}</option>`).join('');
       const targetDev = isDevScope ? curDev : (devs.find(d => String(d.id) === String(btn.deviceId)) || devs[0]);
       const cmds = targetDev?.commands || [];
-      const cmdOpts = cmds.map(c => `<option value="${c.name}" ${c.name === btn.command ? 'selected' : ''}>${c.name}</option>`).join('');
+      const cmdOpts = cmds.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === btn.command ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
       const iconUrl = btn.icon ? getStockIconUrl(btn.icon) : '';
       const iconDispName = btn.icon ? this.formatIconDisplayName(btn.icon) : 'Pick Icon';
       const shouldInvert = isDarkMonochromeIcon(btn.icon);
@@ -678,10 +678,10 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
             <button type="button" class="btn btn-xs btn-ghost screen-btn-up" title="Move Up" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▲</button>
             <button type="button" class="btn btn-xs btn-ghost screen-btn-down" title="Move Down" ${idx === sbtns.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▼</button>
           </div>
-          <input type="text" class="form-control screen-btn-label" maxlength="12" value="${btn.label || ''}" placeholder="Label (max 12)" style="font-size: 12px; padding: 4px 8px;">
+          <input type="text" class="form-control screen-btn-label" maxlength="12" value="${escapeHtml(btn.label || '')}" placeholder="Label (max 12)" style="font-size: 12px; padding: 4px 8px;">
           <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="Choose Icon" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
-            ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${btn.icon}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
-            <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${iconDispName}</span>
+            ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${escapeHtml(btn.icon)}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
+            <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${escapeHtml(iconDispName)}</span>
           </button>
           <select class="form-control screen-btn-dev" style="font-size: 12px; padding: 4px 6px; ${isDevScope ? 'display:none;' : ''}" ${isDevScope ? 'disabled' : ''}>
             ${devOpts}

@@ -58,17 +58,17 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     const sel = document.getElementById('b25ActivitySelect');
     if (sel) {
       sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
-        (this.activitiesData.activities || []).map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+        (this.activitiesData.activities || []).map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
     }
     const tgtDev = document.getElementById('b25TargetDevice');
     const presetDev = document.getElementById('b25PresetBtDevice');
     const devs = this.inventory.devices || [];
-    if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
-    if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+    if (tgtDev) tgtDev.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
+    if (presetDev) presetDev.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
 
     const actSel = document.getElementById('b25TargetActivity');
     if (actSel) {
-      actSel.innerHTML = (this.activitiesData.activities || []).map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+      actSel.innerHTML = (this.activitiesData.activities || []).map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
     }
 
     try {
@@ -167,7 +167,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     const cmdSel = document.getElementById('b25TargetCommand');
     if (!cmdSel) return;
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-    cmdSel.innerHTML = (dev?.commands || []).map(c => `<option value="${c.name}" ${c.name === curVal ? 'selected' : ''}>${c.name}</option>`).join('');
+    cmdSel.innerHTML = (dev?.commands || []).map(c => `<option value="${escapeHtml(c.name)}" ${c.name === curVal ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
   }
 
   toggleB25ActionFields() {
@@ -245,7 +245,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       await this.client.saveRemoteMappings(this.b25MapData);
       alert(t("b25_saved_hub"));
     } catch (err) {
-      alert('Save failed: ' + err.message);
+      alert(t('save_failed', 'Save failed: ') + err.message);
     } finally {
       if (btn) btn.textContent = 'Save All Mappings';
     }
@@ -254,7 +254,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
   autoMapB25Preset() {
     const devId = document.getElementById('b25PresetBtDevice')?.value;
     const actId = document.getElementById('b25ActivitySelect')?.value || '-1';
-    if (!devId) return alert('Select target device first.');
+    if (!devId) return alert(t('select_target_dev_first', 'Select target device first.'));
     const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
     if (!dev || !dev.commands) return alert(t("dev_has_no_cmds"));
 
@@ -304,7 +304,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
         if (log) log.textContent = st.message || 'Scan completed.';
         const list = document.getElementById('b25DiscoveredList');
         if (list && st.devices) {
-          list.innerHTML = st.devices.map(d => `<option value="${d.bdaddr}">${d.name || d.bdaddr}</option>`).join('');
+          list.innerHTML = st.devices.map(d => `<option value="${escapeHtml(d.bdaddr)}">${escapeHtml(d.name || d.bdaddr)}</option>`).join('');
         }
       }, 4000);
     } catch (err) {
@@ -337,7 +337,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
       setTimeout(() => { if (status) status.textContent = ''; }, 3000);
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
   }
 }

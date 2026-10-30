@@ -317,10 +317,6 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.request('/api/system-info');
   }
 
-  async getBtStatus() {
-    return this.request('/api/bt-status');
-  }
-
   async rebootHub() {
     return this.saveSystemAction('reboot');
   }
@@ -388,6 +384,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
 
   async sendDirectPronto(prontoHex, port = 7, repeats = 1) {
     return this.postJson('/api/ir-send', { pronto: String(prontoHex), port: Number(port) || 7, repeats: Number(repeats) || 1 });
+  }
+
+  async blastPronto(prontoHex, devId = null, port = 7, repeats = 1) {
+    return this.sendDirectPronto(prontoHex, port, repeats);
   }
 
   async login(username, password) {

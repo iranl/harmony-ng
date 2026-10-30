@@ -550,7 +550,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         if (otherBtn) otherBtn.disabled = false;
       }
     } catch (e) {
-      alert('Failed to trigger RF OTA: ' + e.message);
+      alert(t('could_not_start_ota', 'Failed to trigger RF OTA: ') + e.message);
       if (btn) btn.disabled = false;
       if (otherBtn) otherBtn.disabled = false;
     }

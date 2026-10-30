@@ -98,6 +98,10 @@ export class HarmonyAppCore {
     this.setupWebSocket();
   }
 
+  escapeHtml(str) {
+    return escapeHtml(str);
+  }
+
   recordSuccess() {
     this.consecutiveFailures = 0;
     if (!this.isHubOnline) {

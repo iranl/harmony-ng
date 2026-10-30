@@ -144,7 +144,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         } else {
           addControls.style.display = 'flex';
           addSel.innerHTML = availableDevices.map(
-            d => `<option value="${d.id}">${d.name || d.model || d.id}</option>`
+            d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.model || d.id)}</option>`
           ).join('');
         }
       };
@@ -163,7 +163,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
         row.innerHTML = `
           <span class="muted mini act-dev-num" style="min-width:24px;">#</span>
           <span style="display:inline-flex;align-items:center;margin-right:2px;">${devIconSvg}</span>
-          <span style="flex:1;font-weight:600;font-size:13px;">${name}</span>
+          <span style="flex:1;font-weight:600;font-size:13px;">${escapeHtml(name)}</span>
           <div style="display:flex;gap:4px;">
             <button type="button" class="btn btn-xs btn-ghost btn-dev-up" title="Power on earlier">↑</button>
             <button type="button" class="btn btn-xs btn-ghost btn-dev-down" title="Power on later">↓</button>
@@ -287,7 +287,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           <option value="Switched" ${isSwitched ? 'selected' : ''}>Switched</option>
         </select>
         <select class="form-control step-dev-select" style="max-width: 130px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};">
-          ${devices.map(d => `<option value="${d.id}" ${String(d.id) === initDevId ? 'selected' : ''}>${d.name || d.model || d.id}</option>`).join('')}
+          ${devices.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === initDevId ? 'selected' : ''}>${escapeHtml(d.name || d.model || d.id)}</option>`).join('')}
         </select>
         <span class="step-dev-icon" style="display: ${(!isDelay && !isSwitched) ? 'inline-flex' : 'none'}; align-items: center;"></span>
         <select class="form-control step-cmd-select" style="flex: 1; min-width: 120px; font-size: 12px; padding: 4px 6px; display: ${(!isDelay && !isSwitched) ? 'block' : 'none'};"></select>
@@ -436,7 +436,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       await this.client.testActivitySequence(steps);
       alert(t("seq_test_sent"));
     } catch (err) {
-      alert('Test failed: ' + err.message);
+      alert(t('test_failed', 'Test failed: ') + err.message);
     }
   }
 
@@ -496,7 +496,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       await this.refreshData();
       await this.loadActivitiesView();
     } catch (err) {
-      alert('Delete failed: ' + err.message);
+      alert(t('delete_failed', 'Delete failed: ') + err.message);
     }
   }
 

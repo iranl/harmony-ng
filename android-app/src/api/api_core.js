@@ -122,8 +122,12 @@ export class HarmonyClientCore {
     return headers;
   }
 
+  buildUrl(path) {
+    return this.baseUrl ? `${this.baseUrl}${path}` : path;
+  }
+
   async request(path, options = {}) {
-    const url = this.baseUrl ? `${this.baseUrl}${path}` : path;
+    const url = this.buildUrl(path);
     const opts = {
       ...options,
       headers: this.getHeaders(options.headers || {})

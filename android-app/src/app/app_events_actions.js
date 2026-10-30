@@ -72,7 +72,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const hex = document.getElementById('irdbPaste')?.value.trim();
       const name = document.getElementById('pasteCmdName')?.value.trim() || 'ProntoCmd';
       const devId = document.getElementById('manageDeviceSelect')?.value;
-      if (!hex) return alert('Enter Pronto Hex first');
+      if (!hex) return alert(t('enter_pronto_first', 'Enter Pronto Hex first'));
       const stat = document.getElementById('pasteStatus');
       if (stat) stat.textContent = 'Saving...';
       try {
@@ -102,7 +102,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
       const code = document.getElementById('btCustomCmdCode')?.value.trim();
       const stat = document.getElementById('btCustomStatus');
-      if (!code) return alert('Enter HID code or script first');
+      if (!code) return alert(t('enter_hid_code_first', 'Enter HID code or script first'));
       if (stat) stat.textContent = 'Testing Bluetooth key...';
       try {
         if (code.startsWith('BT:SCRIPT:')) {
@@ -121,7 +121,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const name = document.getElementById('btCustomCmdName')?.value.trim();
       const code = document.getElementById('btCustomCmdCode')?.value.trim();
       const stat = document.getElementById('btCustomStatus');
-      if (!name || !code) return alert('Enter command name and HID code / script');
+      if (!name || !code) return alert(t('enter_cmd_name_and_code', 'Enter command name and HID code / script'));
       if (stat) stat.textContent = 'Saving command...';
       try {
         await this.client.saveLearnedCommand({ deviceId: devId, name, raw: code, mode: 'raw' });
@@ -157,7 +157,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
       const stat = document.getElementById('mqttNewCmdStatus');
-      if (!cmdName) return alert('Enter MQTT command name first');
+      if (!cmdName) return alert(t('enter_mqtt_cmd_name_first', 'Enter MQTT command name first'));
       if (stat) stat.textContent = 'Publishing test MQTT message...';
       try {
         await this.client.testDeviceMqtt({ deviceId: devId, command: cmdName });
@@ -171,7 +171,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
       const stat = document.getElementById('mqttNewCmdStatus');
-      if (!cmdName) return alert('Enter MQTT command name');
+      if (!cmdName) return alert(t('enter_mqtt_cmd_name', 'Enter MQTT command name'));
       if (stat) stat.textContent = 'Saving MQTT command...';
       try {
         await this.client.saveLearnedCommand({ deviceId: devId, name: cmdName, raw: `G:MQTT:${cmdName}`, mode: 'raw' });
@@ -188,7 +188,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         await this.client.toggleRfService(true);
         await this.loadEliteView();
       } catch (e) {
-        alert('Enable RF failed: ' + e.message);
+        alert(t('enable_rf_failed', 'Enable RF failed: ') + e.message);
       }
     });
 
@@ -921,6 +921,8 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
   }
 
   bindEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
     this.bindNavigationAndDeviceEvents();
     this.bindIrAndSettingsEvents();
   }

@@ -165,7 +165,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       const el = document.getElementById(id);
       if (el) {
         const curVal = targetId || el.value;
-        el.innerHTML = devs.map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+        el.innerHTML = devs.map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
         if (curVal && devs.some(d => String(d.id) === String(curVal))) {
           el.value = String(curVal);
         }
@@ -295,7 +295,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
             if (hosts.length > 0) {
               knownHostRow.style.display = 'flex';
               knownHostSel.innerHTML = '<option value="">-- Link with Known Host --</option>' +
-                hosts.map(h => `<option value="${h.addr}">${h.name || h.addr} (${h.addr})</option>`).join('');
+                hosts.map(h => `<option value="${escapeHtml(h.addr)}">${escapeHtml(h.name || h.addr)} (${escapeHtml(h.addr)})</option>`).join('');
             } else {
               knownHostRow.style.display = 'none';
             }
@@ -435,13 +435,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       return `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-card); border-radius: var(--radius-sm); margin-bottom: 4px; border: 1px solid var(--border);">
           <div style="display: flex; align-items: center; gap: 6px;">
-            <strong style="font-size: 13px; color: var(--text-main);">${c.name}</strong>
+            <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
             ${isLocked ? `<span class="badge subtle mini" style="font-size: 10px;">Locked</span>` : ''}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${dev.id}" data-cmd="${c.name}" title="Send command">▶ Test</button>
-            <button type="button" class="btn btn-xs btn-ghost btn-studio-edit" data-dev="${dev.id}" data-cmd="${c.name}" title="Edit command">✎ Edit</button>
-            ${isLocked ? '' : `<button type="button" class="btn btn-xs btn-ghost btn-studio-del" data-dev="${dev.id}" data-cmd="${c.name}" style="color: var(--danger);" title="Delete command">✕</button>`}
+            <button type="button" class="btn btn-xs btn-secondary btn-studio-test" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="Send command">▶ Test</button>
+            <button type="button" class="btn btn-xs btn-ghost btn-studio-edit" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" title="Edit command">✎ Edit</button>
+            ${isLocked ? '' : `<button type="button" class="btn btn-xs btn-ghost btn-studio-del" data-dev="${escapeHtml(dev.id)}" data-cmd="${escapeHtml(c.name)}" style="color: var(--danger);" title="Delete command">✕</button>`}
           </div>
         </div>
       `;
@@ -458,7 +458,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           btn.textContent = '✓ Sent';
           setTimeout(() => { btn.textContent = '▶ Test'; }, 1200);
         } catch (err) {
-          alert('Failed to send: ' + err.message);
+          alert(t('failed_to_send', 'Failed to send: ') + err.message);
           btn.textContent = '▶ Test';
         }
       });
@@ -488,7 +488,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           await this.refreshData();
           this.renderIrView();
         } catch (err) {
-          alert('Delete failed: ' + err.message);
+          alert(t('delete_failed', 'Delete failed: ') + err.message);
         }
       });
     });
@@ -604,7 +604,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (newDevId) this.selectedIrDeviceId = String(newDevId);
       this.renderIrView();
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -650,7 +650,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       }, 1000);
       await this.refreshData();
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -778,7 +778,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           btn.textContent = '✓';
           setTimeout(() => { btn.textContent = '▶'; }, 1000);
         } catch (err) {
-          alert('Test failed: ' + err.message);
+          alert(t('test_failed', 'Test failed: ') + err.message);
           btn.textContent = '▶';
         }
       });
@@ -796,7 +796,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           await this.refreshData();
           this.renderIrView();
         } catch (err) {
-          alert('Add failed: ' + err.message);
+          alert(t('add_failed', 'Add failed: ') + err.message);
           btn.disabled = false;
           btn.textContent = '+ Add';
         }

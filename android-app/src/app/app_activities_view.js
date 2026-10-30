@@ -104,7 +104,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
           <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Select an activity from the top banner to turn on devices and use the remote.</p>
           <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
             ${realActs.map(a => `
-              <button type="button" class="btn btn-sm btn-primary btn-start-act-idle" data-act-id="${a.id}" style="display:inline-flex; align-items:center; gap:6px;">${getActivityIconSvg(a.icon, a.type, 16)}<span>Start ${a.name || a.label}</span></button>
+              <button type="button" class="btn btn-sm btn-primary btn-start-act-idle" data-act-id="${escapeHtml(a.id)}" style="display:inline-flex; align-items:center; gap:6px;">${getActivityIconSvg(a.icon, a.type, 16)}<span>Start ${escapeHtml(a.name || a.label)}</span></button>
             `).join('')}
           </div>
         </div>
@@ -359,12 +359,12 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
           <div>
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-              <strong style="font-size: 15px; display: inline-flex; align-items: center; gap: 6px;">${getActivityIconSvg(a.icon, a.type, 18)}${a.name || a.label}</strong>
+              <strong style="font-size: 15px; display: inline-flex; align-items: center; gap: 6px;">${getActivityIconSvg(a.icon, a.type, 18)}${escapeHtml(a.name || a.label)}</strong>
               <span class="badge ${isRunning ? 'ok' : ''}">${statusBadgeText}</span>
             </div>
             <div class="muted mini" style="margin-bottom: 8px;">${startCount} start steps • ${stopCount} stop steps • ${devIds.length} devices</div>
             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
-              ${devObjs.map(d => `<span style="background:var(--bg-btn); font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid var(--border); display:inline-flex; align-items:center; gap:4px;">${d.iconSvg}<span>${d.name}</span></span>`).join('')}
+              ${devObjs.map(d => `<span style="background:var(--bg-btn); font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid var(--border); display:inline-flex; align-items:center; gap:4px;">${d.iconSvg}<span>${escapeHtml(d.name)}</span></span>`).join('')}
             </div>
           </div>
           <div style="display: flex; gap: 6px; margin-top: 6px;">
@@ -418,7 +418,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
     const fromSel = document.getElementById('previewFromAct');
     const toSel = document.getElementById('previewToAct');
     if (fromSel && toSel) {
-      const opts = acts.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+      const opts = acts.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
       fromSel.innerHTML = `<option value="-1">PowerOff</option>${opts}`;
       toSel.innerHTML = `${opts}<option value="-1">PowerOff</option>`;
     }
