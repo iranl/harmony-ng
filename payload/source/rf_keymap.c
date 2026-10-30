@@ -595,7 +595,7 @@ const char *map_button_code(uint8_t k0, uint8_t k1) {
         case 0x00E2: return "VolumeMute";
         case 0x009C: return "ChannelUp";
         case 0x009D: return "ChannelDown";
-        case 0x0224: return "PrevChannel";
+        case 0x0224: return "Back";
         case 0x00B0: return "Play";
         case 0x00B1: return "Pause";
         case 0x00B2: return "Record";

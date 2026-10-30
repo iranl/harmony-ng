@@ -238,7 +238,7 @@ static inline const char *rf_short_button_name(uint16_t key_code) {
         case 0x00E2: return "Mute";
         case 0x009C: return "ChUp";
         case 0x009D: return "ChDown";
-        case 0x0224: return "PrevCh";
+        case 0x0224: return "Back";
         case 0x00B0: return "Play";
         case 0x00B1: return "Pause";
         case 0x00B2: return "Record";
