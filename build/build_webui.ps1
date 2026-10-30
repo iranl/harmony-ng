@@ -1,21 +1,30 @@
 <#
 .SYNOPSIS
-    Builds the Web UI / Android frontend via Vite and prepares compressed assets in payload/www.
+    Builds the Web UI frontend via Vite and prepares compressed assets in payload/www.
+.PARAMETER Ui
+    Choice of Web UI to build: 'new' (default, modular v3 in frontend/) or 'legacy' (original in android-app/).
 #>
-param()
+param(
+    [ValidateSet('new', 'v3', 'frontend', 'legacy', 'old', 'android-app')]
+    [string]$Ui = "new"
+)
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
-$AppDir = Join-Path $RootDir "android-app"
+
+$isLegacy = $Ui -in @('legacy', 'old', 'android-app')
+$AppDir = if ($isLegacy) { Join-Path $RootDir "android-app" } else { Join-Path $RootDir "frontend" }
+$UiLabel = if ($isLegacy) { "Legacy WebUI (android-app)" } else { "New Modular WebUI v3 (frontend)" }
 $WwwDir = Join-Path (Join-Path $RootDir "payload") "www"
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  Building Web UI Static Assets (Vite & Gzip Compression)   " -ForegroundColor Cyan
+Write-Host "  Selected UI: $UiLabel" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
 # 1. Run Vite build
-Write-Host "[*] Compiling frontend bundle with Vite..." -ForegroundColor Yellow
+Write-Host "[*] Compiling frontend bundle with Vite in $AppDir..." -ForegroundColor Yellow
 Push-Location $AppDir
 try {
     & npm run build
@@ -35,7 +44,7 @@ if (-not (Test-Path $WwwDir)) {
 Get-ChildItem -Path $WwwDir -File | Remove-Item -Force
 $AssetsDir = Join-Path $WwwDir "assets"
 if (Test-Path $AssetsDir) {
-    Get-ChildItem -Path $AssetsDir -File | Where-Object { $_.Name -match '^index-|^web-' } | Remove-Item -Force
+    Get-ChildItem -Path $AssetsDir -File | Remove-Item -Force
 }
 Copy-Item -Recurse -Force (Join-Path $DistDir "*") $WwwDir
 if (Test-Path (Join-Path $AppDir "favicon.png")) {
@@ -53,4 +62,4 @@ Write-Host "[*] Gzipping assets (.gz) for fast embedded delivery..." -Foreground
 $pyScriptPath = Join-Path $ScriptDir "gzip_assets.py"
 & python $pyScriptPath $WwwDir
 
-Write-Host "[+] Web UI assets built and compressed successfully in payload/www!" -ForegroundColor Green
+Write-Host "[+] $UiLabel assets built and compressed successfully in payload/www!" -ForegroundColor Green

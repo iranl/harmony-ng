@@ -7,6 +7,8 @@ DEBUG_BUSYBOX="${DEBUG_BUSYBOX:-0}"
 SSH_KEY="${SSH_KEY:-}"
 
 REBOOT_HUB=0
+UI_CHOICE="${UI_CHOICE:-new}"
+WEBUI_ONLY=0
 
 # Parse optional flags
 for arg in "$@"; do
@@ -16,6 +18,18 @@ for arg in "$@"; do
             ;;
         --reboot)
             REBOOT_HUB=1
+            ;;
+        --ui=*)
+            UI_CHOICE="${arg#*=}"
+            ;;
+        --ui-legacy|--legacy-ui|--old-ui)
+            UI_CHOICE="legacy"
+            ;;
+        --ui-new|--new-ui)
+            UI_CHOICE="new"
+            ;;
+        --webui-only|--ui-only)
+            WEBUI_ONLY=1
             ;;
         --host=*|-h=*)
             HUB_HOST="${arg#*=}"
@@ -75,6 +89,7 @@ else
     echo "Mode: Standard User (Stock BusyBox; existing installation left untouched)"
 fi
 
+if [ "$WEBUI_ONLY" = "0" ]; then
 # 1. Run automated backup first
 echo "[1/5] Running pre-deployment backup..."
 SSH_KEY="$SSH_KEY" bash "$SCRIPT_DIR/backup_hub.sh" "$HUB_HOST"
@@ -183,14 +198,31 @@ if [ -d "$MODULES_DIR" ]; then
     done
 fi
 
-# Install the HarmonyNG startup script; without it the Hub boots the stock stack on next reboot
-if [ -f "$SCRIPTS_DIR/rcS.local" ]; then
-    echo "[*] Installing startup script /etc/init.d/rcS.local..."
-    deploy_file_if_changed "$SCRIPTS_DIR/rcS.local" "/etc/init.d/rcS.local" 755
+    # Install the HarmonyNG startup script; without it the Hub boots the stock stack on next reboot
+    if [ -f "$SCRIPTS_DIR/rcS.local" ]; then
+        echo "[*] Installing startup script /etc/init.d/rcS.local..."
+        deploy_file_if_changed "$SCRIPTS_DIR/rcS.local" "/etc/init.d/rcS.local" 755
+    fi
+else
+    echo "[*] WebUI-only deployment mode active (--webui-only)."
 fi
 
 # 4. Deploy WebUI to /cache/www/ (preserves critical /data flash)
-echo "[4/5] Syncing WebUI to /cache/www/ (MD5 check)..."
+echo "[4/5] Building & syncing WebUI ($UI_CHOICE) to /cache/www/ (MD5 check)..."
+if [ "$WWW_DIR" = "$REPO_ROOT/payload/www" ] && [ -d "$REPO_ROOT/frontend" ]; then
+    UI_SRC_DIR="$REPO_ROOT/frontend"
+    if [ "$UI_CHOICE" = "legacy" ] || [ "$UI_CHOICE" = "old" ] || [ "$UI_CHOICE" = "android-app" ]; then
+        UI_SRC_DIR="$REPO_ROOT/android-app"
+    fi
+    echo "[*] Compiling frontend bundle with Vite ($UI_SRC_DIR)..."
+    (cd "$UI_SRC_DIR" && npm run build) || true
+    mkdir -p "$WWW_DIR"
+    find "$WWW_DIR" -maxdepth 1 -type f -delete 2>/dev/null || true
+    rm -rf "$WWW_DIR/assets" 2>/dev/null || true
+    cp -rf "$UI_SRC_DIR/dist"/* "$WWW_DIR/"
+    rm -rf "$WWW_DIR/assets/icons" 2>/dev/null || true
+fi
+
 if [ -f "$REPO_ROOT/build/gzip_assets.py" ]; then
     python3 "$REPO_ROOT/build/gzip_assets.py" "$WWW_DIR" 2>/dev/null || true
 fi

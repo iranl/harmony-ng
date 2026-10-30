@@ -14,6 +14,9 @@
 param(
     [string]$HubIp = "192.168.1.1",
     [string]$KeyPath = "",
+    [ValidateSet('new', 'v3', 'frontend', 'legacy', 'old', 'android-app')]
+    [string]$Ui = "new",
+    [switch]$WebUiOnly,
     [switch]$DebugBusybox,
     [switch]$DevMode,
     [switch]$Reboot,
@@ -44,8 +47,9 @@ else {
         $BinDir = Join-Path $RepoRoot "build\output"
     }
     if (-not (Test-Path (Join-Path $WwwDir "index.html.gz")) -and -not (Test-Path (Join-Path $WwwDir "index.html"))) {
-        if (Test-Path (Join-Path $RepoRoot "android-app\dist\index.html")) {
-            $WwwDir = Join-Path $RepoRoot "android-app\dist"
+        $candDist = if ($Ui -in @('legacy', 'old', 'android-app')) { "android-app\dist" } else { "frontend\dist" }
+        if (Test-Path (Join-Path $RepoRoot "$candDist\index.html")) {
+            $WwwDir = Join-Path $RepoRoot $candDist
         }
     }
 }
@@ -187,67 +191,72 @@ function Install-HubFileIfChanged {
 }
 Set-Alias Deploy-HubFileIfChanged Install-HubFileIfChanged
 
-# 1. Upload binaries (standard core binaries only)
-Write-Host "[*] Uploading native MIPS binaries (MD5 check)..." -ForegroundColor Yellow
-$bins = Get-ChildItem -Path $BinDir -File | Where-Object {
-    $_.Name -notmatch '^\.|\.txt$|^FILES$' -and $_.Name -ne 'busybox'
-}
-foreach ($b in $bins) {
-    Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" | Out-Null
-}
-# 1b. Upload Elite RF OTA image to /cache/elite_ui.ota.gz if available
-$eliteOtaSrc = Join-Path $RepoRoot "elite\bin\elite_ui.ota.gz"
-if (-not (Test-Path $eliteOtaSrc)) {
-    $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\elite_ui.ota.gz"
-}
-if (Test-Path $eliteOtaSrc) {
-    Write-Host "[*] Syncing Elite RF OTA image (/cache/elite_ui.ota.gz)..." -ForegroundColor Yellow
-    Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/elite_ui.ota.gz" -Perm "644" | Out-Null
-}
-
-# Extended BusyBox (default deployment)
-if ($DebugBusybox -or $DevMode) {
-    Write-Host "[*] Developer / Debug mode active." -ForegroundColor Cyan
-}
-$bb = Join-Path $BinDir "busybox"
-if (Test-Path $bb) {
-    Write-Host "[*] Syncing extended BusyBox to /cache/bin/..." -ForegroundColor Yellow
-    & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
-    $changed = Install-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
-    if ($changed) {
-        $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true'
-        & ssh @sshArgs $Target "$bbCmd"
+if (-not $WebUiOnly) {
+    # 1. Upload binaries (standard core binaries only)
+    Write-Host "[*] Uploading native MIPS binaries (MD5 check)..." -ForegroundColor Yellow
+    $bins = Get-ChildItem -Path $BinDir -File | Where-Object {
+        $_.Name -notmatch '^\.|\.txt$|^FILES$' -and $_.Name -ne 'busybox'
     }
-}
-# Ensure root profile uses extended BusyBox in cache if present
-$profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
-& ssh @sshArgs $Target "$profCmd"
+    foreach ($b in $bins) {
+        Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" | Out-Null
+    }
+    # 1b. Upload Elite RF OTA image to /cache/elite_ui.ota.gz if available
+    $eliteOtaSrc = Join-Path $RepoRoot "elite\bin\elite_ui.ota.gz"
+    if (-not (Test-Path $eliteOtaSrc)) {
+        $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\elite_ui.ota.gz"
+    }
+    if (Test-Path $eliteOtaSrc) {
+        Write-Host "[*] Syncing Elite RF OTA image (/cache/elite_ui.ota.gz)..." -ForegroundColor Yellow
+        Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/elite_ui.ota.gz" -Perm "644" | Out-Null
+    }
 
-# 2. Upload scripts
-Write-Host "[*] Uploading scripts (MD5 check)..." -ForegroundColor Yellow
-$scripts = Get-ChildItem -Path $ScriptsDir -File | Where-Object { $_.Name -notmatch '^\.' }
-foreach ($s in $scripts) {
-    Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/harmony/$($s.Name)" -Perm "755" | Out-Null
-}
-
-# 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
-if (Test-Path $ModulesDir) {
-    $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File
-    if ($modFiles) {
-        Write-Host "[*] Syncing USB Ethernet kernel modules (/cache/modules)..." -ForegroundColor Yellow
-        & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules"
-        foreach ($m in $modFiles) {
-            Install-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
+    # Extended BusyBox (default deployment)
+    if ($DebugBusybox -or $DevMode) {
+        Write-Host "[*] Developer / Debug mode active." -ForegroundColor Cyan
+    }
+    $bb = Join-Path $BinDir "busybox"
+    if (Test-Path $bb) {
+        Write-Host "[*] Syncing extended BusyBox to /cache/bin/..." -ForegroundColor Yellow
+        & ssh @sshArgs $Target "mkdir -p /cache/bin 2>/dev/null"
+        $changed = Install-HubFileIfChanged -LocalFile $bb -RemoteFile "/cache/bin/busybox" -Perm "755"
+        if ($changed) {
+            $bbCmd = 'rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true; ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null; /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true; for _app in $(/cache/bin/busybox --list 2>/dev/null); do [ ! -e "/bin/$_app" ] && [ ! -e "/usr/bin/$_app" ] && ln -sf /cache/bin/busybox "/usr/bin/$_app" 2>/dev/null || true; done; mkdir -p /etc/profile.d 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > /etc/profile.d/00-harmony.sh 2>/dev/null; chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true'
+            & ssh @sshArgs $Target "$bbCmd"
         }
     }
+    # Ensure root profile uses extended BusyBox in cache if present
+    $profCmd = 'for prof in /root/.profile /home/root/.profile; do mkdir -p "$(dirname "$prof")" 2>/dev/null; echo "export PATH=/cache/bin:/data/harmony/bin:\$PATH" > "$prof"; chmod 644 "$prof" 2>/dev/null || true; done'
+    & ssh @sshArgs $Target "$profCmd"
+
+    # 2. Upload scripts
+    Write-Host "[*] Uploading scripts (MD5 check)..." -ForegroundColor Yellow
+    $scripts = Get-ChildItem -Path $ScriptsDir -File | Where-Object { $_.Name -notmatch '^\.' }
+    foreach ($s in $scripts) {
+        Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/harmony/$($s.Name)" -Perm "755" | Out-Null
+    }
+
+    # 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
+    if (Test-Path $ModulesDir) {
+        $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File
+        if ($modFiles) {
+            Write-Host "[*] Syncing USB Ethernet kernel modules (/cache/modules)..." -ForegroundColor Yellow
+            & ssh @sshArgs $Target "mkdir -p /cache/modules 2>/dev/null; [ -L /data/harmony/modules ] || ln -sf /cache/modules /data/harmony/modules"
+            foreach ($m in $modFiles) {
+                Install-HubFileIfChanged -LocalFile $m.FullName -RemoteFile "/cache/modules/$($m.Name)" -Perm "644" | Out-Null
+            }
+        }
+    }
+}
+else {
+    Write-Host "[*] WebUI-only deployment mode active (-WebUiOnly)." -ForegroundColor Cyan
 }
 
 # 3. Upload Web UI static bundle (gzip assets, only when MD5 differs) -> Store on /cache/www
 if (Test-Path $WwwDir) {
-    Write-Host "[*] Building & compressing Web UI assets with build_webui.ps1..." -ForegroundColor Yellow
+    Write-Host "[*] Building & compressing Web UI assets with build_webui.ps1 (-Ui $Ui)..." -ForegroundColor Yellow
     $buildScript = Join-Path $ScriptDir "build_webui.ps1"
     if (Test-Path $buildScript) {
-        & powershell -ExecutionPolicy Bypass -File $buildScript
+        & powershell -ExecutionPolicy Bypass -File $buildScript -Ui $Ui
         $WwwDir = Join-Path $PayloadDir "www"
     }
     Write-Host "[*] Syncing Web UI static assets (/cache/www, MD5 check)..." -ForegroundColor Yellow
