@@ -2254,7 +2254,7 @@ paths:
               example:
                 ok: true
 
-  /api/elite-mapping:
+  /api/rf-mapping:
     get:
       tags:
         - RF & Physical Remotes
@@ -2277,7 +2277,7 @@ paths:
                 ok: true
                 mappings: []
 
-  /api/elite-mapping-save:
+  /api/rf-mapping-save:
     post:
       tags:
         - RF & Physical Remotes
@@ -2304,7 +2304,7 @@ paths:
               example:
                 ok: true
 
-  /api/remote-mapping-copy:
+  /api/rf-mapping-copy:
     post:
       tags:
         - RF & Physical Remotes

@@ -804,17 +804,17 @@ Returns remote firmware chunk update progress.
 Starts background remote firmware flash update (Elite remotes only).
 
 ### 7.6 Physical Remote Key Mappings (Elite, Companion, Smart Control)
-#### `GET /api/elite-mapping?slot={1|2}`
+#### `GET /api/rf-mapping?slot={1|2}`
 Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 - **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json` (fallback `/data/harmony/elite_remote_map.json`); Slot 2 uses `/data/harmony/remote_slot2_map.json`.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot—Harmony Elite, Harmony Companion, or Harmony Smart Control.
 
-#### `POST /api/elite-mapping-save?slot={1|2}`
+#### `POST /api/rf-mapping-save?slot={1|2}`
 Saves button assignments for the specified slot.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
-#### `POST /api/remote-mapping-copy?from={1|2}&to={1|2}`
+#### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
 Copies entire button mapping configuration from one remote slot to another.
 - **Query Parameters**: `from` (source slot, 1 or 2), `to` (destination slot, 1 or 2).
 - **Response `200 OK`**:

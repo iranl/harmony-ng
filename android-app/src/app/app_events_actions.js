@@ -280,7 +280,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('rfSlotSelect1Btn')?.addEventListener('click', () => this.switchRemoteSlot(1));
     document.getElementById('rfSlotSelect2Btn')?.addEventListener('click', () => this.switchRemoteSlot(2));
     document.getElementById('rfCopySlotMappingBtn')?.addEventListener('click', () => this.copySlotMappings());
-    document.getElementById('eliteMqttSaveBtn')?.addEventListener('click', () => this.saveEliteRemoteMqttSettings());
+    document.getElementById('eliteMqttSaveBtn')?.addEventListener('click', () => this.saveRFRemoteMqttSettings());
 
     // MQTT Actions
     document.getElementById('mqttSaveBtn')?.addEventListener('click', () => this.saveMqttSettings());

@@ -390,7 +390,7 @@ When a button is pressed or released on a Companion or Smart Control remote, it 
   - Slot 1 mappings are stored in `/data/harmony/remote_slot1_map.json` (falling back to legacy `elite_remote_map.json` for backwards compatibility).
   - Slot 2 mappings are stored in `/data/harmony/remote_slot2_map.json`.
 - **Copy Mappings Between Slots**:
-  - If you use identical remotes or want to replicate mappings from Slot 1 to Slot 2, use the **Copy to other slot** button in the Web UI, or invoke `POST /api/remote-mapping-copy?from=1&to=2`.
+  - If you use identical remotes or want to replicate mappings from Slot 1 to Slot 2, use the **Copy to other slot** button in the Web UI, or invoke `POST /api/rf-mapping-copy?from=1&to=2`.
 - **Dynamic Feature Hiding**:
   - For screenless remotes, the Web UI automatically hides touchscreen configuration ("DEVICES" touch buttons) and over-the-air firmware updates (`/api/rf/ota-*`), focusing purely on physical button assignments.
 

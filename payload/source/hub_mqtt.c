@@ -440,6 +440,20 @@ struct mqtt_pulse_entry {
 };
 static struct mqtt_pulse_entry g_pulse_queue[16];
 
+typedef struct {
+    int active;
+    char dev[128];
+    char cmd_list[32][64];
+    int cmd_count;
+    int num_repeats;
+    int cur_repeat;
+    int cur_cmd;
+    uint32_t hold_ms;
+    uint32_t delay_ms;
+    uint64_t next_exec_ms;
+} mqtt_cmd_seq_t;
+static mqtt_cmd_seq_t g_mqtt_seq = {0};
+
 static void queue_pulse_off_ex(const char *topic, const char *off_val, int pulse_ms) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -464,10 +478,32 @@ void mqtt_cmd_tick(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+
     for (int i = 0; i < 16; i++) {
         if (g_pulse_queue[i].active && now_ms >= g_pulse_queue[i].off_deadline_ms) {
             mqtt_publish(g_pulse_queue[i].topic, g_pulse_queue[i].off_payload, 0);
             g_pulse_queue[i].active = 0;
+        }
+    }
+
+    if (g_mqtt_seq.active && now_ms >= g_mqtt_seq.next_exec_ms) {
+        printf("[*] Executing command [%d/%d] (repeat %d/%d): dev='%s' cmd='%s'\n",
+               g_mqtt_seq.cur_cmd + 1, g_mqtt_seq.cmd_count,
+               g_mqtt_seq.cur_repeat + 1, g_mqtt_seq.num_repeats,
+               g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+        hw_device_command_send(g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+
+        g_mqtt_seq.cur_cmd++;
+        if (g_mqtt_seq.cur_cmd >= g_mqtt_seq.cmd_count) {
+            g_mqtt_seq.cur_cmd = 0;
+            g_mqtt_seq.cur_repeat++;
+        }
+
+        if (g_mqtt_seq.cur_repeat >= g_mqtt_seq.num_repeats) {
+            g_mqtt_seq.active = 0;
+        } else {
+            uint32_t wait_ms = g_mqtt_seq.hold_ms + g_mqtt_seq.delay_ms;
+            g_mqtt_seq.next_exec_ms = now_ms + (wait_ms > 0 ? wait_ms : 50);
         }
     }
 }
@@ -477,40 +513,145 @@ static void handle_mqtt_send_command(const char *payload) {
 
     cJSON *root = cJSON_Parse(payload);
     if (!root) {
-        printf("[-] MQTT send_command: invalid JSON\n");
+        printf("[-] MQTT send_command: invalid JSON payload\n");
         return;
     }
 
-    cJSON *dev_j = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
-    if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(root, "device");
-    cJSON *cmd_j = cJSON_GetObjectItemCaseSensitive(root, "command");
-    cJSON *act_j = cJSON_GetObjectItemCaseSensitive(root, "action");
-    cJSON *hold_j = cJSON_GetObjectItemCaseSensitive(root, "holdMs");
+    cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
+    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "device");
+    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "dev");
 
-    const char *dev = (dev_j && cJSON_IsString(dev_j)) ? dev_j->valuestring : "";
-    const char *cmd = (cmd_j && cJSON_IsString(cmd_j)) ? cmd_j->valuestring : "";
-    const char *action = (act_j && cJSON_IsString(act_j)) ? act_j->valuestring : "tap";
-    int hold_ms = (hold_j && cJSON_IsNumber(hold_j)) ? hold_j->valueint : 0;
+    char dev[128] = {0};
+    if (j_dev) {
+        if (cJSON_IsString(j_dev) && j_dev->valuestring) {
+            strncpy(dev, j_dev->valuestring, sizeof(dev) - 1);
+        } else if (cJSON_IsNumber(j_dev)) {
+            snprintf(dev, sizeof(dev), "%ld", (long)j_dev->valuedouble);
+        }
+    }
 
-    if (!dev[0] || !cmd[0]) {
-        printf("[-] MQTT send_command: missing deviceId or command\n");
+    if (!dev[0]) {
+        printf("[-] MQTT send_command: missing deviceId or device in payload\n");
         cJSON_Delete(root);
         return;
     }
 
-    printf("[*] MQTT send_command: dev=%s cmd=%s action=%s hold=%d\n", dev, cmd, action, hold_ms);
+    /* Extract command list: string, array, or number */
+    char cmd_list[32][64];
+    int cmd_count = 0;
 
-    if (strcmp(action, "hold") == 0 || hold_ms > 0) {
-        if (hold_ms <= 0) hold_ms = 500;
-        hw_device_command_send(dev, cmd);
-        usleep(hold_ms * 1000);
-        hw_device_command_send(dev, cmd);
-    } else {
-        hw_device_command_send(dev, cmd);
+    cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(root, "command");
+    if (!j_cmd) j_cmd = cJSON_GetObjectItemCaseSensitive(root, "commands");
+    if (!j_cmd) j_cmd = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+
+    if (j_cmd) {
+        if (cJSON_IsArray(j_cmd)) {
+            cJSON *elem = NULL;
+            cJSON_ArrayForEach(elem, j_cmd) {
+                if (cmd_count >= 32) break;
+                if (cJSON_IsString(elem) && elem->valuestring && elem->valuestring[0]) {
+                    strncpy(cmd_list[cmd_count], elem->valuestring, sizeof(cmd_list[0]) - 1);
+                    cmd_list[cmd_count][sizeof(cmd_list[0]) - 1] = '\0';
+                    cmd_count++;
+                } else if (cJSON_IsNumber(elem)) {
+                    snprintf(cmd_list[cmd_count], sizeof(cmd_list[0]), "%ld", (long)elem->valuedouble);
+                    cmd_count++;
+                }
+            }
+        } else if (cJSON_IsString(j_cmd) && j_cmd->valuestring && j_cmd->valuestring[0]) {
+            strncpy(cmd_list[0], j_cmd->valuestring, sizeof(cmd_list[0]) - 1);
+            cmd_list[0][sizeof(cmd_list[0]) - 1] = '\0';
+            cmd_count = 1;
+        } else if (cJSON_IsNumber(j_cmd)) {
+            snprintf(cmd_list[0], sizeof(cmd_list[0]), "%ld", (long)j_cmd->valuedouble);
+            cmd_count = 1;
+        }
     }
 
+    if (cmd_count == 0) {
+        printf("[-] MQTT send_command: no commands parsed for device '%s'\n", dev);
+        cJSON_Delete(root);
+        return;
+    }
+
+    cJSON *act_j = cJSON_GetObjectItemCaseSensitive(root, "action");
+    const char *action = (act_j && cJSON_IsString(act_j)) ? act_j->valuestring : "tap";
+
+    double delay_secs = -1.0;
+    cJSON *j_delay = cJSON_GetObjectItemCaseSensitive(root, "delay_secs");
+    if (!j_delay) j_delay = cJSON_GetObjectItemCaseSensitive(root, "delaySecs");
+    if (!j_delay) j_delay = cJSON_GetObjectItemCaseSensitive(root, "delay");
+    if (j_delay && cJSON_IsNumber(j_delay)) {
+        delay_secs = j_delay->valuedouble;
+    } else {
+        cJSON *j_delay_ms = cJSON_GetObjectItemCaseSensitive(root, "delay_ms");
+        if (!j_delay_ms) j_delay_ms = cJSON_GetObjectItemCaseSensitive(root, "delayMs");
+        if (j_delay_ms && cJSON_IsNumber(j_delay_ms)) {
+            delay_secs = j_delay_ms->valuedouble / 1000.0;
+        }
+    }
+
+    double hold_secs = 0.0;
+    cJSON *j_hold = cJSON_GetObjectItemCaseSensitive(root, "hold_secs");
+    if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(root, "holdSecs");
+    if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(root, "hold");
+    if (j_hold && cJSON_IsNumber(j_hold)) {
+        hold_secs = j_hold->valuedouble;
+    } else {
+        cJSON *j_hold_ms = cJSON_GetObjectItemCaseSensitive(root, "hold_ms");
+        if (!j_hold_ms) j_hold_ms = cJSON_GetObjectItemCaseSensitive(root, "holdMs");
+        if (j_hold_ms && cJSON_IsNumber(j_hold_ms)) {
+            hold_secs = j_hold_ms->valuedouble / 1000.0;
+        }
+    }
+    if (strcasecmp(action, "hold") == 0 && hold_secs <= 0.001) {
+        hold_secs = 0.5;
+    }
+
+    int num_repeats = 1;
+    cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(root, "num_repeats");
+    if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(root, "numRepeats");
+    if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(root, "repeats");
+    if (j_rep && cJSON_IsNumber(j_rep)) num_repeats = (int)j_rep->valuedouble;
+
     cJSON_Delete(root);
+
+    if (num_repeats < 1) num_repeats = 1;
+    if (num_repeats > 50) num_repeats = 50;
+
+    int is_multi = (cmd_count > 1) || (num_repeats > 1);
+    if (delay_secs < 0) {
+        delay_secs = is_multi ? 0.25 : 0.0;
+    }
+    if (delay_secs > 60.0) delay_secs = 60.0;
+    if (hold_secs < 0) hold_secs = 0;
+    if (hold_secs > 10.0) hold_secs = 10.0;
+
+    printf("[*] MQTT send_command: dev='%s' cmds=%d repeats=%d action=%s delay=%.2fs hold=%.2fs\n",
+           dev, cmd_count, num_repeats, action, delay_secs, hold_secs);
+
+    if (cmd_count == 1 && num_repeats == 1 && hold_secs <= 0.001) {
+        printf("[*] Executing command [1/1] (repeat 1/1): dev='%s' cmd='%s'\n", dev, cmd_list[0]);
+        hw_device_command_send(dev, cmd_list[0]);
+        return;
+    }
+
+    snprintf(g_mqtt_seq.dev, sizeof(g_mqtt_seq.dev), "%s", dev);
+    g_mqtt_seq.cmd_count = cmd_count;
+    for (int i = 0; i < cmd_count; i++) {
+        snprintf(g_mqtt_seq.cmd_list[i], sizeof(g_mqtt_seq.cmd_list[i]), "%s", cmd_list[i]);
+    }
+    g_mqtt_seq.num_repeats = num_repeats;
+    g_mqtt_seq.cur_repeat = 0;
+    g_mqtt_seq.cur_cmd = 0;
+    g_mqtt_seq.hold_ms = (uint32_t)(hold_secs * 1000.0);
+    g_mqtt_seq.delay_ms = (uint32_t)(delay_secs * 1000.0);
+    g_mqtt_seq.next_exec_ms = 0;
+    g_mqtt_seq.active = 1;
+
+    mqtt_cmd_tick();
 }
+
 
 int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
                                      const char *topic_in, int req_pulse_ms,

@@ -158,7 +158,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       const sameType = s1Active && s2Active && (
         s1.model === s2.model ||
         ((s1.model === 'smart_control' || s1.model === 'companion') &&
-         (s2.model === 'smart_control' || s2.model === 'companion'))
+          (s2.model === 'smart_control' || s2.model === 'companion'))
       );
       if (sameType) {
         const otherSlot = curSlot === 1 ? 2 : 1;
@@ -231,7 +231,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     }
 
     try {
-      const m = await this.client.getEliteMapping(this.selectedRemoteSlot);
+      const m = await this.client.getRFMapping(this.selectedRemoteSlot);
       if (m) {
         if (!m.activities) m.activities = {};
         if (!m.devices) m.devices = {};
@@ -264,7 +264,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     if (!confirmed) return;
 
     try {
-      await this.client.copyRemoteMapping(otherSlot, curSlot);
+      await this.client.copyRFMapping(otherSlot, curSlot);
       this.showToast(`Mappings copied from Slot ${otherSlot} to Slot ${curSlot}!`, 'success');
       await this.loadEliteView();
     } catch (err) {
@@ -495,7 +495,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const slot = this.selectedRemoteSlot || 1;
     try {
       if (btn) btn.textContent = 'Saving...';
-      await this.client.saveEliteMapping(this.eliteMapData, slot);
+      await this.client.saveRFMapping(this.eliteMapData, slot);
       this.showToast(`Slot ${slot} mappings saved to Hub!`, 'success');
     } catch (err) {
       this.showToast('Save failed: ' + (err.message || err), 'danger');
@@ -808,7 +808,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     this.renderEliteScreenButtons();
   }
 
-  async saveEliteRemoteMqttSettings() {
+  async saveRFRemoteMqttSettings() {
     const status = document.getElementById('eliteMqttSaveStatus');
     const enabled = document.getElementById('eliteRemoteMqttEnabled')?.checked ? 1 : 0;
     const topic = document.getElementById('eliteRemoteMqttTopic')?.value.trim() || '';

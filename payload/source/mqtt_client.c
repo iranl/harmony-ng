@@ -17,7 +17,7 @@
 
 #define MQTT_BUF_SIZE 4096
 #define MQTT_KEEPALIVE_SEC 30
-#define MQTT_MAX_SUBS 8
+#define MQTT_MAX_SUBS 32
 
 typedef struct {
     char topic[128];
@@ -405,6 +405,23 @@ int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
     return 0;
 }
 
+static int mqtt_topic_matches(const char *sub, const char *pub) {
+    if (!sub || !pub) return 0;
+    while (*sub && *pub) {
+        if (*sub == '#') return 1;
+        if (*sub == '+') {
+            while (*pub && *pub != '/') pub++;
+            sub++;
+            continue;
+        }
+        if (*sub != *pub) return 0;
+        sub++;
+        pub++;
+    }
+    if (*sub == '#' || (*sub == '+' && !*pub)) return 1;
+    return (*sub == '\0' && *pub == '\0');
+}
+
 int mqtt_tick(void) {
     if (!mqtt_is_connected()) {
         return 0;
@@ -458,7 +475,7 @@ int mqtt_tick(void) {
 
         /* Dispatch to matching subscribers */
         for (size_t i = 0; i < g_sub_count; i++) {
-            if (strcmp(g_subs[i].topic, topic) == 0 && g_subs[i].cb) {
+            if (mqtt_topic_matches(g_subs[i].topic, topic) && g_subs[i].cb) {
                 g_subs[i].cb(topic, payload, cppl, g_subs[i].user_data);
             }
         }

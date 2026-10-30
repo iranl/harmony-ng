@@ -59,8 +59,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: GET /api/elite-mapping */
-    if (strcmp(clean_path, "/api/elite-mapping") == 0 && strcmp(method, "GET") == 0) {
+    /* Route: GET /api/rf-mapping (legacy: /api/elite-mapping) */
+    if ((strcmp(clean_path, "/api/rf-mapping") == 0 || strcmp(clean_path, "/api/elite-mapping") == 0) && strcmp(method, "GET") == 0) {
         int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
         char fname[64];
         snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
@@ -389,8 +389,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/elite-mapping-save (Harmony RF remotes) */
-    if (strcmp(clean_path, "/api/elite-mapping-save") == 0 && strcmp(method, "POST") == 0) {
+    /* Route: POST /api/rf-mapping-save (legacy: /api/elite-mapping-save) */
+    if ((strcmp(clean_path, "/api/rf-mapping-save") == 0 || strcmp(clean_path, "/api/elite-mapping-save") == 0) && strcmp(method, "POST") == 0) {
         if (body && body[0]) {
             int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
             cJSON *bj = cJSON_Parse(body);
@@ -416,8 +416,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/remote-mapping-copy */
-    if (strcmp(clean_path, "/api/remote-mapping-copy") == 0 && strcmp(method, "POST") == 0) {
+    /* Route: POST /api/rf-mapping-copy (legacy: /api/remote-mapping-copy) */
+    if ((strcmp(clean_path, "/api/rf-mapping-copy") == 0 || strcmp(clean_path, "/api/remote-mapping-copy") == 0) && strcmp(method, "POST") == 0) {
         int from_slot = 1;
         int to_slot = 2;
         if (query) {

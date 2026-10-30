@@ -19,16 +19,16 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   /* Harmony Elite / Companion RF Remote & Mapping */
-  async getEliteMapping(slot = 1) {
-    return this.request(`/api/elite-mapping?slot=${slot}`);
+  async getRFMapping(slot = 1) {
+    return this.request(`/api/rf-mapping?slot=${slot}`);
   }
 
-  async saveEliteMapping(data, slot = 1) {
-    return this.postJson(`/api/elite-mapping-save?slot=${slot}`, data);
+  async saveRFMapping(data, slot = 1) {
+    return this.postJson(`/api/rf-mapping-save?slot=${slot}`, data);
   }
 
-  async copyRemoteMapping(fromSlot, toSlot) {
-    return this.request(`/api/remote-mapping-copy?from=${fromSlot}&to=${toSlot}`, { method: 'POST' });
+  async copyRFMapping(fromSlot, toSlot) {
+    return this.request(`/api/rf-mapping-copy?from=${fromSlot}&to=${toSlot}`, { method: 'POST' });
   }
 
   async getHealth() {
@@ -241,7 +241,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   async restoreBackup(target, payload, restoreNetwork = false) {
     let parsed = payload;
     if (typeof payload === 'string') {
-      try { parsed = JSON.parse(payload); } catch {}
+      try { parsed = JSON.parse(payload); } catch { }
     }
     return this.postJson('/import', { target, payload: parsed, restore_network: !!restoreNetwork }, { timeout: 30000 });
   }

@@ -2373,7 +2373,8 @@
       <div class="section-head">
         <div>
           <h2>Physical RF Remote</h2>
-          <div class="section-lead">Physical RF remote (Elite / Smart Control / Companion) button mapping per activity.</div>
+          <div class="section-lead">Harmony RF remote (Elite / Smart Control / Companion) button mapping per activity.
+          </div>
         </div>
       </div>
 
@@ -2710,438 +2711,444 @@
       <!-- No Remotes Paired Banner -->
       <div id="rfNoRemotesPairedMsg" class="callout" style="display: none; margin-bottom: 14px;">
         <strong style="font-size: 14px; display: block; margin-bottom: 2px;">No Physical Remotes Paired</strong>
-        <span style="font-size: 12px; opacity: 0.95;">No physical remotes are currently paired to this Hub. Use the pairing buttons above to pair an Elite, Smart Control, or Companion remote.</span>
+        <span style="font-size: 12px; opacity: 0.95;">No physical remotes are currently paired to this Hub. Use the
+          pairing buttons above to pair an Elite, Smart Control, or Companion remote.</span>
       </div>
 
       <!-- RF Remote Mapping Container (Shown only when at least one remote is paired) -->
       <div id="rfRemoteMappingContainer">
 
-      <!-- Remote MQTT Mirroring Card -->
-      <div class="card" style="margin-bottom: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <h3 style="margin: 0; font-size: 15px;" data-i18n="elite_mqtt_mirroring">MQTT Button Mirroring</h3>
-          <span id="eliteMqttStatusBadge" class="badge">MQTT</span>
-        </div>
-        <div class="help" id="eliteMqttHelpText">Mirror physical remote button presses to MQTT for Home Assistant automations.</div>
-        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="eliteRemoteMqttEnabled">
-            <strong id="eliteRemoteMqttLabel">Mirror remote button presses to MQTT</strong>
-          </label>
-          <div id="eliteMqttTopicWrap" class="row" style="margin-top: 2px;">
-            <div style="flex: 1;">
-              <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-              <input id="eliteRemoteMqttTopic" class="form-control"
-                placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/slot{slot}/{button}/state)">
-              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
-                placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}/state</code>.</div>
-            </div>
+        <!-- Remote MQTT Mirroring Card -->
+        <div class="card" style="margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h3 style="margin: 0; font-size: 15px;" data-i18n="elite_mqtt_mirroring">MQTT Button Mirroring</h3>
+            <span id="eliteMqttStatusBadge" class="badge">MQTT</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-            <button id="eliteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
-              Settings</button>
-            <span id="eliteMqttSaveStatus" class="subtle mini"></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Activity / Device Context & Save Toolbar -->
-      <div class="card" id="eliteActivitySelectCard" style="margin-bottom: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-          <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 280px; flex-wrap: wrap;">
-            <div style="min-width: 150px;">
-              <label for="eliteContextModeSelect" style="font-weight: 600; font-size: 13px;">Mapping Scope:</label>
-              <select id="eliteContextModeSelect" class="form-control" style="margin-top: 6px;">
-                <option value="activity" selected>Per Activity</option>
-                <option value="device">Per Device (Device Browser)</option>
-              </select>
+          <div class="help" id="eliteMqttHelpText">Mirror physical remote button presses to MQTT for Home Assistant
+            automations.</div>
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="eliteRemoteMqttEnabled">
+              <strong id="eliteRemoteMqttLabel">Mirror remote button presses to MQTT</strong>
+            </label>
+            <div id="eliteMqttTopicWrap" class="row" style="margin-top: 2px;">
+              <div style="flex: 1;">
+                <label for="eliteRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
+                <input id="eliteRemoteMqttTopic" class="form-control"
+                  placeholder="harmony/hub/remotes/elite (default: {baseTopic}/remotes/slot{slot}/{button}/state)">
+                <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
+                  placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}/state</code>.</div>
+              </div>
             </div>
-            <div id="eliteActivitySelectWrap" style="flex: 1; min-width: 180px;">
-              <label for="eliteActivitySelect" style="font-weight: 600; font-size: 13px;">Activity Context:</label>
-              <select id="eliteActivitySelect" class="form-control" style="margin-top: 6px;">
-                <option value="-1">Off / Idle (Default)</option>
-              </select>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+              <button id="eliteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
+                Settings</button>
+              <span id="eliteMqttSaveStatus" class="subtle mini"></span>
             </div>
-            <div id="eliteDeviceSelectWrap" style="flex: 1; min-width: 180px; display: none;">
-              <label for="eliteDeviceSelect" style="font-weight: 600; font-size: 13px;">Device Context:</label>
-              <select id="eliteDeviceSelect" class="form-control" style="margin-top: 6px;">
-              </select>
-            </div>
-          </div>
-          <div style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
-            <button id="rfCopySlotMappingBtn" type="button" class="btn btn-sm btn-outline" style="display: none;">📋 Copy Mappings</button>
-            <button id="eliteSaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_hub">Save All
-              to Hub</button>
-            <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary"
-              title="Transmit full configuration over RF to physical Elite remote" data-i18n="push_elite_remote">Push to
-              Elite Remote</button>
           </div>
         </div>
-      </div>
 
-      <!-- Elite Layout & Hotspots -->
-      <div class="elite-layout">
-        <!-- Left: Remote Skin Graphic with Hotspots -->
-        <div id="eliteColVisual" class="card" style="display: flex; flex-direction: column; align-items: center;">
-          <div class="elite-remote-shell" id="eliteRemoteShell">
-            <div class="elite-remote-skin">
+        <!-- Activity / Device Context & Save Toolbar -->
+        <div class="card" id="eliteActivitySelectCard" style="margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 280px; flex-wrap: wrap;">
+              <div style="min-width: 150px;">
+                <label for="eliteContextModeSelect" style="font-weight: 600; font-size: 13px;">Mapping Scope:</label>
+                <select id="eliteContextModeSelect" class="form-control" style="margin-top: 6px;">
+                  <option value="activity" selected>Per Activity</option>
+                  <option value="device">Per Device (Device Browser)</option>
+                </select>
+              </div>
+              <div id="eliteActivitySelectWrap" style="flex: 1; min-width: 180px;">
+                <label for="eliteActivitySelect" style="font-weight: 600; font-size: 13px;">Activity Context:</label>
+                <select id="eliteActivitySelect" class="form-control" style="margin-top: 6px;">
+                  <option value="-1">Off / Idle (Default)</option>
+                </select>
+              </div>
+              <div id="eliteDeviceSelectWrap" style="flex: 1; min-width: 180px; display: none;">
+                <label for="eliteDeviceSelect" style="font-weight: 600; font-size: 13px;">Device Context:</label>
+                <select id="eliteDeviceSelect" class="form-control" style="margin-top: 6px;">
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;">
+              <button id="rfCopySlotMappingBtn" type="button" class="btn btn-sm btn-outline" style="display: none;">📋
+                Copy Mappings</button>
+              <button id="eliteSaveAllBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_all_hub">Save
+                All
+                to Hub</button>
+              <button id="elitePushRemoteBtn" type="button" class="btn btn-sm btn-secondary"
+                title="Transmit full configuration over RF to physical Elite remote" data-i18n="push_elite_remote">Push
+                to
+                Elite Remote</button>
+            </div>
+          </div>
+        </div>
 
-              <!-- Power Off Key (Top-Left) -->
-              <button type="button" class="elite-hotspot btn-elite-power"
-                style="left:16.0%;top:3.6%;width:18.0%;height:2.2%;font-size:10px;font-weight:700;"
-                data-btn="PowerOffActivity" title="Power Off (All Off)">Off</button>
+        <!-- Elite Layout & Hotspots -->
+        <div class="elite-layout">
+          <!-- Left: Remote Skin Graphic with Hotspots -->
+          <div id="eliteColVisual" class="card" style="display: flex; flex-direction: column; align-items: center;">
+            <div class="elite-remote-shell" id="eliteRemoteShell">
+              <div class="elite-remote-skin">
 
-              <!-- Touchscreen Display Window -->
-              <div class="elite-screen-frame" id="eliteScreenFrame"
-                style="left:14.0%;top:7.8%;width:72.0%;height:27.5%; cursor: pointer;"
-                title="Configure touchscreen buttons">
-                <div class="elite-screen-header">
-                  <span id="eliteScreenTitle">ACTIVITIES</span>
-                  <span id="eliteScreenBattery">🔋 100%</span>
-                </div>
-                <div class="elite-screen-content">
-                  <div class="elite-screen-preview" id="eliteScreenPreview">
-                    <div class="elite-screen-tile">Watch TV</div>
-                    <div class="elite-screen-tile">Mood Music</div>
-                    <div class="elite-screen-tile">Play Games</div>
-                    <div class="elite-screen-tile">Movie Time</div>
-                    <div class="elite-screen-tile">Sports Night</div>
+                <!-- Power Off Key (Top-Left) -->
+                <button type="button" class="elite-hotspot btn-elite-power"
+                  style="left:16.0%;top:3.6%;width:18.0%;height:2.2%;font-size:10px;font-weight:700;"
+                  data-btn="PowerOffActivity" title="Power Off (All Off)">Off</button>
+
+                <!-- Touchscreen Display Window -->
+                <div class="elite-screen-frame" id="eliteScreenFrame"
+                  style="left:14.0%;top:7.8%;width:72.0%;height:27.5%; cursor: pointer;"
+                  title="Configure touchscreen buttons">
+                  <div class="elite-screen-header">
+                    <span id="eliteScreenTitle">ACTIVITIES</span>
+                    <span id="eliteScreenBattery">🔋 100%</span>
+                  </div>
+                  <div class="elite-screen-content">
+                    <div class="elite-screen-preview" id="eliteScreenPreview">
+                      <div class="elite-screen-tile">Watch TV</div>
+                      <div class="elite-screen-tile">Mood Music</div>
+                      <div class="elite-screen-tile">Play Games</div>
+                      <div class="elite-screen-tile">Movie Time</div>
+                      <div class="elite-screen-tile">Sports Night</div>
+                    </div>
                   </div>
                 </div>
+
+                <!-- Fixed Capacitive Navigation Keys (Hardware tabs) -->
+                <div class="elite-nav-bar" style="left:14.0%;top:36.0%;width:72.0%;height:2.6%;">
+                  <span class="elite-nav-label active">ACTIVITIES</span>
+                  <span class="elite-nav-label">DEVICES</span>
+                </div>
+
+                <!-- Transport Cluster -->
+                <!-- Row 1: Rewind/Prev, Play, FF/Live -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:39.6%;width:25.5%;height:2.8%;font-size:9px;" data-btn="Rewind"
+                  title="Rewind / Skip Back">|◀◀</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:42.5%;top:39.6%;width:15.0%;height:2.8%;font-size:11px;" data-btn="Play"
+                  title="Play">▶</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:63.0%;top:39.6%;width:25.5%;height:2.8%;font-size:9px;" data-btn="FastForward"
+                  title="Fast Forward / Skip Next">▶▶|</button>
+
+                <!-- Row 2: Record, Pause, Stop -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:43.2%;width:25.5%;height:2.6%;font-size:10px;" data-btn="Record"
+                  title="Record"><span style="color:#ef476f;">⏺</span></button>
+                <button type="button" class="elite-hotspot"
+                  style="left:42.5%;top:43.2%;width:15.0%;height:2.6%;font-size:10px;" data-btn="Pause"
+                  title="Pause">⏸</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:63.0%;top:43.2%;width:25.5%;height:2.6%;font-size:10px;" data-btn="Stop"
+                  title="Stop">⏹</button>
+
+                <!-- Exit / Menu Row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:46.8%;width:34.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Exit"
+                  title="Exit">Exit</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.5%;top:46.8%;width:34.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Menu"
+                  title="Menu">Menu</button>
+
+                <!-- Volume, D-Pad, Channel Cluster -->
+                <!-- Volume Rocker (Left) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:11.5%;top:50.4%;width:16.0%;height:5.6%;font-size:12px;font-weight:700;"
+                  data-btn="VolumeUp" title="Volume Up">+</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:11.5%;top:56.6%;width:16.0%;height:5.6%;font-size:12px;font-weight:700;"
+                  data-btn="VolumeDown" title="Volume Down">−</button>
+
+                <!-- D-Pad (Center) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:33.5%;top:50.2%;width:33.0%;height:3.6%;font-size:10px;" data-btn="DirectionUp"
+                  title="Up">▲</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:28.5%;top:54.2%;width:12.5%;height:4.8%;font-size:10px;" data-btn="DirectionLeft"
+                  title="Left">◀</button>
+                <button type="button" class="elite-hotspot btn-elite-dpad-ok"
+                  style="left:41.5%;top:54.2%;width:17.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="Select"
+                  title="OK">OK</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:59.0%;top:54.2%;width:12.5%;height:4.8%;font-size:10px;" data-btn="DirectionRight"
+                  title="Right">▶</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:33.5%;top:59.4%;width:33.0%;height:3.6%;font-size:10px;" data-btn="DirectionDown"
+                  title="Down">▼</button>
+
+                <!-- Channel Rocker (Right) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:72.5%;top:50.4%;width:16.0%;height:5.6%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelUp" title="Channel / Page Up">∧</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:72.5%;top:56.6%;width:16.0%;height:5.6%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelDown" title="Channel / Page Down">∨</button>
+
+                <!-- Mute / Back Row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:63.6%;width:34.0%;height:2.8%;font-size:11px;" data-btn="VolumeMute"
+                  title="Mute">🔇</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.5%;top:63.6%;width:34.0%;height:2.8%;font-size:11px;" data-btn="Back"
+                  title="Back">↩</button>
+
+                <!-- DVR / Guide / Info Row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Dvr"
+                  title="DVR">DVR</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:38.0%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Guide"
+                  title="Guide">Guide</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:64.5%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Info"
+                  title="Info">Info</button>
+
+                <!-- Color Buttons Row (Red, Green, Yellow, Blue) -->
+                <button type="button" class="elite-hotspot elite-color-red"
+                  style="left:11.5%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Red" title="Red"></button>
+                <button type="button" class="elite-hotspot elite-color-green"
+                  style="left:31.0%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Green" title="Green"></button>
+                <button type="button" class="elite-hotspot elite-color-yellow"
+                  style="left:51.0%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Yellow" title="Yellow"></button>
+                <button type="button" class="elite-hotspot elite-color-blue"
+                  style="left:71.5%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Blue" title="Blue"></button>
+
+                <!-- Home Automation Keys -->
+                <!-- Row 1: Light 1 (•), Brightness (+), Socket 1 (••) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:74.4%;width:25.5%;height:2.8%;font-size:14px;line-height:1;" data-btn="Ha1"
+                  title="Light 1 (•)">•</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:42.5%;top:74.4%;width:15.0%;height:2.8%;font-size:12px;font-weight:700;"
+                  data-btn="RockerUp" title="Dimmer +">+</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:63.0%;top:74.4%;width:25.5%;height:2.8%;font-size:13px;letter-spacing:1px;line-height:1;"
+                  data-btn="Ha2" title="Socket 1 (••)">••</button>
+
+                <!-- Row 2: Light 2 / Scene (∴), Brightness (-), Socket 2 (::) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.5%;top:78.0%;width:25.5%;height:2.8%;font-size:12px;line-height:1;" data-btn="Ha3"
+                  title="Light 2 (∴)">∴</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:42.5%;top:78.0%;width:15.0%;height:2.8%;font-size:12px;font-weight:700;"
+                  data-btn="RockerDown" title="Dimmer −">−</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:63.0%;top:78.0%;width:25.5%;height:2.8%;font-size:12px;letter-spacing:1px;line-height:1;"
+                  data-btn="Ha4" title="Socket 2 (::)">⁞⁞</button>
               </div>
-
-              <!-- Fixed Capacitive Navigation Keys (Hardware tabs) -->
-              <div class="elite-nav-bar" style="left:14.0%;top:36.0%;width:72.0%;height:2.6%;">
-                <span class="elite-nav-label active">ACTIVITIES</span>
-                <span class="elite-nav-label">DEVICES</span>
-              </div>
-
-              <!-- Transport Cluster -->
-              <!-- Row 1: Rewind/Prev, Play, FF/Live -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:39.6%;width:25.5%;height:2.8%;font-size:9px;" data-btn="Rewind"
-                title="Rewind / Skip Back">|◀◀</button>
-              <button type="button" class="elite-hotspot"
-                style="left:42.5%;top:39.6%;width:15.0%;height:2.8%;font-size:11px;" data-btn="Play"
-                title="Play">▶</button>
-              <button type="button" class="elite-hotspot"
-                style="left:63.0%;top:39.6%;width:25.5%;height:2.8%;font-size:9px;" data-btn="FastForward"
-                title="Fast Forward / Skip Next">▶▶|</button>
-
-              <!-- Row 2: Record, Pause, Stop -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:43.2%;width:25.5%;height:2.6%;font-size:10px;" data-btn="Record"
-                title="Record"><span style="color:#ef476f;">⏺</span></button>
-              <button type="button" class="elite-hotspot"
-                style="left:42.5%;top:43.2%;width:15.0%;height:2.6%;font-size:10px;" data-btn="Pause"
-                title="Pause">⏸</button>
-              <button type="button" class="elite-hotspot"
-                style="left:63.0%;top:43.2%;width:25.5%;height:2.6%;font-size:10px;" data-btn="Stop"
-                title="Stop">⏹</button>
-
-              <!-- Exit / Menu Row -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:46.8%;width:34.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Exit"
-                title="Exit">Exit</button>
-              <button type="button" class="elite-hotspot"
-                style="left:54.5%;top:46.8%;width:34.0%;height:2.6%;font-size:9px;font-weight:700;" data-btn="Menu"
-                title="Menu">Menu</button>
-
-              <!-- Volume, D-Pad, Channel Cluster -->
-              <!-- Volume Rocker (Left) -->
-              <button type="button" class="elite-hotspot rect"
-                style="left:11.5%;top:50.4%;width:16.0%;height:5.6%;font-size:12px;font-weight:700;" data-btn="VolumeUp"
-                title="Volume Up">+</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:11.5%;top:56.6%;width:16.0%;height:5.6%;font-size:12px;font-weight:700;"
-                data-btn="VolumeDown" title="Volume Down">−</button>
-
-              <!-- D-Pad (Center) -->
-              <button type="button" class="elite-hotspot"
-                style="left:33.5%;top:50.2%;width:33.0%;height:3.6%;font-size:10px;" data-btn="DirectionUp"
-                title="Up">▲</button>
-              <button type="button" class="elite-hotspot"
-                style="left:28.5%;top:54.2%;width:12.5%;height:4.8%;font-size:10px;" data-btn="DirectionLeft"
-                title="Left">◀</button>
-              <button type="button" class="elite-hotspot btn-elite-dpad-ok"
-                style="left:41.5%;top:54.2%;width:17.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="Select"
-                title="OK">OK</button>
-              <button type="button" class="elite-hotspot"
-                style="left:59.0%;top:54.2%;width:12.5%;height:4.8%;font-size:10px;" data-btn="DirectionRight"
-                title="Right">▶</button>
-              <button type="button" class="elite-hotspot"
-                style="left:33.5%;top:59.4%;width:33.0%;height:3.6%;font-size:10px;" data-btn="DirectionDown"
-                title="Down">▼</button>
-
-              <!-- Channel Rocker (Right) -->
-              <button type="button" class="elite-hotspot rect"
-                style="left:72.5%;top:50.4%;width:16.0%;height:5.6%;font-size:11px;font-weight:700;"
-                data-btn="ChannelUp" title="Channel / Page Up">∧</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:72.5%;top:56.6%;width:16.0%;height:5.6%;font-size:11px;font-weight:700;"
-                data-btn="ChannelDown" title="Channel / Page Down">∨</button>
-
-              <!-- Mute / Back Row -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:63.6%;width:34.0%;height:2.8%;font-size:11px;" data-btn="VolumeMute"
-                title="Mute">🔇</button>
-              <button type="button" class="elite-hotspot"
-                style="left:54.5%;top:63.6%;width:34.0%;height:2.8%;font-size:11px;" data-btn="Back"
-                title="Back">↩</button>
-
-              <!-- DVR / Guide / Info Row -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Dvr"
-                title="DVR">DVR</button>
-              <button type="button" class="elite-hotspot"
-                style="left:38.0%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Guide"
-                title="Guide">Guide</button>
-              <button type="button" class="elite-hotspot"
-                style="left:64.5%;top:67.4%;width:24.0%;height:2.6%;font-size:8px;font-weight:800;" data-btn="Info"
-                title="Info">Info</button>
-
-              <!-- Color Buttons Row (Red, Green, Yellow, Blue) -->
-              <button type="button" class="elite-hotspot elite-color-red"
-                style="left:11.5%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Red" title="Red"></button>
-              <button type="button" class="elite-hotspot elite-color-green"
-                style="left:31.0%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Green" title="Green"></button>
-              <button type="button" class="elite-hotspot elite-color-yellow"
-                style="left:51.0%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Yellow" title="Yellow"></button>
-              <button type="button" class="elite-hotspot elite-color-blue"
-                style="left:71.5%;top:71.0%;width:17.0%;height:2.2%;" data-btn="Blue" title="Blue"></button>
-
-              <!-- Home Automation Keys -->
-              <!-- Row 1: Light 1 (•), Brightness (+), Socket 1 (••) -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:74.4%;width:25.5%;height:2.8%;font-size:14px;line-height:1;" data-btn="Ha1"
-                title="Light 1 (•)">•</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:42.5%;top:74.4%;width:15.0%;height:2.8%;font-size:12px;font-weight:700;" data-btn="RockerUp"
-                title="Dimmer +">+</button>
-              <button type="button" class="elite-hotspot"
-                style="left:63.0%;top:74.4%;width:25.5%;height:2.8%;font-size:13px;letter-spacing:1px;line-height:1;"
-                data-btn="Ha2" title="Socket 1 (••)">••</button>
-
-              <!-- Row 2: Light 2 / Scene (∴), Brightness (-), Socket 2 (::) -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.5%;top:78.0%;width:25.5%;height:2.8%;font-size:12px;line-height:1;" data-btn="Ha3"
-                title="Light 2 (∴)">∴</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:42.5%;top:78.0%;width:15.0%;height:2.8%;font-size:12px;font-weight:700;"
-                data-btn="RockerDown" title="Dimmer −">−</button>
-              <button type="button" class="elite-hotspot"
-                style="left:63.0%;top:78.0%;width:25.5%;height:2.8%;font-size:12px;letter-spacing:1px;line-height:1;"
-                data-btn="Ha4" title="Socket 2 (::)">⁞⁞</button>
             </div>
+
+            <!-- Companion / Smart Control Remote Shell & Hotspots -->
+            <div class="companion-remote-shell" id="companionRemoteShell" style="display: none;">
+              <div class="companion-remote-skin">
+                <!-- Top Activities (Movie, TV, Music, Off) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:11.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MovieActivity"
+                  title="Movie Activity">🎬</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:32.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="WatchTVActivity"
+                  title="Watch TV Activity">📺</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:53.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MusicActivity"
+                  title="Music Activity">🎵</button>
+                <button type="button" class="elite-hotspot btn-elite-power"
+                  style="left:74.0%;top:3.6%;width:15.0%;height:3.0%;font-size:10px;font-weight:700;"
+                  data-btn="PowerOffActivity" title="Power Off (All Off)">Off</button>
+
+                <!-- Media Playback Cluster -->
+                <!-- Row 1: Rewind, Play, FastForward -->
+                <button type="button" class="elite-hotspot"
+                  style="left:13.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="Rewind"
+                  title="Rewind / Skip Back">|◀◀</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:39.5%;top:8.4%;width:21.0%;height:3.0%;font-size:11px;" data-btn="Play"
+                  title="Play">▶</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:66.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="FastForward"
+                  title="Fast Forward / Skip Next">▶▶|</button>
+
+                <!-- Row 2: Record, Pause, Stop -->
+                <button type="button" class="elite-hotspot"
+                  style="left:13.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Record"
+                  title="Record"><span style="color:#ef476f;">⏺</span></button>
+                <button type="button" class="elite-hotspot"
+                  style="left:39.5%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Pause"
+                  title="Pause">⏸</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:66.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Stop"
+                  title="Stop">⏹</button>
+
+                <!-- Exit / Menu Row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:14.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Exit"
+                  title="Exit">Exit</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Menu"
+                  title="Menu">Menu</button>
+
+                <!-- Directional D-Pad Cluster -->
+                <button type="button" class="elite-hotspot"
+                  style="left:34.0%;top:21.0%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionUp"
+                  title="Up">▲</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:14.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionLeft"
+                  title="Left">◀</button>
+                <button type="button" class="elite-hotspot btn-elite-dpad-ok"
+                  style="left:35.0%;top:25.8%;width:30.0%;height:5.2%;font-size:11px;font-weight:700;" data-btn="Select"
+                  title="OK">OK</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:68.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionRight"
+                  title="Right">▶</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:34.0%;top:31.6%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionDown"
+                  title="Down">▼</button>
+
+                <!-- Back / Info Row -->
+                <button type="button" class="elite-hotspot"
+                  style="left:14.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;" data-btn="Back" title="Back">↩
+                  Back</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:54.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;font-weight:700;" data-btn="Info"
+                  title="Info">Info</button>
+
+                <!-- Volume, Mute/Prev, Channel -->
+                <!-- Volume Rocker (Left) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:13.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
+                  data-btn="VolumeUp" title="Volume Up">+</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:13.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
+                  data-btn="VolumeDown" title="Volume Down">−</button>
+
+                <!-- Center: Mute / Prev -->
+                <button type="button" class="elite-hotspot"
+                  style="left:39.5%;top:42.0%;width:21.0%;height:4.2%;font-size:11px;" data-btn="VolumeMute"
+                  title="Mute">🔇</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:39.5%;top:47.2%;width:21.0%;height:4.2%;font-size:9px;font-weight:700;"
+                  data-btn="PrevChannel" title="Previous Channel">Prev</button>
+
+                <!-- Channel Rocker (Right) -->
+                <button type="button" class="elite-hotspot rect"
+                  style="left:66.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelUp" title="Channel Up">∧</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:66.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;"
+                  data-btn="ChannelDown" title="Channel Down">∨</button>
+
+                <!-- Color Buttons Row -->
+                <button type="button" class="elite-hotspot elite-color-red"
+                  style="left:13.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Red" title="Red"></button>
+                <button type="button" class="elite-hotspot elite-color-green"
+                  style="left:32.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Green" title="Green"></button>
+                <button type="button" class="elite-hotspot elite-color-yellow"
+                  style="left:51.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Yellow" title="Yellow"></button>
+                <button type="button" class="elite-hotspot elite-color-blue"
+                  style="left:70.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Blue" title="Blue"></button>
+
+                <!-- Numpad (1-9, Clear/Plus, 0, Enter) -->
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number1"
+                  title="1">1</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number2"
+                  title="2">2</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number3"
+                  title="3">3</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number4"
+                  title="4">4</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number5"
+                  title="5">5</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number6"
+                  title="6">6</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number7"
+                  title="7">7</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number8"
+                  title="8">8</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number9"
+                  title="9">9</button>
+
+                <button type="button" class="elite-hotspot"
+                  style="left:15.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;" data-btn="NumberPlus"
+                  title="Clear / Plus">+/-</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:40.0%;top:70.2%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number0"
+                  title="0">0</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;font-weight:700;"
+                  data-btn="NumberEnter" title="Enter">E</button>
+
+                <!-- Smart Home Control Keys (Companion Bottom) -->
+                <!-- Row 1: Light 1, Dimmer +, Socket 1 -->
+                <button type="button" class="elite-hotspot"
+                  style="left:13.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha1"
+                  title="Light 1 (•)">💡 1</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:40.0%;top:75.2%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;"
+                  data-btn="RockerUp" title="Dimmer +">+</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha2"
+                  title="Socket 1 (••)">🔌 1</button>
+
+                <!-- Row 2: Light 2, Dimmer -, Socket 2 -->
+                <button type="button" class="elite-hotspot"
+                  style="left:13.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha3"
+                  title="Light 2 (∴)">💡 2</button>
+                <button type="button" class="elite-hotspot rect"
+                  style="left:40.0%;top:80.4%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;"
+                  data-btn="RockerDown" title="Dimmer −">−</button>
+                <button type="button" class="elite-hotspot"
+                  style="left:65.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha4"
+                  title="Socket 2 (::)">🔌 2</button>
+              </div>
+            </div>
+            <div class="help" style="margin-top: 8px;">💡 Tap any button to configure its mapping.</div>
           </div>
 
-          <!-- Companion / Smart Control Remote Shell & Hotspots -->
-          <div class="companion-remote-shell" id="companionRemoteShell" style="display: none;">
-            <div class="companion-remote-skin">
-              <!-- Top Activities (Movie, TV, Music, Off) -->
-              <button type="button" class="elite-hotspot"
-                style="left:11.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MovieActivity"
-                title="Movie Activity">🎬</button>
-              <button type="button" class="elite-hotspot"
-                style="left:32.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="WatchTVActivity"
-                title="Watch TV Activity">📺</button>
-              <button type="button" class="elite-hotspot"
-                style="left:53.0%;top:3.6%;width:17.0%;height:3.0%;font-size:11px;" data-btn="MusicActivity"
-                title="Music Activity">🎵</button>
-              <button type="button" class="elite-hotspot btn-elite-power"
-                style="left:74.0%;top:3.6%;width:15.0%;height:3.0%;font-size:10px;font-weight:700;" data-btn="PowerOffActivity"
-                title="Power Off (All Off)">Off</button>
+          <!-- Right: Touchscreen Buttons & Presets -->
+          <div id="eliteColConfig">
+            <!-- 3. On-Screen Touch Buttons -->
+            <div id="eliteSectionScreen" class="card" style="margin-bottom: 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <div>
+                  <h3 id="eliteScreenSectionTitle" style="font-size: 15px; margin: 0;">On-Screen "DEVICES" Touch Buttons
+                  </h3>
+                  <div id="eliteScreenSectionHelp" class="help" style="margin-top: 2px;">Buttons shown on the Elite
+                    touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).</div>
+                </div>
+                <button id="btnEliteAddScreenBtn" type="button" class="btn btn-xs btn-primary"
+                  data-i18n="add_screen_button">+ Add Screen Button</button>
+              </div>
+              <div id="eliteScreenButtonsList"
+                style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                <!-- Dynamically populated per activity -->
+              </div>
+            </div>
 
-              <!-- Media Playback Cluster -->
-              <!-- Row 1: Rewind, Play, FastForward -->
-              <button type="button" class="elite-hotspot"
-                style="left:13.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="Rewind"
-                title="Rewind / Skip Back">|◀◀</button>
-              <button type="button" class="elite-hotspot"
-                style="left:39.5%;top:8.4%;width:21.0%;height:3.0%;font-size:11px;" data-btn="Play"
-                title="Play">▶</button>
-              <button type="button" class="elite-hotspot"
-                style="left:66.0%;top:8.4%;width:21.0%;height:3.0%;font-size:9px;" data-btn="FastForward"
-                title="Fast Forward / Skip Next">▶▶|</button>
-
-              <!-- Row 2: Record, Pause, Stop -->
-              <button type="button" class="elite-hotspot"
-                style="left:13.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Record"
-                title="Record"><span style="color:#ef476f;">⏺</span></button>
-              <button type="button" class="elite-hotspot"
-                style="left:39.5%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Pause"
-                title="Pause">⏸</button>
-              <button type="button" class="elite-hotspot"
-                style="left:66.0%;top:12.4%;width:21.0%;height:3.0%;font-size:10px;" data-btn="Stop"
-                title="Stop">⏹</button>
-
-              <!-- Exit / Menu Row -->
-              <button type="button" class="elite-hotspot"
-                style="left:14.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Exit"
-                title="Exit">Exit</button>
-              <button type="button" class="elite-hotspot"
-                style="left:54.0%;top:16.8%;width:32.0%;height:2.8%;font-size:9px;font-weight:700;" data-btn="Menu"
-                title="Menu">Menu</button>
-
-              <!-- Directional D-Pad Cluster -->
-              <button type="button" class="elite-hotspot"
-                style="left:34.0%;top:21.0%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionUp"
-                title="Up">▲</button>
-              <button type="button" class="elite-hotspot"
-                style="left:14.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionLeft"
-                title="Left">◀</button>
-              <button type="button" class="elite-hotspot btn-elite-dpad-ok"
-                style="left:35.0%;top:25.8%;width:30.0%;height:5.2%;font-size:11px;font-weight:700;" data-btn="Select"
-                title="OK">OK</button>
-              <button type="button" class="elite-hotspot"
-                style="left:68.0%;top:25.8%;width:18.0%;height:5.2%;font-size:10px;" data-btn="DirectionRight"
-                title="Right">▶</button>
-              <button type="button" class="elite-hotspot"
-                style="left:34.0%;top:31.6%;width:32.0%;height:4.2%;font-size:10px;" data-btn="DirectionDown"
-                title="Down">▼</button>
-
-              <!-- Back / Info Row -->
-              <button type="button" class="elite-hotspot"
-                style="left:14.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;" data-btn="Back"
-                title="Back">↩ Back</button>
-              <button type="button" class="elite-hotspot"
-                style="left:54.0%;top:37.4%;width:32.0%;height:2.8%;font-size:10px;font-weight:700;" data-btn="Info"
-                title="Info">Info</button>
-
-              <!-- Volume, Mute/Prev, Channel -->
-              <!-- Volume Rocker (Left) -->
-              <button type="button" class="elite-hotspot rect"
-                style="left:13.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="VolumeUp"
-                title="Volume Up">+</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:13.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="VolumeDown"
-                title="Volume Down">−</button>
-
-              <!-- Center: Mute / Prev -->
-              <button type="button" class="elite-hotspot"
-                style="left:39.5%;top:42.0%;width:21.0%;height:4.2%;font-size:11px;" data-btn="VolumeMute"
-                title="Mute">🔇</button>
-              <button type="button" class="elite-hotspot"
-                style="left:39.5%;top:47.2%;width:21.0%;height:4.2%;font-size:9px;font-weight:700;" data-btn="PrevChannel"
-                title="Previous Channel">Prev</button>
-
-              <!-- Channel Rocker (Right) -->
-              <button type="button" class="elite-hotspot rect"
-                style="left:66.0%;top:41.6%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="ChannelUp"
-                title="Channel Up">∧</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:66.0%;top:47.0%;width:20.0%;height:4.8%;font-size:11px;font-weight:700;" data-btn="ChannelDown"
-                title="Channel Down">∨</button>
-
-              <!-- Color Buttons Row -->
-              <button type="button" class="elite-hotspot elite-color-red"
-                style="left:13.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Red" title="Red"></button>
-              <button type="button" class="elite-hotspot elite-color-green"
-                style="left:32.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Green" title="Green"></button>
-              <button type="button" class="elite-hotspot elite-color-yellow"
-                style="left:51.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Yellow" title="Yellow"></button>
-              <button type="button" class="elite-hotspot elite-color-blue"
-                style="left:70.0%;top:53.6%;width:16.0%;height:2.4%;" data-btn="Blue" title="Blue"></button>
-
-              <!-- Numpad (1-9, Clear/Plus, 0, Enter) -->
-              <button type="button" class="elite-hotspot"
-                style="left:15.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number1"
-                title="1">1</button>
-              <button type="button" class="elite-hotspot"
-                style="left:40.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number2"
-                title="2">2</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:57.6%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number3"
-                title="3">3</button>
-
-              <button type="button" class="elite-hotspot"
-                style="left:15.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number4"
-                title="4">4</button>
-              <button type="button" class="elite-hotspot"
-                style="left:40.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number5"
-                title="5">5</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:61.8%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number6"
-                title="6">6</button>
-
-              <button type="button" class="elite-hotspot"
-                style="left:15.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number7"
-                title="7">7</button>
-              <button type="button" class="elite-hotspot"
-                style="left:40.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number8"
-                title="8">8</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:66.0%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number9"
-                title="9">9</button>
-
-              <button type="button" class="elite-hotspot"
-                style="left:15.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;" data-btn="NumberPlus"
-                title="Clear / Plus">+/-</button>
-              <button type="button" class="elite-hotspot"
-                style="left:40.0%;top:70.2%;width:20.0%;height:3.4%;font-size:11px;" data-btn="Number0"
-                title="0">0</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:70.2%;width:20.0%;height:3.4%;font-size:10px;font-weight:700;" data-btn="NumberEnter"
-                title="Enter">E</button>
-
-              <!-- Smart Home Control Keys (Companion Bottom) -->
-              <!-- Row 1: Light 1, Dimmer +, Socket 1 -->
-              <button type="button" class="elite-hotspot"
-                style="left:13.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha1"
-                title="Light 1 (•)">💡 1</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:40.0%;top:75.2%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;" data-btn="RockerUp"
-                title="Dimmer +">+</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:75.2%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha2"
-                title="Socket 1 (••)">🔌 1</button>
-
-              <!-- Row 2: Light 2, Dimmer -, Socket 2 -->
-              <button type="button" class="elite-hotspot"
-                style="left:13.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha3"
-                title="Light 2 (∴)">💡 2</button>
-              <button type="button" class="elite-hotspot rect"
-                style="left:40.0%;top:80.4%;width:20.0%;height:4.2%;font-size:12px;font-weight:700;" data-btn="RockerDown"
-                title="Dimmer −">−</button>
-              <button type="button" class="elite-hotspot"
-                style="left:65.0%;top:80.4%;width:22.0%;height:4.2%;font-size:11px;" data-btn="Ha4"
-                title="Socket 2 (::)">🔌 2</button>
+            <!-- 4. Presets & Automap -->
+            <div id="eliteSectionPresets" class="card">
+              <h3 style="font-size: 15px; margin-bottom: 6px;">Presets & Auto-Mapping</h3>
+              <div class="help">Quickly map standard navigation and volume buttons to a selected device.</div>
+              <div class="row" style="margin-top: 8px;">
+                <select id="elitePresetDevice" class="form-control"></select>
+                <button id="eliteRunPresetBtn" type="button" class="btn btn-sm btn-secondary"
+                  data-i18n="run_preset">Auto-Map Standard Keys</button>
+              </div>
             </div>
           </div>
-          <div class="help" style="margin-top: 8px;">💡 Tap any button to configure its mapping.</div>
         </div>
-
-        <!-- Right: Touchscreen Buttons & Presets -->
-        <div id="eliteColConfig">
-          <!-- 3. On-Screen Touch Buttons -->
-          <div id="eliteSectionScreen" class="card" style="margin-bottom: 14px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-              <div>
-                <h3 id="eliteScreenSectionTitle" style="font-size: 15px; margin: 0;">On-Screen "DEVICES" Touch Buttons
-                </h3>
-                <div id="eliteScreenSectionHelp" class="help" style="margin-top: 2px;">Buttons shown on the Elite
-                  touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).</div>
-              </div>
-              <button id="btnEliteAddScreenBtn" type="button" class="btn btn-xs btn-primary"
-                data-i18n="add_screen_button">+ Add Screen Button</button>
-            </div>
-            <div id="eliteScreenButtonsList" style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-              <!-- Dynamically populated per activity -->
-            </div>
-          </div>
-
-          <!-- 4. Presets & Automap -->
-          <div id="eliteSectionPresets" class="card">
-            <h3 style="font-size: 15px; margin-bottom: 6px;">Presets & Auto-Mapping</h3>
-            <div class="help">Quickly map standard navigation and volume buttons to a selected device.</div>
-            <div class="row" style="margin-top: 8px;">
-              <select id="elitePresetDevice" class="form-control"></select>
-              <button id="eliteRunPresetBtn" type="button" class="btn btn-sm btn-secondary"
-                data-i18n="run_preset">Auto-Map Standard Keys</button>
-            </div>
-          </div>
-        </div>
-      </div>
       </div> <!-- /rfRemoteMappingContainer -->
 
       <!-- Elite Button Mapping Modal (Popup on button click) -->
@@ -4424,42 +4431,42 @@ harmony_send_command:
       </div>
     </div>
   </div>
-    <!-- Modern Login Modal Dialog -->
-    <div class="modal-overlay" id="loginModalOverlay"
-      style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 99999; align-items: center; justify-content: center;">
-      <div class="modal-card"
-        style="max-width: 360px; width: 90%; background: var(--bg-card, #131722); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;">
-        <div
-          style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div class="brand-icon" style="width: 28px; height: 28px; font-size: 14px;">H</div>
-            <span style="font-weight: 700; font-size: 15px;">Sign In to Harmony Hub</span>
-          </div>
-          <button type="button" id="btnLoginClose" class="btn btn-xs btn-ghost" style="font-size: 16px;">✕</button>
+  <!-- Modern Login Modal Dialog -->
+  <div class="modal-overlay" id="loginModalOverlay"
+    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 99999; align-items: center; justify-content: center;">
+    <div class="modal-card"
+      style="max-width: 360px; width: 90%; background: var(--bg-card, #131722); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;">
+      <div
+        style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="brand-icon" style="width: 28px; height: 28px; font-size: 14px;">H</div>
+          <span style="font-weight: 700; font-size: 15px;">Sign In to Harmony Hub</span>
         </div>
-        <form id="loginForm" style="padding: 20px;">
-          <div style="margin-bottom: 14px;">
-            <label for="loginUsername"
-              style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Username</label>
-            <input type="text" id="loginUsername" class="form-control" placeholder="admin" required
-              autocomplete="username" style="width: 100%;">
-          </div>
-          <div style="margin-bottom: 16px;">
-            <label for="loginPassword"
-              style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Password</label>
-            <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required
-              autocomplete="current-password" style="width: 100%;">
-          </div>
-          <div id="loginErrorMsg"
-            style="display: none; color: var(--danger, #ef4444); font-size: 12px; margin-bottom: 12px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
-          </div>
-          <button type="submit" id="btnLoginSubmit" class="btn btn-primary"
-            style="width: 100%; font-weight: 600; justify-content: center; padding: 10px;">Sign In</button>
-        </form>
+        <button type="button" id="btnLoginClose" class="btn btn-xs btn-ghost" style="font-size: 16px;">✕</button>
       </div>
+      <form id="loginForm" style="padding: 20px;">
+        <div style="margin-bottom: 14px;">
+          <label for="loginUsername"
+            style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Username</label>
+          <input type="text" id="loginUsername" class="form-control" placeholder="admin" required
+            autocomplete="username" style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label for="loginPassword"
+            style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Password</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required
+            autocomplete="current-password" style="width: 100%;">
+        </div>
+        <div id="loginErrorMsg"
+          style="display: none; color: var(--danger, #ef4444); font-size: 12px; margin-bottom: 12px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
+        </div>
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary"
+          style="width: 100%; font-weight: 600; justify-content: center; padding: 10px;">Sign In</button>
+      </form>
     </div>
+  </div>
 
-    <script type="module" src="./src/app.js"></script>
+  <script type="module" src="./src/app.js"></script>
 </body>
 
 </html>

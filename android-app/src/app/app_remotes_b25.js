@@ -94,7 +94,7 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
           badge.className = 'badge ' + (mqRes.connected ? 'ok' : 'subtle');
         }
       }
-    } catch {}
+    } catch { }
 
     this.selectB25Button(this.b25SelectedBtn || 'power', false);
     this.updateB25ButtonStates();
@@ -340,8 +340,4 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
     }
   }
-
-  /* -------------------------------------------------------------
-   * 8b. Harmony Elite RF Remote View
-   * ------------------------------------------------------------- */
 }
