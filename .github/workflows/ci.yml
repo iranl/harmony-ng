@@ -34,6 +34,12 @@ jobs:
           node-version: '26'
           cache: 'npm'
           cache-dependency-path: 'android-app/package-lock.json'
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.13
+      - name: Build Elite screen renderer (WebAssembly)
+        run: tools/elite_render/build.sh --wasm android-app/public/assets
       - name: Install dependencies
         working-directory: android-app
         run: npm ci
@@ -44,6 +50,7 @@ jobs:
         run: |
           test -f android-app/dist/index.html
           test -d android-app/dist/assets
+          test -f android-app/dist/assets/elite_render.wasm
 
   build-elite:
     name: Compile Elite ARM Binaries

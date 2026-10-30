@@ -52,6 +52,7 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppRemotesB25 } from './app_remotes_b25.js';
+import { loadEliteScreen, writeRemoteConfig, renderEliteScreen, remoteActivityId } from '../elite-screen.js';
 
 export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   async loadEliteView() {
@@ -143,6 +144,8 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const compShell = document.getElementById('companionRemoteShell');
     if (eliteShell) eliteShell.style.display = isScreenless ? 'none' : 'flex';
     if (compShell) compShell.style.display = isScreenless ? 'flex' : 'none';
+    const viewBar = document.getElementById('eliteScreenViewBar');
+    if (viewBar && isScreenless) viewBar.style.display = 'none';
 
     // Toggle Smart Control vs Companion specific rows
     const isSmartControl = curModel === 'smart_control' || (curSlotInfo?.name && curSlotInfo.name.includes('Smart'));
@@ -251,6 +254,12 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     } catch (e) {
       console.warn(`Failed to load slot ${this.selectedRemoteSlot} mappings:`, e);
       this.eliteMapData = { activities: {}, devices: {} };
+    }
+
+    // The screen preview lists devices the way the Hub's config push does: from devices.json,
+    // whose command order and set differ from /api/inventory
+    if (!isScreenless) {
+      this.eliteRemoteDevices = (await this.client.request('/api/devices').catch(() => null))?.devices || null;
     }
 
     this.selectEliteButton('Select', false);
@@ -662,6 +671,8 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       }
     }
 
+    this.updateEliteScreenCanvas();
+
     // Update screen buttons list editor
     if (!sbtnsList) return;
     if (sbtns.length === 0) {
@@ -734,6 +745,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       lblIn?.addEventListener('input', (e) => {
         sbtns[idx].label = e.target.value.trim();
         updatePreviewTile();
+        this.updateEliteScreenCanvas();
       });
 
       iconBtn?.addEventListener('click', () => {
@@ -778,6 +790,57 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
         this.renderEliteScreenButtons();
       });
     });
+  }
+
+  // Draws the Elite screen with the firmware's renderer from the page's unsaved state. The
+  // view follows the editing context until the user picks one in the view bar.
+  async updateEliteScreenCanvas() {
+    const canvas = document.getElementById('eliteScreenCanvas');
+    const bar = document.getElementById('eliteScreenViewBar');
+    if (!canvas || !bar) return;
+    let screen;
+    try {
+      screen = await loadEliteScreen(this.client?.baseUrl);
+    } catch (e) {
+      return; // no renderer in this build: keep the HTML mock-up
+    }
+    if (!bar.dataset.bound) {
+      bar.dataset.bound = '1';
+      bar.addEventListener('click', (e) => {
+        const view = e.target.closest('[data-view]')?.dataset.view;
+        if (!view) return;
+        this.eliteScreenView = view;
+        this.updateEliteScreenCanvas();
+      });
+    }
+
+    const isDevScope = this.eliteContextMode === 'device';
+    const actId = this.eliteSelectedActivityId || document.getElementById('eliteActivitySelect')?.value || '-1';
+    const devs = this.eliteRemoteDevices || this.inventory.devices || [];
+    const devId = this.eliteSelectedDeviceId || document.getElementById('eliteDeviceSelect')?.value;
+    const context = isDevScope ? `device:${devId}` : `activity:${actId}`;
+    if (context !== this.eliteScreenContext) {
+      this.eliteScreenContext = context;
+      this.eliteScreenView = isDevScope ? 'devices' : (actId === '-1' ? 'activities' : 'commands');
+    }
+
+    let view = this.eliteScreenView;
+    let select = 0;
+    if (view === 'devices' && isDevScope) {
+      const idx = devs.slice(0, 16).findIndex(d => String(d.id) === String(devId));
+      if (idx >= 0) { view = 'device'; select = idx; }
+    }
+    writeRemoteConfig(screen, {
+      activities: this.activitiesData?.activities || [],
+      devices: devs,
+      eliteMap: this.eliteMapData || {},
+    });
+    renderEliteScreen(screen, canvas, { view, select, active: actId === '-1' ? '' : remoteActivityId(actId) });
+
+    canvas.hidden = false;
+    document.getElementById('eliteScreenFrame')?.classList.add('rendered');
+    bar.style.display = 'flex';
+    bar.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === this.eliteScreenView));
   }
 
   addEliteScreenButton() {

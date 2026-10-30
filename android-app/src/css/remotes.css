@@ -376,6 +376,15 @@
   box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.9);
   pointer-events: none;
 }
+.elite-screen-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.elite-screen-frame.rendered .elite-screen-header,
+.elite-screen-frame.rendered .elite-screen-content {
+  display: none;
+}
 .elite-screen-header {
   background: #11161f;
   padding: 3px 6px;
