@@ -728,6 +728,9 @@ void load_settings_conf(void) {
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
+            else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
+                g_language = elite_lang_from_code(sval);
+            }
             else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
                 expand_timezone(sval, g_timezone_str, sizeof(g_timezone_str));
@@ -771,6 +774,7 @@ void save_settings_conf(void) {
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "usbeth=%d\n", g_usbeth_enabled ? 1 : 0);
     fprintf(f, "slot=%d\n", g_remote_slot);
+    fprintf(f, "language=%s\n", elite_lang_code(g_language));
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;

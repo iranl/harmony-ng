@@ -4,11 +4,13 @@ set -e
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 TC="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
-KDIR="/home/yr/linux-2.6.31.14"
+KDIR="${KERNEL_DIR:-$REPO_ROOT/build/tmp/linux-2.6.31.14}"
 
 if [ ! -d "$KDIR" ]; then
-    KDIR="$REPO_ROOT/build/tmp/linux-2.6.31.14"
+    echo "[-] Error: Kernel directory not found at $KDIR" >&2
+    exit 1
 fi
+export KERNEL_DIR="$KDIR"
 
 echo "[*] Using Kernel directory: $KDIR"
 echo "[*] Compiling cc2544.c..."

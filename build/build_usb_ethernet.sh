@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TOOLCHAIN="$REPO_ROOT/build/toolchains/mips32--uclibc--stable/bin/mips-buildroot-linux-uclibc-"
-KERNEL_DIR="${KERNEL_DIR:-/home/yr/linux-2.6.31.14}"
+KERNEL_DIR="${KERNEL_DIR:-$REPO_ROOT/build/tmp/linux-2.6.31.14}"
 OUT_DIR="$REPO_ROOT/payload/modules"
 
 if [ ! -d "$KERNEL_DIR" ]; then
@@ -21,7 +21,7 @@ echo "Toolchain: $TOOLCHAIN"
 echo "Output: $OUT_DIR"
 
 make -C "$KERNEL_DIR" \
-    M="$KERNEL_DIR/drivers/net/usb" \
+    M="drivers/net/usb" \
     modules \
     ARCH=mips \
     CROSS_COMPILE="$TOOLCHAIN"

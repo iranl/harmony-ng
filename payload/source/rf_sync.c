@@ -145,6 +145,16 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     cJSON_AddBoolToObject(root, "powerDebug", power_debug != 0);
     cJSON_AddNumberToObject(root, "power_debug", power_debug);
 
+    int lang_id = (p[19] <= 5) ? p[19] : 0;
+    const char *lang_str = "en";
+    if (lang_id == 1) lang_str = "de";
+    else if (lang_id == 2) lang_str = "fr";
+    else if (lang_id == 3) lang_str = "nl";
+    else if (lang_id == 4) lang_str = "es";
+    else if (lang_id == 5) lang_str = "it";
+    cJSON_AddStringToObject(root, "language", lang_str);
+    cJSON_AddNumberToObject(root, "language_id", lang_id);
+
     char *txt = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (txt) {
@@ -184,7 +194,7 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
                             int nav_key, int nav_mode, int confirm_act, int touch_sens,
                             int remote_mode, int gyro_rate, int btn_backlight,
                             int night_start, int night_end, int usbeth, int no_screen,
-                            int cap_buttons, int power_debug) {
+                            int cap_buttons, int power_debug, int language) {
     uint8_t payload[26] = {0};
     payload[0] = (uint8_t)(bright < 1 ? 1 : (bright > 5 ? 5 : bright));
     payload[1] = (uint8_t)(touch ? 1 : 0);
@@ -206,19 +216,20 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
     payload[17] = (uint8_t)(no_screen ? 1 : 0);
     payload[18] = (uint8_t)(cap_buttons ? 1 : 2);
     payload[19] = (uint8_t)(power_debug ? 1 : 2);
-    rf_build_frame(f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 20);
+    payload[20] = (uint8_t)(language >= 0 && language <= 5 ? language : 0);
+    rf_build_frame(f, slot, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 21);
 }
 
 void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
-                               int cap_buttons, int power_debug) {
+                               int cap_buttons, int power_debug, int language) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
     rf_frame_t f;
     rf_build_settings_push(&f, slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens,
                            remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen,
-                           cap_buttons, power_debug);
+                           cap_buttons, power_debug, language);
     rf_send_frame_acked(&f, 300);
 }
 

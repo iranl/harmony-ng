@@ -28,17 +28,17 @@ void render_header(void) {
         fb_fill_rect(0, 0, FB_WIDTH, 34, 0x0841);
     }
 
-    const char *title = (g_current_view == VIEW_ACTIVITIES) ? "ACTIVITIES" :
-                        ((g_current_view == VIEW_DEVICES) ? "COMMANDS" :
-                        ((g_current_view == VIEW_PAIRING) ? "RF PAIRING" :
-                        ((g_current_view == VIEW_NOT_PAIRED) ? "NOT PAIRED" : "SETTINGS")));
+    const char *title = (g_current_view == VIEW_ACTIVITIES) ? tr(STR_ACTIVITIES) :
+                        ((g_current_view == VIEW_DEVICES) ? tr(STR_COMMANDS) :
+                        ((g_current_view == VIEW_PAIRING) ? tr(STR_RF_PAIRING) :
+                        ((g_current_view == VIEW_NOT_PAIRED) ? tr(STR_NOT_PAIRED) : tr(STR_SETTINGS))));
     char browser_title[32];
     if (g_current_view == VIEW_DEVICE_BROWSER) {
         bool in_dev = (g_browse_dev >= 0 && g_browse_dev < g_rf_device_count);
         if (in_dev) {
             snprintf(browser_title, sizeof(browser_title), "< %s", g_rf_devices[g_browse_dev].name);
         } else {
-            snprintf(browser_title, sizeof(browser_title), "DEVICES");
+            snprintf(browser_title, sizeof(browser_title), "%s", tr(STR_DEVICES));
         }
         /* Keep the title clear of the RF badge at FB_WIDTH - 142 */
         size_t len = strlen(browser_title);
@@ -99,7 +99,7 @@ void render_header(void) {
     if (!g_rf_link_connected) {
         fb_fill_rect(badge_x, badge_y, badge_w, badge_h, RGB_RED);
         fb_draw_rect(badge_x, badge_y, badge_w, badge_h, RGB_WHITE);
-        fb_draw_text(badge_x + 3, badge_y + 4, "NO HUB", RGB_WHITE, RGB_RED, 1);
+        fb_draw_text(badge_x + 3, badge_y + 4, tr(STR_NO_HUB), RGB_WHITE, RGB_RED, 1);
     } else {
         fb_fill_rect(FB_WIDTH - 98, badge_y + 4, 8, 8, RGB_TEAL);
         fb_draw_rect(FB_WIDTH - 98, badge_y + 4, 8, 8, RGB_WHITE);
@@ -198,18 +198,18 @@ void render_footer(void) {
             if (t == 0) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/wiihome.png") &&
                     !blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/activities.png")) {
-                    int tw = fb_text_width_aa("ACT", &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "ACT", fg, &g_font_main);
+                    int tw = fb_text_width_aa(tr(STR_TAB_ACT), &g_font_main);
+                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_ACT), fg, &g_font_main);
                 }
             } else if (t == 1) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/menu.png")) {
-                    int tw = fb_text_width_aa("CMD", &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "CMD", fg, &g_font_main);
+                    int tw = fb_text_width_aa(tr(STR_TAB_CMD), &g_font_main);
+                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_CMD), fg, &g_font_main);
                 }
             } else if (t == 2) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                    int tw = fb_text_width_aa("DEV", &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "DEV", fg, &g_font_main);
+                    int tw = fb_text_width_aa(tr(STR_TAB_DEV), &g_font_main);
+                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_DEV), fg, &g_font_main);
                 }
             } else if (t == 3) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
@@ -219,8 +219,8 @@ void render_footer(void) {
         } else {
             if (t == 0) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                    int tw = fb_text_width_aa("DEVICES", &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, "DEVICES", fg, &g_font_main);
+                    int tw = fb_text_width_aa(tr(STR_DEVICES), &g_font_main);
+                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_DEVICES), fg, &g_font_main);
                 }
             } else if (t == 1) {
                 if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
@@ -233,7 +233,7 @@ void render_footer(void) {
 
 void render_sync_overlay(void) {
     fb_fill_rect(0, 0, FB_WIDTH, 34, RGB_HEADER);
-    fb_draw_text_aa(14, 9, "SYNCHRONIZING CONFIG", RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(14, 9, tr(STR_SYNC_CONFIG_TITLE), RGB_CYAN, &g_font_title);
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     int card_y = 52;
@@ -241,8 +241,8 @@ void render_sync_overlay(void) {
     fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
     fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    fb_draw_text_aa(22, card_y + 20, "UPDATING FROM HUB", RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(22, card_y + 46, "Syncing activities & mappings...", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 20, tr(STR_UPDATING_FROM_HUB), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(22, card_y + 46, tr(STR_SYNCING_ACTS_MAPS), RGB_TEXT_MUTED, &g_font_main);
 
     char items_str[48];
     snprintf(items_str, sizeof(items_str), "Acts: %d | Devs: %d | Btns: %d",
@@ -271,10 +271,10 @@ void render_sync_overlay(void) {
         fb_fill_rect(bar_x + pulse_pos, card_y + 140, 30, 8, RGB_CYAN);
     }
 
-    fb_draw_text_aa(22, card_y + 168, "Please wait...", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 168, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
 
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
-    fb_draw_text_aa(18, FB_HEIGHT - 22, "Screen locked during sync", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SYNC), RGB_TEXT_MUTED, &g_font_main);
 }
 
 void render_screen(void) {

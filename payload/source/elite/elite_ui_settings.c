@@ -25,7 +25,7 @@ static const char *get_nav_key_name(int key) {
 int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
-        case SETTINGS_VIEW_ACTIVITIES: return 3;
+        case SETTINGS_VIEW_ACTIVITIES: return 4;
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 6;
@@ -45,20 +45,20 @@ static void render_settings_categories(void) {
     int total = 6;
 
     const char *cat_names[6] = {
-        "CONFIG",
-        "DISPLAY",
-        "TOUCH",
-        "POWER",
-        "SYSTEM",
-        "FIRMWARE UPDATE"
+        tr(STR_CAT_CONFIG),
+        tr(STR_CAT_DISPLAY),
+        tr(STR_CAT_TOUCH),
+        tr(STR_CAT_POWER),
+        tr(STR_CAT_SYSTEM),
+        tr(STR_CAT_UPDATE)
     };
     const char *cat_descs[6] = {
-        "Confirm switch, config sync",
-        "Brightness, timeout, night",
-        "Sensitivity, nav buttons",
-        "Tilt wake, battery, suspend",
-        "USB ethernet, pairing, reset",
-        "Software update & OTA transfer"
+        tr(STR_CAT_CONFIG_DESC),
+        tr(STR_CAT_DISPLAY_DESC),
+        tr(STR_CAT_TOUCH_DESC),
+        tr(STR_CAT_POWER_DESC),
+        tr(STR_CAT_SYSTEM_DESC),
+        tr(STR_CAT_UPDATE_DESC)
     };
     const char *cat_icons[6] = {
         "/opt/luadraws/appscommon/asset/footer/devices.png",
@@ -158,8 +158,8 @@ static void render_settings_factory_reset(void) {
     int spacing = 8;
 
     const char *btn_labels[2][2] = {
-        { "CANCEL - KEEP SYSTEM", "PROCEED TO RESET >" },
-        { "NO, GO BACK", "YES, RESET REMOTE NOW" }
+        { tr(STR_CANCEL_KEEP_SYSTEM), tr(STR_PROCEED_TO_RESET) },
+        { tr(STR_NO_GO_BACK), tr(STR_YES_RESET_REMOTE) }
     };
 
     for (int i = 0; i < 2; i++) {
@@ -189,7 +189,7 @@ static void render_settings_reboot(void) {
     fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
     fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_YELLOW);
 
-    fb_draw_text_aa(16, card_y + 10, "REBOOT REMOTE", RGB_YELLOW, &g_font_title);
+    fb_draw_text_aa(16, card_y + 10, tr(STR_REBOOT_REMOTE), RGB_YELLOW, &g_font_title);
     fb_draw_text_aa(16, card_y + 36, "Restart remote cleanly.", RGB_WHITE, &g_font_main);
     fb_draw_text_aa(16, card_y + 56, "Saved configs and paired Hub", RGB_WHITE, &g_font_main);
     fb_draw_text_aa(16, card_y + 76, "connection will be restored.", RGB_WHITE, &g_font_main);
@@ -200,8 +200,8 @@ static void render_settings_reboot(void) {
     int spacing = 8;
 
     const char *btn_labels[2] = {
-        "CANCEL - DO NOT REBOOT",
-        "REBOOT REMOTE NOW"
+        tr(STR_CANCEL_DO_NOT_REBOOT),
+        tr(STR_REBOOT_REMOTE_NOW)
     };
 
     for (int i = 0; i < 2; i++) {
@@ -253,8 +253,8 @@ static void render_settings_suspend(void) {
     int spacing = 8;
 
     const char *btn_labels[2] = {
-        "CANCEL - STAY AWAKE",
-        "SUSPEND TO RAM NOW"
+        tr(STR_CANCEL_STAY_AWAKE),
+        tr(STR_SUSPEND_TO_RAM_NOW)
     };
 
     for (int i = 0; i < 2; i++) {
@@ -273,7 +273,7 @@ static void render_settings_suspend(void) {
 
 static void render_settings_update(void) {
     fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
-    fb_draw_text_aa(14, 10, "FIRMWARE UPDATE", RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(14, 10, tr(STR_CAT_UPDATE), RGB_CYAN, &g_font_title);
 
     int start_y = 38;
     int card_h = 76;
@@ -306,9 +306,9 @@ static void render_settings_update(void) {
                     &g_font_main);
 
     const char *labels[3] = {
-        "Pull Firmware OTA from Hub",
-        "Check for Updates",
-        "< Back to Settings"
+        tr(STR_PULL_FIRMWARE_OTA),
+        tr(STR_CHECK_UPDATES),
+        tr(STR_BACK_TO_SETTINGS)
     };
     const char *icons[3] = {
         "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
@@ -350,26 +350,29 @@ void render_settings_screen(void) {
             render_settings_categories();
             break;
         case SETTINGS_VIEW_ACTIVITIES: {
-            const char *labels[3] = { "Confirm Switch", "Sync Config from Hub", "< Back" };
-            char values[3][32];
-            snprintf(values[0], sizeof(values[0]), "[ %s ]", g_confirm_activity ? "PROMPT" : "INSTANT");
-            snprintf(values[1], sizeof(values[1]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
-            values[2][0] = '\0';
-            uint16_t cols[3] = {
+            const char *labels[4] = { tr(STR_CONFIRM_SWITCH), tr(STR_LANGUAGE), tr(STR_SYNC_CONFIG_HUB), tr(STR_BACK) };
+            char values[4][32];
+            snprintf(values[0], sizeof(values[0]), "[ %s ]", g_confirm_activity ? tr(STR_CONFIRM_PROMPT) : tr(STR_CONFIRM_INSTANT));
+            snprintf(values[1], sizeof(values[1]), "[ %s ]", elite_lang_name(g_language));
+            snprintf(values[2], sizeof(values[2]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
+            values[3][0] = '\0';
+            uint16_t cols[4] = {
                 g_confirm_activity ? RGB_GREEN : RGB_TEXT_MUTED,
+                RGB_TEAL,
                 g_update_config_available ? RGB_YELLOW : RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[3] = {
+            const char *icons[4] = {
                 "/opt/luadraws/appscommon/asset/settings/checkmark.png",
+                "/opt/luadraws/appscommon/asset/footer/settings.png",
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("CONFIG", 3, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_CONFIG), 4, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {
-            const char *labels[5] = { "Display Brightness", "Display Timeout", "Button Backlight", "Night Schedule", "< Back" };
+            const char *labels[5] = { tr(STR_DISPLAY_BRIGHTNESS), tr(STR_DISPLAY_TIMEOUT), tr(STR_BTN_BACKLIGHT), tr(STR_NIGHT_SCHEDULE), tr(STR_BACK) };
             char values[5][32];
             snprintf(values[0], sizeof(values[0]), "[ LVL %d ]", g_brightness_val);
             snprintf(values[1], sizeof(values[1]), "[ %ds ]", g_timeout_seconds);
@@ -390,11 +393,11 @@ void render_settings_screen(void) {
                 "/opt/luadraws/appscommon/asset/clock_small.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("DISPLAY", 5, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_DISPLAY), 5, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_TOUCH: {
-            const char *labels[6] = { "Touchscreen", "Capacitive Buttons", "Touch Sensitivity", "Nav Toggle Button", "Nav Toggle Mode", "< Back" };
+            const char *labels[6] = { tr(STR_TOUCHSCREEN), tr(STR_CAP_BUTTONS), tr(STR_TOUCH_SENSITIVITY), tr(STR_NAV_TOGGLE_BTN), tr(STR_NAV_TOGGLE_MODE), tr(STR_BACK) };
             char values[6][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_touch_enabled ? "ON" : "OFF");
             snprintf(values[1], sizeof(values[1]), "[ %s ]", g_cap_buttons_enabled ? "ON" : "OFF");
@@ -425,11 +428,11 @@ void render_settings_screen(void) {
                 "/opt/luadraws/appscommon/asset/edit/arrow.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("TOUCH", 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_TOUCH), 6, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_POWER: {
-            const char *labels[6] = { "Motion / Gyro Wake", "Gyro Sampling Rate", "Battery Status", "Power Debug Log", "Suspend to RAM", "< Back" };
+            const char *labels[6] = { tr(STR_TILT_WAKE), tr(STR_GYRO_RATE), tr(STR_BATTERY_LEVEL), tr(STR_DEBUG_LOGGING), tr(STR_SUSPEND_RAM), tr(STR_BACK) };
             char values[6][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_gyro_enabled ? "ON" : "OFF");
             snprintf(values[1], sizeof(values[1]), "[ %dHz ]", g_gyro_rate_hz);
@@ -454,11 +457,11 @@ void render_settings_screen(void) {
                 "/opt/luadraws/appscommon/asset/footer/footermenu_sleeptimer.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("POWER", 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_POWER), 6, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[5] = { "USB Ethernet Mode", "RF Pairing Menu", "Reboot Remote", "Factory Reset", "< Back" };
+            const char *labels[5] = { tr(STR_USB_ETHERNET), tr(STR_RF_PAIRING_LINK), tr(STR_REBOOT_REMOTE), tr(STR_FACTORY_RESET), tr(STR_BACK) };
             char values[5][32];
             uint16_t cols[5];
 
@@ -489,7 +492,7 @@ void render_settings_screen(void) {
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items("SYSTEM", 5, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_SYSTEM), 5, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_UPDATE:

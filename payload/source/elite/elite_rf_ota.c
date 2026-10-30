@@ -16,7 +16,7 @@
 void render_ota_overlay(void) {
     /* Header */
     fb_fill_rect(0, 0, FB_WIDTH, 34, RGB_HEADER);
-    fb_draw_text_aa(14, 9, "FIRMWARE OTA UPDATE", RGB_YELLOW, &g_font_title);
+    fb_draw_text_aa(14, 9, tr(STR_OTA_TITLE), RGB_YELLOW, &g_font_title);
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     /* Center Card */
@@ -26,8 +26,8 @@ void render_ota_overlay(void) {
     fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_YELLOW);
 
     /* Title */
-    fb_draw_text_aa(22, card_y + 18, "UPDATING FIRMWARE", RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(22, card_y + 40, "Receiving firmware over RF", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 18, tr(STR_UPDATING_FIRMWARE), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(22, card_y + 40, tr(STR_RECEIVING_OVER_RF), RGB_TEXT_MUTED, &g_font_main);
 
     /* Progress Stats */
     char prog_str[48];
@@ -52,12 +52,12 @@ void render_ota_overlay(void) {
         fb_fill_rect(bar_x, card_y + 124, bar_w, 10, RGB_YELLOW);
     }
 
-    fb_draw_text_aa(22, card_y + 148, "Do not power off remote or dock!", RGB_RED, &g_font_main);
-    fb_draw_text_aa(22, card_y + 172, "Keep remote close to Hub.", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 148, tr(STR_DO_NOT_POWER_OFF), RGB_RED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 172, tr(STR_KEEP_CLOSE_TO_HUB), RGB_TEXT_MUTED, &g_font_main);
 
     /* Lock banner */
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
-    fb_draw_text_aa(18, FB_HEIGHT - 22, "Firmware update in progress", RGB_YELLOW, &g_font_main);
+    fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_UPDATE_IN_PROGRESS), RGB_YELLOW, &g_font_main);
 }
 
 bool handle_ota_frame(const rf_frame_t *f) {

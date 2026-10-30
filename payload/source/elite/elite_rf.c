@@ -337,10 +337,11 @@ void send_remote_config_backup_rf(void) {
     payload[16] = (uint8_t)((g_timeout_seconds >> 8) & 0xFF);
     payload[17] = (uint8_t)(g_cap_buttons_enabled ? 1 : 0);
     payload[18] = 0;
-    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 19);
+    payload[19] = (uint8_t)(g_language & 0xFF);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 20);
     rf_send_frame(&f);
-    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d\n",
-           g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds);
+    printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d lang=%d\n",
+           g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds, (int)g_language);
 }
 
 void send_version_report_rf(void) {

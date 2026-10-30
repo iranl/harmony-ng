@@ -505,6 +505,7 @@ export default {
     "release_all": "Alle loslassen",
     "release_held_keys_title": "Alle gehaltenen Bluetooth-Tasten loslassen",
     "release_held_mouse_title": "Gehaltene Maustasten loslassen",
+    "remote_language": "Fernbedienungssprache",
     "remote_settings": "Fernbedienungseinstellungen",
     "remote_tab": "Fernbedienung",
     "repeats": "Wiederholungen (1-10)",

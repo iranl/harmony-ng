@@ -29,6 +29,7 @@
 #include "font_aa.h"
 #include "harmony_version.h"
 #include "elite_stock_icons.h"
+#include "elite_i18n.h"
 
 #ifdef __cplusplus
 extern "C" {

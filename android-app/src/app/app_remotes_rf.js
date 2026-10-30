@@ -258,6 +258,14 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       const resp = await fetch(`/api/rf/remote-config?slot=${slot}`);
       if (resp.ok) {
         const cfg = await resp.json();
+        let langCode = cfg.language || 'en';
+        if (typeof cfg.language_id !== 'undefined') {
+          const map = ['en', 'de', 'fr', 'nl', 'es', 'it'];
+          if (cfg.language_id >= 0 && cfg.language_id < map.length) langCode = map[cfg.language_id];
+        }
+        if (document.getElementById('rfCfgLanguage')) {
+          document.getElementById('rfCfgLanguage').value = langCode;
+        }
         if (cfg.brightness) document.getElementById('rfCfgBrightness').value = cfg.brightness;
         if (cfg.timeout) document.getElementById('rfCfgTimeout').value = cfg.timeout;
 
@@ -339,6 +347,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const night_end = parseInt(schedParts[1] || '7', 10);
     const usbeth = parseInt(document.getElementById('rfCfgUsbEth')?.value || '0', 10);
     const power_debug = parseInt(document.getElementById('rfCfgPowerDebug')?.value || '0', 10);
+    const language = document.getElementById('rfCfgLanguage')?.value || 'en';
+    const langMap = ['en', 'de', 'fr', 'nl', 'es', 'it'];
+    const language_id = langMap.indexOf(language) >= 0 ? langMap.indexOf(language) : 0;
 
     let no_screen = parseInt(document.getElementById('rfCfgNoScreen')?.value || '0', 10);
     if (no_screen === 1) {
@@ -387,7 +398,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       power_debug: power_debug,
       powerDebug: power_debug === 1,
       no_screen: no_screen,
-      noScreen: no_screen === 1
+      noScreen: no_screen === 1,
+      language: language,
+      language_id: language_id
     };
 
     const saveBtn = document.getElementById('rfConfigSaveBtn');

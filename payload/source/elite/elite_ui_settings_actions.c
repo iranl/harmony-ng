@@ -15,7 +15,7 @@ static void set_touch_enabled(bool enable) {
     g_touch_enabled = enable;
     if (!g_touch_enabled) {
         g_screen_nav_mode = true;
-        show_notice("Screen nav moved to bottom buttons", 4000);
+        show_notice(tr(STR_NOTICE_NAV_MOVED), 4000);
     }
     save_settings_conf();
 }
@@ -26,7 +26,7 @@ static void set_gyro_enabled(bool enable) {
 
 static void cycle_nav_key(void) {
     if (!g_touch_enabled) {
-        show_notice("Screen nav locked ON", 3000);
+        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
         return;
     }
     if (g_nav_toggle_key == 139) g_nav_toggle_key = 358;
@@ -39,7 +39,7 @@ static void cycle_nav_key(void) {
 
 static void cycle_nav_mode(void) {
     if (!g_touch_enabled) {
-        show_notice("Screen nav locked ON", 3000);
+        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
         return;
     }
     g_nav_toggle_mode = !g_nav_toggle_mode;
@@ -54,7 +54,7 @@ static void cycle_touch_sensitivity(void) {
 
 static void execute_remote_reboot(void) {
     bool docked = is_elite_docked();
-    show_notice(docked ? "Rebooting OS..." : "Restarting Remote...", 4000);
+    show_notice(tr(docked ? STR_NOTICE_REBOOTING : STR_NOTICE_RESTARTING), 4000);
     render_screen();
     log_power_debug("[*] System reboot initiated from Settings (docked=%d)...\n", docked);
     sync();
@@ -120,14 +120,19 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1:
-                if (!g_rf_link_connected) {
-                    show_notice("Hub not connected", 2500);
-                } else {
-                    rf_send_full_sync_request();
-                    show_notice("Syncing config from Hub...", 3000);
-                }
+                elite_lang_cycle();
+                save_settings_conf();
+                show_notice(tr(STR_NOTICE_LANG_CHANGED), 2000);
                 break;
             case 2:
+                if (!g_rf_link_connected) {
+                    show_notice(tr(STR_NOTICE_HUB_NOT_CONNECTED), 2500);
+                } else {
+                    rf_send_full_sync_request();
+                    show_notice(tr(STR_NOTICE_SYNCING), 3000);
+                }
+                break;
+            case 3:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

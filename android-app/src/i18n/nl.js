@@ -505,6 +505,7 @@ export default {
     "release_all": "Alles loslaten",
     "release_held_keys_title": "Laat alle vastgehouden Bluetooth-toetsen los",
     "release_held_mouse_title": "Laat vastgehouden muisknoppen los",
+    "remote_language": "Afstandsbedieningstaal",
     "remote_settings": "Afstandsbediening instellingen",
     "remote_tab": "Afstandsbediening",
     "repeats": "Herhalingen (1-10)",

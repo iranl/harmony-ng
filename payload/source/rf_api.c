@@ -245,7 +245,7 @@ void *api_server_worker(void *arg) {
                         fclose(f);
                     } else {
                         snprintf(res_body, sizeof(res_body),
-                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0}",
+                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":25,\"gyro_rate\":25,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
                             slot);
                     }
                 }
@@ -301,6 +301,8 @@ void *api_server_worker(void *arg) {
                             if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
                             cJSON *jcap = cJSON_GetObjectItem(root, "capButtonsEnabled");
                             if (!jcap) jcap = cJSON_GetObjectItem(root, "cap_buttons");
+                            cJSON *jlang = cJSON_GetObjectItem(root, "language");
+                            if (!jlang) jlang = cJSON_GetObjectItem(root, "language_id");
 
                             int bright = jb ? jb->valueint : 2;
                             int timeout = jt ? jt->valueint : 10;
@@ -319,6 +321,26 @@ void *api_server_worker(void *arg) {
                             int power_debug = (jpd && (cJSON_IsTrue(jpd) || (cJSON_IsNumber(jpd) && jpd->valueint != 0))) ? 1 : 0;
                             int no_screen = (jnscreen && (cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0))) ? 1 : 0;
                             int cap_buttons = (jcap && (cJSON_IsFalse(jcap) || (cJSON_IsNumber(jcap) && jcap->valueint == 0))) ? 0 : 1;
+                            int lang_id = 0;
+                            const char *lang_str = "en";
+                            if (jlang) {
+                                if (cJSON_IsNumber(jlang)) {
+                                    lang_id = jlang->valueint;
+                                } else if (cJSON_IsString(jlang)) {
+                                    if (strcmp(jlang->valuestring, "de") == 0) lang_id = 1;
+                                    else if (strcmp(jlang->valuestring, "fr") == 0) lang_id = 2;
+                                    else if (strcmp(jlang->valuestring, "nl") == 0) lang_id = 3;
+                                    else if (strcmp(jlang->valuestring, "es") == 0) lang_id = 4;
+                                    else if (strcmp(jlang->valuestring, "it") == 0) lang_id = 5;
+                                    else lang_id = 0;
+                                }
+                            }
+                            if (lang_id < 0 || lang_id > 5) lang_id = 0;
+                            if (lang_id == 1) lang_str = "de";
+                            else if (lang_id == 2) lang_str = "fr";
+                            else if (lang_id == 3) lang_str = "nl";
+                            else if (lang_id == 4) lang_str = "es";
+                            else if (lang_id == 5) lang_str = "it";
 
                             /* Create normalized JSON root saving all fields */
                             cJSON *norm = cJSON_CreateObject();
@@ -355,6 +377,8 @@ void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "power_debug", power_debug);
                             cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
                             cJSON_AddNumberToObject(norm, "no_screen", no_screen);
+                            cJSON_AddStringToObject(norm, "language", lang_str);
+                            cJSON_AddNumberToObject(norm, "language_id", lang_id);
 
                             char path[64];
                             snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
@@ -383,7 +407,7 @@ void *api_server_worker(void *arg) {
                             rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
                                                        confirm_act, touch_sens, remote_mode, gyro_rate,
                                                        btn_backlight, night_start, night_end, usbeth, no_screen,
-                                                       cap_buttons, power_debug);
+                                                       cap_buttons, power_debug, lang_id);
                             cJSON_Delete(root);
                         }
                     }

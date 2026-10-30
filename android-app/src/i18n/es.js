@@ -505,6 +505,7 @@ export default {
     "release_all": "Soltar todo",
     "release_held_keys_title": "Soltar todas las teclas Bluetooth retenidas",
     "release_held_mouse_title": "Soltar los botones del ratón retenidos",
+    "remote_language": "Idioma del mando",
     "remote_settings": "Ajustes del mando",
     "remote_tab": "Mando",
     "repeats": "Repeticiones (1-10)",

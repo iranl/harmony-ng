@@ -14,12 +14,12 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
                             int nav_key, int nav_mode, int confirm_act, int touch_sens,
                             int remote_mode, int gyro_rate, int btn_backlight,
                             int night_start, int night_end, int usbeth, int no_screen,
-                            int cap_buttons, int power_debug);
+                            int cap_buttons, int power_debug, int language);
 void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
-                               int cap_buttons, int power_debug);
+                               int cap_buttons, int power_debug, int language);
 void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply);
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq);
 void rf_send_hub_activity_sync(const char *act_id);

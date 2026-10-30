@@ -29,9 +29,8 @@ for line in out.splitlines():
         needed.append(parts[1])
 
 # Parse Module.symvers from kernel directory
-symvers_path = "/home/yr/linux-2.6.31.14/Module.symvers"
-if not os.path.exists(symvers_path):
-    symvers_path = os.path.join(REPO_ROOT, "build/tmp/linux-2.6.31.14/Module.symvers")
+kernel_dir = os.environ.get("KERNEL_DIR", os.path.join(REPO_ROOT, "build/tmp/linux-2.6.31.14"))
+symvers_path = os.path.join(kernel_dir, "Module.symvers")
 
 if os.path.exists(symvers_path):
     with open(symvers_path, "r") as f:

@@ -55,7 +55,7 @@ void request_activity_switch_with_confirm(int act_idx) {
     activity_item_t *sel = &g_activities[act_idx];
 
     if (strcmp(g_active_activity_id, sel->id) == 0) {
-        show_notice("Activity already active", 2000);
+        show_notice(tr(STR_ACT_ALREADY_ACTIVE), 2000);
         render_screen();
         return;
     }
@@ -73,7 +73,7 @@ void request_activity_switch_with_confirm(int act_idx) {
     } else {
         g_confirm_pending_idx = act_idx;
         g_confirm_pending_deadline_ms = now + 4000;
-        show_notice("Press OK or tap again to confirm", 3000);
+        show_notice(tr(STR_PRESS_OK_TO_CONFIRM), 3000);
         render_screen();
     }
 }
@@ -92,8 +92,8 @@ void render_activities_screen(void) {
     if (total <= 0) {
         fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
         fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, "No Activities", RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, "Syncing with Hub...", RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(24, start_y + 30, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(24, start_y + 55, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
         return;
     }
 
@@ -147,9 +147,9 @@ void render_activities_screen(void) {
         fb_draw_text_aa(64, y + 13, g_activities[idx].name, text_color, &g_font_main);
 
         if (is_confirm_pending) {
-            fb_draw_text_aa(64, y + 33, "CONFIRM? PRESS OK", RGB_YELLOW, &g_font_main);
+            fb_draw_text_aa(64, y + 33, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW, &g_font_main);
         } else if (is_active) {
-            fb_draw_text_aa(64, y + 33, "ACTIVE", RGB_GREEN, &g_font_main);
+            fb_draw_text_aa(64, y + 33, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
         }
 
         if (is_sel) {
@@ -168,7 +168,7 @@ void render_activities_screen(void) {
 
 void render_switching_view(void) {
     fb_fill_rect(0, 0, FB_WIDTH, 34, RGB_HEADER);
-    fb_draw_text_aa(12, 9, "SWITCHING ACTIVITY", RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(12, 9, tr(STR_SWITCHING_ACTIVITY), RGB_CYAN, &g_font_title);
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     int card_y = 48;
@@ -176,7 +176,7 @@ void render_switching_view(void) {
     fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
     fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    fb_draw_text_aa(22, card_y + 14, "SWITCHING TO", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 14, tr(STR_SWITCHING_TO), RGB_TEXT_MUTED, &g_font_main);
     fb_draw_text_aa(22, card_y + 36, g_switching_target_name, RGB_WHITE, &g_font_title);
 
     char switch_icon[128] = {0};
@@ -203,9 +203,10 @@ void render_switching_view(void) {
     uint32_t total_ms = (g_switching_total_ms > 0) ? g_switching_total_ms : calc_total_ms;
 
     int current_step_idx = 1;
-    char current_step_name[32] = "Configuring devices";
+    char current_step_name[32] = {0};
+    strncpy(current_step_name, tr(STR_CONFIGURING_DEVICES), sizeof(current_step_name) - 1);
     if (strcmp(g_switching_target_id, "-1") == 0) {
-        strncpy(current_step_name, "Powering off all devices", sizeof(current_step_name) - 1);
+        strncpy(current_step_name, tr(STR_POWERING_OFF_ALL), sizeof(current_step_name) - 1);
     }
 
     if (count > 0) {
@@ -225,7 +226,7 @@ void render_switching_view(void) {
     if (count > 0) {
         snprintf(step_hdr, sizeof(step_hdr), "Step %d of %d", current_step_idx, count);
     } else {
-        snprintf(step_hdr, sizeof(step_hdr), "Executing Actions");
+        snprintf(step_hdr, sizeof(step_hdr), "%s", tr(STR_EXECUTING_ACTIONS));
     }
     fb_draw_text_aa(22, card_y + 70, step_hdr, RGB_CYAN, &g_font_main);
 
@@ -248,8 +249,8 @@ void render_switching_view(void) {
         fb_fill_rect(bar_x, card_y + 152, bar_w, 10, RGB_TEAL);
     }
 
-    fb_draw_text_aa(22, card_y + 178, "Please wait...", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(22, card_y + 178, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
 
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
-    fb_draw_text_aa(18, FB_HEIGHT - 22, "Screen locked during switch", RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SWITCH), RGB_TEXT_MUTED, &g_font_main);
 }

@@ -726,8 +726,24 @@ void *config_push_worker(void *arg) {
                 if (jne && jne->valueint >= 0 && jne->valueint <= 23) night_end = jne->valueint;
                 if (jue) usbeth = cJSON_IsTrue(jue) || (cJSON_IsNumber(jue) && jue->valueint != 0) ? 1 : 0;
                 if (jpd) power_debug = cJSON_IsTrue(jpd) || (cJSON_IsNumber(jpd) && jpd->valueint != 0) ? 1 : 0;
+                int language = 0;
+                cJSON *jlang = cJSON_GetObjectItem(sroot, "language");
+                if (!jlang) jlang = cJSON_GetObjectItem(sroot, "language_id");
+                if (jlang) {
+                    if (cJSON_IsNumber(jlang)) {
+                        language = jlang->valueint;
+                    } else if (cJSON_IsString(jlang)) {
+                        if (strcmp(jlang->valuestring, "de") == 0) language = 1;
+                        else if (strcmp(jlang->valuestring, "fr") == 0) language = 2;
+                        else if (strcmp(jlang->valuestring, "nl") == 0) language = 3;
+                        else if (strcmp(jlang->valuestring, "es") == 0) language = 4;
+                        else if (strcmp(jlang->valuestring, "it") == 0) language = 5;
+                        else language = 0;
+                    }
+                }
+                if (language < 0 || language > 5) language = 0;
                 cJSON_Delete(sroot);
-                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug);
+                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language);
                 push_queue_add(&queue[t], &f);
             }
         }

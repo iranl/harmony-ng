@@ -505,6 +505,7 @@ export default {
     "release_all": "Rilascia tutto",
     "release_held_keys_title": "Rilascia tutti i tasti Bluetooth premuti",
     "release_held_mouse_title": "Rilascia i pulsanti del mouse premuti",
+    "remote_language": "Lingua del telecomando",
     "remote_settings": "Impostazioni telecomando",
     "remote_tab": "Telecomando",
     "repeats": "Ripetizioni (1-10)",

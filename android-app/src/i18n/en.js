@@ -505,6 +505,7 @@ export default {
     "release_all": "Release All",
     "release_held_keys_title": "Release all held Bluetooth keys",
     "release_held_mouse_title": "Release held mouse buttons",
+    "remote_language": "Remote Language",
     "remote_settings": "Remote Settings",
     "remote_tab": "Remote",
     "repeats": "Repeats (1-10)",

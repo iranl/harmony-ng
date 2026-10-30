@@ -54,26 +54,26 @@ void render_pairing_screen(void) {
     fb_fill_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD);
     fb_draw_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD_BORDER);
 
-    fb_draw_text_aa(16, start_y + 8, "RF HARDWARE & LINK", RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(16, start_y + 8, tr(STR_RF_HARDWARE_LINK), RGB_CYAN, &g_font_title);
 
     bool is_paired = g_rf_link_connected || (g_pairing_state == 2) ||
                      (g_paired_hub_addr[0] | g_paired_hub_addr[1] | g_paired_hub_addr[2] | g_paired_hub_addr[3]) != 0;
 
-    char status_str[48];
+    char status_str[64];
     if (g_unpair_confirm_active) {
-        snprintf(status_str, sizeof(status_str), "UNPAIR CONFIRMATION");
+        snprintf(status_str, sizeof(status_str), "%s", tr(STR_UNPAIR_CONFIRM));
         fb_draw_text_aa(16, start_y + 27, status_str, RGB_YELLOW, &g_font_main);
     } else if (g_pairing_state == 1) {
-        snprintf(status_str, sizeof(status_str), "Status: PAIRING IN PROGRESS...");
+        snprintf(status_str, sizeof(status_str), "%s", tr(STR_STATUS_PAIRING));
         fb_draw_text_aa(16, start_y + 27, status_str, RGB_YELLOW, &g_font_main);
     } else if (is_paired) {
-        snprintf(status_str, sizeof(status_str), "Status: PAIRED TO HUB (OK)");
+        snprintf(status_str, sizeof(status_str), "%s", tr(STR_STATUS_PAIRED));
         fb_draw_text_aa(16, start_y + 27, status_str, RGB_GREEN, &g_font_main);
     } else if (g_pairing_state == 3) {
-        snprintf(status_str, sizeof(status_str), "Status: PAIRING FAILED / TIMEOUT");
+        snprintf(status_str, sizeof(status_str), "%s", tr(STR_STATUS_FAILED));
         fb_draw_text_aa(16, start_y + 27, status_str, RGB_RED, &g_font_main);
     } else {
-        snprintf(status_str, sizeof(status_str), "Status: NOT PAIRED");
+        snprintf(status_str, sizeof(status_str), "%s", tr(STR_STATUS_NOT_PAIRED));
         fb_draw_text_aa(16, start_y + 27, status_str, RGB_RED, &g_font_main);
     }
 
@@ -98,24 +98,24 @@ void render_pairing_screen(void) {
     }
 
     if (g_unpair_confirm_active) {
-        fb_draw_text_aa(16, start_y + 84, "Wipe bonding & local config?", RGB_YELLOW, &g_font_main);
+        fb_draw_text_aa(16, start_y + 84, tr(STR_WIPE_BONDING_CONF), RGB_YELLOW, &g_font_main);
     } else {
         fb_draw_text_aa(16, start_y + 84, "Protocol: eQuad / CC2544", RGB_TEXT_MUTED, &g_font_main);
     }
 
     const char *opts[PAIR_OPT_COUNT];
     if (g_unpair_confirm_active) {
-        opts[0] = "Confirm Unpair & Wipe";
-        opts[1] = "Cancel";
+        opts[0] = tr(STR_CONFIRM_UNPAIR);
+        opts[1] = tr(STR_CANCEL);
     } else if (g_pairing_state == 1) {
-        opts[0] = "Stop Pairing";
-        opts[1] = "Back to Settings";
+        opts[0] = tr(STR_STOP_PAIRING);
+        opts[1] = tr(STR_BACK_TO_SETTINGS);
     } else if (is_paired) {
-        opts[0] = "Unpair from Hub";
-        opts[1] = "Back to Settings";
+        opts[0] = tr(STR_UNPAIR_FROM_HUB);
+        opts[1] = tr(STR_BACK_TO_SETTINGS);
     } else {
-        opts[0] = "Start Pairing to Hub";
-        opts[1] = "Back to Settings";
+        opts[0] = tr(STR_START_PAIRING);
+        opts[1] = tr(STR_BACK_TO_SETTINGS);
     }
 
     int opt_y = start_y + 114;
@@ -154,17 +154,17 @@ void render_not_paired_screen(void) {
         fb_draw_rect((FB_WIDTH - 40) / 2, card_y + 20, 40, 40, RGB_RED);
     }
 
-    int tw = fb_text_width_aa("REMOTE NOT PAIRED", &g_font_title);
-    fb_draw_text_aa((FB_WIDTH - tw) / 2, card_y + 74, "REMOTE NOT PAIRED", RGB_WHITE, &g_font_title);
+    int tw = fb_text_width_aa(tr(STR_REMOTE_NOT_PAIRED), &g_font_title);
+    fb_draw_text_aa((FB_WIDTH - tw) / 2, card_y + 74, tr(STR_REMOTE_NOT_PAIRED), RGB_WHITE, &g_font_title);
 
-    int m1w = fb_text_width_aa("Connect with Harmony Hub", &g_font_main);
-    fb_draw_text_aa((FB_WIDTH - m1w) / 2, card_y + 102, "Connect with Harmony Hub", RGB_TEXT_MUTED, &g_font_main);
+    int m1w = fb_text_width_aa(tr(STR_CONNECT_WITH_HUB), &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m1w) / 2, card_y + 102, tr(STR_CONNECT_WITH_HUB), RGB_TEXT_MUTED, &g_font_main);
 
-    int m2w = fb_text_width_aa("to control activities & devices.", &g_font_main);
-    fb_draw_text_aa((FB_WIDTH - m2w) / 2, card_y + 120, "to control activities & devices.", RGB_TEXT_MUTED, &g_font_main);
+    int m2w = fb_text_width_aa(tr(STR_CONTROL_ACTS_DEVS), &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m2w) / 2, card_y + 120, tr(STR_CONTROL_ACTS_DEVS), RGB_TEXT_MUTED, &g_font_main);
 
-    int m3w = fb_text_width_aa("Tap button below to pair:", &g_font_main);
-    fb_draw_text_aa((FB_WIDTH - m3w) / 2, card_y + 144, "Tap button below to pair:", RGB_CYAN, &g_font_main);
+    int m3w = fb_text_width_aa(tr(STR_TAP_BUTTON_TO_PAIR), &g_font_main);
+    fb_draw_text_aa((FB_WIDTH - m3w) / 2, card_y + 144, tr(STR_TAP_BUTTON_TO_PAIR), RGB_CYAN, &g_font_main);
 
     int btn_x = 24;
     int btn_y = card_y + 166;
@@ -175,6 +175,6 @@ void render_not_paired_screen(void) {
     fb_draw_rect(btn_x, btn_y, btn_w, btn_h, RGB_TEAL);
     fb_fill_rect(btn_x + 4, btn_y + btn_h - 3, btn_w - 8, 2, RGB_TEAL);
 
-    int bw = fb_text_width_aa("PAIR TO HUB", &g_font_title);
-    fb_draw_text_aa((FB_WIDTH - bw) / 2, btn_y + 13, "PAIR TO HUB", RGB_WHITE, &g_font_title);
+    int bw = fb_text_width_aa(tr(STR_PAIR_TO_HUB), &g_font_title);
+    fb_draw_text_aa((FB_WIDTH - bw) / 2, btn_y + 13, tr(STR_PAIR_TO_HUB), RGB_WHITE, &g_font_title);
 }

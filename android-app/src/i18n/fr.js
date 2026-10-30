@@ -505,6 +505,7 @@ export default {
     "release_all": "Tout relâcher",
     "release_held_keys_title": "Relâcher toutes les touches Bluetooth maintenues",
     "release_held_mouse_title": "Relâcher les boutons de la souris maintenus",
+    "remote_language": "Langue de la télécommande",
     "remote_settings": "Paramètres de la télécommande",
     "remote_tab": "Télécommande",
     "repeats": "Répétitions (1-10)",
