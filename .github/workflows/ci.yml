@@ -90,3 +90,17 @@ jobs:
           ./build/compile_all.sh hub
           file payload/bin/hub_daemon payload/bin/hub_rf
           ls -lh payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod
+
+  test-mock-system:
+    name: Full User-Space Mocking & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Run Full Automated Mock Test Suite
+        run: |
+          chmod +x tests/run_mock_suite.sh
+          ./tests/run_mock_suite.sh
