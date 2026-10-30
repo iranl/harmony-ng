@@ -260,6 +260,9 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
         }
     }
 
+    /* Theme icons carry their own colours; only stock and custom line art is recoloured */
+    bool recolor_dark = strstr(filepath, "/themes/") == NULL;
+
     for (int ty = 0; ty < target_h; ty++) {
         int py = dst_y + ty;
         if (py < 0 || py >= FB_HEIGHT) continue;
@@ -279,7 +282,7 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 
             /* Stock Logitech icons are black line-art with alpha on transparent canvas.
              * On dark card backgrounds, convert dark glyph pixels to crisp white so they shine clearly! */
-            if ((r + g + b) < 100 && a > 30) {
+            if (recolor_dark && (r + g + b) < 100 && a > 30) {
                 r = 245;
                 g = 245;
                 b = 250;
