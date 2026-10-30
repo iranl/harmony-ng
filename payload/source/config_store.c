@@ -153,6 +153,11 @@ int config_store_save_activities(cJSON *activities_json) {
 }
 
 void notify_rf_push_config(void) {
+    FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
+    if (df) {
+        fprintf(df, "{\"slot\":0,\"diff\":\"Devices and activities updated. Push settings to sync remotes.\"}\n");
+        fclose(df);
+    }
     FILE *f = fopen("/data/harmony/rf_sync_pending.flag", "w");
     if (f) {
         fprintf(f, "%ld\n", (long)time(NULL));

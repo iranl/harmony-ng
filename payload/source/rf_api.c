@@ -548,7 +548,7 @@ void *api_server_worker(void *arg) {
                 }
 
                 bool sync_pending = (access("/data/harmony/rf_sync_pending.flag", F_OK) == 0);
-                int pending_slot = 1;
+                int pending_slot = 0;
                 char pending_diff[256] = "Hub configuration changed. Push settings to sync.";
                 FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
                 if (pdf) {

@@ -148,10 +148,6 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
         } else if (strcmp(tgt, "users") == 0) {
             file_to_send = config_store_path("users.json");
             download_name = "users.json";
-        } else if (strcmp(tgt, "hub-id") == 0 || strcmp(tgt, "hub_id") == 0) {
-            file_to_send = config_store_path("hub_id");
-            download_name = "hub_id";
-            ctype = "text/plain; charset=utf-8";
         }
 
         if (file_to_send) {
@@ -283,7 +279,6 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
                 else if (strcmp(tgt, "users") == 0) { file_to_write = "/data/harmony/users.json"; }
-                else if (strcmp(tgt, "hub_id") == 0 || strcmp(tgt, "hub-id") == 0) { file_to_write = "/data/harmony/hub_id"; }
 
                 if (file_to_write) {
                     if (cJSON_IsString(p_pay)) {

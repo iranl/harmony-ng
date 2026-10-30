@@ -53,6 +53,75 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppActivitiesSim } from './app_activities_sim.js';
 
+export const BT_STANDARD_KEY_PRESETS = [
+  {
+    category: 'Navigation & Core',
+    keys: [
+      { name: 'Select', code: 'HID:07:0028', desc: 'Enter / OK' },
+      { name: 'DirectionUp', code: 'HID:07:0052', desc: 'Up Arrow' },
+      { name: 'DirectionDown', code: 'HID:07:0051', desc: 'Down Arrow' },
+      { name: 'DirectionLeft', code: 'HID:07:0050', desc: 'Left Arrow' },
+      { name: 'DirectionRight', code: 'HID:07:004F', desc: 'Right Arrow' },
+      { name: 'Back', code: 'HID:0C:0224', desc: 'Android / Apple Return' },
+      { name: 'Home', code: 'HID:0C:0223', desc: 'AC Home Screen' },
+      { name: 'Menu', code: 'HID:0C:0040', desc: 'Context / App Menu' },
+      { name: 'Escape', code: 'HID:07:0029', desc: 'Cancel / Exit' },
+      { name: 'PowerToggle', code: 'HID:0C:0030', desc: 'Power On / Standby' },
+      { name: 'Search', code: 'HID:0C:0221', desc: 'Voice Search / Assistant' },
+      { name: 'Tab', code: 'HID:07:002B', desc: 'Tab Key' },
+      { name: 'Space', code: 'HID:07:002C', desc: 'Spacebar' },
+      { name: 'Backspace', code: 'HID:07:002A', desc: 'Backspace' }
+    ]
+  },
+  {
+    category: 'Media & Playback',
+    keys: [
+      { name: 'Play', code: 'HID:0C:00B0', desc: 'Play' },
+      { name: 'Pause', code: 'HID:0C:00B1', desc: 'Pause' },
+      { name: 'PlayPause', code: 'HID:0C:00CD', desc: 'Play / Pause Toggle' },
+      { name: 'Stop', code: 'HID:0C:00B7', desc: 'Stop Playback' },
+      { name: 'NextTrack', code: 'HID:0C:00B5', desc: 'Skip Forward' },
+      { name: 'PreviousTrack', code: 'HID:0C:00B6', desc: 'Skip Backward' },
+      { name: 'FastForward', code: 'HID:0C:00B3', desc: 'Fast Forward' },
+      { name: 'Rewind', code: 'HID:0C:00B4', desc: 'Scan Backward' }
+    ]
+  },
+  {
+    category: 'Audio & Volume',
+    keys: [
+      { name: 'VolumeUp', code: 'HID:0C:00E9', desc: 'Volume +' },
+      { name: 'VolumeDown', code: 'HID:0C:00EA', desc: 'Volume -' },
+      { name: 'Mute', code: 'HID:0C:00E2', desc: 'Mute Audio' }
+    ]
+  },
+  {
+    category: 'TV & Guide',
+    keys: [
+      { name: 'ChannelUp', code: 'HID:0C:009C', desc: 'Channel Up' },
+      { name: 'ChannelDown', code: 'HID:0C:009D', desc: 'Channel Down' },
+      { name: 'Info', code: 'HID:0C:008D', desc: 'Program Guide / Info' },
+      { name: 'PageUp', code: 'HID:07:004B', desc: 'Page Up' },
+      { name: 'PageDown', code: 'HID:07:004E', desc: 'Page Down' },
+      { name: 'ContextMenu', code: 'HID:07:0065', desc: 'Application Context Menu' }
+    ]
+  },
+  {
+    category: 'Numeric Keypad',
+    keys: [
+      { name: 'Number0', code: 'HID:07:0027', desc: '0' },
+      { name: 'Number1', code: 'HID:07:001E', desc: '1' },
+      { name: 'Number2', code: 'HID:07:001F', desc: '2' },
+      { name: 'Number3', code: 'HID:07:0020', desc: '3' },
+      { name: 'Number4', code: 'HID:07:0021', desc: '4' },
+      { name: 'Number5', code: 'HID:07:0022', desc: '5' },
+      { name: 'Number6', code: 'HID:07:0023', desc: '6' },
+      { name: 'Number7', code: 'HID:07:0024', desc: '7' },
+      { name: 'Number8', code: 'HID:07:0025', desc: '8' },
+      { name: 'Number9', code: 'HID:07:0026', desc: '9' }
+    ]
+  }
+];
+
 export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
   renderControlView() {
     const cont = document.getElementById('controlDeviceWorkspace');
@@ -345,6 +414,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
 
     this.renderStudioCommandsList(dev);
+    this.updateStudioAddPanels(dev);
   }
 
   renderStudioCommandsList(dev) {
@@ -582,6 +652,170 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     } catch (err) {
       if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
     }
+  }
+
+  updateStudioAddPanels(dev) {
+    if (!dev) return;
+    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt || Number(dev.transport) === 32);
+    const isMqtt = (dev.type === 'MQTT' || dev.mqtt_enabled);
+    const isIr = !isBt && !isMqtt;
+
+    const irTabsRow = document.getElementById('irAddTabsRow');
+    const btTabsRow = document.getElementById('btAddTabsRow');
+    const mqttTabsRow = document.getElementById('mqttAddTabsRow');
+
+    if (irTabsRow) irTabsRow.style.display = isIr ? 'flex' : 'none';
+    if (btTabsRow) btTabsRow.style.display = isBt ? 'flex' : 'none';
+    if (mqttTabsRow) mqttTabsRow.style.display = isMqtt ? 'flex' : 'none';
+
+    const pLearn = document.getElementById('addModeLearn');
+    const pDb = document.getElementById('addModeDb');
+    const pPaste = document.getElementById('addModePaste');
+    const pBtPresets = document.getElementById('addModeBtPresets');
+    const pBtCustom = document.getElementById('addModeBtCustom');
+    const pMqtt = document.getElementById('addModeMqtt');
+
+    if (isIr) {
+      if (pBtPresets) pBtPresets.style.display = 'none';
+      if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pMqtt) pMqtt.style.display = 'none';
+
+      const activeTab = document.querySelector('.ir-add-tab.btn-primary')?.getAttribute('data-add-mode') || 'learn';
+      if (pLearn) pLearn.style.display = (activeTab === 'learn') ? 'block' : 'none';
+      if (pDb) pDb.style.display = (activeTab === 'database') ? 'block' : 'none';
+      if (pPaste) pPaste.style.display = (activeTab === 'paste') ? 'block' : 'none';
+    } else if (isBt) {
+      if (pLearn) pLearn.style.display = 'none';
+      if (pDb) pDb.style.display = 'none';
+      if (pPaste) pPaste.style.display = 'none';
+      if (pMqtt) pMqtt.style.display = 'none';
+
+      const activeBtTab = document.querySelector('.bt-add-tab.btn-primary')?.getAttribute('data-bt-mode') || 'presets';
+      if (pBtPresets) pBtPresets.style.display = (activeBtTab === 'presets') ? 'block' : 'none';
+      if (pBtCustom) pBtCustom.style.display = (activeBtTab === 'custom') ? 'block' : 'none';
+
+      this.renderBtPresetsList(dev);
+    } else if (isMqtt) {
+      if (pLearn) pLearn.style.display = 'none';
+      if (pDb) pDb.style.display = 'none';
+      if (pPaste) pPaste.style.display = 'none';
+      if (pBtPresets) pBtPresets.style.display = 'none';
+      if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pMqtt) pMqtt.style.display = 'block';
+
+      this.updateMqttTopicPreview(dev);
+    }
+  }
+
+  renderBtPresetsList(dev) {
+    const cont = document.getElementById('btPresetsContainer');
+    if (!cont) return;
+    const filter = (document.getElementById('btPresetsFilter')?.value || '').toLowerCase().trim();
+    const existingCmds = dev.commands || [];
+    const existingMap = new Set(existingCmds.map(c => (typeof c === 'string' ? c : (c.name || '')).toLowerCase()));
+    const existingCodes = new Set(existingCmds.map(c => (typeof c === 'string' ? '' : (c.raw || c.keyCode || '')).toUpperCase()));
+
+    let html = '';
+    let totalRendered = 0;
+
+    BT_STANDARD_KEY_PRESETS.forEach(group => {
+      const filteredKeys = group.keys.filter(k => {
+        if (!filter) return true;
+        return k.name.toLowerCase().includes(filter) ||
+               k.desc.toLowerCase().includes(filter) ||
+               k.code.toLowerCase().includes(filter);
+      });
+
+      if (filteredKeys.length === 0) return;
+
+      html += `
+        <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;">
+          <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(group.category)}</div>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+      `;
+
+      filteredKeys.forEach(k => {
+        totalRendered++;
+        const isAdded = existingMap.has(k.name.toLowerCase()) || existingCodes.has(k.code.toUpperCase());
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--bg-card); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: baseline; gap: 8px; min-width: 0;">
+              <strong style="font-size: 12px; color: var(--text-main); white-space: nowrap;">${escapeHtml(k.name)}</strong>
+              <span class="muted mini" style="font-size: 10px; font-family: monospace;">${escapeHtml(k.code)}</span>
+              <span class="muted mini" style="font-size: 11px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(k.desc)}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+              <button type="button" class="btn btn-xs btn-ghost btn-test-bt-preset" data-code="${escapeHtml(k.code)}" title="Test sending key to host">▶</button>
+              ${isAdded ?
+                `<span class="badge subtle mini" style="font-size: 10px;">Added</span>` :
+                `<button type="button" class="btn btn-xs btn-primary btn-add-bt-preset" data-name="${escapeHtml(k.name)}" data-code="${escapeHtml(k.code)}">+ Add</button>`
+              }
+            </div>
+          </div>
+        `;
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    if (totalRendered === 0) {
+      cont.innerHTML = `<div class="muted mini" style="padding: 16px; text-align: center;">No Bluetooth keys match filter.</div>`;
+      return;
+    }
+
+    cont.innerHTML = html;
+
+    cont.querySelectorAll('.btn-test-bt-preset').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const code = btn.getAttribute('data-code');
+        btn.textContent = '...';
+        try {
+          await this.client.sendBtKey(code, 'tap', dev.bdaddr || dev.btHost || '');
+          btn.textContent = '✓';
+          setTimeout(() => { btn.textContent = '▶'; }, 1000);
+        } catch (err) {
+          alert('Test failed: ' + err.message);
+          btn.textContent = '▶';
+        }
+      });
+    });
+
+    cont.querySelectorAll('.btn-add-bt-preset').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const name = btn.getAttribute('data-name');
+        const code = btn.getAttribute('data-code');
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          await this.client.saveLearnedCommand({ deviceId: dev.id, name, raw: code, mode: 'raw' });
+          await this.refreshData();
+          this.renderIrView();
+        } catch (err) {
+          alert('Add failed: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = '+ Add';
+        }
+      });
+    });
+  }
+
+  updateMqttTopicPreview(dev) {
+    const previewEl = document.getElementById('mqttCmdTopicPreview');
+    if (!previewEl) return;
+    const cmdName = document.getElementById('mqttNewCmdName')?.value.trim() || '<command>';
+    const template = dev.mqttTopic || '{base_topic}/button/{device}/{command}';
+    const devSlug = (dev.name || 'device').toLowerCase().replace(/\s+/g, '_');
+    const preview = template
+      .replace('{base_topic}', 'harmony')
+      .replace('{device}', devSlug)
+      .replace('{device_id}', dev.id)
+      .replace('{command}', cmdName);
+    previewEl.textContent = preview;
   }
 
 }

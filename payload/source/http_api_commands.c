@@ -93,7 +93,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 const char *mstr = (dmfg && dmfg->valuestring) ? dmfg->valuestring : "";
                                 int dev_is_bt = (strcasestr(tstr, "bluetooth") != NULL || strcasestr(tstr, "bt") != NULL || strcasestr(mstr, "bluetooth") != NULL);
                                 int dev_is_mqtt = (strcasestr(tstr, "mqtt") != NULL || strcasestr(mstr, "mqtt") != NULL);
-                                int is_bt_cmd = dev_is_bt || (strncmp(raw_data, "G:HID", 5) == 0) || is_macro;
+                                int is_bt_cmd = dev_is_bt || (strncmp(raw_data, "G:HID", 5) == 0) || (strncmp(raw_data, "HID:", 4) == 0) || (strncmp(raw_data, "hid:", 4) == 0) || is_macro;
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
 
                                 if (cmd_match) {

@@ -329,6 +329,23 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         if (pPaste) pPaste.style.display = (mode === 'paste') ? 'block' : 'none';
       });
     });
+    document.querySelectorAll('.bt-add-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const mode = tab.getAttribute('data-bt-mode');
+        document.querySelectorAll('.bt-add-tab').forEach(t => {
+          t.classList.toggle('btn-primary', t === tab);
+          t.classList.toggle('btn-ghost', t !== tab);
+        });
+        const pPresets = document.getElementById('addModeBtPresets');
+        const pCustom = document.getElementById('addModeBtCustom');
+        if (pPresets) pPresets.style.display = (mode === 'presets') ? 'block' : 'none';
+        if (pCustom) pCustom.style.display = (mode === 'custom') ? 'block' : 'none';
+      });
+    });
+    document.getElementById('btPresetsFilter')?.addEventListener('input', () => {
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
+      if (dev) this.renderBtPresetsList(dev);
+    });
     document.getElementById('manageDeviceSelect')?.addEventListener('change', (e) => {
       this.selectedIrDeviceId = e.target.value;
       this.updateStudioDeviceView();

@@ -77,6 +77,256 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     } catch (err) {
       if (badge) badge.textContent = 'Offline';
     }
+
+    await this.loadHaActionHelper().catch(() => {});
+  }
+
+  async loadHaActionHelper() {
+    const devSelect = document.getElementById('haHelperDevice');
+    if (!devSelect) return;
+
+    if (!this.haHelperQueue) {
+      this.haHelperQueue = [];
+    }
+
+    if (!this.inventory || !this.inventory.devices || !this.inventory.devices.length) {
+      try {
+        this.inventory = await this.client.getInventory();
+      } catch (e) {
+        this.inventory = { devices: [] };
+      }
+    }
+
+    const devs = this.inventory?.devices || [];
+    const prevDevVal = devSelect.value;
+    devSelect.innerHTML = devs.map(d => `<option value="${this.escapeHtml(d.id)}">${this.escapeHtml(d.name || ('Device ' + d.id))}</option>`).join('');
+
+    if (prevDevVal && devs.some(d => String(d.id) === String(prevDevVal))) {
+      devSelect.value = prevDevVal;
+    } else if (devs.length > 0) {
+      devSelect.value = String(devs[0].id);
+    }
+
+    await this.updateHaHelperCommandsDropdown();
+    this.renderHaHelperQueue();
+    this.updateHaActionYaml();
+  }
+
+  async updateHaHelperCommandsDropdown() {
+    const devSelect = document.getElementById('haHelperDevice');
+    const cmdSelect = document.getElementById('haHelperCommandSelect');
+    if (!devSelect || !cmdSelect) return;
+
+    const devId = devSelect.value;
+    if (!devId) {
+      cmdSelect.innerHTML = '<option value="">No device selected</option>';
+      return;
+    }
+
+    let cmds = this.deviceCommandsMap ? this.deviceCommandsMap[devId] : null;
+    if (!cmds || !cmds.length) {
+      const dev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+      if (dev && Array.isArray(dev.commands) && dev.commands.length) {
+        cmds = dev.commands;
+      } else {
+        try {
+          cmds = await this.client.getDeviceCommands(devId);
+        } catch {
+          cmds = [];
+        }
+      }
+      if (!this.deviceCommandsMap) this.deviceCommandsMap = {};
+      this.deviceCommandsMap[devId] = cmds || [];
+    }
+
+    if (!cmds || !cmds.length) {
+      cmdSelect.innerHTML = '<option value="">No commands available</option>';
+      return;
+    }
+
+    cmdSelect.innerHTML = cmds.map(c => {
+      const name = typeof c === 'string' ? c : (c.name || c.Name || '');
+      return `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`;
+    }).filter(opt => !opt.includes('value=""')).join('');
+  }
+
+  renderHaHelperQueue() {
+    const container = document.getElementById('haHelperCmdQueue');
+    const countEl = document.getElementById('haHelperCmdCount');
+    if (!container) return;
+
+    const queue = this.haHelperQueue || [];
+    if (countEl) countEl.textContent = queue.length;
+
+    if (!queue.length) {
+      container.innerHTML = '<div class="muted mini" style="text-align: center; padding: 10px;">No commands added yet. Pick a command above and click "+ Add".</div>';
+      return;
+    }
+
+    container.innerHTML = queue.map((cmd, idx) => `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--bg-card); border-radius: var(--radius-sm); margin-bottom: 4px; border: 1px solid var(--border); font-size: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-family: monospace; color: var(--text-muted); font-size: 11px;">#${idx + 1}</span>
+          <strong style="color: var(--text-main);">${this.escapeHtml(cmd)}</strong>
+        </div>
+        <div style="display: flex; gap: 4px; align-items: center;">
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-up" data-idx="${idx}" ${idx === 0 ? 'disabled style="opacity:0.3"' : ''} title="Move up">▲</button>
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-down" data-idx="${idx}" ${idx === queue.length - 1 ? 'disabled style="opacity:0.3"' : ''} title="Move down">▼</button>
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-del" data-idx="${idx}" style="color: var(--danger);" title="Remove">✕</button>
+        </div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.btn-ha-cmd-up').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.getAttribute('data-idx'));
+        if (idx > 0) {
+          const item = this.haHelperQueue.splice(idx, 1)[0];
+          this.haHelperQueue.splice(idx - 1, 0, item);
+          this.renderHaHelperQueue();
+          this.updateHaActionYaml();
+        }
+      });
+    });
+
+    container.querySelectorAll('.btn-ha-cmd-down').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.getAttribute('data-idx'));
+        if (idx < this.haHelperQueue.length - 1) {
+          const item = this.haHelperQueue.splice(idx, 1)[0];
+          this.haHelperQueue.splice(idx + 1, 0, item);
+          this.renderHaHelperQueue();
+          this.updateHaActionYaml();
+        }
+      });
+    });
+
+    container.querySelectorAll('.btn-ha-cmd-del').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.getAttribute('data-idx'));
+        this.haHelperQueue.splice(idx, 1);
+        this.renderHaHelperQueue();
+        this.updateHaActionYaml();
+      });
+    });
+  }
+
+  updateHaActionYaml() {
+    const previewEl = document.getElementById('haHelperYamlPreview');
+    if (!previewEl) return;
+
+    const devSelect = document.getElementById('haHelperDevice');
+    const devId = devSelect?.value;
+    const dev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+    const devName = dev?.name || dev?.id || 'Target Device';
+
+    const queue = this.haHelperQueue || [];
+    const delayVal = parseFloat(document.getElementById('haHelperDelay')?.value);
+    const holdVal = parseFloat(document.getElementById('haHelperHold')?.value);
+    const repeatsVal = parseInt(document.getElementById('haHelperRepeats')?.value, 10);
+    const useAutomationIndent = document.getElementById('haHelperIndentCheck')?.checked;
+
+    const p0 = useAutomationIndent ? '      ' : '';
+    const p1 = useAutomationIndent ? '        ' : '  ';
+    const p2 = `${p1}  `;
+    const p3 = `${p2}  `;
+
+    const lines = [];
+    lines.push(`${p0}- action: script.harmony_send_command`);
+    lines.push(`${p1}data:`);
+    lines.push(`${p2}device: ${devName}`);
+
+    if (queue.length === 0) {
+      lines.push(`${p2}command:`);
+      lines.push(`${p3}- # Pick a command above and click "+ Add"`);
+    } else {
+      lines.push(`${p2}command:`);
+      queue.forEach(cmd => {
+        lines.push(`${p3}- ${cmd}`);
+      });
+    }
+
+    if (!isNaN(delayVal) && delayVal >= 0) {
+      lines.push(`${p2}delay_secs: ${delayVal}`);
+    }
+    if (!isNaN(holdVal) && holdVal >= 0) {
+      lines.push(`${p2}hold_secs: ${holdVal}`);
+    }
+    if (!isNaN(repeatsVal) && repeatsVal > 1) {
+      lines.push(`${p2}num_repeats: ${repeatsVal}`);
+    }
+
+    previewEl.textContent = lines.join('\n');
+  }
+
+  async copyHaActionYaml() {
+    const previewEl = document.getElementById('haHelperYamlPreview');
+    const statusEl = document.getElementById('haHelperActionStatus');
+    const copyBtn = document.getElementById('btnHaHelperCopy');
+    if (!previewEl || !previewEl.textContent) return;
+
+    try {
+      await navigator.clipboard.writeText(previewEl.textContent);
+      if (copyBtn) copyBtn.textContent = '✓ Copied!';
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">Copied to clipboard</span>';
+      setTimeout(() => {
+        if (copyBtn) copyBtn.textContent = '📋 Copy YAML';
+        if (statusEl) statusEl.textContent = '';
+      }, 2000);
+    } catch (err) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Copy failed: ${err.message}</span>`;
+    }
+  }
+
+  async testHaActionSequence() {
+    const devSelect = document.getElementById('haHelperDevice');
+    const devId = devSelect?.value;
+    const queue = this.haHelperQueue || [];
+    const statusEl = document.getElementById('haHelperActionStatus');
+    const testBtn = document.getElementById('btnHaHelperTest');
+
+    if (!devId) {
+      if (statusEl) statusEl.textContent = 'Select device first';
+      return;
+    }
+    if (!queue.length) {
+      if (statusEl) statusEl.textContent = 'Add commands first';
+      return;
+    }
+
+    const delaySecs = parseFloat(document.getElementById('haHelperDelay')?.value) || 0.4;
+    const repeats = parseInt(document.getElementById('haHelperRepeats')?.value, 10) || 1;
+
+    if (testBtn) testBtn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Running sequence...';
+
+    try {
+      for (let r = 0; r < repeats; r++) {
+        for (let i = 0; i < queue.length; i++) {
+          const cmd = queue[i];
+          if (statusEl) {
+            statusEl.textContent = repeats > 1
+              ? `Rep ${r + 1}/${repeats} • Cmd ${i + 1}/${queue.length}: ${cmd}`
+              : `Cmd ${i + 1}/${queue.length}: ${cmd}`;
+          }
+          await this.client.sendCommand(devId, cmd);
+          if (i < queue.length - 1 || r < repeats - 1) {
+            await new Promise(res => setTimeout(res, Math.max(50, delaySecs * 1000)));
+          }
+        }
+      }
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">✓ Test completed!</span>';
+    } catch (err) {
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+    } finally {
+      if (testBtn) testBtn.disabled = false;
+      setTimeout(() => {
+        if (statusEl) statusEl.textContent = '';
+      }, 4000);
+    }
   }
 
   async saveMqttSettings() {
@@ -435,7 +685,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       const blob = await res.blob();
       const a = document.createElement('a');
       const filename = target === 'bundle' ? 'harmony_backup_bundle.json' :
-        (target === 'network' || target === 'wifi' || target === 'auth' || target === 'hub-id' || target === 'hub_id') ?
+        (target === 'network' || target === 'wifi' || target === 'auth') ?
           `${target}.conf` : `${target}.json`;
       a.href = URL.createObjectURL(blob);
       a.download = filename;

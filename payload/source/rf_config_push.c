@@ -49,17 +49,23 @@ void *config_push_worker(void *arg) {
         uint8_t s = g_paired_remotes[i].slot;
         if (is_companion_slot(s)) continue;
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
-            if ((g_paired_remotes[i].last_seen_ms > 0 && (now_ms - g_paired_remotes[i].last_seen_ms < 60000)) ||
-                (s == g_remote_slot && g_remote_slot != 0)) {
-                target_slots[num_targets++] = s;
-            }
+            target_slots[num_targets++] = s;
         }
     }
     if (num_targets == 0) {
         if (g_remote_slot != 0 && !is_companion_slot(g_remote_slot)) {
             target_slots[num_targets++] = g_remote_slot;
-        } else if (!is_companion_slot(0x02) && (g_paired_remotes[1].active || !g_paired_remotes[0].active)) {
-            target_slots[num_targets++] = 0x02;
+        }
+        for (uint8_t s = 1; s <= 2; s++) {
+            if (!is_companion_slot(s)) {
+                bool already = false;
+                for (int j = 0; j < num_targets; j++) {
+                    if (target_slots[j] == s) { already = true; break; }
+                }
+                if (!already && (g_paired_remotes[s - 1].active || !g_has_paired_device)) {
+                    target_slots[num_targets++] = s;
+                }
+            }
         }
     }
 
@@ -691,6 +697,21 @@ void *config_push_worker(void *arg) {
                act_count, dev_count, btn_count, total_step_count, config_ver);
         unlink("/data/harmony/rf_sync_pending.flag");
         unlink("/data/harmony/rf_sync_pending_details.json");
+    } else {
+        /* Update pending details to specify which slot(s) remain unsynced */
+        for (int t = 0; t < num_targets; t++) {
+            uint8_t target_slot = target_slots[t];
+            int idx = target_slot - 1;
+            if (idx >= 0 && idx < 2 && g_remote_versions[idx].config_version != config_ver) {
+                FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
+                if (df) {
+                    fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
+                            target_slot, target_slot);
+                    fclose(df);
+                }
+                break;
+            }
+        }
     }
 
     pthread_mutex_unlock(&push_lock);

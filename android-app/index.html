@@ -1308,14 +1308,28 @@
 
         <!-- Right Panel: Add Commands Studio -->
         <div id="irStudioColRight" class="card" style="display: flex; flex-direction: column; gap: 14px;">
-          <!-- Tabs for Command Add Mode -->
-          <div style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+          <!-- Tabs for IR Mode -->
+          <div id="irAddTabsRow" style="display: flex; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddLearn" class="btn btn-sm btn-primary ir-add-tab active"
               data-add-mode="learn" data-i18n="learn_signal">Learn Signal</button>
             <button type="button" id="tabAddDb" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="database"
               data-i18n="search_database">Search Database</button>
             <button type="button" id="tabAddPaste" class="btn btn-sm btn-ghost ir-add-tab" data-add-mode="paste"
               data-i18n="pronto_hex_raw">Pronto Hex / Raw</button>
+          </div>
+
+          <!-- Tabs for BT Mode -->
+          <div id="btAddTabsRow" style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+            <button type="button" id="tabAddBtPresets" class="btn btn-sm btn-primary bt-add-tab active"
+              data-bt-mode="presets">Standard Keys</button>
+            <button type="button" id="tabAddBtCustom" class="btn btn-sm btn-ghost bt-add-tab"
+              data-bt-mode="custom">Custom HID / Script</button>
+          </div>
+
+          <!-- Tabs for MQTT Mode -->
+          <div id="mqttAddTabsRow" style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+            <button type="button" id="tabAddMqtt" class="btn btn-sm btn-primary mqtt-add-tab active"
+              data-mqtt-mode="mqtt">Add MQTT Command</button>
           </div>
 
           <!-- Mode 1: Learn from Remote -->
@@ -1542,6 +1556,119 @@
               </div>
             </div>
             <div id="pasteStatus" class="subtle" style="margin-top: 8px;"></div>
+          </div>
+
+          <!-- Mode 4: Bluetooth Standard Key Presets -->
+          <div id="addModeBtPresets" class="bt-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong>Bluetooth HID Key Catalog.</strong>
+              Add standard navigation, media playback, volume, and keyboard keys. Emulated over Bluetooth HID to the paired host.
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px;">
+              <input type="text" id="btPresetsFilter" class="form-control form-control-sm"
+                placeholder="Filter keys (e.g. Home, Play, Enter)..." style="flex: 1; font-size: 11px;">
+              <div id="btPresetsStatus" class="subtle mini" style="white-space: nowrap;"></div>
+            </div>
+
+            <div id="btPresetsContainer" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px;">
+              <!-- Populated dynamically by HarmonyAppDevicesStudio -->
+            </div>
+          </div>
+
+          <!-- Mode 5: Bluetooth Custom HID / Script -->
+          <div id="addModeBtCustom" class="bt-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong>Custom Bluetooth HID or Macro Script.</strong>
+              Assign an arbitrary HID Usage code (<code>HID:&lt;Page&gt;:&lt;Usage&gt;</code>) or a sequenced macro.
+            </div>
+
+            <form id="btCustomForm" onsubmit="return false;">
+              <div class="row">
+                <div style="flex: 1;">
+                  <label for="btCustomCmdName">Command Name</label>
+                  <input id="btCustomCmdName" class="form-control" required placeholder="e.g. VoiceSearch, Subtitle, AppMacro">
+                </div>
+                <div style="flex: 1;">
+                  <label for="btCustomCmdCode">HID Code or Script</label>
+                  <input id="btCustomCmdCode" class="form-control" required placeholder="e.g. HID:0C:0221 or BT:SCRIPT:...">
+                </div>
+              </div>
+
+              <div style="margin-top: 8px;">
+                <span class="muted mini">Quick suggestions:</span>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Search" data-code="HID:0C:0221">Voice Search</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Context" data-code="HID:07:0065">Context Menu</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="Guide" data-code="HID:0C:008D">Guide</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageUp" data-code="HID:07:004B">Page Up</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PageDown" data-code="HID:07:004E">Page Down</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-bt-chip" data-name="PowerToggle" data-code="HID:0C:0030">Power Toggle</button>
+                </div>
+              </div>
+
+              <div style="margin-top: 10px;">
+                <a href="https://github.com/iranl/harmony-ng/blob/main/docs/BLUETOOTH_HID_CODES.md" target="_blank"
+                  rel="noopener noreferrer" style="font-size: 11px; color: var(--accent); text-decoration: none;">
+                  📖 View Complete Bluetooth HID Code Reference
+                </a>
+              </div>
+
+              <div id="btCustomStatus" class="subtle" style="margin-top: 8px;"></div>
+
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnTestBtCustom" type="button" class="btn btn-sm btn-secondary">▶ Test Key</button>
+                <button id="btnSaveBtCustom" type="button" class="btn btn-sm btn-primary">Save Command to Device</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Mode 6: MQTT Command -->
+          <div id="addModeMqtt" class="mqtt-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong>Add MQTT Command.</strong>
+              When triggered, the Hub publishes an MQTT message to the configured topic template.
+            </div>
+
+            <form id="mqttAddCmdForm" onsubmit="return false;">
+              <div>
+                <label for="mqttNewCmdName">Command Name</label>
+                <input id="mqttNewCmdName" class="form-control" required placeholder="e.g. PowerToggle, NightMode, Preset1">
+              </div>
+
+              <div style="margin-top: 8px;">
+                <span class="muted mini">Common Actions:</span>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerToggle">PowerToggle</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerOn">PowerOn</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="PowerOff">PowerOff</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="VolumeUp">VolumeUp</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="VolumeDown">VolumeDown</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Mute">Mute</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Play">Play</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Pause">Pause</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="ChannelUp">ChannelUp</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="ChannelDown">ChannelDown</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="Select">Select</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="LightOn">LightOn</button>
+                  <button type="button" class="btn btn-xs btn-ghost btn-mqtt-chip" data-cmd="LightOff">LightOff</button>
+                </div>
+              </div>
+
+              <!-- Topic / Payload Preview -->
+              <div style="margin-top: 12px; padding: 10px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm);">
+                <div class="mini muted">Triggered MQTT Topic:</div>
+                <div id="mqttCmdTopicPreview" style="font-family: monospace; font-size: 11px; color: var(--accent); margin-top: 2px; word-break: break-all;">-</div>
+                <div class="mini muted" style="margin-top: 6px;">Published Payload: <code>1</code> (pulse duration resets to <code>0</code>)</div>
+              </div>
+
+              <div id="mqttNewCmdStatus" class="subtle" style="margin-top: 8px;"></div>
+
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnTestNewMqttCmd" type="button" class="btn btn-sm btn-secondary">▶ Test Publish</button>
+                <button id="btnSaveNewMqttCmd" type="button" class="btn btn-sm btn-primary">Save Command to Device</button>
+              </div>
+            </form>
           </div>
 
         </div>
@@ -3418,6 +3545,79 @@ harmony_send_command:
           <code>device: "Samsung TV"</code> and <code>command: ["PowerToggle"]</code>.
         </div>
       </details>
+
+      <!-- Home Assistant Action Builder (script.harmony_send_command) Card -->
+      <div class="card" id="haActionBuilderCard" style="margin-top: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0; font-size: 15px; color: var(--accent);">Home Assistant Automation Action Builder</h3>
+          <span class="badge subtle mini">script.harmony_send_command</span>
+        </div>
+        <div class="help" style="margin-bottom: 12px;">
+          Build ready-to-use <code>script.harmony_send_command</code> automation actions for Home Assistant (HA 2024.8+). Select a device, queue one or more commands, adjust timing parameters, and copy the generated YAML.
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="haHelperDevice" style="font-size: 12px; font-weight: 600;">Target Device</label>
+            <select id="haHelperDevice" class="form-control form-control-sm"></select>
+          </div>
+          <div>
+            <label for="haHelperCommandSelect" style="font-size: 12px; font-weight: 600;">Add Command</label>
+            <div style="display: flex; gap: 6px;">
+              <select id="haHelperCommandSelect" class="form-control form-control-sm" style="flex: 1;"></select>
+              <button type="button" id="btnHaHelperAddCmd" class="btn btn-xs btn-primary">+ Add</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Command Sequence List -->
+        <div style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Command Sequence (<span id="haHelperCmdCount">0</span>)</label>
+            <button type="button" id="btnHaHelperClearCmds" class="btn btn-xs btn-ghost" style="font-size: 10px; color: var(--danger); padding: 2px 6px;">Clear Sequence</button>
+          </div>
+          <div id="haHelperCmdQueue" class="queue-list" style="min-height: 48px; max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px;">
+            <div class="muted mini" style="text-align: center; padding: 10px;">No commands added yet. Pick a command above and click "+ Add".</div>
+          </div>
+        </div>
+
+        <!-- Timing & Repeat Parameters -->
+        <div class="row" style="margin-top: 10px;">
+          <div>
+            <label for="haHelperDelay" style="font-size: 11px; font-weight: 600;" title="Delay between commands in seconds">Delay (seconds)</label>
+            <input type="number" id="haHelperDelay" class="form-control form-control-sm" value="0.4" min="0" max="60" step="0.1">
+          </div>
+          <div>
+            <label for="haHelperHold" style="font-size: 11px; font-weight: 600;" title="Hold / pulse duration in seconds">Hold (seconds)</label>
+            <input type="number" id="haHelperHold" class="form-control form-control-sm" value="0" min="0" max="10" step="0.1">
+          </div>
+          <div>
+            <label for="haHelperRepeats" style="font-size: 11px; font-weight: 600;" title="Times to repeat command or sequence">Repeats</label>
+            <input type="number" id="haHelperRepeats" class="form-control form-control-sm" value="1" min="1" max="50" step="1">
+          </div>
+        </div>
+
+        <!-- Format Options -->
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; padding: 6px 0; font-size: 11px;">
+          <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" id="haHelperIndentCheck" checked style="width: 14px; height: 14px;">
+            <span>Indent for automation sequence (6 spaces)</span>
+          </label>
+        </div>
+
+        <!-- Generated YAML Preview & Actions -->
+        <div style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin: 0;">Generated YAML</label>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <span id="haHelperActionStatus" class="mini subtle"></span>
+              <button type="button" id="btnHaHelperTest" class="btn btn-xs btn-secondary" title="Test command sequence live on Hub">▶ Test on Hub</button>
+              <button type="button" id="btnHaHelperCopy" class="btn btn-xs btn-primary">📋 Copy YAML</button>
+            </div>
+          </div>
+          <pre id="haHelperYamlPreview" class="mini" style="margin: 0; font-family: monospace; background: var(--bg-dark); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); overflow-x: auto; color: var(--text-bright); line-height: 1.45;"></pre>
+        </div>
+      </div>
     </section>
 
     <!-- 10. Network View (Wi-Fi, USB Ethernet & Root Serial Console) -->

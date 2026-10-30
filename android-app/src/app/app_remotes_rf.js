@@ -611,10 +611,12 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
           syncBanner.style.display = 'flex';
           const title = document.getElementById('remoteSyncTitle');
           const desc = document.getElementById('remoteSyncDesc');
-          const slotLabel = rfStat.sync_pending_slot ? `Remote Slot ${rfStat.sync_pending_slot}` : 'Paired Remotes';
+          let slotLabel = 'All Paired Remotes';
+          if (rfStat.sync_pending_slot === 1) slotLabel = 'Remote Slot 1';
+          else if (rfStat.sync_pending_slot === 2) slotLabel = 'Remote Slot 2';
           if (title) title.textContent = `Remote Settings Pending Push (${slotLabel})`;
           if (desc) {
-            const diffInfo = rfStat.sync_pending_diff ? `Pending changes: ${rfStat.sync_pending_diff}` : 'Hub configuration changed. Push settings to synchronize remote.';
+            const diffInfo = rfStat.sync_pending_diff ? `Pending changes: ${rfStat.sync_pending_diff}` : 'Hub configuration changed. Push settings to synchronize remotes.';
             desc.textContent = diffInfo;
           }
         } else {

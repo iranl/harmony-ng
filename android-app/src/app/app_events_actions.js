@@ -84,6 +84,105 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
       }
     });
+
+    // Bluetooth Custom & Macro Actions
+    document.querySelectorAll('.btn-bt-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.getAttribute('data-name');
+        const code = btn.getAttribute('data-code');
+        const nameEl = document.getElementById('btCustomCmdName');
+        const codeEl = document.getElementById('btCustomCmdCode');
+        if (nameEl) nameEl.value = name;
+        if (codeEl) codeEl.value = code;
+      });
+    });
+
+    document.getElementById('btnTestBtCustom')?.addEventListener('click', async () => {
+      const devId = document.getElementById('manageDeviceSelect')?.value;
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+      const code = document.getElementById('btCustomCmdCode')?.value.trim();
+      const stat = document.getElementById('btCustomStatus');
+      if (!code) return alert('Enter HID code or script first');
+      if (stat) stat.textContent = 'Testing Bluetooth key...';
+      try {
+        if (code.startsWith('BT:SCRIPT:')) {
+          await this.client.runBtScript(code.substring(10));
+        } else {
+          await this.client.sendBtKey(code, 'tap', dev?.bdaddr || dev?.btHost || '');
+        }
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Key sent successfully!</span>';
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+      }
+    });
+
+    document.getElementById('btnSaveBtCustom')?.addEventListener('click', async () => {
+      const devId = document.getElementById('manageDeviceSelect')?.value;
+      const name = document.getElementById('btCustomCmdName')?.value.trim();
+      const code = document.getElementById('btCustomCmdCode')?.value.trim();
+      const stat = document.getElementById('btCustomStatus');
+      if (!name || !code) return alert('Enter command name and HID code / script');
+      if (stat) stat.textContent = 'Saving command...';
+      try {
+        await this.client.saveLearnedCommand({ deviceId: devId, name, raw: code, mode: 'raw' });
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved to device!</span>';
+        await this.refreshData();
+        this.renderIrView();
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+      }
+    });
+
+    // MQTT Command Actions
+    document.querySelectorAll('.btn-mqtt-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const cmd = btn.getAttribute('data-cmd');
+        const nameEl = document.getElementById('mqttNewCmdName');
+        if (nameEl) {
+          nameEl.value = cmd;
+          const devId = document.getElementById('manageDeviceSelect')?.value;
+          const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+          if (dev) this.updateMqttTopicPreview(dev);
+        }
+      });
+    });
+
+    document.getElementById('mqttNewCmdName')?.addEventListener('input', () => {
+      const devId = document.getElementById('manageDeviceSelect')?.value;
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+      if (dev) this.updateMqttTopicPreview(dev);
+    });
+
+    document.getElementById('btnTestNewMqttCmd')?.addEventListener('click', async () => {
+      const devId = document.getElementById('manageDeviceSelect')?.value;
+      const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
+      const stat = document.getElementById('mqttNewCmdStatus');
+      if (!cmdName) return alert('Enter MQTT command name first');
+      if (stat) stat.textContent = 'Publishing test MQTT message...';
+      try {
+        await this.client.testDeviceMqtt({ deviceId: devId, command: cmdName });
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test published!</span>';
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+      }
+    });
+
+    document.getElementById('btnSaveNewMqttCmd')?.addEventListener('click', async () => {
+      const devId = document.getElementById('manageDeviceSelect')?.value;
+      const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
+      const stat = document.getElementById('mqttNewCmdStatus');
+      if (!cmdName) return alert('Enter MQTT command name');
+      if (stat) stat.textContent = 'Saving MQTT command...';
+      try {
+        await this.client.saveLearnedCommand({ deviceId: devId, name: cmdName, raw: `G:MQTT:${cmdName}`, mode: 'raw' });
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Saved to device!</span>';
+        await this.refreshData();
+        this.renderIrView();
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
+      }
+    });
+
     document.getElementById('btnEliteGoEnableRf')?.addEventListener('click', async () => {
       try {
         await this.client.toggleRfService(true);
@@ -284,6 +383,45 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
     // MQTT Actions
     document.getElementById('mqttSaveBtn')?.addEventListener('click', () => this.saveMqttSettings());
+
+    // Home Assistant Action Builder Events
+    document.getElementById('haHelperDevice')?.addEventListener('change', async () => {
+      await this.updateHaHelperCommandsDropdown();
+      this.updateHaActionYaml();
+    });
+
+    const addHaCmd = () => {
+      const sel = document.getElementById('haHelperCommandSelect');
+      const cmd = sel?.value;
+      if (cmd) {
+        if (!this.haHelperQueue) this.haHelperQueue = [];
+        this.haHelperQueue.push(cmd);
+        this.renderHaHelperQueue();
+        this.updateHaActionYaml();
+      }
+    };
+
+    document.getElementById('btnHaHelperAddCmd')?.addEventListener('click', addHaCmd);
+    document.getElementById('haHelperCommandSelect')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addHaCmd();
+      }
+    });
+
+    document.getElementById('btnHaHelperClearCmds')?.addEventListener('click', () => {
+      this.haHelperQueue = [];
+      this.renderHaHelperQueue();
+      this.updateHaActionYaml();
+    });
+
+    ['haHelperDelay', 'haHelperHold', 'haHelperRepeats'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => this.updateHaActionYaml());
+    });
+    document.getElementById('haHelperIndentCheck')?.addEventListener('change', () => this.updateHaActionYaml());
+
+    document.getElementById('btnHaHelperCopy')?.addEventListener('click', () => this.copyHaActionYaml());
+    document.getElementById('btnHaHelperTest')?.addEventListener('click', () => this.testHaActionSequence());
 
     // Network Actions
     document.getElementById('ethModeSelect')?.addEventListener('change', (e) => {
