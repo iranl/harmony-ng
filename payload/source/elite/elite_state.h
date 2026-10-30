@@ -20,9 +20,11 @@
 #include <sys/file.h>
 #include <sys/reboot.h>
 #include <stdarg.h>
+#ifdef __linux__ /* the host and WebAssembly renderer builds have no device headers */
 #include <linux/input.h>
 #include <linux/fb.h>
 #include <linux/i2c-dev.h>
+#endif
 
 #include "cJSON.h"
 #include "rf_proto.h"
@@ -326,6 +328,12 @@ extern uint64_t g_touch_down_ms;
 
 /* Utility / helper functions */
 uint64_t get_monotonic_ms(void);
+
+/* Files the renderer and config loader read are opened through elite_fs_path(). On the
+   remote g_fs_root is empty; the host renderer points it at a directory laid out like the
+   remote's filesystem. */
+extern const char *g_fs_root;
+const char *elite_fs_path(const char *path, char *buf, size_t len);
 bool is_remote_paired(void);
 void reset_idle_timer(void);
 void show_notice(const char *msg, int duration_ms);

@@ -247,7 +247,8 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 
     if (!data) {
         int comp = 0;
-        data = stbi_load(filepath, &w, &h, &comp, 4);
+        char fs_path[256];
+        data = stbi_load(elite_fs_path(filepath, fs_path, sizeof(fs_path)), &w, &h, &comp, 4);
         if (!data) return false;
         if (g_png_cache_count < MAX_CACHED_PNG) {
             strncpy(g_png_cache[g_png_cache_count].path, filepath, sizeof(g_png_cache[0].path) - 1);
@@ -321,7 +322,8 @@ void load_wallpaper_asset(void) {
     };
     for (size_t i = 0; i < sizeof(paths)/sizeof(paths[0]); i++) {
         int w = 0, h = 0, comp = 0;
-        unsigned char *data = stbi_load(paths[i], &w, &h, &comp, 3);
+        char fs_path[256];
+        unsigned char *data = stbi_load(elite_fs_path(paths[i], fs_path, sizeof(fs_path)), &w, &h, &comp, 3);
         if (data && w == FB_WIDTH && h == FB_HEIGHT) {
             for (int j = 0; j < FB_WIDTH * FB_HEIGHT; j++) {
                 uint8_t r = data[j * 3 + 0];

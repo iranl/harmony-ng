@@ -105,7 +105,7 @@ void render_header(void) {
         fb_draw_rect(FB_WIDTH - 98, badge_y + 4, 8, 8, RGB_WHITE);
     }
 
-    time_t now = time(NULL);
+    time_t now = ui_wall_time();
     struct tm *tm_info = localtime(&now);
     char time_str[16];
     if (tm_info) {
@@ -277,10 +277,8 @@ void render_sync_overlay(void) {
     fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SYNC), RGB_TEXT_MUTED, &g_font_main);
 }
 
-void render_screen(void) {
-    if (!g_fb_mem || !g_screen_on) return;
-    pthread_mutex_lock(&g_render_mutex);
-
+/* Draws the current state into g_backbuffer. Shared by the remote and the host renderer. */
+void render_frame(void) {
     if (g_has_wallpaper) {
         memcpy(g_backbuffer, g_bg_wallpaper, sizeof(g_backbuffer));
     } else {
@@ -322,6 +320,13 @@ void render_screen(void) {
         fb_draw_rect(box_x, box_y, box_w, box_h, RGB_TEAL);
         fb_draw_text_aa(box_x + (box_w - nw) / 2, box_y + 7, g_notice_msg, RGB_WHITE, &g_font_main);
     }
+}
+
+void render_screen(void) {
+    if (!g_fb_mem || !g_screen_on) return;
+    pthread_mutex_lock(&g_render_mutex);
+
+    render_frame();
 
     memcpy((void *)g_fb_mem, g_backbuffer, FB_SIZE);
     if (g_fb_size >= FB_SIZE * 2) {

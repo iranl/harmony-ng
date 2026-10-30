@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 void show_notice(const char *msg, int duration_ms);
+void render_frame(void);
 void render_screen(void);
 void render_header(void);
 void render_footer(void);

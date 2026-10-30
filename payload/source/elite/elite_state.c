@@ -171,6 +171,20 @@ uint64_t get_monotonic_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
 
+const char *g_fs_root = "";
+
+#define STOCK_ASSET_DIR "/opt/luadraws/appscommon/asset/"
+
+const char *elite_fs_path(const char *path, char *buf, size_t len) {
+    if (!g_fs_root[0] || !path || path[0] != '/') return path;
+    snprintf(buf, len, "%s%s", g_fs_root, path);
+    /* The Hub serves the stock assets as one flat directory (/api/icons/archive) */
+    if (access(buf, R_OK) != 0 && strncmp(path, STOCK_ASSET_DIR, strlen(STOCK_ASSET_DIR)) == 0) {
+        snprintf(buf, len, "%s" STOCK_ASSET_DIR "%s", g_fs_root, strrchr(path, '/') + 1);
+    }
+    return buf;
+}
+
 bool is_remote_paired(void) {
     if (g_rf_link_connected) return true;
     if (g_pairing_state == 2) return true;
