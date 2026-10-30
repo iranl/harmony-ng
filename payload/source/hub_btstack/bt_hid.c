@@ -209,7 +209,7 @@ int parse_hex_bytes(const char *hex, uint8_t *out, int max_len) {
         while (*hex == ' ') hex++;
         if (!*hex || *hex == '|' || *hex == '\r' || *hex == '\n') break;
         unsigned int b = 0;
-        if (sscanf(hex, "%02x", &b) == 1 || sscanf(hex, "%02X", &b) == 1) {
+        if (sscanf(hex, "%02x", &b) == 1) {
             out[len++] = (uint8_t)b;
             hex += 2;
         } else {

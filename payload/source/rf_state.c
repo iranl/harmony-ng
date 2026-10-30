@@ -140,7 +140,8 @@ void http_post_local(int port, const char *endpoint, const char *json_body) {
         "Connection: close\r\n\r\n%s",
         endpoint, port, blen, json_body ? json_body : "");
     write(sock, req, req_len);
+    shutdown(sock, SHUT_WR);
     char resp[256];
-    read(sock, resp, sizeof(resp));
+    while (read(sock, resp, sizeof(resp)) > 0) {}
     close(sock);
 }

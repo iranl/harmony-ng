@@ -258,7 +258,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
         if (sub_id == 0x8F) {
             g_nak_count++;
             if (g_nak_count > 3) {
-                if (g_nak_count - 3 >= 20) {
+                if (g_nak_count - 3 >= 6) {
                     g_backoff_ms = NAK_BACKOFF_MAX_MS;
                 } else {
                     g_backoff_ms = 100 * (1 << (g_nak_count - 3));

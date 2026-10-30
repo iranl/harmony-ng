@@ -266,24 +266,39 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
         case HCI_EVENT_PIN_CODE_REQUEST: {
             bd_addr_t pin_addr;
             hci_event_pin_code_request_get_bd_addr(packet, pin_addr);
-            log_msg("Classic BT: PIN code requested -> sending default '0000'");
-            gap_pin_code_response(pin_addr, "0000");
+            if (g_host_pairing) {
+                log_msg("Classic BT: PIN code requested -> sending default '0000'");
+                gap_pin_code_response(pin_addr, "0000");
+            } else {
+                log_msg("Classic BT: PIN code requested but pairing mode is disabled -> rejecting");
+                gap_pin_code_negative(pin_addr);
+            }
             break;
         }
 
         case HCI_EVENT_USER_CONFIRMATION_REQUEST: {
             bd_addr_t conf_addr;
             hci_event_user_confirmation_request_get_bd_addr(packet, conf_addr);
-            log_msg("Classic BT: SSP User Confirmation Request -> auto-accepting");
-            gap_ssp_confirmation_response(conf_addr);
+            if (g_host_pairing) {
+                log_msg("Classic BT: SSP User Confirmation Request -> auto-accepting");
+                gap_ssp_confirmation_response(conf_addr);
+            } else {
+                log_msg("Classic BT: SSP User Confirmation Request but pairing mode is disabled -> rejecting");
+                gap_ssp_confirmation_negative(conf_addr);
+            }
             break;
         }
 
         case HCI_EVENT_USER_PASSKEY_REQUEST: {
             bd_addr_t pass_addr;
             hci_event_user_passkey_request_get_bd_addr(packet, pass_addr);
-            log_msg("Classic BT: SSP Passkey Request -> auto-replying 0");
-            gap_ssp_passkey_response(pass_addr, 0);
+            if (g_host_pairing) {
+                log_msg("Classic BT: SSP Passkey Request -> auto-replying 0");
+                gap_ssp_passkey_response(pass_addr, 0);
+            } else {
+                log_msg("Classic BT: SSP Passkey Request but pairing mode is disabled -> rejecting");
+                gap_ssp_passkey_negative(pass_addr);
+            }
             break;
         }
 

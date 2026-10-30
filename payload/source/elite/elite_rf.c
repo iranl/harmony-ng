@@ -113,47 +113,56 @@ void rf_stop_pairing(void) {
     if (g_rf_fd < 0) return;
     printf("[*] Stopping pairing mode on Remote...\n");
     uint8_t pkt_close[7] = {0x10, 0xFF, 0x80, 0xB2, 0x02, 0x00, 0x00};
+    pthread_mutex_lock(&g_rf_write_mutex);
     if (write(g_rf_fd, pkt_close, sizeof(pkt_close)) < 0) {}
+    pthread_mutex_unlock(&g_rf_write_mutex);
     g_pairing_state = 0;
     render_screen();
 }
 
-void rf_unpair(void) {
+void cc2544_clear_bonding(void) {
     if (g_rf_fd < 0) return;
-
-    rf_frame_t unpair_f;
-    memset(&unpair_f, 0, sizeof(unpair_f));
-    unpair_f.report_id = 0x20;
-    unpair_f.sub_id = 0x12;
-    unpair_f.msg_type = RF_MSG_UNPAIR_NOTIFY;
-    unpair_f.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
-    unpair_f.seq = g_tx_seq++;
-    rf_send_frame(&unpair_f);
-    usleep(30000);
-
-    g_pairing_state = 0;
-    g_rf_link_connected = false;
-
-    printf("[*] Unpairing & removing bonding: entering test mode and clearing CC2544 stored device pipes...\n");
+    printf("[*] Entering test mode and clearing CC2544 stored device pipes...\n");
     pthread_mutex_lock(&g_rf_write_mutex);
 
     uint8_t enter_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x01, 0x00, 0x00};
     if (write(g_rf_fd, enter_test, sizeof(enter_test)) < 0) {}
-    usleep(100000);
+    usleep(50000);
 
     uint8_t clr_pipe20[20] = {0x11, 0xFF, 0x82, 0xB5, 0x20, 0};
     if (write(g_rf_fd, clr_pipe20, sizeof(clr_pipe20)) < 0) {}
-    usleep(100000);
+    usleep(50000);
 
     uint8_t clr_pipe30[20] = {0x11, 0xFF, 0x82, 0xB5, 0x30, 0};
     if (write(g_rf_fd, clr_pipe30, sizeof(clr_pipe30)) < 0) {}
-    usleep(100000);
+    usleep(50000);
 
     uint8_t exit_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x00, 0x00, 0x00};
     if (write(g_rf_fd, exit_test, sizeof(exit_test)) < 0) {}
-    usleep(100000);
+    usleep(50000);
 
     pthread_mutex_unlock(&g_rf_write_mutex);
+}
+
+void rf_perform_unpair_cleanup(bool notify_hub) {
+    if (g_rf_fd < 0) return;
+
+    if (notify_hub) {
+        rf_frame_t unpair_f;
+        memset(&unpair_f, 0, sizeof(unpair_f));
+        unpair_f.report_id = 0x20;
+        unpair_f.sub_id = 0x12;
+        unpair_f.msg_type = RF_MSG_UNPAIR_NOTIFY;
+        unpair_f.hdr_flag = 0x50 | (g_tx_seq & 0x0F);
+        unpair_f.seq = g_tx_seq++;
+        rf_send_frame(&unpair_f);
+        usleep(30000);
+    }
+
+    g_pairing_state = 0;
+    g_rf_link_connected = false;
+
+    cc2544_clear_bonding();
 
     unlink(RF_CONFIG_FILE);
     unlink(ACTIVITY_JSON_FILE);
@@ -179,6 +188,10 @@ void rf_unpair(void) {
     render_screen();
 }
 
+void rf_unpair(void) {
+    rf_perform_unpair_cleanup(true);
+}
+
 void rf_send_button_event(uint16_t key_code, int value) {
     if (key_code == 0 || g_rf_fd < 0) return;
     if (value < 0 || value > 2) return;
@@ -187,7 +200,7 @@ void rf_send_button_event(uint16_t key_code, int value) {
     uint8_t state = (value == 1) ? 0x01 : ((value == 2) ? 0x02 : 0x00);
 
     rf_frame_t f;
-    uint8_t payload[26] = {0};
+    uint8_t payload[25] = {0};
     payload[0] = (uint8_t)(key_code >> 8);
     payload[1] = (uint8_t)(key_code & 0xFF);
     payload[2] = state;
@@ -199,7 +212,7 @@ void rf_send_button_event(uint16_t key_code, int value) {
         strncpy((char *)&payload[20], dev_ctx, 5);
     }
 
-    rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, 26);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, sizeof(payload));
     rf_send_frame(&f);
 
     printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s\n", key_code,
@@ -210,7 +223,7 @@ void rf_send_activity_start(const char *act_id) {
     if (g_rf_fd < 0) return;
 
     rf_frame_t f;
-    uint8_t payload[26] = {0};
+    uint8_t payload[25] = {0};
     strncpy((char *)payload, act_id, 12);
     rf_build_frame(&f, g_remote_slot, RF_MSG_ACTIVITY_REQUEST, ++g_tx_seq, 0, payload, 12);
 
@@ -223,10 +236,10 @@ void rf_send_device_command(const char *dev_id, const char *cmd) {
     if (g_rf_fd < 0) return;
 
     rf_frame_t f;
-    uint8_t payload[26] = {0};
+    uint8_t payload[25] = {0};
     strncpy((char *)payload, dev_id, 4);
     strncpy((char *)&payload[4], cmd, 21);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_REQUEST, ++g_tx_seq, 0, payload, 26);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_REQUEST, ++g_tx_seq, 0, payload, sizeof(payload));
 
     rf_send_frame(&f);
 

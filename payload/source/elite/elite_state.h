@@ -218,13 +218,13 @@ extern uint8_t g_remote_slot;
 extern bool g_has_hub_config;
 extern uint8_t g_tx_seq;
 
-extern bool g_is_switching_activity;
+extern volatile bool g_is_switching_activity;
 extern char g_switching_target_id[16];
 extern char g_switching_target_name[48];
 extern uint64_t g_switching_start_ms;
 extern uint32_t g_switching_total_ms;
 
-extern bool g_is_syncing_config;
+extern volatile bool g_is_syncing_config;
 extern uint64_t g_sync_start_ms;
 extern uint64_t g_sync_last_packet_ms;
 extern uint64_t g_sync_failed_ms;         /* when last config sync stalled, for retry backoff */
@@ -239,7 +239,7 @@ static inline bool sync_backoff_active(uint64_t now_ms) {
     return (now_ms - g_sync_failed_ms < backoff_duration);
 }
 
-extern bool g_is_ota_updating;
+extern volatile bool g_is_ota_updating;
 extern uint64_t g_ota_start_ms;
 extern uint64_t g_ota_last_packet_ms;
 extern uint32_t g_ota_total_bytes;
@@ -291,7 +291,7 @@ extern int g_nav_toggle_mode;
 extern bool g_usbeth_enabled;
 extern bool g_usb_connected;
 
-extern bool g_screen_dirty;
+extern volatile bool g_screen_dirty;
 extern char g_notice_msg[64];
 extern uint64_t g_notice_until_ms;
 

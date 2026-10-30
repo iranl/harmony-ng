@@ -380,7 +380,7 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
         memcpy(&payload[21], g_paired_addr, 4);
     }
 
-    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, 26);
+    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, 25);
     rf_send_frame(&f);
 }
 
@@ -440,8 +440,6 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
     start_payload[1] = (uint8_t)(tot_bytes & 0xFF);
     start_payload[2] = (uint8_t)((tot_bytes >> 8) & 0xFF);
     start_payload[3] = (uint8_t)(tot_chunks & 0xFF);
-    start_payload[4] = (uint8_t)((tot_chunks >> 8) & 0xFF);
-    strncpy((char *)&start_payload[5], id_str, 19);
     start_payload[4] = (uint8_t)((tot_chunks >> 8) & 0xFF);
     strncpy((char *)&start_payload[5], id_str, 19);
 

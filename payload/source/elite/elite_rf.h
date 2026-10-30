@@ -14,6 +14,8 @@ void rf_send_sync_query(void);
 void rf_send_full_sync_request(void);
 void rf_start_pairing(void);
 void rf_stop_pairing(void);
+void cc2544_clear_bonding(void);
+void rf_perform_unpair_cleanup(bool notify_hub);
 void rf_unpair(void);
 void send_battery_status_rf(void);
 void send_version_report_rf(void);

@@ -41,9 +41,16 @@ static void write_pid(void) {
     }
 }
 
+#define MAX_HTTP_CLIENT_THREADS 8
+static int g_active_http_threads = 0;
+static pthread_mutex_t g_http_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void *http_client_worker(void *arg) {
     int cfd = (int)(intptr_t)arg;
     http_handle_client(cfd);
+    pthread_mutex_lock(&g_http_thread_lock);
+    g_active_http_threads--;
+    pthread_mutex_unlock(&g_http_thread_lock);
     return NULL;
 }
 
@@ -116,8 +123,10 @@ int main(int argc, char **argv) {
         int client_fds[WS_MAX_CLIENTS];
         int client_count = ws_get_clients(client_fds, WS_MAX_CLIENTS);
         for (int i = 0; i < client_count; i++) {
-            FD_SET(client_fds[i], &rset);
-            if (client_fds[i] > max_fd) max_fd = client_fds[i];
+            if (client_fds[i] < FD_SETSIZE) {
+                FD_SET(client_fds[i], &rset);
+                if (client_fds[i] > max_fd) max_fd = client_fds[i];
+            }
         }
 
         struct timeval tv;
@@ -131,6 +140,11 @@ int main(int argc, char **argv) {
                 socklen_t clen = sizeof(caddr);
                 int cfd = accept(srv_fd, (struct sockaddr *)&caddr, &clen);
                 if (cfd >= 0) {
+                    if (cfd >= FD_SETSIZE) {
+                        fprintf(stderr, "[-] Accepted fd %d exceeds FD_SETSIZE\n", cfd);
+                        close(cfd);
+                        continue;
+                    }
                     fcntl(cfd, F_SETFD, FD_CLOEXEC);
                     struct timeval to;
                     to.tv_sec = 2;
@@ -144,13 +158,33 @@ int main(int argc, char **argv) {
                     int sndbuf = 32768;
                     setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
 
+                    int reject = 0;
+                    pthread_mutex_lock(&g_http_thread_lock);
+                    if (g_active_http_threads >= MAX_HTTP_CLIENT_THREADS) {
+                        reject = 1;
+                    } else {
+                        g_active_http_threads++;
+                    }
+                    pthread_mutex_unlock(&g_http_thread_lock);
+
+                    if (reject) {
+                        const char *busy = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                        send(cfd, busy, strlen(busy), MSG_NOSIGNAL);
+                        close(cfd);
+                        continue;
+                    }
+
                     pthread_t th;
                     pthread_attr_t attr;
                     pthread_attr_init(&attr);
                     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
                     pthread_attr_setstacksize(&attr, 512 * 1024);
                     if (pthread_create(&th, &attr, http_client_worker, (void *)(intptr_t)cfd) != 0) {
-                        http_handle_client(cfd);
+                        fprintf(stderr, "[-] pthread_create failed for client fd %d\n", cfd);
+                        pthread_mutex_lock(&g_http_thread_lock);
+                        g_active_http_threads--;
+                        pthread_mutex_unlock(&g_http_thread_lock);
+                        close(cfd);
                     }
                     pthread_attr_destroy(&attr);
                 }

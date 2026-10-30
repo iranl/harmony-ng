@@ -97,11 +97,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
-        uint8_t t = raw[4];
-        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
-               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
-               (t == RF_MSG_ACK || t == RF_MSG_PING);
+        return 0;
     }
     if (len >= 30 && raw[0] == 0x12) {
         if ((raw[2] & 0xE0) == 0x40 || (raw[2] & 0xE0) == 0x60) {
@@ -111,11 +107,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
                    (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
-        uint8_t t = raw[2];
-        return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
-               (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-               (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
-               (t == RF_MSG_ACK || t == RF_MSG_PING);
+        return 0;
     }
     return 0;
 }

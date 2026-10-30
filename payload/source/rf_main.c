@@ -39,8 +39,9 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
     char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
     if (!buf) { fclose(fd); return; }
     size_t n = fread(buf, 1, sz, fd);
-    buf[n] = '\0';
     fclose(fd);
+    if (n != (size_t)sz) { free(buf); return; }
+    buf[n] = '\0';
     cJSON *root = cJSON_Parse(buf);
     free(buf);
     if (!root) return;
@@ -159,33 +160,13 @@ void handle_rf_frame(const rf_frame_t *f) {
                     cJSON_Delete(dmap);
                 }
             } else {
-                cJSON *map = get_elite_map();
-                if (map) {
-                    pthread_mutex_lock(&g_map_lock);
-                    cJSON *acts = cJSON_GetObjectItemCaseSensitive(map, "activities");
-                    if (acts && cJSON_IsObject(acts)) {
-                        cJSON *act_obj = cJSON_GetObjectItemCaseSensitive(acts, act_or_dev);
-                        if (!act_obj && strcmp(act_or_dev, "-1") == 0) {
-                            act_obj = cJSON_GetObjectItemCaseSensitive(acts, "-1");
-                        }
-                        if (act_obj && cJSON_IsObject(act_obj)) {
-                            cJSON *sbtns = cJSON_GetObjectItemCaseSensitive(act_obj, "screen_buttons");
-                            if (sbtns && cJSON_IsArray(sbtns)) {
-                                cJSON *item = cJSON_GetArrayItem(sbtns, btn_idx);
-                                if (item && cJSON_IsObject(item)) {
-                                    cJSON *jdev = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
-                                    cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(item, "command");
-                                    if (jdev && jdev->valuestring && jcmd && jcmd->valuestring) {
-                                        printf("[*] Screen button dispatch: act=%s idx=%d -> dev=%s cmd=%s\n",
-                                               act_or_dev, btn_idx, jdev->valuestring, jcmd->valuestring);
-                                        enqueue_elite_device_cmd(jdev->valuestring, jcmd->valuestring);
-                                        handled = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    pthread_mutex_unlock(&g_map_lock);
+                char dev_str[64] = {0};
+                char cmd_str[64] = {0};
+                if (get_remote_screen_button(slot, act_or_dev, btn_idx, dev_str, sizeof(dev_str), cmd_str, sizeof(cmd_str))) {
+                    printf("[*] Screen button dispatch: act=%s idx=%d -> dev=%s cmd=%s\n",
+                           act_or_dev, btn_idx, dev_str, cmd_str);
+                    enqueue_elite_device_cmd(dev_str, cmd_str);
+                    handled = true;
                 }
             }
 
@@ -489,10 +470,18 @@ int main(int argc, char **argv) {
     }
 
     pthread_t disp_th;
-    pthread_create(&disp_th, NULL, dispatch_worker, NULL);
+    if (pthread_create(&disp_th, NULL, dispatch_worker, NULL) != 0) {
+        perror("pthread_create dispatch_worker");
+        rf_spi_close();
+        return 1;
+    }
 
     pthread_t sync_th;
-    pthread_create(&sync_th, NULL, activity_sync_worker, NULL);
+    if (pthread_create(&sync_th, NULL, activity_sync_worker, NULL) != 0) {
+        perror("pthread_create activity_sync_worker");
+        rf_spi_close();
+        return 1;
+    }
 
     /* Query initial state */
     uint8_t pkt_ver[7] = {0x10, 0xFF, 0x81, 0xF1, 0x01, 0x00, 0x00};
@@ -503,11 +492,16 @@ int main(int argc, char **argv) {
 
     /* Start local REST API thread and Hub button listener */
     pthread_t api_th;
-    pthread_create(&api_th, NULL, api_server_worker, NULL);
-    printf("[+] RF API listening on http://127.0.0.1:%d/api/rf/...\n", RF_API_PORT);
+    if (pthread_create(&api_th, NULL, api_server_worker, NULL) != 0) {
+        perror("pthread_create api_server_worker");
+    } else {
+        printf("[+] RF API listening on http://127.0.0.1:%d/api/rf/...\n", RF_API_PORT);
+    }
 
     pthread_t btn_th;
-    pthread_create(&btn_th, NULL, hub_button_worker, NULL);
+    if (pthread_create(&btn_th, NULL, hub_button_worker, NULL) != 0) {
+        perror("pthread_create hub_button_worker");
+    }
 
     set_hub_led(1);
 

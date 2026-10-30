@@ -16,6 +16,28 @@
 #include <sys/time.h>
 #include <errno.h>
 
+static inline void sync_touch_chunk(void) {
+    pthread_mutex_lock(&g_sync_lock);
+    if (!g_is_syncing_config) {
+        g_is_syncing_config = true;
+        g_sync_start_ms = get_monotonic_ms();
+        g_sync_chunk_count = 0;
+        g_sync_total = 0;
+    }
+    g_sync_last_packet_ms = get_monotonic_ms();
+    g_sync_chunk_count++;
+    pthread_mutex_unlock(&g_sync_lock);
+}
+
+static void sanitize_ascii(char *str, size_t max_len) {
+    if (!str) return;
+    for (size_t i = 0; i < max_len && str[i]; i++) {
+        unsigned char c = (unsigned char)str[i];
+        if (c < 0x20 || c > 0x7E) str[i] = ' ';
+    }
+    str[max_len - 1] = '\0';
+}
+
 void handle_hub_frame_remote(const rf_frame_t *f) {
     if (f->dev_slot & 0x0F) g_remote_slot = f->dev_slot & 0x0F;
 
@@ -173,16 +195,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_ACTIVITY_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-                g_sync_chunk_count = 0;
-                g_sync_total = 0;
-                pthread_mutex_unlock(&g_sync_lock);
-            }
-            g_sync_last_packet_ms = get_monotonic_ms();
-            g_sync_chunk_count++;
+            sync_touch_chunk();
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_ACTIVITIES) {
                 uint8_t itype = 0;
@@ -220,6 +233,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     strncpy(g_rf_activities[idx].name, tmp_name, sizeof(g_rf_activities[0].name) - 1);
                     g_rf_activities[idx].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                 }
+                sanitize_ascii(g_rf_activities[idx].id, sizeof(g_rf_activities[idx].id));
+                sanitize_ascii(g_rf_activities[idx].name, sizeof(g_rf_activities[idx].name));
                 g_rf_activities[idx].icon_id = icon_id;
                 map_icon_type_to_str(itype, g_rf_activities[idx].name, g_rf_activities[idx].icon, sizeof(g_rf_activities[idx].icon));
                 if (idx >= g_rf_activity_count) g_rf_activity_count = idx + 1;
@@ -233,16 +248,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_DEVICE_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-                g_sync_chunk_count = 0;
-                g_sync_total = 0;
-                pthread_mutex_unlock(&g_sync_lock);
-            }
-            g_sync_last_packet_ms = get_monotonic_ms();
-            g_sync_chunk_count++;
+            sync_touch_chunk();
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_DEVICES) {
                 uint8_t itype = 0;
@@ -263,6 +269,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     strncpy(g_rf_devices[idx].name, tmp_name, sizeof(g_rf_devices[0].name) - 1);
                     g_rf_devices[idx].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
                 }
+                sanitize_ascii(g_rf_devices[idx].id, sizeof(g_rf_devices[idx].id));
+                sanitize_ascii(g_rf_devices[idx].name, sizeof(g_rf_devices[idx].name));
                 g_rf_devices[idx].icon_id = icon_id;
                 map_icon_type_to_str(itype, g_rf_devices[idx].name, g_rf_devices[idx].icon, sizeof(g_rf_devices[idx].icon));
                 if (idx >= g_rf_device_count) g_rf_device_count = idx + 1;
@@ -277,19 +285,11 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
         case RF_MSG_DEVICE_CMD_CHUNK: {
             /* [0] device index, [1] command index, [2] command total, [3..24] name */
-            if (!g_is_syncing_config) {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-                g_sync_chunk_count = 0;
-                g_sync_total = 0;
-                pthread_mutex_unlock(&g_sync_lock);
-            }
-            g_sync_last_packet_ms = get_monotonic_ms();
-            g_sync_chunk_count++;
+            sync_touch_chunk();
             char cname[23] = {0};
             memcpy(cname, &f->payload[3], 22);
             if (f->payload[0] < MAX_RF_DEVICES && cname[0]) {
+                sanitize_ascii(cname, sizeof(cname));
                 store_rf_dev_cmd(f->payload[0], f->payload[1], cname);
             }
             rf_frame_t ack;
@@ -299,16 +299,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_BUTTON_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-                g_sync_chunk_count = 0;
-                g_sync_total = 0;
-                pthread_mutex_unlock(&g_sync_lock);
-            }
-            g_sync_last_packet_ms = get_monotonic_ms();
-            g_sync_chunk_count++;
+            sync_touch_chunk();
             uint8_t idx = f->payload[0];
             if (idx < MAX_RF_BUTTONS) {
                 g_rf_buttons[idx].context_type = f->payload[2];
@@ -316,6 +307,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_rf_buttons[idx].context_id[9] = '\0';
                 memcpy(g_rf_buttons[idx].label, &f->payload[12], 12);
                 g_rf_buttons[idx].label[12] = '\0';
+                sanitize_ascii(g_rf_buttons[idx].context_id, sizeof(g_rf_buttons[idx].context_id));
+                sanitize_ascii(g_rf_buttons[idx].label, sizeof(g_rf_buttons[idx].label));
                 g_rf_buttons[idx].btn_index = f->payload[1];
                 g_rf_buttons[idx].action_type = f->payload[24];
                 if (idx >= g_rf_button_count) g_rf_button_count = idx + 1;
@@ -343,16 +336,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_STEP_LIST_CHUNK: {
-            if (!g_is_syncing_config) {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = true;
-                g_sync_start_ms = get_monotonic_ms();
-                g_sync_chunk_count = 0;
-                g_sync_total = 0;
-                pthread_mutex_unlock(&g_sync_lock);
-            }
-            g_sync_last_packet_ms = get_monotonic_ms();
-            g_sync_chunk_count++;
+            sync_touch_chunk();
             uint8_t chunk_idx = f->payload[0];
             if (chunk_idx == 0) {
                 g_rf_step_count = 0;
@@ -546,24 +530,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
         case RF_MSG_UNPAIR_NOTIFY: {
             printf("[*] Remote: received UNPAIR_NOTIFY from Hub! Unpairing...\n");
-            g_pairing_state = 0;
-            g_rf_link_connected = false;
-            pthread_mutex_lock(&g_rf_write_mutex);
-            uint8_t enter_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x01, 0x00, 0x00};
-            if (write(g_rf_fd, enter_test, sizeof(enter_test)) < 0) {}
-            usleep(50000);
-            uint8_t clr_pipe20[20] = {0x11, 0xFF, 0x82, 0xB5, 0x20, 0};
-            if (write(g_rf_fd, clr_pipe20, sizeof(clr_pipe20)) < 0) {}
-            usleep(50000);
-            uint8_t clr_pipe30[20] = {0x11, 0xFF, 0x82, 0xB5, 0x30, 0};
-            if (write(g_rf_fd, clr_pipe30, sizeof(clr_pipe30)) < 0) {}
-            usleep(50000);
-            uint8_t exit_test[7] = {0x10, 0xFF, 0x80, 0xD0, 0x00, 0x00, 0x00};
-            if (write(g_rf_fd, exit_test, sizeof(exit_test)) < 0) {}
-            pthread_mutex_unlock(&g_rf_write_mutex);
+            rf_perform_unpair_cleanup(false);
             show_notice("Hub unpaired this remote", 4000);
-            g_current_view = VIEW_NOT_PAIRED;
-            g_screen_dirty = true;
             break;
         }
 

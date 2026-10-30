@@ -4,6 +4,7 @@
 
 static cJSON *g_cached_map_json = NULL;
 static time_t g_map_mtime = 0;
+static off_t g_map_size = 0;
 static btstack_timer_source_t g_remote_watchdog_timer;
 static bool g_remote_watchdog_active = false;
 static char g_active_remote_btn[64] = "";
@@ -149,7 +150,7 @@ char *read_entire_file(const char *path) {
 cJSON *get_cached_map(void) {
     struct stat st;
     if (stat(MAP_FILE, &st) != 0) return NULL;
-    if (g_cached_map_json && st.st_mtime == g_map_mtime) {
+    if (g_cached_map_json && st.st_mtime == g_map_mtime && st.st_size == g_map_size) {
         return g_cached_map_json;
     }
     if (g_cached_map_json) {
@@ -162,6 +163,7 @@ cJSON *get_cached_map(void) {
         free(buf);
     }
     g_map_mtime = st.st_mtime;
+    g_map_size = st.st_size;
     return g_cached_map_json;
 }
 
@@ -184,9 +186,18 @@ int is_bt_device_id(const char *target) {
     if (!target || !target[0]) return 0;
     if (strncmp(target, "bt", 2) == 0 || strcasecmp(target, "bluetooth") == 0 || strcasecmp(target, "bthid") == 0) return 1;
 
-    static char s_cached_id[64] = "";
-    static int s_cached_is_bt = 0;
-    if (strcmp(s_cached_id, target) == 0) return s_cached_is_bt;
+    #define BT_DEV_CACHE_SZ 4
+    static struct {
+        char id[64];
+        int is_bt;
+    } s_dev_cache[BT_DEV_CACHE_SZ];
+    static int s_cache_head = 0;
+
+    for (int i = 0; i < BT_DEV_CACHE_SZ; i++) {
+        if (s_dev_cache[i].id[0] && strcmp(s_dev_cache[i].id, target) == 0) {
+            return s_dev_cache[i].is_bt;
+        }
+    }
 
     int is_bt = 0;
     const char *dpath = "/data/harmony/config/devices.json";
@@ -265,8 +276,10 @@ int is_bt_device_id(const char *target) {
         fclose(f);
     }
 
-    strncpy(s_cached_id, target, sizeof(s_cached_id) - 1);
-    s_cached_is_bt = is_bt;
+    strncpy(s_dev_cache[s_cache_head].id, target, sizeof(s_dev_cache[s_cache_head].id) - 1);
+    s_dev_cache[s_cache_head].id[sizeof(s_dev_cache[s_cache_head].id) - 1] = '\0';
+    s_dev_cache[s_cache_head].is_bt = is_bt;
+    s_cache_head = (s_cache_head + 1) % BT_DEV_CACHE_SZ;
     return is_bt;
 }
 

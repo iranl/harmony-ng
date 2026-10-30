@@ -3,6 +3,7 @@
 #include "elite_rf.h"
 #include "elite_power.h"
 #include "elite_ui.h"
+#include "sha256.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,8 @@
 #include <sys/reboot.h>
 #include <time.h>
 #include <errno.h>
+
+static sha256_ctx_t s_ota_sha_ctx;
 
 void render_ota_overlay(void) {
     /* Header */
@@ -103,6 +106,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
             g_ota_received_bytes = 0;
             g_ota_total_chunks = tot_c;
             g_ota_received_chunks = 0;
+            sha256_init(&s_ota_sha_ctx);
             g_screen_dirty = true;
 
             rf_frame_t ack;
@@ -122,6 +126,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
             if (d_len > 0) {
                 fwrite(&f->payload[3], 1, d_len, g_ota_file);
+                sha256_update(&s_ota_sha_ctx, &f->payload[3], d_len);
                 g_ota_received_bytes += d_len;
                 g_ota_received_chunks++;
             }
@@ -147,6 +152,24 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
             printf("[+] RF OTA END received! Received %u bytes (%u chunks). Verifying...\n",
                    g_ota_received_bytes, g_ota_received_chunks);
+
+            uint8_t actual_digest[32] = {0};
+            sha256_final(actual_digest, &s_ota_sha_ctx);
+
+            /* Check integrity if Hub provided SHA-256 digest (type 0x01) */
+            if (f->payload[0] == 0x01) {
+                if (memcmp(&f->payload[1], actual_digest, 20) != 0) {
+                    printf("[-] OTA SHA-256 digest mismatch! Corrupted transfer or untrusted payload.\n");
+                    system("rm -rf /tmp/elite_ota_pkg /data/elite_ui.new /tmp/elite_ui.ota.gz 2>/dev/null || true");
+                    rf_frame_t ack;
+                    rf_build_ack(&ack, g_remote_slot, f->seq, 0x06);
+                    rf_send_frame(&ack);
+                    g_is_ota_updating = false;
+                    g_screen_dirty = true;
+                    return true;
+                }
+                printf("[+] OTA SHA-256 digest verified successfully!\n");
+            }
 
             system("rm -rf /tmp/elite_ota_pkg && mkdir -p /tmp/elite_ota_pkg");
             int tar_rc = system("tar -xzf /tmp/elite_ui.ota.gz -C /tmp/elite_ota_pkg 2>/dev/null || "

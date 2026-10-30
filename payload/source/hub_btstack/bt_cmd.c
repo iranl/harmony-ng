@@ -351,7 +351,7 @@ void init_cmd_socket(void) {
         g_cmd_sock_fd = -1;
         return;
     }
-    chmod(CMD_SOCK, 0666);
+    chmod(CMD_SOCK, 0660);
 
     btstack_run_loop_set_data_source_fd(&g_cmd_sock_ds, g_cmd_sock_fd);
     btstack_run_loop_set_data_source_handler(&g_cmd_sock_ds, &cmd_sock_process);

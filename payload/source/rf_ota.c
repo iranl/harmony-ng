@@ -2,6 +2,7 @@
 #include "rf_ota.h"
 #include "rf_spi.h"
 #include "rf_pairing.h"
+#include "sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,12 +136,17 @@ void *rf_ota_sender_worker(void *arg) {
     }
 
     /* 2. Stream RF_MSG_OTA_CHUNK frames */
+    sha256_ctx_t sha_ctx;
+    sha256_init(&sha_ctx);
+
     uint16_t c_idx = 0;
     uint32_t sent_bytes = 0;
     while (c_idx < tot_chunks && g_running) {
         uint8_t chunk_data[22];
         size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
         if (rd == 0) break;
+
+        sha256_update(&sha_ctx, chunk_data, rd);
 
         uint8_t chunk_payload[25] = {0};
         chunk_payload[0] = (uint8_t)(c_idx & 0xFF);
@@ -187,9 +193,14 @@ void *rf_ota_sender_worker(void *arg) {
 
     fclose(f);
 
-    /* 3. RF_MSG_OTA_END */
+    uint8_t ota_digest[32] = {0};
+    sha256_final(ota_digest, &sha_ctx);
+
+    /* 3. RF_MSG_OTA_END with SHA-256 digest */
     uint8_t end_payload[25] = {0};
-    rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 1);
+    end_payload[0] = 0x01; /* Algorithm 1 = SHA-256 (20-byte prefix) */
+    memcpy(&end_payload[1], ota_digest, 20);
+    rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 21);
     if (rf_send_frame_acked(&frame, 6000) != 0) {
         ota_set_status(-1, false, "OTA_END ACK timeout");
         return NULL;
@@ -197,7 +208,11 @@ void *rf_ota_sender_worker(void *arg) {
 
     if (g_ack_status != 0x00) {
         char err[128];
-        snprintf(err, sizeof(err), "Remote verification failed (status 0x%02X)", g_ack_status);
+        if (g_ack_status == 0x06) {
+            snprintf(err, sizeof(err), "Remote rejected OTA: SHA-256 integrity check failed");
+        } else {
+            snprintf(err, sizeof(err), "Remote verification failed (status 0x%02X)", g_ack_status);
+        }
         ota_set_status(-1, false, err);
         return NULL;
     }

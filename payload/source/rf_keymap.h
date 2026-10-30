@@ -21,6 +21,7 @@ void check_companion_timeouts(void);
 
 cJSON *get_elite_map(void);
 cJSON *get_remote_map(uint8_t slot);
+bool get_remote_screen_button(uint8_t slot, const char *act_or_dev, int btn_idx, char *out_dev, size_t dev_sz, char *out_cmd, size_t cmd_sz);
 int is_slot_direct_mode(uint8_t slot);
 cJSON *get_elite_direct_map(int slot);
 

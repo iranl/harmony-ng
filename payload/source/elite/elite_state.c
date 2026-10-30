@@ -60,14 +60,14 @@ bool g_has_hub_config = false;
 uint8_t g_tx_seq = 0;
 
 /* Activity switching lock overlay state */
-bool g_is_switching_activity = false;
+volatile bool g_is_switching_activity = false;
 char g_switching_target_id[16] = "-1";
 char g_switching_target_name[48] = "PowerOff";
 uint64_t g_switching_start_ms = 0;
 uint32_t g_switching_total_ms = 3500;
 
 /* Config Synchronization & RF OTA Lock overlay states */
-bool g_is_syncing_config = false;
+volatile bool g_is_syncing_config = false;
 uint64_t g_sync_start_ms = 0;
 uint64_t g_sync_last_packet_ms = 0;
 uint64_t g_sync_failed_ms = 0;
@@ -75,7 +75,7 @@ int g_sync_chunk_count = 0;
 int g_sync_total = 0;
 pthread_mutex_t g_sync_lock = PTHREAD_MUTEX_INITIALIZER;
 
-bool g_is_ota_updating = false;
+volatile bool g_is_ota_updating = false;
 uint64_t g_ota_start_ms = 0;
 uint64_t g_ota_last_packet_ms = 0;
 uint32_t g_ota_total_bytes = 0;
@@ -128,7 +128,7 @@ int g_nav_toggle_mode = 1;      /* 0 = Short Press, 1 = Long Press (Hold >= 500m
 bool g_usbeth_enabled = false;  /* Dynamic USB Ethernet mode */
 bool g_usb_connected = false;   /* Dynamic physical USB cable detection */
 
-bool g_screen_dirty = true;
+volatile bool g_screen_dirty = true;
 char g_notice_msg[64] = {0};
 uint64_t g_notice_until_ms = 0;
 

@@ -25,7 +25,7 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
-cJSON *get_remote_map(uint8_t slot) {
+static cJSON *get_remote_map_unlocked(uint8_t slot) {
     if (slot < 1 || slot > 2) slot = 1;
     int idx = slot - 1;
 
@@ -36,7 +36,6 @@ cJSON *get_remote_map(uint8_t slot) {
     struct stat st;
     if (stat(map_file, &st) != 0) return NULL;
 
-    pthread_mutex_lock(&g_map_lock);
     if (st.st_mtime != g_remote_map_mtime[idx] || !g_remote_map_cache[idx]) {
         if (g_remote_map_cache[idx]) {
             cJSON_Delete(g_remote_map_cache[idx]);
@@ -61,8 +60,50 @@ cJSON *get_remote_map(uint8_t slot) {
         g_remote_map_mtime[idx] = st.st_mtime;
         printf("[+] (Re)loaded remote slot %d map cache (%s, size=%ld bytes)\n", slot, map_file, (long)st.st_size);
     }
-    pthread_mutex_unlock(&g_map_lock);
     return g_remote_map_cache[idx];
+}
+
+cJSON *get_remote_map(uint8_t slot) {
+    pthread_mutex_lock(&g_map_lock);
+    cJSON *res = get_remote_map_unlocked(slot);
+    pthread_mutex_unlock(&g_map_lock);
+    return res;
+}
+
+bool get_remote_screen_button(uint8_t slot, const char *act_or_dev, int btn_idx, char *out_dev, size_t dev_sz, char *out_cmd, size_t cmd_sz) {
+    if (!act_or_dev || !out_dev || !out_cmd || dev_sz == 0 || cmd_sz == 0) return false;
+    out_dev[0] = '\0';
+    out_cmd[0] = '\0';
+    bool handled = false;
+
+    pthread_mutex_lock(&g_map_lock);
+    cJSON *map = get_remote_map_unlocked(slot);
+    if (map) {
+        cJSON *acts = cJSON_GetObjectItemCaseSensitive(map, "activities");
+        if (acts && cJSON_IsObject(acts)) {
+            cJSON *act_obj = cJSON_GetObjectItemCaseSensitive(acts, act_or_dev);
+            if (!act_obj && strcmp(act_or_dev, "-1") == 0) {
+                act_obj = cJSON_GetObjectItemCaseSensitive(acts, "-1");
+            }
+            if (act_obj && cJSON_IsObject(act_obj)) {
+                cJSON *sbtns = cJSON_GetObjectItemCaseSensitive(act_obj, "screen_buttons");
+                if (sbtns && cJSON_IsArray(sbtns)) {
+                    cJSON *item = cJSON_GetArrayItem(sbtns, btn_idx);
+                    if (item && cJSON_IsObject(item)) {
+                        cJSON *jdev = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
+                        cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(item, "command");
+                        if (jdev && jdev->valuestring && jcmd && jcmd->valuestring) {
+                            strncpy(out_dev, jdev->valuestring, dev_sz - 1);
+                            strncpy(out_cmd, jcmd->valuestring, cmd_sz - 1);
+                            handled = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_map_lock);
+    return handled;
 }
 
 cJSON *get_elite_map(void) {

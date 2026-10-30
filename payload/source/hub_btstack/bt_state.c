@@ -129,8 +129,7 @@ bool is_debug_log_enabled(void) {
 void log_msg(const char *msg) {
     struct stat lst;
     if (stat(LOG_FILE, &lst) == 0 && lst.st_size > LOG_MAX_BYTES) {
-        FILE *tf = fopen(LOG_FILE, "w");
-        if (tf) { fprintf(tf, "[truncated]\n"); fclose(tf); }
+        rename(LOG_FILE, LOG_FILE ".old");
     }
     FILE *f = fopen(LOG_FILE, "a");
     if (f) {

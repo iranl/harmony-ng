@@ -31,6 +31,13 @@ static const tz_mapping_t g_tz_mappings[] = {
 
 void expand_timezone(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
+    if (in == out) {
+        char tmp[64] = {0};
+        expand_timezone(in, tmp, sizeof(tmp));
+        strncpy(out, tmp, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
     if (!in || !in[0]) {
         snprintf(out, out_sz, "CET-1CEST,M3.5.0,M10.5.0/3");
         return;
@@ -76,7 +83,10 @@ void sync_time_from_rtc(void) {
         }
         fclose(ftz);
     }
-    expand_timezone(g_timezone_str, g_timezone_str, sizeof(g_timezone_str));
+    char tz_tmp[64] = {0};
+    expand_timezone(g_timezone_str, tz_tmp, sizeof(tz_tmp));
+    strncpy(g_timezone_str, tz_tmp, sizeof(g_timezone_str) - 1);
+    g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
     setenv("TZ", g_timezone_str, 1);
     tzset();
 
