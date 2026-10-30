@@ -147,6 +147,7 @@ static const char *get_mime_type(const char *path) {
     if (strcmp(dot, ".woff2") == 0) return "font/woff2";
     if (strcmp(dot, ".woff") == 0) return "font/woff";
     if (strcmp(dot, ".ttf") == 0) return "font/ttf";
+    if (strcmp(dot, ".wasm") == 0) return "application/wasm";
     return "application/octet-stream";
 }
 

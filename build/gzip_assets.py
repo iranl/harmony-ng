@@ -14,7 +14,7 @@ def main():
         sys.exit(1)
 
     targets = []
-    text_exts = ('.html', '.js', '.css', '.svg', '.json', '.xml', '.txt')
+    text_exts = ('.html', '.js', '.css', '.svg', '.json', '.xml', '.txt', '.wasm')
 
     idx_path = os.path.join(www_dir, "index.html")
     if os.path.isfile(idx_path):
