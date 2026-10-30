@@ -825,12 +825,12 @@ static void format_button_topic(const char *tpl, const char *default_prefix, con
         }
         size_t tlen = strlen(tpl);
         if (tpl[tlen - 1] == '/') {
-            snprintf(out, out_sz, "%s%s/state", tpl, safe_cmd);
+            snprintf(out, out_sz, "%s%s", tpl, safe_cmd);
         } else {
-            snprintf(out, out_sz, "%s/%s/state", tpl, safe_cmd);
+            snprintf(out, out_sz, "%s/%s", tpl, safe_cmd);
         }
     } else {
-        snprintf(out, out_sz, "%s/%s/%s/state", g_mqtt_base_topic, default_prefix, safe_cmd);
+        snprintf(out, out_sz, "%s/%s/%s", g_mqtt_base_topic, default_prefix, safe_cmd);
     }
 }
 
@@ -879,7 +879,7 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
     } else if (is_bt) {
         format_button_topic(g_mqtt_bt_topic, "remotes/bt", safe_cmd, topic, sizeof(topic));
     } else {
-        snprintf(topic, sizeof(topic), "%s/button/device/%s/state", g_mqtt_base_topic, safe_cmd);
+        snprintf(topic, sizeof(topic), "%s/button/device/%s", g_mqtt_base_topic, safe_cmd);
     }
 
     if (out_topic && out_topic_len > 0) {
@@ -890,8 +890,8 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
         *out_pulse_ms = (req_pulse_ms > 0) ? req_pulse_ms : 1000;
     }
 
-    mqtt_publish(topic, "ON", 0);
-    queue_pulse_off_ex(topic, "OFF", (req_pulse_ms > 0) ? req_pulse_ms : 1000);
+    mqtt_publish(topic, "1", 0);
+    queue_pulse_off_ex(topic, "0", (req_pulse_ms > 0) ? req_pulse_ms : 1000);
     return 0;
 }
 
