@@ -192,6 +192,18 @@ run_api_tests() {
     echo "=============================================="
 }
 
+if command -v gcc >/dev/null 2>&1; then
+    echo "[-] Running RF loopback binding verification..."
+    gcc -Wall -O2 -I"$REPO_ROOT/payload/source" \
+        -o "$HOST_BUILD_DIR/test_rf_loopback" \
+        "$SCRIPT_DIR/test_rf_loopback.c" \
+        "$REPO_ROOT/payload/source/rf_state.c" \
+        "$REPO_ROOT/payload/source/rf_api.c" \
+        "$REPO_ROOT/payload/source/cJSON.c" \
+        -lpthread -lm
+    "$HOST_BUILD_DIR/test_rf_loopback"
+fi
+
 if [ -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
     run_api_tests "$HOST_BUILD_DIR/hub_daemon_test"
 else
@@ -199,3 +211,4 @@ else
     file "$DAEMON_BIN" || true
     echo "[+] Dry-run logic verified via source audit and test harness."
 fi
+

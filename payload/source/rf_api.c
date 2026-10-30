@@ -31,7 +31,7 @@ void *api_server_worker(void *arg) {
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_port = htons(RF_API_PORT);
-    sin.sin_addr.s_addr = htonl(INADDR_ANY);
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
     if (bind(srv, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
         close(srv);
