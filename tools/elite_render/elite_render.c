@@ -26,7 +26,7 @@ static void usage(void) {
     fprintf(stderr,
         "usage: elite_render render|sheet|compare|rasterize [options] -o out.png\n"
         "  --root DIR        directory laid out like the remote's filesystem\n"
-        "  --view NAME       activities|commands|devices|settings|pairing|not-paired|sync (render)\n"
+        "  --view NAME       activities|commands|devices|device|settings|pairing|not-paired|sync (render)\n"
         "  --select N        selected list row (render)\n"
         "  --active ID       running activity ID\n"
         "  --icons DIR       activity icon directory on the remote's filesystem, or 'classic'\n"
