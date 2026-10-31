@@ -26,7 +26,7 @@ static void usage(void) {
     fprintf(stderr,
         "usage: elite_render render|sheet|compare|rasterize [options] -o out.png\n"
         "  --root DIR        directory laid out like the remote's filesystem\n"
-        "  --view NAME       activities|menu|hint|commands|devices|device|settings|pairing|not-paired|sync (render)\n"
+        "  --view NAME       activities|menu|hint|link|commands|devices|device|settings|pairing|not-paired|sync (render)\n"
         "  --select N        selected list row (render)\n"
         "  --active ID       running activity ID\n"
         "  --icons DIR       activity icon directory on the remote's filesystem, or 'classic'\n"
@@ -36,6 +36,8 @@ static void usage(void) {
         "  --usb             show USB power\n"
         "  --charging        show the battery charging\n"
         "  --no-hub          show the RF link as lost\n"
+        "  --link-loss PCT   share of link reports and Hub replies lost (default 0: four bars)\n"
+        "  --hub-silent      show the link up but the Hub not answering\n"
         "  --sync DONE/TOTAL config sync progress (with --view sync)\n"
         "  --set LABEL=DIR   icon set for compare (repeatable)\n"
         "  --scale N         integer upscale of the output (default 1)\n"
@@ -127,6 +129,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--usb")) { o.usb = true; }
         else if (!strcmp(a, "--charging")) { o.charging = true; }
         else if (!strcmp(a, "--no-hub")) { o.no_hub = true; }
+        else if (!strcmp(a, "--link-loss")) { TAKE(); o.link_loss = atoi(v); }
+        else if (!strcmp(a, "--hub-silent")) { o.hub_silent = true; }
         else if (!strcmp(a, "--sync")) { TAKE(); if (sscanf(v, "%d/%d", &o.sync_done, &o.sync_total) != 2) usage(); }
         else if (!strcmp(a, "--set")) { TAKE(); if (set_count < 16) sets[set_count++] = v; }
         else if (!strcmp(a, "--scale")) { TAKE(); scale = atoi(v) > 0 ? atoi(v) : 1; }

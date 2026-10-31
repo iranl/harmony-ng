@@ -47,6 +47,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
     switch (f->msg_type) {
         case RF_MSG_ACTIVITY_SYNC: {
+            if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
             char act_id[13] = {0};
             char act_name[24] = {0};
             if (f->payload[1] == '\0' || f->payload[2] == '\0' || f->payload[0] == '-') {
@@ -636,6 +637,7 @@ void *rf_rx_worker(void *arg) {
 
         if (n == 7 && pkt[0] == 0x10 && pkt[2] == 0x41) {
             bool cc2544_lost = (pkt[4] & 0x40) != 0;
+            link_note_status(!cc2544_lost, get_monotonic_ms());
             static uint64_t s_last_link_ok_ms = 0;
             if (!cc2544_lost) {
                 s_last_link_ok_ms = get_monotonic_ms();

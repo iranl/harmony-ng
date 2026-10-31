@@ -445,6 +445,16 @@ int main(int argc, char **argv) {
             g_screen_dirty = true;
         }
 
+        static uint64_t last_link_check_ms = 0;
+        static link_quality_t last_link = { LINK_NO_HUB, 0, -1, -1 };
+        if (g_screen_on && now_ms - last_link_check_ms >= (g_link_panel_open ? 500 : 1000)) {
+            last_link_check_ms = now_ms;
+            link_quality_t q;
+            link_quality(now_ms, &q);
+            if (g_link_panel_open || q.state != last_link.state || q.bars != last_link.bars) g_screen_dirty = true;
+            last_link = q;
+        }
+
         static int last_rendered_minute = -1;
         time_t cur_time = time(NULL);
         struct tm *tm_cur = localtime(&cur_time);
@@ -560,6 +570,7 @@ int main(int argc, char **argv) {
                     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) continue;
 
                     if (ev.value == 1 && ui_key_hint_dismiss()) continue;
+                    if (ev.value == 1) ui_link_panel_dismiss(); /* the key still acts */
                     /* The open menu takes the D-pad, OK and Back; releases pass through */
                     if (g_menu_open && ev.value != 0 && ui_menu_handle_key(ev.code)) continue;
 
@@ -697,6 +708,7 @@ int main(int argc, char **argv) {
                         if (!g_cap_buttons_enabled) continue;
                         printf("[*] Capacitive key pressed (event2): code=%d val=%d\n", ev.code, ev.value);
                         reset_idle_timer();
+                        if (ev.value == 1) ui_link_panel_dismiss();
                         handle_navigation_key(ev.code, ev.value);
                         continue;
                     }

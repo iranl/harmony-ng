@@ -6,7 +6,7 @@
 
 typedef struct {
     const char *root;    /* directory laid out like the remote's filesystem */
-    const char *view;    /* activities|menu|hint|commands|devices|device (the device at select)|settings|pairing|not-paired|sync */
+    const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync */
     const char *icons;   /* activity icon directory on the remote's filesystem, or "classic" */
     const char *active;  /* running activity ID */
     int select;
@@ -14,6 +14,8 @@ typedef struct {
     bool usb;
     bool charging;
     bool no_hub;
+    int link_loss;       /* percent of link reports and Hub replies lost; 0 shows four bars */
+    bool hub_silent;     /* the link is up but the Hub doesn't answer */
     int sync_done, sync_total;
     int minutes;         /* clock shown in the status bar, minutes after midnight */
 } render_options_t;

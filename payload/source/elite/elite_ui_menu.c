@@ -1,4 +1,4 @@
-/* The status bar menu (ADR-0002) and the one-time key hint (ADR-0001).
+/* The status bar menu (ADR-0002), the RF link panel (ADR-0012) and the one-time key hint (ADR-0001).
  * The menu opens from the gear at the left of the status bar, or from a long press of the
  * Activities key, and holds actions that have no physical key. */
 #include "elite_ui.h"
@@ -113,5 +113,46 @@ bool ui_key_hint_dismiss(void) {
     g_key_hint_pending = false;
     save_settings_conf();
     render_screen();
+    return true;
+}
+
+/* RF link details below the status bar, opened by tapping the link indicator */
+void render_link_panel(void) {
+    link_quality_t q;
+    uint64_t now = get_monotonic_ms();
+    link_quality(now, &q);
+
+    const char *msg = q.state == LINK_NO_HUB ? tr(STR_LINK_LOST) : q.state == LINK_HUB_SILENT ? tr(STR_LINK_HUB_SILENT) : NULL;
+    int y = UI_CONTENT_Y - 4, h = msg ? 124 : 104;
+    fb_fill_rect(0, y, FB_WIDTH, h, RGB_CARD);
+    fb_fill_rect(0, y + h - 1, FB_WIDTH, 1, RGB_DIVIDER);
+    fb_draw_text_aa(8, y + 8, tr(STR_LINK_TITLE), RGB_WHITE, &g_font_title);
+    int ry = y + 34;
+    if (msg) {
+        fb_draw_text_aa(8, ry, msg, RGB_RED, &g_font_main);
+        ry += 20;
+    }
+
+    char pct_up[8], pct_rep[8], age[16];
+    snprintf(pct_up, sizeof(pct_up), q.status_pct < 0 ? "-" : "%d%%", q.status_pct);
+    snprintf(pct_rep, sizeof(pct_rep), q.reply_pct < 0 ? "-" : "%d%%", q.reply_pct);
+    if (g_last_hub_frame_ms == 0) snprintf(age, sizeof(age), "-");
+    else if (now - g_last_hub_frame_ms < 10000) snprintf(age, sizeof(age), "%.1f s", (now - g_last_hub_frame_ms) / 1000.0);
+    else if (now - g_last_hub_frame_ms < 120000) snprintf(age, sizeof(age), "%d s", (int)((now - g_last_hub_frame_ms) / 1000));
+    else snprintf(age, sizeof(age), "%d min", (int)((now - g_last_hub_frame_ms) / 60000));
+
+    const char *labels[3] = { tr(STR_LINK_UP), tr(STR_LINK_REPLIES), tr(STR_LINK_LAST_FRAME) };
+    const char *values[3] = { pct_up, pct_rep, age };
+    for (int i = 0; i < 3; i++, ry += 20) {
+        fb_draw_text_aa(8, ry, labels[i], RGB_TEXT_MUTED, &g_font_main);
+        fb_draw_text_aa(FB_WIDTH - 8 - fb_text_width_aa(values[i], &g_font_main), ry, values[i], RGB_WHITE, &g_font_main);
+    }
+}
+
+/* Closes the link panel if it is open; returns true when it was */
+bool ui_link_panel_dismiss(void) {
+    if (!g_link_panel_open) return false;
+    g_link_panel_open = false;
+    g_screen_dirty = true;
     return true;
 }

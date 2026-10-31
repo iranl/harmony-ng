@@ -2,6 +2,7 @@
 #define HARMONY_ELITE_UI_H
 
 #include "elite_state.h"
+#include "elite_link.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,8 @@ extern "C" {
 typedef struct {
     int update_x, update_w;
     int nav_x, nav_w;
+    int link_x, link_w;
+    link_quality_t link;
 } header_layout_t;
 
 void show_notice(const char *msg, int duration_ms);
@@ -32,6 +35,8 @@ void render_screen(void);
 void render_header(void);
 void header_layout(header_layout_t *l);
 void render_key_hint(void);
+void render_link_panel(void);
+bool ui_link_panel_dismiss(void);
 void render_page_indicator(int page, int pages);
 void render_sync_overlay(void);
 void render_switching_view(void);

@@ -252,7 +252,21 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_KEY_HINT_DISMISS */
     { "Press any key to continue", "Taste druecken", "Appuyez sur une touche", "Druk op een toets", "Pulse una tecla", "Premi un tasto" },
     /* STR_HERO_HINT */
-    { "Use the remote's buttons", "Tasten der Fernbedienung", "Utilisez les touches", "Gebruik de knoppen", "Use los botones", "Usa i tasti" }
+    { "Use the remote's buttons", "Tasten der Fernbedienung", "Utilisez les touches", "Gebruik de knoppen", "Use los botones", "Usa i tasti" },
+    /* STR_HUB_SILENT */
+    { "HUB?", "HUB?", "HUB?", "HUB?", "HUB?", "HUB?" },
+    /* STR_LINK_TITLE */
+    { "RF link to the Hub", "Funk zum Hub", "Liaison radio au Hub", "Radioverbinding met Hub", "Enlace de radio al Hub", "Collegamento radio all'Hub" },
+    /* STR_LINK_UP */
+    { "Link up", "Verbunden", "Liaison active", "Verbonden", "Enlace activo", "Collegato" },
+    /* STR_LINK_REPLIES */
+    { "Hub replies", "Hub-Antworten", "Reponses du Hub", "Hub-antwoorden", "Respuestas del Hub", "Risposte dell'Hub" },
+    /* STR_LINK_LAST_FRAME */
+    { "Last from Hub", "Zuletzt vom Hub", "Dernier du Hub", "Laatst van Hub", "Ultimo del Hub", "Ultimo dall'Hub" },
+    /* STR_LINK_LOST */
+    { "Link lost", "Verbindung verloren", "Liaison perdue", "Verbinding verloren", "Enlace perdido", "Collegamento perso" },
+    /* STR_LINK_HUB_SILENT */
+    { "Hub is not answering", "Hub antwortet nicht", "Le Hub ne repond pas", "Hub antwoordt niet", "El Hub no responde", "L'Hub non risponde" }
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

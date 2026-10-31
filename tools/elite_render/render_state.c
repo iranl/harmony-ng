@@ -2,6 +2,7 @@
 #include "render_state.h"
 #include "elite_fb.h"
 #include "elite_config.h"
+#include "elite_link.h"
 
 #define KEYWORD_COUNT 17
 
@@ -33,11 +34,13 @@ static void set_view(const render_options_t *o) {
     g_is_syncing_config = false;
     g_menu_open = false;
     g_key_hint_pending = false;
-    if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0) {
+    g_link_panel_open = false;
+    if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
         g_current_view = VIEW_ACTIVITIES;
         g_selected_activity = o->select;
         g_menu_open = (strcmp(v, "menu") == 0);
-        g_key_hint_pending = !g_menu_open;
+        g_key_hint_pending = (strcmp(v, "hint") == 0);
+        g_link_panel_open = (strcmp(v, "link") == 0);
     } else if (strcmp(v, "commands") == 0) {
         g_current_view = VIEW_DEVICES;
         g_selected_device_cmd = o->select;
@@ -73,6 +76,19 @@ void render_load(const render_options_t *o) {
     load_rf_config();
     load_wallpaper_asset();
     g_rf_link_connected = !o->no_hub;
+    /* Samples behind the link indicator, as the remote records them over the last 30 s */
+    link_reset();
+    uint64_t now = get_monotonic_ms();
+    g_last_hub_frame_ms = o->hub_silent ? now - 14000 : now - 400;
+    if ((o->link_loss > 0 || o->hub_silent) && now > 30000) {
+        for (int i = 0; i < 30; i++) { /* a query every 800 ms, as the remote sends them */
+            uint64_t t = now - 25000 + i * 800;
+            bool lost = i % 10 < o->link_loss / 10;
+            link_note_status(o->hub_silent || !lost, t);
+            link_note_query((uint8_t)i, t);
+            if (!o->hub_silent && !lost) link_note_reply((uint8_t)i, t + 100);
+        }
+    }
     g_pairing_state = 2;
     g_initial_sync_received = true;
     g_battery_info.percent = (uint8_t)o->battery;

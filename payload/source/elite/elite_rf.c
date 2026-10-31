@@ -37,6 +37,7 @@ void rf_send_sync_query(void) {
     payload[0] = 0x01; /* activity only */
     rf_build_frame(&f, g_remote_slot, RF_MSG_SYNC_REQUEST, ++g_tx_seq, 0, payload, 1);
     rf_send_frame(&f);
+    link_note_query(f.seq, get_monotonic_ms());
     printf("[*] RF TX SYNC_REQUEST seq=%d slot=%d (byte1=0x%02X)\n", f.seq, f.dev_slot & 0x0F, f.dev_slot);
     fflush(stdout);
 }

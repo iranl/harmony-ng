@@ -27,16 +27,21 @@ void show_notice(const char *msg, int duration_ms) {
    NAV indicator, update badge. The gear sits alone at the left. */
 #define HDR_Y 9
 
-static int header_right_edge(void) {
-    int x = FB_WIDTH - 4 - fb_text_width_aa("00:00", &g_font_main); /* time */
-    x -= 6 + 20;                                                     /* battery */
-    if (strcmp(g_battery_info.powersource, "usb") == 0) x -= 2 + 18; /* USB */
-    x -= 4 + (g_rf_link_connected ? 8 : 54);                         /* RF link */
-    return x;
+#define LINK_BARS_W 15  /* four 3 px bars, 1 px apart */
+
+static const char *link_badge(const link_quality_t *q) {
+    return q->state == LINK_NO_HUB ? tr(STR_NO_HUB) : q->state == LINK_HUB_SILENT ? tr(STR_HUB_SILENT) : NULL;
 }
 
 void header_layout(header_layout_t *l) {
-    int x = header_right_edge();
+    int x = FB_WIDTH - 4 - fb_text_width_aa("00:00", &g_font_main); /* time */
+    x -= 6 + 20;                                                     /* battery */
+    if (strcmp(g_battery_info.powersource, "usb") == 0) x -= 2 + 18; /* USB */
+    link_quality(get_monotonic_ms(), &l->link);
+    const char *badge = link_badge(&l->link);
+    l->link_w = badge ? 6 + 8 * (int)strlen(badge) : LINK_BARS_W;
+    l->link_x = x - l->link_w;
+    x -= 4 + l->link_w;
     l->nav_x = -1;
     l->nav_w = 22;
     if (g_screen_nav_mode || !g_touch_enabled) {
@@ -90,17 +95,21 @@ void render_header(void) {
         fb_fill_rect(cx, cy, 1, 1, RGB_TEAL);
     }
 
-    int x = header_right_edge() + 4;
-    if (!g_rf_link_connected) {
-        fb_fill_rect(x, HDR_Y, 54, 16, RGB_RED);
-        fb_draw_rect(x, HDR_Y, 54, 16, RGB_WHITE);
-        fb_draw_text(x + 3, HDR_Y + 4, tr(STR_NO_HUB), RGB_WHITE, RGB_RED, 1);
-        x += 54;
+    int x = l.link_x;
+    const char *badge = link_badge(&l.link);
+    if (badge) {
+        fb_fill_rect(x, HDR_Y, l.link_w, 16, RGB_RED);
+        fb_draw_rect(x, HDR_Y, l.link_w, 16, RGB_WHITE);
+        fb_draw_text(x + 3, HDR_Y + 4, badge, RGB_WHITE, RGB_RED, 1);
     } else {
-        fb_fill_rect(x, HDR_Y + 4, 8, 8, RGB_TEAL);
-        fb_draw_rect(x, HDR_Y + 4, 8, 8, RGB_WHITE);
-        x += 8;
+        /* Signal bars, like Wi-Fi: one bar is amber */
+        uint16_t on = l.link.bars == 1 ? RGB_YELLOW : RGB_TEAL;
+        for (int b = 0; b < 4; b++) {
+            int h = 4 + 3 * b;
+            fb_fill_rect(x + 4 * b, HDR_Y + 14 - h, 3, h, b < l.link.bars ? on : RGB_CARD_BORDER);
+        }
     }
+    x += l.link_w;
 
     read_elite_battery();
     if (strcmp(g_battery_info.powersource, "usb") == 0) {
@@ -225,6 +234,7 @@ void render_frame(void) {
 
         if (g_menu_open) render_menu();
         else if (g_key_hint_pending && is_remote_paired()) render_key_hint();
+        else if (g_link_panel_open) render_link_panel();
     }
 
     if (g_notice_until_ms > get_monotonic_ms() && g_notice_msg[0]) {
