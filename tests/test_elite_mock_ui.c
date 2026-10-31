@@ -93,6 +93,13 @@ int main(void) {
     strncpy(g_active_activity_id, "1001", sizeof(g_active_activity_id));
     strncpy(g_active_activity_name, "Watch Apple TV", sizeof(g_active_activity_name));
 
+    /* Selecting the running activity opens its screen instead of switching again */
+    g_current_view = VIEW_ACTIVITIES;
+    tap(120, 80);
+    assert(!g_is_switching_activity);
+    assert(g_current_view == VIEW_DEVICES);
+    printf("[+] Selecting the running activity opened its screen\n");
+
     /* 6. Test Settings Navigation */
     printf("[-] Testing settings view and language cycling...\n");
     g_current_view = VIEW_SETTINGS;

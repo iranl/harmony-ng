@@ -37,8 +37,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "CONFIRM? PRESS OK", "BESTAETIGEN? OK", "CONFIRMER? APPUYEZ OK", "BEVESTIGEN? DRUK OK", "CONFIRMAR? PULSE OK", "CONFERMA? PREMI OK" },
     /* STR_ACTIVE */
     { "ACTIVE", "AKTIV", "ACTIF", "ACTIEF", "ACTIVO", "ATTIVO" },
-    /* STR_ACT_ALREADY_ACTIVE */
-    { "Activity already active", "Aktivitaet bereits aktiv", "Activite deja active", "Activiteit al actief", "Actividad ya activa", "Attivita gia attiva" },
     /* STR_PRESS_OK_TO_CONFIRM */
     { "Press OK or tap to confirm", "OK oder tippen zum Bestaetigen", "Appuyez OK pour confirmer", "Druk OK om te bevestigen", "Pulse OK para confirmar", "Premi OK per confermare" },
 

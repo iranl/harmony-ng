@@ -35,7 +35,6 @@ typedef enum {
     STR_SYNCING_WITH_HUB,
     STR_CONFIRM_PRESS_OK,
     STR_ACTIVE,
-    STR_ACT_ALREADY_ACTIVE,
     STR_PRESS_OK_TO_CONFIRM,
 
     /* Switching overlay */
