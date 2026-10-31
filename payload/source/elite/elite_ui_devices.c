@@ -174,10 +174,10 @@ void render_device_browser_view(void) {
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (idx == g_browse_sel);
         if (g_browse_dev >= 0 && idx == 0) {
-            char back[32];
+            char back[RF_NAME_SIZE + 2], fit[sizeof(back)];
             snprintf(back, sizeof(back), "< %s", g_rf_devices[g_browse_dev].name);
             if (is_sel) fb_fill_rect(8, y, FB_WIDTH - 16, card_h, RGB_CARD_SEL);
-            fb_draw_text_aa(14, y + 7, back, is_sel ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_title);
+            fb_draw_text_aa(14, y + 7, fb_fit_text_aa(fit, sizeof(fit), back, &g_font_title, FB_WIDTH - 14 - 14), is_sel ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_title);
             continue;
         }
         const rf_dev_cmd_t *c = (g_browse_dev >= 0) ? browser_cmd(idx) : NULL;
@@ -199,7 +199,9 @@ void render_device_browser_view(void) {
         }
 
         int text_x = has_icon ? 42 : 16;
-        fb_draw_text_aa(text_x, y + 9, label, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+        char fit[RF_NAME_SIZE];
+        fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, FB_WIDTH - 30 - text_x);
+        fb_draw_text_aa(text_x, y + 9, fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
         if (g_browse_dev < 0) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }

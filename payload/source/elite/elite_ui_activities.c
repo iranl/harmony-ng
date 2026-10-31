@@ -139,7 +139,8 @@ void render_activities_screen(void) {
         }
 
         uint16_t text_color = (is_sel || is_active || is_confirm_pending) ? RGB_WHITE : 0xD6DA;
-        fb_draw_text_aa(64, y + 10, g_activities[idx].name, text_color, &g_font_main);
+        char name[sizeof(g_activities[0].name)];
+        fb_draw_text_aa(64, y + 10, fb_fit_text_aa(name, sizeof(name), g_activities[idx].name, &g_font_main, FB_WIDTH - 30 - 64), text_color, &g_font_main);
 
         if (is_confirm_pending) {
             fb_draw_text_aa(64, y + 28, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW, &g_font_main);
@@ -168,7 +169,8 @@ void render_switching_view(void) {
     fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
     fb_draw_text_aa(22, card_y + 14, tr(STR_SWITCHING_TO), RGB_TEXT_MUTED, &g_font_main);
-    fb_draw_text_aa(22, card_y + 36, g_switching_target_name, RGB_WHITE, &g_font_title);
+    char name[sizeof(g_switching_target_name)];
+    fb_draw_text_aa(22, card_y + 36, fb_fit_text_aa(name, sizeof(name), g_switching_target_name, &g_font_title, FB_WIDTH - 22 - 22), RGB_WHITE, &g_font_title);
 
     char switch_icon[128] = {0};
     uint16_t act_icon_id = 0;

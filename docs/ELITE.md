@@ -177,7 +177,7 @@ Every device configured on the Hub can be controlled directly, without starting 
 - **Hub Mapping & Auto-Fallback**:
   - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
   - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
-- **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for full device names (up to 20 chars) without truncation.
+- **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for longer device names. Names longer than the list chunk holds arrive in `RF_MSG_NAME_TAIL_CHUNK` frames, up to 39 characters.
 - **Back**: Swipe left-to-right, tap the back row, or press `Prev Tab` (`KEY_PROG2`) / `Back` in NAV mode. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
 
 ---

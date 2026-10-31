@@ -120,7 +120,7 @@ typedef struct {
 
 typedef struct {
     char id[13];
-    char name[24];
+    char name[RF_NAME_SIZE];
     char icon[24];
     uint16_t icon_id;
     uint8_t dev_count;            /* devices the activity uses, from RF_MSG_ACT_DEVICES_CHUNK */
@@ -129,7 +129,7 @@ typedef struct {
 
 typedef struct {
     char id[8];
-    char name[24];
+    char name[RF_NAME_SIZE];
     char icon[24];
     uint16_t icon_id;
 } rf_device_t;

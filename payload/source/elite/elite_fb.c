@@ -169,6 +169,20 @@ int fb_text_width_aa(const char *text, const font_aa_t *font) {
     return w;
 }
 
+/* Copies text into out (at least 4 bytes), cut and ended with "..." when wider than max_w */
+const char *fb_fit_text_aa(char *out, size_t size, const char *text, const font_aa_t *font, int max_w) {
+    snprintf(out, size, "%s", text ? text : "");
+    if (fb_text_width_aa(out, font) <= max_w) return out;
+    size_t n = strlen(out);
+    if (n + 4 > size) n = size - 4;
+    for (;;) {
+        while (n > 0 && out[n - 1] == ' ') n--;
+        strcpy(out + n, "...");
+        if (n == 0 || fb_text_width_aa(out, font) <= max_w) return out;
+        n--;
+    }
+}
+
 void fb_draw_text_aa(int x, int y, const char *text, uint16_t fg_color, const font_aa_t *font) {
     if (!text || !font) return;
     int pen_x = x;

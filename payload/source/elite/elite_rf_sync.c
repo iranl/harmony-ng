@@ -297,6 +297,37 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_NAME_TAIL_CHUNK: {
+            /* [0] 0 = activity, 1 = device, [1] index, [2] offset in the name, [3..24] name bytes */
+            sync_touch_chunk();
+            char *name = NULL;
+            size_t size = 0;
+            if (f->payload[0] == 0 && f->payload[1] < MAX_RF_ACTIVITIES) {
+                name = g_rf_activities[f->payload[1]].name;
+                size = sizeof(g_rf_activities[0].name);
+            } else if (f->payload[0] == 1 && f->payload[1] < MAX_RF_DEVICES) {
+                name = g_rf_devices[f->payload[1]].name;
+                size = sizeof(g_rf_devices[0].name);
+            }
+            if (name) {
+                size_t off = f->payload[2];
+                size_t len = strlen(name);
+                if (off > len) off = len; /* never leave a gap if an earlier part was lost */
+                if (off < size - 1) {
+                    size_t n = size - 1 - off;
+                    if (n > 22) n = 22;
+                    memcpy(name + off, &f->payload[3], n);
+                    name[off + n] = '\0';
+                    sanitize_ascii(name, size);
+                }
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            g_screen_dirty = true;
+            break;
+        }
+
         case RF_MSG_DEVICE_CMD_CHUNK: {
             /* [0] device index, [1] command index, [2] command total, [3..24] name */
             sync_touch_chunk();
