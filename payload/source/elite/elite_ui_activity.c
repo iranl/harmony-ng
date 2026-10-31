@@ -25,7 +25,7 @@ static void large_icon_path(const char *small, char *out, size_t len) {
 
 static void draw_centered(int y, const char *text, uint16_t color, const font_aa_t *font) {
     char fit[64];
-    fb_fit_text_aa(fit, sizeof(fit), text, font, FB_WIDTH - 44);
+    fb_fit_text_aa(fit, sizeof(fit), text, font, FB_WIDTH - 16);
     fb_draw_text_aa((FB_WIDTH - fb_text_width_aa(fit, font)) / 2, y, fit, color, font);
 }
 
@@ -37,9 +37,7 @@ bool render_activity_hero(void) {
     }
     if (!act || strcmp(g_active_activity_id, "-1") == 0) return false;
 
-    int x = 10, y = UI_CONTENT_Y + 8, w = FB_WIDTH - 20, h = FB_HEIGHT - y - 10;
-    fb_fill_rect(x, y, w, h, RGB_CARD);
-    fb_draw_rect(x, y, w, h, 0x2945);
+    int x = 0, y = UI_CONTENT_Y, w = FB_WIDTH, h = FB_HEIGHT - y;
 
     char icon[128] = {0}, large[160];
     resolve_activity_icon(act->icon_id, act->icon, act->name, icon, sizeof(icon));

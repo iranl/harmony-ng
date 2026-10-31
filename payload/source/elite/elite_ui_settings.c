@@ -130,21 +130,19 @@ static void render_settings_items(const char *title, int count, const char **lab
 static void render_settings_factory_reset(void) {
     int card_y = 38;
     int card_h = 130;
-    fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
-    fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, g_factory_reset_stage == 0 ? RGB_YELLOW : RGB_RED);
 
     if (g_factory_reset_stage == 0) {
-        fb_draw_text_aa(16, card_y + 10, "REVERT TO STOCK FIRMWARE", RGB_YELLOW, &g_font_title);
-        fb_draw_text_aa(16, card_y + 36, "Removes custom software", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(16, card_y + 56, "and restores official Logitech UI.", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(16, card_y + 82, "Configs preserved on flash:", RGB_TEAL, &g_font_main);
-        fb_draw_text_aa(16, card_y + 100, "/data/elite_settings.conf", RGB_GREEN, &g_font_main);
+        fb_draw_text_aa(8, card_y + 10, "REVERT TO STOCK FIRMWARE", RGB_YELLOW, &g_font_title);
+        fb_draw_text_aa(8, card_y + 36, "Removes custom software", RGB_WHITE, &g_font_main);
+        fb_draw_text_aa(8, card_y + 56, "and restores official Logitech UI.", RGB_WHITE, &g_font_main);
+        fb_draw_text_aa(8, card_y + 82, "Configs preserved on flash:", RGB_TEAL, &g_font_main);
+        fb_draw_text_aa(8, card_y + 100, "/data/elite_settings.conf", RGB_GREEN, &g_font_main);
     } else {
-        fb_draw_text_aa(16, card_y + 10, "ARE YOU ABSOLUTELY SURE?", RGB_RED, &g_font_title);
-        fb_draw_text_aa(16, card_y + 36, "Remote will restore stock startup,", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(16, card_y + 56, "sync flash, and reboot to Logitech.", RGB_WHITE, &g_font_main);
-        fb_draw_text_aa(16, card_y + 82, "Re-running install restores setups.", RGB_TEAL, &g_font_main);
-        fb_draw_text_aa(16, card_y + 100, "Device reboots immediately.", RGB_YELLOW, &g_font_main);
+        fb_draw_text_aa(8, card_y + 10, "ARE YOU ABSOLUTELY SURE?", RGB_RED, &g_font_title);
+        fb_draw_text_aa(8, card_y + 36, "Remote will restore stock startup,", RGB_WHITE, &g_font_main);
+        fb_draw_text_aa(8, card_y + 56, "sync flash, and reboot to Logitech.", RGB_WHITE, &g_font_main);
+        fb_draw_text_aa(8, card_y + 82, "Re-running install restores setups.", RGB_TEAL, &g_font_main);
+        fb_draw_text_aa(8, card_y + 100, "Device reboots immediately.", RGB_YELLOW, &g_font_main);
     }
 
     int btn_y = card_y + card_h + 10;
@@ -178,14 +176,12 @@ static void render_settings_factory_reset(void) {
 static void render_settings_reboot(void) {
     int card_y = 38;
     int card_h = 130;
-    fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
-    fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_YELLOW);
 
-    fb_draw_text_aa(16, card_y + 10, tr(STR_REBOOT_REMOTE), RGB_YELLOW, &g_font_title);
-    fb_draw_text_aa(16, card_y + 36, "Restart remote cleanly.", RGB_WHITE, &g_font_main);
-    fb_draw_text_aa(16, card_y + 56, "Saved configs and paired Hub", RGB_WHITE, &g_font_main);
-    fb_draw_text_aa(16, card_y + 76, "connection will be restored.", RGB_WHITE, &g_font_main);
-    fb_draw_text_aa(16, card_y + 100, "Device reboots in a few seconds.", RGB_TEAL, &g_font_main);
+    fb_draw_text_aa(8, card_y + 10, tr(STR_REBOOT_REMOTE), RGB_YELLOW, &g_font_title);
+    fb_draw_text_aa(8, card_y + 36, "Restart remote cleanly.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(8, card_y + 56, "Saved configs and paired Hub", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(8, card_y + 76, "connection will be restored.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(8, card_y + 100, "Device reboots in a few seconds.", RGB_TEAL, &g_font_main);
 
     int btn_y = card_y + card_h + 10;
     int btn_h = 38;
@@ -213,12 +209,10 @@ static void render_settings_reboot(void) {
 static void render_settings_suspend(void) {
     int card_y = 38;
     int card_h = 130;
-    fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
-    fb_draw_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_TEAL);
 
-    fb_draw_text_aa(16, card_y + 10, "SUSPEND TO RAM", RGB_TEAL, &g_font_title);
-    fb_draw_text_aa(16, card_y + 34, "Suspends Linux kernel to RAM.", RGB_WHITE, &g_font_main);
-    fb_draw_text_aa(16, card_y + 54, "Wakes on motion or button.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(8, card_y + 10, "SUSPEND TO RAM", RGB_TEAL, &g_font_title);
+    fb_draw_text_aa(8, card_y + 34, "Suspends Linux kernel to RAM.", RGB_WHITE, &g_font_main);
+    fb_draw_text_aa(8, card_y + 54, "Wakes on motion or button.", RGB_WHITE, &g_font_main);
 
     uint64_t now_ms = get_monotonic_ms();
     uint64_t elapsed_s = (g_suspend_countdown_start_ms > 0 && now_ms >= g_suspend_countdown_start_ms) ?
@@ -229,13 +223,13 @@ static void render_settings_suspend(void) {
     bool on_usb = (strcmp(g_battery_info.powersource, "usb") == 0);
 
     if (on_usb) {
-        fb_draw_text_aa(16, card_y + 78, "Notice: Unplug USB to suspend!", RGB_YELLOW, &g_font_main);
-        fb_draw_text_aa(16, card_y + 100, "(USB charging rejects RAM sleep)", RGB_TEXT_MUTED, &g_font_main);
+        fb_draw_text_aa(8, card_y + 78, "Notice: Unplug USB to suspend!", RGB_YELLOW, &g_font_main);
+        fb_draw_text_aa(8, card_y + 100, "(USB charging rejects RAM sleep)", RGB_TEXT_MUTED, &g_font_main);
     } else {
         char cdown[48];
         snprintf(cdown, sizeof(cdown), "Suspending in %d seconds...", remain_s);
-        fb_draw_text_aa(16, card_y + 78, cdown, RGB_GREEN, &g_font_title);
-        fb_draw_text_aa(16, card_y + 104, "Put remote down on table.", RGB_TEAL, &g_font_main);
+        fb_draw_text_aa(8, card_y + 78, cdown, RGB_GREEN, &g_font_title);
+        fb_draw_text_aa(8, card_y + 104, "Put remote down on table.", RGB_TEAL, &g_font_main);
     }
 
     int btn_y = card_y + card_h + 10;

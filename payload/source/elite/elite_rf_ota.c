@@ -82,15 +82,11 @@ void render_ota_overlay(void) {
     fb_draw_text_aa(14, 9, tr(STR_OTA_TITLE), RGB_YELLOW, &g_font_title);
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
-    /* Center Card */
     int card_y = 52;
-    int card_h = 216;
-    fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
-    fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_YELLOW);
 
     /* Title */
-    fb_draw_text_aa(22, card_y + 18, tr(STR_UPDATING_FIRMWARE), RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(22, card_y + 40, tr(STR_RECEIVING_OVER_RF), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 18, tr(STR_UPDATING_FIRMWARE), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(8, card_y + 40, tr(STR_RECEIVING_OVER_RF), RGB_TEXT_MUTED, &g_font_main);
 
     /* Progress Stats */
     char prog_str[48];
@@ -98,16 +94,16 @@ void render_ota_overlay(void) {
     if (pct > 100) pct = 100;
     snprintf(prog_str, sizeof(prog_str), "Progress: %d%% (%u / %u KB)",
              pct, g_ota_received_bytes / 1024, g_ota_total_bytes / 1024);
-    fb_draw_text_aa(22, card_y + 72, prog_str, RGB_YELLOW, &g_font_main);
+    fb_draw_text_aa(8, card_y + 72, prog_str, RGB_YELLOW, &g_font_main);
 
     char chunk_str[48];
     snprintf(chunk_str, sizeof(chunk_str), "Chunks: %u / %u",
              g_ota_received_chunks, g_ota_total_chunks);
-    fb_draw_text_aa(22, card_y + 96, chunk_str, RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 96, chunk_str, RGB_TEXT_MUTED, &g_font_main);
 
     /* Progress Bar */
-    int bar_x = 22;
-    int max_w = FB_WIDTH - 44;
+    int bar_x = 8;
+    int max_w = FB_WIDTH - 16;
     int bar_w = (int)((pct * max_w) / 100);
     fb_fill_rect(bar_x, card_y + 124, max_w, 10, RGB_BG);
     fb_draw_rect(bar_x, card_y + 124, max_w, 10, 0x2945);
@@ -115,8 +111,8 @@ void render_ota_overlay(void) {
         fb_fill_rect(bar_x, card_y + 124, bar_w, 10, RGB_YELLOW);
     }
 
-    fb_draw_text_aa(22, card_y + 148, tr(STR_DO_NOT_POWER_OFF), RGB_RED, &g_font_main);
-    fb_draw_text_aa(22, card_y + 172, tr(STR_KEEP_CLOSE_TO_HUB), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 148, tr(STR_DO_NOT_POWER_OFF), RGB_RED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 172, tr(STR_KEEP_CLOSE_TO_HUB), RGB_TEXT_MUTED, &g_font_main);
 
     /* Lock banner / stall indication */
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);

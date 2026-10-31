@@ -139,17 +139,16 @@ void render_page_indicator(int page, int pages) {
     fb_draw_text(FB_WIDTH - 6 - (int)strlen(pstr) * 8, FB_HEIGHT - 9, pstr, RGB_TEXT_MUTED, 0, 1);
 }
 
-/* One-time card after the dock was removed: navigation moved to the physical keys */
+/* One-time page over the content after the dock was removed: navigation moved to the physical keys */
 void render_key_hint(void) {
-    int x = 12, y = 70, w = FB_WIDTH - 24, h = 164;
-    fb_fill_rect(x, y, w, h, RGB_CARD);
-    fb_draw_rect(x, y, w, h, RGB_TEAL);
-    fb_draw_text_aa(x + 12, y + 12, tr(STR_KEY_HINT_TITLE), RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(x + 12, y + 44, tr(STR_KEY_HINT_ACTIVITIES), RGB_TEXT_MUTED, &g_font_main);
-    fb_draw_text_aa(x + 12, y + 66, tr(STR_KEY_HINT_DEVICES), RGB_TEXT_MUTED, &g_font_main);
-    fb_draw_text_aa(x + 12, y + 88, tr(STR_KEY_HINT_OFF), RGB_TEXT_MUTED, &g_font_main);
-    fb_draw_text_aa(x + 12, y + 110, tr(STR_KEY_HINT_MENU), RGB_TEXT_MUTED, &g_font_main);
-    fb_draw_text_aa(x + 12, y + 138, tr(STR_KEY_HINT_DISMISS), RGB_CYAN, &g_font_main);
+    int x = 8, y = UI_CONTENT_Y + 12;
+    fb_fill_rect(0, UI_CONTENT_Y - 4, FB_WIDTH, FB_HEIGHT - UI_CONTENT_Y + 4, RGB_CARD);
+    fb_draw_text_aa(x, y + 12, tr(STR_KEY_HINT_TITLE), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(x, y + 44, tr(STR_KEY_HINT_ACTIVITIES), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 66, tr(STR_KEY_HINT_DEVICES), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 88, tr(STR_KEY_HINT_OFF), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 110, tr(STR_KEY_HINT_MENU), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 138, tr(STR_KEY_HINT_DISMISS), RGB_CYAN, &g_font_main);
 }
 
 void render_sync_overlay(void) {
@@ -158,17 +157,14 @@ void render_sync_overlay(void) {
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     int card_y = 52;
-    int card_h = 216;
-    fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
-    fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    fb_draw_text_aa(22, card_y + 20, tr(STR_UPDATING_FROM_HUB), RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(22, card_y + 46, tr(STR_SYNCING_ACTS_MAPS), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 20, tr(STR_UPDATING_FROM_HUB), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(8, card_y + 46, tr(STR_SYNCING_ACTS_MAPS), RGB_TEXT_MUTED, &g_font_main);
 
     char items_str[48];
     snprintf(items_str, sizeof(items_str), "Acts: %d | Devs: %d | Btns: %d",
              g_rf_activity_count, g_rf_device_count, g_rf_button_count);
-    fb_draw_text_aa(22, card_y + 80, items_str, RGB_TEAL, &g_font_main);
+    fb_draw_text_aa(8, card_y + 80, items_str, RGB_TEAL, &g_font_main);
 
     char chunks_str[40];
     if (g_sync_total > 0) {
@@ -177,10 +173,10 @@ void render_sync_overlay(void) {
     } else {
         snprintf(chunks_str, sizeof(chunks_str), "Chunks received: %d", g_sync_chunk_count);
     }
-    fb_draw_text_aa(22, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
 
-    int bar_x = 22;
-    int max_w = FB_WIDTH - 44;
+    int bar_x = 8;
+    int max_w = FB_WIDTH - 16;
     fb_fill_rect(bar_x, card_y + 140, max_w, 8, RGB_BG);
     fb_draw_rect(bar_x, card_y + 140, max_w, 8, 0x2945);
     if (g_sync_total > 0) {
@@ -192,7 +188,7 @@ void render_sync_overlay(void) {
         fb_fill_rect(bar_x + pulse_pos, card_y + 140, 30, 8, RGB_CYAN);
     }
 
-    fb_draw_text_aa(22, card_y + 168, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 168, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
 
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
     fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SYNC), RGB_TEXT_MUTED, &g_font_main);

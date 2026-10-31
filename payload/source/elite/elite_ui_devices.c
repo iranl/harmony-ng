@@ -31,11 +31,9 @@ void render_devices_screen(void) {
 
     if (total <= 0) {
         if (render_activity_hero()) return;
-        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
-        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
-        fb_draw_text_aa(24, start_y + 75, tr(STR_FOR_THIS_ACTIVITY), RGB_TEXT_MUTED, &g_font_main);
+        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, start_y + 45, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, start_y + 65, tr(STR_FOR_THIS_ACTIVITY), RGB_TEXT_MUTED, &g_font_main);
         return;
     }
 
@@ -160,10 +158,8 @@ void render_device_browser_view(void) {
     if (g_browse_sel >= total) g_browse_sel = 0;
 
     if (total <= 0) {
-        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
-        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, tr(STR_NO_DEVICES), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_DEVICES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, start_y + 45, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
         return;
     }
 
