@@ -30,6 +30,7 @@ void render_devices_screen(void) {
     int total = get_active_dev_cmd_count();
 
     if (total <= 0) {
+        if (render_activity_hero()) return;
         fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
         fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
         fb_draw_text_aa(24, start_y + 30, tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);

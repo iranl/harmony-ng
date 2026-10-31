@@ -169,7 +169,7 @@ Every device configured on the Hub can be controlled directly, without starting 
   1. `Activities` key: the activity list. Holding it for 0.8 s opens the menu.
   2. `Devices` key: the Hub Device Browser, listing all devices configured on the Hub. Pressing it inside a device returns to the list.
   3. `Off` key: powers off the current activity.
-  4. Tapping the running activity on the activity list opens its screen buttons, as does starting an activity.
+  4. Tapping the running activity on the activity list opens its screen buttons, as does starting an activity. An activity without screen buttons shows a card with its icon, name and devices.
 - **Status bar**: the gear at the left opens the menu (`Settings`); the time is at the right. A NAV indicator appears while NAV mode is on or touch is disabled; tapping it turns NAV mode off.
 - **First start**: after the update, a card names the Activities, Devices and Off keys once; any key or tap dismisses it.
 - **Hub Device Browser**: Selecting a device lists all of its commands (7 per page) for touch execution, below a back row (`< Marantz`).

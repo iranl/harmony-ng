@@ -123,6 +123,8 @@ typedef struct {
     char name[24];
     char icon[24];
     uint16_t icon_id;
+    uint8_t dev_count;            /* devices the activity uses, from RF_MSG_ACT_DEVICES_CHUNK */
+    uint8_t devs[MAX_RF_DEVICES]; /* indexes into g_rf_devices */
 } rf_activity_t;
 
 typedef struct {

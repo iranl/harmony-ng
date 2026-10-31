@@ -47,6 +47,7 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite/elite_ui_devices.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_pairing.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_menu.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_activity.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings_actions.c" \
     "$REPO_ROOT/payload/source/elite_stock_icons.c" \

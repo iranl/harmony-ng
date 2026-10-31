@@ -54,6 +54,7 @@ typedef struct {
 typedef struct {
     char sw_version[32];
     uint8_t config_version;
+    uint8_t caps;             /* RF_CAP_* from the remote's VERSION_REPORT */
     uint64_t last_report_ms;
 } remote_version_t;
 

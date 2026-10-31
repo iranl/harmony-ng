@@ -255,20 +255,22 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t min = f->payload[1];
             uint8_t pat = f->payload[2];
             uint8_t cfg_ver = f->payload[3];
+            uint8_t caps = f->payload[4];
             int idx = slot - 1;
             snprintf(g_remote_versions[idx].sw_version, sizeof(g_remote_versions[idx].sw_version), "%u.%u.%u", maj, min, pat);
             g_remote_versions[idx].config_version = cfg_ver;
+            g_remote_versions[idx].caps = caps;
             g_remote_versions[idx].last_report_ms = get_monotonic_ms();
 
             char vpath[64];
             snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", slot);
             FILE *vf = fopen(vpath, "w");
             if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
-                        slot, g_remote_versions[idx].sw_version, cfg_ver, (long)time(NULL));
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                        slot, g_remote_versions[idx].sw_version, cfg_ver, caps, (long)time(NULL));
                 fclose(vf);
             }
-            printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d\n", slot, g_remote_versions[idx].sw_version, cfg_ver);
+            printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d, caps 0x%02X\n", slot, g_remote_versions[idx].sw_version, cfg_ver, caps);
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
@@ -413,6 +415,8 @@ int main(int argc, char **argv) {
                 if (vroot) {
                     cJSON *jv = cJSON_GetObjectItem(vroot, "version");
                     cJSON *jcv = cJSON_GetObjectItem(vroot, "config_version");
+                    cJSON *jcaps = cJSON_GetObjectItem(vroot, "caps");
+                    if (cJSON_IsNumber(jcaps)) g_remote_versions[slot - 1].caps = (uint8_t)jcaps->valueint;
                     if (jv && jv->valuestring) {
                         snprintf(g_remote_versions[slot - 1].sw_version, sizeof(g_remote_versions[slot - 1].sw_version), "%s", jv->valuestring);
                     }

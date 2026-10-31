@@ -214,8 +214,24 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate (target_type, size, md5) |
 | `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk (23 bytes payload) |
 | `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
+| `0x2B` | `RF_MSG_ACT_DEVICES_CHUNK` | Hub -> Remote | Devices one activity uses (ACK'd); sent only to remotes that report `RF_CAP_ACT_DEVICES` |
 
 ### 5.2 Key Payload Structures
+
+#### `RF_MSG_VERSION_REPORT` (`0x1A`)
+- `payload[0..2]`: Software version major, minor, patch
+- `payload[3]`: Config version the remote holds
+- `payload[4]`: Capabilities, a bit mask of `RF_CAP_*`. Older remotes send `0x00`.
+  - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
+
+The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/elite_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
+
+#### `RF_MSG_ACT_DEVICES_CHUNK` (`0x2B`)
+One frame per activity, after the device list in a config push:
+- `payload[0]`: Activity index, as in `RF_MSG_ACTIVITY_LIST_CHUNK`
+- `payload[1]`: Activity count
+- `payload[2]`: Device count `n` (at most 22)
+- `payload[3..3+n-1]`: Indexes into the device list of this push, from the activity's `deviceIds`
 
 #### `RF_MSG_SETTINGS_PUSH` (`0x0E`) & `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
 Both frames use a 17-byte standardized configuration payload:

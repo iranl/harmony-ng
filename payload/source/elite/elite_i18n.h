@@ -167,6 +167,9 @@ typedef enum {
     STR_KEY_HINT_MENU,
     STR_KEY_HINT_DISMISS,
 
+    /* Activity screen without screen buttons */
+    STR_HERO_HINT,
+
     STR_COUNT
 } elite_str_id_t;
 

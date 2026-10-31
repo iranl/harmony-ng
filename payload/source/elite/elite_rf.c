@@ -48,6 +48,9 @@ void rf_send_full_sync_request(void) {
     if (now - last_sync_req_ms < 5000) return;
     last_sync_req_ms = now;
 
+    /* A Hub that restarted may not know this remote's capabilities; it builds the push from them */
+    send_version_report_rf();
+
     rf_frame_t f;
     uint8_t payload[25] = {0};
     payload[0] = 0x02; /* full config */
@@ -383,7 +386,8 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 4);
+    payload[4] = RF_CAP_ACT_DEVICES;
+    rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);
 }

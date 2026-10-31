@@ -94,6 +94,8 @@ void *config_push_worker(void *arg) {
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
+        char dev_ids[16][8];  /* deviceIds, matched to the device list in section 3a */
+        int dev_id_count;
     } acts[16];
     int act_count = 0;
 
@@ -159,6 +161,18 @@ void *config_push_worker(void *arg) {
                                     acts[act_count].icon_id = icon_id;
                                     strncpy(acts[act_count].icon_name, custom_name, sizeof(acts[0].icon_name) - 1);
                                     acts[act_count].icon_name[sizeof(acts[0].icon_name) - 1] = '\0';
+
+                                    acts[act_count].dev_id_count = 0;
+                                    cJSON *j_devs = cJSON_GetObjectItem(act_obj, "deviceIds");
+                                    cJSON *j_dev = NULL;
+                                    cJSON_ArrayForEach(j_dev, j_devs) {
+                                        if (acts[act_count].dev_id_count >= 16) break;
+                                        char *d = acts[act_count].dev_ids[acts[act_count].dev_id_count];
+                                        if (cJSON_IsNumber(j_dev)) snprintf(d, 8, "%d", j_dev->valueint);
+                                        else if (cJSON_IsString(j_dev)) snprintf(d, 8, "%s", j_dev->valuestring);
+                                        else continue;
+                                        acts[act_count].dev_id_count++;
+                                    }
 
                                     act_count++;
                                 }
@@ -294,6 +308,30 @@ void *config_push_worker(void *arg) {
             payload[23] = (uint8_t)(devs[i].icon_id & 0xFF);
             payload[24] = (uint8_t)((devs[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
+            push_queue_add(&queue[t], &f);
+        }
+    }
+
+    /* 3a. The devices each activity uses, as indexes into the device list, for the activity
+       screen; only remotes that report RF_CAP_ACT_DEVICES understand this frame */
+    for (int t = 0; t < num_targets; t++) {
+        uint8_t target_slot = target_slots[t];
+        if (target_slot < 1 || target_slot > 2 || !(g_remote_versions[target_slot - 1].caps & RF_CAP_ACT_DEVICES)) continue;
+        for (int i = 0; i < act_count; i++) {
+            uint8_t payload[26] = {0};
+            payload[0] = (uint8_t)i;
+            payload[1] = (uint8_t)act_count;
+            int n = 0;
+            for (int k = 0; k < acts[i].dev_id_count && n < 22; k++) {
+                for (int d = 0; d < dev_count; d++) {
+                    if (strcmp(acts[i].dev_ids[k], devs[d].id) == 0) {
+                        payload[3 + n++] = (uint8_t)d;
+                        break;
+                    }
+                }
+            }
+            payload[2] = (uint8_t)n;
+            rf_build_frame(&f, target_slot, RF_MSG_ACT_DEVICES_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
         }
     }
@@ -810,8 +848,8 @@ void *config_push_worker(void *arg) {
             snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", target_slot);
             FILE *vf = fopen(vpath, "w");
             if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
-                        target_slot, g_remote_versions[idx].sw_version, config_ver, (long)time(NULL));
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                        target_slot, g_remote_versions[idx].sw_version, config_ver, g_remote_versions[idx].caps, (long)time(NULL));
                 fclose(vf);
             }
         }
