@@ -93,10 +93,8 @@ void render_activities_screen(void) {
     int total = activity_list_count();
 
     if (total <= 0) {
-        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
-        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, start_y + 45, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
         return;
     }
 
@@ -167,13 +165,10 @@ void render_switching_view(void) {
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     int card_y = 48;
-    int card_h = 224;
-    fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
-    fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    fb_draw_text_aa(22, card_y + 14, tr(STR_SWITCHING_TO), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 14, tr(STR_SWITCHING_TO), RGB_TEXT_MUTED, &g_font_main);
     char name[sizeof(g_switching_target_name)];
-    fb_draw_text_aa(22, card_y + 36, fb_fit_text_aa(name, sizeof(name), g_switching_target_name, &g_font_title, FB_WIDTH - 22 - 22), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(8, card_y + 36, fb_fit_text_aa(name, sizeof(name), g_switching_target_name, &g_font_title, FB_WIDTH - 8 - 52), RGB_WHITE, &g_font_title);
 
     char switch_icon[128] = {0};
     uint16_t act_icon_id = 0;
@@ -187,7 +182,7 @@ void render_switching_view(void) {
     }
     resolve_activity_icon(act_icon_id, act_icon_key, g_switching_target_name, switch_icon, sizeof(switch_icon));
     if (switch_icon[0]) {
-        blit_png_file(FB_WIDTH - 20 - 52, card_y + 14, 44, 44, switch_icon);
+        blit_png_file(FB_WIDTH - 8 - 44, card_y + 14, 44, 44, switch_icon);
     }
 
     rf_act_step_t target_steps[32];
@@ -227,19 +222,19 @@ void render_switching_view(void) {
     } else {
         snprintf(step_hdr, sizeof(step_hdr), "%s", tr(STR_EXECUTING_ACTIONS));
     }
-    fb_draw_text_aa(22, card_y + 70, step_hdr, RGB_CYAN, &g_font_main);
+    fb_draw_text_aa(8, card_y + 70, step_hdr, RGB_CYAN, &g_font_main);
 
-    fb_draw_text_aa(22, card_y + 92, current_step_name, RGB_GREEN, &g_font_title);
+    fb_draw_text_aa(8, card_y + 92, current_step_name, RGB_GREEN, &g_font_title);
 
     char time_str[32];
     double cur_sec = (double)elapsed / 1000.0;
     double tot_sec = (double)total_ms / 1000.0;
     if (cur_sec > tot_sec) cur_sec = tot_sec;
     snprintf(time_str, sizeof(time_str), "Timing: %.1fs / %.1fs", cur_sec, tot_sec);
-    fb_draw_text_aa(22, card_y + 126, time_str, RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 126, time_str, RGB_TEXT_MUTED, &g_font_main);
 
-    int bar_x = 22;
-    int max_w = FB_WIDTH - 44;
+    int bar_x = 8;
+    int max_w = FB_WIDTH - 16;
     int bar_w = (int)((elapsed * max_w) / total_ms);
     if (bar_w > max_w) bar_w = max_w;
     fb_fill_rect(bar_x, card_y + 152, max_w, 10, RGB_BG);
@@ -248,7 +243,7 @@ void render_switching_view(void) {
         fb_fill_rect(bar_x, card_y + 152, bar_w, 10, RGB_TEAL);
     }
 
-    fb_draw_text_aa(22, card_y + 178, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 178, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
 
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
     fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SWITCH), RGB_TEXT_MUTED, &g_font_main);
