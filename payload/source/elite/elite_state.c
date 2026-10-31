@@ -134,6 +134,11 @@ uint64_t g_notice_until_ms = 0;
 
 uint64_t g_toggle_key_down_ms = 0;
 bool g_toggle_key_triggered = false;
+uint64_t g_act_key_down_ms = 0;
+bool g_act_key_long_fired = false;
+bool g_menu_open = false;
+int g_menu_sel = 0;
+bool g_key_hint_pending = true;
 
 volatile bool g_running = true;
 int g_fb_fd = -1;

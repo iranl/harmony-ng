@@ -240,7 +240,19 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_NOTICE_RESTORING */
     { "Restoring stock & rebooting...", "Werkseinstellung & Neustart...", "Restauration Logitech...", "Herstellen en herstarten...", "Restaurando y reiniciando...", "Ripristino e riavvio..." },
     /* STR_NOTICE_LANG_CHANGED */
-    { "Language changed", "Sprache geaendert", "Langue modifiee", "Taal gewijzigd", "Idioma cambiado", "Lingua modificata" }
+    { "Language changed", "Sprache geaendert", "Langue modifiee", "Taal gewijzigd", "Idioma cambiado", "Lingua modificata" },
+    /* STR_KEY_HINT_TITLE */
+    { "Navigation moved", "Navigation geaendert", "Navigation deplacee", "Navigatie verplaatst", "Navegacion movida", "Navigazione spostata" },
+    /* STR_KEY_HINT_ACTIVITIES */
+    { "Activities key: activity list", "Aktivitaeten-Taste: Liste", "Touche Activites: liste", "Activiteiten-toets: lijst", "Tecla Actividades: lista", "Tasto Attivita: elenco" },
+    /* STR_KEY_HINT_DEVICES */
+    { "Devices key: all devices", "Geraete-Taste: alle Geraete", "Touche Appareils: appareils", "Apparaten-toets: apparaten", "Tecla Dispositivos: todos", "Tasto Dispositivi: tutti" },
+    /* STR_KEY_HINT_OFF */
+    { "Off key: power off", "Aus-Taste: ausschalten", "Touche Off: eteindre", "Uit-toets: uitschakelen", "Tecla Off: apagar", "Tasto Off: spegni" },
+    /* STR_KEY_HINT_MENU */
+    { "Gear or hold Activities: menu", "Zahnrad/Halten: Menue", "Engrenage/maintien: menu", "Tandwiel/vasthouden: menu", "Engranaje/mantener: menu", "Ingranaggio/tieni: menu" },
+    /* STR_KEY_HINT_DISMISS */
+    { "Press any key to continue", "Taste druecken", "Appuyez sur une touche", "Druk op een toets", "Pulse una tecla", "Premi un tasto" }
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

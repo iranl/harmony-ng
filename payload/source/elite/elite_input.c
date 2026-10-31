@@ -149,86 +149,56 @@ void handle_screen_touch_tap(int x, int y) {
     int dy = y - g_touch_down_y;
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
-    if (is_tap && y < 38) {
-        if (x >= 106 && x <= 138) {
+    if (ui_key_hint_dismiss()) return;
+    if (g_menu_open) {
+        if (is_tap) ui_menu_handle_tap(x, y);
+        else { ui_menu_close(); render_screen(); }
+        return;
+    }
+
+    if (is_tap && y < UI_CONTENT_Y) {
+        header_layout_t l;
+        header_layout(&l);
+        if (x < HDR_GEAR_W) {
+            ui_menu_open();
+            render_screen();
+        } else if (l.nav_x >= 0 && x >= l.nav_x - 4 && x < l.nav_x + l.nav_w + 4) {
             g_screen_nav_mode = !g_screen_nav_mode;
-            printf("[*] Mode toggled by top header icon: %s\n", g_screen_nav_mode ? "NAV" : "DEV");
+            printf("[*] Mode toggled by status bar indicator: %s\n", g_screen_nav_mode ? "NAV" : "DEV");
             show_notice(g_screen_nav_mode ? "Screen Nav: ON" : "Screen Nav: OFF", 1500);
             render_screen();
-            return;
-        }
-        bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
-        if ((g_update_config_available || ota_avail) && x >= 70 && x <= 104) {
+        } else if (l.update_x >= 0 && x >= l.update_x - 4 && x < l.update_x + l.update_w + 4) {
             printf("[*] Touch tap on update badge -> jump to UPDATE & SYNC\n");
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_UPDATE;
             g_selected_sub_item = 0;
             render_screen();
-        } else if (g_current_view == VIEW_DEVICE_BROWSER && x < 90) {
+        }
+        return;
+    }
+
+    /* Horizontal swipes no longer cycle views (ADR-0001); inside a device they go back */
+    if (!is_tap && abs(dx) >= h_thresh && abs(dx) >= (abs(dy) * 3 / 2) && y < FB_HEIGHT) {
+        if (g_current_view == VIEW_DEVICE_BROWSER && dx > 0 && g_browse_dev >= 0) {
             device_browser_back();
             render_screen();
         }
         return;
     }
 
-    if (!is_tap && abs(dx) >= h_thresh && abs(dx) >= (abs(dy) * 3 / 2) && y < 280) {
-        if (!is_remote_paired()) {
-            if (g_current_view == VIEW_NOT_PAIRED) {
-                g_current_view = VIEW_SETTINGS;
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-            } else if (g_current_view == VIEW_SETTINGS) {
-                g_current_view = VIEW_NOT_PAIRED;
-            }
-            printf("[*] Swipe (dx=%d) [unpaired lock] -> view %d\n", dx, g_current_view);
-            render_screen();
-            return;
-        }
-        if (g_current_view == VIEW_DEVICE_BROWSER) {
-            if (dx > 0 && g_browse_dev >= 0) {
-                device_browser_back();
-                render_screen();
-                return;
-            }
-        }
-        if (dx > 0) {
-            if (g_current_view == VIEW_ACTIVITIES) g_current_view = VIEW_SETTINGS;
-            else if (g_current_view == VIEW_DEVICES) g_current_view = VIEW_ACTIVITIES;
-            else if (g_current_view == VIEW_DEVICE_BROWSER) g_current_view = VIEW_DEVICES;
-            else if (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) open_device_browser();
-            g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-            g_selected_sub_item = 0;
-            g_factory_reset_stage = 0;
-            printf("[*] Swipe right (dx=%d) -> view %d\n", dx, g_current_view);
-            render_screen();
-            return;
-        } else {
-            if (g_current_view == VIEW_ACTIVITIES) g_current_view = VIEW_DEVICES;
-            else if (g_current_view == VIEW_DEVICES) open_device_browser();
-            else if (g_current_view == VIEW_DEVICE_BROWSER) g_current_view = VIEW_SETTINGS;
-            else if (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) g_current_view = VIEW_ACTIVITIES;
-            g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-            g_selected_sub_item = 0;
-            g_factory_reset_stage = 0;
-            printf("[*] Swipe left (dx=%d) -> view %d\n", dx, g_current_view);
-            render_screen();
-            return;
-        }
-    }
-
     if (!is_tap && abs(dy) >= v_thresh && abs(dy) >= (abs(dx) * 3 / 2)) {
         if (dy < 0) {
             printf("[*] Swipe Up (dy=%d) -> next page\n", dy);
             if (g_current_view == VIEW_ACTIVITIES) {
-                int cur_page = g_selected_activity / 4;
-                if ((cur_page + 1) * 4 < activity_list_count()) g_selected_activity = (cur_page + 1) * 4;
+                int cur_page = g_selected_activity / ACT_PAGE_SIZE;
+                if ((cur_page + 1) * ACT_PAGE_SIZE < activity_list_count()) g_selected_activity = (cur_page + 1) * ACT_PAGE_SIZE;
                 else if (activity_list_count() > 0) g_selected_activity = activity_list_count() - 1;
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_page(1);
             } else if (g_current_view == VIEW_DEVICES) {
                 int tot = get_active_dev_cmd_count();
-                int cur_page = g_selected_device_cmd / 6;
-                if ((cur_page + 1) * 6 < tot) g_selected_device_cmd = (cur_page + 1) * 6;
+                int cur_page = g_selected_device_cmd / LIST_PAGE_SIZE;
+                if ((cur_page + 1) * LIST_PAGE_SIZE < tot) g_selected_device_cmd = (cur_page + 1) * LIST_PAGE_SIZE;
                 else if (tot > 0) g_selected_device_cmd = tot - 1;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
@@ -243,14 +213,14 @@ void handle_screen_touch_tap(int x, int y) {
         } else {
             printf("[*] Swipe Down (dy=%d) -> prev page\n", dy);
             if (g_current_view == VIEW_ACTIVITIES) {
-                int cur_page = g_selected_activity / 4;
-                if (cur_page > 0) g_selected_activity = (cur_page - 1) * 4;
+                int cur_page = g_selected_activity / ACT_PAGE_SIZE;
+                if (cur_page > 0) g_selected_activity = (cur_page - 1) * ACT_PAGE_SIZE;
                 else g_selected_activity = 0;
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_page(-1);
             } else if (g_current_view == VIEW_DEVICES) {
-                int cur_page = g_selected_device_cmd / 6;
-                if (cur_page > 0) g_selected_device_cmd = (cur_page - 1) * 6;
+                int cur_page = g_selected_device_cmd / LIST_PAGE_SIZE;
+                if (cur_page > 0) g_selected_device_cmd = (cur_page - 1) * LIST_PAGE_SIZE;
                 else g_selected_device_cmd = 0;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
@@ -267,93 +237,19 @@ void handle_screen_touch_tap(int x, int y) {
         return;
     }
 
-    if (y >= 280 && y < 320) {
-        if (g_confirm_pending_idx >= 0) {
-            g_confirm_pending_idx = -1;
-        }
-        g_confirm_pending_rf_code = 0;
-        ui_view_t prev_view = g_current_view;
-        bool has_acts = has_configured_activities();
-        if (has_acts) {
-            if (x < 60) {
-                if (!is_remote_paired()) {
-                    show_notice("Remote not paired - pair first", 2500);
-                    return;
-                }
-                g_current_view = VIEW_ACTIVITIES;
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            } else if (x < 120) {
-                if (!is_remote_paired()) {
-                    show_notice("Remote not paired - pair first", 2500);
-                    return;
-                }
-                g_current_view = VIEW_DEVICES;
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            } else if (x < 180) {
-                if (!is_remote_paired()) {
-                    show_notice("Remote not paired - pair first", 2500);
-                    return;
-                }
-                open_device_browser();
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            } else {
-                g_current_view = VIEW_SETTINGS;
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            }
-        } else {
-            /* 2 tabs when no activities: [ DEVICES ] [ SETTINGS ] */
-            if (x < 120) {
-                if (!is_remote_paired()) {
-                    show_notice("Remote not paired - pair first", 2500);
-                    return;
-                }
-                open_device_browser();
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            } else {
-                g_current_view = VIEW_SETTINGS;
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_sub_item = 0;
-                g_factory_reset_stage = 0;
-            }
-        }
-        if ((prev_view == VIEW_SETTINGS || prev_view == VIEW_PAIRING) && g_current_view != prev_view && g_settings_dirty) {
-            g_settings_dirty = false;
-        }
-        render_screen();
-        return;
-    }
-
-    if (y >= 320) {
+    /* Capacitive Activities and Devices keys below the display, on remotes that report them as touch */
+    if (y >= FB_HEIGHT) {
         g_confirm_pending_rf_code = 0;
         if (!is_remote_paired()) {
             show_notice("Remote not paired - pair first", 2500);
             return;
         }
-        bool has_acts = has_configured_activities();
-        if (x < 120) {
+        if (x < FB_WIDTH / 2 && has_configured_activities()) {
             printf("[*] Capacitive tap: Activities (x=%d, y=%d)\n", x, y);
-            if (has_acts) {
-                g_current_view = VIEW_ACTIVITIES;
-            } else {
-                open_device_browser();
-            }
+            g_current_view = VIEW_ACTIVITIES;
         } else {
             printf("[*] Capacitive tap: Devices (x=%d, y=%d)\n", x, y);
-            if (has_acts) {
-                g_current_view = VIEW_DEVICES;
-            } else {
-                open_device_browser();
-            }
+            open_device_browser();
         }
         render_screen();
         return;
@@ -361,9 +257,9 @@ void handle_screen_touch_tap(int x, int y) {
 
     if (!is_tap) return;
 
-    int start_y = 38;
+    int start_y = UI_CONTENT_Y;
     if (g_current_view == VIEW_ACTIVITIES) {
-        int card_h = 56, spacing = 4, page_size = 4;
+        int card_h = ACT_CARD_H, spacing = ACT_CARD_GAP, page_size = ACT_PAGE_SIZE;
         int page_start = (g_selected_activity / page_size) * page_size;
         for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
             int cy = start_y + i * (card_h + spacing);
@@ -376,17 +272,17 @@ void handle_screen_touch_tap(int x, int y) {
             }
         }
     } else if (g_current_view == VIEW_DEVICE_BROWSER) {
-        int page_start = (g_browse_sel / 6) * 6;
-        for (int i = 0; i < 6 && (page_start + i) < browser_item_count(); i++) {
-            int cy = start_y + i * (34 + 5);
-            if (y >= cy && y < cy + 34 + 5) {
+        int page_start = (g_browse_sel / LIST_PAGE_SIZE) * LIST_PAGE_SIZE;
+        for (int i = 0; i < LIST_PAGE_SIZE && (page_start + i) < browser_item_count(); i++) {
+            int cy = start_y + i * (LIST_ROW_H + LIST_ROW_GAP);
+            if (y >= cy && y < cy + LIST_ROW_H + LIST_ROW_GAP) {
                 device_browser_activate(page_start + i);
                 render_screen();
                 return;
             }
         }
     } else if (g_current_view == VIEW_DEVICES) {
-        int card_h = 34, spacing = 5, page_size = 6;
+        int card_h = LIST_ROW_H, spacing = LIST_ROW_GAP, page_size = LIST_PAGE_SIZE;
         int page_start = (g_selected_device_cmd / page_size) * page_size;
         int total = get_active_dev_cmd_count();
         for (int i = 0; i < page_size && (page_start + i) < total; i++) {
@@ -423,7 +319,7 @@ void handle_screen_touch_tap(int x, int y) {
                 }
             }
         } else if (g_settings_subview == SETTINGS_VIEW_UPDATE) {
-            int item_y_start = 118, item_h = 30, spacing = 3;
+            int item_y_start = SETTINGS_LIST_Y - 4 + 76 + 6, item_h = 30, spacing = 3; /* render_settings_update() */
             for (int i = 0; i < 5; i++) {
                 int cy = item_y_start + i * (item_h + spacing);
                 if (y >= cy && y < cy + item_h) {
@@ -434,7 +330,7 @@ void handle_screen_touch_tap(int x, int y) {
                 }
             }
         } else {
-            int start_y = 40;
+            int start_y = SETTINGS_LIST_Y;
             int count = get_settings_sub_count();
             int card_h = (count >= 7) ? 30 : ((count >= 6) ? 34 : 36);
             int spacing = (count >= 7) ? 3 : ((count >= 6) ? 4 : 5);
@@ -470,6 +366,22 @@ void handle_screen_touch_tap(int x, int y) {
 }
 
 void handle_navigation_key(int code, int value) {
+    if (code == 364 && value == 0) {
+        bool short_press = g_act_key_down_ms > 0 && !g_act_key_long_fired;
+        g_act_key_down_ms = 0;
+        if (!short_press || !g_cap_buttons_enabled) return;
+        if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
+        if (!is_remote_paired()) {
+            show_notice("Remote not paired - pair first", 2500);
+            return;
+        }
+        printf("[*] Capacitive key pressed: Activities (code=364)\n");
+        ui_menu_close();
+        if (has_configured_activities()) g_current_view = VIEW_ACTIVITIES;
+        else open_device_browser();
+        render_screen();
+        return;
+    }
     if (value != 1 && value != 2) return;
     reset_idle_timer();
 
@@ -487,29 +399,28 @@ void handle_navigation_key(int code, int value) {
         }
     }
 
+    /* Activities key: a short press opens the home screen when released; holding it for
+       ACT_KEY_LONG_MS opens the menu (the main loop watches the hold) */
     if (code == 364) {
         if (!g_cap_buttons_enabled) return;
-        if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
-        if (!is_remote_paired()) {
-            show_notice("Remote not paired - pair first", 2500);
-            return;
+        if (value == 1) {
+            if (ui_key_hint_dismiss()) return;
+            g_act_key_down_ms = get_monotonic_ms();
+            g_act_key_long_fired = false;
         }
-        if (g_current_view == VIEW_ACTIVITIES) return;
-        printf("[*] Capacitive key pressed: Activities (code=364)\n");
-        g_current_view = VIEW_ACTIVITIES;
-        render_screen();
         return;
     }
     if (code == 102) {
-        if (!g_cap_buttons_enabled) return;
+        if (!g_cap_buttons_enabled || value != 1) return;
+        if (ui_key_hint_dismiss()) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
         if (!is_remote_paired()) {
             show_notice("Remote not paired - pair first", 2500);
             return;
         }
-        if (g_current_view == VIEW_DEVICES) return;
         printf("[*] Capacitive key pressed: Devices (code=102)\n");
-        g_current_view = VIEW_DEVICES;
+        ui_menu_close();
+        open_device_browser();
         render_screen();
         return;
     }

@@ -159,6 +159,14 @@ typedef enum {
     STR_NOTICE_RESTORING,
     STR_NOTICE_LANG_CHANGED,
 
+    /* One-time key hint after the dock was removed */
+    STR_KEY_HINT_TITLE,
+    STR_KEY_HINT_ACTIVITIES,
+    STR_KEY_HINT_DEVICES,
+    STR_KEY_HINT_OFF,
+    STR_KEY_HINT_MENU,
+    STR_KEY_HINT_DISMISS,
+
     STR_COUNT
 } elite_str_id_t;
 

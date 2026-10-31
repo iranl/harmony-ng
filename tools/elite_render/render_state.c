@@ -31,7 +31,14 @@ static void keyword_icon_path(const char *icons, const char *keyword, char *out,
 static void set_view(const render_options_t *o) {
     const char *v = o->view ? o->view : "activities";
     g_is_syncing_config = false;
-    if (strcmp(v, "commands") == 0) {
+    g_menu_open = false;
+    g_key_hint_pending = false;
+    if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0) {
+        g_current_view = VIEW_ACTIVITIES;
+        g_selected_activity = o->select;
+        g_menu_open = (strcmp(v, "menu") == 0);
+        g_key_hint_pending = !g_menu_open;
+    } else if (strcmp(v, "commands") == 0) {
         g_current_view = VIEW_DEVICES;
         g_selected_device_cmd = o->select;
     } else if (strcmp(v, "devices") == 0) {
@@ -40,7 +47,7 @@ static void set_view(const render_options_t *o) {
     } else if (strcmp(v, "device") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = o->select;
-        g_browse_sel = 0;
+        g_browse_sel = 1;
     } else if (strcmp(v, "settings") == 0) {
         g_current_view = VIEW_SETTINGS;
     } else if (strcmp(v, "pairing") == 0) {
