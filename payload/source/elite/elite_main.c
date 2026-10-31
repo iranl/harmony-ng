@@ -368,6 +368,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (g_act_key_down_ms > 0 && !g_act_key_long_fired && now_ms - g_act_key_down_ms >= ACT_KEY_LONG_MS) {
+            g_act_key_long_fired = true;
+            printf("[*] Activities key held: opening the menu\n");
+            ui_menu_open();
+        }
+
         static uint64_t last_progress_render_ms = 0;
         if (g_is_switching_activity) {
             if (now_ms - g_switching_start_ms > (uint64_t)g_switching_total_ms + 400) {
@@ -552,6 +558,10 @@ int main(int argc, char **argv) {
                     }
 
                     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) continue;
+
+                    if (ev.value == 1 && ui_key_hint_dismiss()) continue;
+                    /* The open menu takes the D-pad, OK and Back; releases pass through */
+                    if (g_menu_open && ev.value != 0 && ui_menu_handle_key(ev.code)) continue;
 
                     /* Long-press toggle key latching */
                     if (g_touch_enabled && g_nav_toggle_mode == 1 && ev.code == g_nav_toggle_key) {

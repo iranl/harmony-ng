@@ -176,12 +176,6 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                                           sizeof(g_activities[0].icon_path));
                     g_activity_count++;
                 }
-                if (g_activity_count < MAX_ACTIVITIES) {
-                    strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-                    strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-                    strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-                    g_activity_count++;
-                }
                 if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
                     open_device_browser();
                 }

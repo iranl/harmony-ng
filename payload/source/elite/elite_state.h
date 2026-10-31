@@ -300,6 +300,11 @@ extern uint64_t g_notice_until_ms;
 
 extern uint64_t g_toggle_key_down_ms;
 extern bool g_toggle_key_triggered;
+extern uint64_t g_act_key_down_ms;   /* Activities key press time, 0 when released */
+extern bool g_act_key_long_fired;    /* the current press already opened the menu */
+extern bool g_menu_open;
+extern int g_menu_sel;
+extern bool g_key_hint_pending;      /* show the one-time Activities/Devices/Off key hint */
 
 extern volatile bool g_running;
 extern int g_fb_fd;

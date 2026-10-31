@@ -83,10 +83,10 @@ int activity_list_count(void) {
 }
 
 void render_activities_screen(void) {
-    int start_y = 38;
-    int card_h = 56;
-    int spacing = 4;
-    int page_size = 4;
+    int start_y = UI_CONTENT_Y;
+    int card_h = ACT_CARD_H;
+    int spacing = ACT_CARD_GAP;
+    int page_size = ACT_PAGE_SIZE;
     int total = activity_list_count();
 
     if (total <= 0) {
@@ -123,7 +123,7 @@ void render_activities_screen(void) {
         }
 
         int icon_x = 14;
-        int icon_y = y + 8;
+        int icon_y = y + 5;
         fb_fill_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? 0x2125 : 0x18C3);
         fb_draw_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? RGB_TEAL : 0x31A6);
 
@@ -134,36 +134,27 @@ void render_activities_screen(void) {
 
         if (!has_icon) {
             fb_draw_rect(icon_x, icon_y, 40, 40, is_sel ? RGB_TEAL : 0x32A9);
-            if (strcmp(g_activities[idx].id, "-1") == 0) {
-                fb_fill_rect(icon_x + 19, icon_y + 8, 2, 10, RGB_RED);
-                fb_draw_rect(icon_x + 12, icon_y + 12, 16, 16, RGB_RED);
-            } else {
-                fb_draw_rect(icon_x + 10, icon_y + 12, 20, 14, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-                fb_fill_rect(icon_x + 18, icon_y + 26, 4, 3, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-            }
+            fb_draw_rect(icon_x + 10, icon_y + 12, 20, 14, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
+            fb_fill_rect(icon_x + 18, icon_y + 26, 4, 3, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
         }
 
         uint16_t text_color = (is_sel || is_active || is_confirm_pending) ? RGB_WHITE : 0xD6DA;
-        fb_draw_text_aa(64, y + 13, g_activities[idx].name, text_color, &g_font_main);
+        fb_draw_text_aa(64, y + 10, g_activities[idx].name, text_color, &g_font_main);
 
         if (is_confirm_pending) {
-            fb_draw_text_aa(64, y + 33, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW, &g_font_main);
+            fb_draw_text_aa(64, y + 28, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW, &g_font_main);
         } else if (is_active) {
-            fb_draw_text_aa(64, y + 33, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
+            fb_draw_text_aa(64, y + 28, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
         }
 
         if (is_sel) {
-            if (!blit_png_file(FB_WIDTH - 24, y + 20, 10, 15, "/opt/luadraws/appscommon/asset/home/chevron.png")) {
-                fb_draw_text_aa(FB_WIDTH - 24, y + 19, ">", RGB_TEAL, &g_font_title);
+            if (!blit_png_file(FB_WIDTH - 24, y + 18, 10, 15, "/opt/luadraws/appscommon/asset/home/chevron.png")) {
+                fb_draw_text_aa(FB_WIDTH - 24, y + 17, ">", RGB_TEAL, &g_font_title);
             }
         }
     }
 
-    if (total_pages > 1) {
-        char pstr[16];
-        snprintf(pstr, sizeof(pstr), "%d/%d", cur_page, total_pages);
-        fb_draw_text_aa(FB_WIDTH - 32, start_y + page_size * (card_h + spacing) - 2, pstr, RGB_TEXT_MUTED, &g_font_main);
-    }
+    render_page_indicator(cur_page, total_pages);
 }
 
 void render_switching_view(void) {

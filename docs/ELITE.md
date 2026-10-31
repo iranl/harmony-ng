@@ -156,7 +156,7 @@ To toggle between `DEV` and `NAV` modes without touching the display, a physical
 - **Toggle Mode (`g_nav_toggle_mode`)**:
   - `0` (**SHORT**): Pressing the button toggles between `DEV` and `NAV` immediately.
   - `1` (**LONG**): Holding the button for $\ge 500\text{ ms}$ toggles between `DEV` and `NAV`. A quick tap (< 500 ms) sends the button's standard AV command over RF to the Hub.
-- **On-Screen Mode Pill**: Tapping the mode pill in the bottom right corner of the touchscreen (labels `NAV` or `DEV`) also toggles mode.
+- **Status bar NAV indicator**: While NAV mode is on, a NAV indicator shows in the status bar; tapping it returns to `DEV` mode.
 - **Auto-Lock**: If the touchscreen is disabled in Settings (`touch=0`), the remote automatically locks into `NAV` mode for the bottom buttons.
 
 ---
@@ -165,19 +165,20 @@ To toggle between `DEV` and `NAV` modes without touching the display, a physical
 
 Every device configured on the Hub can be controlled directly, without starting an activity:
 
-- **Bottom Navigation Dock**: 4 quick tabs across the bottom:
-  1. `ACTIVITIES`: Activity switcher and status.
-  2. `DEVICES`: On-screen touch buttons for devices belonging to the active activity.
-  3. `HUB DEVICES` (Center-Right): Dedicated Hub Device Browser view listing all configured devices on the Hub.
-  4. `SETTINGS`: Remote hardware and configuration settings.
-- **Top Header NAV/DEV Mode Indicator**: The NAV/DEV pill has moved from the footer dock to the top bar header. Tap the indicator icon (`NAV` D-pad vs `DEV` TV icon) to toggle bottom capacitive buttons between navigation and home-control/device functions.
-- **Hub Device Browser**: Selecting a device lists all of its commands (6 per page) for touch execution.
+- **Physical navigation keys**: the screen has no navigation dock; the keys below the display navigate:
+  1. `Activities` key: the activity list. Holding it for 0.8 s opens the menu.
+  2. `Devices` key: the Hub Device Browser, listing all devices configured on the Hub. Pressing it inside a device returns to the list.
+  3. `Off` key: powers off the current activity.
+  4. Tapping the running activity on the activity list opens its screen buttons, as does starting an activity.
+- **Status bar**: the gear at the left opens the menu (`Settings`); the time is at the right. A NAV indicator appears while NAV mode is on or touch is disabled; tapping it turns NAV mode off.
+- **First start**: after the update, a card names the Activities, Devices and Off keys once; any key or tap dismisses it.
+- **Hub Device Browser**: Selecting a device lists all of its commands (7 per page) for touch execution, below a back row (`< Marantz`).
 - **Physical Button Control in Device Browser**: When viewing any device in the Hub Device Browser, physical remote button presses (Volume, Mute, D-pad, Play/Pause, Channel, etc.) automatically transmit the target device ID to the Hub.
 - **Hub Mapping & Auto-Fallback**:
   - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
   - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
 - **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for full device names (up to 20 chars) without truncation.
-- **Back**: Swipe left-to-right, tap the `<` title, or press `Prev Tab` (`KEY_PROG2`) / `Back` in NAV mode. At the root device list, returning switches back to `DEVICES`.
+- **Back**: Swipe left-to-right, tap the back row, or press `Prev Tab` (`KEY_PROG2`) / `Back` in NAV mode. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
 
 ---
 

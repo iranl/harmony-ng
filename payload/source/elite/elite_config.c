@@ -409,18 +409,6 @@ void load_activities(void) {
     }
     cJSON_Delete(root);
 
-    if (g_activity_count > 0) {
-        bool has_power_off = false;
-        for (int i = 0; i < g_activity_count; i++) {
-            if (strcmp(g_activities[i].id, "-1") == 0) { has_power_off = true; break; }
-        }
-        if (!has_power_off && g_activity_count < MAX_ACTIVITIES) {
-            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-            g_activity_count++;
-        }
-    }
 }
 
 void init_act_triggers(void) {
@@ -702,12 +690,6 @@ void load_rf_config(void) {
             }
             g_activity_count++;
         }
-        if (g_activity_count < MAX_ACTIVITIES) {
-            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-            g_activity_count++;
-        }
     }
 }
 
@@ -741,6 +723,7 @@ void load_settings_conf(void) {
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
+            else if (strcmp(key, "key_hint") == 0) g_key_hint_pending = (val != 0);
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = elite_lang_from_code(sval);
             }
@@ -783,6 +766,7 @@ void save_settings_conf(void) {
     fprintf(f, "screen=1\n");
     fprintf(f, "no_screen=%d\n", g_no_screen_mode ? 1 : 0);
     fprintf(f, "log_level=%d\n", g_log_level);
+    fprintf(f, "key_hint=%d\n", g_key_hint_pending ? 1 : 0);
     fprintf(f, "nav_key=%d\n", g_nav_toggle_key);
     fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);

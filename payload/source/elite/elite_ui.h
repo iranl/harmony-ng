@@ -7,11 +7,32 @@
 extern "C" {
 #endif
 
+/* Screen layout below the status bar, shared by drawing and touch handling */
+#define UI_CONTENT_Y      38
+#define ACT_PAGE_SIZE     5   /* activity cards per page */
+#define ACT_CARD_H        50
+#define ACT_CARD_GAP      4
+#define LIST_PAGE_SIZE    7   /* command and device rows per page */
+#define LIST_ROW_H        34
+#define LIST_ROW_GAP      5
+#define SETTINGS_HEADING_Y 42 /* heading of a Settings page, below the status bar */
+#define SETTINGS_LIST_Y   66
+#define HDR_GEAR_W        34  /* touch width of the gear at the left of the status bar */
+#define ACT_KEY_LONG_MS   800 /* Activities key held this long opens the menu */
+
+/* Status bar elements that can be tapped; x < 0 when not shown */
+typedef struct {
+    int update_x, update_w;
+    int nav_x, nav_w;
+} header_layout_t;
+
 void show_notice(const char *msg, int duration_ms);
 void render_frame(void);
 void render_screen(void);
 void render_header(void);
-void render_footer(void);
+void header_layout(header_layout_t *l);
+void render_key_hint(void);
+void render_page_indicator(int page, int pages);
 void render_sync_overlay(void);
 void render_switching_view(void);
 
@@ -38,6 +59,14 @@ void execute_active_dev_cmd(int idx);
 void execute_settings_action(int idx);
 void execute_pairing_menu_opt(int idx);
 int get_settings_sub_count(void);
+
+/* Status bar menu (elite_ui_menu.c): opened from the gear or a long press of the Activities key */
+void ui_menu_open(void);
+void ui_menu_close(void);
+void render_menu(void);
+bool ui_menu_handle_key(int code);
+void ui_menu_handle_tap(int x, int y);
+bool ui_key_hint_dismiss(void);
 
 #ifdef __cplusplus
 }

@@ -12,6 +12,12 @@
 #include "elite/elite_power.h"
 #include "elite/elite_rf.h"
 
+static void tap(int x, int y) {
+    g_touch_down_x = x;
+    g_touch_down_y = y;
+    handle_screen_touch_tap(x, y);
+}
+
 int main(void) {
     printf("[*] Running Headless Elite UI Engine Mock Test...\n");
 
@@ -42,6 +48,7 @@ int main(void) {
     g_touch_enabled = true;
     g_rf_link_connected = true;
     g_confirm_activity = false;
+    g_key_hint_pending = false;
 
     /* 3. Render screen and verify buffer modified */
     printf("[-] Testing initial activities rendering...\n");
@@ -55,20 +62,27 @@ int main(void) {
     assert(non_zero > 1000);
     printf("[+] Render produced %d active pixels\n", non_zero);
 
-    /* 4. Test Header Mode Toggle Tap (x=120, y=20) */
-    printf("[-] Testing top header mode toggle tap...\n");
-    bool prev_nav = g_screen_nav_mode;
-    g_touch_down_x = 120;
-    g_touch_down_y = 20;
-    handle_screen_touch_tap(120, 20);
-    assert(g_screen_nav_mode != prev_nav);
-    printf("[+] Nav mode toggle successfully triggered\n");
+    /* 4. Status bar: the gear opens the menu, a tap outside it closes the menu without acting,
+          and the NAV indicator (shown while NAV mode is on) turns NAV mode off */
+    printf("[-] Testing status bar menu and NAV indicator taps...\n");
+    tap(10, 20);
+    assert(g_menu_open);
+    tap(200, 200);
+    assert(!g_menu_open);
+    assert(!g_is_switching_activity);
+    g_screen_nav_mode = true;
+    header_layout_t hl;
+    header_layout(&hl);
+    assert(hl.nav_x > 34);
+    tap(hl.nav_x + hl.nav_w / 2, 20);
+    assert(!g_screen_nav_mode);
+    header_layout(&hl);
+    assert(hl.nav_x < 0);
+    printf("[+] Gear opened and closed the menu; NAV indicator turned NAV mode off\n");
 
     /* 5. Test Activity Selection Tap (x=120, y=80 -> Card 0) */
     printf("[-] Testing activity card selection tap...\n");
-    g_touch_down_x = 120;
-    g_touch_down_y = 80;
-    handle_screen_touch_tap(120, 80);
+    tap(120, 80);
     assert(g_is_switching_activity == true);
     assert(strcmp(g_switching_target_name, "Watch Apple TV") == 0);
     printf("[+] Activity selection triggered switch to '%s'\n", g_switching_target_name);

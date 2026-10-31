@@ -95,10 +95,9 @@ static void render_settings_categories(void) {
 }
 
 static void render_settings_items(const char *title, int count, const char **labels, const char values[][32], const uint16_t *val_colors, const char **icons, int sel_idx) {
-    fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
-    fb_draw_text_aa(14, 10, title, RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(14, SETTINGS_HEADING_Y, title, RGB_CYAN, &g_font_title);
 
-    int start_y = 40;
+    int start_y = SETTINGS_LIST_Y;
     int card_h = (count >= 7) ? 30 : ((count >= 6) ? 34 : 36);
     int spacing = (count >= 7) ? 3 : ((count >= 6) ? 4 : 5);
 
@@ -129,11 +128,6 @@ static void render_settings_items(const char *title, int count, const char **lab
 }
 
 static void render_settings_factory_reset(void) {
-    fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
-    char title[32];
-    snprintf(title, sizeof(title), "RESET (%d/2)", g_factory_reset_stage + 1);
-    fb_draw_text_aa(14, 10, title, RGB_RED, &g_font_title);
-
     int card_y = 38;
     int card_h = 130;
     fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
@@ -182,8 +176,6 @@ static void render_settings_factory_reset(void) {
 }
 
 static void render_settings_reboot(void) {
-    render_header();
-
     int card_y = 38;
     int card_h = 130;
     fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
@@ -219,8 +211,6 @@ static void render_settings_reboot(void) {
 }
 
 static void render_settings_suspend(void) {
-    render_header();
-
     int card_y = 38;
     int card_h = 130;
     fb_fill_rect(8, card_y, FB_WIDTH - 16, card_h, RGB_CARD);
@@ -272,10 +262,9 @@ static void render_settings_suspend(void) {
 }
 
 static void render_settings_update(void) {
-    fb_fill_rect(0, 0, FB_WIDTH, 36, RGB_BLACK);
-    fb_draw_text_aa(14, 10, tr(STR_CAT_UPDATE), RGB_CYAN, &g_font_title);
+    fb_draw_text_aa(14, SETTINGS_HEADING_Y, tr(STR_CAT_UPDATE), RGB_CYAN, &g_font_title);
 
-    int start_y = 38;
+    int start_y = SETTINGS_LIST_Y - 4;
     int card_h = 76;
 
     fb_fill_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD);
