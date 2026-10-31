@@ -24,7 +24,9 @@ static void large_icon_path(const char *small, char *out, size_t len) {
 }
 
 static void draw_centered(int y, const char *text, uint16_t color, const font_aa_t *font) {
-    fb_draw_text_aa((FB_WIDTH - fb_text_width_aa(text, font)) / 2, y, text, color, font);
+    char fit[64];
+    fb_fit_text_aa(fit, sizeof(fit), text, font, FB_WIDTH - 44);
+    fb_draw_text_aa((FB_WIDTH - fb_text_width_aa(fit, font)) / 2, y, fit, color, font);
 }
 
 /* Returns false when no activity is running, so the caller can show its empty state */
@@ -56,7 +58,9 @@ bool render_activity_hero(void) {
             char dpath[128] = {0};
             bool has_icon = resolve_device_icon(d->icon_id, d->icon, d->name, d->id, dpath, sizeof(dpath)) &&
                             blit_png_file(x + 16, ry, 22, 22, dpath);
-            fb_draw_text_aa(x + (has_icon ? 46 : 16), ry + 3, d->name, RGB_TEXT_MUTED, &g_font_main);
+            int tx = x + (has_icon ? 46 : 16);
+            char fit[sizeof(d->name)];
+            fb_draw_text_aa(tx, ry + 3, fb_fit_text_aa(fit, sizeof(fit), d->name, &g_font_main, x + w - 16 - tx), RGB_TEXT_MUTED, &g_font_main);
         }
         if (act->dev_count > HERO_DEVICE_ROWS) {
             char more[24];

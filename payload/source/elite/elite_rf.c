@@ -386,7 +386,7 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    payload[4] = RF_CAP_ACT_DEVICES;
+    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES;
     rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);

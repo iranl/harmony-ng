@@ -11,6 +11,7 @@
 #include "elite/elite_input.h"
 #include "elite/elite_power.h"
 #include "elite/elite_rf.h"
+#include "elite/elite_rf_sync.h"
 
 static void tap(int x, int y) {
     g_touch_down_x = x;
@@ -198,6 +199,28 @@ int main(void) {
     assert(strcmp(test_steps[5].name, "Activity switched") == 0);
     assert(test_steps[5].delay_ms == 0);
     printf("[+] Switch -1 -> 2 timing verified: %ums across %d steps\n", total_b, count_b);
+
+    /* 9. A device name longer than its list chunk arrives whole in RF_MSG_NAME_TAIL_CHUNK frames */
+    const char *long_name = "Marantz AV Receiver in the Living Room!"; /* 39 bytes: chunk 16 + tails 22 + 1 */
+    assert(strlen(long_name) == RF_NAME_SIZE - 1);
+    rf_frame_t rf;
+    uint8_t p[25] = {0};
+    p[0] = 2; p[1] = 3; p[2] = 15; /* index, count, icon type */
+    memcpy(&p[3], "6", 1);
+    memcpy(&p[7], long_name, 16);
+    rf_build_frame(&rf, 1, RF_MSG_DEVICE_LIST_CHUNK, 1, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    assert(strcmp(g_rf_devices[2].name, "Marantz AV Recei") == 0);
+    for (size_t off = 16; off < strlen(long_name); off += 22) {
+        memset(p, 0, sizeof(p));
+        p[0] = 1; p[1] = 2; p[2] = (uint8_t)off;
+        strncpy((char *)&p[3], long_name + off, 22);
+        rf_build_frame(&rf, 1, RF_MSG_NAME_TAIL_CHUNK, (uint8_t)(2 + off), RF_FLAG_ACK_REQ, p, 25);
+        handle_hub_frame_remote(&rf);
+        handle_hub_frame_remote(&rf); /* a resent frame must not repeat the text */
+    }
+    assert(strcmp(g_rf_devices[2].name, long_name) == 0);
+    printf("[+] Long device name assembled: %s\n", g_rf_devices[2].name);
 
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");

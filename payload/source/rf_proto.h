@@ -59,9 +59,14 @@
 
 /* Config push additions, sent only to remotes that report the matching capability */
 #define RF_MSG_ACT_DEVICES_CHUNK   0x2B  /* Hub -> Remote: devices one activity uses (ACK'd) */
+#define RF_MSG_NAME_TAIL_CHUNK     0x2C  /* Hub -> Remote: rest of an activity or device name (ACK'd) */
 
 /* VERSION_REPORT payload[4]: what the remote's software understands (older remotes send 0) */
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
+#define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
+
+/* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
+#define RF_NAME_SIZE               40
 
 /* Flags */
 #define RF_FLAG_ACK_REQ  0x01
@@ -102,7 +107,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ACT_DEVICES_CHUNK) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_NAME_TAIL_CHUNK) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -112,7 +117,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_ACT_DEVICES_CHUNK) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_NAME_TAIL_CHUNK) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;

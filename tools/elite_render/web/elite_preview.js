@@ -40,12 +40,13 @@ export function remoteActivityId(id) {
 
 // Writes /data/elite_rf_config.json the way the remote stores the Hub's config push
 // (payload/source/rf_config_push.c, decoded by elite_rf_sync.c), including the field
-// lengths the RF frames cut names to. activities and devices are the Hub's
+// lengths the RF frames cut text to. activities and devices are the Hub's
 // /api/activities and /api/devices lists; eliteMap is a slot's /api/rf-mapping. Custom
 // icons (which the Hub numbers from 0x8001 and streams to the remote) aren't known here,
 // so those entries show their stock fallback.
 export function writeRemoteConfig(module, { activities = [], devices = [], eliteMap = {} }) {
-  // name: as the Hub reads it; stored: as the remote keeps it after the frame cut it
+  // name: as the Hub reads it; stored: as the list chunk cut it, which the remote picks the
+  // icon from before the rest of the name arrives (RF_MSG_NAME_TAIL_CHUNK)
   const iconFields = (icon, name, type, stored) => {
     const iconId = stockIconId(module, icon, name);
     return { icon: iconKeyword(module, icon, name, type, stored), ...(iconId ? { icon_id: iconId } : {}) };
@@ -57,7 +58,7 @@ export function writeRemoteConfig(module, { activities = [], devices = [], elite
     const stored = name.slice(0, String(a.id).length <= 2 ? 17 : 12); // short IDs leave 17 characters
     // The devices the activity uses, as indexes into the device list, as the Hub pushes them
     const devs = (a.deviceIds || []).map((id) => deviceIds.indexOf(String(id))).filter((i) => i >= 0).slice(0, 16);
-    return { id: remoteActivityId(a.id), name: stored, ...iconFields(a.icon || a.Icon, name, a.type, stored), ...(devs.length ? { devs } : {}) };
+    return { id: remoteActivityId(a.id), name: name.slice(0, 39), ...iconFields(a.icon || a.Icon, name, a.type, stored), ...(devs.length ? { devs } : {}) };
   });
   const devs = pushedDevices.map((d) => {
     const name = String(d.name || d.Name);
@@ -65,7 +66,7 @@ export function writeRemoteConfig(module, { activities = [], devices = [], elite
     const type = d.type || d.Type || d.deviceType || d.DeviceTypeDisplayName;
     return {
       id: String(d.id).slice(0, 4),
-      name: stored,
+      name: name.slice(0, 39),
       ...iconFields(d.icon || d.Icon, name, type, stored),
       commands: (d.commands || []).slice(0, 255).map((c) => String(typeof c === 'string' ? c : c.name || '').slice(0, 22)),
     };

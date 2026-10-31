@@ -24,6 +24,22 @@ static bool send_as_custom_icon(const char *name) {
     return !rf_activity_icon_match(name) && custom_icon_registry_has_file(name);
 }
 
+/* Queue the part of an activity (kind 0) or device (kind 1) name that did not fit in its
+   list chunk, 22 bytes per frame, for remotes that report RF_CAP_LONG_NAMES */
+static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx, const char *name, size_t sent) {
+    if (slot < 1 || slot > 2 || !(g_remote_versions[slot - 1].caps & RF_CAP_LONG_NAMES)) return;
+    for (size_t off = sent; off < strlen(name); off += 22) {
+        uint8_t payload[25] = {0};
+        rf_frame_t f;
+        payload[0] = kind;
+        payload[1] = (uint8_t)idx;
+        payload[2] = (uint8_t)off;
+        strncpy((char *)&payload[3], name + off, 22);
+        rf_build_frame(&f, slot, RF_MSG_NAME_TAIL_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
+        push_queue_add(q, &f);
+    }
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -90,7 +106,7 @@ void *config_push_worker(void *arg) {
     /* 2. Activities */
     struct {
         char id[13];
-        char name[24];
+        char name[RF_NAME_SIZE];
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
@@ -193,24 +209,28 @@ void *config_push_worker(void *arg) {
             payload[0] = (uint8_t)i;
             payload[1] = (uint8_t)act_count;
             payload[2] = acts[i].icon_type;
+            size_t name_room;
             if (strlen(acts[i].id) <= 2 || strcmp(acts[i].id, "-1") == 0) {
                 strncpy((char *)&payload[3], acts[i].id, 3);
-                strncpy((char *)&payload[6], acts[i].name, 17);
+                name_room = 17;
+                strncpy((char *)&payload[6], acts[i].name, name_room);
             } else {
                 strncpy((char *)&payload[3], acts[i].id, 8);
-                strncpy((char *)&payload[11], acts[i].name, 12);
+                name_room = 12;
+                strncpy((char *)&payload[11], acts[i].name, name_room);
             }
             payload[23] = (uint8_t)(acts[i].icon_id & 0xFF);
             payload[24] = (uint8_t)((acts[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_ACTIVITY_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
+            queue_name_tail(&queue[t], target_slot, 0, i, acts[i].name, name_room);
         }
     }
 
     /* 3. Devices */
     struct {
         char id[8];
-        char name[24];
+        char name[RF_NAME_SIZE];
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
@@ -253,8 +273,8 @@ void *config_push_worker(void *arg) {
                                 if (id_str[0]) {
                                     strncpy(devs[dev_count].id, id_str, 7);
                                     devs[dev_count].id[7] = '\0';
-                                    strncpy(devs[dev_count].name, jname->valuestring, 21);
-                                    devs[dev_count].name[21] = '\0';
+                                    strncpy(devs[dev_count].name, jname->valuestring, sizeof(devs[0].name) - 1);
+                                    devs[dev_count].name[sizeof(devs[0].name) - 1] = '\0';
                                     devs[dev_count].icon_type = rf_activity_icon_type(icon_str, jname->valuestring, type_str);
 
                                     uint16_t icon_id = 0;
@@ -309,6 +329,7 @@ void *config_push_worker(void *arg) {
             payload[24] = (uint8_t)((devs[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
+            queue_name_tail(&queue[t], target_slot, 1, i, devs[i].name, 16);
         }
     }
 
