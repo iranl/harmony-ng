@@ -169,6 +169,15 @@ typedef enum {
     /* Activity screen without screen buttons */
     STR_HERO_HINT,
 
+    /* RF link indicator and its panel */
+    STR_HUB_SILENT,
+    STR_LINK_TITLE,
+    STR_LINK_UP,
+    STR_LINK_REPLIES,
+    STR_LINK_LAST_FRAME,
+    STR_LINK_LOST,
+    STR_LINK_HUB_SILENT,
+
     STR_COUNT
 } elite_str_id_t;
 

@@ -12,7 +12,7 @@ FIRMWARE=(
     "$SRC/elite/elite_fb.c" "$SRC/elite/elite_state.c" "$SRC/elite/elite_config.c"
     "$SRC/elite/elite_ui.c" "$SRC/elite/elite_ui_activities.c" "$SRC/elite/elite_ui_devices.c"
     "$SRC/elite/elite_ui_settings.c" "$SRC/elite/elite_ui_settings_actions.c"
-    "$SRC/elite/elite_ui_pairing.c" "$SRC/elite/elite_ui_menu.c" "$SRC/elite/elite_ui_activity.c" "$SRC/elite/elite_rf_ota.c" "$SRC/elite/elite_i18n.c"
+    "$SRC/elite/elite_ui_pairing.c" "$SRC/elite/elite_ui_menu.c" "$SRC/elite/elite_ui_activity.c" "$SRC/elite/elite_link.c" "$SRC/elite/elite_rf_ota.c" "$SRC/elite/elite_i18n.c"
     "$SRC/elite_stock_icons.c" "$SRC/sha256.c" "$SRC/cJSON.c"
     "$HERE/host_platform.c" "$HERE/render_state.c"
 )

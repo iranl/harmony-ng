@@ -229,6 +229,47 @@ int main(void) {
     assert(strcmp(g_rf_devices[2].name, long_name) == 0);
     printf("[+] Long device name assembled: %s\n", g_rf_devices[2].name);
 
+    /* 9. RF link quality (ADR-0012): the lower of link reports and Hub replies sets the bars */
+    const uint64_t T = 1000000;
+    link_quality_t lq;
+    g_rf_link_connected = true;
+    link_reset();
+    link_quality(T, &lq);
+    assert(lq.state == LINK_OK && lq.bars == 4 && lq.status_pct == -1 && lq.reply_pct == -1);
+    for (int i = 0; i < 30; i++) {
+        uint64_t t = T - 25000 + i * 800;
+        link_note_status(true, t);
+        link_note_query((uint8_t)(200 + i), t);
+        /* Replies carry the low 4 bits of the query's sequence number */
+        if (i % 5 < 3) link_note_reply((uint8_t)((200 + i) & 0x0F), t + 300); /* 60 % answered in time */
+        else link_note_reply((uint8_t)((200 + i) & 0x0F), t + 1500);          /* too late to count */
+    }
+    link_note_query(99, T - 200); /* not yet due, unanswered: not counted */
+    link_quality(T, &lq);
+    assert(lq.status_pct == 100 && lq.reply_pct == 60);
+    assert(lq.state == LINK_OK && lq.bars == 2);
+
+    /* Link up but no reply for 10 s: the Hub is silent. On a link that is mostly lost, the
+       missing replies are the radio's fault, so it shows one bar instead */
+    link_reset();
+    for (int i = 0; i < 30; i++) {
+        link_note_status(true, T - 25000 + i * 800);
+        link_note_query((uint8_t)i, T - 25000 + i * 800);
+    }
+    link_quality(T, &lq);
+    assert(lq.state == LINK_HUB_SILENT);
+    link_reset();
+    for (int i = 0; i < 30; i++) {
+        link_note_status(i % 2 == 0, T - 25000 + i * 800);
+        link_note_query((uint8_t)i, T - 25000 + i * 800);
+    }
+    link_quality(T, &lq);
+    assert(lq.state == LINK_OK && lq.bars == 1);
+    g_rf_link_connected = false;
+    link_quality(T, &lq);
+    assert(lq.state == LINK_NO_HUB);
+    printf("[+] Link quality: bars from the weaker measure, late replies ignored, silent Hub detected\n");
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;

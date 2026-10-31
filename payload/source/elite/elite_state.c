@@ -139,6 +139,7 @@ bool g_act_key_long_fired = false;
 bool g_menu_open = false;
 int g_menu_sel = 0;
 bool g_key_hint_pending = true;
+bool g_link_panel_open = false;
 
 volatile bool g_running = true;
 int g_fb_fd = -1;

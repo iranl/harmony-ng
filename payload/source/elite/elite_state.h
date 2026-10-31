@@ -307,6 +307,7 @@ extern bool g_act_key_long_fired;    /* the current press already opened the men
 extern bool g_menu_open;
 extern int g_menu_sel;
 extern bool g_key_hint_pending;      /* show the one-time Activities/Devices/Off key hint */
+extern bool g_link_panel_open;       /* RF link details, opened from the status bar indicator */
 
 extern volatile bool g_running;
 extern int g_fb_fd;

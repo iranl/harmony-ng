@@ -150,6 +150,7 @@ void handle_screen_touch_tap(int x, int y) {
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
     if (ui_key_hint_dismiss()) return;
+    if (ui_link_panel_dismiss()) return;
     if (g_menu_open) {
         if (is_tap) ui_menu_handle_tap(x, y);
         else { ui_menu_close(); render_screen(); }
@@ -161,6 +162,9 @@ void handle_screen_touch_tap(int x, int y) {
         header_layout(&l);
         if (x < HDR_GEAR_W) {
             ui_menu_open();
+            render_screen();
+        } else if (x >= l.link_x - 4 && x < l.link_x + l.link_w + 4) {
+            g_link_panel_open = true;
             render_screen();
         } else if (l.nav_x >= 0 && x >= l.nav_x - 4 && x < l.nav_x + l.nav_w + 4) {
             g_screen_nav_mode = !g_screen_nav_mode;

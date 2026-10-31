@@ -45,7 +45,7 @@ $R compare --root ROOT --set "Classic=classic" --set "Phosphor=/data/themes/phos
 $R rasterize --svg icon.svg --size 40 --color '#F5F5FA' -o icon.png
 ```
 
-`render` options: `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--scale N`.
+`render` options: `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `link` (the RF link panel), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--link-loss PCT` (share of link reports and Hub replies lost), `--hub-silent` (link up, Hub not answering), `--scale N`.
 
 ## Vendored files
 
