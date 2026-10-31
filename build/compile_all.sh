@@ -100,6 +100,7 @@ build_daemon() {
         payload/source/ws_server.c \
         payload/source/mqtt_client.c \
         payload/source/sha256.c \
+        payload/source/uclibc_static_locks.c \
         $COMPAT_SRC -lpthread -lm
 }
 
@@ -132,7 +133,7 @@ build_sync() {
 build_rf() {
     echo "[-] Building hub_rf..."
     RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_api.c payload/source/rf_main.c payload/source/elite_stock_icons.c payload/source/custom_icon_registry.c payload/source/sha256.c"
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c $COMPAT_SRC -lpthread -lm
+    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
 }
 
 build_elite() {
@@ -157,7 +158,7 @@ build_elite() {
 
     mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
     echo "[-] Building elite_ui (ARM)..."
-    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/elite payload/source/elite/*.c payload/source/elite_stock_icons.c payload/source/cJSON.c payload/source/sha256.c -o "$REPO_ROOT/elite/bin/elite_ui" -lpthread -lm
+    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/elite payload/source/elite/*.c payload/source/elite_stock_icons.c payload/source/cJSON.c payload/source/sha256.c payload/source/uclibc_static_locks.c -o "$REPO_ROOT/elite/bin/elite_ui" -lpthread -lm
     echo "[-] Building elite_sync (ARM)..."
     "$ARM_CC" -static -Os -s -Wall payload/source/hub_sync.c -o "$REPO_ROOT/elite/bin/elite_sync"
     echo "[-] Packaging elite_ui.ota.gz (binary + scripts)..."
