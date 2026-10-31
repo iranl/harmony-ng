@@ -2,8 +2,8 @@
 # Builds the screen renderer from the firmware's drawing code.
 #   build.sh [OUT]          host CLI (default build/tmp/elite-render/elite_render)
 #   build.sh --wasm [DIR]   WebAssembly module and its loader (default build/tmp/elite-render/web,
-#                           which also gets the development page); the web UI build uses
-#                           android-app/public/assets
+#                           which also gets the development page); the web UIs use
+#                           android-app/public/assets and frontend/public/assets
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/../../payload/source"

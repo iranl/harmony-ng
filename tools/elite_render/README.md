@@ -12,10 +12,11 @@ It needs a C compiler and nothing else. The remote's hardware calls that the dra
 
 ```sh
 tools/elite_render/build.sh --wasm                            # needs Emscripten; writes build/tmp/elite-render/web
-tools/elite_render/build.sh --wasm android-app/public/assets  # the web UI's copy (CI and release builds do this)
+tools/elite_render/build.sh --wasm android-app/public/assets  # the legacy web UI's copy (CI and release builds do this)
+tools/elite_render/build.sh --wasm frontend/public/assets     # the new web UI's copy (build/deploy_hub.sh does this when emcc is installed)
 ```
 
-The WebAssembly build is the same code with `elite_render_wasm.c` as its entry point: about 86 KB of WebAssembly and 18 KB of JavaScript, gzipped. It writes `elite_render.js`, `elite_render.wasm` and `web/elite_preview.js`, which loads files into the module, writes the config the way the remote stores the Hub's push, and draws into a canvas. The web UI's Elite page imports `elite_preview.js` from its assets (`android-app/src/app/app_remotes_elite.js`) and keeps its HTML mock-up when the files are missing. `web/index.html` is a development page, copied only into the default directory. To try it, put an uncompressed tar of a filesystem root next to the page and serve the directory:
+The WebAssembly build is the same code with `elite_render_wasm.c` as its entry point: about 86 KB of WebAssembly and 18 KB of JavaScript, gzipped. It writes `elite_render.js`, `elite_render.wasm` and `web/elite_preview.js`, which loads files into the module, writes the config the way the remote stores the Hub's push, and draws into a canvas. Both web UIs import `elite_preview.js` from their assets on the Elite page: the legacy UI (`android-app/src/app/app_remotes_elite.js`) keeps its HTML mock-up when the files are missing, and the new one (`frontend/src/views/setup/elite-remote.js`) leaves its Remote Screen card hidden. `web/index.html` is a development page, copied only into the default directory. To try it, put an uncompressed tar of a filesystem root next to the page and serve the directory:
 
 ```sh
 (cd ROOT && tar --format ustar -cf ../build/tmp/elite-render/web/root.tar .)

@@ -203,6 +203,103 @@ export function createView() {
     h('div', { id: 'rf-mapping-content', className: 'text-dim', text: 'Loading mapping...' }),
   ]);
 
+  // Screen preview: the remote's own drawing code (tools/elite_render, built into
+  // public/assets/elite_preview.js) draws its screens from the config the Hub pushes to it.
+  // Builds without the renderer leave the card hidden.
+  const SCREEN_VIEWS = [
+    ['activities', t('activities', 'Activities')],
+    ['commands', 'Buttons'],
+    ['devices', t('devices', 'Devices')],
+  ];
+  let screenView = 'activities';
+  const screenChoice = {}; // the select's value in each view
+  let screenDevices = [];
+  let screenRenderer = null;
+  const screenCanvas = h('canvas', {
+    width: 240,
+    height: 320,
+    style: { width: '100%', maxWidth: '360px', aspectRatio: '3 / 4', imageRendering: 'pixelated', borderRadius: '10px', background: '#000' },
+  });
+  const screenSelect = h('select', {
+    className: 'form-select',
+    onchange: () => { screenChoice[screenView] = screenSelect.value; drawScreen(); },
+  });
+  const screenViewButtons = SCREEN_VIEWS.map(([view, label]) => h('button', {
+    className: 'btn btn-secondary btn-sm',
+    text: label,
+    onclick: () => { screenView = view; drawScreen(true); },
+  }));
+  const screenCard = h('div', { className: 'card', style: { display: 'none' } }, [
+    h('div', { className: 'card-header' }, [
+      h('h4', { className: 'card-title', text: 'Remote Screen' }),
+      h('div', { style: { display: 'flex', gap: '6px' } }, screenViewButtons),
+    ]),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: 'Drawn by the remote\'s firmware from the configuration the Hub pushes to it.' }),
+    h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' } }, [screenSelect, screenCanvas]),
+  ]);
+
+  // The Hub's push lists devices from devices.json (/api/devices), whose order and commands
+  // differ from the inventory
+  async function loadScreenDevices() {
+    screenDevices = (await api.request('/api/devices').catch(() => null))?.devices || [];
+  }
+
+  async function drawScreen(rebuildSelect = false) {
+    if (!screenRenderer) {
+      screenRenderer = (async () => {
+        const preview = await import(/* @vite-ignore */ new URL('assets/elite_preview.js', document.baseURI).href);
+        return { preview, module: await preview.loadHubRenderer(api.baseUrl) };
+      })().catch((e) => {
+        console.warn('Elite preview: no renderer in this build', e);
+        return null;
+      });
+    }
+    const renderer = await screenRenderer;
+    if (!renderer) return;
+    const { preview, module } = renderer;
+
+    const activities = (store.get('activities.list') || []).filter(a => String(a.id) !== '-1');
+    const devices = screenDevices.slice(0, 16); // the push sends the first 16
+    const choices = screenView === 'commands'
+      ? activities.map(a => [a.id, a.name])
+      : screenView === 'devices' ? [['', 'All devices'], ...devices.map(d => [String(d.id), d.name])] : [];
+    if (rebuildSelect) {
+      screenSelect.replaceChildren(...choices.map(([value, text]) => h('option', { value, text })));
+      const want = screenChoice[screenView] ?? (screenView === 'commands' ? String(store.get('activities.currentId')) : '');
+      if (choices.some(([v]) => v === want)) screenSelect.value = want;
+    }
+    screenSelect.style.display = choices.length ? '' : 'none';
+    screenViewButtons.forEach((b, i) => {
+      b.className = `btn btn-sm ${SCREEN_VIEWS[i][0] === screenView ? 'btn-primary' : 'btn-secondary'}`;
+    });
+
+    preview.writeRemoteConfig(module, { activities, devices, eliteMap: activeMapping || {} });
+    const running = String(store.get('activities.currentId') || '-1');
+    const state = { view: screenView, select: 0, active: running === '-1' ? '' : preview.remoteActivityId(running) };
+    if (screenView === 'commands' && screenSelect.value) {
+      state.active = preview.remoteActivityId(screenSelect.value);
+    } else if (screenView === 'devices' && screenSelect.value) {
+      state.view = 'device';
+      state.select = devices.findIndex(d => String(d.id) === screenSelect.value);
+    }
+    const now = new Date();
+    preview.render(module, screenCanvas, { ...state, battery: 100, minutes: now.getHours() * 60 + now.getMinutes() });
+    screenCard.style.display = '';
+  }
+
+  // Redraw when the Hub's activities or devices change; views aren't unmounted, so each
+  // listener removes itself once this page has gone
+  const redrawOn = (path, reload) => {
+    const off = store.on(path, async () => {
+      if (!container.isConnected) { off(); return; }
+      if (reload) await reload();
+      drawScreen(true);
+    });
+  };
+  redrawOn('activities.list');
+  redrawOn('activities.currentId');
+  redrawOn('devices', loadScreenDevices);
+
   async function loadMapping() {
     loadLinkStatus();
     const mount = container.querySelector('#rf-mapping-content');
@@ -241,14 +338,17 @@ export function createView() {
     } catch (e) {
       mount.textContent = `Error loading mapping: ${e.message}`;
     }
+    drawScreen();
   }
 
   container.appendChild(headerCard);
+  container.appendChild(screenCard);
   container.appendChild(pairingCard);
   container.appendChild(otaCard);
   container.appendChild(mappingCard);
 
   loadMapping();
+  loadScreenDevices().then(() => drawScreen(true));
   return container;
 }
 
