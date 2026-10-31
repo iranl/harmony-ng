@@ -55,7 +55,10 @@ void request_activity_switch_with_confirm(int act_idx) {
     activity_item_t *sel = &g_activities[act_idx];
 
     if (strcmp(g_active_activity_id, sel->id) == 0) {
-        show_notice(tr(STR_ACT_ALREADY_ACTIVE), 2000);
+        /* Already running: open its screen, as after a switch */
+        g_confirm_pending_idx = -1;
+        g_current_view = VIEW_DEVICES;
+        g_selected_device_cmd = 0;
         render_screen();
         return;
     }
