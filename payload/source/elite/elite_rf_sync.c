@@ -230,6 +230,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 sanitize_ascii(g_rf_activities[idx].id, sizeof(g_rf_activities[idx].id));
                 sanitize_ascii(g_rf_activities[idx].name, sizeof(g_rf_activities[idx].name));
                 g_rf_activities[idx].icon_id = icon_id;
+                g_rf_activities[idx].dev_count = 0; /* RF_MSG_ACT_DEVICES_CHUNK follows on Hubs that send it */
                 map_icon_type_to_str(itype, g_rf_activities[idx].name, g_rf_activities[idx].icon, sizeof(g_rf_activities[idx].icon));
                 if (idx >= g_rf_activity_count) g_rf_activity_count = idx + 1;
                 printf("[*] Activity chunk %d: %s (%s, icon=%s, icon_id=0x%04X)\n", idx, g_rf_activities[idx].name, g_rf_activities[idx].id, g_rf_activities[idx].icon, icon_id);
@@ -274,6 +275,25 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
             g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_ACT_DEVICES_CHUNK: {
+            /* [0] activity index, [1] activity total, [2] device count, [3..24] device indexes */
+            sync_touch_chunk();
+            uint8_t idx = f->payload[0];
+            if (idx < MAX_RF_ACTIVITIES) {
+                int n = f->payload[2];
+                if (n > MAX_RF_DEVICES) n = MAX_RF_DEVICES;
+                if (n > 22) n = 22;
+                g_rf_activities[idx].dev_count = 0;
+                for (int i = 0; i < n; i++) {
+                    if (f->payload[3 + i] < MAX_RF_DEVICES) g_rf_activities[idx].devs[g_rf_activities[idx].dev_count++] = f->payload[3 + i];
+                }
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
             break;
         }
 

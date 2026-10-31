@@ -50,12 +50,16 @@ export function writeRemoteConfig(module, { activities = [], devices = [], elite
     const iconId = stockIconId(module, icon, name);
     return { icon: iconKeyword(module, icon, name, type, stored), ...(iconId ? { icon_id: iconId } : {}) };
   };
+  const pushedDevices = devices.filter((d) => d.id != null && (d.name || d.Name)).slice(0, 16);
+  const deviceIds = pushedDevices.map((d) => String(d.id));
   const acts = activities.filter((a) => String(a.id) !== '-1' && (a.name || a.Name)).slice(0, 16).map((a) => {
     const name = String(a.name || a.Name);
     const stored = name.slice(0, String(a.id).length <= 2 ? 17 : 12); // short IDs leave 17 characters
-    return { id: remoteActivityId(a.id), name: stored, ...iconFields(a.icon || a.Icon, name, a.type, stored) };
+    // The devices the activity uses, as indexes into the device list, as the Hub pushes them
+    const devs = (a.deviceIds || []).map((id) => deviceIds.indexOf(String(id))).filter((i) => i >= 0).slice(0, 16);
+    return { id: remoteActivityId(a.id), name: stored, ...iconFields(a.icon || a.Icon, name, a.type, stored), ...(devs.length ? { devs } : {}) };
   });
-  const devs = devices.filter((d) => d.id != null && (d.name || d.Name)).slice(0, 16).map((d) => {
+  const devs = pushedDevices.map((d) => {
     const name = String(d.name || d.Name);
     const stored = name.slice(0, 16);
     const type = d.type || d.Type || d.deviceType || d.DeviceTypeDisplayName;

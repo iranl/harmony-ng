@@ -38,6 +38,7 @@ void render_switching_view(void);
 
 void render_activities_screen(void);
 void render_devices_screen(void);
+bool render_activity_hero(void);
 void render_device_browser_view(void);
 void render_settings_screen(void);
 void render_pairing_screen(void);
