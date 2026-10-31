@@ -26,8 +26,9 @@ case "$1" in
             done
             rm -f /tmp/elite_supervisors.pid 2>/dev/null || true
         fi
+        # Not the caller: a shell that runs "init.sh stop" has init.sh in its command line
         for p in $(ps | grep 'init\.sh' | grep -v 'grep' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
-            [ -n "$p" ] && [ "$p" != "$$" ] && kill -9 "$p" 2>/dev/null || true
+            [ -n "$p" ] && [ "$p" != "$$" ] && [ "$p" != "$PPID" ] && kill -9 "$p" 2>/dev/null || true
         done
         turn_off_lights
         sync_fs
