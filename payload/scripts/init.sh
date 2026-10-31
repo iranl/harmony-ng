@@ -23,9 +23,10 @@ case "$1" in
       done
       rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
     fi
-    # Terminate any legacy or untracked init.sh subshell loops
+    # Terminate any legacy or untracked init.sh subshell loops, but not the caller: a shell
+    # that runs "init.sh stop" (such as deploy_hub.sh over SSH) has init.sh in its command line
     for _p in $(ps | grep 'init\.sh' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
-      [ -n "$_p" ] && [ "$_p" != "$$" ] && kill -9 "$_p" 2>/dev/null || true
+      [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
