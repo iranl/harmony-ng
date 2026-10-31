@@ -617,14 +617,25 @@ void *api_server_worker(void *arg) {
                 snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
                 pthread_mutex_unlock(&g_ota_lock);
 
-                char body[3072];
+                /* Link counters per slot (ADR-0012); last_seen_s is -1 before the first frame */
+                char link_json[MAX_PAIRED_REMOTES][192];
+                uint64_t now_ms = get_monotonic_ms();
+                for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+                    const remote_link_stats_t *ls = &g_remote_link[i];
+                    long seen = g_paired_remotes[i].last_seen_ms ? (long)((now_ms - g_paired_remotes[i].last_seen_ms) / 1000) : -1;
+                    snprintf(link_json[i], sizeof(link_json[i]),
+                             "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,\"last_seen_s\":%ld}",
+                             ls->frames_rx, ls->acked_sent, ls->acked_ok, ls->retries, ls->naks, seen);
+                }
+
+                char body[3584];
                 int blen = snprintf(body, sizeof(body),
                     "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
                     "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
                     "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
                     "\"slots\":["
-                    "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}},"
-                    "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d}}"
+                    "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s},"
+                    "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s}"
                     "]}",
                     g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
                     hub_rf_str, hub_rf_str,
@@ -635,11 +646,11 @@ void *api_server_worker(void *arg) {
                     name1, model1, is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
                     g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
                     ver1_str, is_comp1 ? 0 : g_remote_versions[0].config_version,
-                    g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv,
+                    g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv, link_json[0],
                     name2, model2, is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
                     g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
                     ver2_str, is_comp2 ? 0 : g_remote_versions[1].config_version,
-                    g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", g_remote_batteries[1].voltage_mv);
+                    g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", g_remote_batteries[1].voltage_mv, link_json[1]);
 
                 char header[256];
                 int hlen = snprintf(header, sizeof(header),

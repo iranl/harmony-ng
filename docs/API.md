@@ -701,7 +701,8 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
         "rf_address": "12345678",
         "model": "Harmony Companion",
         "has_screen": false,
-        "supports_ota": false
+        "supports_ota": false,
+        "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9, "last_seen_s": 2 }
       },
       {
         "slot": 2,
@@ -715,6 +716,7 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
     ]
   }
   ```
+- `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
 
 ### 7.2 RF Pairing
 #### `GET /api/rf/pair?slot={1|2}` or `POST /api/rf/pair`

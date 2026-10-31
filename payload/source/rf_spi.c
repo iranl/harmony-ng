@@ -76,7 +76,24 @@ int rf_send_frame(rf_frame_t *frame) {
     return rf_write_cmd(out, sizeof(out));
 }
 
+/* Index into g_remote_link for a slot byte, or -1 */
+static int link_idx(uint8_t slot) {
+    slot &= 0x0F;
+    return (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot - 1 : -1;
+}
+
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
+    /* A send of the same frame as the last one to this remote is a retry */
+    static struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
+    int li = link_idx(frame->dev_slot ? frame->dev_slot : (g_remote_slot ? g_remote_slot : 0x01));
+    if (li >= 0) {
+        if (s_last[li].valid && s_last[li].seq == frame->seq && s_last[li].type == frame->msg_type) g_remote_link[li].retries++;
+        s_last[li].seq = frame->seq;
+        s_last[li].type = frame->msg_type;
+        s_last[li].valid = true;
+        g_remote_link[li].acked_sent++;
+    }
+
     pthread_mutex_lock(&g_ack_mutex);
     g_pending_ack_seq = frame->seq;
     g_ack_received = 0;
@@ -95,6 +112,7 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     }
     int ok = g_ack_received;
     pthread_mutex_unlock(&g_ack_mutex);
+    if (ok && li >= 0) g_remote_link[li].acked_ok++;
     return ok ? 0 : -1;
 }
 
@@ -181,6 +199,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
             g_nak_count = 0;
             g_backoff_ms = 0;
         }
+        if (link_idx(f.dev_slot) >= 0) g_remote_link[link_idx(f.dev_slot)].frames_rx++;
         handle_rf_frame(&f);
         return;
     }
@@ -256,6 +275,8 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
         /* 0x8F: Error / NAK */
         if (sub_id == 0x8F) {
+            /* 10 <slot> 8F <report of the refused send> ... */
+            if (link_idx(pkt[1]) >= 0) g_remote_link[link_idx(pkt[1])].naks++;
             g_nak_count++;
             if (g_nak_count > 3) {
                 if (g_nak_count - 3 >= 6) {

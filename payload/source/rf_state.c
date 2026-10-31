@@ -36,6 +36,8 @@ remote_version_t g_remote_versions[MAX_PAIRED_REMOTES] = {
     { .sw_version = "unknown", .config_version = 0, .last_report_ms = 0 }
 };
 
+remote_link_stats_t g_remote_link[MAX_PAIRED_REMOTES];
+
 paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES] = {
     { .slot = 0x01, .active = false, .link_lost = false, .last_seen_ms = 0 },
     { .slot = 0x02, .active = false, .link_lost = false, .last_seen_ms = 0 }

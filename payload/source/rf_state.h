@@ -57,6 +57,15 @@ typedef struct {
     uint64_t last_report_ms;
 } remote_version_t;
 
+/* RF traffic with one remote since hub_rf started, for diagnosing the link (ADR-0012) */
+typedef struct {
+    uint32_t frames_rx;   /* protocol frames received from the remote */
+    uint32_t acked_sent;  /* frames sent that wait for the remote's ACK, resends included */
+    uint32_t acked_ok;    /* of those, the ones the remote ACKed */
+    uint32_t retries;     /* resends of a frame the remote didn't ACK */
+    uint32_t naks;        /* sends the Hub's CC2544 refused */
+} remote_link_stats_t;
+
 typedef struct {
     volatile bool in_progress;
     int target_slot;
@@ -81,6 +90,7 @@ extern volatile bool g_pairing_mode;
 extern uint8_t g_config_version;
 extern remote_battery_t g_remote_batteries[MAX_PAIRED_REMOTES];
 extern remote_version_t g_remote_versions[MAX_PAIRED_REMOTES];
+extern remote_link_stats_t g_remote_link[MAX_PAIRED_REMOTES];
 extern paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES];
 extern rf_ota_state_t g_rf_ota;
 extern pthread_mutex_t g_ota_lock;

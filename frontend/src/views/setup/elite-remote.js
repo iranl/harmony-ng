@@ -35,6 +35,23 @@ export function createView() {
     h('p', { className: 'text-dim', style: { fontSize: '13px' }, text: t('card_elite_sub', 'Physical RF remote pairing, touchscreen layout & button mapping') }),
   ]);
 
+  // RF link counters for the selected slot (ADR-0012)
+  const linkStatus = h('p', { style: { fontSize: '13px', marginBottom: '12px' }, text: '' });
+  async function loadLinkStatus() {
+    const st = await api.getRfStatus().catch(() => null);
+    const link = st?.slots?.find(s => s.slot === currentSlot)?.link;
+    if (!link) { linkStatus.textContent = ''; return; }
+    const seen = link.last_seen_s < 0 ? t('rf_link_never', 'never') : `${link.last_seen_s} s ago`;
+    const acked = link.acked_sent ? `${Math.round(link.acked_ok * 100 / link.acked_sent)}% of ${link.acked_sent}` : '-';
+    linkStatus.textContent = `${t('rf_link_last_seen', 'Last frame')}: ${seen} · ${t('rf_link_frames', 'Frames received')}: ${link.frames_rx} · `
+      + `${t('rf_link_acked', 'ACKed')}: ${acked} · ${t('rf_link_retries', 'Retries')}: ${link.retries} · ${t('rf_link_naks', 'Hub radio NAKs')}: ${link.naks}`;
+  }
+  // Views aren't unmounted, so the refresh stops once this page has gone
+  const linkTimer = setInterval(() => {
+    if (!container.isConnected) clearInterval(linkTimer);
+    else loadLinkStatus();
+  }, 5000);
+
   // Pairing & Hardware Status Card
   const pairingCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
@@ -52,6 +69,7 @@ export function createView() {
         }),
       ]),
     ]),
+    linkStatus,
     h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('rf_pairing_note', 'Note: On custom Elite firmware, enable pairing via Settings > Pair Remote. On Companion remotes, use the physical pairing button combination.') }),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
@@ -186,6 +204,7 @@ export function createView() {
   ]);
 
   async function loadMapping() {
+    loadLinkStatus();
     const mount = container.querySelector('#rf-mapping-content');
     if (!mount) return;
     mount.textContent = 'Loading mapping...';
