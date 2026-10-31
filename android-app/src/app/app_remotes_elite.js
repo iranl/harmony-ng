@@ -52,7 +52,6 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppRemotesB25 } from './app_remotes_b25.js';
-import { loadEliteScreen, writeRemoteConfig, renderEliteScreen, remoteActivityId } from '../elite-screen.js';
 
 export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   async loadEliteView() {
@@ -798,9 +797,12 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const canvas = document.getElementById('eliteScreenCanvas');
     const bar = document.getElementById('eliteScreenViewBar');
     if (!canvas || !bar) return;
-    let screen;
+    // The renderer and its loader come from tools/elite_render/build.sh --wasm public/assets
+    let preview;
+    let module;
     try {
-      screen = await loadEliteScreen(this.client?.baseUrl);
+      preview = await import(/* @vite-ignore */ new URL('assets/elite_preview.js', document.baseURI).href);
+      module = await preview.loadHubRenderer(this.client?.baseUrl);
     } catch (e) {
       return; // no renderer in this build: keep the HTML mock-up
     }
@@ -830,12 +832,16 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       const idx = devs.slice(0, 16).findIndex(d => String(d.id) === String(devId));
       if (idx >= 0) { view = 'device'; select = idx; }
     }
-    writeRemoteConfig(screen, {
+    preview.writeRemoteConfig(module, {
       activities: this.activitiesData?.activities || [],
       devices: devs,
       eliteMap: this.eliteMapData || {},
     });
-    renderEliteScreen(screen, canvas, { view, select, active: actId === '-1' ? '' : remoteActivityId(actId) });
+    const now = new Date();
+    preview.render(module, canvas, {
+      view, select, active: actId === '-1' ? '' : preview.remoteActivityId(actId),
+      battery: 100, minutes: now.getHours() * 60 + now.getMinutes(),
+    });
 
     canvas.hidden = false;
     document.getElementById('eliteScreenFrame')?.classList.add('rendered');
