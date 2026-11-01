@@ -95,7 +95,9 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 | :--- | :--- | :--- | :--- |
 | **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, accelerometer sampling @ 50-200 Hz | N/A |
 | **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
-| **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
+| **Deep Standby** | **> 30 minutes** after screen blank, on battery | As Light Standby, with the `select()` timeout scaled to 30s | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
+
+Motion on the cradle does not wake the screen; motion on USB or battery does. Placing the remote on, or lifting it off, the cradle or USB wakes it.
 
 > [!NOTE]
 > Touchscreen taps do **not** wake the remote in either standby mode. The Synaptics Clearpad sensor is put into hardware sleep mode (`0x35 = 0x01`) upon display blanking to prevent accidental touches and save ~10.5 mA.
@@ -108,17 +110,16 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 | :--- | :---: | :---: | :---: | :---: |
 | **Baseline (Unpatched)** | **7.8% / hour** | ~101 mA | **~12.8 hours** | Baseline (`FB_BLANK_NORMAL` failed with `EINVAL`, LCD DMA active) |
 | **Stage 1 (LCD Controller Shutdown)** | **2.5% / hour** | ~32.5 mA | **~40.0 hours (1.7 days)** | **3.1x longer** (Verified: 13% drop across 5h 08m uninterrupted sleep) |
-| **Stage 2 (Clearpad Sleep + Deep Standby)** | **~1.31% / hour** | **~17.0 mA** | **~76.5 hours (~3.2 days)** | **~6.0x longer** (>30m gyro suspended, 30s select loop, touch matrix off) |
+| **Stage 2 (Clearpad Sleep + Deep Standby)** | **~1.31% / hour** | **~17.0 mA** | **~76.5 hours (~3.2 days)** | **~6.0x longer** (30s select loop, touch matrix off; measured when firmware also detached the accelerometer after 30 min, which it no longer does) |
 
 ### Key Power Mechanisms in `elite_ui`
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
 2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
-   - Configures LIS3DH hardware motion threshold (`int1_threshold=10`, `int1_duration=3`).
+   - Configures LIS3DH hardware motion threshold (`int1_threshold=8`, `int1_duration=2`).
    - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.
-   - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons during Light Standby (0-30m).
+   - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons in both standby tiers.
    - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
-   - After 30 minutes (Deep Standby), `/dev/input/event1` is detached to prevent accidental motion wakes.
 4. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
 
 ---
