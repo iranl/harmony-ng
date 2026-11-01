@@ -64,7 +64,7 @@ void header_layout(header_layout_t *l) {
 
 void render_header(void) {
     if (!blit_png_file(0, 0, FB_WIDTH, 34, "/opt/luadraws/appscommon/asset/footer/toolbarBG.png")) {
-        fb_fill_rect(0, 0, FB_WIDTH, 34, 0x0841);
+        fb_fill_rect(0, 0, FB_WIDTH, 34, g_theme.pal.status_bg);
     }
 
     uint16_t gear_col = g_menu_open ? RGB_TEAL : RGB_WHITE;
@@ -188,7 +188,7 @@ void render_sync_overlay(void) {
     int bar_x = 8;
     int max_w = FB_WIDTH - 16;
     fb_fill_rect(bar_x, card_y + 140, max_w, 8, RGB_BG);
-    fb_draw_rect(bar_x, card_y + 140, max_w, 8, 0x2945);
+    fb_draw_rect(bar_x, card_y + 140, max_w, 8, g_theme.pal.outline);
     if (g_sync_total > 0) {
         int done = g_sync_chunk_count < g_sync_total ? g_sync_chunk_count : g_sync_total;
         fb_fill_rect(bar_x, card_y + 140, max_w * done / g_sync_total, 8, RGB_CYAN);
@@ -209,7 +209,7 @@ void render_frame(void) {
     if (g_has_wallpaper) {
         memcpy(g_backbuffer, g_bg_wallpaper, sizeof(g_backbuffer));
     } else {
-        memset(g_backbuffer, 0x10, sizeof(g_backbuffer));
+        fb_fill_rect(0, 0, FB_WIDTH, FB_HEIGHT, RGB_BG);
     }
 
     if (g_is_ota_updating) {

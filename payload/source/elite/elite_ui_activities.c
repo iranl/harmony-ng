@@ -238,7 +238,7 @@ void render_switching_view(void) {
     int bar_w = (int)((elapsed * max_w) / total_ms);
     if (bar_w > max_w) bar_w = max_w;
     fb_fill_rect(bar_x, card_y + 152, max_w, 10, RGB_BG);
-    fb_draw_rect(bar_x, card_y + 152, max_w, 10, 0x2945);
+    fb_draw_rect(bar_x, card_y + 152, max_w, 10, g_theme.pal.outline);
     if (bar_w > 0) {
         fb_fill_rect(bar_x, card_y + 152, bar_w, 10, RGB_TEAL);
     }

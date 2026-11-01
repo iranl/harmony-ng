@@ -38,6 +38,12 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
             return;
         }
     } else if (icon_id > 0 && icon_id < 0x8000) {
+        /* The Hub also sends a keyword's own stock image as an index; a theme draws its icon
+           for the keyword instead, and only other stock images are drawn as they are */
+        if (image_key && lookup_stock_icon_id(image_key) == icon_id &&
+            theme_keyword_icon(rf_activity_icon_keyword(rf_activity_icon_match(image_key)), out_path, max_len)) {
+            return;
+        }
         const char *stock = get_stock_icon_path(icon_id);
         if (stock && stock[0]) {
             strncpy(out_path, stock, max_len - 1);
@@ -89,6 +95,11 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     char low[64] = {0};
     const char *src = base[0] ? base : (clean_name ? clean_name : "");
     for (int k = 0; src[k] && k < 63; k++) low[k] = tolower((unsigned char)src[k]);
+
+    /* A theme draws its own icon for the keyword; chosen stock and uploaded images (above) are
+       drawn as they are in every theme */
+    uint8_t type = rf_activity_icon_match(low);
+    if (theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return;
 
     if (strstr(low, "watchtv") || strstr(low, "tv") || strstr(low, "television")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png");

@@ -106,7 +106,7 @@ void render_ota_overlay(void) {
     int max_w = FB_WIDTH - 16;
     int bar_w = (int)((pct * max_w) / 100);
     fb_fill_rect(bar_x, card_y + 124, max_w, 10, RGB_BG);
-    fb_draw_rect(bar_x, card_y + 124, max_w, 10, 0x2945);
+    fb_draw_rect(bar_x, card_y + 124, max_w, 10, g_theme.pal.outline);
     if (bar_w > 0) {
         fb_fill_rect(bar_x, card_y + 124, bar_w, 10, RGB_YELLOW);
     }

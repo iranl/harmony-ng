@@ -355,7 +355,7 @@ static const glyph_aa_t g_font_main_glyphs[95] = {
     {7, 2, 1, 8, 9, 4661},
 };
 
-static const font_aa_t g_font_main = {15, 15, g_font_main_glyphs, g_font_main_data};
+static const font_aa_t g_font_main_classic = {15, 15, g_font_main_glyphs, g_font_main_data};
 
 static const uint8_t g_font_title_data[5320] = {
     255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 233, 233, 233, 233,
@@ -724,6 +724,6 @@ static const glyph_aa_t g_font_title_glyphs[95] = {
     {8, 2, 1, 10, 10, 5304},
 };
 
-static const font_aa_t g_font_title = {19, 19, g_font_title_glyphs, g_font_title_data};
+static const font_aa_t g_font_title_classic = {19, 19, g_font_title_glyphs, g_font_title_data};
 
 #endif /* FONT_AA_H */

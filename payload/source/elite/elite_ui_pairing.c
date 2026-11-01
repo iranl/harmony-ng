@@ -126,7 +126,7 @@ void render_pairing_screen(void) {
         int y = opt_y + i * (opt_h + spacing);
         bool is_sel = (i == g_selected_pair_opt);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? (g_unpair_confirm_active && i == 0 ? RGB_RED : RGB_TEAL) : 0x2945;
+        uint16_t border = is_sel ? (g_unpair_confirm_active && i == 0 ? RGB_RED : RGB_TEAL) : g_theme.pal.outline;
         uint16_t fg = is_sel ? (g_unpair_confirm_active && i == 0 ? RGB_RED : RGB_WHITE) : RGB_TEXT_MUTED;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, opt_h, bg);
