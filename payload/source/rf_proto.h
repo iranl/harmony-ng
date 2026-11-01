@@ -176,14 +176,19 @@ static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_s
     f->payload[1] = status;
 }
 
-/* Activity icons are stored as keywords and sent over RF as a one-byte type (1..17).
-   The remote turns the type back into the keyword and draws its themed icon for it. */
+/* Activity icons are stored as keywords and sent over RF as a one-byte type
+   (1..RF_ACTIVITY_ICON_COUNT). The remote turns the type back into the keyword and draws its
+   themed icon for it; a remote that doesn't know a type draws an icon from the name. New
+   keywords go at the end, so types keep their meaning. */
+#define RF_ACTIVITY_ICON_COUNT 27
 static inline const char *rf_activity_icon_keyword(uint8_t type) {
-    static const char *const names[] = {
+    static const char *const names[RF_ACTIVITY_ICON_COUNT] = {
         "watchtv", "movie", "music", "game", "ps", "xbox", "switch", "shield", "apple",
-        "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power"
+        "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power",
+        "projector", "bluray", "satellite", "soundbar", "hifi", "netflix", "night", "fireplace",
+        "sunrise", "fan"
     };
-    return (type >= 1 && type <= 17) ? names[type - 1] : names[0];
+    return (type >= 1 && type <= RF_ACTIVITY_ICON_COUNT) ? names[type - 1] : names[0];
 }
 
 /* The built-in themes the Hub can choose in the settings push (payload[21], 1..4). 0 keeps the
@@ -215,17 +220,25 @@ static inline uint8_t rf_activity_icon_match(const char *s) {
     char low[64] = {0};
     for (int k = 0; s && s[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)s[k]);
     if (!low[0]) return 0;
-    /* Music before brands ("Apple Music"), brands before generic words ("Apple TV") */
+    /* Audio equipment before music ("Soundbar Audio"), music before brands ("Apple Music"),
+       brands and equipment before generic words ("Apple TV", "Projector TV") */
+    if (strstr(low, "soundbar") || strstr(low, "sound bar")) return 21;
+    if (strstr(low, "hifi") || strstr(low, "hi-fi") || strstr(low, "vinyl") || strstr(low, "turntable") ||
+        strstr(low, "record player")) return 22;
     if (strstr(low, "music") || strstr(low, "audio") || strstr(low, "radio") || strstr(low, "spotify")) return 3;
+    if (strstr(low, "netflix")) return 23;
     if (strstr(low, "apple")) return 9;
     if (strstr(low, "roku")) return 10;
+    if (strstr(low, "fireplace")) return 25;
     if (strstr(low, "firetv") || strstr(low, "amazon") || rf_has_word(low, "fire")) return 11;
     if (strstr(low, "shield")) return 8;
     if (strstr(low, "xbox")) return 6;
     if (strstr(low, "smarttv") || strstr(low, "smart tv")) return 13;
+    if (strstr(low, "projector") || strstr(low, "beamer")) return 18;
+    if (strstr(low, "satellite") || rf_has_word(low, "sat") || strstr(low, "freesat") || rf_has_word(low, "dvb")) return 20;
     if (strstr(low, "watchtv") || rf_has_word(low, "tv") || strstr(low, "television")) return 1;
-    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "netflix") ||
-        strstr(low, "plex") || strstr(low, "dvd") || strstr(low, "blu")) return 2;
+    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "plex")) return 2;
+    if (strstr(low, "dvd") || strstr(low, "blu") || rf_has_word(low, "disc")) return 19;
     if (strstr(low, "game") || strstr(low, "console")) return 4;
     if (rf_has_word(low, "ps") || strstr(low, "playstation")) return 5;
     if (strstr(low, "switch") || strstr(low, "nintendo")) return 7;
@@ -235,6 +248,9 @@ static inline uint8_t rf_activity_icon_match(const char *s) {
         strstr(low, "heos") || strstr(low, "denon")) return 15;
     if (strstr(low, "light") || strstr(low, "lamp") || strstr(low, "bulb")) return 16;
     if (strstr(low, "power") || rf_has_word(low, "off")) return 17;
+    if (strstr(low, "night") || strstr(low, "sleep") || strstr(low, "bedtime") || strstr(low, "moon")) return 24;
+    if (strstr(low, "sunrise") || strstr(low, "morning") || rf_has_word(low, "wake")) return 26;
+    if (rf_has_word(low, "fan")) return 27;
     return 0;
 }
 
