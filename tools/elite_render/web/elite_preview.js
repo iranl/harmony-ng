@@ -1,13 +1,16 @@
 // Browser side of the WebAssembly Elite renderer: loads files into the module's filesystem
 // and draws screens into a 240x320 canvas. The Hub's web UIs import it from their assets
 // with loadHubRenderer(), writeRemoteConfig() and render().
-import createEliteRenderer from './elite_render.js';
-
 const ROOT = '/r';
 export const STOCK_ASSET_DIR = '/opt/luadraws/appscommon/asset';
 
+// The query this module was imported with (a build's version), passed on to the module and
+// its WebAssembly so a new build isn't served from a cache that holds the last one
+const VERSION = new URL(import.meta.url).search;
+
 export async function loadRenderer() {
-  return createEliteRenderer();
+  const { default: createEliteRenderer } = await import(`./elite_render.js${VERSION}`);
+  return createEliteRenderer({ locateFile: file => new URL(file, import.meta.url).href + VERSION });
 }
 
 let hubRenderer = null;
