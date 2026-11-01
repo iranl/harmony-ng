@@ -902,14 +902,21 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btnBtCalibratePowerOff')?.addEventListener('click', async () => {
       const devId = document.getElementById('btCalibrateDevId')?.value;
       if (!devId) return;
-      const cmds = this.deviceCommandsMap[devId] || [];
-      const offCmd = cmds.find(c => /poweroff|powertoggle|power/i.test(c.name || ''));
+      const trigVal = document.getElementById('btCalibratePowerCmd')?.value;
+      let offDevId = devId;
+      if (trigVal && trigVal.includes(':')) {
+        offDevId = trigVal.split(':')[0];
+      }
+      const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[offDevId]) || [];
+      const offCmd = cmds.find(c => /poweroff|powertoggle|power|off/i.test(typeof c === 'string' ? c : (c.name || '')));
       if (offCmd) {
-        showToast(`Sending "${offCmd.name}" to device...`, 'info', 2000);
+        const offCmdName = typeof offCmd === 'string' ? offCmd : offCmd.name;
+        const devName = (this.inventory?.devices || []).find(d => String(d.id) === String(offDevId))?.name || 'device';
+        showToast(`Sending "${offCmdName}" to ${devName}...`, 'info', 2000);
         try {
-          await this.client.sendDeviceCommand(devId, offCmd.name);
+          await this.client.sendDeviceCommand(offDevId, offCmdName);
           const stateEl = document.getElementById('btCalibrateStateMsg');
-          if (stateEl) stateEl.textContent = `Power off command "${offCmd.name}" sent.`;
+          if (stateEl) stateEl.textContent = `Power off command "${offCmdName}" sent to ${devName}.`;
         } catch (e) {
           showToast(t("error_sending_cmd") + e.message, 'error');
         }

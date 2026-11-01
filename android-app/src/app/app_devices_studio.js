@@ -323,16 +323,21 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       const btTrigSel = document.getElementById('curDevBtTriggerCmd');
       if (btTrigSel) {
         let html = '<option value="">None (Fallback to Button Press)</option>';
-        const allDevs = this.devices || [];
+        const allDevs = this.inventory?.devices || [];
         allDevs.forEach(d => {
-          const cmds = d.commands || [];
+          const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[d.id]) || d.commands || [];
           if (cmds.length > 0) {
-            html += `<optgroup label="${this.escapeHtml(d.name || d.id || 'Device')}">`;
+            let typeLabel = '';
+            if (d.type === 'MQTT' || d.mqtt_enabled) typeLabel = 'MQTT';
+            else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt || Number(d.transport) === 32) typeLabel = 'Bluetooth';
+            else if (d.type) typeLabel = d.type;
+            else typeLabel = 'IR';
+            html += `<optgroup label="${escapeHtml(d.name || d.id || 'Device')} (${typeLabel})">`;
             cmds.forEach(c => {
               const cName = typeof c === 'string' ? c : (c.name || c.Name || '');
               if (cName) {
                 const val = `${d.id}:${cName}`;
-                html += `<option value="${this.escapeHtml(val)}">${this.escapeHtml(cName)}</option>`;
+                html += `<option value="${escapeHtml(val)}">${escapeHtml(cName)}</option>`;
               }
             });
             html += `</optgroup>`;
@@ -346,6 +351,14 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           btTrigSel.value = `${currentTrigDev}:${currentTrigCmd}`;
         } else if (currentTrigCmd && currentTrigCmd.includes(':')) {
           btTrigSel.value = currentTrigCmd;
+        } else if (currentTrigCmd) {
+          const optMatch = btTrigSel.querySelector(`option[value="${dev.id}:${currentTrigCmd}"]`) ||
+                           btTrigSel.querySelector(`option[value$=":${currentTrigCmd}"]`);
+          if (optMatch) {
+            btTrigSel.value = optMatch.value;
+          } else {
+            btTrigSel.value = '';
+          }
         } else {
           btTrigSel.value = '';
         }

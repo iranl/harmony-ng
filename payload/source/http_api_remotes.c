@@ -838,10 +838,10 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         }
         char sh_cmd[256];
         if (tgt[0]) {
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/harmony/bin/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &",
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/harmony/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &",
                      tgt, dur, dly);
         } else {
-            snprintf(sh_cmd, sizeof(sh_cmd), "/data/harmony/bin/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &",
+            snprintf(sh_cmd, sizeof(sh_cmd), "/data/harmony/bt_reconnect.sh \"\" %d %d >/dev/null 2>&1 &",
                      dur, dly);
         }
         system(sh_cmd);

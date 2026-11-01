@@ -48,7 +48,7 @@ export function renderIcon(iconKey, options = {}) {
 
   // Fallback to hub endpoint or letter badge
   const img = h('img', {
-    src: `/api/icons/${encodeURIComponent(cleanKey)}.png`,
+    src: `/assets/icons/${encodeURIComponent(cleanKey)}.png`,
     className,
     alt: alt || cleanKey,
     width: size,

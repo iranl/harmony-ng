@@ -397,7 +397,15 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
               'sonos': 'sonos', 'heos': 'heos', 'plug': 'plug', 'blinds': 'blinds',
               'thermostat': 'thermostat', 'fan': 'fan', 'generic': 'generic'
             };
-            iconInp.value = iconMap[rawIcn] || rawIcn || 'tv';
+            const targetVal = iconMap[rawIcn] || dev.icon || 'tv';
+            let opt = Array.from(iconInp.options).find(o => o.value === targetVal || o.value === rawIcn || o.value === dev.icon || o.value === dev.icon?.replace(/\.png$/i, ''));
+            if (!opt && dev.icon) {
+              opt = document.createElement('option');
+              opt.value = dev.icon;
+              opt.textContent = this.formatIconDisplayName(dev.icon);
+              iconInp.appendChild(opt);
+            }
+            iconInp.value = opt ? opt.value : (iconMap[rawIcn] || 'tv');
             if (!iconInp.value) iconInp.value = 'generic';
             this.updateBadgeForSelect(iconInp, 'devIconPreviewBadge');
           }

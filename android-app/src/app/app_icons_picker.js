@@ -85,8 +85,9 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
       window.__harmonyCustomIcons = new Set(customMap.keys());
       this.customIconMap = customMap;
 
-      // Merge stock icons and custom icons, ensuring custom icons are present
-      const allIconsSet = new Set(icons || []);
+      // Merge stock icons from metadata, hub query, and custom icons
+      const allIconsSet = new Set(Object.keys(iconMetadata || {}));
+      (icons || []).forEach(fn => { if (fn) allIconsSet.add(fn); });
       (customIcons || []).forEach(ci => {
         if (ci && ci.filename) allIconsSet.add(ci.filename);
       });
@@ -102,7 +103,18 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           const title = isCust
             ? (cleanFn.replace(/^custom_/i, '').replace(/\.png$/i, '').replace(/[-_]/g, ' '))
             : this.formatIconDisplayName(cleanFn);
-          const category = isCust ? 'custom' : (meta.category || 'other');
+          let category = isCust ? 'custom' : (meta.category || 'other');
+          if (!isCust && category === 'other') {
+            if (cleanLower.startsWith('button_') || /^\d+\.png$/.test(cleanLower)) {
+              category = 'commands';
+            }
+          }
+          if (!isCust && (category === 'other' || category === 'activity')) {
+            if (/^(tv|receiver|soundbar|speaker|audio|display|monitor|screen|player|console|cable|satellite|streamer|projector|subwoofer|amp|bluray|dvd|shield|xbox|playstation|ps|firetv|roku|apple|sonos|heos|switch)(\.png)?$/i.test(cleanLower) ||
+                /soundbar|speaker|subwoofer|curved display|gaming monitor|receiver|amplifier|projector|streamer|blu-ray|dvd player|television|smart tv|cable box|satellite box/i.test(title)) {
+              category = 'device';
+            }
+          }
           return {
             fn: cleanFn,
             title: title.charAt(0).toUpperCase() + title.slice(1),
@@ -141,7 +153,6 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
 
       const frag = document.createDocumentFragment();
       this.iconCatalog.forEach(item => {
-        if (id === 'actEditIcon' && !item.isCustom) return;
         const val = item.fn;
         const valNoExt = val.replace(/\.png$/i, '');
         if (!existingVals.has(val) && !existingVals.has(valNoExt)) {
@@ -276,15 +287,22 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     if (!this.iconCatalog || this.iconCatalog.length === 0) {
       const iconList = this.availableIcons && this.availableIcons.length > 0
         ? this.availableIcons
-        : Array.from(document.getElementById('actEditIcon')?.options || []).map(o => o.value);
+        : Object.keys(iconMetadata || {});
       this.iconCatalog = iconList.map(fn => {
         const cleanFn = String(fn).split('/').pop().trim();
+        const cleanLower = cleanFn.toLowerCase();
         const meta = iconMetadata[cleanFn] || iconMetadata[`${cleanFn}.png`] || {};
         const isCust = isCustomIcon(cleanFn);
         const title = isCust
           ? (cleanFn.replace(/^custom_/i, '').replace(/\.png$/i, '').replace(/[-_]/g, ' '))
           : this.formatIconDisplayName(cleanFn);
-        const category = isCust ? 'custom' : (meta.category || (cleanFn.startsWith('button_') ? 'commands' : 'other'));
+        let category = isCust ? 'custom' : (meta.category || (cleanFn.startsWith('button_') ? 'commands' : 'other'));
+        if (!isCust && (category === 'other' || category === 'activity')) {
+          if (/^(tv|receiver|soundbar|speaker|audio|display|monitor|screen|player|console|cable|satellite|streamer|projector|subwoofer|amp|bluray|dvd|shield|xbox|playstation|ps|firetv|roku|apple|sonos|heos|switch)(\.png)?$/i.test(cleanLower) ||
+              /soundbar|speaker|subwoofer|curved display|gaming monitor|receiver|amplifier|projector|streamer|blu-ray|dvd player|television|smart tv|cable box|satellite box/i.test(title)) {
+            category = 'device';
+          }
+        }
         return {
           fn: cleanFn,
           title: title.charAt(0).toUpperCase() + title.slice(1),
@@ -305,22 +323,6 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const cat = this.currentIconCategory || 'all';
 
     let source = this.iconCatalog;
-    if (this.currentIconPickerTarget === 'actEditIcon' || this.iconPickerContext?.type === 'activity') {
-      // The remote can only draw keyword icons (or a custom icon pushed for the activity)
-      const keywordItems = Array.from(document.getElementById('actEditIcon')?.options || [])
-        .filter(o => !o.dataset.legacy && activityIconPreview(o.value))
-        .map(o => ({
-          fn: o.value,
-          title: o.textContent,
-          lowerTitle: o.textContent.toLowerCase(),
-          lowerFn: o.value.toLowerCase(),
-          category: 'activity',
-          isCustom: false,
-          tags: '',
-          url: getStockIconUrl(activityIconPreview(o.value))
-        }));
-      source = keywordItems.concat(this.iconCatalog.filter(item => item.isCustom));
-    }
 
     this.currentFilteredIcons = source.filter(item => {
       if (cat !== 'all') {
@@ -391,14 +393,14 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         } else if (this.currentIconPickerTarget) {
           const targetSel = document.getElementById(this.currentIconPickerTarget);
           if (targetSel) {
-            let opt = Array.from(targetSel.options).find(o => o.value === iconVal);
+            let opt = Array.from(targetSel.options).find(o => o.value === iconVal || o.value === iconVal.replace(/\.png$/i, ''));
             if (!opt) {
               opt = document.createElement('option');
               opt.value = iconVal;
               opt.textContent = this.formatIconDisplayName(iconVal);
               targetSel.appendChild(opt);
             }
-            targetSel.value = iconVal;
+            targetSel.value = opt.value;
             targetSel.dispatchEvent(new Event('change'));
             this.updateBadgeForSelect(targetSel, this.currentIconPickerBadge);
           }
@@ -456,23 +458,58 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const cmdSel = document.getElementById('btCalibratePowerCmd');
     if (cmdSel) {
       cmdSel.innerHTML = '';
-      const cmds = this.deviceCommandsMap[dev.id] || dev.commands || [];
-      const powerCmds = cmds.filter(c => /power|toggle|on|wake|home|menu/i.test(c.name || ''));
-      const otherCmds = cmds.filter(c => !powerCmds.includes(c));
-      const allCmds = [...powerCmds, ...otherCmds];
+      const allDevs = this.inventory?.devices || [];
+      const currentTrigDev = dev.bt_trigger_device_id || dev.btTriggerDeviceId || '';
+      const currentTrigCmd = dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '';
+      const activeFormTrig = document.getElementById('curDevBtTriggerCmd')?.value || '';
+      const targetPreselect = activeFormTrig || (currentTrigDev && currentTrigCmd ? `${currentTrigDev}:${currentTrigCmd}` : (currentTrigCmd ? (currentTrigCmd.includes(':') ? currentTrigCmd : `${dev.id}:${currentTrigCmd}`) : ''));
 
-      if (allCmds.length === 0) {
-        cmdSel.innerHTML = '<option value="">(No commands available - manual power)</option>';
-      } else {
-        allCmds.forEach(c => {
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = '(Manual Power On / No Command)';
+      cmdSel.appendChild(defaultOpt);
+
+      let foundPreselect = false;
+      const sortedDevs = [dev, ...allDevs.filter(d => String(d.id) !== String(dev.id))];
+
+      sortedDevs.forEach(d => {
+        const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[d.id]) || d.commands || [];
+        if (cmds.length === 0) return;
+
+        let typeLabel = '';
+        if (d.type === 'MQTT' || d.mqtt_enabled) typeLabel = 'MQTT';
+        else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt || Number(d.transport) === 32) typeLabel = 'Bluetooth';
+        else if (d.type) typeLabel = d.type;
+        else typeLabel = 'IR';
+
+        const group = document.createElement('optgroup');
+        group.label = `${d.name || d.id || 'Device'} (${typeLabel})${String(d.id) === String(dev.id) ? ' - Current Device' : ''}`;
+
+        const powerCmds = cmds.filter(c => /power|toggle|on|wake|home|menu/i.test(typeof c === 'string' ? c : (c.name || '')));
+        const otherCmds = cmds.filter(c => !powerCmds.includes(c));
+        const orderedCmds = [...powerCmds, ...otherCmds];
+
+        orderedCmds.forEach(c => {
+          const cName = typeof c === 'string' ? c : (c.name || c.Name || '');
+          if (!cName) return;
           const opt = document.createElement('option');
-          opt.value = c.name;
-          opt.textContent = `${c.name} (${c.protocol || 'IR'})`;
-          if (/poweron|powertoggle|power/i.test(c.name) && !cmdSel.value) {
+          const fullVal = `${d.id}:${cName}`;
+          opt.value = fullVal;
+          opt.textContent = cName;
+
+          if (targetPreselect && (targetPreselect === fullVal || targetPreselect === cName)) {
             opt.selected = true;
+            foundPreselect = true;
           }
-          cmdSel.appendChild(opt);
+          group.appendChild(opt);
         });
+
+        cmdSel.appendChild(group);
+      });
+
+      if (!foundPreselect && !cmdSel.value) {
+        const devPowerOpt = cmdSel.querySelector('optgroup:first-of-type option[value$=":PowerOn"], optgroup:first-of-type option[value$=":PowerToggle"], optgroup:first-of-type option[value$=":Power"]');
+        if (devPowerOpt) devPowerOpt.selected = true;
       }
     }
 
@@ -512,7 +549,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const msgEl = document.getElementById('btCalibrateStateMsg');
     const startBtn = document.getElementById('btnBtCalibrateStart');
     const resBox = document.getElementById('btCalibrateResultBox');
-    const cmdName = document.getElementById('btCalibratePowerCmd')?.value;
+    const cmdVal = document.getElementById('btCalibratePowerCmd')?.value;
 
     if (this._btCalibrateInterval) clearInterval(this._btCalibrateInterval);
     if (this._btCalibratePoll) clearInterval(this._btCalibratePoll);
@@ -522,13 +559,36 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     startBtn.disabled = true;
     startBtn.textContent = 'Detecting...';
 
-    if (cmdName) {
-      msgEl.textContent = `Triggering power command "${cmdName}"...`;
+    let targetDevId = dev.id;
+    let targetCmdName = '';
+    let targetDevName = dev.name || 'Bluetooth Device';
+
+    if (cmdVal) {
+      if (cmdVal.includes(':')) {
+        const parts = cmdVal.split(':');
+        targetDevId = parts[0];
+        targetCmdName = parts.slice(1).join(':');
+      } else {
+        targetCmdName = cmdVal;
+      }
+      const matchDev = (this.inventory?.devices || []).find(d => String(d.id) === String(targetDevId));
+      if (matchDev && matchDev.name) targetDevName = matchDev.name;
+    }
+
+    if (targetCmdName) {
+      msgEl.textContent = `Triggering "${targetCmdName}" on ${targetDevName}...`;
       try {
-        await this.client.sendDeviceCommand(dev.id, cmdName);
+        await this.client.sendDeviceCommand(targetDevId, targetCmdName);
       } catch (e) {
         console.warn('Power command send error:', e);
       }
+    }
+
+    const targetAddr = dev.btHost || dev.bt_host || dev.BTAddress || '';
+    if (this.client.reconnectBt) {
+      this.client.reconnectBt(targetAddr, 60, 0).catch(() => {});
+    } else if (this.client.connectBt && targetAddr) {
+      this.client.connectBt(targetAddr).catch(() => {});
     }
 
     msgEl.textContent = 'Waiting for Bluetooth connection to complete...';
@@ -591,11 +651,29 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     const dlyInp = document.getElementById('curDevBtDelay');
     if (dlyInp) dlyInp.value = delay;
 
+    const trigVal = document.getElementById('btCalibratePowerCmd')?.value || '';
+    let trigDevId = '';
+    let trigCmdName = '';
+    if (trigVal && trigVal.includes(':')) {
+      const parts = trigVal.split(':');
+      trigDevId = parts[0];
+      trigCmdName = parts.slice(1).join(':');
+    }
+    const trigSel = document.getElementById('curDevBtTriggerCmd');
+    if (trigSel && trigVal) {
+      trigSel.value = trigVal;
+    }
+
     try {
-      await this.client.saveDeviceDetails({
+      const payload = {
         deviceId: devId,
         btReconnectDelaySec: delay
-      });
+      };
+      if (trigDevId && trigCmdName) {
+        payload.btTriggerDeviceId = trigDevId;
+        payload.btTriggerCommandName = trigCmdName;
+      }
+      await this.client.saveDeviceDetails(payload);
       showToast(`Saved ${delay}s Bluetooth delay override for this device!`, 'success');
       document.getElementById('btDelayCalibrateModal').style.display = 'none';
       await this.refreshData();

@@ -230,6 +230,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
         if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
         if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bt_host");
+        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "btHost");
         if (j_bta && cJSON_IsString(j_bta) && j_bta->valuestring && hub_valid_bdaddr(j_bta->valuestring)) {
             strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
         }

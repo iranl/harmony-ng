@@ -278,4 +278,7 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.postJson('/api/bt-link-device', { bdaddr, deviceId });
   }
 
+  async reconnectBt(target = '', duration = 30, delay = 0) {
+    return this.postJson('/api/bt/reconnect', { target, duration, delay });
+  }
 }
