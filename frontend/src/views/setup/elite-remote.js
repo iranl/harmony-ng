@@ -145,19 +145,42 @@ export function createView() {
   const mappingCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
       h('h4', { className: 'card-title', text: `Button Mappings (Slot ${currentSlot})` }),
-      h('button', {
-        className: 'btn btn-primary btn-sm',
-        text: t('save_mapping', 'Save Mapping'),
-        onclick: async () => {
-          if (!activeMapping) return;
-          try {
-            await api.saveRFMapping(activeMapping, currentSlot);
-            toast.success(t('elite_mapping_saved', 'Harmony remote mappings saved to Hub!'));
-          } catch (e) {
-            toast.error(e.message);
-          }
-        },
-      }),
+      h('div', { style: { display: 'flex', gap: '8px' } }, [
+        h('button', {
+          className: 'btn btn-secondary btn-sm',
+          text: `📋 Copy from Slot ${currentSlot === 1 ? 2 : 1}`,
+          onclick: async () => {
+            const otherSlot = currentSlot === 1 ? 2 : 1;
+            const ok = await confirm.ask({
+              title: 'Copy Remote Mappings',
+              message: `Copy all button mappings from Slot ${otherSlot} to Slot ${currentSlot}? Any existing mappings on Slot ${currentSlot} will be overwritten.`,
+              danger: true,
+            });
+            if (ok) {
+              try {
+                await api.copyRFMapping(otherSlot, currentSlot);
+                toast.success(`Copied mappings from Slot ${otherSlot} to Slot ${currentSlot}`);
+                loadMapping();
+              } catch (e) {
+                toast.error(e.message);
+              }
+            }
+          },
+        }),
+        h('button', {
+          className: 'btn btn-primary btn-sm',
+          text: t('save_mapping', 'Save Mapping'),
+          onclick: async () => {
+            if (!activeMapping) return;
+            try {
+              await api.saveRFMapping(activeMapping, currentSlot);
+              toast.success(t('elite_mapping_saved', 'Harmony remote mappings saved to Hub!'));
+            } catch (e) {
+              toast.error(e.message);
+            }
+          },
+        }),
+      ]),
     ]),
     h('div', { id: 'rf-mapping-content', className: 'text-dim', text: 'Loading mapping...' }),
   ]);

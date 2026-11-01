@@ -155,7 +155,28 @@ void poll_bthid_fifo(void) {
                 uint8_t rel_buf[16];
                 int rel_len = parse_hex_bytes(rel_str, rel_buf, sizeof(rel_buf));
                 cur_cid = get_target_host_hid_cid();
-                if (press_len > 0 && cur_cid != 0) {
+                if (cur_cid == 0) {
+                    if (!g_pending_wake_btn[0] && press_len >= 5 && (press_buf[0] == 0xa1 || press_buf[0] == 0xA1)) {
+                        if (press_buf[1] == 0x01 && press_buf[4] != 0) {
+                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "KEY %02x %02x", press_buf[2], press_buf[4]);
+                            g_pending_wake_time = time(NULL);
+                        } else if (press_buf[1] == 0x02 && (press_buf[2] != 0 || press_buf[3] != 0)) {
+                            uint16_t usage = press_buf[2] | (press_buf[3] << 8);
+                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "CONSUMER %04x", usage);
+                            g_pending_wake_time = time(NULL);
+                        }
+                    }
+                    if (!g_host_reconnect_active) {
+                        bd_addr_t tgt;
+                        if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
+                            start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
+                        } else if (get_pinned_host_target(tgt)) {
+                            start_host_reconnect(tgt, 20);
+                        } else {
+                            try_connect_host();
+                        }
+                    }
+                } else if (press_len > 0) {
                     if (g_host_pending_release_type != 0) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
@@ -176,7 +197,28 @@ void poll_bthid_fifo(void) {
                 uint8_t rep[16];
                 int rlen = parse_hex_bytes(line, rep, sizeof(rep));
                 cur_cid = get_target_host_hid_cid();
-                if (rlen > 0 && cur_cid != 0) {
+                if (cur_cid == 0) {
+                    if (!g_pending_wake_btn[0] && rlen >= 5 && (rep[0] == 0xa1 || rep[0] == 0xA1)) {
+                        if (rep[1] == 0x01 && rep[4] != 0) {
+                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "KEY %02x %02x", rep[2], rep[4]);
+                            g_pending_wake_time = time(NULL);
+                        } else if (rep[1] == 0x02 && (rep[2] != 0 || rep[3] != 0)) {
+                            uint16_t usage = rep[2] | (rep[3] << 8);
+                            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "CONSUMER %04x", usage);
+                            g_pending_wake_time = time(NULL);
+                        }
+                    }
+                    if (!g_host_reconnect_active) {
+                        bd_addr_t tgt;
+                        if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
+                            start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
+                        } else if (get_pinned_host_target(tgt)) {
+                            start_host_reconnect(tgt, 20);
+                        } else {
+                            try_connect_host();
+                        }
+                    }
+                } else if (rlen > 0) {
                     if (g_host_pending_release_type != 0) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
@@ -271,11 +313,11 @@ void execute_btstack_cmd(const char *cmd_in) {
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
     } else if (strncmp(cmd, "connect_host", 12) == 0) {
+        if (is_any_host_connected()) return;
+        if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;
-        stop_host_reconnect();
-        g_host_connecting = false;
         if (parse_bd_addr(addr_str, tgt)) {
             register_host_target(tgt, NULL);
             start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
@@ -283,8 +325,10 @@ void execute_btstack_cmd(const char *cmd_in) {
             bd_addr_t def_tgt;
             if (get_pinned_host_target(def_tgt)) {
                 start_host_reconnect(def_tgt, MAX_HOST_RECONNECT_ATTEMPTS);
-            } else {
+            } else if (!is_null_bd_addr(g_host_addr)) {
                 start_host_reconnect(g_host_addr, MAX_HOST_RECONNECT_ATTEMPTS);
+            } else {
+                try_connect_host();
             }
         }
     } else if (strncmp(cmd, "disconnect_host", 15) == 0) {

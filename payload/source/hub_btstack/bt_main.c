@@ -225,6 +225,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 update_status(app_state == APP_READY ? "ready" : "standby");
                 update_bthid_status();
             }
+            if (app_state == APP_SCANNING && !g_user_scan_active) {
+                gap_start_scan();
+            }
             break;
         }
 
@@ -258,6 +261,20 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     g_host_hid_cid = get_target_host_hid_cid();
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
+
+                    char cur_act[64] = "-1";
+                    read_current_activity(cur_act, sizeof(cur_act));
+                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                        bd_addr_t tgt;
+                        if (get_pinned_host_target(tgt)) {
+                            if (!g_host_reconnect_active) {
+                                char bmsg[128];
+                                snprintf(bmsg, sizeof(bmsg), "Host idle disconnect during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
+                                log_msg(bmsg);
+                                start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+                            }
+                        }
+                    }
                 }
             }
             break;
@@ -425,8 +442,12 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
 
+                    if (app_state == APP_SCANNING && !g_user_scan_active) {
+                        gap_start_scan();
+                    }
+
                     if (g_pending_wake_btn[0] && (time(NULL) - g_pending_wake_time) < 10) {
-                        char pbtn[32];
+                        char pbtn[64];
                         strncpy(pbtn, g_pending_wake_btn, sizeof(pbtn) - 1);
                         pbtn[sizeof(pbtn) - 1] = 0;
                         g_pending_wake_btn[0] = 0;
@@ -473,6 +494,20 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     g_host_hid_cid = get_target_host_hid_cid();
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
+
+                    char cur_act[64] = "-1";
+                    read_current_activity(cur_act, sizeof(cur_act));
+                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                        bd_addr_t tgt;
+                        if (get_pinned_host_target(tgt)) {
+                            if (!g_host_reconnect_active) {
+                                char bmsg[128];
+                                snprintf(bmsg, sizeof(bmsg), "Host HID closed during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
+                                log_msg(bmsg);
+                                start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+                            }
+                        }
+                    }
                     break;
                 }
                 default:

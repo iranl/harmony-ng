@@ -332,14 +332,14 @@ export function getStockIconUrl(iconKey, hint = '') {
   }
   if (!fn && hint && typeof hint === 'string') {
     const h = hint.toLowerCase();
-    if (h.includes('tv') || h.includes('television')) fn = 'tv.png';
-    else if (h.includes('shield')) fn = 'shield.png';
-    else if (h.includes('ps') || h.includes('playstation')) fn = 'ps.png';
-    else if (h.includes('xbox')) fn = 'xbox.png';
-    else if (h.includes('sonos')) fn = 'sonos.png';
-    else if (h.includes('firetv')) fn = 'firetv.png';
-    else if (h.includes('heos')) fn = 'heos.png';
-    else if (h.includes('switch') || h.includes('nintendo')) fn = 'switch.png';
+    if (/\b(tv|television)\b/.test(h)) fn = 'tv.png';
+    else if (/\bshield\b/.test(h)) fn = 'shield.png';
+    else if (/\b(ps|playstation)\b/.test(h)) fn = 'ps.png';
+    else if (/\bxbox\b/.test(h)) fn = 'xbox.png';
+    else if (/\bsonos\b/.test(h)) fn = 'sonos.png';
+    else if (/\bfiretv\b/.test(h)) fn = 'firetv.png';
+    else if (/\bheos\b/.test(h)) fn = 'heos.png';
+    else if (/\b(switch|nintendo)\b/.test(h)) fn = 'switch.png';
   }
   if (!fn) return '';
 
@@ -464,13 +464,15 @@ export function getRawScreenBtnIconSvg(iconKey = '', label = '', size = 12) {
   const l = (label || '').toLowerCase();
   const q = k || l;
 
+  if (!q || /^\d+$/.test(q)) return '';
+
   if (q.includes('power') || q.includes('pwr') || q.includes('standby')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>`;
   }
   if (q.includes('playpause')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polygon points="5 3 13 8 5 13 5 3"></polygon><line x1="16" y1="3" x2="16" y2="13"></line><line x1="20" y1="3" x2="20" y2="13"></line></svg>`;
   }
-  if (q.includes('play')) {
+  if (q.startsWith('play') || /\bplay\b/.test(q)) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
   }
   if (q.includes('pause')) {
@@ -479,7 +481,7 @@ export function getRawScreenBtnIconSvg(iconKey = '', label = '', size = 12) {
   if (q.includes('stop')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><rect x="4" y="4" width="16" height="16"></rect></svg>`;
   }
-  if (q.includes('ff') || q.includes('fastforward')) {
+  if (/\b(ff|fastforward|fwd)\b/.test(q) || q.includes('fastforward')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polygon points="13 19 22 12 13 5 13 19"></polygon><polygon points="2 19 11 12 2 5 2 19"></polygon></svg>`;
   }
   if (q.includes('rew') || q.includes('rewind')) {
@@ -491,16 +493,16 @@ export function getRawScreenBtnIconSvg(iconKey = '', label = '', size = 12) {
   if (q.includes('vol') || q.includes('volume')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M11 5L6 9H2v6h4l5 4V5z"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
   }
-  if (q.includes('denon') || q.includes('avr') || q.includes('receiver') || q.includes('amp')) {
+  if (q.includes('denon') || q.includes('avr') || q.includes('receiver') || /\b(amp|amplifier)\b/.test(q)) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><rect x="4" y="2" width="16" height="20" rx="2"></rect><circle cx="12" cy="14" r="4"></circle><line x1="12" y1="6" x2="12.01" y2="6"></line></svg>`;
   }
-  if (q.includes('tv') || q.includes('television')) {
+  if (/\b(tv|television)\b/.test(q)) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>`;
   }
   if (q.includes('shield')) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`;
   }
-  if (q.includes('ps') || q.includes('playstation')) {
+  if (/\b(ps|playstation)\b/.test(q)) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polygon points="6 3 18 3 12 12 6 3"></polygon><circle cx="12" cy="17" r="4"></circle></svg>`;
   }
   if (q.includes('xbox')) {

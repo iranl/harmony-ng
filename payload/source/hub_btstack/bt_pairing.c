@@ -450,7 +450,7 @@ void try_connect_host_addr(const bd_addr_t addr) {
             return;
         }
     }
-    if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 15) {
+    if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
         return;
     }
     char msg[128];
@@ -458,10 +458,19 @@ void try_connect_host_addr(const bd_addr_t addr) {
     log_msg(msg);
     g_host_connecting = true;
     g_host_connecting_start = time(NULL);
+
+    // Suspend LE scanning during Classic ACL paging to dedicate CSR8811 radio to Host connection
+    if (app_state == APP_SCANNING && !g_user_scan_active) {
+        gap_stop_scan();
+    }
+
     uint16_t cid = 0;
     uint8_t status = hid_device_connect((uint8_t*)addr, &cid);
     if (status != ERROR_CODE_SUCCESS || cid == 0) {
         g_host_connecting = false;
+        if (app_state == APP_SCANNING && !g_user_scan_active) {
+            gap_start_scan();
+        }
         snprintf(msg, sizeof(msg), "Classic HID Host connect request failed (status=0x%02x, cid=0x%04x)", status, cid);
         log_msg(msg);
         return;
@@ -513,8 +522,8 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
         return;
     }
 
-    if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 15) {
-        btstack_run_loop_set_timer(&g_host_reconnect_timer, 4000);
+    if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
+        btstack_run_loop_set_timer(&g_host_reconnect_timer, 1500);
         btstack_run_loop_add_timer(&g_host_reconnect_timer);
         return;
     }
@@ -532,7 +541,8 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
         try_connect_host();
     }
 
-    btstack_run_loop_set_timer(&g_host_reconnect_timer, 7000);
+    uint32_t next_ms = (g_host_reconnect_attempts <= 3) ? 2000 : 4000;
+    btstack_run_loop_set_timer(&g_host_reconnect_timer, next_ms);
     btstack_run_loop_add_timer(&g_host_reconnect_timer);
 }
 
@@ -556,7 +566,7 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     g_host_reconnect_active = true;
 
     char msg[128];
-    snprintf(msg, sizeof(msg), "Starting host reconnect loop for %s (105s window, 7s interval)",
+    snprintf(msg, sizeof(msg), "Starting host reconnect loop for %s (fast retry: 2s interval)",
              is_null_bd_addr(g_host_reconnect_target) ? "targets" : bd_addr_to_str(g_host_reconnect_target));
     log_msg(msg);
 
@@ -567,7 +577,7 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     }
 
     btstack_run_loop_remove_timer(&g_host_reconnect_timer);
-    btstack_run_loop_set_timer(&g_host_reconnect_timer, 7000);
+    btstack_run_loop_set_timer(&g_host_reconnect_timer, 2000);
     btstack_run_loop_set_timer_handler(&g_host_reconnect_timer, host_reconnect_timer_handler);
     btstack_run_loop_add_timer(&g_host_reconnect_timer);
 }
@@ -634,10 +644,10 @@ void hog_start_scan(void) {
     bd_addr_t pinned;
     if (get_pinned_target(pinned)) {
         update_status("standby");
-        gap_set_scan_parameters(0, 48, 48); // passive scanning: no SCAN_REQ delay/collision
+        gap_set_scan_parameters(0, 96, 24); // passive scanning (25% duty cycle): no SCAN_REQ delay, avoids Classic BT paging collision
     } else {
         update_status("scanning");
-        gap_set_scan_parameters(1, 48, 48); // active scanning for discovery
+        gap_set_scan_parameters(1, 96, 24); // active scanning for discovery (25% duty cycle)
     }
     app_state = APP_SCANNING;
     gap_start_scan();

@@ -618,17 +618,35 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
 
   async checkOnlineVersions() {
     try {
-      let res = await fetch('https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION', { cache: 'no-cache' }).catch(() => null);
-      if (!res || !res.ok) {
-        res = await fetch('https://raw.githubusercontent.com/iranl/harmony-ng/main/VERSION', { cache: 'no-cache' }).catch(() => null);
-      }
-      if (res && res.ok) {
-        const text = await res.text();
-        const ver = text.trim();
-        if (ver) {
-          this.onlineVersion = ver;
-          this.latestEliteVersion = ver;
+      let ver = '';
+      try {
+        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+          cache: 'no-cache'
+        });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          if (ghData.tag_name) ver = ghData.tag_name.replace(/^v/, '').trim();
         }
+      } catch (_) { }
+
+      if (!ver) {
+        let res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+        }
+        if (!res || !res.ok) {
+          res = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/main/VERSION?_=${Date.now()}`, { cache: 'no-cache' }).catch(() => null);
+        }
+        if (res && res.ok) {
+          const text = await res.text();
+          ver = text.replace(/^v/, '').trim();
+        }
+      }
+
+      if (ver) {
+        this.onlineVersion = ver;
+        this.latestEliteVersion = ver;
       }
     } catch { }
   }

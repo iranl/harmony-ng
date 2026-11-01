@@ -185,7 +185,8 @@ def package_ota(output_dir: Path, version: str):
     print(f"[*] Creating unified Hub OTA package {hub_tar.name}...")
     with tarfile.open(hub_tar, "w:gz") as tar:
         # Version
-        tar.add(output_dir / "VERSION", arcname="VERSION")
+        ver_file = (output_dir / "v2" / "VERSION") if (major >= 2 and (output_dir / "v2" / "VERSION").exists()) else (output_dir / "VERSION")
+        tar.add(ver_file, arcname="VERSION")
         # Binaries
         for bname in HUB_BINARIES + ["busybox", "dropbearmulti"]:
             src = find_candidate_file(bname, MIPS_SEARCH_PATHS)

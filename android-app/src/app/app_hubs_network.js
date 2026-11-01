@@ -58,23 +58,57 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     const log = document.getElementById('updateLog');
     try {
       if (log) log.textContent = 'Fetching current system & update status...';
-      const [sys, stat] = await Promise.all([
+      const [sys, stat, rfStat] = await Promise.all([
         this.client.getSystemInfo().catch(() => ({})),
-        this.client.getUpdateStatus().catch(() => ({}))
+        this.client.getUpdateStatus().catch(() => ({})),
+        this.client.getRfStatus().catch(() => ({}))
       ]);
 
-      let remoteVer = stat.remote_version || '';
+      let remoteVer = '';
       try {
-        const rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION?_=${Date.now()}`);
-        if (rawRes.ok) {
-          const v = (await rawRes.text()).trim();
-          if (v) remoteVer = v.startsWith('v') ? v : `v${v}`;
+        const ghRes = await fetch('https://api.github.com/repos/iranl/harmony-ng/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          if (ghData.tag_name) {
+            remoteVer = ghData.tag_name.startsWith('v') ? ghData.tag_name : `v${ghData.tag_name}`;
+          }
         }
       } catch (_) { }
 
+      if (!remoteVer) {
+        try {
+          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
+          if (!rawRes.ok) {
+            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
+          }
+          if (rawRes.ok) {
+            const v = (await rawRes.text()).trim();
+            if (v) remoteVer = v.startsWith('v') ? v : `v${v}`;
+          }
+        } catch (_) { }
+      }
+
+      if (!remoteVer && stat.remote_version) {
+        const clean = stat.remote_version.replace(/^v/, '').trim();
+        if (clean !== '1.14.0' || (sys.version && sys.version.startsWith('1.'))) {
+          remoteVer = stat.remote_version.startsWith('v') ? stat.remote_version : `v${stat.remote_version}`;
+        }
+      }
+
       const localVer = stat.local_version || ('v' + (sys.version || APP_VERSION));
-      const targetRemote = remoteVer || stat.remote_version || '';
+      const targetRemote = remoteVer || '';
       const hasUpdate = Boolean(targetRemote && localVer && this.isVersionOlder(localVer, targetRemote));
+
+      let remotesInfo = '';
+      if (rfStat?.slots && Array.isArray(rfStat.slots)) {
+        for (const s of rfStat.slots) {
+          if (s.active && s.sw_version && s.sw_version !== 'unknown' && s.sw_version !== 'N/A') {
+            remotesInfo += `Remote (Slot ${s.slot} - ${s.model || 'Elite'}): v${s.sw_version}\n`;
+          }
+        }
+      }
 
       if (log) {
         log.textContent = `Hub Firmware: ${sys.firmware || stat.fw_version || '4.15.600'}\n` +
@@ -82,8 +116,9 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
           `Hub Daemon: v${sys.version || stat.current_version || APP_VERSION}\n` +
           `Commit: ${stat.commit || sys.commit || 'dev'}\n` +
           `Build: ${stat.build_time || sys.build_time || 'Release'}\n` +
-          `Local Version: ${localVer}\n` +
-          `Remote Version: ${remoteVer || 'Up to date'}\n` +
+          remotesInfo +
+          `Local Hub Version: ${localVer}\n` +
+          `Online Version: ${remoteVer || 'Up to date'}\n` +
           `Status: ${hasUpdate ? '⚠️ Update available' : '✓ Up to date'}`;
       }
     } catch (err) {
@@ -108,7 +143,10 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         }
       } catch (_) {
         try {
-          const rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION?_=${Date.now()}`);
+          let rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/v2/VERSION?_=${Date.now()}`);
+          if (!rawRes.ok) {
+            rawRes = await fetch(`https://raw.githubusercontent.com/iranl/harmony-ng/ota/VERSION_V2?_=${Date.now()}`);
+          }
           if (rawRes.ok) {
             const rawVer = await rawRes.text();
             remoteVer = rawVer.trim().replace(/^v/, '');

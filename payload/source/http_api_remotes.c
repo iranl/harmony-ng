@@ -216,7 +216,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     }
 
     /* Route: /api/rf/... proxy to RF daemon (127.0.0.1:8092) */
-    if (strncmp(clean_path, "/api/rf", 7) == 0) {
+    if (strcmp(clean_path, "/api/rf") == 0 || strncmp(clean_path, "/api/rf/", 8) == 0) {
         int rfsock = socket(AF_INET, SOCK_STREAM, 0);
         if (rfsock >= 0) {
             struct sockaddr_in sin;
@@ -416,7 +416,9 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         int to_slot = 2;
         if (query) {
             if (strstr(query, "from=2")) from_slot = 2;
+            else if (strstr(query, "from=1")) from_slot = 1;
             if (strstr(query, "to=1")) to_slot = 1;
+            else if (strstr(query, "to=2")) to_slot = 2;
         }
         if (body && body[0]) {
             cJSON *bj = cJSON_Parse(body);
@@ -433,6 +435,13 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         snprintf(dst_name, sizeof(dst_name), "remote_slot%d_map.json", to_slot);
         size_t flen = 0;
         char *content = read_file_text_alloc(config_store_path(src_name), 500000, &flen);
+        if (!content && from_slot == 1) {
+            content = read_file_text_alloc(config_store_path("elite_remote_map.json"), 500000, &flen);
+        }
+        if (!content) {
+            /* If source mapping file is not on disk yet, use empty default structure */
+            content = strdup("{\"activities\":{},\"devices\":{}}");
+        }
         if (content) {
             system("mkdir -p /data/harmony 2>/dev/null");
             write_file_atomic(config_store_path(dst_name), content);
@@ -445,7 +454,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             send_cjson_resp(client_fd, 200, resp);
             cJSON_Delete(resp);
         } else {
-            send_json_error(client_fd, 404, "Source slot mapping not found");
+            send_json_error(client_fd, 500, "Failed to copy slot mapping");
         }
         close(client_fd);
         return 1;

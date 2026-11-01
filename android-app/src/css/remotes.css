@@ -439,8 +439,7 @@
 
 /* Screen Buttons List Editor */
 .screen-btn-row {
-  display: grid;
-  grid-template-columns: 24px 1.2fr 110px 1fr 1fr auto;
+  display: flex;
   align-items: center;
   gap: 8px;
   background: var(--bg-card);
@@ -456,13 +455,32 @@
   font-weight: 700;
   color: var(--text-dim);
   text-align: center;
+  width: 18px;
+  flex-shrink: 0;
+}
+.screen-btn-row .screen-btn-label {
+  flex: 1.5;
+  min-width: 140px;
+}
+.screen-btn-row .btn-screen-btn-icon {
+  width: 120px;
+  flex-shrink: 0;
+}
+.screen-btn-row .screen-btn-dev {
+  flex: 1;
+  min-width: 120px;
+}
+.screen-btn-row .screen-btn-cmd {
+  flex: 1;
+  min-width: 120px;
+}
+.screen-btn-row .screen-btn-del {
+  flex-shrink: 0;
 }
 .screen-btn-row input[type="text"],
 .screen-btn-row select {
   min-width: 0;
-  max-width: 100%;
   box-sizing: border-box;
-  width: 100%;
 }
 @media (max-width: 640px) {
   .screen-btn-row {

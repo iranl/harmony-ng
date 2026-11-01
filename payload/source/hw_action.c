@@ -234,16 +234,16 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
             strncpy(target_bdaddr, j_bta->valuestring, sizeof(target_bdaddr) - 1);
         }
 
-        const char *sh_bin = "/data/harmony/bt_reconnect.sh";
-        char sh_cmd[256];
-        if (target_bdaddr[0]) {
-            snprintf(sh_cmd, sizeof(sh_cmd), "%s %s %d %d >/dev/null 2>&1 &", sh_bin, target_bdaddr, dur, dly);
+        if (dly > 0) {
+            const char *sh_bin = "/data/harmony/bt_reconnect.sh";
+            char sh_cmd[256];
+            if (target_bdaddr[0]) {
+                snprintf(sh_cmd, sizeof(sh_cmd), "%s %s %d %d >/dev/null 2>&1 &", sh_bin, target_bdaddr, dur, dly);
+            } else {
+                snprintf(sh_cmd, sizeof(sh_cmd), "%s \"\" %d %d >/dev/null 2>&1 &", sh_bin, dur, dly);
+            }
+            system(sh_cmd);
         } else {
-            snprintf(sh_cmd, sizeof(sh_cmd), "%s \"\" %d %d >/dev/null 2>&1 &", sh_bin, dur, dly);
-        }
-        system(sh_cmd);
-
-        if (dly == 0) {
             char cmd[128];
             if (target_bdaddr[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", target_bdaddr, dur);
             else snprintf(cmd, sizeof(cmd), "connect_host %d\n", dur);

@@ -33,7 +33,7 @@ int g_host_reconnect_attempts = 0;
 bd_addr_t g_host_reconnect_target;
 bool g_host_connecting = false;
 time_t g_host_connecting_start = 0;
-char g_pending_wake_btn[32] = {0};
+char g_pending_wake_btn[64] = {0};
 time_t g_pending_wake_time = 0;
 
 char g_last_btn[64] = "";

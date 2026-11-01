@@ -269,15 +269,18 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
   async copySlotMappings() {
     const curSlot = this.selectedRemoteSlot || 1;
     const otherSlot = curSlot === 1 ? 2 : 1;
-    const confirmed = confirm(`Copy all activity and device button mappings from Slot ${otherSlot} to Slot ${curSlot}? Any existing mappings on Slot ${curSlot} will be overwritten.`);
+    const confirmed = await showConfirm(
+      `Copy all activity and device button mappings from Slot ${otherSlot} to Slot ${curSlot}? Any existing mappings on Slot ${curSlot} will be overwritten.`,
+      { title: 'Copy Button Mappings', okText: 'Copy Mappings' }
+    );
     if (!confirmed) return;
 
     try {
       await this.client.copyRFMapping(otherSlot, curSlot);
-      this.showToast(`Mappings copied from Slot ${otherSlot} to Slot ${curSlot}!`, 'success');
+      showToast(`Mappings copied from Slot ${otherSlot} to Slot ${curSlot}!`, 'success');
       await this.loadEliteView();
     } catch (err) {
-      this.showToast(`Copy failed: ${err.message || err}`, 'danger');
+      showToast(`Copy failed: ${err.message || err}`, 'danger');
     }
   }
 
@@ -505,9 +508,9 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     try {
       if (btn) btn.textContent = 'Saving...';
       await this.client.saveRFMapping(this.eliteMapData, slot);
-      this.showToast(`Slot ${slot} mappings saved to Hub!`, 'success');
+      showToast(`Slot ${slot} mappings saved to Hub!`, 'success');
     } catch (err) {
-      this.showToast('Save failed: ' + (err.message || err), 'danger');
+      showToast('Save failed: ' + (err.message || err), 'danger');
     } finally {
       if (btn) btn.textContent = 'Save All to Hub';
     }
@@ -519,12 +522,12 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       if (btn) btn.textContent = 'Pushing...';
       const res = await this.client.pushRfConfig();
       if (res && res.status === 'push_started') {
-        this.showToast(t('config_push_started', 'Configuration push started over RF to Harmony remote!'), 'success');
+        showToast(t('config_push_started', 'Configuration push started over RF to Harmony remote!'), 'success');
       } else {
-        this.showToast(t('config_push_success', 'Configuration push triggered successfully.'), 'success');
+        showToast(t('config_push_success', 'Configuration push triggered successfully.'), 'success');
       }
     } catch (err) {
-      this.showToast((t('push_failed', 'Push failed: ')) + (err.message || err), 'danger');
+      showToast((t('push_failed', 'Push failed: ')) + (err.message || err), 'danger');
     } finally {
       if (btn) btn.textContent = t('push_elite_remote', 'Push to Remote');
     }
@@ -615,7 +618,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
       if (!Array.isArray(devObj.screen_buttons)) {
         if (curDev && Array.isArray(curDev.commands) && curDev.commands.length > 0) {
           devObj.screen_buttons = curDev.commands.map(c => ({
-            label: (c.name || '').slice(0, 12),
+            label: c.name || '',
             deviceId: String(devId),
             command: c.name,
             icon: ''
@@ -687,7 +690,7 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
             <button type="button" class="btn btn-xs btn-ghost screen-btn-up" title="Move Up" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▲</button>
             <button type="button" class="btn btn-xs btn-ghost screen-btn-down" title="Move Down" ${idx === sbtns.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▼</button>
           </div>
-          <input type="text" class="form-control screen-btn-label" maxlength="12" value="${escapeHtml(btn.label || '')}" placeholder="Label (max 12)" style="font-size: 12px; padding: 4px 8px;">
+          <input type="text" class="form-control screen-btn-label" maxlength="32" value="${escapeHtml(btn.label || '')}" placeholder="Label (max 32)" style="font-size: 12px; padding: 4px 8px;">
           <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="Choose Icon" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
             ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${escapeHtml(btn.icon)}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
             <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${escapeHtml(iconDispName)}</span>

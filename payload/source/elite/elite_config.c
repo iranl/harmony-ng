@@ -254,13 +254,19 @@ bool resolve_button_icon(const char *icon_key, const char *label, char *out_path
         }
     }
 
-    bool is_num = (low[0] >= '0' && low[0] <= '9');
-    for (int i = 0; low[i]; i++) {
-        if (low[i] < '0' || low[i] > '9') { is_num = false; break; }
-    }
-    if (is_num && low[0]) {
-        snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/commands/%s.png", low);
-        return true;
+    /* Only resolve numeric command asset ID if an explicit icon_key was provided!
+     * Button text labels (e.g. "1", "2", "10") are NOT icon IDs and must never
+     * collide with Logitech internal commands/1.png (TV), commands/2.png (FastForward), etc. */
+    if (icon_key && icon_key[0]) {
+        bool is_num = (low[0] >= '0' && low[0] <= '9');
+        for (int i = 0; low[i]; i++) {
+            if (low[i] < '0' || low[i] > '9') { is_num = false; break; }
+        }
+        if (is_num && low[0]) {
+            snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/commands/%s.png", low);
+            if (access(out_path, R_OK) == 0) return true;
+            out_path[0] = '\0';
+        }
     }
 
     if (strstr(low, "power") || strstr(low, "pwr") || strstr(low, "standby")) {

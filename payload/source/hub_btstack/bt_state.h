@@ -128,7 +128,7 @@ extern int g_host_reconnect_attempts;
 extern bd_addr_t g_host_reconnect_target;
 extern bool g_host_connecting;
 extern time_t g_host_connecting_start;
-extern char g_pending_wake_btn[32];
+extern char g_pending_wake_btn[64];
 extern time_t g_pending_wake_time;
 
 extern const uint8_t hid_descriptor_composite[];

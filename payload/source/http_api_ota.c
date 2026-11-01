@@ -34,8 +34,8 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
                 char *nl = strchr(lbuf, '\n'); if (nl) *nl = '\0';
                 nl = strchr(lbuf, '\r'); if (nl) *nl = '\0';
                 if (strlen(lbuf) > 0) {
-                    snprintf(remote_ver, sizeof(remote_ver), "%s", lbuf);
                     if (harmony_version_compare(lbuf, HARMONY_VERSION) > 0) {
+                        snprintf(remote_ver, sizeof(remote_ver), "%s", lbuf);
                         has_update = 1;
                     } else {
                         has_update = 0;
@@ -103,9 +103,10 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
             const char *src = client_remote_ver;
             if (src[0] == 'v' || src[0] == 'V') src++;
             strncpy(clean_ver, src, sizeof(clean_ver) - 1);
+            const char *save_ver = (harmony_version_compare(clean_ver, HARMONY_VERSION) > 0) ? clean_ver : HARMONY_VERSION;
             FILE *rf = fopen(config_store_path("latest_version"), "w");
             if (rf) {
-                fprintf(rf, "%s\n", clean_ver);
+                fprintf(rf, "%s\n", save_ver);
                 fclose(rf);
             }
             if (harmony_version_compare(clean_ver, HARMONY_VERSION) > 0) {
