@@ -252,6 +252,13 @@ export function createView() {
   }
 
   renderList();
+
+  // The Hub's activities may arrive after this view first draws; redraw the list when they
+  // change. Views aren't unmounted, so the listener removes itself once the page has gone.
+  const off = store.on('activities.list', () => {
+    if (!container.isConnected) { off(); return; }
+    if (!selectedActivity) renderList();
+  });
   return container;
 }
 
