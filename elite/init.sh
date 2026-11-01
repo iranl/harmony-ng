@@ -73,6 +73,7 @@ if [ -f /tmp/elite_supervisors.pid ]; then
         exit 0
     fi
 fi
+rm -f /tmp/elite_supervisors.pid 2>/dev/null || true
 
 # 0. Early watchdog neuter and neuter stock binaries
 touch /etc/nowatchdog 2>/dev/null || true
@@ -81,24 +82,34 @@ killall -9 watchdog hal luaworks luadraws lua luajit 2>/dev/null || true
 
 # 1. Ensure USB Ethernet and Dropbear are active
 chmod -x /usr/bin/usbhid 2>/dev/null || true
-/usr/bin/usbeth start 2>/dev/null || true
-if [ -x /data/dropbear ]; then
-    /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true
-elif [ -x /usr/sbin/dropbear ]; then
-    /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null || /usr/sbin/dropbear -R -B 2>/dev/null || true
+if [ ! -d /sys/class/net/usb0 ]; then
+    /usr/bin/usbeth start &
+fi
+if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then
+    if [ -x /data/dropbearmulti ]; then
+        /data/dropbearmulti dropbear -R -p 0.0.0.0:22 2>/dev/null &
+    elif [ -x /data/dropbear ]; then
+        /data/dropbear -R -p 0.0.0.0:22 2>/dev/null &
+    elif [ -x /usr/sbin/dropbear ]; then
+        /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null &
+    fi
 fi
 
 # 2. Supervisor loop for elite_ui in background
 (
-    echo "$$" >> /tmp/elite_supervisors.pid
     while [ ! -f /tmp/elite_stop ]; do
         if [ -x /data/elite_ui ]; then
             echo "$(date) Starting /data/elite_ui..." >> "$LOG"
             /data/elite_ui > /tmp/elite_ui.log 2>&1
             EXIT_CODE=$?
-            if [ -f /tmp/elite_stop ] || [ "$EXIT_CODE" -eq 0 ]; then
+            if [ -f /tmp/elite_stop ]; then
                 turn_off_lights
                 break
+            fi
+            if [ "$EXIT_CODE" -eq 0 ]; then
+                turn_off_lights
+                sleep 1
+                continue
             fi
             if [ "$EXIT_CODE" -eq 137 ] || [ "$EXIT_CODE" -eq 143 ]; then
                 # Intentional kill / reload signal
@@ -115,3 +126,4 @@ fi
         fi
     done
 ) &
+echo "$!" >> /tmp/elite_supervisors.pid

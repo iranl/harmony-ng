@@ -155,7 +155,7 @@ def main() -> None:
     # 3. Upload binaries (only when MD5 differs)
     scp_opts = ["-O"] + ssh_opts
     print("[*] Syncing core ARM binaries to /data/ (MD5 check)...")
-    binaries = ["elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox"]
+    binaries = ["elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "busybox"]
     for b in binaries:
         src = BIN_DIR / b
         if src.is_file():
@@ -184,6 +184,7 @@ def main() -> None:
     # 5. Set permissions and finalize
     print("[*] Verifying permissions and flushing NAND flash buffers...")
     post = (
+        "sed -i 's/\r$//' /etc/init.d/rcS.local /data/*.sh 2>/dev/null || true; "
         "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; "
         "[ -e /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "

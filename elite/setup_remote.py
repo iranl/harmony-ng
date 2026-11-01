@@ -635,6 +635,14 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
         print(f"[*] Uploading /data/{watchdog_src.name} supervisor script...")
         subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/{watchdog_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    init_src = find_candidate([
+        REPO_DIR / "elite" / "init.sh",
+        SCRIPT_DIR / "init.sh",
+    ])
+    if init_src.is_file():
+        print(f"[*] Uploading /data/{init_src.name} supervisor script...")
+        subprocess.run(["scp"] + scp_opts + [str(init_src), f"{target}:/data/{init_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
         REPO_DIR / "rcS.local",
@@ -652,14 +660,15 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
     # Finalize permissions, symlinks, and launch runtime (via watchdog if present)
     print("[*] Finalizing permissions and starting Elite supervisor...")
     post_cmds = (
-        "chmod 755 /data/elite_* /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
+        "sed -i 's/\r$//' /etc/init.d/rcS.local /data/*.sh 2>/dev/null || true; "
+        "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
         "chmod -x /usr/bin/usbhid /usr/bin/watchdog 2>/dev/null || true; "
         "ln -sf /data/elite_sync /data/sync 2>/dev/null || true; "
         "ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /data/dropbear 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /usr/sbin/dropbear 2>/dev/null || true; "
-        "killall -9 elite_watchdog.sh elite_ui 2>/dev/null || true; "
-        "if [ -x /data/elite_watchdog.sh ]; then /data/elite_watchdog.sh > /dev/null 2>&1 & elif [ -x /data/elite_ui ]; then /data/elite_ui > /tmp/elite_ui.log 2>&1 & fi; "
+        "killall -9 init.sh elite_watchdog.sh elite_ui 2>/dev/null || true; "
+        "if [ -x /data/init.sh ]; then /data/init.sh start > /dev/null 2>&1 & elif [ -x /data/elite_watchdog.sh ]; then /data/elite_watchdog.sh > /dev/null 2>&1 & elif [ -x /data/elite_ui ]; then /data/elite_ui > /tmp/elite_ui.log 2>&1 & fi; "
         "sleep 1; pidof elite_ui || echo 'offline'"
     )
     res = subprocess.run(["ssh"] + ssh_opts + [target, post_cmds], capture_output=True, text=True)

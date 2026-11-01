@@ -164,7 +164,8 @@ build_elite() {
     echo "[-] Packaging elite_ui.ota.gz (binary + scripts)..."
     mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
     cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
-    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/init.sh" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
+    sed -i 's/\r$//' "$REPO_ROOT/build/tmp/elite_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/elite_ota_pkg"/rcS.local 2>/dev/null || true
     tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
     cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"

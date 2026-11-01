@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     g_usb_connected = is_usb_hardware_connected();
     log_power_debug("[*] elite_ui INIT: usbeth_enabled=%d, usb_cable_connected=%d\n",
                     g_usbeth_enabled, g_usb_connected);
-    if (!g_usb_connected || !g_usbeth_enabled) {
+    if (!g_usb_connected && !g_usbeth_enabled) {
         stop_usbeth_and_dropbear();
     } else {
         start_usbeth_and_dropbear();
@@ -268,7 +268,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+    for (int retry = 0; retry < 30 && g_btn_fd < 0; retry++) {
+        g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        if (g_btn_fd < 0) {
+            usleep(100000);
+        }
+    }
     if (g_btn_fd < 0) {
         perror("open " BTN_EVENT_DEV);
         return 1;
@@ -371,15 +376,13 @@ int main(int argc, char **argv) {
             if (usb_now != g_usb_connected) {
                 g_usb_connected = usb_now;
                 if (g_usb_connected) {
-                    if (g_usbeth_enabled) {
-                        log_power_debug("[+] USB cable plugged: starting USB Ethernet and Dropbear...\n");
-                        start_usbeth_and_dropbear();
-                    } else {
-                        log_power_debug("[+] USB cable plugged (Ethernet mode is disabled in settings).\n");
-                    }
+                    log_power_debug("[+] USB cable plugged: starting USB Ethernet and Dropbear...\n");
+                    start_usbeth_and_dropbear();
                 } else {
-                    log_power_debug("[-] USB cable disconnected: stopping Dropbear and USB Ethernet...\n");
-                    stop_usbeth_and_dropbear();
+                    if (!g_usbeth_enabled) {
+                        log_power_debug("[-] USB cable disconnected: stopping Dropbear and USB Ethernet...\n");
+                        stop_usbeth_and_dropbear();
+                    }
                 }
                 g_screen_dirty = true;
             }

@@ -121,7 +121,7 @@ function Deploy-EliteFileIfChanged {
 }
 
 Write-Host "[*] Syncing core binaries to /data/ (MD5 check)..." -ForegroundColor Yellow
-$binaries = @("elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "mknod", "busybox")
+$binaries = @("elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "busybox")
 foreach ($b in $binaries) {
     $src = Join-Path $BinDir $b
     Deploy-EliteFileIfChanged -LocalFile $src -RemoteFile "/data/$b" -Perm "755" | Out-Null
@@ -157,7 +157,8 @@ if (Test-Path $safeRebootScript) {
 }
 
 Write-Host "[*] Verifying permissions and flushing NAND flash buffers..." -ForegroundColor Yellow
-$postCmd = "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
+$postCmd = "sed -i 's/\r$//' /etc/init.d/rcS.local /data/*.sh 2>/dev/null || true; " +
+           "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; " +
            "chmod -x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true; " +
            "[ -e /data/sync ] || ln -sf /data/elite_sync /data/sync 2>/dev/null || true; " +
            "[ -e /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; " +

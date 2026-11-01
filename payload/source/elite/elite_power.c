@@ -113,70 +113,36 @@ void set_backlight_level(int level) {
     }
 }
 
-void clearpad_hw_init(void) {
+void clearpad_wake(bool full_reset) {
+    (void)full_reset;
     int fd = open("/dev/i2c-1", O_RDWR);
-    if (fd < 0) return;
-    if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) < 0) {
+    if (fd >= 0) {
+        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
+            union i2c_smbus_data data;
+            struct i2c_smbus_ioctl_data args;
+
+            data.byte = 0x00;
+            args.read_write = I2C_SMBUS_WRITE;
+            args.command = 0x35;
+            args.size = I2C_SMBUS_BYTE_DATA;
+            args.data = &data;
+            ioctl(fd, I2C_SMBUS, &args);
+
+            data.byte = 0x07;
+            args.command = 0x36;
+            ioctl(fd, I2C_SMBUS, &args);
+
+            args.read_write = I2C_SMBUS_READ;
+            args.command = 0x14;
+            ioctl(fd, I2C_SMBUS, &args);
+        }
         close(fd);
-        return;
     }
-
-    union i2c_smbus_data data;
-    struct i2c_smbus_ioctl_data args;
-
-    data.byte = 0x01;
-    args.read_write = I2C_SMBUS_WRITE;
-    args.command = 0x68;
-    args.size = I2C_SMBUS_BYTE_DATA;
-    args.data = &data;
-    ioctl(fd, I2C_SMBUS, &args);
-
-    usleep(150000);
-
-    data.byte = 0x00;
-    args.command = 0x35;
-    ioctl(fd, I2C_SMBUS, &args);
-
-    data.byte = 0x07;
-    args.command = 0x36;
-    ioctl(fd, I2C_SMBUS, &args);
-
-    args.read_write = I2C_SMBUS_READ;
-    args.command = 0x14;
-    ioctl(fd, I2C_SMBUS, &args);
-
-    close(fd);
-    printf("[+] Synaptics Clearpad hardware reset & initialized via I2C\n");
 }
 
-void clearpad_wake(bool full_reset) {
-    if (full_reset) {
-        clearpad_hw_init();
-    } else {
-        int fd = open("/dev/i2c-1", O_RDWR);
-        if (fd >= 0) {
-            if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
-                union i2c_smbus_data data;
-                struct i2c_smbus_ioctl_data args;
-
-                data.byte = 0x00;
-                args.read_write = I2C_SMBUS_WRITE;
-                args.command = 0x35;
-                args.size = I2C_SMBUS_BYTE_DATA;
-                args.data = &data;
-                ioctl(fd, I2C_SMBUS, &args);
-
-                data.byte = 0x07;
-                args.command = 0x36;
-                ioctl(fd, I2C_SMBUS, &args);
-
-                args.read_write = I2C_SMBUS_READ;
-                args.command = 0x14;
-                ioctl(fd, I2C_SMBUS, &args);
-            }
-            close(fd);
-        }
-    }
+void clearpad_hw_init(void) {
+    clearpad_wake(false);
+    printf("[+] Synaptics Clearpad initialized via I2C\n");
 }
 
 void clearpad_sleep(void) {
@@ -309,7 +275,7 @@ void fb_set_blank(bool blank) {
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
         set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
-        clearpad_wake(sleep_sec >= 5);
+        clearpad_wake(false);
         read_elite_battery();
         rf_wake_and_reconnect();
         g_screen_dirty = true;
@@ -476,7 +442,10 @@ void stop_usbeth_and_dropbear(void) {
 
 void start_usbeth_and_dropbear(void) {
     log_power_debug("[*] Starting USB Ethernet and Dropbear...\n");
-    system("killall -9 usbhid 2>/dev/null; chmod -x /usr/bin/usbhid 2>/dev/null; /usr/bin/usbeth start 2>/dev/null; /data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true &");
+    system("chmod -x /usr/bin/usbhid 2>/dev/null; "
+           "if [ ! -d /sys/class/net/usb0 ]; then /usr/bin/usbeth start 2>/dev/null & fi; "
+           "if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then "
+           "/data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true & fi");
     log_power_debug("[+] USB Ethernet and Dropbear started.\n");
 }
 
