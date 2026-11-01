@@ -50,7 +50,7 @@ $R font --ttf Inter-Medium.ttf --px 12 --height 15 --baseline 12 -o main.faa
 
 `font` converts a TTF or OTF to the `.faa` font format themes use: `--px` pixels per em, in lines `--height` pixels tall with the baseline `--baseline` pixels below the top. The built-in fonts are 15/12 (main) and 19/15 (title).
 
-`render` options: `--theme NAME`, `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `link` (the RF link panel), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--link-loss PCT` (share of link reports and Hub replies lost), `--hub-silent` (link up, Hub not answering), `--scale N`.
+`render` options: `--theme NAME`, `--layout list|grid` (the home layout; the theme's when unset), `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `link` (the RF link panel), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--link-loss PCT` (share of link reports and Hub replies lost), `--hub-silent` (link up, Hub not answering), `--scale N`.
 
 ## Themes
 

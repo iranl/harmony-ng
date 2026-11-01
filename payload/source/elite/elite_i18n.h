@@ -112,6 +112,7 @@ typedef enum {
     STR_BTN_BACKLIGHT,
     STR_NIGHT_SCHEDULE,
     STR_DISPLAY_THEME,
+    STR_HOME_LAYOUT,
 
     /* Settings TOUCH subview */
     STR_TOUCHSCREEN,

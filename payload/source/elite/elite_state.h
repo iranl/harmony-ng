@@ -81,6 +81,8 @@ extern "C" {
 #define g_font_main         (*g_theme.font_main)
 #define g_font_title        (*g_theme.font_title)
 
+enum { HOME_LAYOUT_THEME = 0, HOME_LAYOUT_LIST, HOME_LAYOUT_GRID, HOME_LAYOUT_COUNT };
+
 /* UI Views */
 typedef enum {
     VIEW_ACTIVITIES = 0,
@@ -287,6 +289,7 @@ extern int g_night_end_hour;
 extern int g_timeout_seconds;
 extern int g_brightness_val;
 extern bool g_confirm_activity;
+extern int g_home_layout;            /* HOME_LAYOUT_*: the theme's, or the user's choice */
 extern int g_confirm_pending_idx;
 extern uint64_t g_confirm_pending_deadline_ms;
 extern int g_confirm_pending_rf_code;

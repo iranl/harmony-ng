@@ -193,8 +193,9 @@ void handle_screen_touch_tap(int x, int y) {
         if (dy < 0) {
             printf("[*] Swipe Up (dy=%d) -> next page\n", dy);
             if (g_current_view == VIEW_ACTIVITIES) {
-                int cur_page = g_selected_activity / ACT_PAGE_SIZE;
-                if ((cur_page + 1) * ACT_PAGE_SIZE < activity_list_count()) g_selected_activity = (cur_page + 1) * ACT_PAGE_SIZE;
+                int page_size = activity_page_size();
+                int cur_page = g_selected_activity / page_size;
+                if ((cur_page + 1) * page_size < activity_list_count()) g_selected_activity = (cur_page + 1) * page_size;
                 else if (activity_list_count() > 0) g_selected_activity = activity_list_count() - 1;
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_page(1);
@@ -216,8 +217,9 @@ void handle_screen_touch_tap(int x, int y) {
         } else {
             printf("[*] Swipe Down (dy=%d) -> prev page\n", dy);
             if (g_current_view == VIEW_ACTIVITIES) {
-                int cur_page = g_selected_activity / ACT_PAGE_SIZE;
-                if (cur_page > 0) g_selected_activity = (cur_page - 1) * ACT_PAGE_SIZE;
+                int page_size = activity_page_size();
+                int cur_page = g_selected_activity / page_size;
+                if (cur_page > 0) g_selected_activity = (cur_page - 1) * page_size;
                 else g_selected_activity = 0;
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_page(-1);
@@ -262,11 +264,12 @@ void handle_screen_touch_tap(int x, int y) {
 
     int start_y = UI_CONTENT_Y;
     if (g_current_view == VIEW_ACTIVITIES) {
-        int card_h = ACT_CARD_H, spacing = ACT_CARD_GAP, page_size = ACT_PAGE_SIZE;
+        int page_size = activity_page_size();
         int page_start = (g_selected_activity / page_size) * page_size;
         for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
-            int cy = start_y + i * (card_h + spacing);
-            if (y >= cy && y < cy + card_h + spacing) {
+            int cx, cy, cw, ch;
+            activity_slot_rect(i, &cx, &cy, &cw, &ch);
+            if (y >= cy && y < cy + ch + ACT_CARD_GAP && (!home_layout_is_grid() || (x >= cx && x < cx + cw + ACT_CARD_GAP))) {
                 int idx = page_start + i;
                 g_selected_activity = idx;
                 printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);

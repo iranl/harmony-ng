@@ -157,6 +157,11 @@ void execute_settings_action(int idx) {
                 break;
             }
             case 5:
+                g_home_layout = (g_home_layout + 1) % HOME_LAYOUT_COUNT;
+                g_selected_activity = 0;
+                save_settings_conf();
+                break;
+            case 6:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

@@ -167,6 +167,8 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Night Schedule", "Nachtmodus Zeit", "Horaire nuit", "Nachtschema", "Horario nocturno", "Orario notturno" },
     /* STR_DISPLAY_THEME */
     { "Theme", "Design", "Theme", "Thema", "Tema", "Tema" },
+    /* STR_HOME_LAYOUT */
+    { "Home Layout", "Startseite", "Accueil", "Startscherm", "Inicio", "Home" },
 
     /* STR_TOUCHSCREEN */
     { "Touchscreen", "Touchscreen", "Ecran tactile", "Touchscreen", "Pantalla tactil", "Touchscreen" },

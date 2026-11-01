@@ -98,6 +98,7 @@ void render_load(const render_options_t *o) {
     struct tm clock = { .tm_year = 126, .tm_mday = 1, .tm_hour = o->minutes / 60, .tm_min = o->minutes % 60, .tm_isdst = -1 };
     g_host_wall_time = mktime(&clock);
     theme_load(o->theme);
+    g_home_layout = !o->layout ? HOME_LAYOUT_THEME : strcmp(o->layout, "grid") == 0 ? HOME_LAYOUT_GRID : HOME_LAYOUT_LIST;
     load_rf_config();
     load_wallpaper_asset();
     g_rf_link_connected = !o->no_hub;
