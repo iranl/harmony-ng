@@ -135,7 +135,12 @@ export function createSetupView(options = {}) {
     }
   });
 
+  // Rebuild only when the layout switches between mobile and desktop, so a resize keeps a
+  // subview's unsaved edits
+  let wasMobile = window.innerWidth < 768;
   window.addEventListener('resize', () => {
+    if ((window.innerWidth < 768) === wasMobile) return;
+    wasMobile = !wasMobile;
     renderContent();
   });
 
