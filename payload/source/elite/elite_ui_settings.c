@@ -62,7 +62,7 @@ static void render_settings_categories(void) {
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (i == g_selected_category);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? RGB_TEAL : 0x2945;
+        uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, bg);
         fb_draw_rect(8, y, FB_WIDTH - 16, card_h, border);
@@ -95,7 +95,7 @@ static void render_settings_items(const char *title, int count, const char **lab
         bool is_sel = (i == sel_idx);
         bool is_back = (i == count - 1);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? RGB_TEAL : 0x2945;
+        uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, bg);
         fb_draw_rect(8, y, FB_WIDTH - 16, card_h, border);
@@ -147,11 +147,11 @@ static void render_settings_factory_reset(void) {
         int y = btn_y + i * (btn_h + spacing);
         bool is_sel = (i == g_selected_sub_item);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? RGB_TEAL : 0x2945;
+        uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
         uint16_t text_col = RGB_WHITE;
 
         if (i == 1) {
-            border = is_sel ? RGB_RED : 0x8000;
+            border = is_sel ? RGB_RED : g_theme.pal.danger_dim;
             text_col = is_sel ? RGB_RED : RGB_YELLOW;
         }
 
@@ -185,7 +185,7 @@ static void render_settings_reboot(void) {
         int y = btn_y + i * (btn_h + spacing);
         bool is_sel = (i == g_selected_sub_item);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? (i == 1 ? RGB_RED : RGB_TEAL) : (i == 1 ? 0x8000 : 0x2945);
+        uint16_t border = is_sel ? (i == 1 ? RGB_RED : RGB_TEAL) : (i == 1 ? g_theme.pal.danger_dim : g_theme.pal.outline);
         uint16_t text_col = (i == 1) ? (is_sel ? RGB_RED : RGB_YELLOW) : RGB_WHITE;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, btn_h, bg);
@@ -234,7 +234,7 @@ static void render_settings_suspend(void) {
         int y = btn_y + i * (btn_h + spacing);
         bool is_sel = (i == g_selected_sub_item);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? (i == 1 ? RGB_TEAL : RGB_RED) : (i == 1 ? RGB_CARD_BORDER : 0x2945);
+        uint16_t border = is_sel ? (i == 1 ? RGB_TEAL : RGB_RED) : (i == 1 ? RGB_CARD_BORDER : g_theme.pal.outline);
         uint16_t text_col = (i == 1) ? (is_sel ? RGB_TEAL : RGB_GREEN) : (is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
 
         fb_fill_rect(8, y, FB_WIDTH - 16, btn_h, bg);
@@ -297,7 +297,7 @@ static void render_settings_update(void) {
         bool is_sel = (i == g_selected_sub_item);
         bool is_back = (i == 2);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? (is_back ? RGB_TEXT_MUTED : RGB_TEAL) : 0x2945;
+        uint16_t border = is_sel ? (is_back ? RGB_TEXT_MUTED : RGB_TEAL) : g_theme.pal.outline;
 
         fb_fill_rect(8, y, FB_WIDTH - 16, item_h, bg);
         fb_draw_rect(8, y, FB_WIDTH - 16, item_h, border);

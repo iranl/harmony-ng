@@ -46,7 +46,7 @@ void render_devices_screen(void) {
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (idx == g_selected_device_cmd);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? RGB_TEAL : 0x2945;
+        uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
 
         char label[32] = {0};
         char icon_key[24] = {0};
@@ -180,7 +180,7 @@ void render_device_browser_view(void) {
         const char *label = (g_browse_dev < 0) ? g_rf_devices[idx].name : (c ? c->name : "");
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
-        fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : 0x2945);
+        fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : g_theme.pal.outline);
 
         char dev_icon_path[128] = {0};
         bool has_icon = false;

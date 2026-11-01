@@ -244,6 +244,8 @@ static int g_png_cache_count = 0;
 
 bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char *filepath) {
     if (!filepath || !filepath[0]) return false;
+    char themed[160];
+    filepath = theme_stock_path(filepath, themed, sizeof(themed));
 
     unsigned char *data = NULL;
     int w = 0, h = 0;
@@ -325,7 +327,10 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 }
 
 void load_wallpaper_asset(void) {
+    g_has_wallpaper = false;
+    if (strcmp(g_theme.wallpaper, "none") == 0) return; /* render_frame fills the theme's background */
     const char *paths[] = {
+        g_theme.wallpaper[0] ? g_theme.wallpaper : "/data/background.png",
         "/data/background.png",
         "/opt/luadraws/appscommon/asset/background/b8bb2074-131e-11e2-ae9f-b3f5f4c18767.png",
         "/opt/luadraws/appscommon/asset/background/8d8f352a-131e-11e2-8581-b78bf89f9455.png",
