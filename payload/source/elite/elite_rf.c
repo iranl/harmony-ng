@@ -236,6 +236,27 @@ void rf_send_activity_start(const char *act_id) {
     printf("[*] RF TX ACTIVITY_REQUEST: %s\n", act_id);
 }
 
+void rf_send_help_request(const char *act_id) {
+    if (g_rf_fd < 0) return;
+    rf_frame_t f;
+    uint8_t payload[25] = {0};
+    strncpy((char *)payload, act_id, 12);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_REQUEST, ++g_tx_seq, 0, payload, 12);
+    rf_send_frame(&f);
+    printf("[*] RF TX HELP_REQUEST: %s\n", act_id);
+}
+
+void rf_send_help_answer(const char *dev_id, bool on) {
+    if (g_rf_fd < 0) return;
+    rf_frame_t f;
+    uint8_t payload[25] = {0};
+    payload[0] = on ? 1 : 0;
+    strncpy((char *)&payload[1], dev_id, 8);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_ANSWER, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 9);
+    rf_send_frame(&f);
+    printf("[*] RF TX HELP_ANSWER: %s is %s\n", dev_id, on ? "on" : "off");
+}
+
 void rf_send_device_command(const char *dev_id, const char *cmd) {
     if (g_rf_fd < 0) return;
 

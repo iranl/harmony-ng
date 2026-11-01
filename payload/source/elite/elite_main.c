@@ -469,6 +469,8 @@ int main(int argc, char **argv) {
             }
         }
 
+        ui_help_tick(now_ms);
+
         if (g_confirm_pending_idx >= 0 && now_ms >= g_confirm_pending_deadline_ms) {
             g_confirm_pending_idx = -1;
             g_screen_dirty = true;
@@ -607,6 +609,8 @@ int main(int argc, char **argv) {
                     if (ev.value == 1) ui_link_panel_dismiss(); /* the key still acts */
                     /* The open menu takes the D-pad, OK and Back; releases pass through */
                     if (g_menu_open && ev.value != 0 && ui_menu_handle_key(ev.code)) continue;
+                    /* Help takes the D-pad, OK and Back; other keys, such as volume, still act */
+                    if (!g_menu_open && ui_help_active() && ev.value != 0 && ui_help_handle_key(ev.code)) continue;
 
                     /* Long-press toggle key latching */
                     if (g_touch_enabled && g_nav_toggle_mode == 1 && ev.code == g_nav_toggle_key) {

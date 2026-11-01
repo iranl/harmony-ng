@@ -266,7 +266,29 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_LINK_LOST */
     { "Link lost", "Verbindung verloren", "Liaison perdue", "Verbinding verloren", "Enlace perdido", "Collegamento perso" },
     /* STR_LINK_HUB_SILENT */
-    { "Hub is not answering", "Hub antwortet nicht", "Le Hub ne repond pas", "Hub antwoordt niet", "El Hub no responde", "L'Hub non risponde" }
+    { "Hub is not answering", "Hub antwortet nicht", "Le Hub ne repond pas", "Hub antwoordt niet", "El Hub no responde", "L'Hub non risponde" },
+    /* STR_HELP */
+    { "Help", "Hilfe", "Aide", "Help", "Ayuda", "Aiuto" },
+    /* STR_HELP_RESENDING */
+    { "Re-sending commands...", "Sende Befehle erneut...", "Renvoi des commandes...", "Opdrachten opnieuw...", "Reenviando comandos...", "Reinvio dei comandi..." },
+    /* STR_HELP_IS_IT_ON */
+    { "Is it on?", "Ist es an?", "Est-il allume ?", "Staat het aan?", "Esta encendido?", "E acceso?" },
+    /* STR_HELP_DEVICE_N_OF */
+    { "Device %d of %d", "Geraet %d von %d", "Appareil %d sur %d", "Apparaat %d van %d", "Dispositivo %d de %d", "Dispositivo %d di %d" },
+    /* STR_YES */
+    { "Yes", "Ja", "Oui", "Ja", "Si", "Si" },
+    /* STR_NO */
+    { "No", "Nein", "Non", "Nee", "No", "No" },
+    /* STR_HELP_SWITCHED_ON */
+    { "Switched on: %d", "Eingeschaltet: %d", "Allumes : %d", "Aangezet: %d", "Encendidos: %d", "Accesi: %d" },
+    /* STR_HELP_ALL_ON */
+    { "Everything should be on", "Alles sollte an sein", "Tout devrait etre allume", "Alles zou aan moeten staan", "Todo deberia estar encendido", "Tutto dovrebbe essere acceso" },
+    /* STR_HELP_BUSY */
+    { "Hub is busy, try again", "Hub beschaeftigt", "Hub occupe, reessayez", "Hub bezig, probeer opnieuw", "Hub ocupado, reintente", "Hub occupato, riprova" },
+    /* STR_HELP_FAILED */
+    { "Help could not run", "Hilfe nicht moeglich", "Aide impossible", "Help kon niet starten", "No se pudo ejecutar", "Aiuto non disponibile" },
+    /* STR_HELP_BACK_CLOSES */
+    { "Back: close", "Zurueck: schliessen", "Retour : fermer", "Terug: sluiten", "Atras: cerrar", "Indietro: chiudi" }
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

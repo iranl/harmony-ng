@@ -24,6 +24,8 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id, rf_
 }
 int rf_send_frame(rf_frame_t *frame) { (void)frame; return 0; }
 void rf_send_activity_start(const char *act_id) { (void)act_id; }
+void rf_send_help_request(const char *act_id) { (void)act_id; }
+void rf_send_help_answer(const char *dev_id, bool on) { (void)dev_id; (void)on; }
 void rf_send_full_sync_request(void) {}
 void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char *label) {
     (void)act_id; (void)btn_idx; (void)label;

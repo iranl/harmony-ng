@@ -178,6 +178,19 @@ typedef enum {
     STR_LINK_LOST,
     STR_LINK_HUB_SILENT,
 
+    /* Help (repair the running activity) */
+    STR_HELP,
+    STR_HELP_RESENDING,
+    STR_HELP_IS_IT_ON,
+    STR_HELP_DEVICE_N_OF,
+    STR_YES,
+    STR_NO,
+    STR_HELP_SWITCHED_ON,
+    STR_HELP_ALL_ON,
+    STR_HELP_BUSY,
+    STR_HELP_FAILED,
+    STR_HELP_BACK_CLOSES,
+
     STR_COUNT
 } elite_str_id_t;
 

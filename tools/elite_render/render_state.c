@@ -3,6 +3,7 @@
 #include "elite_fb.h"
 #include "elite_config.h"
 #include "elite_link.h"
+#include "elite_ui.h"
 
 #define KEYWORD_COUNT 17
 
@@ -35,6 +36,7 @@ static void set_view(const render_options_t *o) {
     g_menu_open = false;
     g_key_hint_pending = false;
     g_link_panel_open = false;
+    ui_help_close();
     if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
         g_current_view = VIEW_ACTIVITIES;
         g_selected_activity = o->select;
@@ -57,6 +59,28 @@ static void set_view(const render_options_t *o) {
         g_current_view = VIEW_PAIRING;
     } else if (strcmp(v, "not-paired") == 0) {
         g_current_view = VIEW_NOT_PAIRED;
+    } else if (strncmp(v, "help-", 5) == 0) {
+        /* Help over the activity screen, driven by the frames the Hub sends */
+        g_current_view = VIEW_DEVICES;
+        ui_help_close();
+        ui_help_start();
+        rf_frame_t f = {0};
+        f.payload[0] = RF_HELP_STARTED;
+        ui_help_on_status(&f);
+        if (strcmp(v, "help-wait") != 0) {
+            f.payload[0] = RF_HELP_QUESTION;
+            f.payload[2] = strcmp(v, "help-done") == 0 ? 1 : 2;
+            int d = 0;
+            for (int i = 0; i < g_rf_activity_count; i++) {
+                if (strcmp(g_rf_activities[i].id, g_active_activity_id) == 0 && g_rf_activities[i].dev_count) d = g_rf_activities[i].devs[0];
+            }
+            if (d < g_rf_device_count) snprintf((char *)&f.payload[3], 9, "%s", g_rf_devices[d].id);
+            ui_help_on_status(&f);
+        }
+        if (strcmp(v, "help-done") == 0) {
+            ui_help_handle_key(106); /* No */
+            ui_help_handle_key(28);
+        }
     } else if (strcmp(v, "sync") == 0) {
         g_is_syncing_config = true;
         g_sync_chunk_count = o->sync_done;
