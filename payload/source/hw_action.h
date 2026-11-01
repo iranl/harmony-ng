@@ -55,6 +55,8 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
  * encodes protocol waveform, and sends directly via I2S, BTstack FIFO, or MQTT.
  */
 int hw_device_command_send(const char *device_id, const char *command);
+int hw_device_command_send_by_id(const char *device_id, const char *command);
+int hw_device_command_send_by_name(const char *device_name, const char *command);
 
 /*
  * Callback registration for in-process MQTT button dispatch (used by hub_daemon to avoid loopback socket deadlock).

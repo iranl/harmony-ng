@@ -268,12 +268,16 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         int found_stop = 0;
         for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
             if (strcmp(g_rf_steps[i].act_id, from_id) == 0 && (g_rf_steps[i].step_idx & 0x80)) {
+                if (strcasecmp(g_rf_steps[i].name, "Switched") == 0 ||
+                    strcasecmp(g_rf_steps[i].name, "Activity switched") == 0) {
+                    /* Handover point in leaving activity: tail steps run in background */
+                    found_stop = 1;
+                    break;
+                }
                 out_steps[count] = g_rf_steps[i];
                 if (strncmp(out_steps[count].name, "Power Off O", 11) == 0 ||
                     strcmp(out_steps[count].name, "Power Off Old") == 0) {
                     strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
-                } else if (strcasecmp(out_steps[count].name, "Switched") == 0) {
-                    strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
                 }
                 total += out_steps[count].delay_ms;
                 count++;
@@ -291,19 +295,31 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
     }
 
     if (to_id && to_id[0]) {
+        int found_start = 0;
+        int found_switched = 0;
         for (int i = 0; i < g_rf_step_count && count < max_steps; i++) {
             if (strcmp(g_rf_steps[i].act_id, to_id) == 0 && !(g_rf_steps[i].step_idx & 0x80)) {
-                out_steps[count] = g_rf_steps[i];
-                if (strcasecmp(out_steps[count].name, "Switched") == 0) {
+                found_start = 1;
+                if (strcasecmp(g_rf_steps[i].name, "Switched") == 0 ||
+                    strcasecmp(g_rf_steps[i].name, "Activity switched") == 0) {
+                    out_steps[count] = g_rf_steps[i];
                     strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
-                }
-                total += out_steps[count].delay_ms;
-                count++;
-                if (strcasecmp(out_steps[count - 1].name, "Activity switched") == 0 ||
-                    strcasecmp(out_steps[count - 1].name, "Switched") == 0) {
+                    out_steps[count].delay_ms = 0;
+                    count++;
+                    found_switched = 1;
                     break;
                 }
+                out_steps[count] = g_rf_steps[i];
+                total += out_steps[count].delay_ms;
+                count++;
             }
+        }
+        if (found_start && !found_switched && count < max_steps) {
+            strncpy(out_steps[count].act_id, to_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].step_idx = (uint8_t)count;
+            out_steps[count].delay_ms = 0;
+            strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
+            count++;
         }
     }
 

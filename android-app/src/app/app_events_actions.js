@@ -419,6 +419,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       document.getElementById(id)?.addEventListener('input', () => this.updateHaActionYaml());
     });
     document.getElementById('haHelperIndentCheck')?.addEventListener('change', () => this.updateHaActionYaml());
+    document.getElementById('haHelperUseIdCheck')?.addEventListener('change', () => this.updateHaActionYaml());
 
     document.getElementById('btnHaHelperCopy')?.addEventListener('click', () => this.copyHaActionYaml());
     document.getElementById('btnHaHelperTest')?.addEventListener('click', () => this.testHaActionSequence());

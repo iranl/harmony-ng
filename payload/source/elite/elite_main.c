@@ -252,8 +252,17 @@ int main(int argc, char **argv) {
                 usleep(50000);
             }
 
+            bool force_sync = (access(FORCE_SYNC_FILE, F_OK) == 0);
+            if (force_sync) {
+                unlink(FORCE_SYNC_FILE);
+                printf("[*] Found %s: forcing full config sync from Hub...\n", FORCE_SYNC_FILE);
+            }
+
             load_rf_config();
-            if (!g_has_hub_config) {
+            if (force_sync) {
+                g_config_version = 0;
+            }
+            if (!g_has_hub_config || force_sync) {
                 load_activities();
                 rf_send_full_sync_request();
             } else {

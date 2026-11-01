@@ -99,6 +99,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
+            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(req_j, "device_id");
+            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(req_j, "device");
             if (!jid) jid = cJSON_GetObjectItemCaseSensitive(req_j, "id");
             if (jid && cJSON_IsString(jid) && jid->valuestring) strncpy(dev_id, jid->valuestring, sizeof(dev_id) - 1);
             else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);

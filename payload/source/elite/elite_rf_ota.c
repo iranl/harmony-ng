@@ -283,13 +283,25 @@ bool handle_icon_frame(const rf_frame_t *f) {
             printf("[*] Remote RF ICON_START: id='%s' type=%d, %u bytes, %u chunks\n",
                    g_icon_rx_id, g_icon_rx_type, g_icon_rx_tot_bytes, tot_c);
 
+            char exist_path[128];
+            snprintf(exist_path, sizeof(exist_path), "/data/assets/custom/%s.png", g_icon_rx_id);
+            struct stat st;
+            if (stat(exist_path, &st) == 0 && st.st_size > 0 && (uint32_t)st.st_size == g_icon_rx_tot_bytes) {
+                printf("[*] Custom icon %s already exists on remote (%u bytes) -> skip stream\n",
+                       g_icon_rx_id, (unsigned int)st.st_size);
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, RF_ICON_STATUS_ALREADY_EXISTS);
+                rf_send_frame(&ack);
+                return true;
+            }
+
             if (g_icon_rx_file) {
                 fclose(g_icon_rx_file);
                 g_icon_rx_file = NULL;
             }
             g_icon_rx_file = fopen("/tmp/custom_icon_rx.tmp", "wb");
             rf_frame_t ack;
-            rf_build_ack(&ack, g_remote_slot, f->seq, g_icon_rx_file ? 0x00 : 0x03);
+            rf_build_ack(&ack, g_remote_slot, f->seq, g_icon_rx_file ? RF_ICON_STATUS_OK : 0x03);
             rf_send_frame(&ack);
             return true;
         }

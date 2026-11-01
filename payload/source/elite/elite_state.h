@@ -50,6 +50,7 @@ extern "C" {
 #define ACTIVITY_JSON_FILE        "/data/activities.json"
 #define RF_CONFIG_FILE            "/data/elite_rf_config.json"
 #define SETTINGS_CONFIG_FILE      "/data/elite_settings.conf"
+#define FORCE_SYNC_FILE           "/data/force_sync"
 
 #define FB_WIDTH            240
 #define FB_HEIGHT           320

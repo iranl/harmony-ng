@@ -40,17 +40,35 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
       ${this.editMode ? `<span class="btn-edit-badge">✎</span>` : ''}
     `;
 
+    const isRepeatable = (btn.holdRepeat !== undefined)
+      ? Boolean(btn.holdRepeat)
+      : this.isRepeatableCommand(btn.command, btn.label);
+
+    const holdCtrl = this.attachHoldToRepeat(
+      el,
+      async () => {
+        if (btn.deviceId && btn.command && this.onSendCallback) {
+          await this.onSendCallback(btn.deviceId, btn.command);
+        }
+      },
+      isRepeatable
+    );
+
     el.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.triggerHaptic();
       if (this.editMode) {
         this.openSlotEditorModal(btn, slotIndex);
-      } else {
-        if (btn.deviceId && btn.command && this.onSendCallback) {
-          el.classList.add('active-press');
-          setTimeout(() => el.classList.remove('active-press'), 150);
-          this.onSendCallback(btn.deviceId, btn.command);
-        }
+        return;
+      }
+      if (holdCtrl.hasFired()) {
+        holdCtrl.resetFired();
+        return;
+      }
+      if (!holdCtrl.hasMoved() && btn.deviceId && btn.command && this.onSendCallback) {
+        this.triggerHaptic();
+        el.classList.add('active-press');
+        setTimeout(() => el.classList.remove('active-press'), 150);
+        this.onSendCallback(btn.deviceId, btn.command);
       }
     });
 
@@ -108,11 +126,27 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
           chip.type = 'button';
           chip.className = 'btn btn-xs btn-ghost cmd-chip';
           chip.textContent = cmdName;
+
+          const isRepeatable = this.isRepeatableCommand(cmdName);
+          const holdCtrl = this.attachHoldToRepeat(
+            chip,
+            async () => {
+              if (this.onSendCallback) {
+                await this.onSendCallback(dev.id, cmdName);
+              }
+            },
+            isRepeatable
+          );
+
           chip.addEventListener('click', async () => {
-            await this.triggerHaptic();
-            chip.classList.add('active-press');
-            setTimeout(() => chip.classList.remove('active-press'), 150);
-            if (this.onSendCallback) {
+            if (holdCtrl.hasFired()) {
+              holdCtrl.resetFired();
+              return;
+            }
+            if (!holdCtrl.hasMoved() && this.onSendCallback) {
+              await this.triggerHaptic();
+              chip.classList.add('active-press');
+              setTimeout(() => chip.classList.remove('active-press'), 150);
               this.onSendCallback(dev.id, cmdName);
             }
           });
@@ -287,6 +321,14 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
               <option value="danger" ${isEdit && btn.variant === 'danger' ? 'selected' : ''}>${t('variant_danger')}</option>
             </select>
           </div>
+          <div class="form-group">
+            <label>${t('hold_repeat', 'Hold Repeat')}</label>
+            <select id="editBtnHoldRepeat" class="form-control">
+              <option value="auto" ${!isEdit || btn.holdRepeat === undefined ? 'selected' : ''}>Auto (${this.isRepeatableCommand(currentCmd, isEdit ? btn.label : '') ? 'Repeat' : 'Single'})</option>
+              <option value="yes" ${isEdit && btn.holdRepeat === true ? 'selected' : ''}>Enabled (Repeat while held)</option>
+              <option value="no" ${isEdit && btn.holdRepeat === false ? 'selected' : ''}>Disabled (Single press only)</option>
+            </select>
+          </div>
         </div>
         <div class="modal-footer">
           ${btn ? `<button type="button" class="btn btn-danger btn-sm" id="btnModalDelete">${t('clear_slot')}</button>` : ''}
@@ -301,10 +343,19 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     const devSelect = modal.querySelector('#editBtnDevice');
     const cmdSelect = modal.querySelector('#editBtnCommand');
     const labelInput = modal.querySelector('#editBtnLabel');
+    const holdRepeatSelect = modal.querySelector('#editBtnHoldRepeat');
     const saveBtn = modal.querySelector('#btnModalSave');
+
+    const updateHoldRepeatOption = () => {
+      if (holdRepeatSelect && holdRepeatSelect.options[0]) {
+        const rep = this.isRepeatableCommand(cmdSelect.value, labelInput.value);
+        holdRepeatSelect.options[0].textContent = `Auto (${rep ? 'Repeat' : 'Single'})`;
+      }
+    };
 
     const updateSaveState = () => {
       saveBtn.disabled = !cmdSelect.value;
+      updateHoldRepeatOption();
     };
     updateSaveState();
 
@@ -330,6 +381,8 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
       updateSaveState();
     });
 
+    labelInput.addEventListener('input', updateHoldRepeatOption);
+
     const closeModal = () => { modal.style.display = 'none'; };
     modal.querySelector('#btnModalClose').addEventListener('click', closeModal);
     modal.querySelector('#btnModalCancel').addEventListener('click', closeModal);
@@ -352,12 +405,18 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
         return;
       }
 
+      const holdVal = modal.querySelector('#editBtnHoldRepeat')?.value;
+      let holdRepeat;
+      if (holdVal === 'yes') holdRepeat = true;
+      else if (holdVal === 'no') holdRepeat = false;
+
       this.activeLayout.grid[slotIndex] = {
         id: `btn_${slotIndex}`,
         deviceId: chosenDevId,
         command: chosenCmd,
         label: labelInput.value.trim() || chosenCmd,
-        variant: modal.querySelector('#editBtnVariant').value
+        variant: modal.querySelector('#editBtnVariant').value,
+        ...(holdRepeat !== undefined ? { holdRepeat } : {})
       };
 
       await saveRemoteLayout(this.currentScope, this.currentTarget.id, this.activeLayout);

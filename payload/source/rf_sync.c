@@ -284,9 +284,8 @@ uint8_t rf_check_update_flags(uint8_t slot) {
     uint8_t flags = 0;
     int idx = (slot == 2) ? 1 : 0;
 
-    /* 1. Config update check: Hub config_version is newer than remote reported config_version */
-    if (g_config_version > 0 && g_remote_versions[idx].config_version > 0 &&
-        g_config_version > g_remote_versions[idx].config_version) {
+    /* 1. Config update check: Hub config_version differs from remote (including remote v0 after factory reset) */
+    if (g_config_version > 0 && g_config_version != g_remote_versions[idx].config_version) {
         flags |= 0x01;
     }
 
@@ -455,6 +454,12 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
         free(img_buf);
         printf("[-] Remote in slot %d did not ACK ICON_START (sleeping?)\n", target_slot);
         return -1;
+    }
+
+    if (g_ack_status == RF_ICON_STATUS_ALREADY_EXISTS) {
+        printf("[*] Remote in slot %d already has custom icon %s (skip stream)\n", target_slot, id_str);
+        free(img_buf);
+        return 0;
     }
 
     /* 2. Stream chunks */

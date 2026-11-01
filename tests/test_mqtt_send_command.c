@@ -23,30 +23,44 @@ static int test_mqtt_topic_matches(const char *sub, const char *pub) {
 }
 
 /* Parse helper simulating handle_mqtt_send_command extraction */
-static int parse_send_command_payload(const char *payload, char *out_dev, size_t dev_sz,
+static int parse_send_command_payload(const char *payload, char *out_dev, size_t dev_sz, int *out_is_id,
                                       char out_cmds[32][64], int *out_cmd_count,
                                       int *out_repeats, double *out_delay, double *out_hold) {
     if (!payload || !payload[0]) return -1;
     cJSON *root = cJSON_Parse(payload);
     if (!root) return -1;
 
-    cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
-    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "device");
-    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "dev");
+    cJSON *j_dev_id = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
+    if (!j_dev_id) j_dev_id = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+
+    cJSON *j_dev_name = cJSON_GetObjectItemCaseSensitive(root, "device");
+    if (!j_dev_name) j_dev_name = cJSON_GetObjectItemCaseSensitive(root, "dev");
 
     char dev[128] = {0};
-    if (j_dev) {
-        if (cJSON_IsString(j_dev) && j_dev->valuestring) {
-            strncpy(dev, j_dev->valuestring, sizeof(dev) - 1);
-        } else if (cJSON_IsNumber(j_dev)) {
-            snprintf(dev, sizeof(dev), "%ld", (long)j_dev->valuedouble);
+    int is_id = 0;
+
+    if (j_dev_id) {
+        is_id = 1;
+        if (cJSON_IsString(j_dev_id) && j_dev_id->valuestring) {
+            strncpy(dev, j_dev_id->valuestring, sizeof(dev) - 1);
+        } else if (cJSON_IsNumber(j_dev_id)) {
+            snprintf(dev, sizeof(dev), "%ld", (long)j_dev_id->valuedouble);
+        }
+    } else if (j_dev_name) {
+        is_id = 0;
+        if (cJSON_IsString(j_dev_name) && j_dev_name->valuestring) {
+            strncpy(dev, j_dev_name->valuestring, sizeof(dev) - 1);
+        } else if (cJSON_IsNumber(j_dev_name)) {
+            snprintf(dev, sizeof(dev), "%ld", (long)j_dev_name->valuedouble);
         }
     }
+
     if (!dev[0]) {
         cJSON_Delete(root);
         return -2;
     }
     snprintf(out_dev, dev_sz, "%s", dev);
+    if (out_is_id) *out_is_id = is_id;
 
     int cmd_count = 0;
     cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(root, "command");
@@ -139,13 +153,14 @@ int main(void) {
     printf("[*] Testing Home Assistant send_command format (command as array)...\n");
     char dev[128] = {0};
     char cmds[32][64] = {{0}};
-    int count = 0, repeats = 0;
+    int count = 0, repeats = 0, is_id = -1;
     double delay = 0, hold = 0;
 
     const char *ha_payload = "{\"device\":\"Samsung TV\",\"command\":[\"PowerToggle\"],\"delay_secs\":0.4,\"hold_secs\":0.0,\"num_repeats\":1}";
-    int rc = parse_send_command_payload(ha_payload, dev, sizeof(dev), cmds, &count, &repeats, &delay, &hold);
+    int rc = parse_send_command_payload(ha_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
     assert(rc == 0);
     assert(strcmp(dev, "Samsung TV") == 0);
+    assert(is_id == 0);
     assert(count == 1);
     assert(strcmp(cmds[0], "PowerToggle") == 0);
     assert(repeats == 1);
@@ -153,18 +168,40 @@ int main(void) {
 
     printf("[*] Testing numeric deviceId payload...\n");
     const char *num_payload = "{\"deviceId\":70321456,\"command\":\"Mute\"}";
-    rc = parse_send_command_payload(num_payload, dev, sizeof(dev), cmds, &count, &repeats, &delay, &hold);
+    rc = parse_send_command_payload(num_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
     assert(rc == 0);
     assert(strcmp(dev, "70321456") == 0);
+    assert(is_id == 1);
     assert(count == 1);
     assert(strcmp(cmds[0], "Mute") == 0);
     printf("[+] Numeric deviceId PASSED\n");
 
-    printf("[*] Testing multi-command array with delay_ms and repeats...\n");
-    const char *multi_payload = "{\"dev\":\"70321456\",\"commands\":[\"VolumeUp\",\"VolumeUp\"],\"delay_ms\":250,\"repeats\":3}";
-    rc = parse_send_command_payload(multi_payload, dev, sizeof(dev), cmds, &count, &repeats, &delay, &hold);
+    printf("[*] Testing snake_case device_id payload (numeric & string)...\n");
+    const char *snake_num_payload = "{\"device_id\":70321456,\"command\":\"Mute\"}";
+    rc = parse_send_command_payload(snake_num_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
     assert(rc == 0);
     assert(strcmp(dev, "70321456") == 0);
+    assert(is_id == 1);
+
+    const char *snake_str_payload = "{\"device_id\":\"70321456\",\"command\":[\"Mute\"]}";
+    rc = parse_send_command_payload(snake_str_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
+    assert(rc == 0);
+    assert(strcmp(dev, "70321456") == 0);
+    assert(is_id == 1);
+
+    const char *dev_name_str_payload = "{\"device\":\"Samsung TV\",\"command\":\"Mute\"}";
+    rc = parse_send_command_payload(dev_name_str_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
+    assert(rc == 0);
+    assert(strcmp(dev, "Samsung TV") == 0);
+    assert(is_id == 0);
+    printf("[+] Strict separation of device_id and device PASSED\n");
+
+    printf("[*] Testing multi-command array with delay_ms and repeats...\n");
+    const char *multi_payload = "{\"dev\":\"Samsung TV\",\"commands\":[\"VolumeUp\",\"VolumeUp\"],\"delay_ms\":250,\"repeats\":3}";
+    rc = parse_send_command_payload(multi_payload, dev, sizeof(dev), &is_id, cmds, &count, &repeats, &delay, &hold);
+    assert(rc == 0);
+    assert(strcmp(dev, "Samsung TV") == 0);
+    assert(is_id == 0);
     assert(count == 2);
     assert(strcmp(cmds[0], "VolumeUp") == 0);
     assert(strcmp(cmds[1], "VolumeUp") == 0);

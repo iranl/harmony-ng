@@ -435,13 +435,20 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.15);
   transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 48px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.remote-btn:active, .remote-btn.active-press {
+.remote-btn:active, .remote-btn.active-press, .remote-btn.is-holding {
   transform: translateY(2px) scale(0.96);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(0, 0, 0, 0.4);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.remote-btn.is-holding {
+  box-shadow: 0 0 10px rgba(0, 180, 216, 0.45), inset 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
 .remote-btn.btn-primary {
@@ -607,11 +614,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   justify-content: flex-start;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .cmd-chip:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.cmd-chip:active, .cmd-chip.active-press, .cmd-chip.is-holding {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(0.97);
+}
+
+.cmd-chip.is-holding {
+  box-shadow: 0 0 8px rgba(0, 180, 216, 0.45);
 }
 
 /* Keypad Panel */

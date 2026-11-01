@@ -227,12 +227,28 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
     });
 
     view.querySelectorAll('.kb-btn-action, .kb-nav-btn, .kb-key').forEach(btn => {
+      const code = btn.getAttribute('data-code');
+      const fallback = btn.getAttribute('data-fallback') || '';
+      const isRepeatable = this.isRepeatableCommand(code, btn.textContent);
+
+      const holdCtrl = this.attachHoldToRepeat(
+        btn,
+        async () => {
+          if (code) {
+            await sendKey(code, fallback);
+          }
+        },
+        isRepeatable
+      );
+
       btn.addEventListener('click', async () => {
-        const code = btn.getAttribute('data-code');
-        const fallback = btn.getAttribute('data-fallback') || '';
-        btn.classList.add('active-press');
-        setTimeout(() => btn.classList.remove('active-press'), 150);
-        if (code) {
+        if (holdCtrl.hasFired()) {
+          holdCtrl.resetFired();
+          return;
+        }
+        if (!holdCtrl.hasMoved() && code) {
+          btn.classList.add('active-press');
+          setTimeout(() => btn.classList.remove('active-press'), 150);
           await sendKey(code, fallback);
         }
       });

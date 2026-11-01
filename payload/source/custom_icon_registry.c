@@ -27,25 +27,7 @@ static const char *get_registry_file(void) {
     return "/data/harmony/custom_icons_registry.json";
 }
 
-static const char *get_pushed_tracker_file(void) {
-    const char *env = getenv("HARMONY_DATA_DIR");
-    if (env && env[0]) {
-        static char s_trk[512];
-        snprintf(s_trk, sizeof(s_trk), "%s/custom_icons_pushed.json", env);
-        return s_trk;
-    }
-    if (access("/data/harmony", W_OK) != 0) {
-        static char s_tmp[512];
-        const char *t = getenv("TMPDIR");
-        if (!t || !t[0]) t = "/tmp";
-        snprintf(s_tmp, sizeof(s_tmp), "%s/custom_icons_pushed.json", t);
-        return s_tmp;
-    }
-    return "/data/harmony/custom_icons_pushed.json";
-}
-
 #define REGISTRY_FILE       get_registry_file()
-#define PUSHED_TRACKER_FILE get_pushed_tracker_file()
 
 static pthread_mutex_t s_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -138,40 +120,6 @@ uint16_t custom_icon_registry_get_id(const char *icon_name) {
     return id;
 }
 
-static bool is_icon_already_pushed(uint8_t slot, uint16_t custom_id) {
-    cJSON *root = load_json_file(PUSHED_TRACKER_FILE);
-    if (!root) return false;
-    char slot_key[16];
-    snprintf(slot_key, sizeof(slot_key), "slot%u", (unsigned int)slot);
-    cJSON *arr = cJSON_GetObjectItem(root, slot_key);
-    bool found = false;
-    if (arr && cJSON_IsArray(arr)) {
-        cJSON *elem = NULL;
-        cJSON_ArrayForEach(elem, arr) {
-            if (elem && cJSON_IsNumber(elem) && (uint16_t)elem->valueint == custom_id) {
-                found = true;
-                break;
-            }
-        }
-    }
-    cJSON_Delete(root);
-    return found;
-}
-
-static void mark_icon_pushed(uint8_t slot, uint16_t custom_id) {
-    cJSON *root = load_json_file(PUSHED_TRACKER_FILE);
-    if (!root) root = cJSON_CreateObject();
-    char slot_key[16];
-    snprintf(slot_key, sizeof(slot_key), "slot%u", (unsigned int)slot);
-    cJSON *arr = cJSON_GetObjectItem(root, slot_key);
-    if (!arr) {
-        arr = cJSON_CreateArray();
-        cJSON_AddItemToObject(root, slot_key, arr);
-    }
-    cJSON_AddItemToArray(arr, cJSON_CreateNumber((int)custom_id));
-    save_json_file_atomic(PUSHED_TRACKER_FILE, root);
-    cJSON_Delete(root);
-}
 
 static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out_len) {
     if (!norm || !norm[0]) return false;
@@ -217,10 +165,6 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
     if (!norm[0]) return -1;
 
     pthread_mutex_lock(&s_reg_lock);
-    if (is_icon_already_pushed(target_slot, custom_id)) {
-        pthread_mutex_unlock(&s_reg_lock);
-        return 0;
-    }
 
     /* Locate custom PNG on Hub */
     char candidate[256] = {0};
@@ -235,12 +179,11 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
     char id_str[16];
     snprintf(id_str, sizeof(id_str), "%u", (unsigned int)custom_id);
 
-    printf("[*] Pushing custom icon '%s' (%s) to remote slot %u as %s.png...\n",
+    printf("[*] Syncing custom icon '%s' (%s) with remote slot %u as %s.png...\n",
            norm, candidate, (unsigned int)target_slot, id_str);
     int res = rf_push_custom_icon_file((int)target_slot, candidate, id_str);
     if (res == 0) {
-        mark_icon_pushed(target_slot, custom_id);
-        printf("[+] Custom icon %s.png successfully transferred to slot %u!\n", id_str, (unsigned int)target_slot);
+        printf("[+] Custom icon %s.png in sync with slot %u\n", id_str, (unsigned int)target_slot);
     } else {
         printf("[-] Failed to transfer custom icon %s.png to slot %u\n", id_str, (unsigned int)target_slot);
     }

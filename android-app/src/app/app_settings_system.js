@@ -99,7 +99,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
 
     const devs = this.inventory?.devices || [];
     const prevDevVal = devSelect.value;
-    devSelect.innerHTML = devs.map(d => `<option value="${this.escapeHtml(d.id)}">${this.escapeHtml(d.name || ('Device ' + d.id))}</option>`).join('');
+    devSelect.innerHTML = devs.map(d => `<option value="${this.escapeHtml(d.id)}">${this.escapeHtml(d.name || ('Device ' + d.id))} (ID: ${this.escapeHtml(d.id)})</option>`).join('');
 
     if (prevDevVal && devs.some(d => String(d.id) === String(prevDevVal))) {
       devSelect.value = prevDevVal;
@@ -222,12 +222,14 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const devId = devSelect?.value;
     const dev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
     const devName = dev?.name || dev?.id || 'Target Device';
+    const targetDevId = dev?.id ? String(dev.id) : (devId ? String(devId) : '');
 
     const queue = this.haHelperQueue || [];
     const delayVal = parseFloat(document.getElementById('haHelperDelay')?.value);
     const holdVal = parseFloat(document.getElementById('haHelperHold')?.value);
     const repeatsVal = parseInt(document.getElementById('haHelperRepeats')?.value, 10);
     const useAutomationIndent = document.getElementById('haHelperIndentCheck')?.checked;
+    const useDeviceId = document.getElementById('haHelperUseIdCheck') ? document.getElementById('haHelperUseIdCheck').checked : true;
 
     const p0 = useAutomationIndent ? '      ' : '';
     const p1 = useAutomationIndent ? '        ' : '  ';
@@ -237,7 +239,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const lines = [];
     lines.push(`${p0}- action: script.harmony_send_command`);
     lines.push(`${p1}data:`);
-    lines.push(`${p2}device: ${devName}`);
+    if (useDeviceId && targetDevId) {
+      lines.push(`${p2}device_id: "${targetDevId}"  # ${devName}`);
+    } else {
+      lines.push(`${p2}device: "${devName}"`);
+    }
 
     if (queue.length === 0) {
       lines.push(`${p2}command:`);

@@ -668,6 +668,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
         "ln -sf /data/dropbearmulti /data/dropbear 2>/dev/null || true; "
         "ln -sf /data/dropbearmulti /usr/sbin/dropbear 2>/dev/null || true; "
         "killall -9 init.sh elite_watchdog.sh elite_ui 2>/dev/null || true; "
+        "touch /data/force_sync 2>/dev/null || true; "
         "if [ -x /data/init.sh ]; then /data/init.sh start > /dev/null 2>&1 & elif [ -x /data/elite_watchdog.sh ]; then /data/elite_watchdog.sh > /dev/null 2>&1 & elif [ -x /data/elite_ui ]; then /data/elite_ui > /tmp/elite_ui.log 2>&1 & fi; "
         "sleep 1; pidof elite_ui || echo 'offline'"
     )

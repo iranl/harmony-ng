@@ -443,6 +443,7 @@ static struct mqtt_pulse_entry g_pulse_queue[16];
 typedef struct {
     int active;
     char dev[128];
+    int dev_is_id;
     char cmd_list[32][64];
     int cmd_count;
     int num_repeats;
@@ -487,11 +488,16 @@ void mqtt_cmd_tick(void) {
     }
 
     if (g_mqtt_seq.active && now_ms >= g_mqtt_seq.next_exec_ms) {
-        printf("[*] Executing command [%d/%d] (repeat %d/%d): dev='%s' cmd='%s'\n",
+        printf("[*] Executing command [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s'\n",
                g_mqtt_seq.cur_cmd + 1, g_mqtt_seq.cmd_count,
                g_mqtt_seq.cur_repeat + 1, g_mqtt_seq.num_repeats,
-               g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
-        hw_device_command_send(g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+               g_mqtt_seq.dev, g_mqtt_seq.dev_is_id ? "by ID" : "by Name",
+               g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+        if (g_mqtt_seq.dev_is_id) {
+            hw_device_command_send_by_id(g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+        } else {
+            hw_device_command_send_by_name(g_mqtt_seq.dev, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
+        }
 
         g_mqtt_seq.cur_cmd++;
         if (g_mqtt_seq.cur_cmd >= g_mqtt_seq.cmd_count) {
@@ -517,21 +523,33 @@ static void handle_mqtt_send_command(const char *payload) {
         return;
     }
 
-    cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
-    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "device");
-    if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(root, "dev");
+    cJSON *j_dev_id = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
+    if (!j_dev_id) j_dev_id = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+
+    cJSON *j_dev_name = cJSON_GetObjectItemCaseSensitive(root, "device");
+    if (!j_dev_name) j_dev_name = cJSON_GetObjectItemCaseSensitive(root, "dev");
 
     char dev[128] = {0};
-    if (j_dev) {
-        if (cJSON_IsString(j_dev) && j_dev->valuestring) {
-            strncpy(dev, j_dev->valuestring, sizeof(dev) - 1);
-        } else if (cJSON_IsNumber(j_dev)) {
-            snprintf(dev, sizeof(dev), "%ld", (long)j_dev->valuedouble);
+    int is_id = 0;
+
+    if (j_dev_id) {
+        is_id = 1;
+        if (cJSON_IsString(j_dev_id) && j_dev_id->valuestring) {
+            strncpy(dev, j_dev_id->valuestring, sizeof(dev) - 1);
+        } else if (cJSON_IsNumber(j_dev_id)) {
+            snprintf(dev, sizeof(dev), "%ld", (long)j_dev_id->valuedouble);
+        }
+    } else if (j_dev_name) {
+        is_id = 0;
+        if (cJSON_IsString(j_dev_name) && j_dev_name->valuestring) {
+            strncpy(dev, j_dev_name->valuestring, sizeof(dev) - 1);
+        } else if (cJSON_IsNumber(j_dev_name)) {
+            snprintf(dev, sizeof(dev), "%ld", (long)j_dev_name->valuedouble);
         }
     }
 
     if (!dev[0]) {
-        printf("[-] MQTT send_command: missing deviceId or device in payload\n");
+        printf("[-] MQTT send_command: missing device_id or device in payload\n");
         cJSON_Delete(root);
         return;
     }
@@ -631,12 +649,18 @@ static void handle_mqtt_send_command(const char *payload) {
            dev, cmd_count, num_repeats, action, delay_secs, hold_secs);
 
     if (cmd_count == 1 && num_repeats == 1 && hold_secs <= 0.001) {
-        printf("[*] Executing command [1/1] (repeat 1/1): dev='%s' cmd='%s'\n", dev, cmd_list[0]);
-        hw_device_command_send(dev, cmd_list[0]);
+        printf("[*] Executing command [1/1] (repeat 1/1): dev='%s' (%s) cmd='%s'\n",
+               dev, is_id ? "by ID" : "by Name", cmd_list[0]);
+        if (is_id) {
+            hw_device_command_send_by_id(dev, cmd_list[0]);
+        } else {
+            hw_device_command_send_by_name(dev, cmd_list[0]);
+        }
         return;
     }
 
     snprintf(g_mqtt_seq.dev, sizeof(g_mqtt_seq.dev), "%s", dev);
+    g_mqtt_seq.dev_is_id = is_id;
     g_mqtt_seq.cmd_count = cmd_count;
     for (int i = 0; i < cmd_count; i++) {
         snprintf(g_mqtt_seq.cmd_list[i], sizeof(g_mqtt_seq.cmd_list[i]), "%s", cmd_list[i]);

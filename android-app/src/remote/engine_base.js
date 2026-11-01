@@ -28,6 +28,137 @@ export class RemoteEngineBase {
     }
   }
 
+  isRepeatableCommand(cmdName, label = '') {
+    if (!cmdName && !label) return false;
+    const norm = (str) => String(str || '').toLowerCase().replace(/[\s_\-]/g, '');
+    const c = norm(cmdName);
+    const l = norm(label);
+
+    const blocked = [
+      'power', 'poweron', 'poweroff', 'powertoggle',
+      'mute', 'mutetoggle',
+      'select', 'ok', 'enter',
+      'input', 'source', 'inputnext',
+      'menu', 'home', 'back', 'exit', 'return',
+      'play', 'pause', 'playpause', 'stop', 'record'
+    ];
+    if (blocked.some(b => c === b || c === `${b}toggle`)) {
+      return false;
+    }
+
+    if (['up', 'down', 'left', 'right', 'pageup', 'pagedown'].includes(c)) return true;
+    if (['▲', '▼', '◀', '▶'].includes(String(label).trim())) return true;
+
+    if ((c.includes('volume') || c.includes('vol')) && (c.includes('up') || c.includes('down') || c.includes('+') || c.includes('-'))) {
+      return true;
+    }
+    if ((l.includes('volume') || l.includes('vol')) && (l.includes('up') || l.includes('down') || l.includes('+') || l.includes('-'))) {
+      return true;
+    }
+
+    if (c.includes('direction') || c.includes('cursor') || c.includes('arrow') || c.includes('dpad')) {
+      return true;
+    }
+
+    if ((c.includes('channel') || c.includes('chan') || c.startsWith('ch')) && (c.includes('up') || c.includes('down') || c.includes('+') || c.includes('-'))) {
+      return true;
+    }
+    if (c.includes('pageup') || c.includes('pagedown')) {
+      return true;
+    }
+
+    if (c.includes('fastforward') || c.includes('rewind') || c.includes('scanforward') || c.includes('scanreverse') ||
+        c.includes('skipforward') || c.includes('skipbackward') || c.includes('skipback') || c.includes('stepforward') || c.includes('stepback') ||
+        c === 'ff' || c === 'rew') {
+      return true;
+    }
+
+    return false;
+  }
+
+  attachHoldToRepeat(el, onTrigger, isRepeatable = false) {
+    let holdTimer = null;
+    let repeatInterval = null;
+    let startX = 0;
+    let startY = 0;
+    let hasFired = false;
+    let hasMoved = false;
+    let inFlight = false;
+
+    const clearTimers = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      if (repeatInterval) {
+        clearInterval(repeatInterval);
+        repeatInterval = null;
+      }
+      el.classList.remove('active-press', 'is-holding');
+    };
+
+    const fire = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await onTrigger();
+      } catch (err) {
+        console.warn('Hold-repeat send error:', err);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    el.addEventListener('pointerdown', async (e) => {
+      if (e.button !== 0) return;
+      if (this.editMode) return;
+
+      hasMoved = false;
+      hasFired = true;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      clearTimers();
+      el.classList.add('active-press');
+      await this.triggerHaptic();
+      fire();
+
+      if (isRepeatable) {
+        holdTimer = setTimeout(() => {
+          el.classList.add('is-holding');
+          repeatInterval = setInterval(async () => {
+            await this.triggerHaptic();
+            fire();
+          }, 180);
+        }, 400);
+      }
+    });
+
+    el.addEventListener('pointermove', (e) => {
+      if (!holdTimer && !repeatInterval) return;
+      const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+      if (dist > 10) {
+        hasMoved = true;
+        clearTimers();
+      }
+    });
+
+    const onPointerEnd = () => {
+      clearTimers();
+    };
+
+    el.addEventListener('pointerup', onPointerEnd);
+    el.addEventListener('pointercancel', onPointerEnd);
+    el.addEventListener('pointerleave', onPointerEnd);
+
+    return {
+      hasFired: () => hasFired,
+      hasMoved: () => hasMoved,
+      resetFired: () => { hasFired = false; },
+      clearTimers
+    };
+  }
+
   getNumberPatterns() {
     return [
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',

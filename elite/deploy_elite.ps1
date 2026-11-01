@@ -16,7 +16,8 @@ param(
     [switch]$DebugBusybox,
     [switch]$DevMode,
     [switch]$FactoryReset,
-    [switch]$Reboot
+    [switch]$Reboot,
+    [switch]$NoSync
 )
 
 $ErrorActionPreference = "Continue"
@@ -167,6 +168,11 @@ $postCmd = "sed -i 's/\r$//' /etc/init.d/rcS.local /data/*.sh 2>/dev/null || tru
            "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true"
 
 $res = & ssh @sshArgs $Target $postCmd
+
+if (-not $NoSync) {
+    Write-Host "[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)..." -ForegroundColor Yellow
+    & ssh @sshArgs $Target "touch /data/force_sync 2>/dev/null || true"
+}
 
 if ($Reboot) {
     Write-Host "[*] Pre-reboot verification and safe reboot (flush flash buffers)..." -ForegroundColor Yellow

@@ -29,7 +29,10 @@ class Router {
     let tab = 'remote';
     let subView = null;
 
-    if (parts[0] === 'devices') {
+    if (parts[0] === 'mqtt') {
+      tab = 'setup';
+      subView = 'mqtt';
+    } else if (parts[0] === 'devices') {
       tab = 'devices';
       if (parts[1]) subView = parts[1]; // Device ID if viewing specific device remote
     } else if (parts[0] === 'setup') {

@@ -199,8 +199,11 @@ void render_switching_view(void) {
     int count = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
                                                 target_steps, 32, &calc_total_ms);
 
-    uint64_t elapsed = get_monotonic_ms() - g_switching_start_ms;
-    uint32_t total_ms = (g_switching_total_ms > 0) ? g_switching_total_ms : calc_total_ms;
+    uint32_t total_ms = (calc_total_ms > 0) ? calc_total_ms : ((g_switching_total_ms > 0) ? g_switching_total_ms : 2000);
+    if (total_ms == 0) total_ms = 2000;
+
+    uint64_t now = get_monotonic_ms();
+    uint64_t elapsed = (now > g_switching_start_ms) ? (now - g_switching_start_ms) : 0;
 
     int current_step_idx = 1;
     char current_step_name[32] = {0};

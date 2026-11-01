@@ -252,8 +252,8 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
     }
 }
 
-int hw_device_command_send(const char *device_id, const char *command) {
-    if (!device_id || !command) return -1;
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command) {
+    if (!target || !command) return -1;
 
     /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
     cJSON *root = get_device_list_cached();
@@ -269,9 +269,10 @@ int hw_device_command_send(const char *device_id, const char *command) {
 
     cJSON *target_item = NULL;
     cJSON *target_dev = NULL;
+    char target_id_str[64] = {0};
     cJSON *item = NULL;
 
-    /* Match device by ID or Name */
+    /* Match device: match_mode 1 = ID only, 2 = Name only, 0 = ID or Name */
     cJSON_ArrayForEach(item, devs) {
         cJSON *dev = cJSON_GetObjectItemCaseSensitive(item, "Device");
         if (!dev) dev = item;
@@ -290,10 +291,20 @@ int hw_device_command_send(const char *device_id, const char *command) {
         if (!j_name) j_name = cJSON_GetObjectItemCaseSensitive(dev, "Name");
         const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
 
-        if ((id_str[0] && strcmp(id_str, device_id) == 0) ||
-            (name_str && name_str[0] && (strcmp(name_str, device_id) == 0 || strcasecmp(name_str, device_id) == 0))) {
+        int matched = 0;
+        if (match_mode == 1) {
+            matched = (id_str[0] && strcmp(id_str, target) == 0);
+        } else if (match_mode == 2) {
+            matched = (name_str && name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0));
+        } else {
+            matched = ((id_str[0] && strcmp(id_str, target) == 0) ||
+                       (name_str && name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)));
+        }
+
+        if (matched) {
             target_item = item;
             target_dev = dev;
+            strncpy(target_id_str, id_str, sizeof(target_id_str) - 1);
             break;
         }
     }
@@ -349,8 +360,8 @@ int hw_device_command_send(const char *device_id, const char *command) {
                                 cJSON *d_name = cJSON_GetObjectItemCaseSensitive(di, "name");
                                 cJSON *d_addr = cJSON_GetObjectItemCaseSensitive(di, "bdaddr");
                                 if (d_addr && cJSON_IsString(d_addr) && d_addr->valuestring[0]) {
-                                    if ((d_id && cJSON_IsString(d_id) && strcmp(d_id->valuestring, device_id) == 0) ||
-                                        (d_name && cJSON_IsString(d_name) && strcasecmp(d_name->valuestring, device_id) == 0) ||
+                                    if ((d_id && cJSON_IsString(d_id) && ((target_id_str[0] && strcmp(d_id->valuestring, target_id_str) == 0) || strcmp(d_id->valuestring, target) == 0)) ||
+                                        (d_name && cJSON_IsString(d_name) && strcasecmp(d_name->valuestring, target) == 0) ||
                                         (dev_name[0] && d_name && cJSON_IsString(d_name) && strcasecmp(d_name->valuestring, dev_name) == 0)) {
                                         strncpy(bdaddr, d_addr->valuestring, sizeof(bdaddr) - 1);
                                         break;
@@ -445,7 +456,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
         return -6;
     }
 
-    check_and_trigger_bt_reconnect_for_command(devs, device_id, dev_name, command);
+    check_and_trigger_bt_reconnect_for_command(devs, target_id_str[0] ? target_id_str : target, dev_name, command);
 
     char keycode_str[4096] = {0};
     if (target_cmd) {
@@ -509,7 +520,8 @@ int hw_device_command_send(const char *device_id, const char *command) {
     if (s_last_cmd_time_ms > 0) {
         uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
         int req_delay = 0;
-        if (strcmp(s_last_device_id, device_id) != 0) {
+        const char *actual_dev_id = target_id_str[0] ? target_id_str : target;
+        if (strcmp(s_last_device_id, actual_dev_id) != 0) {
             req_delay = inter_device_delay;
         } else {
             if (strcmp(s_last_cmd_name, command) == 0) {
@@ -528,7 +540,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
         if (!bdaddr[0]) {
             pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
-                   command, dev_name[0] ? dev_name : "BT-Device", device_id);
+                   command, dev_name[0] ? dev_name : "BT-Device", target_id_str[0] ? target_id_str : target);
             return 0; /* Skip gracefully without failing activity switch */
         }
 
@@ -571,16 +583,17 @@ int hw_device_command_send(const char *device_id, const char *command) {
                 if (bf) {
                     time_t now = time(NULL);
                     char tbuf[32];
-                    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+                    const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
                     fprintf(bf, "[%s] Dev: %s (%s) | Cmd: %s | Page: 0x%02X Usage: 0x%04X | KeyCode: %s | ret=%d | Pipe: %s",
-                            tbuf, dev_name[0] ? dev_name : "BT-Device", device_id, command, page, usage, keycode_str, ret, pipe_cmd);
+                            tbuf, dev_name[0] ? dev_name : "BT-Device", actual_dev_id_str, command, page, usage, keycode_str, ret, pipe_cmd);
                     fclose(bf);
                 }
             }
         }
     } else if (is_mqtt || strncmp(keycode_str, "G:MQTT", 6) == 0) {
+        const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
         if (g_mqtt_button_handler) {
-            ret = g_mqtt_button_handler(device_id, dev_name, command);
+            ret = g_mqtt_button_handler(actual_dev_id_str, dev_name, command);
         } else {
             /* Dispatch MQTT button to hub_daemon on 127.0.0.1:8089 */
             int mfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -594,7 +607,7 @@ int hw_device_command_send(const char *device_id, const char *command) {
                 setsockopt(mfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
                 setsockopt(mfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
                 if (connect(mfd, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-                    char *body = build_button_press_json(device_id, dev_name, command);
+                    char *body = build_button_press_json(actual_dev_id_str, dev_name, command);
                     char req[512];
                     snprintf(req, sizeof(req),
                              "POST /api/button-press HTTP/1.1\r\n"
@@ -626,13 +639,25 @@ int hw_device_command_send(const char *device_id, const char *command) {
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
     s_last_cmd_time_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
-    strncpy(s_last_device_id, device_id, sizeof(s_last_device_id) - 1);
+    strncpy(s_last_device_id, target_id_str[0] ? target_id_str : target, sizeof(s_last_device_id) - 1);
     s_last_device_id[sizeof(s_last_device_id) - 1] = '\0';
     strncpy(s_last_cmd_name, command, sizeof(s_last_cmd_name) - 1);
     s_last_cmd_name[sizeof(s_last_cmd_name) - 1] = '\0';
     pthread_mutex_unlock(&s_hw_cmd_lock);
 
     return ret;
+}
+
+int hw_device_command_send(const char *device_id, const char *command) {
+    return hw_device_command_send_match(device_id, 0, command);
+}
+
+int hw_device_command_send_by_id(const char *device_id, const char *command) {
+    return hw_device_command_send_match(device_id, 1, command);
+}
+
+int hw_device_command_send_by_name(const char *device_name, const char *command) {
+    return hw_device_command_send_match(device_name, 2, command);
 }
 
 int hw_bthid_send_report(const uint8_t *report, size_t len) {

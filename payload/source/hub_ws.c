@@ -101,13 +101,19 @@ void handle_ws_client_message(int cfd) {
     }
     else if (strcmp(action, "send_command") == 0 || strcmp(action, "ir_send") == 0) {
         cJSON *dev_j = cJSON_GetObjectItemCaseSensitive(root, "deviceId");
+        if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+        if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(root, "device");
         cJSON *cmd_j = cJSON_GetObjectItemCaseSensitive(root, "command");
-        const char *dev = (dev_j && cJSON_IsString(dev_j)) ? dev_j->valuestring : "";
+        char dev_buf[64] = {0};
+        if (dev_j) {
+            if (cJSON_IsString(dev_j) && dev_j->valuestring) strncpy(dev_buf, dev_j->valuestring, sizeof(dev_buf) - 1);
+            else if (cJSON_IsNumber(dev_j)) snprintf(dev_buf, sizeof(dev_buf), "%ld", (long)dev_j->valuedouble);
+        }
         const char *cmd = (cmd_j && cJSON_IsString(cmd_j)) ? cmd_j->valuestring : "";
 
         int ok = 0;
-        if (dev[0] && cmd[0]) {
-            ok = (hw_device_command_send(dev, cmd) == 0);
+        if (dev_buf[0] && cmd[0]) {
+            ok = (hw_device_command_send(dev_buf, cmd) == 0);
         }
 
         cJSON *resp = cJSON_CreateObject();

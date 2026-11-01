@@ -100,6 +100,91 @@ int main(void) {
     fclose(fbl);
     printf("[+] Backlight level 4 scaled and written to sysfs: %d\n", bl_val);
 
+    /* 8. Test Transition Timing Sequence (build_combined_activity_sequence) */
+    printf("[-] Testing activity switch transition timing calculation...\n");
+    g_rf_step_count = 0;
+    /* -1 (PowerOff) stopSequence: 2 steps before Switched, then Switched + 20s tail + step */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "-1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0x80;
+    g_rf_steps[g_rf_step_count].delay_ms = 2250;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "PowerOn", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "-1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0x81;
+    g_rf_steps[g_rf_step_count].delay_ms = 250;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "PowerOn", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "-1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0x82;
+    g_rf_steps[g_rf_step_count].delay_ms = 20250;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Switched", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "-1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0x83;
+    g_rf_steps[g_rf_step_count].delay_ms = 250;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "PowerOn", 15);
+
+    /* 1 (ShieldTV): startSequence has no Switched step */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0;
+    g_rf_steps[g_rf_step_count].delay_ms = 300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Play", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 1;
+    g_rf_steps[g_rf_step_count].delay_ms = 5300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "PowerOn", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "1", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 2;
+    g_rf_steps[g_rf_step_count].delay_ms = 300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi4", 15);
+
+    /* 2 (PS5): startSequence has Switched step followed by 20s tail and deferred step */
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "2", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 0;
+    g_rf_steps[g_rf_step_count].delay_ms = 300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Rewind", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "2", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 1;
+    g_rf_steps[g_rf_step_count].delay_ms = 5300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "PowerOn", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "2", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 2;
+    g_rf_steps[g_rf_step_count].delay_ms = 300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi2", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "2", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 3;
+    g_rf_steps[g_rf_step_count].delay_ms = 20300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "Switched", 15);
+
+    strncpy(g_rf_steps[g_rf_step_count].act_id, "2", 11);
+    g_rf_steps[g_rf_step_count].step_idx = 4;
+    g_rf_steps[g_rf_step_count].delay_ms = 300;
+    strncpy(g_rf_steps[g_rf_step_count++].name, "InputHdmi2", 15);
+
+    /* Test A: Switch PowerOff (-1) -> ShieldTV (1) [no Switched in 1 -> count until last step] */
+    rf_act_step_t test_steps[32];
+    uint32_t total_a = 0;
+    int count_a = build_combined_activity_sequence("-1", "1", test_steps, 32, &total_a);
+    assert(count_a == 6);
+    assert(total_a == 8400); /* 2250 + 250 + 300 + 5300 + 300 = 8400 ms */
+    assert(strcmp(test_steps[5].name, "Activity switched") == 0);
+    assert(test_steps[5].delay_ms == 0);
+    printf("[+] Switch -1 -> 1 timing verified: %ums across %d steps\n", total_a, count_a);
+
+    /* Test B: Switch PowerOff (-1) -> PS5 (2) [Switched in 2 -> count until Switched step] */
+    uint32_t total_b = 0;
+    int count_b = build_combined_activity_sequence("-1", "2", test_steps, 32, &total_b);
+    assert(count_b == 6);
+    assert(total_b == 8400); /* 2250 + 250 + 300 + 5300 + 300 = 8400 ms (excludes 20.3s tail) */
+    assert(strcmp(test_steps[5].name, "Activity switched") == 0);
+    assert(test_steps[5].delay_ms == 0);
+    printf("[+] Switch -1 -> 2 timing verified: %ums across %d steps\n", total_b, count_b);
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;

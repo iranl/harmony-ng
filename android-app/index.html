@@ -3552,10 +3552,14 @@ harmony_send_command:
   mode: queued
   max: 20
   fields:
+    device_id:
+      description: "Target device ID (unique numeric or string ID)"
+      example: "72918237"
+      selector:
+        text: {}
     device:
-      description: "Target device name or ID"
-      example: "Tv Samsung"
-      required: true
+      description: "Target device name (display name)"
+      example: "Samsung TV"
       selector:
         text: {}
     command:
@@ -3596,17 +3600,16 @@ harmony_send_command:
       data:
         topic: "harmony/hub/send_command"
         payload: >-
-          {{ {
-            'device': device,
+          {{ ({
             'command': [command] if command is string else command,
             'delay_secs': delay_secs | default(0.4, true) | float,
             'hold_secs': hold_secs | default(0, true) | float,
             'num_repeats': num_repeats | default(1, true) | int
-          } | to_json }}
+          } | combine({'device_id': device_id} if device_id is defined and device_id != '' else {'device': device})) | to_json }}
         </pre>
         <div class="muted mini" style="margin-top: 6px;">
           Example HA automation action: <code>action: script.harmony_send_command</code> with
-          <code>device: "Samsung TV"</code> and <code>command: ["PowerToggle"]</code>.
+          <code>device_id: "72918237"</code> (or by name <code>device: "Samsung TV"</code>) and <code>command: ["PowerToggle"]</code>.
         </div>
       </details>
 
@@ -3678,6 +3681,10 @@ harmony_send_command:
           <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
             <input type="checkbox" id="haHelperIndentCheck" checked style="width: 14px; height: 14px;">
             <span>Indent for automation sequence (6 spaces)</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" id="haHelperUseIdCheck" checked style="width: 14px; height: 14px;">
+            <span>Use Device ID (recommended)</span>
           </label>
         </div>
 

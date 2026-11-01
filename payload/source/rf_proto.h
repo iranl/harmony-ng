@@ -50,6 +50,8 @@
 #define RF_MSG_ICON_START          0x26  /* Hub -> Remote: start custom icon transfer */
 #define RF_MSG_ICON_CHUNK          0x27  /* Hub -> Remote: 22-byte icon binary chunk */
 #define RF_MSG_ICON_END            0x28  /* Hub -> Remote: complete / CRC16 verification */
+#define RF_ICON_STATUS_OK              0x00  /* Ready for chunk streaming */
+#define RF_ICON_STATUS_ALREADY_EXISTS  0x04  /* Remote already possesses exact icon */
 
 /* Update Management */
 #define RF_MSG_OTA_REQUEST         0x29  /* Remote -> Hub: request Hub to start binary OTA */

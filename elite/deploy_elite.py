@@ -62,6 +62,8 @@ def main() -> None:
                         help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
                         help="Perform hardware reboot after deployment (default: False, hot-restarts services)")
+    parser.add_argument("--no-sync", action="store_true",
+                        help="Skip forcing full configuration sync from Hub after deployment (default: False)")
     args = parser.parse_args()
 
     target = f"{args.user}@{args.ip}"
@@ -196,6 +198,10 @@ def main() -> None:
     final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
     if final_res.stdout.strip():
         print(f"    {final_res.stdout.strip()}")
+
+    if not args.no_sync:
+        print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")
+        run_cmd(["ssh"] + ssh_opts + [target, "touch /data/force_sync 2>/dev/null || true"])
 
     if args.reboot:
         print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")

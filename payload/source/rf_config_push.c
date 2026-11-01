@@ -535,12 +535,26 @@ void *config_push_worker(void *arg) {
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
                                     int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
-                                    if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
+                                    const char *cmd_str = (cname && cJSON_IsString(cname)) ? cname->valuestring : "";
+                                    const char *type_str = (ctype && cJSON_IsString(ctype)) ? ctype->valuestring : "";
+                                    int is_sw = (strcasecmp(cmd_str, "Switched") == 0 ||
+                                                 strcasecmp(type_str, "Switched") == 0 ||
+                                                 strcasecmp(type_str, "ActivitySwitched") == 0);
+
+                                    if (is_sw) {
+                                        strncpy(local_steps[local_count].act_id, act_id, 11);
+                                        local_steps[local_count].act_id[11] = '\0';
+                                        strncpy(local_steps[local_count].name, "Switched", 15);
+                                        local_steps[local_count].name[15] = '\0';
+                                        local_steps[local_count].delay_ms = 0;
+                                        local_count++;
+                                        break; /* Do not push deferred/background tail steps to remote transition */
+                                    } else if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
                                         strncpy(local_steps[local_count].act_id, act_id, 11);
                                         local_steps[local_count].act_id[11] = '\0';
                                         strncpy(local_steps[local_count].name, cname->valuestring, 15);
                                         local_steps[local_count].name[15] = '\0';
-                                        if (d <= 0) d = 300;
+                                        if (d <= 0) d = 250;
                                         if (d > 20000) d = 20000;
                                         local_steps[local_count].delay_ms = (uint16_t)d;
                                         local_count++;
@@ -588,8 +602,24 @@ void *config_push_worker(void *arg) {
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
                                         int d = (cdelay && cJSON_IsNumber(cdelay)) ? cdelay->valueint : 0;
+                                        const char *cmd_str = (cname && cJSON_IsString(cname)) ? cname->valuestring : "";
+                                        const char *type_str = (ctype && cJSON_IsString(ctype)) ? ctype->valuestring : "";
+                                        int is_sw = (strcasecmp(cmd_str, "Switched") == 0 ||
+                                                     strcasecmp(type_str, "Switched") == 0 ||
+                                                     strcasecmp(type_str, "ActivitySwitched") == 0);
 
-                                        if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
+                                        if (is_sw) {
+                                            strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                            act_steps[total_step_count].act_id[11] = '\0';
+                                            strncpy(act_steps[total_step_count].name, "Switched", 15);
+                                            act_steps[total_step_count].name[15] = '\0';
+                                            act_steps[total_step_count].delay_ms = 0;
+                                            act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                            act_steps[total_step_count].total_steps = 1;
+                                            total_step_count++;
+                                            stop_cnt++;
+                                            break; /* Handover point in leaving activity: tail steps run in background */
+                                        } else if (cname && cJSON_IsString(cname) && cname->valuestring[0]) {
                                             if (d <= 0) d = 250;
                                             if (d > 20000) d = 20000;
                                             strncpy(act_steps[total_step_count].act_id, act_id, 11);
@@ -629,8 +659,15 @@ void *config_push_worker(void *arg) {
         fclose(fsteps);
     }
 
-    /* Append PowerOff sequence step for "-1" */
-    if (total_step_count < 64) {
+    /* Append PowerOff sequence step for "-1" only if not explicitly defined */
+    int found_minus1 = 0;
+    for (int i = 0; i < total_step_count; i++) {
+        if (strcmp(act_steps[i].act_id, "-1") == 0 && !(act_steps[i].step_idx & 0x80)) {
+            found_minus1 = 1;
+            break;
+        }
+    }
+    if (!found_minus1 && total_step_count < 64) {
         strncpy(act_steps[total_step_count].act_id, "-1", 11);
         act_steps[total_step_count].act_id[11] = '\0';
         strncpy(act_steps[total_step_count].name, "Power Off", 15);
@@ -771,14 +808,31 @@ void *config_push_worker(void *arg) {
         printf("[+] Config v%d delivered to slot %d (%d device commands)\n", config_ver, target_slot, sent);
 
         /* 8b. Wirelessly sync custom icons to the remote over RF if needed */
+        uint16_t synced_ids[32];
+        int synced_count = 0;
+
         for (int i = 0; i < act_count; i++) {
             if ((acts[i].icon_id & 0x8000) && acts[i].icon_name[0]) {
-                custom_icon_registry_sync_remote(target_slot, acts[i].icon_id, acts[i].icon_name);
+                bool already = false;
+                for (int p = 0; p < synced_count; p++) {
+                    if (synced_ids[p] == acts[i].icon_id) { already = true; break; }
+                }
+                if (!already) {
+                    if (synced_count < 32) synced_ids[synced_count++] = acts[i].icon_id;
+                    custom_icon_registry_sync_remote(target_slot, acts[i].icon_id, acts[i].icon_name);
+                }
             }
         }
         for (int i = 0; i < dev_count; i++) {
             if ((devs[i].icon_id & 0x8000) && devs[i].icon_name[0]) {
-                custom_icon_registry_sync_remote(target_slot, devs[i].icon_id, devs[i].icon_name);
+                bool already = false;
+                for (int p = 0; p < synced_count; p++) {
+                    if (synced_ids[p] == devs[i].icon_id) { already = true; break; }
+                }
+                if (!already) {
+                    if (synced_count < 32) synced_ids[synced_count++] = devs[i].icon_id;
+                    custom_icon_registry_sync_remote(target_slot, devs[i].icon_id, devs[i].icon_name);
+                }
             }
         }
         if (target_slot >= 1 && target_slot <= 2) {
