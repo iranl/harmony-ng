@@ -251,8 +251,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Gear or hold Activities: menu", "Zahnrad/Halten: Menue", "Engrenage/maintien: menu", "Tandwiel/vasthouden: menu", "Engranaje/mantener: menu", "Ingranaggio/tieni: menu" },
     /* STR_KEY_HINT_DISMISS */
     { "Press any key to continue", "Taste druecken", "Appuyez sur une touche", "Druk op een toets", "Pulse una tecla", "Premi un tasto" },
-    /* STR_HERO_HINT */
-    { "Use the remote's buttons", "Tasten der Fernbedienung", "Utilisez les touches", "Gebruik de knoppen", "Use los botones", "Usa i tasti" },
     /* STR_HUB_SILENT */
     { "HUB?", "HUB?", "HUB?", "HUB?", "HUB?", "HUB?" },
     /* STR_LINK_TITLE */

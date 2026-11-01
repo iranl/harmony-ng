@@ -166,9 +166,6 @@ typedef enum {
     STR_KEY_HINT_MENU,
     STR_KEY_HINT_DISMISS,
 
-    /* Activity screen without screen buttons */
-    STR_HERO_HINT,
-
     /* RF link indicator and its panel */
     STR_HUB_SILENT,
     STR_LINK_TITLE,
