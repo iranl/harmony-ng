@@ -43,6 +43,12 @@ typedef struct {
     int executed;
 } orch_bg_step_t;
 
+/* A device whose power control is a toggle, which Help asks about instead of sending */
+typedef struct {
+    char device_id[32];
+    char command[64];
+} orch_toggle_t;
+
 /* Progress callback for WebSocket broadcasts */
 typedef void (*orch_progress_cb)(const char *activity_id, orch_state_t state,
                                  int current_step, int total_steps,
@@ -60,6 +66,8 @@ void orch_set_progress_callback(orch_progress_cb cb, void *user_data);
 
 /* Check if an activity transition is currently executing (interlock) */
 int orch_is_busy(void);
+/* Steps of the last switch or Help still to send, including background steps */
+int orch_is_sending(void);
 
 /* Current activity ID string ("-1" = PowerOff) */
 const char *orch_get_current_activity(void);
@@ -79,6 +87,16 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
  * Power off all devices in current activity.
  */
 int orch_power_off(int dry_run, char *preview_json, size_t preview_len);
+
+/*
+ * Help (ADR-0004): re-send the running activity's start sequence as if starting from Power
+ * Off, except power toggles, which could turn a device off. toggles receives the devices whose
+ * power control is a toggle, for the caller to ask about. With dry_run, nothing is sent,
+ * preview_json gets the steps, and act_id need not be running. Returns 0, -2 if busy, -3 if
+ * act_id is not the running activity, -1 on error.
+ */
+int orch_repair_activity(const char *act_id, int dry_run, orch_toggle_t *toggles, size_t max_toggles,
+                         size_t *toggle_count, char *preview_json, size_t preview_len);
 
 /*
  * Directly enqueue a step sequence for execution.

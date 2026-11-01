@@ -15,6 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+#include <pthread.h>
 
 static cJSON *build_activity_steps_cjson(const char *seq_text) {
     cJSON *arr = cJSON_CreateArray();
@@ -87,6 +88,29 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
     return arr;
 }
 
+/* Help (ADR-0004): the devices the last Help asked about, so answers toggle only those */
+static orch_toggle_t s_help_toggles[16];
+static size_t s_help_toggle_count;
+static pthread_mutex_t s_help_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void device_name(const char *id, char *out, size_t len) {
+    snprintf(out, len, "%s", id);
+    cJSON *root = config_store_get_devices_json();
+    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    cJSON *d = NULL;
+    cJSON_ArrayForEach(d, devs) {
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+        cJSON *jname = cJSON_GetObjectItemCaseSensitive(d, "name");
+        char d_id[32] = {0};
+        if (cJSON_IsNumber(jid)) snprintf(d_id, sizeof(d_id), "%ld", (long)jid->valuedouble);
+        else if (cJSON_IsString(jid)) snprintf(d_id, sizeof(d_id), "%s", jid->valuestring);
+        if (strcmp(d_id, id) == 0 && cJSON_IsString(jname)) {
+            snprintf(out, len, "%s", jname->valuestring);
+            return;
+        }
+    }
+}
+
 int http_api_activities_handle(int client_fd, const char *method, const char *clean_path,
                                const char *query, const char *body, const char *req) {
     (void)query;
@@ -118,6 +142,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         cJSON_AddStringToObject(aj, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(aj, "state", (int)orch_get_state());
         cJSON_AddBoolToObject(aj, "busy", orch_is_busy() ? 1 : 0);
+        cJSON_AddBoolToObject(aj, "sending", orch_is_sending() ? 1 : 0);
         send_cjson_resp(client_fd, 200, aj);
         cJSON_Delete(aj);
         close(client_fd);
@@ -193,6 +218,96 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             } else {
                 send_json_error(client_fd, 409, "Interlock busy");
             }
+        }
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/activity/help: re-send the running activity's commands except power
+       toggles, and list the devices with toggles to ask about (ADR-0004) */
+    if (strcmp(clean_path, "/api/activity/help") == 0 && strcmp(method, "POST") == 0) {
+        char act_id[32] = {0};
+        int dry_run = 0;
+        cJSON *req_j = body ? cJSON_Parse(body) : NULL;
+        cJSON *ja = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "activity") : NULL;
+        if (cJSON_IsString(ja)) snprintf(act_id, sizeof(act_id), "%s", ja->valuestring);
+        else if (cJSON_IsNumber(ja)) snprintf(act_id, sizeof(act_id), "%ld", (long)ja->valuedouble);
+        cJSON *jd = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "dry_run") : NULL;
+        if (cJSON_IsTrue(jd) || (cJSON_IsNumber(jd) && jd->valuedouble > 0)) dry_run = 1;
+        cJSON_Delete(req_j);
+        if (!act_id[0]) snprintf(act_id, sizeof(act_id), "%s", orch_get_current_activity());
+
+        orch_toggle_t toggles[16];
+        size_t n = 0;
+        char preview[8192] = {0};
+        int rc = orch_repair_activity(act_id, dry_run, toggles, 16, &n, preview, sizeof(preview));
+        if (rc == -2) {
+            send_json_error(client_fd, 409, "Interlock busy");
+        } else if (rc == -3) {
+            send_json_error(client_fd, 409, "Activity is not running");
+        } else if (rc != 0) {
+            send_json_error(client_fd, 500, "Could not build the activity's commands");
+        } else {
+            if (!dry_run) {
+                pthread_mutex_lock(&s_help_lock);
+                memcpy(s_help_toggles, toggles, n * sizeof(toggles[0]));
+                s_help_toggle_count = n;
+                pthread_mutex_unlock(&s_help_lock);
+            }
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "success", 1);
+            cJSON_AddStringToObject(resp, "activity", act_id);
+            cJSON *arr = cJSON_AddArrayToObject(resp, "toggleDevices");
+            for (size_t i = 0; i < n; i++) {
+                char name[128];
+                device_name(toggles[i].device_id, name, sizeof(name));
+                cJSON *d = cJSON_CreateObject();
+                cJSON_AddStringToObject(d, "id", toggles[i].device_id);
+                cJSON_AddStringToObject(d, "name", name);
+                cJSON_AddStringToObject(d, "command", toggles[i].command);
+                cJSON_AddItemToArray(arr, d);
+            }
+            cJSON *steps = dry_run && preview[0] ? cJSON_Parse(preview) : NULL;
+            if (steps) cJSON_AddItemToObject(resp, "preview", steps);
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        }
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/activity/help/answer: {"device": id, "on": false} sends the device's
+       power toggle; only devices the last Help listed, once each */
+    if (strcmp(clean_path, "/api/activity/help/answer") == 0 && strcmp(method, "POST") == 0) {
+        char dev_id[32] = {0};
+        int on = 1;
+        cJSON *req_j = body ? cJSON_Parse(body) : NULL;
+        cJSON *jdev = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "device") : NULL;
+        if (cJSON_IsString(jdev)) snprintf(dev_id, sizeof(dev_id), "%s", jdev->valuestring);
+        else if (cJSON_IsNumber(jdev)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jdev->valuedouble);
+        cJSON *jon = req_j ? cJSON_GetObjectItemCaseSensitive(req_j, "on") : NULL;
+        if (cJSON_IsFalse(jon) || (cJSON_IsNumber(jon) && jon->valuedouble == 0)) on = 0;
+        cJSON_Delete(req_j);
+
+        char cmd[64] = {0};
+        pthread_mutex_lock(&s_help_lock);
+        for (size_t i = 0; i < s_help_toggle_count; i++) {
+            if (strcmp(s_help_toggles[i].device_id, dev_id) != 0) continue;
+            /* One answer per device, so a repeated "No" cannot toggle it back off */
+            snprintf(cmd, sizeof(cmd), "%s", s_help_toggles[i].command);
+            s_help_toggles[i] = s_help_toggles[--s_help_toggle_count];
+            break;
+        }
+        pthread_mutex_unlock(&s_help_lock);
+        if (!cmd[0]) {
+            send_json_error(client_fd, 404, "Device is not waiting for a Help answer");
+        } else {
+            if (!on) hw_device_command_send(dev_id, cmd);
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "success", 1);
+            cJSON_AddBoolToObject(resp, "sent", !on);
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
         }
         close(client_fd);
         return 1;

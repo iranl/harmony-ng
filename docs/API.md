@@ -437,10 +437,13 @@ Returns active activity and orchestration status.
   {
     "activity": "-1",
     "state": 0,
-    "busy": false
+    "busy": false,
+    "sending": false
   }
   ```
   - `state`: `0` = Idle / Stopped, `1` = Starting, `2` = Running, `3` = Stopping.
+  - `busy`: an activity change holds the interlock. It ends when the activity counts as switched, which can be before its last commands are sent.
+  - `sending`: commands of the last activity change or Help, including background steps, are still to be sent.
 
 ### 4.3 Start Activity
 #### `POST /api/activity` or `POST /api/activity-start`
@@ -533,6 +536,35 @@ Internal step progress notification. Broadcasts state payload to WebSockets and 
 #### `POST /api/sync` or `POST /api/reload`
 Forces daemon to reload JSON configs from flash.
 - **Response `200 OK`**: `{"ok": true}`
+
+### 4.11 Help: Repair the Running Activity
+#### `POST /api/activity/help`
+Re-sends the running activity's start sequence, as if starting from Power Off, except power toggles (`PowerToggle`, `Power`), and lists the devices whose power command is a toggle so the caller can ask whether each is on ([ADR-0004](adr/0004-help-repairs-the-current-activity.md)).
+- **Request Body** (both fields optional; `activity` defaults to the running activity):
+  ```json
+  {
+    "activity": "1",
+    "dry_run": false
+  }
+  ```
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "activity": "1",
+    "toggleDevices": [
+      { "id": "4", "name": "Sony Projector", "command": "PowerToggle" }
+    ]
+  }
+  ```
+  With `dry_run`, nothing is sent and `preview` holds the steps that would be sent.
+- **Error `409 Conflict`**: `Interlock busy`, or `Activity is not running`.
+
+#### `POST /api/activity/help/answer`
+Answers the question for one device of the last Help. `"on": false` sends that device's power toggle; `"on": true` sends nothing. Each device takes one answer.
+- **Request Body**: `{"device": "4", "on": false}`
+- **Response `200 OK`**: `{"success": true, "sent": true}`
+- **Error `404 Not Found`**: the device is not waiting for a Help answer.
 
 ---
 
