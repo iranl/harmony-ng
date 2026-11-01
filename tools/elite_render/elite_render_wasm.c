@@ -44,6 +44,18 @@ int er_stock_icon_id(const char *icon, const char *name) {
     return id;
 }
 
+/* The image the remote draws for an activity: a path in the module's filesystem under root,
+   resolved from <root>/data/elite_rf_config.json the way the remote resolves its config */
+EMSCRIPTEN_KEEPALIVE
+const char *er_activity_icon(const char *root, const char *id) {
+    g_fs_root = root ? root : "";
+    load_rf_config();
+    for (int i = 0; i < g_activity_count; i++) {
+        if (strcmp(g_activities[i].id, id) == 0) return g_activities[i].icon_path;
+    }
+    return "";
+}
+
 /* Call after replacing files in the filesystem, so cached images are decoded again */
 EMSCRIPTEN_KEEPALIVE
 void er_assets_changed(void) {

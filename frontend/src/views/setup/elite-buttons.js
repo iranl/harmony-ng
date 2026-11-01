@@ -7,6 +7,7 @@ import { api } from '../../api/index.js';
 import { store } from '../../store.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { loadEliteRenderer } from '../../remote/elite-renderer.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -487,18 +488,8 @@ export function createButtonEditor() {
   }
 
   // ── Screen: the remote's own drawing code, from the config the Hub pushes to it ──
-  let screenRenderer = null;
   async function drawScreen() {
-    if (!screenRenderer) {
-      screenRenderer = (async () => {
-        const preview = await import(/* @vite-ignore */ new URL(`assets/elite_preview.js?v=${__ELITE_RENDERER_VERSION__}`, document.baseURI).href);
-        return { preview, module: await preview.loadHubRenderer(api.baseUrl) };
-      })().catch((e) => {
-        console.warn('Elite preview: no renderer in this build', e);
-        return null;
-      });
-    }
-    const renderer = await screenRenderer;
+    const renderer = await loadEliteRenderer();
     if (!renderer) return;
     const { preview, module } = renderer;
     const pushed = devices.slice(0, 16); // the push sends the first 16

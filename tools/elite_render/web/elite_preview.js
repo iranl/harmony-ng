@@ -178,6 +178,38 @@ export function stockIconId(module, icon, name) {
   return module.ccall('er_stock_icon_id', 'number', ['string', 'string'], [icon || '', name || '']);
 }
 
+// The image the remote draws for an activity in the config writeRemoteConfig() last wrote,
+// as an object URL ('' when there is none). Like the remote (blit_png_file in
+// elite/elite_fb.c), it recolours dark line art white, except in theme icons.
+const iconUrls = new Map();
+export function activityIconUrl(module, activityId) {
+  const path = module.ccall('er_activity_icon', 'string', ['string', 'string'], [ROOT, remoteActivityId(activityId)]);
+  if (!path) return Promise.resolve('');
+  if (!iconUrls.has(path)) {
+    iconUrls.set(path, (async () => {
+      const bitmap = await createImageBitmap(new Blob([module.FS.readFile(`${ROOT}${path}`)], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      if (!path.includes('/themes/')) {
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = img.data;
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i] + px[i + 1] + px[i + 2] < 100 && px[i + 3] > 30) {
+            px[i] = 245; px[i + 1] = 245; px[i + 2] = 250;
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      return blob ? URL.createObjectURL(blob) : '';
+    })().catch(() => '')); // the image isn't in this module's filesystem
+  }
+  return iconUrls.get(path);
+}
+
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
 // row, or the device for 'device'), active (remote activity ID), icons, battery, usb,
 // charging, noHub, minutes }
