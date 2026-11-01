@@ -82,6 +82,11 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
+    FILE *vf = fopen("/data/harmony/VERSION", "w");
+    if (vf) {
+        fprintf(vf, "%s\n", HARMONY_VERSION);
+        fclose(vf);
+    }
     struct hub_settings settings;
     config_store_get_settings(&settings);
     if (settings.dry_run) g_dry_run = 1;

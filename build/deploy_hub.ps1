@@ -235,6 +235,12 @@ if (-not $WebUiOnly) {
         Install-HubFileIfChanged -LocalFile $s.FullName -RemoteFile "/data/harmony/$($s.Name)" -Perm "755" | Out-Null
     }
 
+    $versionFile = Join-Path $RepoRoot "VERSION"
+    if (Test-Path $versionFile) {
+        Write-Host "[*] Syncing VERSION file (/data/harmony/VERSION)..." -ForegroundColor Yellow
+        Install-HubFileIfChanged -LocalFile $versionFile -RemoteFile "/data/harmony/VERSION" -Perm "644" | Out-Null
+    }
+
     # 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
     if (Test-Path $ModulesDir) {
         $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File

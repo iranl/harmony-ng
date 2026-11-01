@@ -51,13 +51,20 @@ download_retry() {
 }
 
 get_local_version() {
+  local v=""
   if [ -f /data/harmony/VERSION ]; then
-    cat /data/harmony/VERSION | tr -d '\r\n '
+    v=$(cat /data/harmony/VERSION | tr -d '\r\n ')
   elif [ -f /etc/harmony_version ]; then
-    cat /etc/harmony_version | tr -d '\r\n '
-  else
-    echo "2.0.0"
+    v=$(cat /etc/harmony_version | tr -d '\r\n ')
   fi
+  # If hub_daemon binary is installed, this Hub is running HarmonyNG v2+.
+  # Heal any missing or stale 1.x version artifact.
+  local maj=$(echo "$v" | cut -d. -f1)
+  if [ -x /data/harmony/bin/hub_daemon ] && { [ -z "$v" ] || [ "$maj" = "1" ]; }; then
+    v="2.0.0"
+    echo "$v" > /data/harmony/VERSION 2>/dev/null || true
+  fi
+  echo "${v:-2.0.0}"
 }
 
 is_version_newer() {
@@ -106,8 +113,14 @@ do_check() {
   LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
   REMOTE_MAJOR=$(echo "$REMOTE_VER" | cut -d. -f1)
   if [ -n "$LOCAL_MAJOR" ] && [ -n "$REMOTE_MAJOR" ] && [ "$LOCAL_MAJOR" != "$REMOTE_MAJOR" ]; then
-    echo "{\"ok\":false,\"error\":\"Major upgrade from v${LOCAL_VER} to v${REMOTE_VER} requires force deploy script\"}"
-    return 1
+    if [ -x /data/harmony/bin/hub_daemon ] && [ "$LOCAL_MAJOR" = "1" ]; then
+      LOCAL_VER="2.0.0"
+      LOCAL_MAJOR="2"
+      echo "2.0.0" > /data/harmony/VERSION 2>/dev/null || true
+    else
+      echo "{\"ok\":false,\"error\":\"Major upgrade from v${LOCAL_VER} to v${REMOTE_VER} requires force deploy script\"}"
+      return 1
+    fi
   fi
 
   mkdir -p /data/harmony 2>/dev/null || true
@@ -157,8 +170,14 @@ do_apply() {
   LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
   NEW_MAJOR=$(echo "$NEW_VER" | cut -d. -f1)
   if [ -n "$LOCAL_MAJOR" ] && [ -n "$NEW_MAJOR" ] && [ "$LOCAL_MAJOR" != "$NEW_MAJOR" ]; then
-    echo "[-] Major upgrade from v${LOCAL_VER} to v${NEW_VER} requires force deploy script. Aborting."
-    return 1
+    if [ -x /data/harmony/bin/hub_daemon ] && [ "$LOCAL_MAJOR" = "1" ]; then
+      LOCAL_VER="2.0.0"
+      LOCAL_MAJOR="2"
+      echo "2.0.0" > /data/harmony/VERSION 2>/dev/null || true
+    else
+      echo "[-] Major upgrade from v${LOCAL_VER} to v${NEW_VER} requires force deploy script. Aborting."
+      return 1
+    fi
   fi
 
   # Guard against update to lower or equal version
@@ -262,6 +281,7 @@ do_apply() {
   fi
 
   # 3. Fallback to individual asset download if unified bundle missing
+  OTA_FALLBACK_OK=0
   if [ "$OTA_BUNDLE_OK" != "1" ]; then
     echo "[*] Falling back to modular asset download..."
     if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
@@ -277,6 +297,7 @@ do_apply() {
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
+        [ "$b" = "hub_daemon" ] && OTA_FALLBACK_OK=1
       fi
     done
 
@@ -301,7 +322,7 @@ do_apply() {
   fi
 
   # 5. Check if update succeeded before recording version
-  if [ "$OTA_BUNDLE_OK" != "1" ] && [ ! -s "$TMPDIR/VERSION" ]; then
+  if [ "$OTA_BUNDLE_OK" != "1" ] && [ "$OTA_FALLBACK_OK" != "1" ]; then
     echo "[-] Software update failed: could not download packages."
     return 1
   fi

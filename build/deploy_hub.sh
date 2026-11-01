@@ -188,6 +188,11 @@ if [ -d "$SCRIPTS_DIR" ]; then
     done
 fi
 
+if [ -f "$REPO_ROOT/VERSION" ]; then
+    echo "[*] Syncing VERSION file to /data/harmony/VERSION..."
+    deploy_file_if_changed "$REPO_ROOT/VERSION" "/data/harmony/VERSION" 644
+fi
+
 # Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
 if [ -d "$MODULES_DIR" ]; then
     echo "[*] Syncing USB Ethernet kernel modules to /cache/modules/..."
