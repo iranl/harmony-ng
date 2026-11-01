@@ -273,8 +273,8 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[0]`: Display Brightness (1–5)
 - `payload[1]`: Screen Timeout low byte (seconds)
 - `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
-- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU)
-- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press)
+- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current Elite firmware has no NAV toggle ([ADR-0013](adr/0013-nav-mode-only-without-touch.md)): it ignores these bytes and sends `0`; older firmware reads them.
+- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press); ignored and sent as `0` like the key
 - `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
 - `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)
 - `payload[8]`: Config Version counter

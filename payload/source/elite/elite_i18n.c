@@ -172,10 +172,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Capacitive Buttons", "Sensortasten", "Touches capacitives", "Sensorknoppen", "Botones capacitivos", "Tasti capacitivi" },
     /* STR_TOUCH_SENSITIVITY */
     { "Touch Sensitivity", "Touch-Empfindlichkeit", "Sensibilite tactile", "Aanraakgevoeligheid", "Sensibilidad tactil", "Sensibilita tocco" },
-    /* STR_NAV_TOGGLE_BTN */
-    { "Nav Toggle Button", "Nav-Umschalttaste", "Touche bascule nav", "Nav-wisselknop", "Boton alternar nav", "Tasto cambio nav" },
-    /* STR_NAV_TOGGLE_MODE */
-    { "Nav Toggle Mode", "Nav-Umschaltmodus", "Mode bascule nav", "Nav-wisselmodus", "Modo alternar nav", "Modalita cambio nav" },
 
     /* STR_TILT_WAKE */
     { "Tilt / Pickup Wake", "Beim Anheben wecken", "Reveil au mouvement", "Ontwaken bij optillen", "Encender al mover", "Risveglio al movimento" },
@@ -225,8 +221,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
 
     /* STR_NOTICE_NAV_MOVED */
     { "Screen nav moved to bottom buttons", "Nav auf untere Tasten gelegt", "Nav deplacee vers touches bas", "Nav naar onderste knoppen", "Nav movida a botones inferiores", "Nav spostata sui tasti inferiori" },
-    /* STR_NOTICE_NAV_LOCKED */
-    { "Screen nav locked ON", "Nav-Modus gesperrt AN", "Nav verrouillee ACTIVE", "Nav vergrendeld AAN", "Nav bloqueada ACTIVA", "Nav bloccata ATTIVA" },
     /* STR_NOTICE_HUB_NOT_CONNECTED */
     { "Hub not connected", "Hub nicht verbunden", "Hub non connecte", "Hub niet verbonden", "Hub no conectado", "Hub non connesso" },
     /* STR_NOTICE_SYNCING */

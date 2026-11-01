@@ -116,8 +116,6 @@ typedef enum {
     STR_TOUCHSCREEN,
     STR_CAP_BUTTONS,
     STR_TOUCH_SENSITIVITY,
-    STR_NAV_TOGGLE_BTN,
-    STR_NAV_TOGGLE_MODE,
 
     /* Settings POWER subview */
     STR_TILT_WAKE,
@@ -150,7 +148,6 @@ typedef enum {
 
     /* Notices / toasts */
     STR_NOTICE_NAV_MOVED,
-    STR_NOTICE_NAV_LOCKED,
     STR_NOTICE_HUB_NOT_CONNECTED,
     STR_NOTICE_SYNCING,
     STR_NOTICE_REBOOTING,

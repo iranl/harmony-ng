@@ -170,11 +170,6 @@ void handle_screen_touch_tap(int x, int y) {
         } else if (x >= l.link_x - 4 && x < l.link_x + l.link_w + 4) {
             g_link_panel_open = true;
             render_screen();
-        } else if (l.nav_x >= 0 && x >= l.nav_x - 4 && x < l.nav_x + l.nav_w + 4) {
-            g_screen_nav_mode = !g_screen_nav_mode;
-            printf("[*] Mode toggled by status bar indicator: %s\n", g_screen_nav_mode ? "NAV" : "DEV");
-            show_notice(g_screen_nav_mode ? "Screen Nav: ON" : "Screen Nav: OFF", 1500);
-            render_screen();
         } else if (l.update_x >= 0 && x >= l.update_x - 4 && x < l.update_x + l.update_w + 4) {
             printf("[*] Touch tap on update badge -> jump to UPDATE & SYNC\n");
             g_current_view = VIEW_SETTINGS;
@@ -436,7 +431,7 @@ void handle_navigation_key(int code, int value) {
 
     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
 
-    if (!g_screen_nav_mode && g_touch_enabled && g_current_view != VIEW_SETTINGS && g_current_view != VIEW_PAIRING) {
+    if (g_touch_enabled && g_current_view != VIEW_SETTINGS && g_current_view != VIEW_PAIRING) {
         return;
     }
 

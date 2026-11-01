@@ -417,9 +417,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             g_touch_enabled = (f->payload[1] != 0);
             g_gyro_enabled = (f->payload[2] != 0);
             g_timeout_seconds = ((int)f->payload[3] << 8) | f->payload[4];
-            int nkey = (int)f->payload[5] | ((int)f->payload[6] << 8);
-            if (nkey > 0) g_nav_toggle_key = nkey;
-            g_nav_toggle_mode = f->payload[7];
+            /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
@@ -450,9 +448,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
                    g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
-                   g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity,
+                   g_confirm_activity, g_touch_sensitivity,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_no_screen_mode, g_power_debug, (int)g_language);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);

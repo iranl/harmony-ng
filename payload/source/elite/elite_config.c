@@ -730,8 +730,6 @@ void load_settings_conf(void) {
             else if (strcmp(key, "timeout") == 0) g_timeout_seconds = val;
             else if (strcmp(key, "brightness") == 0) g_brightness_val = (val >= 1 && val <= 5) ? val : 2;
             else if (strcmp(key, "screen") == 0) g_screen_on = (val != 0);
-            else if (strcmp(key, "nav_key") == 0) g_nav_toggle_key = val;
-            else if (strcmp(key, "nav_mode") == 0) g_nav_toggle_mode = val;
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
@@ -750,14 +748,6 @@ void load_settings_conf(void) {
     fclose(f);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
         g_log_level = LOG_LEVEL_DEBUG;
-    }
-    if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
-    }
-    if (g_nav_toggle_key != 139 && g_nav_toggle_key != 358 &&
-        g_nav_toggle_key != 395 && g_nav_toggle_key != 389 &&
-        g_nav_toggle_key != 174) {
-        g_nav_toggle_key = 139;
     }
 }
 
@@ -779,8 +769,6 @@ void save_settings_conf(void) {
     fprintf(f, "no_screen=%d\n", g_no_screen_mode ? 1 : 0);
     fprintf(f, "log_level=%d\n", g_log_level);
     fprintf(f, "key_hint=%d\n", g_key_hint_pending ? 1 : 0);
-    fprintf(f, "nav_key=%d\n", g_nav_toggle_key);
-    fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "language=%s\n", elite_lang_code(g_language));

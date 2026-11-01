@@ -123,7 +123,7 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 
 ---
 
-## Physical Button Navigation & Nav Toggle Button
+## Physical Button Navigation
 
 The Harmony Elite remote can be operated **100% via physical buttons**, allowing full control without touching the screen (e.g. if the touchscreen is disabled, broken, or when navigating blindly).
 
@@ -133,9 +133,9 @@ The Harmony Elite remote can be operated **100% via physical buttons**, allowing
 *These buttons never transmit over RF to the Hub; they exclusively control UI navigation.*
 
 ### Bottom Navigation Row (Dimmer & Smart Home Buttons)
-The lower physical keypad cluster controls on-screen cards when in **NAV Mode** or within the **SETTINGS** / **PAIRING** views:
+With touch enabled, these keys go to the Hub like every other button, except in the **SETTINGS** and **PAIRING** views. With touch disabled in Settings (`touch=0`), they drive the screen everywhere, and a NAV indicator shows in the status bar ([ADR-0013](adr/0013-nav-mode-only-without-touch.md)):
 
-| Button Name | Linux Input Code | Function in NAV Mode / Settings |
+| Button Name | Linux Input Code | Function when driving the screen |
 | :--- | :---: | :--- |
 | **Rocker Up (Dimmer +)** | `78` (`KEY_KPPLUS`) | Cursor Up / Previous card or item |
 | **Rocker Down (Dimmer -)** | `74` (`KEY_KPMINUS`) | Cursor Down / Next card or item |
@@ -144,20 +144,6 @@ The lower physical keypad cluster controls on-screen cards when in **NAV Mode** 
 | **Plug On** | `202` (`KEY_PROG3`) | Back / Cancel / Dismiss confirmation |
 | **Plug Off** | `203` (`KEY_PROG4`) | Tab Right / Next Category |
 | **Back Key** | `158` (`KEY_BACK`) | Back / Cancel / Dismiss confirmation |
-
-### Operating Modes: `DEV` vs `NAV`
-The remote maintains two distinct operating states for the physical navigation keys:
-- **`DEV` Mode (Device Control)**: The bottom home automation buttons and D-Pad transmit IR/RF commands to external AV devices via the Hub.
-- **`NAV` Mode (Screen Navigation)**: The bottom buttons control on-screen card selection and menu browsing.
-
-### Mode Toggle Button (`g_nav_toggle_key`)
-To toggle between `DEV` and `NAV` modes without touching the display, a physical button can be designated as the mode switch in the **TOUCH** settings menu:
-- **Assigned Key**: Selectable among `MENU` (code 139), `INFO` (code 358), `LIST` (code 395), `GUIDE`/`LIVE TV` (code 389), or `EXIT` (code 174). Default: `MENU`.
-- **Toggle Mode (`g_nav_toggle_mode`)**:
-  - `0` (**SHORT**): Pressing the button toggles between `DEV` and `NAV` immediately.
-  - `1` (**LONG**): Holding the button for $\ge 500\text{ ms}$ toggles between `DEV` and `NAV`. A quick tap (< 500 ms) sends the button's standard AV command over RF to the Hub.
-- **Status bar NAV indicator**: While NAV mode is on, a NAV indicator shows in the status bar; tapping it returns to `DEV` mode.
-- **Auto-Lock**: If the touchscreen is disabled in Settings (`touch=0`), the remote automatically locks into `NAV` mode for the bottom buttons.
 
 ---
 
@@ -170,7 +156,7 @@ Every device configured on the Hub can be controlled directly, without starting 
   2. `Devices` key: the Hub Device Browser, listing all devices configured on the Hub. Pressing it inside a device returns to the list.
   3. `Off` key: powers off the current activity.
   4. Tapping the running activity on the activity list opens its screen buttons, as does starting an activity. An activity without screen buttons shows a card with its icon, name and devices.
-- **Status bar**: the gear at the left opens the menu (`Help` while an activity runs, and `Settings`); the time is at the right. A NAV indicator appears while NAV mode is on or touch is disabled; tapping it turns NAV mode off.
+- **Status bar**: the gear at the left opens the menu (`Help` while an activity runs, and `Settings`); the time is at the right. A NAV indicator appears while touch is disabled.
 - **Help**: re-sends the running activity's commands except power toggles, then asks "Is it on?" for each device whose only power command is a toggle; `No` sends the toggle. Answer by tapping `Yes` or `No`, or with the D-pad and `OK`; `Back`, `Activities` or `Devices` closes Help. A summary shows for 3 s, then the activity screen.
 - **RF link indicator**: four bars show the link to the Hub over the last 30 s, from the share of CC2544 link reports that say "established" and the share of the remote's sync queries (every 800 ms while the screen is on) that the Hub answers within 1 s; the lower share sets the bars (≥ 90 % four, ≥ 70 % three, ≥ 40 % two, otherwise one amber bar). A red `NO HUB` shows when the link has been lost for 6 s, and a red `HUB?` when the link is up in at least 90 % of reports but the Hub has answered none of the last 10 s of queries. Tapping the indicator opens a panel with both shares and the time since the last frame from the Hub; any tap or key closes it.
 - **First start**: after the update, a card names the Activities, Devices and Off keys once; any key or tap dismisses it.
@@ -180,7 +166,7 @@ Every device configured on the Hub can be controlled directly, without starting 
   - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
   - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
 - **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for longer device names. Names longer than the list chunk holds arrive in `RF_MSG_NAME_TAIL_CHUNK` frames, up to 39 characters.
-- **Back**: Swipe left-to-right, tap the back row, or press `Prev Tab` (`KEY_PROG2`) / `Back` in NAV mode. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
+- **Back**: Swipe left-to-right or tap the back row; with touch disabled, press `Prev Tab` (`KEY_PROG2`) or `Back`. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
 
 ---
 
@@ -192,7 +178,7 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
 [SETTINGS]
   ├── 1. ACTIVITIES  --> Confirm switch, remote mode
   ├── 2. DISPLAY     --> Brightness, timeout, backlight, night schedule
-  ├── 3. TOUCH       --> Touchscreen on/off, sensitivity, nav toggle key & mode
+  ├── 3. TOUCH       --> Touchscreen on/off, capacitive keys, sensitivity
   ├── 4. POWER       --> Gyro motion wake, sampling rate, battery health
   ├── 5. SYSTEM      --> USB ethernet, power debug log, pairing, reboot, factory reset
   └── 6. PUSH TO HUB --> Force immediate RF backup push to Hub
@@ -216,14 +202,9 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
 
 ### 3. `TOUCH`
 - **`Touchscreen`**: `[ ON ]` or `[ OFF ]`.
-  - When `OFF`, the Synaptics Clearpad input device is ignored, and the remote operates exclusively via physical buttons with `NAV` mode permanently engaged.
+  - When `OFF`, the Synaptics Clearpad input device is ignored, and the remote operates exclusively via physical buttons; the bottom keys drive the screen.
 - **`Touch Sensitivity`**: `[ LOW ]`, `[ NORMAL ]`, `[ HIGH ]`.
   - Adjusts tap slop tolerances (16px / 20px / 25px) and swipe velocity thresholds.
-- **`Nav Toggle Button`**: `[ MENU ]`, `[ INFO ]`, `[ LIST ]`, `[ GUIDE ]`, `[ EXIT ]`.
-  - Hardware button assigned to toggle between `DEV` and `NAV` modes.
-- **`Nav Toggle Mode`**: `[ SHORT ]` or `[ LONG ]`.
-  - `SHORT`: Instant toggle on key down.
-  - `LONG`: Long press ($\ge 500\text{ ms}$) toggles; short tap sends original button function.
 
 ### 4. `POWER`
 - **`Motion / Gyro Wake`**: `[ ON ]` or `[ OFF ]`.
@@ -327,8 +308,7 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
    - `Byte 0`: Display Brightness (1–5)
    - `Byte 1`: Screen Timeout low byte (seconds)
    - `Byte 2`: Touchscreen Enable flag (0/1)
-   - `Bytes 3-4`: Nav Toggle Key Linux code (uint16 LE, e.g. 139 = MENU)
-   - `Byte 5`: Nav Toggle Mode (0=Short, 1=Long)
+   - `Bytes 3-5`: Nav toggle key and mode of older firmware; current firmware sends 0 ([ADR-0013](adr/0013-nav-mode-only-without-touch.md))
    - `Byte 6`: USB Ethernet Enable flag (0/1)
    - `Byte 7`: Confirm Activity Switch flag (0/1)
    - `Byte 8`: Config Version number
