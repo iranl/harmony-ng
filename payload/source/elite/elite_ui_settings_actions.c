@@ -13,37 +13,12 @@
 
 static void set_touch_enabled(bool enable) {
     g_touch_enabled = enable;
-    if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
-        show_notice(tr(STR_NOTICE_NAV_MOVED), 4000);
-    }
+    if (!g_touch_enabled) show_notice(tr(STR_NOTICE_NAV_MOVED), 4000);
     save_settings_conf();
 }
 
 static void set_gyro_enabled(bool enable) {
     g_gyro_enabled = enable;
-}
-
-static void cycle_nav_key(void) {
-    if (!g_touch_enabled) {
-        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
-        return;
-    }
-    if (g_nav_toggle_key == 139) g_nav_toggle_key = 358;
-    else if (g_nav_toggle_key == 358) g_nav_toggle_key = 395;
-    else if (g_nav_toggle_key == 395) g_nav_toggle_key = 389;
-    else if (g_nav_toggle_key == 389) g_nav_toggle_key = 174;
-    else g_nav_toggle_key = 139;
-    save_settings_conf();
-}
-
-static void cycle_nav_mode(void) {
-    if (!g_touch_enabled) {
-        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
-        return;
-    }
-    g_nav_toggle_mode = !g_nav_toggle_mode;
-    save_settings_conf();
 }
 
 static void cycle_touch_sensitivity(void) {
@@ -197,14 +172,6 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 3:
-                cycle_nav_key();
-                save_settings_conf();
-                break;
-            case 4:
-                cycle_nav_mode();
-                save_settings_conf();
-                break;
-            case 5:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

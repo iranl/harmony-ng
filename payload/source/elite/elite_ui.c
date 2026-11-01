@@ -49,7 +49,7 @@ void header_layout(header_layout_t *l) {
     x -= 4 + l->link_w;
     l->nav_x = -1;
     l->nav_w = 22;
-    if (g_screen_nav_mode || !g_touch_enabled) {
+    if (!g_touch_enabled) {
         x -= 6 + l->nav_w;
         l->nav_x = x;
     }

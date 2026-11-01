@@ -63,23 +63,28 @@ int main(void) {
     assert(non_zero > 1000);
     printf("[+] Render produced %d active pixels\n", non_zero);
 
-    /* 4. Status bar: the gear opens the menu, a tap outside it closes the menu without acting,
-          and the NAV indicator (shown while NAV mode is on) turns NAV mode off */
-    printf("[-] Testing status bar menu and NAV indicator taps...\n");
+    /* 4. Status bar: the gear opens the menu, and a tap outside it closes the menu without acting.
+          The bottom keys drive the screen only without touch, which the NAV indicator shows */
+    printf("[-] Testing status bar menu and NAV indicator...\n");
     tap(10, 20);
     assert(g_menu_open);
     tap(200, 200);
     assert(!g_menu_open);
     assert(!g_is_switching_activity);
-    g_screen_nav_mode = true;
     header_layout_t hl;
     header_layout(&hl);
-    assert(hl.nav_x > 34);
-    tap(hl.nav_x + hl.nav_w / 2, 20);
-    assert(!g_screen_nav_mode);
-    header_layout(&hl);
     assert(hl.nav_x < 0);
-    printf("[+] Gear opened and closed the menu; NAV indicator turned NAV mode off\n");
+    g_selected_activity = 0;
+    handle_navigation_key(74, 1); /* rocker down */
+    assert(g_selected_activity == 0);
+    g_touch_enabled = false;
+    header_layout(&hl);
+    assert(hl.nav_x > 34);
+    handle_navigation_key(74, 1);
+    assert(g_selected_activity == 1);
+    g_touch_enabled = true;
+    g_selected_activity = 0;
+    printf("[+] Gear opened and closed the menu; bottom keys drive the screen only without touch\n");
 
     /* 5. Test Activity Selection Tap (x=120, y=80 -> Card 0) */
     printf("[-] Testing activity card selection tap...\n");

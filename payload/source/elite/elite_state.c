@@ -123,17 +123,12 @@ bool g_settings_dirty = false;
 
 elite_battery_info_t g_battery_info = { 100, 0, 4100, "battery" };
 bool g_screen_on = true;
-bool g_screen_nav_mode = true;  /* Default true: bottom buttons navigate screen UI on boot */
-int g_nav_toggle_key = 139;     /* Default: 139 (Menu), also 358 (Info), 395 (Guide), 389 (DVR), 174 (Exit) */
-int g_nav_toggle_mode = 1;      /* 0 = Short Press, 1 = Long Press (Hold >= 500ms) */
 bool g_usb_connected = false;   /* Dynamic physical USB cable detection */
 
 volatile bool g_screen_dirty = true;
 char g_notice_msg[64] = {0};
 uint64_t g_notice_until_ms = 0;
 
-uint64_t g_toggle_key_down_ms = 0;
-bool g_toggle_key_triggered = false;
 uint64_t g_act_key_down_ms = 0;
 bool g_act_key_long_fired = false;
 bool g_menu_open = false;

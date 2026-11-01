@@ -139,7 +139,6 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-touch") == 0) {
             g_touch_enabled = false;
-            g_screen_nav_mode = true;
         }
         if (strcmp(argv[i], "--no-gyro") == 0)   g_gyro_enabled = false;
         if (strcmp(argv[i], "--no-cap") == 0)    g_cap_buttons_enabled = false;
@@ -156,7 +155,6 @@ int main(int argc, char **argv) {
         int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
         if (bfd >= 0) { write(bfd, "0\n", 2); close(bfd); }
     } else if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
         show_notice("Screen nav moved to bottom buttons", 4000);
     }
 
@@ -359,14 +357,6 @@ int main(int argc, char **argv) {
             last_reconnect_pulse_ms = now_ms;
         }
 
-        if (g_touch_enabled && g_nav_toggle_mode == 1 && g_toggle_key_down_ms > 0 && !g_toggle_key_triggered) {
-            if (now_ms - g_toggle_key_down_ms >= 500) {
-                g_screen_nav_mode = !g_screen_nav_mode;
-                g_toggle_key_triggered = true;
-                printf("[*] Mode toggled by LONG press hold (key %d): %s\n", g_nav_toggle_key, g_screen_nav_mode ? "NAV" : "DEV");
-                g_screen_dirty = true;
-            }
-        }
 
         if (g_act_key_down_ms > 0 && !g_act_key_long_fired && now_ms - g_act_key_down_ms >= ACT_KEY_LONG_MS) {
             g_act_key_long_fired = true;
@@ -578,32 +568,10 @@ int main(int argc, char **argv) {
                     /* Help takes the D-pad, OK and Back; other keys, such as volume, still act */
                     if (!g_menu_open && ui_help_active() && ev.value != 0 && ui_help_handle_key(ev.code)) continue;
 
-                    /* Long-press toggle key latching */
-                    if (g_touch_enabled && g_nav_toggle_mode == 1 && ev.code == g_nav_toggle_key) {
-                        if (ev.value == 1) {
-                            g_toggle_key_down_ms = get_monotonic_ms();
-                            g_toggle_key_triggered = false;
-                        } else if (ev.value == 0) {
-                            g_toggle_key_down_ms = 0;
-                            if (g_toggle_key_triggered) {
-                                g_toggle_key_triggered = false;
-                                continue;
-                            }
-                        }
-                    }
-
-                    /* Short-press toggle key */
-                    if (g_touch_enabled && g_nav_toggle_mode == 0 && ev.value == 1 && ev.code == g_nav_toggle_key) {
-                        g_screen_nav_mode = !g_screen_nav_mode;
-                        printf("[*] Mode toggled by SHORT press (key %d): %s\n", g_nav_toggle_key, g_screen_nav_mode ? "NAV" : "DEV");
-                        render_screen();
-                        continue;
-                    }
-
                     uint16_t rf_code = linux_to_harmony_rf_key(ev.code);
 
-                    /* If in Screen Navigation Mode, handle navigation buttons locally */
-                    if (g_screen_nav_mode || !g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
+                    /* Without touch, and in Settings and Pairing, the bottom keys and Back drive the screen */
+                    if (!g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 158 || ev.code == 102 || ev.code == 364) {
                             handle_navigation_key(ev.code, ev.value);

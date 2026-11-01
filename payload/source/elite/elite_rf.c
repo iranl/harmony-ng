@@ -375,9 +375,7 @@ void send_remote_config_backup_rf(void) {
     payload[0] = (uint8_t)g_brightness_val;
     payload[1] = (uint8_t)(g_timeout_seconds & 0xFF);
     payload[2] = (uint8_t)(g_touch_enabled ? 1 : 0);
-    payload[3] = (uint8_t)(g_nav_toggle_key & 0xFF);
-    payload[4] = (uint8_t)((g_nav_toggle_key >> 8) & 0xFF);
-    payload[5] = (uint8_t)(g_nav_toggle_mode & 0xFF);
+    /* payload[3..5]: the NAV toggle key and mode of older firmware, sent as 0 */
     payload[6] = (uint8_t)(g_usb_connected ? 1 : 0);
     payload[7] = (uint8_t)(g_confirm_activity ? 1 : 0);
     payload[8] = (uint8_t)g_config_version;

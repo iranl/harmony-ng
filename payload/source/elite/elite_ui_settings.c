@@ -11,23 +11,12 @@
 #include <unistd.h>
 #include <sys/reboot.h>
 
-static const char *get_nav_key_name(int key) {
-    switch (key) {
-        case 139: return "MENU";
-        case 358: return "INFO";
-        case 395: return "GUIDE";
-        case 389: return "DVR";
-        case 174: return "EXIT";
-        default:  return "MENU";
-    }
-}
-
 int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
         case SETTINGS_VIEW_ACTIVITIES: return 4;
         case SETTINGS_VIEW_DISPLAY:    return 5;
-        case SETTINGS_VIEW_TOUCH:      return 6;
+        case SETTINGS_VIEW_TOUCH:      return 4;
         case SETTINGS_VIEW_POWER:      return 7;
         case SETTINGS_VIEW_SYSTEM:     return 4;
         case SETTINGS_VIEW_UPDATE:     return 3;
@@ -380,38 +369,27 @@ void render_settings_screen(void) {
             break;
         }
         case SETTINGS_VIEW_TOUCH: {
-            const char *labels[6] = { tr(STR_TOUCHSCREEN), tr(STR_CAP_BUTTONS), tr(STR_TOUCH_SENSITIVITY), tr(STR_NAV_TOGGLE_BTN), tr(STR_NAV_TOGGLE_MODE), tr(STR_BACK) };
-            char values[6][32];
+            const char *labels[4] = { tr(STR_TOUCHSCREEN), tr(STR_CAP_BUTTONS), tr(STR_TOUCH_SENSITIVITY), tr(STR_BACK) };
+            char values[4][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_touch_enabled ? "ON" : "OFF");
             snprintf(values[1], sizeof(values[1]), "[ %s ]", g_cap_buttons_enabled ? "ON" : "OFF");
             const char *sens_names[] = { "", "LOW", "NORMAL", "HIGH" };
             int s_idx = (g_touch_sensitivity >= 1 && g_touch_sensitivity <= 3) ? g_touch_sensitivity : 2;
             snprintf(values[2], sizeof(values[2]), "[ %s ]", sens_names[s_idx]);
-            if (!g_touch_enabled) {
-                snprintf(values[3], sizeof(values[3]), "[ LOCKED ]");
-                snprintf(values[4], sizeof(values[4]), "[ LOCKED ]");
-            } else {
-                snprintf(values[3], sizeof(values[3]), "[ %s ]", get_nav_key_name(g_nav_toggle_key));
-                snprintf(values[4], sizeof(values[4]), "[ %s ]", g_nav_toggle_mode == 0 ? "SHORT" : "LONG");
-            }
-            values[5][0] = '\0';
-            uint16_t cols[6] = {
+            values[3][0] = '\0';
+            uint16_t cols[4] = {
                 g_touch_enabled ? RGB_GREEN : RGB_RED,
                 g_cap_buttons_enabled ? RGB_GREEN : RGB_RED,
                 RGB_TEAL,
-                !g_touch_enabled ? RGB_TEXT_MUTED : RGB_TEAL,
-                !g_touch_enabled ? RGB_TEXT_MUTED : RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[6] = {
+            const char *icons[4] = {
                 "/opt/luadraws/appscommon/asset/gesture/hint.png",
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
                 "/opt/luadraws/appscommon/asset/gesture/gesturehand.png",
-                "/opt/luadraws/appscommon/asset/edit/arrow.png",
-                "/opt/luadraws/appscommon/asset/edit/arrow.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items(tr(STR_CAT_TOUCH), 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_TOUCH), 4, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_POWER: {
