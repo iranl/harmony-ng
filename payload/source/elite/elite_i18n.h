@@ -111,6 +111,7 @@ typedef enum {
     STR_DISPLAY_TIMEOUT,
     STR_BTN_BACKLIGHT,
     STR_NIGHT_SCHEDULE,
+    STR_DISPLAY_THEME,
 
     /* Settings TOUCH subview */
     STR_TOUCHSCREEN,

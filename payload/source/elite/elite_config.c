@@ -2,6 +2,7 @@
 #include "elite_rf.h"
 #include "elite_power.h"
 #include "elite_stock_icons.h"
+#include "elite_fb.h"
 
 /* Icon files are checked where the renderer will load them (see elite_fs_path) */
 static bool fs_readable(const char *path) {
@@ -692,28 +693,42 @@ void load_rf_config(void) {
 
     cJSON_Delete(root);
     g_has_hub_config = (g_rf_activity_count > 0);
-    if (g_has_hub_config) {
-        g_activity_count = 0;
-        for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
-            strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-            char cpath[128];
-            snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
-            if (!fs_readable(cpath)) {
-                snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
-            }
-            if (fs_readable(cpath)) {
-                strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
-            } else {
-                resolve_activity_icon(g_rf_activities[i].icon_id,
-                                      g_rf_activities[i].icon,
-                                      g_rf_activities[i].name,
-                                      g_activities[g_activity_count].icon_path,
-                                      sizeof(g_activities[0].icon_path));
-            }
-            g_activity_count++;
+    if (g_has_hub_config) build_activity_list();
+}
+
+void build_activity_list(void) {
+    g_activity_count = 0;
+    for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
+        strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
+        strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
+        char cpath[128];
+        snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
+        if (!fs_readable(cpath)) {
+            snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
         }
+        if (fs_readable(cpath)) {
+            strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
+        } else {
+            resolve_activity_icon(g_rf_activities[i].icon_id,
+                                  g_rf_activities[i].icon,
+                                  g_rf_activities[i].name,
+                                  g_activities[g_activity_count].icon_path,
+                                  sizeof(g_activities[0].icon_path));
+        }
+        g_activity_count++;
     }
+}
+
+void apply_theme(const char *name) {
+    if (name && strcmp(name, g_theme.name) == 0) return;
+    pthread_mutex_lock(&g_render_mutex); /* the old theme's fonts are freed */
+    theme_load(name);
+    /* Re-resolve icons from memory: a settings push can arrive mid-sync, and the file still
+       holds the old config */
+    if (g_has_hub_config) build_activity_list();
+    load_wallpaper_asset();
+    pthread_mutex_unlock(&g_render_mutex);
+    g_screen_dirty = true;
 }
 
 void load_settings_conf(void) {
@@ -748,6 +763,7 @@ void load_settings_conf(void) {
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = elite_lang_from_code(sval);
             }
+            else if (strcmp(key, "theme") == 0) theme_load(sval);
             else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
                 expand_timezone(sval, g_timezone_str, sizeof(g_timezone_str));
@@ -783,6 +799,7 @@ void save_settings_conf(void) {
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "language=%s\n", elite_lang_code(g_language));
+    fprintf(f, "theme=%s\n", g_theme.name);
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;

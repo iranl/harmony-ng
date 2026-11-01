@@ -439,6 +439,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[20] < ELITE_LANG_COUNT) {
                 g_language = (elite_lang_t)f->payload[20];
             }
+            if (rf_theme_name(f->payload[21])) apply_theme(rf_theme_name(f->payload[21]));
 
             if (g_no_screen_mode) {
                 set_backlight_level(0);

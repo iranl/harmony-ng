@@ -318,6 +318,8 @@ void *api_server_worker(void *arg) {
                             if (!jcap) jcap = cJSON_GetObjectItem(root, "cap_buttons");
                             cJSON *jlang = cJSON_GetObjectItem(root, "language");
                             if (!jlang) jlang = cJSON_GetObjectItem(root, "language_id");
+                            cJSON *jtheme = cJSON_GetObjectItem(root, "theme");
+                            int theme = cJSON_IsString(jtheme) ? rf_theme_id(jtheme->valuestring) : 0;
 
                             int bright = jb ? jb->valueint : 2;
                             int timeout = jt ? jt->valueint : 10;
@@ -394,6 +396,7 @@ void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "no_screen", no_screen);
                             cJSON_AddStringToObject(norm, "language", lang_str);
                             cJSON_AddNumberToObject(norm, "language_id", lang_id);
+                            if (theme) cJSON_AddStringToObject(norm, "theme", rf_theme_name((uint8_t)theme));
 
                             char path[64];
                             snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
@@ -422,7 +425,7 @@ void *api_server_worker(void *arg) {
                             rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
                                                        confirm_act, touch_sens, remote_mode, gyro_rate,
                                                        btn_backlight, night_start, night_end, usbeth, no_screen,
-                                                       cap_buttons, power_debug, lang_id);
+                                                       cap_buttons, power_debug, lang_id, theme);
                             cJSON_Delete(root);
                         }
                     }
