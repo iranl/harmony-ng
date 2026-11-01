@@ -491,7 +491,7 @@ export function createButtonEditor() {
   async function drawScreen() {
     if (!screenRenderer) {
       screenRenderer = (async () => {
-        const preview = await import(/* @vite-ignore */ new URL('assets/elite_preview.js', document.baseURI).href);
+        const preview = await import(/* @vite-ignore */ new URL(`assets/elite_preview.js?v=${__ELITE_RENDERER_VERSION__}`, document.baseURI).href);
         return { preview, module: await preview.loadHubRenderer(api.baseUrl) };
       })().catch((e) => {
         console.warn('Elite preview: no renderer in this build', e);
