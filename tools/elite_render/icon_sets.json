@@ -1,6 +1,8 @@
 {
   "keywords": ["watchtv", "movie", "music", "game", "ps", "xbox", "switch", "shield", "apple",
-               "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power"],
+               "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power",
+               "projector", "bluray", "satellite", "soundbar", "hifi", "netflix", "night", "fireplace",
+               "sunrise", "fan"],
   "sources": {
     "phosphor-regular": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/regular/{name}.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
     "phosphor-fill": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/fill/{name}-fill.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
@@ -14,7 +16,9 @@
   "generic": {
     "phosphor": { "watchtv": "television", "movie": "film-slate", "music": "music-notes", "game": "game-controller",
                   "firetv": "amazon-logo", "pc": "desktop", "smarttv": "television-simple", "receiver": "speaker-hifi",
-                  "light": "lightbulb", "power": "power" },
+                  "light": "lightbulb", "power": "power", "projector": "projector-screen", "bluray": "disc",
+                  "soundbar": "speaker-simple-high", "hifi": "vinyl-record", "night": "moon-stars", "fireplace": "fire",
+                  "sunrise": "sun-horizon", "fan": "fan" },
     "tabler": { "watchtv": "device-tv", "movie": "movie", "music": "music", "game": "device-gamepad-2",
                 "pc": "device-desktop", "smarttv": "device-tv", "receiver": "device-speaker", "light": "bulb",
                 "power": "power" },
@@ -32,13 +36,17 @@
     "apple": ["simple-icons", "appletv"],
     "roku": ["simple-icons", "roku"],
     "firetv": ["tabler-outline", "brand-amazon"],
-    "sonos": ["simple-icons", "sonos"]
+    "sonos": ["simple-icons", "sonos"],
+    "netflix": ["simple-icons", "netflix"],
+    "satellite": ["tabler-outline", "satellite"]
   },
   "tint": {
     "watchtv": "#4FA3FF", "movie": "#FFB020", "music": "#FF4FA3", "game": "#3DDC84", "ps": "#5B8CFF",
     "xbox": "#52C35A", "switch": "#FF5A5A", "shield": "#8CD100", "apple": "#E8E8EE", "roku": "#A26BFF",
     "firetv": "#FF9900", "pc": "#4FD1FF", "smarttv": "#7C9CFF", "sonos": "#F0F0F0", "receiver": "#FFC857",
-    "light": "#FFE14F", "power": "#FF5A5A"
+    "light": "#FFE14F", "power": "#FF5A5A", "projector": "#7FD4FF", "bluray": "#5B8CFF", "satellite": "#9AE66E",
+    "soundbar": "#FFC857", "hifi": "#FF8A4F", "netflix": "#E50914", "night": "#9B8CFF", "fireplace": "#FF7A33",
+    "sunrise": "#FFD24F", "fan": "#6FE3D2"
   },
   "sets": [
     { "id": "classic", "label": "Classic (stock)" },

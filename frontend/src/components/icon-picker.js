@@ -16,6 +16,9 @@ const KEYWORDS = [
   ['shield', 'NVIDIA Shield'], ['apple', 'Apple TV'], ['roku', 'Roku'], ['firetv', 'Fire TV'],
   ['pc', 'PC / Computer'], ['smarttv', 'Smart TV'], ['sonos', 'Sonos'],
   ['receiver', 'AV Receiver / Amplifier'], ['light', 'Smart Lights'], ['power', 'Power Off'],
+  ['projector', 'Projector'], ['bluray', 'Blu-ray / DVD'], ['satellite', 'Satellite'], ['soundbar', 'Soundbar'],
+  ['hifi', 'Hi-Fi / Vinyl'], ['netflix', 'Netflix'], ['night', 'Night'], ['fireplace', 'Fireplace'],
+  ['sunrise', 'Morning'], ['fan', 'Fan'],
 ];
 
 // The stock activity images at the size the activity list draws

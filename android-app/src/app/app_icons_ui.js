@@ -412,6 +412,16 @@ const ACTIVITY_ICON_PREVIEWS = {
   light: '53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png',
   power: '116.png',
   poweroff: '116.png',
+  projector: '1978f30f-e27f-4126-b622-fc230936ae2f_small.png',
+  bluray: '29281b8d-fc8d-4c13-89c4-60705b8429f9_small.png',
+  satellite: 'd22a587c-e45c-4b4a-9396-19396eb8e32b_small.png',
+  soundbar: 'cedd3f0f-932a-4135-8f2d-1670550f20ee_small.png',
+  hifi: '311d40b5-6cf9-4da2-8820-e17012b852a1_small.png',
+  netflix: 'a12ff2be-5c15-4e5d-8e51-1f328716ef3d_small.png',
+  night: '6d621a24-72d6-4ccd-8ed8-1114b52952ae_small.png',
+  fireplace: 'ab95c212-7b27-4118-8cd3-0e595ea061d5_small.png',
+  sunrise: '718b691b-df39-4787-989d-eab9d39d595e_small.png',
+  fan: '9ccf9a96-b984-4aeb-9227-9b565ff74e06_small.png',
   generic: '53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png'
 };
 

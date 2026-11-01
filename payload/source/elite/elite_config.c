@@ -13,7 +13,7 @@ static bool fs_readable(const char *path) {
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len) {
     if (!out || out_len == 0) return;
     out[0] = '\0';
-    if (type >= 1 && type <= 17) {
+    if (type >= 1 && type <= RF_ACTIVITY_ICON_COUNT) {
         strncpy(out, rf_activity_icon_keyword(type), out_len - 1);
     } else if (name && name[0]) {
         char low[64] = {0};
@@ -101,6 +101,25 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
        drawn as they are in every theme */
     uint8_t type = rf_activity_icon_match(low);
     if (theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return;
+
+    /* Keywords added after the original 17 use the stock image of the same subject */
+    static const char *const added[RF_ACTIVITY_ICON_COUNT - 17] = {
+        "1978f30f-e27f-4126-b622-fc230936ae2f_small", /* projector */
+        "29281b8d-fc8d-4c13-89c4-60705b8429f9_small", /* bluray */
+        "d22a587c-e45c-4b4a-9396-19396eb8e32b_small", /* satellite */
+        "cedd3f0f-932a-4135-8f2d-1670550f20ee_small", /* soundbar */
+        "311d40b5-6cf9-4da2-8820-e17012b852a1_small", /* hifi */
+        "a12ff2be-5c15-4e5d-8e51-1f328716ef3d_small", /* netflix */
+        "6d621a24-72d6-4ccd-8ed8-1114b52952ae_small", /* night */
+        "ab95c212-7b27-4118-8cd3-0e595ea061d5_small", /* fireplace */
+        "718b691b-df39-4787-989d-eab9d39d595e_small", /* sunrise */
+        "9ccf9a96-b984-4aeb-9227-9b565ff74e06_small", /* fan */
+    };
+    const char *stock = type > 17 ? get_stock_icon_path(lookup_stock_icon_id(added[type - 18])) : NULL;
+    if (stock) {
+        snprintf(out_path, max_len, "%s", stock);
+        return;
+    }
 
     if (strstr(low, "watchtv") || strstr(low, "tv") || strstr(low, "television")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png");
