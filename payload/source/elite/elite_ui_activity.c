@@ -37,7 +37,7 @@ bool render_activity_hero(void) {
     }
     if (!act || strcmp(g_active_activity_id, "-1") == 0) return false;
 
-    int x = 0, y = UI_CONTENT_Y, w = FB_WIDTH, h = FB_HEIGHT - y;
+    int x = 0, y = UI_CONTENT_Y, w = FB_WIDTH;
 
     char icon[128] = {0}, large[160];
     resolve_activity_icon(act->icon_id, act->icon, act->name, icon, sizeof(icon));
@@ -66,7 +66,5 @@ bool render_activity_hero(void) {
             fb_draw_text_aa(x + 46, ry + 3, more, RGB_TEXT_MUTED, &g_font_main);
         }
     }
-
-    draw_centered(y + h - 20, tr(STR_HERO_HINT), RGB_CYAN, &g_font_main);
     return true;
 }
