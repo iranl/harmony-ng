@@ -37,17 +37,25 @@ bool render_activity_hero(void) {
     }
     if (!act || strcmp(g_active_activity_id, "-1") == 0) return false;
 
-    int x = 0, y = UI_CONTENT_Y, w = FB_WIDTH;
+    int x = 0, w = FB_WIDTH;
+
+    /* The device rows sit at the bottom of the screen, the last device nearest the edge */
+    int rows = act->dev_count > HERO_DEVICE_ROWS ? HERO_DEVICE_ROWS + 1 : act->dev_count;
+    int ry = FB_HEIGHT - 8 - rows * 22;
+
+    /* The icon, name and ACTIVE are centred in the space above the device rows */
+    int space_bottom = rows > 0 ? ry - 6 : FB_HEIGHT;
+    int block_h = HERO_ICON + 26 + g_font_main.height;
+    int y = UI_CONTENT_Y + (space_bottom - UI_CONTENT_Y - block_h) / 2;
 
     char icon[128] = {0}, large[160];
     resolve_activity_icon(act->icon_id, act->icon, act->name, icon, sizeof(icon));
     large_icon_path(icon, large, sizeof(large));
-    blit_png_file((FB_WIDTH - HERO_ICON) / 2, y + 10, HERO_ICON, HERO_ICON, large);
+    blit_png_file((FB_WIDTH - HERO_ICON) / 2, y, HERO_ICON, HERO_ICON, large);
 
-    draw_centered(y + 84, act->name, RGB_WHITE, &g_font_title);
-    draw_centered(y + 106, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
+    draw_centered(y + HERO_ICON + 4, act->name, RGB_WHITE, &g_font_title);
+    draw_centered(y + HERO_ICON + 26, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
 
-    int ry = y + 134;
     if (act->dev_count > 0) {
         fb_fill_rect(x + 12, ry - 6, w - 24, 1, RGB_DIVIDER);
         for (int i = 0; i < act->dev_count && i < HERO_DEVICE_ROWS; i++, ry += 22) {
