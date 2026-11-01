@@ -13,6 +13,9 @@ extern "C" {
 #define ACT_PAGE_SIZE     5   /* activity cards per page */
 #define ACT_CARD_H        50
 #define ACT_CARD_GAP      4
+#define ACT_GRID_COLS     2   /* the grid home layout: tiles per row */
+#define ACT_GRID_ROWS     3
+#define ACT_TILE_H        86
 #define LIST_PAGE_SIZE    7   /* command and device rows per page */
 #define LIST_ROW_H        34
 #define LIST_ROW_GAP      5
@@ -38,6 +41,11 @@ void render_key_hint(void);
 void render_link_panel(void);
 bool ui_link_panel_dismiss(void);
 void render_page_indicator(int page, int pages);
+/* The home layout (ADR-0008): the Settings choice, or the theme's when it is "theme". Drawing
+   and touch handling place activities with these. */
+bool home_layout_is_grid(void);
+int activity_page_size(void);
+void activity_slot_rect(int slot, int *x, int *y, int *w, int *h);
 void render_sync_overlay(void);
 void render_switching_view(void);
 

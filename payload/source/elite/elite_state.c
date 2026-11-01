@@ -115,6 +115,7 @@ int g_night_end_hour = 7;      /* 7 AM */
 int g_timeout_seconds = 10;
 int g_brightness_val = 2; /* 1..5 */
 bool g_confirm_activity = true;
+int g_home_layout = HOME_LAYOUT_THEME;
 int g_confirm_pending_idx = -1;
 uint64_t g_confirm_pending_deadline_ms = 0;
 int g_confirm_pending_rf_code = 0;

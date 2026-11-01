@@ -85,16 +85,63 @@ int activity_list_count(void) {
     return g_activity_count;
 }
 
+bool home_layout_is_grid(void) {
+    if (g_home_layout == HOME_LAYOUT_LIST) return false;
+    if (g_home_layout == HOME_LAYOUT_GRID) return true;
+    return g_theme.layout == THEME_LAYOUT_GRID;
+}
+
+int activity_page_size(void) {
+    return home_layout_is_grid() ? ACT_GRID_COLS * ACT_GRID_ROWS : ACT_PAGE_SIZE;
+}
+
+/* Where the activity at position slot of the current page goes */
+void activity_slot_rect(int slot, int *x, int *y, int *w, int *h) {
+    if (home_layout_is_grid()) {
+        *w = (FB_WIDTH - 12 - ACT_CARD_GAP) / ACT_GRID_COLS;
+        *h = ACT_TILE_H;
+        *x = 6 + (slot % ACT_GRID_COLS) * (*w + ACT_CARD_GAP);
+        *y = UI_CONTENT_Y + (slot / ACT_GRID_COLS) * (ACT_TILE_H + ACT_CARD_GAP);
+    } else {
+        *x = 6;
+        *w = FB_WIDTH - 12;
+        *h = ACT_CARD_H;
+        *y = UI_CONTENT_Y + slot * (ACT_CARD_H + ACT_CARD_GAP);
+    }
+}
+
+/* The icon in its well; a placeholder when the image is missing. In the grid the tile's own
+   border shows the selection, so the well keeps its idle border. */
+static void draw_activity_icon(int idx, int icon_x, int icon_y, bool is_sel, bool grid) {
+    fb_fill_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? g_theme.pal.icon_well_sel : g_theme.pal.icon_well);
+    fb_draw_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel && !grid ? RGB_TEAL : g_theme.pal.icon_well_border);
+
+    bool has_icon = false;
+    if (g_activities[idx].icon_path[0]) {
+        has_icon = blit_png_file(icon_x, icon_y, 40, 40, g_activities[idx].icon_path);
+    }
+
+    if (!has_icon) {
+        fb_draw_rect(icon_x, icon_y, 40, 40, is_sel ? RGB_TEAL : g_theme.pal.icon_outline);
+        fb_draw_rect(icon_x + 10, icon_y + 12, 20, 14, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
+        fb_fill_rect(icon_x + 18, icon_y + 26, 4, 3, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
+    }
+}
+
+static void draw_centered_text(int x, int w, int y, const char *text, uint16_t color) {
+    char fit[sizeof(g_activities[0].name)];
+    fb_fit_text_aa(fit, sizeof(fit), text, &g_font_main, w - 8);
+    fb_draw_text_aa(x + (w - fb_text_width_aa(fit, &g_font_main)) / 2, y, fit, color, &g_font_main);
+}
+
 void render_activities_screen(void) {
-    int start_y = UI_CONTENT_Y;
-    int card_h = ACT_CARD_H;
-    int spacing = ACT_CARD_GAP;
-    int page_size = ACT_PAGE_SIZE;
+    int page_size = activity_page_size();
     int total = activity_list_count();
+    bool grid = home_layout_is_grid();
 
     if (total <= 0) {
-        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(8, start_y + 45, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, UI_CONTENT_Y + 20, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, UI_CONTENT_Y + 45, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
         return;
     }
 
@@ -104,42 +151,33 @@ void render_activities_screen(void) {
 
     for (int i = 0; i < page_size && (page_start + i) < total; i++) {
         int idx = page_start + i;
-        int y = start_y + i * (card_h + spacing);
+        int x, y, w, card_h;
+        activity_slot_rect(i, &x, &y, &w, &card_h);
         bool is_sel = (idx == g_selected_activity);
         bool is_active = (strcmp(g_activities[idx].id, g_active_activity_id) == 0);
 
         bool is_confirm_pending = (g_confirm_pending_idx == idx);
-        uint16_t bg = is_confirm_pending ? 0x2100 : (is_sel ? RGB_CARD_SEL : RGB_CARD);
-        uint16_t border = is_confirm_pending ? RGB_YELLOW : (is_sel ? RGB_TEAL : 0x2945);
+        uint16_t bg = is_confirm_pending ? g_theme.pal.warning_bg : (is_sel ? RGB_CARD_SEL : RGB_CARD);
+        uint16_t border = is_confirm_pending ? RGB_YELLOW : (is_sel ? RGB_TEAL : g_theme.pal.outline);
+        uint16_t mark = is_confirm_pending ? RGB_YELLOW : (is_active ? RGB_GREEN : (is_sel ? RGB_TEAL : 0));
+        uint16_t text_color = (is_sel || is_active || is_confirm_pending) ? RGB_WHITE : RGB_TEXT_MUTED;
 
-        fb_fill_rect(6, y, FB_WIDTH - 12, card_h, bg);
-        fb_draw_rect(6, y, FB_WIDTH - 12, card_h, border);
+        fb_fill_rect(x, y, w, card_h, bg);
+        fb_draw_rect(x, y, w, card_h, border);
 
-        if (is_confirm_pending) {
-            fb_fill_rect(6, y, 4, card_h, RGB_YELLOW);
-        } else if (is_active) {
-            fb_fill_rect(6, y, 4, card_h, RGB_GREEN);
-        } else if (is_sel) {
-            fb_fill_rect(6, y, 4, card_h, RGB_TEAL);
+        if (grid) {
+            /* Tile: the state as a bar along the top, the icon, the name, then the state */
+            if (mark) fb_fill_rect(x, y, w, 4, mark);
+            draw_activity_icon(idx, x + (w - 40) / 2, y + 10, is_sel, true);
+            draw_centered_text(x, w, y + 54, g_activities[idx].name, text_color);
+            if (is_confirm_pending) draw_centered_text(x, w, y + 68, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW);
+            else if (is_active) draw_centered_text(x, w, y + 68, tr(STR_ACTIVE), RGB_GREEN);
+            continue;
         }
 
-        int icon_x = 14;
-        int icon_y = y + 5;
-        fb_fill_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? 0x2125 : 0x18C3);
-        fb_draw_rect(icon_x - 2, icon_y - 2, 44, 44, is_sel ? RGB_TEAL : 0x31A6);
+        if (mark) fb_fill_rect(x, y, 4, card_h, mark);
+        draw_activity_icon(idx, 14, y + 5, is_sel, false);
 
-        bool has_icon = false;
-        if (g_activities[idx].icon_path[0]) {
-            has_icon = blit_png_file(icon_x, icon_y, 40, 40, g_activities[idx].icon_path);
-        }
-
-        if (!has_icon) {
-            fb_draw_rect(icon_x, icon_y, 40, 40, is_sel ? RGB_TEAL : 0x32A9);
-            fb_draw_rect(icon_x + 10, icon_y + 12, 20, 14, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-            fb_fill_rect(icon_x + 18, icon_y + 26, 4, 3, is_sel ? RGB_WHITE : RGB_TEXT_MUTED);
-        }
-
-        uint16_t text_color = (is_sel || is_active || is_confirm_pending) ? RGB_WHITE : 0xD6DA;
         char name[sizeof(g_activities[0].name)];
         fb_draw_text_aa(64, y + 10, fb_fit_text_aa(name, sizeof(name), g_activities[idx].name, &g_font_main, FB_WIDTH - 30 - 64), text_color, &g_font_main);
 
