@@ -31,7 +31,8 @@ The renderer reads files as the remote does, under `--root`:
 |---|---|
 | `data/elite_rf_config.json` | Activities, devices and buttons, in the format the remote stores the Hub's config push in. |
 | `opt/luadraws/appscommon/asset/` | Stock Logitech assets (wallpaper, status bar, Classic icons). The project does not ship them. Copy the tree from a remote: `ssh root@192.168.2.1 '/data/busybox tar -c -C /opt/luadraws/appscommon/asset .' \| tar -x -C ROOT/opt/luadraws/appscommon/asset`. The Hub's `/api/icons/archive` has the same tree when it was built by `tools/harmony_firmware.py extract-icons`. Older Hubs have a flat archive: stock paths then fall back to the file name, and 359 file names have different images in different directories, so some icons come out wrong. |
-| `data/themes/<set>/<keyword>.png` | Activity icons for an icon set, one per keyword |
+| `data/themes/<set>/<keyword>.png` | Activity icons for an icon set, one per keyword (`--icons`, `compare`) |
+| `data/themes/<name>/` | Theme packages (`--theme`), as `build_theme.py` writes them |
 
 ## Commands
 
@@ -42,10 +43,33 @@ $R render --root ROOT --view commands --active 10001 -o commands.png
 $R render --root ROOT --view sync --sync 37/120 -o sync.png
 $R sheet --root ROOT --icons /data/themes/phosphor-regular --title "Phosphor" -o keywords.png
 $R compare --root ROOT --set "Classic=classic" --set "Phosphor=/data/themes/phosphor-regular" -o compare.png
+$R render --root ROOT --theme dark --view settings -o settings-dark.png
 $R rasterize --svg icon.svg --size 40 --color '#F5F5FA' -o icon.png
+$R font --ttf Inter-Medium.ttf --px 12 --height 15 --baseline 12 -o main.faa
 ```
 
-`render` options: `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `link` (the RF link panel), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--link-loss PCT` (share of link reports and Hub replies lost), `--hub-silent` (link up, Hub not answering), `--scale N`.
+`font` converts a TTF or OTF to the `.faa` font format themes use: `--px` pixels per em, in lines `--height` pixels tall with the baseline `--baseline` pixels below the top. The built-in fonts are 15/12 (main) and 19/15 (title).
+
+`render` options: `--theme NAME`, `--view` (`activities`, `menu` (the status bar menu open over the activities), `hint` (the one-time key hint), `link` (the RF link panel), `commands`, `devices`, `device` (the device at `--select`), `settings`, `pairing`, `not-paired`, `sync`), `--select N`, `--active ID`, `--icons DIR`, `--time HH:MM`, `--battery PCT`, `--usb`, `--charging`, `--no-hub`, `--link-loss PCT` (share of link reports and Hub replies lost), `--hub-silent` (link up, Hub not answering), `--scale N`.
+
+## Themes
+
+```sh
+python3 tools/elite_render/build_theme.py                 # every theme in elite/themes, into build/tmp/elite-themes
+python3 tools/elite_render/build_theme.py dark --tar frontend/public/assets/themes   # also the web UI's copies
+```
+
+Builds the theme packages the remote reads from `/data/themes/<name>/` from `elite/themes/<name>/theme.json` and `sources.json`. The sources name icons and fonts in `icon_sets.json`; the script downloads them at pinned versions (cached under `build/tmp/elite-render/svg`), rasterises the icons, converts the fonts and adds their licences. `build/compile_all.sh elite` builds the themes into the Elite package and OTA package; `--tar` writes the copies the web UI's screen preview loads.
+
+The icon sets and fonts the themes use:
+
+| Source | Licence |
+|---|---|
+| [Phosphor](https://github.com/phosphor-icons/core) | MIT |
+| [Tabler Icons](https://github.com/tabler/tabler-icons) | MIT |
+| [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0 1.0; logos remain trademarks of their owners |
+| [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) | MIT |
+| [Inter](https://github.com/rsms/inter) (fonts) | SIL Open Font License 1.1 |
 
 ## Vendored files
 

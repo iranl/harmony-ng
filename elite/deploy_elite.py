@@ -116,7 +116,7 @@ def main() -> None:
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
             "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
             "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
+            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
         )
         run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
@@ -182,6 +182,19 @@ def main() -> None:
     if factory_reset_script.is_file():
         print(f"[*] Syncing /data/{factory_reset_script.name} (MD5 check)...")
         deploy_file_if_changed(factory_reset_script, f"/data/{factory_reset_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+
+    # Theme packages: each built-in theme replaces its older version; other themes stay
+    themes_dir = BIN_DIR / "themes"
+    if themes_dir.is_dir():
+        for theme in sorted(p for p in themes_dir.iterdir() if (p / "theme.json").is_file()):
+            print(f"[*] Syncing theme /data/themes/{theme.name}...")
+            tar = subprocess.run(["tar", "-c", "-C", str(theme), "."], capture_output=True, check=True).stdout
+            res = subprocess.run(["ssh"] + ssh_opts + [target,
+                                  f"mkdir -p /data/themes && rm -rf /data/themes/{theme.name} && mkdir /data/themes/{theme.name} && "
+                                  f"(/data/busybox tar -x -C /data/themes/{theme.name} 2>/dev/null || tar -x -C /data/themes/{theme.name})"],
+                                 input=tar, capture_output=True)
+            if res.returncode != 0:
+                print(f"[-] Failed syncing theme {theme.name}: {res.stderr.decode(errors='replace').strip()}")
 
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():

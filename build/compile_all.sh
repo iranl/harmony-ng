@@ -167,8 +167,20 @@ build_elite() {
     cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
     cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/init.sh" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
     sed -i 's/\r$//' "$REPO_ROOT/build/tmp/elite_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/elite_ota_pkg"/rcS.local 2>/dev/null || true
+    # Theme packages (docs/ELITE_UI_DESIGN.md §4). Building them needs a host C compiler and the
+    # pinned downloads; without them, themes built earlier into build/tmp/elite-themes are used.
+    echo "[-] Building Elite themes..."
+    python3 "$REPO_ROOT/tools/elite_render/build_theme.py" >/dev/null \
+        || echo "[!] Theme build failed; packaging themes from an earlier build, if any." >&2
+    rm -rf "$REPO_ROOT/elite/bin/themes"
+    if [ -d "$REPO_ROOT/build/tmp/elite-themes" ]; then
+        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/elite/bin/themes"
+        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/build/tmp/elite_ota_pkg/themes"
+    fi
     tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
     cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    rm -rf "$REPO_ROOT/build/output/elite/themes"
+    [ -d "$REPO_ROOT/elite/bin/themes" ] && cp -R "$REPO_ROOT/elite/bin/themes" "$REPO_ROOT/build/output/elite/themes"
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 

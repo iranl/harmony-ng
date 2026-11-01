@@ -178,12 +178,35 @@ export function stockIconId(module, icon, name) {
   return module.ccall('er_stock_icon_id', 'number', ['string', 'string'], [icon || '', name || '']);
 }
 
-// The image the remote draws for an activity in the config writeRemoteConfig() last wrote,
-// as an object URL ('' when there is none). Like the remote (blit_png_file in
-// elite/elite_fb.c), it recolours dark line art white, except in theme icons.
+// Loads a theme package (assets/themes/<name>.tar, built by tools/elite_render/build_theme.py)
+// into the module, where the remote has its themes; resolves to false when there is none.
+// Classic is built in.
+const themes = new Map();
+export function loadTheme(module, name) {
+  if (!name || name === 'classic') return Promise.resolve(true);
+  if (!themes.has(name)) {
+    themes.set(name, fetchTar(new URL(`themes/${name}.tar${VERSION}`, import.meta.url).href)
+      .then((tar) => { writeTar(module, tar, `/data/themes/${name}`); return true; })
+      .catch((e) => { console.warn(`Elite preview: no theme ${name}`, e); return false; }));
+  }
+  return themes.get(name);
+}
+
+// The themes built into assets/themes ([{ id, name }]), Classic first
+export async function themeList() {
+  try {
+    const res = await fetch(new URL(`themes/index.json${VERSION}`, import.meta.url).href);
+    if (res.ok) return await res.json();
+  } catch { /* no themes in this build */ }
+  return [{ id: 'classic', name: 'Classic' }];
+}
+
+// The image the remote draws for an activity in the config writeRemoteConfig() last wrote, in
+// a theme loadTheme() loaded, as an object URL ('' when there is none). Like the remote
+// (blit_png_file in elite/elite_fb.c), it recolours dark line art white, except in theme icons.
 const iconUrls = new Map();
-export function activityIconUrl(module, activityId) {
-  const path = module.ccall('er_activity_icon', 'string', ['string', 'string'], [ROOT, remoteActivityId(activityId)]);
+export function activityIconUrl(module, activityId, theme = 'classic') {
+  const path = module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]);
   if (!path) return Promise.resolve('');
   if (!iconUrls.has(path)) {
     iconUrls.set(path, (async () => {
@@ -211,13 +234,14 @@ export function activityIconUrl(module, activityId) {
 }
 
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
-// row, or the device for 'device'), active (remote activity ID), icons, battery, usb,
-// charging, noHub, minutes }
+// row, or the device for 'device'), active (remote activity ID), theme (loaded with
+// loadTheme()), icons, battery, usb, charging, noHub, minutes }
 export function render(module, canvas, state = {}) {
   const ptr = module.ccall('er_render', 'number',
-    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number'],
+    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string'],
     [ROOT, state.view || 'activities', state.select || 0, state.active || '', state.icons || 'classic',
-     state.battery ?? 80, state.usb ? 1 : 0, state.charging ? 1 : 0, state.noHub ? 1 : 0, state.minutes ?? 21 * 60 + 30]);
+     state.battery ?? 80, state.usb ? 1 : 0, state.charging ? 1 : 0, state.noHub ? 1 : 0, state.minutes ?? 21 * 60 + 30,
+     state.theme || 'classic']);
   const pixels = new ImageData(new Uint8ClampedArray(module.HEAPU8.buffer, ptr, 240 * 320 * 4).slice(), 240, 320);
   canvas.getContext('2d').putImageData(pixels, 0, 0);
 }
