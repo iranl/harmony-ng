@@ -149,7 +149,14 @@ void execute_settings_action(int idx) {
                 else { g_night_start_hour = 22; g_night_end_hour = 7; }
                 save_settings_conf();
                 break;
-            case 4:
+            case 4: {
+                char next[32];
+                theme_next_name(next, sizeof(next));
+                apply_theme(next);
+                save_settings_conf();
+                break;
+            }
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

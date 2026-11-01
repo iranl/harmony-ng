@@ -186,6 +186,20 @@ static inline const char *rf_activity_icon_keyword(uint8_t type) {
     return (type >= 1 && type <= 17) ? names[type - 1] : names[0];
 }
 
+/* The built-in themes the Hub can choose in the settings push (payload[21], 1..4). 0 keeps the
+   remote's own choice; other theme packages are chosen on the remote. */
+static inline const char *rf_theme_name(uint8_t id) {
+    static const char *const names[] = { "classic", "dark", "light", "colourful" };
+    return (id >= 1 && id <= 4) ? names[id - 1] : NULL;
+}
+
+static inline uint8_t rf_theme_id(const char *name) {
+    for (uint8_t id = 1; name && rf_theme_name(id); id++) {
+        if (strcmp(name, rf_theme_name(id)) == 0) return id;
+    }
+    return 0;
+}
+
 /* True if word occurs in s with no letter directly before or after it, so "ps" matches
    "PS5" and "ps.png" but not "Apps" or "Upstairs". */
 static inline int rf_has_word(const char *s, const char *word) {

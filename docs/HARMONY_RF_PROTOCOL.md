@@ -289,6 +289,8 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[17]`: No-Screen Mode (`0x01` on, `0x00` off)
 - `payload[18]`: Capacitive Buttons (`1` Enabled, `2` Disabled in push; `1`/`0` in backup)
 - `payload[19]`: Power Debug Log (`1` Enabled, `2` Disabled in push; byte 18 `1`/`0` in backup)
+- `payload[20]`: Language (`0` en, `1` de, `2` fr, `3` nl, `4` es, `5` it); byte 19 in backup
+- `payload[21]`: Theme (`1` classic, `2` dark, `3` light, `4` colourful; `0` in a push keeps the Remote's choice); byte 20 in backup, where `0` means a theme with no id
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:

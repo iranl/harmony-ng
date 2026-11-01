@@ -85,7 +85,7 @@ async function remoteActivityIconUrl(activity) {
   const renderer = await loadEliteRenderer();
   if (!renderer) return '';
   renderer.preview.writeRemoteConfig(renderer.module, { activities: [activity] });
-  return renderer.preview.activityIconUrl(renderer.module, activity.id);
+  return renderer.preview.activityIconUrl(renderer.module, activity.id, renderer.theme);
 }
 
 export function renderActivityIcon(activity, className = 'activity-icon') {

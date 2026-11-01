@@ -165,6 +165,8 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Button Backlight", "Tastenbeleuchtung", "Eclairage touches", "Knopverlichting", "Luz de botones", "Retroilluminazione tasti" },
     /* STR_NIGHT_SCHEDULE */
     { "Night Schedule", "Nachtmodus Zeit", "Horaire nuit", "Nachtschema", "Horario nocturno", "Orario notturno" },
+    /* STR_DISPLAY_THEME */
+    { "Theme", "Design", "Theme", "Thema", "Tema", "Tema" },
 
     /* STR_TOUCHSCREEN */
     { "Touchscreen", "Touchscreen", "Ecran tactile", "Touchscreen", "Pantalla tactil", "Touchscreen" },
