@@ -28,6 +28,11 @@ void show_notice(const char *msg, int duration_ms) {
 #define HDR_Y 9
 
 #define LINK_BARS_W 15  /* four 3 px bars, 1 px apart */
+#define BATT_W      21  /* 19 px body and a 2 px terminal */
+
+/* Bars, USB and battery stand on the clock's baseline and are no taller than its digits */
+#define HDR_GLYPH_H 9
+#define HDR_BASE    (HDR_Y + 11)  /* last row of the digits */
 
 static const char *link_badge(const link_quality_t *q) {
     return q->state == LINK_NO_HUB ? tr(STR_NO_HUB) : q->state == LINK_HUB_SILENT ? tr(STR_HUB_SILENT) : NULL;
@@ -35,7 +40,7 @@ static const char *link_badge(const link_quality_t *q) {
 
 void header_layout(header_layout_t *l) {
     int x = FB_WIDTH - 4 - fb_text_width_aa("00:00", &g_font_main); /* time */
-    x -= 6 + 20;                                                     /* battery */
+    x -= 4 + BATT_W + 4;                                             /* battery */
     if (strcmp(g_battery_info.powersource, "usb") == 0) x -= 2 + 18; /* USB */
     link_quality(get_monotonic_ms(), &l->link);
     const char *badge = link_badge(&l->link);
@@ -105,8 +110,8 @@ void render_header(void) {
         /* Signal bars, like Wi-Fi: one bar is amber */
         uint16_t on = l.link.bars == 1 ? RGB_YELLOW : RGB_TEAL;
         for (int b = 0; b < 4; b++) {
-            int h = 4 + 3 * b;
-            fb_fill_rect(x + 4 * b, HDR_Y + 14 - h, 3, h, b < l.link.bars ? on : RGB_CARD_BORDER);
+            int h = 3 + 2 * b;
+            fb_fill_rect(x + 4 * b, HDR_BASE + 1 - h, 3, h, b < l.link.bars ? on : RGB_CARD_BORDER);
         }
     }
     x += l.link_w;
@@ -117,19 +122,15 @@ void render_header(void) {
         x += 2 + 18;
     }
 
-    char batt_icon[96];
-    if (g_battery_info.charging) {
-        snprintf(batt_icon, sizeof(batt_icon), "/opt/luadraws/appscommon/asset/header/hopscharging.png");
-    } else {
-        int lvl = (g_battery_info.percent / 10) * 10;
-        if (lvl < 10) lvl = 10;
-        if (lvl > 100) lvl = 100;
-        snprintf(batt_icon, sizeof(batt_icon), "/opt/luadraws/appscommon/asset/header/hopslevel%d.png", lvl);
-    }
-    if (!blit_png_file(x + 4, HDR_Y, 20, 16, batt_icon)) {
-        blit_png_file(x + 4, HDR_Y, 20, 16, g_battery_info.charging ? "/opt/luadraws/appscommon/asset/header/charging.png"
-                                                                     : "/opt/luadraws/appscommon/asset/header/level100.png");
-    }
+    /* Battery outline with a fill for the level: teal while charging, red at 20 % or less */
+    int bx = x + 4, by = HDR_BASE + 1 - HDR_GLYPH_H, bw = BATT_W - 2;
+    int pct = g_battery_info.percent > 100 ? 100 : g_battery_info.percent;
+    uint16_t fill = g_battery_info.charging ? RGB_TEAL : pct <= 20 ? RGB_RED : RGB_WHITE;
+    fb_draw_rect(bx, by, bw, HDR_GLYPH_H, RGB_WHITE);
+    fb_fill_rect(bx + bw, by + 3, 2, HDR_GLYPH_H - 6, RGB_WHITE);
+    int fw = (bw - 4) * pct / 100;
+    if (fw < 1) fw = 1;
+    fb_fill_rect(bx + 2, by + 2, fw, HDR_GLYPH_H - 4, fill);
 
     time_t now = ui_wall_time();
     struct tm *tm_info = localtime(&now);
