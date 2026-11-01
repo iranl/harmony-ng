@@ -34,6 +34,12 @@ void sig_wake_handler(int sig);
 void sig_deep_sleep_handler(int sig);
 void init_gyro_interrupt(void);
 
+/* The accelerometer driver samples at about 1 Hz for any data_rate up to 25, which delays
+   the motion interrupt by 1-2 s; 50, 100 and 200 work */
+static inline int gyro_rate_supported(int hz) {
+    return hz >= 200 ? 200 : hz >= 100 ? 100 : 50;
+}
+
 #ifdef __cplusplus
 }
 #endif

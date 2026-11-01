@@ -748,7 +748,7 @@ Saves remote preferences and transmits push packet to Elite over RF.
     "touchEnabled": true,
     "capButtonsEnabled": true,
     "gyroEnabled": true,
-    "gyroRate": 25,
+    "gyroRate": 50,
     "btnBacklight": 1,
     "nightStart": 22,
     "nightEnd": 7,

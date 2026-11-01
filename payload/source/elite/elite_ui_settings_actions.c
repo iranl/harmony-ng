@@ -219,7 +219,8 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1:
-                g_gyro_rate_hz = (g_gyro_rate_hz == 10) ? 25 : ((g_gyro_rate_hz == 25) ? 50 : 10);
+                g_gyro_rate_hz = gyro_rate_supported(g_gyro_rate_hz == 50 ? 100 : g_gyro_rate_hz == 100 ? 200 : 50);
+                if (g_gyro_fd >= 0) init_gyro_interrupt();
                 save_settings_conf();
                 break;
             case 2: {

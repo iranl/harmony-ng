@@ -701,7 +701,7 @@ void *config_push_worker(void *arg) {
     for (int t = 0; t < num_targets; t++) {
         uint8_t target_slot = target_slots[t];
         int bright = 2, timeout = 10, touch = 1, gyro = 1, nav_key = 139, nav_mode = 1, confirm_act = 1, touch_sens = 2, remote_mode = 0;
-        int gyro_rate = 25, btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
+        int gyro_rate = 50, btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
         char spath[64];
         snprintf(spath, sizeof(spath), "/data/harmony/elite_slot%d_config.json", target_slot);
         FILE *sf = fopen(spath, "r");

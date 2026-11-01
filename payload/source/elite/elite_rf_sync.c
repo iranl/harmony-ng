@@ -378,7 +378,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
             /* Extended settings fields */
-            if (f->payload[11] > 0) g_gyro_rate_hz = f->payload[11];
+            if (f->payload[11] > 0 && gyro_rate_supported(f->payload[11]) != g_gyro_rate_hz) {
+                g_gyro_rate_hz = gyro_rate_supported(f->payload[11]);
+                if (g_gyro_fd >= 0) init_gyro_interrupt();
+            }
             if (f->payload[12] <= 2) g_btn_backlight_mode = f->payload[12];
             if (f->payload[13] <= 23) g_night_start_hour = f->payload[13];
             if (f->payload[14] <= 23) g_night_end_hour = f->payload[14];

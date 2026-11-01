@@ -355,7 +355,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         const gyroVal = typeof cfg.gyro !== 'undefined' ? cfg.gyro : (typeof cfg.gyroEnabled !== 'undefined' ? (cfg.gyroEnabled ? 1 : 0) : 1);
         if (document.getElementById('rfCfgGyro')) document.getElementById('rfCfgGyro').value = String(gyroVal ? 1 : 0);
 
-        const gyroRate = cfg.gyro_rate || cfg.gyroRate || 25;
+        const gyroRate = Math.max(cfg.gyro_rate || cfg.gyroRate || 50, 50);
         if (document.getElementById('rfCfgGyroRate')) document.getElementById('rfCfgGyroRate').value = String(gyroRate);
 
         const btnBacklight = typeof cfg.btn_backlight !== 'undefined' ? cfg.btn_backlight : (typeof cfg.btnBacklight !== 'undefined' ? cfg.btnBacklight : 2);
@@ -400,7 +400,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '1', 10);
     const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '1', 10);
     const gyro = parseInt(document.getElementById('rfCfgGyro')?.value || '1', 10);
-    const gyro_rate = parseInt(document.getElementById('rfCfgGyroRate')?.value || '25', 10);
+    const gyro_rate = parseInt(document.getElementById('rfCfgGyroRate')?.value || '50', 10);
     const btn_backlight = parseInt(document.getElementById('rfCfgBtnBacklight')?.value || '2', 10);
     const schedParts = (document.getElementById('rfCfgNightSchedule')?.value || '22-7').split('-');
     const night_start = parseInt(schedParts[0] || '22', 10);

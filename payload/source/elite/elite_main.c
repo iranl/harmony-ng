@@ -314,8 +314,9 @@ int main(int argc, char **argv) {
         }
         uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
         bool is_docked = is_elite_docked();
-        bool allow_gyro_wake = !is_docked;
-        if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
+        /* Watched even on the cradle: the power source below is re-read at the motion, because
+           the cached one may predate lifting the remote off it */
+        if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled) {
             FD_SET(g_gyro_fd, &rfds);
             if (g_gyro_fd > max_fd) max_fd = g_gyro_fd;
         }
@@ -713,11 +714,15 @@ int main(int argc, char **argv) {
         if (g_gyro_fd >= 0 && FD_ISSET(g_gyro_fd, &rfds)) {
             struct input_event ev[16];
             ssize_t n = read(g_gyro_fd, ev, sizeof(ev));
-            bool is_docked = is_elite_docked();
-            bool allow_gyro_wake = !is_docked;
-            if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
-                log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
-                reset_idle_timer(); /* wakes and redraws; a second fb_set_blank(false) would reset the touch controller again */
+            if (n > 0 && !g_screen_on && g_gyro_enabled) {
+                /* Bumps on the cradle don't wake the screen; motion on USB or battery does */
+                read_elite_battery();
+                if (strcmp(g_battery_info.powersource, "cradle") == 0) {
+                    printf("[*] Motion on the cradle, staying asleep\n");
+                } else {
+                    printf("[*] Motion wake\n");
+                    reset_idle_timer(); /* wakes and redraws; a second fb_set_blank(false) would reset the touch controller again */
+                }
             }
         }
     }

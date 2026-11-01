@@ -93,7 +93,7 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 
 | Standby Tier | Timeout Range | Hardware State | Wake Triggers |
 | :--- | :--- | :--- | :--- |
-| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-50 Hz | N/A |
+| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, accelerometer sampling @ 50-200 Hz | N/A |
 | **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
 | **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
 
@@ -225,7 +225,7 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
 ### 4. `POWER`
 - **`Motion / Gyro Wake`**: `[ ON ]` or `[ OFF ]`.
   - Enables or disables LIS3DH lift-to-wake in Light Standby.
-- **`Gyro Sampling Rate`**: `[ 10Hz ]`, `[ 25Hz ]`, `[ 50Hz ]`.
+- **`Gyro Sampling Rate`**: `[ 50Hz ]` (default), `[ 100Hz ]`, `[ 200Hz ]`. The accelerometer driver samples at about 1 Hz for any rate up to 25, which delays motion wake by 1–2 s; older settings below 50 are raised to 50.
   - Sysfs accelerometer rate when remote is in active or near-standby state.
 - **`Battery Status`**: `[ XX% XXXXmV ]`.
   - Refreshes live hardware voltage and battery percentage filtered via a 16-sample moving average window.
@@ -267,7 +267,7 @@ Host: 192.168.1.1:8088
   "touchEnabled": true,
   "capButtonsEnabled": true,
   "gyroEnabled": true,
-  "gyroRate": 25,
+  "gyroRate": 50,
   "navToggleKey": 139,
   "navToggleMode": 1,
   "confirmActivity": false,
@@ -293,7 +293,7 @@ Content-Type: application/json
   "touchEnabled": true,
   "capButtonsEnabled": true,
   "gyroEnabled": true,
-  "gyroRate": 25,
+  "gyroRate": 50,
   "navToggleKey": 139,
   "navToggleMode": 1,
   "confirmActivity": true,
@@ -333,7 +333,7 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
    - `Byte 9`: Touch Sensitivity (1=Low, 2=Normal, 3=High)
    - `Byte 10`: Remote Mode (0=Activity, 1=Direct)
    - `Byte 11`: Motion/Gyro Wake Enable flag (0/1)
-   - `Byte 12`: Gyro Sampling Rate in Hz (10, 25, 50)
+   - `Byte 12`: Gyro Sampling Rate in Hz (50, 100, 200)
    - `Byte 13`: Button Backlight Mode (0=Off, 1=On, 2=Night)
    - `Byte 14`: Night Start Hour (0–23)
    - `Byte 15`: Night End Hour (0–23)

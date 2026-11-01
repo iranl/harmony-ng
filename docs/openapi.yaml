@@ -2078,7 +2078,7 @@ paths:
                 touchEnabled: true
                 capButtonsEnabled: true
                 gyroEnabled: true
-                gyroRate: 25
+                gyroRate: 50
                 btnBacklight: 1
                 nightStart: 22
                 nightEnd: 7
@@ -2112,7 +2112,7 @@ paths:
                 touchEnabled: {type: boolean, default: true}
                 capButtonsEnabled: {type: boolean, default: true}
                 gyroEnabled: {type: boolean, default: true}
-                gyroRate: {type: integer, default: 25}
+                gyroRate: {type: integer, default: 50}
                 btnBacklight: {type: integer, default: 1}
                 nightStart: {type: integer, default: 22}
                 nightEnd: {type: integer, default: 7}
@@ -2128,7 +2128,7 @@ paths:
               touchEnabled: true
               capButtonsEnabled: true
               gyroEnabled: true
-              gyroRate: 25
+              gyroRate: 50
               btnBacklight: 1
               nightStart: 22
               nightEnd: 7

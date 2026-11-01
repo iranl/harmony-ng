@@ -721,7 +721,7 @@ void load_settings_conf(void) {
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
-            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = (val > 0) ? val : 25;
+            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = gyro_rate_supported(val);
             else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = val;
             else if (strcmp(key, "night_start") == 0) g_night_start_hour = val;
             else if (strcmp(key, "night_end") == 0) g_night_end_hour = val;
