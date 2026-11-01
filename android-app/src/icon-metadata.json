@@ -1,32 +1,32 @@
 {
   "013A19AA-DFB1-40E8-80A3-773C7A0AE986.png": {
-    "name": "TV with Antenna / Broadcast (Large)",
+    "name": "Vudu (Large)",
     "category": "activity",
     "tags": [
       "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
-      "antenna",
-      "broadcast",
-      "tv"
+      "vudu",
+      "movie",
+      "streaming"
     ]
   },
   "013A19AA-DFB1-40E8-80A3-773C7A0AE986_small.png": {
-    "name": "TV with Antenna / Broadcast",
+    "name": "Vudu",
     "category": "activity",
     "tags": [
       "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
-      "antenna",
-      "broadcast",
-      "tv"
+      "vudu",
+      "movie",
+      "streaming"
     ]
   },
   "013A19AA-DFB1-40E8-80A3-773C7A0AE986_smallon.png": {
-    "name": "TV with Antenna / Broadcast (Active)",
+    "name": "Vudu (Active)",
     "category": "activity",
     "tags": [
       "013a19aa-dfb1-40e8-80a3-773c7a0ae986",
-      "antenna",
-      "broadcast",
-      "tv"
+      "vudu",
+      "movie",
+      "streaming"
     ]
   },
   "01D34356-613C-45F3-935D-4BF763AE4F4B.png": {
@@ -60,123 +60,120 @@
     ]
   },
   "053FA80A-458F-4EA9-85E5-B2F7DB1C7052.png": {
-    "name": "Subwoofer / Bass Sound (Large)",
+    "name": "Speaker / Sound (Large)",
     "category": "activity",
     "tags": [
-      "subwoofer",
       "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
       "speaker",
+      "sound",
       "audio"
     ]
   },
   "053FA80A-458F-4EA9-85E5-B2F7DB1C7052_small.png": {
-    "name": "Subwoofer / Bass Sound",
+    "name": "Speaker / Sound",
     "category": "activity",
     "tags": [
-      "subwoofer",
       "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
       "speaker",
+      "sound",
       "audio"
     ]
   },
   "053FA80A-458F-4EA9-85E5-B2F7DB1C7052_smallon.png": {
-    "name": "Subwoofer / Bass Sound (Active)",
+    "name": "Speaker / Sound (Active)",
     "category": "activity",
     "tags": [
-      "subwoofer",
       "053fa80a-458f-4ea9-85e5-b2f7db1c7052",
       "speaker",
+      "sound",
       "audio"
     ]
   },
   "085A8031-090D-4052-BB5F-C7809DCE8665.png": {
-    "name": "Curved Display / Gaming Monitor (Large)",
+    "name": "Cloud (Large)",
     "category": "activity",
     "tags": [
-      "monitor",
-      "curved",
       "085a8031-090d-4052-bb5f-c7809dce8665",
-      "screen"
+      "cloud",
+      "streaming"
     ]
   },
   "085A8031-090D-4052-BB5F-C7809DCE8665_small.png": {
-    "name": "Curved Display / Gaming Monitor",
+    "name": "Cloud",
     "category": "activity",
     "tags": [
-      "monitor",
-      "curved",
       "085a8031-090d-4052-bb5f-c7809dce8665",
-      "screen"
+      "cloud",
+      "streaming"
     ]
   },
   "085A8031-090D-4052-BB5F-C7809DCE8665_smallon.png": {
-    "name": "Curved Display / Gaming Monitor (Active)",
+    "name": "Cloud (Active)",
     "category": "activity",
     "tags": [
-      "monitor",
-      "curved",
       "085a8031-090d-4052-bb5f-c7809dce8665",
-      "screen"
+      "cloud",
+      "streaming"
     ]
   },
   "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4.png": {
-    "name": "Set-Top Box with Clock (Large)",
+    "name": "Bath (Large)",
     "category": "activity",
     "tags": [
       "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
-      "clock",
-      "stb",
-      "cable"
+      "bath",
+      "bathroom",
+      "relax"
     ]
   },
   "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4_small.png": {
-    "name": "Set-Top Box with Clock",
+    "name": "Bath",
     "category": "activity",
     "tags": [
       "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
-      "clock",
-      "stb",
-      "cable"
+      "bath",
+      "bathroom",
+      "relax"
     ]
   },
   "0D75B8C1-3EE5-40C2-995E-34C8ADEDAAA4_smallon.png": {
-    "name": "Set-Top Box with Clock (Active)",
+    "name": "Bath (Active)",
     "category": "activity",
     "tags": [
       "0d75b8c1-3ee5-40c2-995e-34c8adedaaa4",
-      "clock",
-      "stb",
-      "cable"
+      "bath",
+      "bathroom",
+      "relax"
     ]
   },
   "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2.png": {
-    "name": "Electric Guitar / Rock Music (Large)",
+    "name": "Pencil / Custom (Large)",
     "category": "activity",
     "tags": [
-      "guitar",
       "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
-      "rock",
-      "music"
+      "pencil",
+      "custom",
+      "edit"
     ]
   },
   "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2_small.png": {
-    "name": "Electric Guitar / Rock Music",
+    "name": "Pencil / Custom",
     "category": "activity",
     "tags": [
-      "guitar",
       "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
-      "rock",
-      "music"
+      "pencil",
+      "custom",
+      "edit"
     ]
   },
   "0DF1488A-EEDB-40EC-8BC7-B87E16E13DC2_smallon.png": {
-    "name": "Electric Guitar / Rock Music (Active)",
+    "name": "Pencil / Custom (Active)",
     "category": "activity",
     "tags": [
-      "guitar",
       "0df1488a-eedb-40ec-8bc7-b87e16e13dc2",
-      "rock",
-      "music"
+      "pencil",
+      "custom",
+      "edit"
     ]
   },
   "0E588723-18DA-4DF7-978F-0306F601FE28.png": {
@@ -213,30 +210,30 @@
     "name": "Apple TV (Large)",
     "category": "activity",
     "tags": [
-      "stream",
       "0f40f257-68c8-4f24-9561-3cb3441da395",
-      "appletv",
-      "apple"
+      "apple",
+      "tv",
+      "streaming"
     ]
   },
   "0F40F257-68C8-4F24-9561-3CB3441DA395_small.png": {
     "name": "Apple TV",
     "category": "activity",
     "tags": [
-      "stream",
       "0f40f257-68c8-4f24-9561-3cb3441da395",
-      "appletv",
-      "apple"
+      "apple",
+      "tv",
+      "streaming"
     ]
   },
   "0F40F257-68C8-4F24-9561-3CB3441DA395_smallon.png": {
     "name": "Apple TV (Active)",
     "category": "activity",
     "tags": [
-      "stream",
       "0f40f257-68c8-4f24-9561-3cb3441da395",
-      "appletv",
-      "apple"
+      "apple",
+      "tv",
+      "streaming"
     ]
   },
   "1.png": {
@@ -582,33 +579,36 @@
     ]
   },
   "1861D98D-B831-4DD7-96DD-58FD0EA1B045.png": {
-    "name": "Video Game Controller (Large)",
+    "name": "Retro TV / TV Guide (Large)",
     "category": "activity",
     "tags": [
-      "play",
       "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
-      "console",
-      "gamepad"
+      "tv",
+      "retro",
+      "guide",
+      "antenna"
     ]
   },
   "1861D98D-B831-4DD7-96DD-58FD0EA1B045_small.png": {
-    "name": "Video Game Controller",
+    "name": "Retro TV / TV Guide",
     "category": "activity",
     "tags": [
-      "play",
       "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
-      "console",
-      "gamepad"
+      "tv",
+      "retro",
+      "guide",
+      "antenna"
     ]
   },
   "1861D98D-B831-4DD7-96DD-58FD0EA1B045_smallon.png": {
-    "name": "Video Game Controller (Active)",
+    "name": "Retro TV / TV Guide (Active)",
     "category": "activity",
     "tags": [
-      "play",
       "1861d98d-b831-4dd7-96dd-58fd0ea1b045",
-      "console",
-      "gamepad"
+      "tv",
+      "retro",
+      "guide",
+      "antenna"
     ]
   },
   "193.png": {
@@ -648,33 +648,33 @@
     ]
   },
   "1978F30F-E27F-4126-B622-FC230936AE2F.png": {
-    "name": "Blu-ray / DVD Disc Tray (Large)",
+    "name": "Projector (Large)",
     "category": "activity",
     "tags": [
-      "disc",
       "1978f30f-e27f-4126-b622-fc230936ae2f",
-      "bluray",
-      "dvd"
+      "projector",
+      "movie",
+      "cinema"
     ]
   },
   "1978F30F-E27F-4126-B622-FC230936AE2F_small.png": {
-    "name": "Blu-ray / DVD Disc Tray",
+    "name": "Projector",
     "category": "activity",
     "tags": [
-      "disc",
       "1978f30f-e27f-4126-b622-fc230936ae2f",
-      "bluray",
-      "dvd"
+      "projector",
+      "movie",
+      "cinema"
     ]
   },
   "1978F30F-E27F-4126-B622-FC230936AE2F_smallon.png": {
-    "name": "Blu-ray / DVD Disc Tray (Active)",
+    "name": "Projector (Active)",
     "category": "activity",
     "tags": [
-      "disc",
       "1978f30f-e27f-4126-b622-fc230936ae2f",
-      "bluray",
-      "dvd"
+      "projector",
+      "movie",
+      "cinema"
     ]
   },
   "2.png": {
@@ -723,33 +723,33 @@
     ]
   },
   "204F0071-4B64-4577-BDA9-E726D6480ABF.png": {
-    "name": "Media Player Box (Large)",
+    "name": "AV Receiver (Large)",
     "category": "activity",
     "tags": [
       "204f0071-4b64-4577-bda9-e726d6480abf",
-      "box",
-      "media",
-      "player"
+      "receiver",
+      "amplifier",
+      "audio"
     ]
   },
   "204F0071-4B64-4577-BDA9-E726D6480ABF_small.png": {
-    "name": "Media Player Box",
+    "name": "AV Receiver",
     "category": "activity",
     "tags": [
       "204f0071-4b64-4577-bda9-e726d6480abf",
-      "box",
-      "media",
-      "player"
+      "receiver",
+      "amplifier",
+      "audio"
     ]
   },
   "204F0071-4B64-4577-BDA9-E726D6480ABF_smallon.png": {
-    "name": "Media Player Box (Active)",
+    "name": "AV Receiver (Active)",
     "category": "activity",
     "tags": [
       "204f0071-4b64-4577-bda9-e726d6480abf",
-      "box",
-      "media",
-      "player"
+      "receiver",
+      "amplifier",
+      "audio"
     ]
   },
   "207.png": {
@@ -789,33 +789,36 @@
     ]
   },
   "21AA7D88-E238-49B3-9933-276232B7DC6C.png": {
-    "name": "Retro Gamepad / D-Pad (Large)",
+    "name": "Game Console with Controller (Large)",
     "category": "activity",
     "tags": [
+      "21aa7d88-e238-49b3-9933-276232b7dc6c",
       "game",
-      "retro",
-      "controller",
-      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+      "console",
+      "xbox",
+      "controller"
     ]
   },
   "21AA7D88-E238-49B3-9933-276232B7DC6C_small.png": {
-    "name": "Retro Gamepad / D-Pad",
+    "name": "Game Console with Controller",
     "category": "activity",
     "tags": [
+      "21aa7d88-e238-49b3-9933-276232b7dc6c",
       "game",
-      "retro",
-      "controller",
-      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+      "console",
+      "xbox",
+      "controller"
     ]
   },
   "21AA7D88-E238-49B3-9933-276232B7DC6C_smallon.png": {
-    "name": "Retro Gamepad / D-Pad (Active)",
+    "name": "Game Console with Controller (Active)",
     "category": "activity",
     "tags": [
+      "21aa7d88-e238-49b3-9933-276232b7dc6c",
       "game",
-      "retro",
-      "controller",
-      "21aa7d88-e238-49b3-9933-276232b7dc6c"
+      "console",
+      "xbox",
+      "controller"
     ]
   },
   "223.png": {
@@ -977,123 +980,144 @@
     ]
   },
   "27BBF517-B5EA-46CE-8155-08F6D48E0BCE.png": {
-    "name": "Over-Ear Headphones (Large)",
+    "name": "Nintendo Wii (Large)",
     "category": "activity",
     "tags": [
       "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
-      "headphones",
-      "listen",
-      "audio"
+      "wii",
+      "nintendo",
+      "game",
+      "console"
     ]
   },
   "27BBF517-B5EA-46CE-8155-08F6D48E0BCE_small.png": {
-    "name": "Over-Ear Headphones",
+    "name": "Nintendo Wii",
     "category": "activity",
     "tags": [
       "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
-      "headphones",
-      "listen",
-      "audio"
+      "wii",
+      "nintendo",
+      "game",
+      "console"
     ]
   },
   "27BBF517-B5EA-46CE-8155-08F6D48E0BCE_smallon.png": {
-    "name": "Over-Ear Headphones (Active)",
+    "name": "Nintendo Wii (Active)",
     "category": "activity",
     "tags": [
       "27bbf517-b5ea-46ce-8155-08f6d48e0bce",
-      "headphones",
-      "listen",
-      "audio"
+      "wii",
+      "nintendo",
+      "game",
+      "console"
     ]
   },
   "29281B8D-FC8D-4C13-89C4-60705B8429F9.png": {
-    "name": "AV Receiver with Volume Knob (Large)",
+    "name": "Blu-ray / DVD Player (Large)",
     "category": "activity",
     "tags": [
       "29281b8d-fc8d-4c13-89c4-60705b8429f9",
-      "receiver",
-      "sound",
-      "avr"
+      "bluray",
+      "blu-ray",
+      "dvd",
+      "disc",
+      "player",
+      "movie"
     ]
   },
   "29281B8D-FC8D-4C13-89C4-60705B8429F9_small.png": {
-    "name": "AV Receiver with Volume Knob",
+    "name": "Blu-ray / DVD Player",
     "category": "activity",
     "tags": [
       "29281b8d-fc8d-4c13-89c4-60705b8429f9",
-      "receiver",
-      "sound",
-      "avr"
+      "bluray",
+      "blu-ray",
+      "dvd",
+      "disc",
+      "player",
+      "movie"
     ]
   },
   "29281B8D-FC8D-4C13-89C4-60705B8429F9_smallon.png": {
-    "name": "AV Receiver with Volume Knob (Active)",
+    "name": "Blu-ray / DVD Player (Active)",
     "category": "activity",
     "tags": [
       "29281b8d-fc8d-4c13-89c4-60705b8429f9",
-      "receiver",
-      "sound",
-      "avr"
+      "bluray",
+      "blu-ray",
+      "dvd",
+      "disc",
+      "player",
+      "movie"
     ]
   },
   "31179E2F-BD17-48E9-95C0-22CEB36C6188.png": {
-    "name": "Home Theater Projector (Large)",
+    "name": "Wii U GamePad (Large)",
     "category": "activity",
     "tags": [
-      "projector",
-      "cinema",
-      "theater",
-      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188",
+      "wii",
+      "nintendo",
+      "game",
+      "gamepad"
     ]
   },
   "31179E2F-BD17-48E9-95C0-22CEB36C6188_small.png": {
-    "name": "Home Theater Projector",
+    "name": "Wii U GamePad",
     "category": "activity",
     "tags": [
-      "projector",
-      "cinema",
-      "theater",
-      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188",
+      "wii",
+      "nintendo",
+      "game",
+      "gamepad"
     ]
   },
   "31179E2F-BD17-48E9-95C0-22CEB36C6188_smallon.png": {
-    "name": "Home Theater Projector (Active)",
+    "name": "Wii U GamePad (Active)",
     "category": "activity",
     "tags": [
-      "projector",
-      "cinema",
-      "theater",
-      "31179e2f-bd17-48e9-95c0-22ceb36c6188"
+      "31179e2f-bd17-48e9-95c0-22ceb36c6188",
+      "wii",
+      "nintendo",
+      "game",
+      "gamepad"
     ]
   },
   "311D40B5-6CF9-4DA2-8820-E17012B852A1.png": {
-    "name": "Stereo Bookshelf Speakers (Large)",
+    "name": "Stereo System (Large)",
     "category": "activity",
     "tags": [
-      "stereo",
-      "bookshelf",
       "311d40b5-6cf9-4da2-8820-e17012b852a1",
-      "speakers"
+      "stereo",
+      "hifi",
+      "speakers",
+      "music",
+      "audio"
     ]
   },
   "311D40B5-6CF9-4DA2-8820-E17012B852A1_small.png": {
-    "name": "Stereo Bookshelf Speakers",
+    "name": "Stereo System",
     "category": "activity",
     "tags": [
-      "stereo",
-      "bookshelf",
       "311d40b5-6cf9-4da2-8820-e17012b852a1",
-      "speakers"
+      "stereo",
+      "hifi",
+      "speakers",
+      "music",
+      "audio"
     ]
   },
   "311D40B5-6CF9-4DA2-8820-E17012B852A1_smallon.png": {
-    "name": "Stereo Bookshelf Speakers (Active)",
+    "name": "Stereo System (Active)",
     "category": "activity",
     "tags": [
-      "stereo",
-      "bookshelf",
       "311d40b5-6cf9-4da2-8820-e17012b852a1",
-      "speakers"
+      "stereo",
+      "hifi",
+      "speakers",
+      "music",
+      "audio"
     ]
   },
   "32.png": {
@@ -1174,63 +1198,66 @@
     ]
   },
   "363CE48C-B589-48FA-99D9-6AE5056C1E9C.png": {
-    "name": "Compact Disc / CD Audio (Large)",
+    "name": "Skype (Large)",
     "category": "activity",
     "tags": [
-      "disc",
       "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
-      "cd",
-      "audio"
+      "skype",
+      "call",
+      "video"
     ]
   },
   "363CE48C-B589-48FA-99D9-6AE5056C1E9C_small.png": {
-    "name": "Compact Disc / CD Audio",
+    "name": "Skype",
     "category": "activity",
     "tags": [
-      "disc",
       "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
-      "cd",
-      "audio"
+      "skype",
+      "call",
+      "video"
     ]
   },
   "363CE48C-B589-48FA-99D9-6AE5056C1E9C_smallon.png": {
-    "name": "Compact Disc / CD Audio (Active)",
+    "name": "Skype (Active)",
     "category": "activity",
     "tags": [
-      "disc",
       "363ce48c-b589-48fa-99d9-6ae5056c1e9c",
-      "cd",
-      "audio"
+      "skype",
+      "call",
+      "video"
     ]
   },
   "36D512D1-9F0B-4084-89A1-63B6947E9587.png": {
-    "name": "Studio Headphones (Large)",
+    "name": "Alarm Clock (Large)",
     "category": "activity",
     "tags": [
-      "studio",
-      "headphones",
       "36d512d1-9f0b-4084-89a1-63b6947e9587",
-      "music"
+      "alarm",
+      "clock",
+      "wake",
+      "morning"
     ]
   },
   "36D512D1-9F0B-4084-89A1-63B6947E9587_small.png": {
-    "name": "Studio Headphones",
+    "name": "Alarm Clock",
     "category": "activity",
     "tags": [
-      "studio",
-      "headphones",
       "36d512d1-9f0b-4084-89a1-63b6947e9587",
-      "music"
+      "alarm",
+      "clock",
+      "wake",
+      "morning"
     ]
   },
   "36D512D1-9F0B-4084-89A1-63B6947E9587_smallon.png": {
-    "name": "Studio Headphones (Active)",
+    "name": "Alarm Clock (Active)",
     "category": "activity",
     "tags": [
-      "studio",
-      "headphones",
       "36d512d1-9f0b-4084-89a1-63b6947e9587",
-      "music"
+      "alarm",
+      "clock",
+      "wake",
+      "morning"
     ]
   },
   "37.png": {
@@ -1261,63 +1288,66 @@
     ]
   },
   "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB.png": {
-    "name": "Handheld Gaming Console (Large)",
+    "name": "3D Glasses (Large)",
     "category": "activity",
     "tags": [
-      "handheld",
-      "portable",
       "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
-      "console"
+      "3d",
+      "glasses",
+      "movie",
+      "cinema"
     ]
   },
   "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB_small.png": {
-    "name": "Handheld Gaming Console",
+    "name": "3D Glasses",
     "category": "activity",
     "tags": [
-      "handheld",
-      "portable",
       "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
-      "console"
+      "3d",
+      "glasses",
+      "movie",
+      "cinema"
     ]
   },
   "3AEBFA09-DE9A-46F5-86FB-AC5E585295FB_smallon.png": {
-    "name": "Handheld Gaming Console (Active)",
+    "name": "3D Glasses (Active)",
     "category": "activity",
     "tags": [
-      "handheld",
-      "portable",
       "3aebfa09-de9a-46f5-86fb-ac5e585295fb",
-      "console"
+      "3d",
+      "glasses",
+      "movie",
+      "cinema"
     ]
   },
   "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD.png": {
-    "name": "Watch TV / Television (Large)",
+    "name": "TV (Large)",
     "category": "activity",
     "tags": [
-      "television",
       "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
-      "watch",
-      "tv"
+      "tv",
+      "television",
+      "watch"
     ]
   },
   "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png": {
-    "name": "Watch TV / Television",
+    "name": "TV",
     "category": "activity",
     "tags": [
-      "television",
       "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
-      "watch",
-      "tv"
+      "tv",
+      "television",
+      "watch"
     ]
   },
   "3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_smallon.png": {
-    "name": "Watch TV / Television (Active)",
+    "name": "TV (Active)",
     "category": "activity",
     "tags": [
-      "television",
       "3bf99e7b-9904-4afa-8d3d-7337cd8e9bfd",
-      "watch",
-      "tv"
+      "tv",
+      "television",
+      "watch"
     ]
   },
   "3D057F31-87AD-4AD5-BCFD-453403A21D29.png": {
@@ -1351,63 +1381,69 @@
     ]
   },
   "3D423017-BA9E-4132-A885-69222CFE4842.png": {
-    "name": "Cinema Popcorn / Movie Night (Large)",
+    "name": "Coffee Cup (Large)",
     "category": "activity",
     "tags": [
       "3d423017-ba9e-4132-a885-69222cfe4842",
-      "cinema",
-      "movie",
-      "popcorn"
+      "coffee",
+      "tea",
+      "cup",
+      "morning"
     ]
   },
   "3D423017-BA9E-4132-A885-69222CFE4842_small.png": {
-    "name": "Cinema Popcorn / Movie Night",
+    "name": "Coffee Cup",
     "category": "activity",
     "tags": [
       "3d423017-ba9e-4132-a885-69222cfe4842",
-      "cinema",
-      "movie",
-      "popcorn"
+      "coffee",
+      "tea",
+      "cup",
+      "morning"
     ]
   },
   "3D423017-BA9E-4132-A885-69222CFE4842_smallon.png": {
-    "name": "Cinema Popcorn / Movie Night (Active)",
+    "name": "Coffee Cup (Active)",
     "category": "activity",
     "tags": [
       "3d423017-ba9e-4132-a885-69222cfe4842",
-      "cinema",
-      "movie",
-      "popcorn"
+      "coffee",
+      "tea",
+      "cup",
+      "morning"
     ]
   },
   "3FB5EEAD-419D-472F-8232-3BBBED1F4874.png": {
-    "name": "Karaoke Microphone (Large)",
+    "name": "Wii Remote (Large)",
     "category": "activity",
     "tags": [
-      "microphone",
-      "mic",
-      "karaoke",
-      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+      "3fb5eead-419d-472f-8232-3bbbed1f4874",
+      "wii",
+      "nintendo",
+      "game",
+      "remote"
     ]
   },
   "3FB5EEAD-419D-472F-8232-3BBBED1F4874_small.png": {
-    "name": "Karaoke Microphone",
+    "name": "Wii Remote",
     "category": "activity",
     "tags": [
-      "microphone",
-      "mic",
-      "karaoke",
-      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+      "3fb5eead-419d-472f-8232-3bbbed1f4874",
+      "wii",
+      "nintendo",
+      "game",
+      "remote"
     ]
   },
   "3FB5EEAD-419D-472F-8232-3BBBED1F4874_smallon.png": {
-    "name": "Karaoke Microphone (Active)",
+    "name": "Wii Remote (Active)",
     "category": "activity",
     "tags": [
-      "microphone",
-      "mic",
-      "karaoke",
-      "3fb5eead-419d-472f-8232-3bbbed1f4874"
+      "3fb5eead-419d-472f-8232-3bbbed1f4874",
+      "wii",
+      "nintendo",
+      "game",
+      "remote"
     ]
   },
   "4.png": {
@@ -1495,63 +1531,66 @@
     ]
   },
   "46700828-34B6-42B9-9D6A-968BC681172A.png": {
-    "name": "Soundbar Speaker (Large)",
+    "name": "Media Box (Large)",
     "category": "activity",
     "tags": [
-      "soundbar",
-      "tv",
       "46700828-34b6-42b9-9d6a-968bc681172a",
-      "audio"
+      "media",
+      "box",
+      "streaming",
+      "player"
     ]
   },
   "46700828-34B6-42B9-9D6A-968BC681172A_small.png": {
-    "name": "Soundbar Speaker",
+    "name": "Media Box",
     "category": "activity",
     "tags": [
-      "soundbar",
-      "tv",
       "46700828-34b6-42b9-9d6a-968bc681172a",
-      "audio"
+      "media",
+      "box",
+      "streaming",
+      "player"
     ]
   },
   "46700828-34B6-42B9-9D6A-968BC681172A_smallon.png": {
-    "name": "Soundbar Speaker (Active)",
+    "name": "Media Box (Active)",
     "category": "activity",
     "tags": [
-      "soundbar",
-      "tv",
       "46700828-34b6-42b9-9d6a-968bc681172a",
-      "audio"
+      "media",
+      "box",
+      "streaming",
+      "player"
     ]
   },
   "468668AB-2587-4662-9E89-CF66BD70F314.png": {
-    "name": "PC Desktop / Computer (Large)",
+    "name": "PC / Computer (Large)",
     "category": "activity",
     "tags": [
-      "desktop",
       "468668ab-2587-4662-9e89-cf66bd70f314",
       "pc",
-      "computer"
+      "computer",
+      "monitor"
     ]
   },
   "468668AB-2587-4662-9E89-CF66BD70F314_small.png": {
-    "name": "PC Desktop / Computer",
+    "name": "PC / Computer",
     "category": "activity",
     "tags": [
-      "desktop",
       "468668ab-2587-4662-9e89-cf66bd70f314",
       "pc",
-      "computer"
+      "computer",
+      "monitor"
     ]
   },
   "468668AB-2587-4662-9E89-CF66BD70F314_smallon.png": {
-    "name": "PC Desktop / Computer (Active)",
+    "name": "PC / Computer (Active)",
     "category": "activity",
     "tags": [
-      "desktop",
       "468668ab-2587-4662-9e89-cf66bd70f314",
       "pc",
-      "computer"
+      "computer",
+      "monitor"
     ]
   },
   "49.png": {
@@ -1564,33 +1603,36 @@
     ]
   },
   "4A703D51-717D-4BD3-8457-3442879A7DCC.png": {
-    "name": "Satellite Dish / DVB (Large)",
+    "name": "Sonos (Large)",
     "category": "activity",
     "tags": [
-      "dish",
-      "satellite",
-      "broadcast",
-      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+      "4a703d51-717d-4bd3-8457-3442879a7dcc",
+      "sonos",
+      "speaker",
+      "music",
+      "audio"
     ]
   },
   "4A703D51-717D-4BD3-8457-3442879A7DCC_small.png": {
-    "name": "Satellite Dish / DVB",
+    "name": "Sonos",
     "category": "activity",
     "tags": [
-      "dish",
-      "satellite",
-      "broadcast",
-      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+      "4a703d51-717d-4bd3-8457-3442879a7dcc",
+      "sonos",
+      "speaker",
+      "music",
+      "audio"
     ]
   },
   "4A703D51-717D-4BD3-8457-3442879A7DCC_smallon.png": {
-    "name": "Satellite Dish / DVB (Active)",
+    "name": "Sonos (Active)",
     "category": "activity",
     "tags": [
-      "dish",
-      "satellite",
-      "broadcast",
-      "4a703d51-717d-4bd3-8457-3442879a7dcc"
+      "4a703d51-717d-4bd3-8457-3442879a7dcc",
+      "sonos",
+      "speaker",
+      "music",
+      "audio"
     ]
   },
   "4AE30392-221F-4718-9E17-ACE55F27CD3D.png": {
@@ -1644,33 +1686,39 @@
     ]
   },
   "4D002443-A954-47C3-98C5-F24E53B1E628.png": {
-    "name": "Streaming Media Stick (Large)",
+    "name": "Salt and Pepper / Dinner (Large)",
     "category": "activity",
     "tags": [
       "4d002443-a954-47c3-98c5-f24e53b1e628",
-      "hdmi",
-      "streaming",
-      "stick"
+      "dinner",
+      "kitchen",
+      "food",
+      "salt",
+      "pepper"
     ]
   },
   "4D002443-A954-47C3-98C5-F24E53B1E628_small.png": {
-    "name": "Streaming Media Stick",
+    "name": "Salt and Pepper / Dinner",
     "category": "activity",
     "tags": [
       "4d002443-a954-47c3-98c5-f24e53b1e628",
-      "hdmi",
-      "streaming",
-      "stick"
+      "dinner",
+      "kitchen",
+      "food",
+      "salt",
+      "pepper"
     ]
   },
   "4D002443-A954-47C3-98C5-F24E53B1E628_smallon.png": {
-    "name": "Streaming Media Stick (Active)",
+    "name": "Salt and Pepper / Dinner (Active)",
     "category": "activity",
     "tags": [
       "4d002443-a954-47c3-98c5-f24e53b1e628",
-      "hdmi",
-      "streaming",
-      "stick"
+      "dinner",
+      "kitchen",
+      "food",
+      "salt",
+      "pepper"
     ]
   },
   "5.png": {
@@ -1683,63 +1731,63 @@
     ]
   },
   "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC.png": {
-    "name": "Digital SLR Camera (Large)",
+    "name": "Padlock (Large)",
     "category": "activity",
     "tags": [
-      "dslr",
-      "photo",
       "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
-      "camera"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC_small.png": {
-    "name": "Digital SLR Camera",
+    "name": "Padlock",
     "category": "activity",
     "tags": [
-      "dslr",
-      "photo",
       "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
-      "camera"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "50EA2DE1-D490-4C34-BDA9-F93B5B4342FC_smallon.png": {
-    "name": "Digital SLR Camera (Active)",
+    "name": "Padlock (Active)",
     "category": "activity",
     "tags": [
-      "dslr",
-      "photo",
       "50ea2de1-d490-4c34-bda9-f93b5b4342fc",
-      "camera"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "5180221E-8F0C-459E-A61C-6D6E02BB2A0C.png": {
-    "name": "Floor Standing Speaker (Large)",
+    "name": "Two Padlocks, One Locked (Large)",
     "category": "activity",
     "tags": [
       "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
-      "hifi",
-      "speaker",
-      "tower"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "5180221E-8F0C-459E-A61C-6D6E02BB2A0C_small.png": {
-    "name": "Floor Standing Speaker",
+    "name": "Two Padlocks, One Locked",
     "category": "activity",
     "tags": [
       "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
-      "hifi",
-      "speaker",
-      "tower"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "5180221E-8F0C-459E-A61C-6D6E02BB2A0C_smallon.png": {
-    "name": "Floor Standing Speaker (Active)",
+    "name": "Two Padlocks, One Locked (Active)",
     "category": "activity",
     "tags": [
       "5180221e-8f0c-459e-a61c-6d6e02bb2a0c",
-      "hifi",
-      "speaker",
-      "tower"
+      "lock",
+      "padlock",
+      "security"
     ]
   },
   "5248477C-D901-49E0-A8A6-24F212443817.png": {
@@ -1782,33 +1830,33 @@
     ]
   },
   "53469038-7E1C-4241-B9BD-BAE95CC0509C.png": {
-    "name": "Custom Activity / Star (Large)",
+    "name": "Film / Movie (Large)",
     "category": "activity",
     "tags": [
-      "star",
       "53469038-7e1c-4241-b9bd-bae95cc0509c",
-      "custom",
-      "favorite"
+      "film",
+      "movie",
+      "video"
     ]
   },
   "53469038-7E1C-4241-B9BD-BAE95CC0509C_small.png": {
-    "name": "Custom Activity / Star",
+    "name": "Film / Movie",
     "category": "activity",
     "tags": [
-      "star",
       "53469038-7e1c-4241-b9bd-bae95cc0509c",
-      "custom",
-      "favorite"
+      "film",
+      "movie",
+      "video"
     ]
   },
   "53469038-7E1C-4241-B9BD-BAE95CC0509C_smallon.png": {
-    "name": "Custom Activity / Star (Active)",
+    "name": "Film / Movie (Active)",
     "category": "activity",
     "tags": [
-      "star",
       "53469038-7e1c-4241-b9bd-bae95cc0509c",
-      "custom",
-      "favorite"
+      "film",
+      "movie",
+      "video"
     ]
   },
   "56887e6f-3c8c-4fb5-b25f-ca027e8cbc3c_small.png": {
@@ -1900,62 +1948,68 @@
     ]
   },
   "5BE0F80A-D144-40B0-A467-B67A7633282A.png": {
-    "name": "Surround Sound 5.1 System (Large)",
+    "name": "Two Padlocks, Unlocked (Large)",
     "category": "activity",
     "tags": [
       "5be0f80a-d144-40b0-a467-b67a7633282a",
-      "surround",
-      "theater",
-      "5.1"
+      "lock",
+      "padlock",
+      "unlock",
+      "security"
     ]
   },
   "5BE0F80A-D144-40B0-A467-B67A7633282A_small.png": {
-    "name": "Surround Sound 5.1 System",
+    "name": "Two Padlocks, Unlocked",
     "category": "activity",
     "tags": [
       "5be0f80a-d144-40b0-a467-b67a7633282a",
-      "surround",
-      "theater",
-      "5.1"
+      "lock",
+      "padlock",
+      "unlock",
+      "security"
     ]
   },
   "5BE0F80A-D144-40B0-A467-B67A7633282A_smallon.png": {
-    "name": "Surround Sound 5.1 System (Active)",
+    "name": "Two Padlocks, Unlocked (Active)",
     "category": "activity",
     "tags": [
       "5be0f80a-d144-40b0-a467-b67a7633282a",
-      "surround",
-      "theater",
-      "5.1"
+      "lock",
+      "padlock",
+      "unlock",
+      "security"
     ]
   },
   "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285.png": {
-    "name": "Amazon Fire TV (Large)",
+    "name": "Amazon / Fire TV (Large)",
     "category": "activity",
     "tags": [
-      "firetv",
-      "amazon",
       "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "amazon",
+      "fire",
+      "firetv",
       "streaming"
     ]
   },
   "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285_small.png": {
-    "name": "Amazon Fire TV",
+    "name": "Amazon / Fire TV",
     "category": "activity",
     "tags": [
-      "firetv",
-      "amazon",
       "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "amazon",
+      "fire",
+      "firetv",
       "streaming"
     ]
   },
   "5F5E0C9D-1D5A-4F6F-9DD4-243AFCCD8285_smallon.png": {
-    "name": "Amazon Fire TV (Active)",
+    "name": "Amazon / Fire TV (Active)",
     "category": "activity",
     "tags": [
-      "firetv",
-      "amazon",
       "5f5e0c9d-1d5a-4f6f-9dd4-243afccd8285",
+      "amazon",
+      "fire",
+      "firetv",
       "streaming"
     ]
   },
@@ -2076,33 +2130,36 @@
     ]
   },
   "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3.png": {
-    "name": "Streaming Box / IPTV (Large)",
+    "name": "Mug (Large)",
     "category": "activity",
     "tags": [
-      "box",
-      "streaming",
       "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
-      "iptv"
+      "mug",
+      "cup",
+      "coffee",
+      "tea"
     ]
   },
   "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3_small.png": {
-    "name": "Streaming Box / IPTV",
+    "name": "Mug",
     "category": "activity",
     "tags": [
-      "box",
-      "streaming",
       "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
-      "iptv"
+      "mug",
+      "cup",
+      "coffee",
+      "tea"
     ]
   },
   "64657363-41A2-4EBD-A5FD-BA7CF83DE4D3_smallon.png": {
-    "name": "Streaming Box / IPTV (Active)",
+    "name": "Mug (Active)",
     "category": "activity",
     "tags": [
-      "box",
-      "streaming",
       "64657363-41a2-4ebd-a5fd-ba7cf83de4d3",
-      "iptv"
+      "mug",
+      "cup",
+      "coffee",
+      "tea"
     ]
   },
   "65.png": {
@@ -2201,93 +2258,99 @@
     ]
   },
   "6D621A24-72D6-4CCD-8ED8-1114B52952AE.png": {
-    "name": "Multiroom Audio Group (Large)",
+    "name": "Moon / Night (Large)",
     "category": "activity",
     "tags": [
       "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
-      "group",
-      "multiroom",
-      "audio"
+      "moon",
+      "night",
+      "sleep",
+      "bedtime"
     ]
   },
   "6D621A24-72D6-4CCD-8ED8-1114B52952AE_small.png": {
-    "name": "Multiroom Audio Group",
+    "name": "Moon / Night",
     "category": "activity",
     "tags": [
       "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
-      "group",
-      "multiroom",
-      "audio"
+      "moon",
+      "night",
+      "sleep",
+      "bedtime"
     ]
   },
   "6D621A24-72D6-4CCD-8ED8-1114B52952AE_smallon.png": {
-    "name": "Multiroom Audio Group (Active)",
+    "name": "Moon / Night (Active)",
     "category": "activity",
     "tags": [
       "6d621a24-72d6-4ccd-8ed8-1114b52952ae",
-      "group",
-      "multiroom",
-      "audio"
+      "moon",
+      "night",
+      "sleep",
+      "bedtime"
     ]
   },
   "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099.png": {
-    "name": "Internet Radio / Podcast (Large)",
+    "name": "Hot Drink (Large)",
     "category": "activity",
     "tags": [
       "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
-      "podcast",
-      "radio",
-      "stream"
+      "mug",
+      "coffee",
+      "tea",
+      "hot",
+      "drink"
     ]
   },
   "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099_small.png": {
-    "name": "Internet Radio / Podcast",
+    "name": "Hot Drink",
     "category": "activity",
     "tags": [
       "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
-      "podcast",
-      "radio",
-      "stream"
+      "mug",
+      "coffee",
+      "tea",
+      "hot",
+      "drink"
     ]
   },
   "6E24F18E-EA94-4A87-A4AE-1F2FAF1A1099_smallon.png": {
-    "name": "Internet Radio / Podcast (Active)",
+    "name": "Hot Drink (Active)",
     "category": "activity",
     "tags": [
       "6e24f18e-ea94-4a87-a4ae-1f2faf1a1099",
-      "podcast",
-      "radio",
-      "stream"
+      "mug",
+      "coffee",
+      "tea",
+      "hot",
+      "drink"
     ]
   },
   "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E.png": {
-    "name": "Roku Streaming Player (Large)",
+    "name": "Roku (Large)",
     "category": "activity",
     "tags": [
-      "roku",
-      "streaming",
       "6ebd03b8-c815-48be-adbb-d36e06caac5e",
-      "player"
+      "roku",
+      "streaming"
     ]
   },
   "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png": {
-    "name": "Roku Streaming Player",
+    "name": "Roku",
     "category": "activity",
     "tags": [
-      "roku",
-      "streaming",
       "6ebd03b8-c815-48be-adbb-d36e06caac5e",
-      "player"
+      "roku",
+      "streaming"
     ]
   },
   "6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_smallon.png": {
-    "name": "Roku Streaming Player (Active)",
+    "name": "Roku (Active)",
     "category": "activity",
     "tags": [
-      "roku",
-      "streaming",
       "6ebd03b8-c815-48be-adbb-d36e06caac5e",
-      "player"
+      "roku",
+      "streaming"
     ]
   },
   "7.png": {
@@ -2318,33 +2381,36 @@
     ]
   },
   "718B691B-DF39-4787-989D-EAB9D39D595E.png": {
-    "name": "Cable TV Box / DVR (Large)",
+    "name": "Sunrise / Sunset (Large)",
     "category": "activity",
     "tags": [
       "718b691b-df39-4787-989d-eab9d39d595e",
-      "tv",
-      "dvr",
-      "cable"
+      "sunrise",
+      "sunset",
+      "morning",
+      "evening"
     ]
   },
   "718B691B-DF39-4787-989D-EAB9D39D595E_small.png": {
-    "name": "Cable TV Box / DVR",
+    "name": "Sunrise / Sunset",
     "category": "activity",
     "tags": [
       "718b691b-df39-4787-989d-eab9d39d595e",
-      "tv",
-      "dvr",
-      "cable"
+      "sunrise",
+      "sunset",
+      "morning",
+      "evening"
     ]
   },
   "718B691B-DF39-4787-989D-EAB9D39D595E_smallon.png": {
-    "name": "Cable TV Box / DVR (Active)",
+    "name": "Sunrise / Sunset (Active)",
     "category": "activity",
     "tags": [
       "718b691b-df39-4787-989d-eab9d39d595e",
-      "tv",
-      "dvr",
-      "cable"
+      "sunrise",
+      "sunset",
+      "morning",
+      "evening"
     ]
   },
   "72.png": {
@@ -2357,33 +2423,33 @@
     ]
   },
   "72D0AAB4-2ED8-4644-84D2-0031BDAE356E.png": {
-    "name": "Listen to Music / Audio (Large)",
+    "name": "Music (Large)",
     "category": "activity",
     "tags": [
-      "audio",
       "72d0aab4-2ed8-4644-84d2-0031bdae356e",
-      "listen",
-      "music"
+      "music",
+      "audio",
+      "listen"
     ]
   },
   "72D0AAB4-2ED8-4644-84D2-0031BDAE356E_small.png": {
-    "name": "Listen to Music / Audio",
+    "name": "Music",
     "category": "activity",
     "tags": [
-      "audio",
       "72d0aab4-2ed8-4644-84d2-0031bdae356e",
-      "listen",
-      "music"
+      "music",
+      "audio",
+      "listen"
     ]
   },
   "72D0AAB4-2ED8-4644-84D2-0031BDAE356E_smallon.png": {
-    "name": "Listen to Music / Audio (Active)",
+    "name": "Music (Active)",
     "category": "activity",
     "tags": [
-      "audio",
       "72d0aab4-2ed8-4644-84d2-0031bdae356e",
-      "listen",
-      "music"
+      "music",
+      "audio",
+      "listen"
     ]
   },
   "74.png": {
@@ -2423,33 +2489,30 @@
     ]
   },
   "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC.png": {
-    "name": "Turntable / Vinyl Record (Large)",
+    "name": "Home (Large)",
     "category": "activity",
     "tags": [
-      "vinyl",
-      "record",
-      "turntable",
-      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc",
+      "home",
+      "house"
     ]
   },
   "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC_small.png": {
-    "name": "Turntable / Vinyl Record",
+    "name": "Home",
     "category": "activity",
     "tags": [
-      "vinyl",
-      "record",
-      "turntable",
-      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc",
+      "home",
+      "house"
     ]
   },
   "7A38712D-0BB0-4D3C-B9AF-D54FF86CC9CC_smallon.png": {
-    "name": "Turntable / Vinyl Record (Active)",
+    "name": "Home (Active)",
     "category": "activity",
     "tags": [
-      "vinyl",
-      "record",
-      "turntable",
-      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc"
+      "7a38712d-0bb0-4d3c-b9af-d54ff86cc9cc",
+      "home",
+      "house"
     ]
   },
   "7B7FF0C6-CC71-498D-8B1E-C029CBB07CF3.png": {
@@ -2561,33 +2624,33 @@
     ]
   },
   "819ABAB3-94AD-4798-8B71-BD98C829EB89.png": {
-    "name": "FM / DAB Tuner Radio (Large)",
+    "name": "Game Console with Controller (2) (Large)",
     "category": "activity",
     "tags": [
       "819abab3-94ad-4798-8b71-bd98c829eb89",
-      "fm",
-      "radio",
-      "tuner"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "819ABAB3-94AD-4798-8B71-BD98C829EB89_small.png": {
-    "name": "FM / DAB Tuner Radio",
+    "name": "Game Console with Controller (2)",
     "category": "activity",
     "tags": [
       "819abab3-94ad-4798-8b71-bd98c829eb89",
-      "fm",
-      "radio",
-      "tuner"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "819ABAB3-94AD-4798-8B71-BD98C829EB89_smallon.png": {
-    "name": "FM / DAB Tuner Radio (Active)",
+    "name": "Game Console with Controller (2) (Active)",
     "category": "activity",
     "tags": [
       "819abab3-94ad-4798-8b71-bd98c829eb89",
-      "fm",
-      "radio",
-      "tuner"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "83.png": {
@@ -2817,33 +2880,33 @@
     ]
   },
   "8B271ADA-D2ED-477B-BFF2-D2450245C3B0.png": {
-    "name": "Audio DAC / Pre-Amp (Large)",
+    "name": "Peq (Large)",
     "category": "activity",
     "tags": [
       "8b271ada-d2ed-477b-bff2-d2450245c3b0",
-      "preamp",
-      "hifi",
-      "dac"
+      "peq",
+      "home",
+      "automation"
     ]
   },
   "8B271ADA-D2ED-477B-BFF2-D2450245C3B0_small.png": {
-    "name": "Audio DAC / Pre-Amp",
+    "name": "Peq",
     "category": "activity",
     "tags": [
       "8b271ada-d2ed-477b-bff2-d2450245c3b0",
-      "preamp",
-      "hifi",
-      "dac"
+      "peq",
+      "home",
+      "automation"
     ]
   },
   "8B271ADA-D2ED-477B-BFF2-D2450245C3B0_smallon.png": {
-    "name": "Audio DAC / Pre-Amp (Active)",
+    "name": "Peq (Active)",
     "category": "activity",
     "tags": [
       "8b271ada-d2ed-477b-bff2-d2450245c3b0",
-      "preamp",
-      "hifi",
-      "dac"
+      "peq",
+      "home",
+      "automation"
     ]
   },
   "8C07FD25-A715-4A64-A4F9-46B0B7A0C1EF.png": {
@@ -3080,33 +3143,36 @@
     ]
   },
   "9B0478B4-CB51-4CC8-B58E-682033DFC8EF.png": {
-    "name": "LaserDisc / Optical Media (Large)",
+    "name": "Game Console with Controller (3) (Large)",
     "category": "activity",
     "tags": [
-      "disc",
-      "laserdisc",
       "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
-      "player"
+      "game",
+      "console",
+      "playstation",
+      "controller"
     ]
   },
   "9B0478B4-CB51-4CC8-B58E-682033DFC8EF_small.png": {
-    "name": "LaserDisc / Optical Media",
+    "name": "Game Console with Controller (3)",
     "category": "activity",
     "tags": [
-      "disc",
-      "laserdisc",
       "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
-      "player"
+      "game",
+      "console",
+      "playstation",
+      "controller"
     ]
   },
   "9B0478B4-CB51-4CC8-B58E-682033DFC8EF_smallon.png": {
-    "name": "LaserDisc / Optical Media (Active)",
+    "name": "Game Console with Controller (3) (Active)",
     "category": "activity",
     "tags": [
-      "disc",
-      "laserdisc",
       "9b0478b4-cb51-4cc8-b58e-682033dfc8ef",
-      "player"
+      "game",
+      "console",
+      "playstation",
+      "controller"
     ]
   },
   "9C0B36C2-F503-41FA-B957-4A0BCC7E4D8F.png": {
@@ -3140,13 +3206,13 @@
     ]
   },
   "9CCF9A96-B984-4AEB-9227-9B565FF74E06.png": {
-    "name": "Karaoke Machine / Jukebox (Large)",
+    "name": "Ceiling Fan (Large)",
     "category": "activity",
     "tags": [
       "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
-      "jukebox",
-      "karaoke",
-      "sing"
+      "fan",
+      "ceiling",
+      "cooling"
     ]
   },
   "9CCF9A96-B984-4AEB-9227-9B565FF74E06_off.png": {
@@ -3170,23 +3236,23 @@
     ]
   },
   "9CCF9A96-B984-4AEB-9227-9B565FF74E06_small.png": {
-    "name": "Karaoke Machine / Jukebox",
+    "name": "Ceiling Fan",
     "category": "activity",
     "tags": [
       "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
-      "jukebox",
-      "karaoke",
-      "sing"
+      "fan",
+      "ceiling",
+      "cooling"
     ]
   },
   "9CCF9A96-B984-4AEB-9227-9B565FF74E06_smallon.png": {
-    "name": "Karaoke Machine / Jukebox (Active)",
+    "name": "Ceiling Fan (Active)",
     "category": "activity",
     "tags": [
       "9ccf9a96-b984-4aeb-9227-9b565ff74e06",
-      "jukebox",
-      "karaoke",
-      "sing"
+      "fan",
+      "ceiling",
+      "cooling"
     ]
   },
   "9CEC604E-B876-4953-88D2-7CD6283D3275.png": {
@@ -3220,63 +3286,66 @@
     ]
   },
   "9D24EB35-468B-4148-A6A2-BB764AA9609C.png": {
-    "name": "Play Game / Gamepad (Large)",
+    "name": "Gamepad (Large)",
     "category": "activity",
     "tags": [
-      "game",
-      "console",
       "9d24eb35-468b-4148-a6a2-bb764aa9609c",
-      "gamepad"
+      "game",
+      "gamepad",
+      "controller",
+      "play"
     ]
   },
   "9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png": {
-    "name": "Play Game / Gamepad",
+    "name": "Gamepad",
     "category": "activity",
     "tags": [
-      "game",
-      "console",
       "9d24eb35-468b-4148-a6a2-bb764aa9609c",
-      "gamepad"
+      "game",
+      "gamepad",
+      "controller",
+      "play"
     ]
   },
   "9D24EB35-468B-4148-A6A2-BB764AA9609C_smallon.png": {
-    "name": "Play Game / Gamepad (Active)",
+    "name": "Gamepad (Active)",
     "category": "activity",
     "tags": [
-      "game",
-      "console",
       "9d24eb35-468b-4148-a6a2-bb764aa9609c",
-      "gamepad"
+      "game",
+      "gamepad",
+      "controller",
+      "play"
     ]
   },
   "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C.png": {
-    "name": "Music Cassette Tape (Large)",
+    "name": "Game Console with Controller (4) (Large)",
     "category": "activity",
     "tags": [
       "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
-      "retro",
-      "cassette",
-      "tape"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C_small.png": {
-    "name": "Music Cassette Tape",
+    "name": "Game Console with Controller (4)",
     "category": "activity",
     "tags": [
       "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
-      "retro",
-      "cassette",
-      "tape"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "9D3EA5D0-9E27-4488-922E-F706C7FA1A8C_smallon.png": {
-    "name": "Music Cassette Tape (Active)",
+    "name": "Game Console with Controller (4) (Active)",
     "category": "activity",
     "tags": [
       "9d3ea5d0-9e27-4488-922e-f706c7fa1a8c",
-      "retro",
-      "cassette",
-      "tape"
+      "game",
+      "console",
+      "controller"
     ]
   },
   "9D6B957C-8A14-4C92-ADEE-DD0C8FBB2366.png": {
@@ -3330,63 +3399,66 @@
     ]
   },
   "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7.png": {
-    "name": "Over-The-Air TV Antenna (Large)",
+    "name": "Honeywell / Thermostat (Large)",
     "category": "activity",
     "tags": [
-      "antenna",
-      "ota",
       "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
-      "tuner"
+      "honeywell",
+      "thermostat",
+      "heating",
+      "climate"
     ]
   },
   "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7_small.png": {
-    "name": "Over-The-Air TV Antenna",
+    "name": "Honeywell / Thermostat",
     "category": "activity",
     "tags": [
-      "antenna",
-      "ota",
       "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
-      "tuner"
+      "honeywell",
+      "thermostat",
+      "heating",
+      "climate"
     ]
   },
   "A1164C5F-1D7A-4B7F-BBEC-E9F5ACF303B7_smallon.png": {
-    "name": "Over-The-Air TV Antenna (Active)",
+    "name": "Honeywell / Thermostat (Active)",
     "category": "activity",
     "tags": [
-      "antenna",
-      "ota",
       "a1164c5f-1d7a-4b7f-bbec-e9f5acf303b7",
-      "tuner"
+      "honeywell",
+      "thermostat",
+      "heating",
+      "climate"
     ]
   },
   "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D.png": {
-    "name": "Audio Equalizer (EQ) (Large)",
+    "name": "Netflix (Large)",
     "category": "activity",
     "tags": [
       "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
-      "equalizer",
-      "eq",
-      "audio"
+      "netflix",
+      "movie",
+      "streaming"
     ]
   },
   "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D_small.png": {
-    "name": "Audio Equalizer (EQ)",
+    "name": "Netflix",
     "category": "activity",
     "tags": [
       "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
-      "equalizer",
-      "eq",
-      "audio"
+      "netflix",
+      "movie",
+      "streaming"
     ]
   },
   "A12FF2BE-5C15-4E5D-8E51-1F328716EF3D_smallon.png": {
-    "name": "Audio Equalizer (EQ) (Active)",
+    "name": "Netflix (Active)",
     "category": "activity",
     "tags": [
       "a12ff2be-5c15-4e5d-8e51-1f328716ef3d",
-      "equalizer",
-      "eq",
-      "audio"
+      "netflix",
+      "movie",
+      "streaming"
     ]
   },
   "A181D535-D966-4178-91F9-57278BE8D7EA.png": {
@@ -3490,33 +3562,33 @@
     ]
   },
   "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD.png": {
-    "name": "Soundboard / DJ Mixer (Large)",
+    "name": "HD TV (Large)",
     "category": "activity",
     "tags": [
-      "mixer",
       "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
-      "dj",
-      "soundboard"
+      "hd",
+      "tv",
+      "television"
     ]
   },
   "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD_small.png": {
-    "name": "Soundboard / DJ Mixer",
+    "name": "HD TV",
     "category": "activity",
     "tags": [
-      "mixer",
       "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
-      "dj",
-      "soundboard"
+      "hd",
+      "tv",
+      "television"
     ]
   },
   "A54AB6F8-8FBE-4A90-A43E-2C9993961EFD_smallon.png": {
-    "name": "Soundboard / DJ Mixer (Active)",
+    "name": "HD TV (Active)",
     "category": "activity",
     "tags": [
-      "mixer",
       "a54ab6f8-8fbe-4a90-a43e-2c9993961efd",
-      "dj",
-      "soundboard"
+      "hd",
+      "tv",
+      "television"
     ]
   },
   "A648AC27-8B04-4CAD-A2B2-82A83BCDB741.png": {
@@ -3550,33 +3622,36 @@
     ]
   },
   "AB95C212-7B27-4118-8CD3-0E595EA061D5.png": {
-    "name": "Streaming Audio Player (Large)",
+    "name": "Fireplace (Large)",
     "category": "activity",
     "tags": [
-      "player",
-      "streamer",
       "ab95c212-7b27-4118-8cd3-0e595ea061d5",
-      "audio"
+      "fireplace",
+      "fire",
+      "cosy",
+      "relax"
     ]
   },
   "AB95C212-7B27-4118-8CD3-0E595EA061D5_small.png": {
-    "name": "Streaming Audio Player",
+    "name": "Fireplace",
     "category": "activity",
     "tags": [
-      "player",
-      "streamer",
       "ab95c212-7b27-4118-8cd3-0e595ea061d5",
-      "audio"
+      "fireplace",
+      "fire",
+      "cosy",
+      "relax"
     ]
   },
   "AB95C212-7B27-4118-8CD3-0E595EA061D5_smallon.png": {
-    "name": "Streaming Audio Player (Active)",
+    "name": "Fireplace (Active)",
     "category": "activity",
     "tags": [
-      "player",
-      "streamer",
       "ab95c212-7b27-4118-8cd3-0e595ea061d5",
-      "audio"
+      "fireplace",
+      "fire",
+      "cosy",
+      "relax"
     ]
   },
   "AC921110-8F9C-40A3-B51C-06F3B1E18C92.png": {
@@ -3630,33 +3705,36 @@
     ]
   },
   "B25A8282-30CE-4EA3-9F92-3E25474B076B.png": {
-    "name": "Home Cinema Projector Screen (Large)",
+    "name": "Light Bulb (Large)",
     "category": "activity",
     "tags": [
       "b25a8282-30ce-4ea3-9f92-3e25474b076b",
-      "projector",
-      "cinema",
-      "screen"
+      "light",
+      "bulb",
+      "lamp",
+      "lights"
     ]
   },
   "B25A8282-30CE-4EA3-9F92-3E25474B076B_small.png": {
-    "name": "Home Cinema Projector Screen",
+    "name": "Light Bulb",
     "category": "activity",
     "tags": [
       "b25a8282-30ce-4ea3-9f92-3e25474b076b",
-      "projector",
-      "cinema",
-      "screen"
+      "light",
+      "bulb",
+      "lamp",
+      "lights"
     ]
   },
   "B25A8282-30CE-4EA3-9F92-3E25474B076B_smallon.png": {
-    "name": "Home Cinema Projector Screen (Active)",
+    "name": "Light Bulb (Active)",
     "category": "activity",
     "tags": [
       "b25a8282-30ce-4ea3-9f92-3e25474b076b",
-      "projector",
-      "cinema",
-      "screen"
+      "light",
+      "bulb",
+      "lamp",
+      "lights"
     ]
   },
   "B4241984-3855-46C7-A940-3604743297BD.png": {
@@ -3710,33 +3788,36 @@
     ]
   },
   "BAB09C4A-E61D-4284-B1F3-84135F562217.png": {
-    "name": "Watch Movie / Film (Large)",
+    "name": "Movie on TV (Large)",
     "category": "activity",
     "tags": [
       "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "movie",
+      "tv",
       "film",
-      "cinema",
-      "movie"
+      "video"
     ]
   },
   "BAB09C4A-E61D-4284-B1F3-84135F562217_small.png": {
-    "name": "Watch Movie / Film",
+    "name": "Movie on TV",
     "category": "activity",
     "tags": [
       "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "movie",
+      "tv",
       "film",
-      "cinema",
-      "movie"
+      "video"
     ]
   },
   "BAB09C4A-E61D-4284-B1F3-84135F562217_smallon.png": {
-    "name": "Watch Movie / Film (Active)",
+    "name": "Movie on TV (Active)",
     "category": "activity",
     "tags": [
       "bab09c4a-e61d-4284-b1f3-84135f562217",
+      "movie",
+      "tv",
       "film",
-      "cinema",
-      "movie"
+      "video"
     ]
   },
   "BF4C747E-C437-423E-9801-535E0EA55848.png": {
@@ -3770,63 +3851,66 @@
     ]
   },
   "C45B3641-9CE3-43D8-907F-F87838A86C84.png": {
-    "name": "Multi-Disc Carousel Player (Large)",
+    "name": "SmartThings (Large)",
     "category": "activity",
     "tags": [
       "c45b3641-9ce3-43d8-907f-f87838a86c84",
-      "carousel",
-      "multidisc",
-      "player"
+      "smartthings",
+      "home",
+      "automation"
     ]
   },
   "C45B3641-9CE3-43D8-907F-F87838A86C84_small.png": {
-    "name": "Multi-Disc Carousel Player",
+    "name": "SmartThings",
     "category": "activity",
     "tags": [
       "c45b3641-9ce3-43d8-907f-f87838a86c84",
-      "carousel",
-      "multidisc",
-      "player"
+      "smartthings",
+      "home",
+      "automation"
     ]
   },
   "C45B3641-9CE3-43D8-907F-F87838A86C84_smallon.png": {
-    "name": "Multi-Disc Carousel Player (Active)",
+    "name": "SmartThings (Active)",
     "category": "activity",
     "tags": [
       "c45b3641-9ce3-43d8-907f-f87838a86c84",
-      "carousel",
-      "multidisc",
-      "player"
+      "smartthings",
+      "home",
+      "automation"
     ]
   },
   "C4D124B8-F851-4200-86C0-B38494FE6167.png": {
-    "name": "Wireless Subwoofer (Large)",
+    "name": "Retro Console with Controller (Large)",
     "category": "activity",
     "tags": [
-      "wireless",
-      "bass",
-      "subwoofer",
-      "c4d124b8-f851-4200-86c0-b38494fe6167"
+      "c4d124b8-f851-4200-86c0-b38494fe6167",
+      "game",
+      "console",
+      "retro",
+      "controller"
     ]
   },
   "C4D124B8-F851-4200-86C0-B38494FE6167_small.png": {
-    "name": "Wireless Subwoofer",
+    "name": "Retro Console with Controller",
     "category": "activity",
     "tags": [
-      "wireless",
-      "bass",
-      "subwoofer",
-      "c4d124b8-f851-4200-86c0-b38494fe6167"
+      "c4d124b8-f851-4200-86c0-b38494fe6167",
+      "game",
+      "console",
+      "retro",
+      "controller"
     ]
   },
   "C4D124B8-F851-4200-86C0-B38494FE6167_smallon.png": {
-    "name": "Wireless Subwoofer (Active)",
+    "name": "Retro Console with Controller (Active)",
     "category": "activity",
     "tags": [
-      "wireless",
-      "bass",
-      "subwoofer",
-      "c4d124b8-f851-4200-86c0-b38494fe6167"
+      "c4d124b8-f851-4200-86c0-b38494fe6167",
+      "game",
+      "console",
+      "retro",
+      "controller"
     ]
   },
   "C62C7998-D6BF-4C2D-9E6C-47440E28A113.png": {
@@ -4000,33 +4084,33 @@
     ]
   },
   "CEDD3F0F-932A-4135-8F2D-1670550F20EE.png": {
-    "name": "Audio Cassette Deck (Large)",
+    "name": "Soundbar (Large)",
     "category": "activity",
     "tags": [
       "cedd3f0f-932a-4135-8f2d-1670550f20ee",
-      "tape",
-      "cassette",
-      "deck"
+      "soundbar",
+      "speaker",
+      "audio"
     ]
   },
   "CEDD3F0F-932A-4135-8F2D-1670550F20EE_small.png": {
-    "name": "Audio Cassette Deck",
+    "name": "Soundbar",
     "category": "activity",
     "tags": [
       "cedd3f0f-932a-4135-8f2d-1670550f20ee",
-      "tape",
-      "cassette",
-      "deck"
+      "soundbar",
+      "speaker",
+      "audio"
     ]
   },
   "CEDD3F0F-932A-4135-8F2D-1670550F20EE_smallon.png": {
-    "name": "Audio Cassette Deck (Active)",
+    "name": "Soundbar (Active)",
     "category": "activity",
     "tags": [
       "cedd3f0f-932a-4135-8f2d-1670550f20ee",
-      "tape",
-      "cassette",
-      "deck"
+      "soundbar",
+      "speaker",
+      "audio"
     ]
   },
   "CFA819F4-DB13-4F04-985D-D59087108D62.png": {
@@ -4090,33 +4174,36 @@
     ]
   },
   "D22A587C-E45C-4B4A-9396-19396EB8E32B.png": {
-    "name": "Wireless Headphone Stand (Large)",
+    "name": "Satellite Receiver (Large)",
     "category": "activity",
     "tags": [
-      "charging",
-      "stand",
-      "headphones",
-      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b",
+      "satellite",
+      "receiver",
+      "dish",
+      "tv"
     ]
   },
   "D22A587C-E45C-4B4A-9396-19396EB8E32B_small.png": {
-    "name": "Wireless Headphone Stand",
+    "name": "Satellite Receiver",
     "category": "activity",
     "tags": [
-      "charging",
-      "stand",
-      "headphones",
-      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b",
+      "satellite",
+      "receiver",
+      "dish",
+      "tv"
     ]
   },
   "D22A587C-E45C-4B4A-9396-19396EB8E32B_smallon.png": {
-    "name": "Wireless Headphone Stand (Active)",
+    "name": "Satellite Receiver (Active)",
     "category": "activity",
     "tags": [
-      "charging",
-      "stand",
-      "headphones",
-      "d22a587c-e45c-4b4a-9396-19396eb8e32b"
+      "d22a587c-e45c-4b4a-9396-19396eb8e32b",
+      "satellite",
+      "receiver",
+      "dish",
+      "tv"
     ]
   },
   "D4F91D44-F634-41FB-A9BE-FC8F63ABCED2.png": {
@@ -4260,36 +4347,36 @@
     ]
   },
   "DEC07396-B858-47E8-AE50-4AB346AF1D98.png": {
-    "name": "Sony PlayStation Console (Large)",
+    "name": "Gaming PC (Large)",
     "category": "activity",
     "tags": [
-      "ps",
-      "sony",
       "dec07396-b858-47e8-ae50-4ab346af1d98",
-      "playstation",
-      "game"
+      "pc",
+      "computer",
+      "game",
+      "gamepad"
     ]
   },
   "DEC07396-B858-47E8-AE50-4AB346AF1D98_small.png": {
-    "name": "Sony PlayStation Console",
+    "name": "Gaming PC",
     "category": "activity",
     "tags": [
-      "ps",
-      "sony",
       "dec07396-b858-47e8-ae50-4ab346af1d98",
-      "playstation",
-      "game"
+      "pc",
+      "computer",
+      "game",
+      "gamepad"
     ]
   },
   "DEC07396-B858-47E8-AE50-4AB346AF1D98_smallon.png": {
-    "name": "Sony PlayStation Console (Active)",
+    "name": "Gaming PC (Active)",
     "category": "activity",
     "tags": [
-      "ps",
-      "sony",
       "dec07396-b858-47e8-ae50-4ab346af1d98",
-      "playstation",
-      "game"
+      "pc",
+      "computer",
+      "game",
+      "gamepad"
     ]
   },
   "DFF3A4B7-B2A5-41F6-8347-77CAC20A7DD0.png": {
