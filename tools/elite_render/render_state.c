@@ -97,6 +97,7 @@ void render_load(const render_options_t *o) {
        (the browser build follows the browser's zone, whatever TZ says) */
     struct tm clock = { .tm_year = 126, .tm_mday = 1, .tm_hour = o->minutes / 60, .tm_min = o->minutes % 60, .tm_isdst = -1 };
     g_host_wall_time = mktime(&clock);
+    theme_load(o->theme);
     load_rf_config();
     load_wallpaper_asset();
     g_rf_link_connected = !o->no_hub;

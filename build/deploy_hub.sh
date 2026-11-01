@@ -183,7 +183,7 @@ if [ "$HAS_DEV" = "0" ]; then
     fi
 fi
 
-REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
+REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
 
 for bin in hub_daemon hub_rf hub_sntp hub_btstack hub_sync hub_dhcpd hub_portal mknod register_ehci eth_fix; do
     if [ -f "$BIN_DIR/$bin" ]; then
@@ -271,6 +271,8 @@ if [ "$WWW_DIR" = "$REPO_ROOT/payload/www" ] && [ -d "$REPO_ROOT/frontend" ]; th
     if command -v emcc >/dev/null 2>&1; then
         "$REPO_ROOT/tools/elite_render/build.sh" --wasm "$UI_SRC_DIR/public/assets" >/dev/null \
             || echo "[!] Elite screen renderer build failed; the Elite page will have no screen preview."
+        python3 "$REPO_ROOT/tools/elite_render/build_theme.py" --tar "$UI_SRC_DIR/public/assets/themes" >/dev/null \
+            || echo "[!] Elite theme build failed; the screen preview will show Classic only."
     fi
     echo "[*] Compiling frontend bundle with Vite ($UI_SRC_DIR)..."
     # A failed build stops here, before the last good copy in $WWW_DIR is emptied

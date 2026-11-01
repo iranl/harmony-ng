@@ -15,9 +15,9 @@ static uint8_t g_rgba[FB_WIDTH * FB_HEIGHT * 4];
 
 EMSCRIPTEN_KEEPALIVE
 uint8_t *er_render(const char *root, const char *view, int select, const char *active, const char *icons,
-                   int battery, int usb, int charging, int no_hub, int minutes) {
+                   int battery, int usb, int charging, int no_hub, int minutes, const char *theme) {
     render_options_t o = {
-        .root = root, .view = view, .select = select, .active = active, .icons = icons,
+        .root = root, .view = view, .select = select, .active = active, .icons = icons, .theme = theme,
         .battery = battery, .usb = usb != 0, .charging = charging != 0, .no_hub = no_hub != 0, .minutes = minutes,
     };
     render_load(&o);
@@ -44,11 +44,13 @@ int er_stock_icon_id(const char *icon, const char *name) {
     return id;
 }
 
-/* The image the remote draws for an activity: a path in the module's filesystem under root,
-   resolved from <root>/data/elite_rf_config.json the way the remote resolves its config */
+/* The image the remote draws for an activity in a theme: a path in the module's filesystem
+   under root, resolved from <root>/data/elite_rf_config.json the way the remote resolves its
+   config */
 EMSCRIPTEN_KEEPALIVE
-const char *er_activity_icon(const char *root, const char *id) {
+const char *er_activity_icon(const char *root, const char *id, const char *theme) {
     g_fs_root = root ? root : "";
+    theme_load(theme);
     load_rf_config();
     for (int i = 0; i < g_activity_count; i++) {
         if (strcmp(g_activities[i].id, id) == 0) return g_activities[i].icon_path;

@@ -346,6 +346,8 @@ bool handle_ota_frame(const rf_frame_t *f) {
                         system("cp -f /tmp/elite_ota_pkg/factory_reset.sh /data/factory_reset.sh && chmod 755 /data/factory_reset.sh");
                     }
                     system("for s in /tmp/elite_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/$(basename \"$s\")\"; done 2>/dev/null || true");
+                    /* Built-in themes replace their older versions; other themes stay */
+                    system("mkdir -p /data/themes && for t in /tmp/elite_ota_pkg/themes/*; do [ -d \"$t\" ] && rm -rf \"/data/themes/$(basename \"$t\")\" && cp -r \"$t\" /data/themes/; done 2>/dev/null || true");
                     char cp_cmd[384];
                     snprintf(cp_cmd, sizeof(cp_cmd), "mv -f %s /data/elite_ui && chmod 755 /data/elite_ui", bin_path);
                     system(cp_cmd);
