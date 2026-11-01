@@ -605,6 +605,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_HELP_STATUS: {
+            ui_help_on_status(f);
+            if (f->flags & RF_FLAG_ACK_REQ) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+                rf_send_frame(&ack);
+            }
+            break;
+        }
+
         case RF_MSG_ACK:
             break;
 

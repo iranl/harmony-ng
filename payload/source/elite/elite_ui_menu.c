@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
-typedef enum { MENU_SETTINGS } menu_item_t;
+typedef enum { MENU_HELP, MENU_SETTINGS } menu_item_t;
 
 #define MENU_X     4
 #define MENU_Y     36
@@ -18,6 +18,7 @@ typedef enum { MENU_SETTINGS } menu_item_t;
 
 static int menu_items(menu_item_t *out) {
     int n = 0;
+    if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0) out[n++] = MENU_HELP;
     out[n++] = MENU_SETTINGS;
     return n;
 }
@@ -39,6 +40,9 @@ static void menu_activate(int idx) {
     ui_menu_close();
     if (idx < 0 || idx >= n) return;
     switch (items[idx]) {
+        case MENU_HELP:
+            ui_help_start();
+            break;
         case MENU_SETTINGS:
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_CATEGORIES;
@@ -60,12 +64,19 @@ void render_menu(void) {
         if (sel) fb_fill_rect(MENU_X + 2, y, MENU_W - 4, MENU_ROW_H, RGB_CARD_SEL);
         const char *icon = NULL, *label = "";
         switch (items[i]) {
+            case MENU_HELP:
+                icon = "/opt/luadraws/appscommon/asset/footer/help.png";
+                label = tr(STR_HELP);
+                break;
             case MENU_SETTINGS:
                 icon = "/opt/luadraws/appscommon/asset/footer/settings.png";
                 label = tr(STR_SETTINGS);
                 break;
         }
-        if (!blit_png_file(MENU_X + 8, y + 6, 22, 22, icon)) fb_draw_cog(MENU_X + 19, y + 17, RGB_WHITE);
+        if (!blit_png_file(MENU_X + 8, y + 6, 22, 22, icon)) {
+            if (items[i] == MENU_SETTINGS) fb_draw_cog(MENU_X + 19, y + 17, RGB_WHITE);
+            else fb_draw_text_aa(MENU_X + 15, y + 8, "?", RGB_WHITE, &g_font_title);
+        }
         fb_draw_text_aa(MENU_X + 38, y + 9, label, sel ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_main);
     }
 }

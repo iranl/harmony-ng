@@ -151,6 +151,10 @@ void handle_screen_touch_tap(int x, int y) {
 
     if (ui_key_hint_dismiss()) return;
     if (ui_link_panel_dismiss()) return;
+    if (ui_help_active()) {
+        if (is_tap) ui_help_handle_tap(x, y);
+        return;
+    }
     if (g_menu_open) {
         if (is_tap) ui_menu_handle_tap(x, y);
         else { ui_menu_close(); render_screen(); }
@@ -370,6 +374,7 @@ void handle_screen_touch_tap(int x, int y) {
 }
 
 void handle_navigation_key(int code, int value) {
+    if (value == 1) ui_help_close(); /* the Activities and Devices keys leave Help */
     if (code == 364 && value == 0) {
         bool short_press = g_act_key_down_ms > 0 && !g_act_key_long_fired;
         g_act_key_down_ms = 0;

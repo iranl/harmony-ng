@@ -7,6 +7,7 @@
 #include "rf_pairing.h"
 #include "rf_api.h"
 #include "rf_config_push.h"
+#include "rf_help.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,6 +130,14 @@ void handle_rf_frame(const rf_frame_t *f) {
 
         case RF_MSG_DEVICE_CMD_INDEX:
             enqueue_browsed_device_cmd(f->payload);
+            break;
+
+        case RF_MSG_HELP_REQUEST:
+            rf_help_request(f);
+            break;
+
+        case RF_MSG_HELP_ANSWER:
+            rf_help_answer(f);
             break;
 
         case RF_MSG_DEVICE_CMD_REQUEST: {

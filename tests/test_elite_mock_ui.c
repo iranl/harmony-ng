@@ -270,6 +270,53 @@ int main(void) {
     assert(lq.state == LINK_NO_HUB);
     printf("[+] Link quality: bars from the weaker measure, late replies ignored, silent Hub detected\n");
 
+    /* 10. Help (ADR-0004): listed in the menu only while an activity runs; follows the Hub's
+       status frames, ignores repeats and frames after it closed */
+    g_is_syncing_config = false; /* the device list chunk above started a sync */
+    snprintf(g_active_activity_id, sizeof(g_active_activity_id), "-1");
+    g_current_view = VIEW_ACTIVITIES;
+    ui_menu_open();
+    ui_menu_handle_key(28);
+    assert(!ui_help_active() && g_current_view == VIEW_SETTINGS);
+
+    snprintf(g_active_activity_id, sizeof(g_active_activity_id), "1001");
+    g_current_view = VIEW_ACTIVITIES;
+    ui_menu_open();
+    ui_menu_handle_key(28);
+    assert(ui_help_active());
+    memset(p, 0, sizeof(p));
+    p[0] = RF_HELP_STARTED;
+    rf_build_frame(&rf, 1, RF_MSG_HELP_STATUS, 1, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    p[0] = RF_HELP_QUESTION; p[1] = 0; p[2] = 2;
+    memcpy(&p[3], "6", 1);
+    memcpy(&p[11], "Marantz AV Rec", 14);
+    rf_build_frame(&rf, 1, RF_MSG_HELP_STATUS, 2, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    handle_hub_frame_remote(&rf); /* resent: still the first question */
+    tap(FB_WIDTH - 20, FB_HEIGHT - 50); /* No */
+    assert(ui_help_active());           /* waits for the second question */
+    p[1] = 1;
+    memcpy(&p[3], "9", 1);
+    rf_build_frame(&rf, 1, RF_MSG_HELP_STATUS, 3, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    ui_help_handle_key(28);             /* Yes: the last answer shows the summary */
+    assert(ui_help_active());
+    ui_help_tick(get_monotonic_ms() + 3001);
+    assert(!ui_help_active() && g_current_view == VIEW_DEVICES);
+    p[0] = RF_HELP_STARTED;
+    rf_build_frame(&rf, 1, RF_MSG_HELP_STATUS, 4, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    assert(!ui_help_active());
+
+    ui_help_start();
+    p[0] = RF_HELP_BUSY;
+    rf_build_frame(&rf, 1, RF_MSG_HELP_STATUS, 5, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    tap(FB_WIDTH / 2, FB_HEIGHT / 2);   /* a tap closes the summary */
+    assert(!ui_help_active());
+    printf("[+] Help: menu item only while an activity runs, questions answered, late frames ignored\n");
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;

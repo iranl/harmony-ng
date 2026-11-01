@@ -216,6 +216,9 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
 | `0x2B` | `RF_MSG_ACT_DEVICES_CHUNK` | Hub -> Remote | Devices one activity uses (ACK'd); sent only to remotes that report `RF_CAP_ACT_DEVICES` |
 | `0x2C` | `RF_MSG_NAME_TAIL_CHUNK` | Hub -> Remote | Rest of an activity or device name (ACK'd); sent only to remotes that report `RF_CAP_LONG_NAMES` |
+| `0x2D` | `RF_MSG_HELP_REQUEST` | Remote -> Hub | Help: repair the running activity |
+| `0x2E` | `RF_MSG_HELP_STATUS` | Hub -> Remote | Help progress, or a device to ask about (ACK'd except a repeated "started"); sent only in reply to `RF_MSG_HELP_REQUEST` |
+| `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
 
 ### 5.2 Key Payload Structures
 
@@ -241,6 +244,29 @@ Follows an `RF_MSG_ACTIVITY_LIST_CHUNK` or `RF_MSG_DEVICE_LIST_CHUNK` whose name
 - `payload[1]`: Activity or device index
 - `payload[2]`: Offset of this part in the name
 - `payload[3..24]`: Name bytes, NUL-padded
+
+#### Help: `RF_MSG_HELP_REQUEST` (`0x2D`), `RF_MSG_HELP_STATUS` (`0x2E`), `RF_MSG_HELP_ANSWER` (`0x2F`)
+Help re-sends the running activity's commands except power toggles, then asks about each device whose only power command is a toggle ([ADR-0004](adr/0004-help-repairs-the-current-activity.md)). The Hub sends `RF_MSG_HELP_STATUS` only to a remote that asked, so no capability bit is needed.
+
+1. The remote sends `RF_MSG_HELP_REQUEST` and repeats it every 2 s, up to 3 times, until it gets "started".
+2. hub_rf calls `POST /api/activity/help` on the daemon and replies "started", or "busy" or "failed".
+3. When the daemon has sent the commands (`GET /api/activity` reports `busy` and `sending` false, at most 120 s), hub_rf sends one question per toggle device, or "no questions".
+4. For each question the remote sends `RF_MSG_HELP_ANSWER`; hub_rf calls `POST /api/activity/help/answer`, which sends the toggle when the answer is "off".
+
+`RF_MSG_HELP_REQUEST`:
+- `payload[0..11]`: Activity ID, NUL-padded
+
+`RF_MSG_HELP_STATUS`:
+- `payload[0]`: `0x00` question, `0x01` started (re-sending), `0x02` busy (another activity change is running), `0x03` failed (activity not running, or Hub error), `0x04` no questions (commands re-sent, no toggle devices)
+- For a question:
+  - `payload[1]`: Question index
+  - `payload[2]`: Question count
+  - `payload[3..10]`: Device ID, NUL-padded
+  - `payload[11..24]`: First 14 bytes of the device name; the remote shows the full name from its device list when it has the ID
+
+`RF_MSG_HELP_ANSWER`:
+- `payload[0]`: `1` the device is on, `0` it is off
+- `payload[1..8]`: Device ID, NUL-padded
 
 #### `RF_MSG_SETTINGS_PUSH` (`0x0E`) & `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
 Both frames use a 17-byte standardized configuration payload:

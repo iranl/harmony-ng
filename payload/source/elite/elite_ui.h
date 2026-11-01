@@ -74,6 +74,16 @@ bool ui_menu_handle_key(int code);
 void ui_menu_handle_tap(int x, int y);
 bool ui_key_hint_dismiss(void);
 
+/* Help (elite_ui_help.c): repairs the running activity, started from the menu */
+void ui_help_start(void);
+void ui_help_close(void);
+bool ui_help_active(void);
+void ui_help_on_status(const rf_frame_t *f);
+void ui_help_tick(uint64_t now);
+void render_help(void);
+bool ui_help_handle_key(int code);
+void ui_help_handle_tap(int x, int y);
+
 #ifdef __cplusplus
 }
 #endif

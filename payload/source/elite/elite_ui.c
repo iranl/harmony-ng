@@ -232,6 +232,7 @@ void render_frame(void) {
             default: break;
         }
 
+        if (ui_help_active()) render_help();
         if (g_menu_open) render_menu();
         else if (g_key_hint_pending && is_remote_paired()) render_key_hint();
         else if (g_link_panel_open) render_link_panel();

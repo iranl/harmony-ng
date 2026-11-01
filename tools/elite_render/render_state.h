@@ -6,7 +6,7 @@
 
 typedef struct {
     const char *root;    /* directory laid out like the remote's filesystem */
-    const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync */
+    const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync|help-wait|help-question|help-done */
     const char *icons;   /* activity icon directory on the remote's filesystem, or "classic" */
     const char *active;  /* running activity ID */
     int select;
