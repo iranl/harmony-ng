@@ -266,6 +266,12 @@ if [ "$WWW_DIR" = "$REPO_ROOT/payload/www" ] && [ -d "$REPO_ROOT/frontend" ]; th
     if [ "$UI_CHOICE" = "legacy" ] || [ "$UI_CHOICE" = "old" ] || [ "$UI_CHOICE" = "android-app" ]; then
         UI_SRC_DIR="$REPO_ROOT/android-app"
     fi
+    # The Elite page's screen preview is the remote's renderer built to WebAssembly; without
+    # Emscripten the page leaves the preview out
+    if command -v emcc >/dev/null 2>&1; then
+        "$REPO_ROOT/tools/elite_render/build.sh" --wasm "$UI_SRC_DIR/public/assets" >/dev/null \
+            || echo "[!] Elite screen renderer build failed; the Elite page will have no screen preview."
+    fi
     echo "[*] Compiling frontend bundle with Vite ($UI_SRC_DIR)..."
     # A failed build stops here, before the last good copy in $WWW_DIR is emptied
     if ! (cd "$UI_SRC_DIR" && npm run build) || [ ! -f "$UI_SRC_DIR/dist/index.html" ]; then

@@ -247,7 +247,8 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 
     if (!data) {
         int comp = 0;
-        data = stbi_load(filepath, &w, &h, &comp, 4);
+        char fs_path[256];
+        data = stbi_load(elite_fs_path(filepath, fs_path, sizeof(fs_path)), &w, &h, &comp, 4);
         if (!data) return false;
         if (g_png_cache_count < MAX_CACHED_PNG) {
             strncpy(g_png_cache[g_png_cache_count].path, filepath, sizeof(g_png_cache[0].path) - 1);
@@ -258,6 +259,9 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
             is_cached = true;
         }
     }
+
+    /* Theme icons carry their own colours; only stock and custom line art is recoloured */
+    bool recolor_dark = strstr(filepath, "/themes/") == NULL;
 
     for (int ty = 0; ty < target_h; ty++) {
         int py = dst_y + ty;
@@ -278,7 +282,7 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 
             /* Stock Logitech icons are black line-art with alpha on transparent canvas.
              * On dark card backgrounds, convert dark glyph pixels to crisp white so they shine clearly! */
-            if ((r + g + b) < 100 && a > 30) {
+            if (recolor_dark && (r + g + b) < 100 && a > 30) {
                 r = 245;
                 g = 245;
                 b = 250;
@@ -321,7 +325,8 @@ void load_wallpaper_asset(void) {
     };
     for (size_t i = 0; i < sizeof(paths)/sizeof(paths[0]); i++) {
         int w = 0, h = 0, comp = 0;
-        unsigned char *data = stbi_load(paths[i], &w, &h, &comp, 3);
+        char fs_path[256];
+        unsigned char *data = stbi_load(elite_fs_path(paths[i], fs_path, sizeof(fs_path)), &w, &h, &comp, 3);
         if (data && w == FB_WIDTH && h == FB_HEIGHT) {
             for (int j = 0; j < FB_WIDTH * FB_HEIGHT; j++) {
                 uint8_t r = data[j * 3 + 0];

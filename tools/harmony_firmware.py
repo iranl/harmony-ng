@@ -397,8 +397,12 @@ def extract_elite_icons(
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             print(f"[*] Packaging icons archive into {archive_path}...")
             import tarfile
+            # Keep the firmware's directories: 359 file names have different images in
+            # different directories, and the Elite screen preview needs the ones the remote
+            # uses. The Hub links every file into one flat directory when it unpacks.
             with tarfile.open(archive_path, "w:gz") as tar:
-                tar.add(consolidated_icons_dir, arcname="icons")
+                for png_file in sorted(asset_root.rglob("*.png")):
+                    tar.add(png_file, arcname=f"icons/{png_file.relative_to(asset_root).as_posix()}")
             print(f"[+] Successfully built: {archive_path} ({archive_path.stat().st_size:,} bytes)")
 
         if android_sync:

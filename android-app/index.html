@@ -2957,6 +2957,7 @@
                 <div class="elite-screen-frame" id="eliteScreenFrame"
                   style="left:14.0%;top:7.8%;width:72.0%;height:27.5%; cursor: pointer;"
                   title="Configure touchscreen buttons">
+                  <canvas id="eliteScreenCanvas" class="elite-screen-canvas" width="240" height="320" hidden></canvas>
                   <div class="elite-screen-header">
                     <span id="eliteScreenTitle">ACTIVITIES</span>
                     <span id="eliteScreenBattery">🔋 100%</span>
@@ -3095,6 +3096,11 @@
                   style="left:63.0%;top:78.0%;width:25.5%;height:2.8%;font-size:12px;letter-spacing:1px;line-height:1;"
                   data-btn="Ha4" title="Socket 2 (::)">⁞⁞</button>
               </div>
+            </div>
+            <div id="eliteScreenViewBar" class="segmented-nav" style="margin-top: 12px; display: none;">
+              <button type="button" class="segmented-btn" data-view="activities">Activities</button>
+              <button type="button" class="segmented-btn" data-view="commands">Buttons</button>
+              <button type="button" class="segmented-btn" data-view="devices">Devices</button>
             </div>
 
             <!-- Companion / Smart Control Remote Shell & Hotspots -->

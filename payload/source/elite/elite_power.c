@@ -310,6 +310,10 @@ static int s_batt_sample_num = 0;
 static uint64_t s_last_batt_sample_ms = 0;
 static uint8_t s_filtered_pct = 0xFF;
 
+time_t ui_wall_time(void) {
+    return time(NULL);
+}
+
 void read_elite_battery(void) {
     uint64_t now_ms = get_monotonic_ms();
 

@@ -3,6 +3,12 @@
 #include "elite_power.h"
 #include "elite_stock_icons.h"
 
+/* Icon files are checked where the renderer will load them (see elite_fs_path) */
+static bool fs_readable(const char *path) {
+    char buf[256];
+    return access(elite_fs_path(path, buf, sizeof(buf)), R_OK) == 0;
+}
+
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len) {
     if (!out || out_len == 0) return;
     out[0] = '\0';
@@ -26,7 +32,7 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     if (icon_id & 0x8000) {
         char test_path[128];
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%u.png", (unsigned int)icon_id);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             out_path[max_len - 1] = '\0';
             return;
@@ -56,12 +62,12 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     if (base[0]) {
         char test_path[128];
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/activity_%s.png", base);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return;
         }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", base);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return;
         }
@@ -69,12 +75,12 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     if (clean_name && clean_name[0]) {
         char test_path[128];
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/activity_%s.png", clean_name);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return;
         }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", clean_name);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return;
         }
@@ -89,9 +95,9 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     } else if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "netflix") || strstr(low, "plex")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/BAB09C4A-E61D-4284-B1F3-84135F562217_small.png");
     } else if (strstr(low, "switch") || strstr(low, "nintendo") || strstr(low, "game") || strstr(low, "console")) {
-        if (access("/data/assets/switch.png", R_OK) == 0) {
+        if (fs_readable("/data/assets/switch.png")) {
             snprintf(out_path, max_len, "/data/assets/switch.png");
-        } else if (access("/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png", R_OK) == 0) {
+        } else if (fs_readable("/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png")) {
             snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
         } else {
             snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
@@ -130,7 +136,7 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     if (icon_id & 0x8000) {
         char test_path[128];
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%u.png", (unsigned int)icon_id);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             out_path[max_len - 1] = '\0';
             return true;
@@ -160,23 +166,23 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     char test_path[128];
     if (dev_id && dev_id[0]) {
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", dev_id);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", dev_id);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
     }
     if (base[0]) {
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", base);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", base);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
         snprintf(test_path, sizeof(test_path), "/data/assets/%s.png", base);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
     }
     if (dev_name && dev_name[0]) {
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", dev_name);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", dev_name);
-        if (access(test_path, R_OK) == 0) { strncpy(out_path, test_path, max_len - 1); return true; }
+        if (fs_readable(test_path)) { strncpy(out_path, test_path, max_len - 1); return true; }
     }
 
     char low[64] = {0};
@@ -206,9 +212,9 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     } else if (strstr(low, "roku")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/6EBD03B8-C815-48BE-ADBB-D36E06CAAC5E_small.png");
     } else if (strstr(low, "switch") || strstr(low, "nintendo")) {
-        if (access("/data/assets/switch.png", R_OK) == 0) {
+        if (fs_readable("/data/assets/switch.png")) {
             snprintf(out_path, max_len, "/data/assets/switch.png");
-        } else if (access("/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png", R_OK) == 0) {
+        } else if (fs_readable("/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png")) {
             snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/hopsactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
         } else {
             snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/9D24EB35-468B-4148-A6A2-BB764AA9609C_small.png");
@@ -238,17 +244,17 @@ bool resolve_button_icon(const char *icon_key, const char *label, char *out_path
     if (src[0]) {
         char test_path[128];
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/%s.png", src);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return true;
         }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/button_%s.png", src);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return true;
         }
         snprintf(test_path, sizeof(test_path), "/data/assets/custom/device_%s.png", src);
-        if (access(test_path, R_OK) == 0) {
+        if (fs_readable(test_path)) {
             strncpy(out_path, test_path, max_len - 1);
             return true;
         }
@@ -388,10 +394,10 @@ void load_activities(void) {
 
                 char cpath[128];
                 snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", id);
-                if (access(cpath, R_OK) != 0) {
+                if (!fs_readable(cpath)) {
                     snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", id);
                 }
-                if (access(cpath, R_OK) == 0) {
+                if (fs_readable(cpath)) {
                     strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
                 } else {
                     const char *img_key = (j_icon && j_icon->valuestring) ? j_icon->valuestring : (j_type ? j_type->valuestring : "");
@@ -508,7 +514,8 @@ void save_rf_config(void) {
 }
 
 void load_rf_config(void) {
-    FILE *f = fopen(RF_CONFIG_FILE, "r");
+    char fs_path[256];
+    FILE *f = fopen(elite_fs_path(RF_CONFIG_FILE, fs_path, sizeof(fs_path)), "r");
     if (!f) return;
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -681,10 +688,10 @@ void load_rf_config(void) {
             strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
             char cpath[128];
             snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
-            if (access(cpath, R_OK) != 0) {
+            if (!fs_readable(cpath)) {
                 snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
             }
-            if (access(cpath, R_OK) == 0) {
+            if (fs_readable(cpath)) {
                 strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
             } else {
                 resolve_activity_icon(g_rf_activities[i].icon_id,
