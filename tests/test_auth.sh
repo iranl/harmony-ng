@@ -41,6 +41,7 @@ gcc -Wall -O2 -g -DTEST_HARNESS=1 \
     "$REPO_ROOT/payload/source/ws_server.c" \
     "$REPO_ROOT/payload/source/mqtt_client.c" \
     "$REPO_ROOT/payload/source/sha256.c" \
+    "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm \
     -o "$HOST_BUILD_DIR/hub_daemon_test"
 
@@ -84,6 +85,7 @@ DAEMON_PID=$!
 cleanup() {
     echo "[-] Stopping daemon (PID $DAEMON_PID)..."
     kill -9 "$DAEMON_PID" 2>/dev/null || true
+    wait "$DAEMON_PID" 2>/dev/null || true
     rm -f "$HARMONY_CFG/users.json" "$HARMONY_CFG/tokens.json" 2>/dev/null || true
 }
 trap cleanup EXIT

@@ -4003,7 +4003,10 @@ harmony_send_command:
             <input type="text" id="hubNtpServerInput" class="form-control" placeholder="pool.ntp.org">
           </div>
           <div>
-            <label for="hubTimezoneSelect" data-i18n="timezone">Timezone</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label for="hubTimezoneSelect" data-i18n="timezone" style="margin-bottom: 0;">Timezone</label>
+              <button type="button" id="btnAutoDetectTz" class="btn btn-xs btn-outline" style="font-size: 11px; padding: 1px 6px; cursor: pointer;">Auto-Detect</button>
+            </div>
             <select id="hubTimezoneSelect" class="form-control">
               <optgroup label="Common / Standard">
                 <option value="UTC">UTC (Coordinated Universal Time)</option>
@@ -4040,18 +4043,22 @@ harmony_send_command:
                   (PST/PDT)</option>
                 <option value="AKST9AKDT,M3.2.0,M11.1.0">Alaska - Anchorage, Fairbanks, Juneau (AKST/AKDT)</option>
                 <option value="HST10">Hawaii - Honolulu, Aleutian (HST)</option>
+                <option value="CST5CDT,M3.2.0/0,M11.1.0/1">Cuba - Havana (CST/CDT)</option>
               </optgroup>
               <optgroup label="Central & South America">
                 <option value="CST6">Central America - Costa Rica, Guatemala, Managua (CST)</option>
                 <option value="COT5">Colombia / Peru / Ecuador - Bogota, Lima, Quito (COT/PET)</option>
                 <option value="VET4:30">Venezuela - Caracas (VET)</option>
-                <option value="BOT4">Bolivia / Chile - La Paz, Santiago (BOT/CLT)</option>
+                <option value="BOT4">Bolivia - La Paz, Sucre (BOT)</option>
+                <option value="CLT4CLST,M9.1.6/24,M4.1.6/24">Chile - Santiago (CLT/CLST)</option>
+                <option value="PYT4PYST,M10.1.0,M3.4.0">Paraguay - Asuncion (PYT/PYST)</option>
                 <option value="BRT3BRST,M10.3.0/0,M2.3.0/0">Brazil - Sao Paulo, Rio de Janeiro, Brasilia (BRT/BRST)
                 </option>
                 <option value="ART3">Argentina / Uruguay - Buenos Aires, Montevideo (ART)</option>
               </optgroup>
               <optgroup label="Asia & Middle East">
                 <option value="IST-2IDT,M3.4.4/26,M10.5.0">Israel - Jerusalem, Tel Aviv (IST/IDT)</option>
+                <option value="EET-2EEST,M3.5.0/0,M10.5.0/0">Lebanon - Beirut (EET/EEST)</option>
                 <option value="AST-3">Arabia - Riyadh, Kuwait, Doha, Baghdad (AST)</option>
                 <option value="IRST-3:30IRDT,M3.3.4,M9.3.4">Iran - Tehran (IRST/IRDT)</option>
                 <option value="GST-4">Gulf - Dubai, Abu Dhabi, Muscat (GST)</option>
@@ -4070,13 +4077,16 @@ harmony_send_command:
                 <option value="ACST-9:30ACDT,M10.1.0,M4.1.0/3">Central Australia - Adelaide, Darwin (ACST/ACDT)</option>
                 <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Eastern Australia - Sydney, Melbourne, Brisbane (AEST/AEDT)
                 </option>
+                <option value="LHST-10:30LHDT-11,M10.1.0,M4.1.0/2">Australia - Lord Howe Island (LHST/LHDT)</option>
                 <option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand / Fiji - Auckland, Wellington, Suva (NZST/NZDT)
                 </option>
+                <option value="CHAST-12:45CHADT,M9.5.0/2:45,M4.1.0/3:45">New Zealand - Chatham Islands (CHAST/CHADT)</option>
               </optgroup>
               <optgroup label="Africa">
                 <option value="GMT0">West Africa / Atlantic - Casablanca, Dakar, Monrovia (GMT)</option>
                 <option value="WAT-1">West Africa - Lagos, Luanda, Kinshasa (WAT)</option>
-                <option value="CAT-2">Central / South Africa - Johannesburg, Cairo, Harare, Maputo (CAT/SAST)</option>
+                <option value="EET-2EEST,M4.5.5/0,M10.5.4/24">Egypt - Cairo, Alexandria (EET/EEST)</option>
+                <option value="CAT-2">Central / South Africa - Johannesburg, Harare, Maputo (CAT/SAST)</option>
                 <option value="EAT-3">East Africa - Nairobi, Addis Ababa (EAT)</option>
               </optgroup>
             </select>

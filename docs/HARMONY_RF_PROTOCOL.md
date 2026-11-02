@@ -233,8 +233,9 @@ Both frames use a 17-byte standardized configuration payload:
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:
   - `payload[0..3]`: Epoch timestamp (32-bit unsigned little-endian).
-  - `payload[4]`: Timezone string length.
-  - `payload[5..19]`: Timezone POSIX string (e.g. `"CET-1CEST,M3.5.0"`).
+  - `payload[4]`: Timezone string length (`tz_len` <= 14).
+  - `payload[5..18]`: Timezone prefix string (e.g. `"CET-1CEST"`, `"EST5EDT"`, `"IST-2IDT"`, up to 14 bytes). The remote expands the prefix to the full POSIX string with accurate Daylight Saving Time transition rules.
+  - `payload[19]`: Update notification flags (`uflags`: bit 1 = OTA available).
   - `payload[20]`: Config version number.
   - `payload[21..24]`: Hub's 4-byte RF address.
 

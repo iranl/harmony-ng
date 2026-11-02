@@ -497,6 +497,38 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
       }
     });
+    document.getElementById('btnAutoDetectTz')?.addEventListener('click', () => {
+      const tzEl = document.getElementById('hubTimezoneSelect') || document.getElementById('hubTimezoneInput');
+      if (!tzEl) return;
+      try {
+        const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (!detected) return;
+        let matched = false;
+        const city = detected.split('/').pop().replace(/_/g, ' ');
+        for (const opt of tzEl.options) {
+          if (opt.textContent.includes(city) || opt.value === detected) {
+            opt.selected = true;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) {
+          tzEl.value = detected;
+          if (!tzEl.value) {
+            const opt = document.createElement('option');
+            opt.value = detected;
+            opt.textContent = `Auto-Detected (${detected})`;
+            opt.selected = true;
+            tzEl.appendChild(opt);
+          }
+        }
+        const stat = document.getElementById('hubSettingsStatus');
+        if (stat) {
+          stat.innerHTML = `<span style="color:var(--text-muted)">Detected: ${detected}</span>`;
+          setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
+        }
+      } catch { }
+    });
     document.getElementById('updateCheck')?.addEventListener('click', () => this.checkSoftwareUpdate());
     document.getElementById('updateInstall')?.addEventListener('click', () => this.installSoftwareUpdate());
     document.getElementById('updateRefresh')?.addEventListener('click', () => this.showSoftwareVersions());

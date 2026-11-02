@@ -3,6 +3,7 @@
 #include "rf_spi.h"
 #include "rf_keymap.h"
 #include "rf_ota.h"
+#include "timezone_db.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -347,7 +348,7 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
 
     /* Read /etc/TZ */
     FILE *ftz = fopen("/etc/TZ", "r");
-    char tz[64] = "CET-1CEST,M3.5.0,M10.5.0/3";
+    char tz[64] = TZ_DEFAULT_POSIX;
     if (ftz) {
         if (fgets(tz, sizeof(tz), ftz)) {
             char *nl = strchr(tz, '\n');
@@ -357,14 +358,12 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
         }
         fclose(ftz);
     }
-    if (strlen(tz) > 15) {
-        char *comma = strchr(tz, ',');
-        if (comma) *comma = '\0';
-    }
-    uint8_t tz_len = (uint8_t)strlen(tz);
-    if (tz_len > 15) tz_len = 15;
+    char rf_prefix[TZ_MAX_RF_PREFIX_LEN + 1];
+    timezone_get_rf_prefix(tz, rf_prefix, sizeof(rf_prefix));
+    uint8_t tz_len = (uint8_t)strlen(rf_prefix);
+    if (tz_len > TZ_MAX_RF_PREFIX_LEN) tz_len = TZ_MAX_RF_PREFIX_LEN;
     payload[4] = tz_len;
-    memcpy(&payload[5], tz, tz_len);
+    memcpy(&payload[5], rf_prefix, tz_len);
 
     /* Byte 19: Update notification flags */
     payload[19] = rf_check_update_flags(slot ? slot : 0x01);

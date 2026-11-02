@@ -3,64 +3,13 @@
 #include "elite_rf.h"
 #include "elite_config.h"
 #include "elite_ui.h"
+#include "timezone_db.h"
 
 volatile sig_atomic_t g_wake_requested = 0;
-char g_timezone_str[48] = "CET-1CEST,M3.5.0,M10.5.0/3";
-
-typedef struct {
-    const char *prefix;
-    const char *full_tz;
-} tz_mapping_t;
-
-static const tz_mapping_t g_tz_mappings[] = {
-    { "CET-1CEST",      "CET-1CEST,M3.5.0,M10.5.0/3" },
-    { "GMT0BST",        "GMT0BST,M3.5.0/1,M10.5.0" },
-    { "WET0WEST",       "WET0WEST,M3.5.0/1,M10.5.0" },
-    { "EET-2EEST",      "EET-2EEST,M3.5.0/3,M10.5.0/4" },
-    { "EST5EDT",        "EST5EDT,M3.2.0,M11.1.0" },
-    { "CST6CDT",        "CST6CDT,M3.2.0,M11.1.0" },
-    { "MST7MDT",        "MST7MDT,M3.2.0,M11.1.0" },
-    { "PST8PDT",        "PST8PDT,M3.2.0,M11.1.0" },
-    { "AKST9AKDT",      "AKST9AKDT,M3.2.0,M11.1.0" },
-    { "NST3:30NDT",     "NST3:30NDT,M3.2.0,M11.1.0" },
-    { "AST4ADT",        "AST4ADT,M3.2.0,M11.1.0" },
-    { "AEST-10AEDT",    "AEST-10AEDT,M10.1.0,M4.1.0/3" },
-    { "ACST-9:30ACDT",  "ACST-9:30ACDT,M10.1.0,M4.1.0/3" },
-    { "NZST-12NZDT",    "NZST-12NZDT,M9.5.0,M4.1.0/3" },
-};
+char g_timezone_str[64] = TZ_DEFAULT_POSIX;
 
 void expand_timezone(const char *in, char *out, size_t out_sz) {
-    if (!out || out_sz == 0) return;
-    if (in == out) {
-        char tmp[64] = {0};
-        expand_timezone(in, tmp, sizeof(tmp));
-        strncpy(out, tmp, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    if (!in || !in[0]) {
-        snprintf(out, out_sz, "CET-1CEST,M3.5.0,M10.5.0/3");
-        return;
-    }
-    const char *c1 = strchr(in, ',');
-    if (c1 && strchr(c1 + 1, ',')) {
-        strncpy(out, in, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    for (size_t i = 0; i < sizeof(g_tz_mappings) / sizeof(g_tz_mappings[0]); i++) {
-        if (strncmp(in, g_tz_mappings[i].prefix, strlen(g_tz_mappings[i].prefix)) == 0) {
-            strncpy(out, g_tz_mappings[i].full_tz, out_sz - 1);
-            out[out_sz - 1] = '\0';
-            return;
-        }
-    }
-    if (!strchr(in, ',')) {
-        strncpy(out, in, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    snprintf(out, out_sz, "CET-1CEST,M3.5.0,M10.5.0/3");
+    timezone_expand_prefix(in, out, out_sz);
 }
 
 void set_msp430_rtc(uint32_t epoch_sec) {
@@ -73,11 +22,11 @@ void set_msp430_rtc(uint32_t epoch_sec) {
 void sync_time_from_rtc(void) {
     FILE *ftz = fopen("/etc/TZ", "r");
     if (ftz) {
-        char tz[48] = {0};
+        char tz[64] = {0};
         if (fgets(tz, sizeof(tz), ftz)) {
             char *nl = strchr(tz, '\n'); if (nl) *nl = '\0';
             char *cr = strchr(tz, '\r'); if (cr) *cr = '\0';
-            if (tz[0] && strstr(tz, "EST5EDT") == NULL) {
+            if (tz[0]) {
                 expand_timezone(tz, g_timezone_str, sizeof(g_timezone_str));
             }
         }

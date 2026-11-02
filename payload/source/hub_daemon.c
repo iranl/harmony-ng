@@ -8,6 +8,7 @@
 #include "hub_ws.h"
 #include "hub_mqtt.h"
 #include "hub_ntp.h"
+#include "http_api_system.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -89,6 +90,7 @@ int main(int argc, char **argv) {
     }
     struct hub_settings settings;
     config_store_get_settings(&settings);
+    apply_hub_settings(&settings);
     if (settings.dry_run) g_dry_run = 1;
     if (g_dry_run) {
         printf("[!] DRY-RUN MODE ACTIVE: All physical IR, BT, and MQTT outputs will be simulated\n");

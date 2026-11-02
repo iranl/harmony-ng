@@ -750,6 +750,16 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         const tzEl = document.getElementById('hubTimezoneSelect') || document.getElementById('hubTimezoneInput');
         if (tzEl && st.timezone) {
           tzEl.value = st.timezone;
+          if (!tzEl.value) {
+            const norm = st.timezone.split(',')[0].trim();
+            for (const opt of tzEl.options) {
+              if (opt.value.split(',')[0].trim() === norm ||
+                  (st.timezone.includes('/') && opt.textContent.includes(st.timezone.split('/').pop().replace(/_/g, ' ')))) {
+                opt.selected = true;
+                break;
+              }
+            }
+          }
           if (!tzEl.value && st.timezone) {
             // Custom timezone not in preset list
             const opt = document.createElement('option');

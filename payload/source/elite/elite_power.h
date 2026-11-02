@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 extern volatile sig_atomic_t g_wake_requested;
-extern char g_timezone_str[48];
+extern char g_timezone_str[64];
 
 void set_backlight_level(int level);
 void clearpad_hw_init(void);

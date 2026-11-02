@@ -9,6 +9,7 @@
 #include "harmony_version.h"
 #include "resource_cache.h"
 #include "cJSON.h"
+#include "timezone_db.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,7 +50,7 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
-static void apply_hub_settings(const struct hub_settings *s) {
+void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
     int lfd = open("/sys/class/input/input0/led", O_WRONLY);
     if (lfd >= 0) {
@@ -69,12 +70,14 @@ static void apply_hub_settings(const struct hub_settings *s) {
         close(lfd);
     }
     if (s->timezone[0]) {
+        char posix_tz[64];
+        timezone_to_posix(s->timezone, posix_tz, sizeof(posix_tz));
         FILE *tzf = fopen("/etc/TZ", "w");
         if (tzf) {
-            fprintf(tzf, "%s\n", s->timezone);
+            fprintf(tzf, "%s\n", posix_tz);
             fclose(tzf);
         }
-        setenv("TZ", s->timezone, 1);
+        setenv("TZ", posix_tz, 1);
         tzset();
     }
     if (s->ntp_server[0] && !g_dry_run) {

@@ -428,8 +428,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                             ((uint32_t)f->payload[2] << 16) |
                             ((uint32_t)f->payload[3] << 24);
             uint8_t tz_len = f->payload[4];
+            if (tz_len > 14) tz_len = 14;
             char tz_str[32] = {0};
-            if (tz_len > 0 && tz_len < sizeof(tz_str)) {
+            if (tz_len > 0) {
                 memcpy(tz_str, &f->payload[5], tz_len);
                 tz_str[tz_len] = '\0';
             }
@@ -441,7 +442,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_msp430_rtc(epoch);
             }
             if (tz_str[0]) {
-                char full_tz[48] = {0};
+                char full_tz[64] = {0};
                 expand_timezone(tz_str, full_tz, sizeof(full_tz));
                 if (full_tz[0]) {
                     bool tz_changed = (strcmp(g_timezone_str, full_tz) != 0);

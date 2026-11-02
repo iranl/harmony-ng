@@ -50,6 +50,7 @@ if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
         "$REPO_ROOT/payload/source/ws_server.c" \
         "$REPO_ROOT/payload/source/mqtt_client.c" \
         "$REPO_ROOT/payload/source/sha256.c" \
+        "$REPO_ROOT/payload/source/timezone_db.c" \
         -lpthread -lm \
         -o "$HOST_BUILD_DIR/hub_daemon_test" || {
             echo "[!] Host test compile skipped (cross-compilation verified via compile_all.sh)"

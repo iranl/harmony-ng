@@ -181,6 +181,7 @@ Updates global hub settings.
     "led_mode": "always_on"
   }
   ```
+  *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`).*
 - **Response `200 OK`**: `{"ok": true}`
 
 #### `POST /api/bt/reconnect` or `POST /bt/reconnect`
