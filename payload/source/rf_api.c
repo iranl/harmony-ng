@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -47,8 +48,22 @@ void *api_server_worker(void *arg) {
         }
         fcntl(cli, F_SETFD, FD_CLOEXEC);
 
+        /* hub_daemon's proxy writes the headers and the body separately, so
+         * keep reading until the Content-Length body has arrived. */
+        struct timeval rtv = { .tv_sec = 1, .tv_usec = 0 };
+        setsockopt(cli, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
         char buf[4096];
         ssize_t n = read(cli, buf, sizeof(buf) - 1);
+        while (n > 0 && (size_t)n < sizeof(buf) - 1) {
+            buf[n] = '\0';
+            char *hdr_end = strstr(buf, "\r\n\r\n");
+            char *cl = strcasestr(buf, "Content-Length:");
+            if (hdr_end && (!cl || cl > hdr_end)) break;
+            if (hdr_end && (hdr_end + 4 - buf) + atol(cl + 15) <= n) break;
+            ssize_t more = read(cli, buf + n, sizeof(buf) - 1 - (size_t)n);
+            if (more <= 0) break;
+            n += more;
+        }
         if (n > 0) {
             buf[n] = '\0';
             if (strstr(buf, "GET /api/rf/pair") == buf || strstr(buf, "POST /api/rf/pair") == buf) {
