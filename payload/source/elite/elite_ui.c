@@ -283,7 +283,7 @@ void render_screen(void) {
     bool flipped = fb_present(g_backbuffer, home_scroll_active());
     uint64_t t2 = get_monotonic_us();
     if (frame_timing_enabled()) {
-        frame_timing_t t = { screen_name(), g_theme.name, g_theme.layout == THEME_LAYOUT_GRID ? "grid" : "list",
+        frame_timing_t t = { screen_name(), g_theme.name, home_layout_name(),
                              (uint32_t)(t1 - t0), (uint32_t)(t2 - t1), flipped, 0, 0 };
         fb_png_work_take(&t.decodes, &t.scales);
         frame_timing_record(&t);

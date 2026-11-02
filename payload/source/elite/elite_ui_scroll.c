@@ -1,5 +1,6 @@
-/* Drag scrolling of the home screen's pages (ADR-0009). No hardware access: the host
- * renderer links it to draw frames mid-drag. */
+/* Drag scrolling of the home screen's pages (ADR-0009): up and down in the list and grid,
+ * sideways in the carousel. No hardware access: the host renderer links it to draw frames
+ * mid-drag. */
 #include "elite_ui_scroll.h"
 #include "elite_ui.h"
 #include <math.h>
@@ -11,11 +12,12 @@
 #define EDGE_MAX_PX       60
 #define SETTLE_MIN_MS     120
 #define SETTLE_MAX_MS     250
+#define SLIDE_MS          200  /* a key moving to the neighbour page (ADR-0009: <= 200 ms) */
 
 _Static_assert(ACT_PAGE_SIZE * (ACT_CARD_H + ACT_CARD_GAP) == HOME_PAGE_PITCH, "list page height");
 _Static_assert(ACT_GRID_ROWS * (ACT_TILE_H + ACT_CARD_GAP) == HOME_PAGE_PITCH, "grid page height");
 
-typedef struct { int y; uint64_t ms; } sample_t;
+typedef struct { int pos; uint64_t ms; } sample_t; /* finger position along the scroll axis */
 
 static struct {
     bool tracking;     /* a touch went down on the home screen's pages */
@@ -43,6 +45,14 @@ static int current_page(void) {
     return g_selected_activity / activity_page_size();
 }
 
+static bool sideways(void) {
+    return home_layout_is_carousel();
+}
+
+static int pitch(void) {
+    return sideways() ? FB_WIDTH : HOME_PAGE_PITCH;
+}
+
 static bool can_scroll(void) {
     return g_current_view == VIEW_ACTIVITIES && g_touch_enabled && !g_menu_open && !ui_help_active() &&
            !g_link_panel_open && !g_key_hint_pending && g_confirm_pending_idx < 0 &&
@@ -50,25 +60,25 @@ static bool can_scroll(void) {
 }
 
 /* The finger's travel as a page offset, resisting past the first and last page */
-static int drag_offset(int dy) {
+static int drag_offset(int d) {
     bool no_prev = current_page() == 0, no_next = current_page() >= page_count() - 1;
-    if ((dy > 0 && no_prev) || (dy < 0 && no_next)) {
-        int edge = dy / EDGE_RESISTANCE;
+    if ((d > 0 && no_prev) || (d < 0 && no_next)) {
+        int edge = d / EDGE_RESISTANCE;
         return edge > EDGE_MAX_PX ? EDGE_MAX_PX : (edge < -EDGE_MAX_PX ? -EDGE_MAX_PX : edge);
     }
-    return dy > HOME_PAGE_PITCH ? HOME_PAGE_PITCH : (dy < -HOME_PAGE_PITCH ? -HOME_PAGE_PITCH : dy);
+    return d > pitch() ? pitch() : (d < -pitch() ? -pitch() : d);
 }
 
-static void add_sample(int y, uint64_t ms) {
+static void add_sample(int pos, uint64_t ms) {
     int n = sizeof(s.samples) / sizeof(s.samples[0]);
     if (s.sample_count == n) {
         for (int i = 1; i < n; i++) s.samples[i - 1] = s.samples[i];
         s.sample_count--;
     }
-    s.samples[s.sample_count++] = (sample_t){ y, ms };
+    s.samples[s.sample_count++] = (sample_t){ pos, ms };
 }
 
-/* Pixels per ms over the last VELOCITY_WINDOW ms; positive is downwards */
+/* Pixels per ms over the last VELOCITY_WINDOW ms; positive is down or right */
 static float release_velocity(void) {
     if (s.sample_count < 2) return 0;
     const sample_t *last = &s.samples[s.sample_count - 1];
@@ -78,7 +88,7 @@ static float release_velocity(void) {
         if (last->ms - first->ms >= VELOCITY_WINDOW) break;
     }
     if (last->ms <= first->ms) return 0;
-    return (float)(last->y - first->y) / (float)(last->ms - first->ms);
+    return (float)(last->pos - first->pos) / (float)(last->ms - first->ms);
 }
 
 void home_scroll_touch_down(int x, int y, uint64_t ms) {
@@ -89,7 +99,7 @@ void home_scroll_touch_down(int x, int y, uint64_t ms) {
     s.down_x = x;
     s.down_y = y;
     s.sample_count = 0;
-    add_sample(y, ms);
+    add_sample(sideways() ? x : y, ms);
 }
 
 bool home_scroll_touch_move(int x, int y, uint64_t ms) {
@@ -98,13 +108,14 @@ bool home_scroll_touch_move(int x, int y, uint64_t ms) {
         home_scroll_cancel();
         return true;
     }
-    add_sample(y, ms);
-    int dx = x - s.down_x, dy = y - s.down_y;
+    add_sample(sideways() ? x : y, ms);
+    int along = sideways() ? x - s.down_x : y - s.down_y;
+    int across = sideways() ? y - s.down_y : x - s.down_x;
     if (!s.dragging) {
-        if (abs(dy) <= touch_tap_slop() || abs(dy) < abs(dx)) return false;
+        if (abs(along) <= touch_tap_slop() || abs(along) < abs(across)) return false;
         s.dragging = true;
     }
-    int offset = drag_offset(dy);
+    int offset = drag_offset(along);
     if (offset == s.offset) return false;
     s.offset = offset;
     return true;
@@ -123,20 +134,19 @@ static void settle_to(int target, float velocity, uint64_t ms) {
 }
 
 bool home_scroll_touch_up(int x, int y, uint64_t ms) {
-    (void)x;
     if (!s.tracking) return false;
     s.tracking = false;
     if (!s.dragging) return false;
     s.dragging = false;
-    add_sample(y, ms);
+    add_sample(sideways() ? x : y, ms);
 
     float v = release_velocity();
     int target = 0;
     bool has_prev = current_page() > 0, has_next = current_page() < page_count() - 1;
-    if (has_prev && (s.offset > HOME_PAGE_PITCH / 3 || (v > FLING_PX_PER_MS && s.offset > 0))) {
-        target = HOME_PAGE_PITCH;
-    } else if (has_next && (s.offset < -HOME_PAGE_PITCH / 3 || (v < -FLING_PX_PER_MS && s.offset < 0))) {
-        target = -HOME_PAGE_PITCH;
+    if (has_prev && (s.offset > pitch() / 3 || (v > FLING_PX_PER_MS && s.offset > 0))) {
+        target = pitch();
+    } else if (has_next && (s.offset < -pitch() / 3 || (v < -FLING_PX_PER_MS && s.offset < 0))) {
+        target = -pitch();
     }
     settle_to(target, v, ms);
     return true;
@@ -164,6 +174,16 @@ bool home_scroll_tick(uint64_t ms) {
     if (offset == s.offset) return false;
     s.offset = offset;
     return true;
+}
+
+void home_scroll_slide_from(int old_page, uint64_t ms) {
+    int delta = current_page() - old_page;
+    if ((delta != 1 && delta != -1) || g_current_view != VIEW_ACTIVITIES) return;
+    s.tracking = s.dragging = false;
+    /* Start with the old page in place, which is the new page one pitch away */
+    s.offset = delta > 0 ? pitch() : -pitch();
+    settle_to(0, 0, ms);
+    s.settle_ms = SLIDE_MS;
 }
 
 bool home_scroll_active(void) {

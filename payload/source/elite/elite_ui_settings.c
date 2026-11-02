@@ -348,7 +348,7 @@ void render_settings_screen(void) {
         }
         case SETTINGS_VIEW_DISPLAY: {
             const char *labels[7] = { tr(STR_DISPLAY_BRIGHTNESS), tr(STR_DISPLAY_TIMEOUT), tr(STR_BTN_BACKLIGHT), tr(STR_NIGHT_SCHEDULE), tr(STR_DISPLAY_THEME), tr(STR_HOME_LAYOUT), tr(STR_BACK) };
-            static const char *const layouts[HOME_LAYOUT_COUNT] = { "THEME", "LIST", "GRID" };
+            static const char *const layouts[HOME_LAYOUT_COUNT] = { "THEME", "LIST", "GRID", "CAROUSEL" };
             char values[7][32];
             snprintf(values[0], sizeof(values[0]), "[ LVL %d ]", g_brightness_val);
             snprintf(values[1], sizeof(values[1]), "[ %ds ]", g_timeout_seconds);

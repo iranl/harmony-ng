@@ -8,11 +8,12 @@
 extern "C" {
 #endif
 
-/* Drag scrolling of the home screen's pages (ADR-0009). A vertical drag moves the page with
- * the finger; on release it settles on a page boundary, moving to the neighbour page when
- * dragged a third of a page or flung. */
+/* Drag scrolling of the home screen's pages (ADR-0009). A drag moves the page with the
+ * finger, up and down in the list and grid and sideways in the carousel; on release it
+ * settles on a page boundary, moving to the neighbour page when dragged a third of a page or
+ * flung. */
 
-#define HOME_PAGE_PITCH 270 /* height of a home page: five list cards or three grid rows */
+#define HOME_PAGE_PITCH 270 /* height of a home page: five list cards, three grid rows or a carousel card */
 
 /* Movement in screen pixels that still counts as a tap, by touch sensitivity */
 int touch_tap_slop(void);
@@ -29,7 +30,10 @@ bool home_scroll_active(void);
 /* A settle is running: the main loop draws its frames without waiting for input */
 bool home_scroll_settling(void);
 void home_scroll_cancel(void);
-/* Pixels the current page is drawn below its place: positive shows the previous page above */
+/* After a key moved the selection from old_page to a neighbour page, slides the new page in */
+void home_scroll_slide_from(int old_page, uint64_t ms);
+/* Pixels the current page is drawn below (carousel: right of) its place: positive shows the
+   previous page */
 int home_scroll_offset(void);
 /* Sets the offset directly, for host renders of a frame mid-drag */
 void home_scroll_set_offset(int px);

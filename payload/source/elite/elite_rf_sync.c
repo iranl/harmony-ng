@@ -433,6 +433,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (rf_layout_name(f->payload[22]) && f->payload[22] - 1 != g_home_layout) {
                 g_home_layout = f->payload[22] - 1; /* HOME_LAYOUT_* in rf_layout_name() order */
                 g_selected_activity = 0;
+                home_select_running();
             }
 
             if (g_no_screen_mode) {

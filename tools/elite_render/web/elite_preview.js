@@ -243,7 +243,7 @@ function iconUrl(module, path) {
 
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
 // row, or the device for 'device'), active (remote activity ID), theme (loaded with
-// loadTheme()), layout ('theme', 'list' or 'grid'), icons, battery, usb, charging, noHub, minutes }
+// loadTheme()), layout ('theme', 'list', 'grid' or 'carousel'), icons, battery, usb, charging, noHub, minutes }
 export function render(module, canvas, state = {}) {
   const ptr = module.ccall('er_render', 'number',
     ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string', 'string'],

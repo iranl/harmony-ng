@@ -874,7 +874,8 @@ void load_settings_conf(void) {
             else if (strcmp(key, "theme") == 0) theme_load(sval);
             else if (strcmp(key, "layout") == 0) {
                 g_home_layout = strcmp(sval, "grid") == 0 ? HOME_LAYOUT_GRID
-                              : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST : HOME_LAYOUT_THEME;
+                              : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST
+                              : strcmp(sval, "carousel") == 0 ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_THEME;
             }
             else if (strcmp(key, "order") == 0) {
                 g_activity_order = strcmp(sval, "used") == 0 ? ACTIVITY_ORDER_MOST_USED : ACTIVITY_ORDER_YOURS;
@@ -915,7 +916,8 @@ void save_settings_conf(void) {
     fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "language=%s\n", elite_lang_code(g_language));
     fprintf(f, "theme=%s\n", g_theme.name);
-    fprintf(f, "layout=%s\n", g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list" : "theme");
+    fprintf(f, "layout=%s\n", g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list"
+                             : g_home_layout == HOME_LAYOUT_CAROUSEL ? "carousel" : "theme");
     fprintf(f, "order=%s\n", g_activity_order == ACTIVITY_ORDER_MOST_USED ? "used" : "yours");
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);

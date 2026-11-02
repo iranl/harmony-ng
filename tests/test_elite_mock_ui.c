@@ -382,8 +382,35 @@ int main(void) {
     home_scroll_touch_down(120, 10, ms);
     ms += 40; home_scroll_touch_move(120, 200, ms);
     assert(!home_scroll_active() && !home_scroll_touch_up(120, 200, ms));
+
+    /* The carousel: one activity per page, dragged sideways */
+    g_home_layout = HOME_LAYOUT_CAROUSEL;
+    g_selected_activity = 0;
+    assert(activity_page_size() == 1);
+    home_scroll_touch_down(200, 150, ms);
+    ms += 40; home_scroll_touch_move(150, 155, ms);
+    ms += 40; home_scroll_touch_move(100, 155, ms);
+    assert(home_scroll_offset() == -100);
+    ms += 40;
+    assert(home_scroll_touch_up(100, 155, ms));
+    SETTLE();
+    assert(g_selected_activity == 1);
+
+    /* A vertical drag doesn't move the carousel */
+    home_scroll_touch_down(120, 100, ms);
+    ms += 40; home_scroll_touch_move(125, 200, ms);
+    assert(!home_scroll_active() && !home_scroll_touch_up(125, 200, ms));
+
+    /* A key moving to the neighbour slides the new page in from the side it lies on */
+    g_selected_activity = 2;
+    home_scroll_slide_from(1, ms);
+    assert(home_scroll_settling() && home_scroll_offset() == FB_WIDTH);
+    uint64_t slide_start = ms;
+    SETTLE();
+    assert(home_scroll_offset() == 0 && g_selected_activity == 2 && ms - slide_start <= 200 + 2 * 28);
+    g_home_layout = HOME_LAYOUT_LIST;
     #undef SETTLE
-    printf("[+] Home drag scrolling: drag, flick, snap back, edge resistance, taps\n");
+    printf("[+] Home drag scrolling: drag, flick, snap back, edge resistance, taps, carousel\n");
 
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
