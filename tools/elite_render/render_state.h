@@ -8,7 +8,7 @@ typedef struct {
     const char *root;    /* directory laid out like the remote's filesystem */
     const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync|help-wait|help-question|help-done */
     const char *theme;   /* theme name (a directory under /data/themes), or "classic" */
-    const char *layout;  /* home layout: list or grid; the theme's when unset or "theme" */
+    const char *layout;  /* home layout: list, grid or carousel; the theme's when unset or "theme" */
     const char *icons;   /* activity icon directory on the remote's filesystem, or "classic" */
     const char *active;  /* running activity ID */
     int select;
@@ -20,7 +20,7 @@ typedef struct {
     bool hub_silent;     /* the link is up but the Hub doesn't answer */
     int sync_done, sync_total;
     int minutes;         /* clock shown in the status bar, minutes after midnight */
-    int scroll;          /* home pages dragged this many pixels; positive shows the previous page */
+    int scroll;          /* home pages dragged this many pixels (carousel: sideways); positive shows the previous page */
 } render_options_t;
 
 /* Loads config and assets from o->root and sets up the state o describes */

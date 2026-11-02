@@ -4,6 +4,7 @@
 #include "elite_config.h"
 #include "elite_rf.h"
 #include "elite_ui.h"
+#include "elite_ui_scroll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -384,7 +385,10 @@ void handle_navigation_key(int code, int value) {
         }
         printf("[*] Capacitive key pressed: Activities (code=364)\n");
         ui_menu_close();
-        if (has_configured_activities()) g_current_view = VIEW_ACTIVITIES;
+        if (has_configured_activities()) {
+            g_current_view = VIEW_ACTIVITIES;
+            home_select_running();
+        }
         else open_device_browser();
         render_screen();
         return;
@@ -444,8 +448,9 @@ void handle_navigation_key(int code, int value) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) g_selected_device_cmd = (g_selected_device_cmd > 0) ? g_selected_device_cmd - 1 : count - 1;
             } else if (g_current_view == VIEW_ACTIVITIES) {
-                int count = activity_list_count();
+                int count = activity_list_count(), old_page = g_selected_activity / activity_page_size();
                 if (count > 0) g_selected_activity = (g_selected_activity > 0) ? g_selected_activity - 1 : count - 1;
+                if (home_layout_is_carousel()) home_scroll_slide_from(old_page, get_monotonic_ms());
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_move(-1);
             } else if (g_current_view == VIEW_SETTINGS) {
@@ -467,8 +472,9 @@ void handle_navigation_key(int code, int value) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) g_selected_device_cmd = (g_selected_device_cmd < count - 1) ? g_selected_device_cmd + 1 : 0;
             } else if (g_current_view == VIEW_ACTIVITIES) {
-                int count = activity_list_count();
+                int count = activity_list_count(), old_page = g_selected_activity / activity_page_size();
                 if (count > 0) g_selected_activity = (g_selected_activity < count - 1) ? g_selected_activity + 1 : 0;
+                if (home_layout_is_carousel()) home_scroll_slide_from(old_page, get_monotonic_ms());
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_move(1);
             } else if (g_current_view == VIEW_SETTINGS) {

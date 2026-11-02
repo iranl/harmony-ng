@@ -167,6 +167,7 @@ void execute_settings_action(int idx) {
             case 5:
                 g_home_layout = (g_home_layout + 1) % HOME_LAYOUT_COUNT;
                 g_selected_activity = 0;
+                home_select_running();
                 save_settings_conf();
                 break;
             case 6:

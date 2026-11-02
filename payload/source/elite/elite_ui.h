@@ -44,6 +44,12 @@ void render_page_indicator(int page, int pages);
 /* The home layout (ADR-0008): the Settings choice, or the theme's when it is "theme". Drawing
    and touch handling place activities with these. */
 bool home_layout_is_grid(void);
+bool home_layout_is_carousel(void);
+/* The home layout in use, after the user's choice and the theme's: HOME_LAYOUT_LIST, _GRID or _CAROUSEL */
+int home_layout(void);
+const char *home_layout_name(void);
+/* Shows the running activity's page in the carousel */
+void home_select_running(void);
 int activity_page_size(void);
 void activity_slot_rect(int slot, int *x, int *y, int *w, int *h);
 void render_sync_overlay(void);
@@ -52,6 +58,10 @@ void render_switching_view(void);
 void render_activities_screen(void);
 void render_devices_screen(void);
 bool render_activity_hero(void);
+const rf_activity_t *rf_activity_by_id(const char *id);
+/* An activity's large icon, name, state line and devices, x pixels from the left, with its
+   device rows ending at bottom */
+void draw_activity_card(const rf_activity_t *act, int x, int bottom, const char *state, uint16_t state_color);
 void render_device_browser_view(void);
 void render_settings_screen(void);
 void render_pairing_screen(void);

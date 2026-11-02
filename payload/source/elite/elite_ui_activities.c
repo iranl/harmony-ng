@@ -87,19 +87,45 @@ int activity_list_count(void) {
     return g_activity_count;
 }
 
+int home_layout(void) {
+    if (g_home_layout != HOME_LAYOUT_THEME) return g_home_layout;
+    return g_theme.layout == THEME_LAYOUT_GRID ? HOME_LAYOUT_GRID
+         : g_theme.layout == THEME_LAYOUT_CAROUSEL ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_LIST;
+}
+
+const char *home_layout_name(void) {
+    int l = home_layout();
+    return l == HOME_LAYOUT_GRID ? "grid" : l == HOME_LAYOUT_CAROUSEL ? "carousel" : "list";
+}
+
 bool home_layout_is_grid(void) {
-    if (g_home_layout == HOME_LAYOUT_LIST) return false;
-    if (g_home_layout == HOME_LAYOUT_GRID) return true;
-    return g_theme.layout == THEME_LAYOUT_GRID;
+    return home_layout() == HOME_LAYOUT_GRID;
+}
+
+bool home_layout_is_carousel(void) {
+    return home_layout() == HOME_LAYOUT_CAROUSEL;
 }
 
 int activity_page_size(void) {
-    return home_layout_is_grid() ? ACT_GRID_COLS * ACT_GRID_ROWS : ACT_PAGE_SIZE;
+    return home_layout_is_carousel() ? 1 : home_layout_is_grid() ? ACT_GRID_COLS * ACT_GRID_ROWS : ACT_PAGE_SIZE;
+}
+
+/* The carousel starts on the running activity (ADR-0008) */
+void home_select_running(void) {
+    if (!home_layout_is_carousel()) return;
+    for (int i = 0; i < g_activity_count; i++) {
+        if (strcmp(g_activities[i].id, g_active_activity_id) == 0) g_selected_activity = i;
+    }
 }
 
 /* Where the activity at position slot of the current page goes */
 void activity_slot_rect(int slot, int *x, int *y, int *w, int *h) {
-    if (home_layout_is_grid()) {
+    if (home_layout_is_carousel()) {
+        *x = 0;
+        *y = UI_CONTENT_Y;
+        *w = FB_WIDTH;
+        *h = HOME_PAGE_PITCH - ACT_CARD_GAP;
+    } else if (home_layout_is_grid()) {
         *w = (FB_WIDTH - 12 - ACT_CARD_GAP) / ACT_GRID_COLS;
         *h = ACT_TILE_H;
         *x = 6 + (slot % ACT_GRID_COLS) * (*w + ACT_CARD_GAP);
@@ -190,6 +216,36 @@ static void render_activity_page(int page_start, int y_off) {
 
 }
 
+/* The activity at idx as a card filling the content area, x_off pixels right of its place */
+static void render_carousel_page(int idx, int x_off) {
+    rf_activity_t fallback = {0};
+    const rf_activity_t *act = rf_activity_by_id(g_activities[idx].id);
+    if (!act) {
+        /* Activities from a local file have no Hub record: the card shows the name and the
+           icon the name matches */
+        snprintf(fallback.id, sizeof(fallback.id), "%s", g_activities[idx].id);
+        snprintf(fallback.name, sizeof(fallback.name), "%s", g_activities[idx].name);
+        act = &fallback;
+    }
+    bool active = strcmp(g_activities[idx].id, g_active_activity_id) == 0;
+    bool confirm = g_confirm_pending_idx == idx;
+    draw_activity_card(act, x_off, UI_CONTENT_Y + HOME_PAGE_PITCH,
+                       confirm ? tr(STR_CONFIRM_PRESS_OK) : active ? tr(STR_ACTIVE) : NULL,
+                       confirm ? RGB_YELLOW : RGB_GREEN);
+}
+
+/* A dot per activity below the content, the current one filled */
+static void render_page_dots(int page, int pages) {
+    if (pages <= 1) return;
+    const int pitch = 10, size = 6;
+    int x = (FB_WIDTH - (pages - 1) * pitch - size) / 2;
+    int y = UI_CONTENT_Y + HOME_PAGE_PITCH + 3;
+    for (int i = 0; i < pages; i++, x += pitch) {
+        if (i == page) fb_fill_rect(x, y, size, size, RGB_TEAL);
+        else fb_draw_rect(x, y, size, size, RGB_TEXT_MUTED);
+    }
+}
+
 void render_activities_screen(void) {
     int page_size = activity_page_size();
     int total = activity_list_count();
@@ -202,6 +258,18 @@ void render_activities_screen(void) {
 
     int page = g_selected_activity / page_size;
     int total_pages = (total + page_size - 1) / page_size;
+
+    if (home_layout_is_carousel()) {
+        /* One activity per page; a drag slides the page sideways and its neighbour in */
+        int off = home_scroll_offset();
+        fb_clip_rows(UI_CONTENT_Y, UI_CONTENT_Y + HOME_PAGE_PITCH);
+        render_carousel_page(page, off);
+        if (off > 0 && page > 0) render_carousel_page(page - 1, off - FB_WIDTH);
+        if (off < 0 && page + 1 < total) render_carousel_page(page + 1, off + FB_WIDTH);
+        fb_clip_reset();
+        render_page_dots(page, total);
+        return;
+    }
 
     /* While dragging, the page moves with the finger and its neighbour follows it in;
        both are clipped to the rows between the status bar and the page indicator */

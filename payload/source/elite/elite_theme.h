@@ -41,7 +41,7 @@ typedef struct {
     uint16_t icon_outline;     /* placeholder drawn when an icon is missing */
 } theme_palette_t;
 
-typedef enum { THEME_LAYOUT_LIST = 0, THEME_LAYOUT_GRID } theme_layout_t;
+typedef enum { THEME_LAYOUT_LIST = 0, THEME_LAYOUT_GRID, THEME_LAYOUT_CAROUSEL } theme_layout_t;
 
 typedef struct {
     char name[32];             /* "classic", or the directory name under THEME_DIR */

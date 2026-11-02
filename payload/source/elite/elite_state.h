@@ -81,7 +81,7 @@ extern "C" {
 #define g_font_main         (*g_theme.font_main)
 #define g_font_title        (*g_theme.font_title)
 
-enum { HOME_LAYOUT_THEME = 0, HOME_LAYOUT_LIST, HOME_LAYOUT_GRID, HOME_LAYOUT_COUNT };
+enum { HOME_LAYOUT_THEME = 0, HOME_LAYOUT_LIST, HOME_LAYOUT_GRID, HOME_LAYOUT_CAROUSEL, HOME_LAYOUT_COUNT };
 enum { ACTIVITY_ORDER_YOURS = 0, ACTIVITY_ORDER_MOST_USED };
 
 /* UI Views */

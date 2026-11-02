@@ -222,6 +222,8 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
   - `ON`: Keypad LEDs illuminated while screen is awake.
   - `NIGHT`: Keypad LEDs illuminated only during configured night hours.
 - **`Night Schedule`**: `[ HH-HH ]` (e.g. `[ 22-07 ]`). Configures the 24-hour window for night backlight behavior.
+- **`Theme`**: cycles through Classic and the installed themes.
+- **`Home Layout`**: `[ THEME ]` (the theme's layout), `[ LIST ]`, `[ GRID ]` or `[ CAROUSEL ]` (one activity per page, dragged sideways).
 
 ### 3. `TOUCH`
 - **`Touchscreen`**: `[ ON ]` or `[ OFF ]`.

@@ -146,6 +146,7 @@ void theme_load(const char *name) {
     set_font(&g_theme.font_title, &g_font_title_classic, fonts, "title");
     const cJSON *layout = cJSON_GetObjectItem(root, "layout");
     if (cJSON_IsString(layout) && strcmp(layout->valuestring, "grid") == 0) g_theme.layout = THEME_LAYOUT_GRID;
+    if (cJSON_IsString(layout) && strcmp(layout->valuestring, "carousel") == 0) g_theme.layout = THEME_LAYOUT_CAROUSEL;
     const cJSON *wallpaper = cJSON_GetObjectItem(root, "wallpaper");
     if (cJSON_IsString(wallpaper) && strcmp(wallpaper->valuestring, "none") == 0) {
         snprintf(g_theme.wallpaper, sizeof(g_theme.wallpaper), "none");

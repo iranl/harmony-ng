@@ -100,7 +100,8 @@ void render_load(const render_options_t *o) {
     g_host_wall_time = mktime(&clock);
     theme_load(o->theme);
     g_home_layout = o->layout && strcmp(o->layout, "grid") == 0 ? HOME_LAYOUT_GRID
-                  : o->layout && strcmp(o->layout, "list") == 0 ? HOME_LAYOUT_LIST : HOME_LAYOUT_THEME;
+                  : o->layout && strcmp(o->layout, "list") == 0 ? HOME_LAYOUT_LIST
+                  : o->layout && strcmp(o->layout, "carousel") == 0 ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_THEME;
     load_rf_config();
     load_wallpaper_asset();
     g_rf_link_connected = !o->no_hub;
