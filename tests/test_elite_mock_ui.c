@@ -567,7 +567,21 @@ int main(void) {
         assert(!list_scroll_active() && !list_scroll_touch_up(120, 100, ms));
         #undef SETTLE
 
-        printf("[+] Lists: drag, fling, edge resistance, catch, key reveal\n");
+        /* The running activity's card: a device row opens that device, Back returns to the card */
+        g_rf_activity_count = 1;
+        snprintf(g_rf_activities[0].id, sizeof(g_rf_activities[0].id), "40001");
+        g_rf_activities[0].dev_count = 2;
+        g_rf_activities[0].devs[0] = 2;
+        g_rf_activities[0].devs[1] = 1;
+        snprintf(g_active_activity_id, sizeof(g_active_activity_id), "40001");
+        g_current_view = VIEW_DEVICES;
+        assert(get_active_dev_cmd_count() == 0);
+        int ry = FB_HEIGHT - 8 - 2 * 30;
+        assert(activity_card_device_at(&g_rf_activities[0], FB_HEIGHT, ry - 1) == -1);
+        tap(120, ry + 30 + 5);
+        assert(g_current_view == VIEW_DEVICE_BROWSER && g_browse_dev == 1);
+        assert(ui_go_back() && g_current_view == VIEW_DEVICES && g_browse_dev == -1);
+        printf("[+] Lists: drag, fling, edge resistance, catch, key reveal; card device rows open the device\n");
     }
 
     free(g_fb_mem);

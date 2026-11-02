@@ -99,15 +99,32 @@ int browser_list_y(void) {
     return g_browse_dev >= 0 ? SETTINGS_LIST_Y : UI_CONTENT_Y;
 }
 
+/* The screen showing the activity card a device was opened from, or -1 */
+static int s_card_view = -1;
+
 void open_device_browser(void) {
     g_current_view = VIEW_DEVICE_BROWSER;
     g_browse_dev = -1;
     g_browse_sel = 0;
+    s_card_view = -1;
 }
 
-/* From a device back to the device list; from the list to the running activity, or home */
+void open_device_from_card(int dev) {
+    if (dev < 0 || dev >= g_rf_device_count) return;
+    s_card_view = (int)g_current_view;
+    g_current_view = VIEW_DEVICE_BROWSER;
+    g_browse_dev = dev;
+    g_browse_sel = 0;
+}
+
+/* From a device back to the card it was opened from, or to the device list; from the list to
+   the running activity, or home */
 void device_browser_back(void) {
-    if (g_browse_dev >= 0) {
+    if (g_browse_dev >= 0 && s_card_view >= 0) {
+        g_current_view = (ui_view_t)s_card_view;
+        g_browse_dev = -1;
+        s_card_view = -1;
+    } else if (g_browse_dev >= 0) {
         g_browse_sel = g_browse_dev;
         g_browse_dev = -1;
     } else if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0) {
