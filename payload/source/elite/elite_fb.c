@@ -278,31 +278,50 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
 
     /* Theme icons carry their own colours; only stock and custom line art is recoloured */
     bool recolor_dark = strstr(filepath, "/themes/") == NULL;
+    /* Shrinking averages the source pixels under each screen pixel; picking one of them drops
+       whole lines of thin line art */
+    bool shrink = target_w < w || target_h < h;
 
     for (int ty = 0; ty < target_h; ty++) {
         int py = dst_y + ty;
         if (py < 0 || py >= FB_HEIGHT) continue;
         int sy = (ty * h) / target_h;
+        int sy_end = shrink ? ((ty + 1) * h) / target_h : sy + 1;
+        if (sy_end <= sy) sy_end = sy + 1;
         for (int tx = 0; tx < target_w; tx++) {
             int px = dst_x + tx;
             if (px < 0 || px >= FB_WIDTH) continue;
             int sx = (tx * w) / target_w;
+            int sx_end = shrink ? ((tx + 1) * w) / target_w : sx + 1;
+            if (sx_end <= sx) sx_end = sx + 1;
 
-            unsigned char *pixel = &data[(sy * w + sx) * 4];
-            uint8_t a = pixel[3];
-            if (a == 0) continue;
-
-            uint8_t r = pixel[0];
-            uint8_t g = pixel[1];
-            uint8_t b = pixel[2];
-
-            /* Stock Logitech icons are black line-art with alpha on transparent canvas.
-             * On dark card backgrounds, convert dark glyph pixels to crisp white so they shine clearly! */
-            if (recolor_dark && (r + g + b) < 100 && a > 30) {
-                r = 245;
-                g = 245;
-                b = 250;
+            /* Alpha-weighted sum of the covered source pixels */
+            uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, n = 0;
+            for (int yy = sy; yy < sy_end; yy++) {
+                for (int xx = sx; xx < sx_end; xx++, n++) {
+                    const unsigned char *pixel = &data[(yy * w + xx) * 4];
+                    uint32_t pa = pixel[3];
+                    if (pa == 0) continue;
+                    uint32_t pr = pixel[0], pg = pixel[1], pb = pixel[2];
+                    /* Stock Logitech icons are black line-art with alpha on transparent canvas.
+                     * On dark card backgrounds, convert dark glyph pixels to crisp white so they shine clearly! */
+                    if (recolor_dark && (pr + pg + pb) < 100 && pa > 30) {
+                        pr = 245;
+                        pg = 245;
+                        pb = 250;
+                    }
+                    sum_r += pr * pa;
+                    sum_g += pg * pa;
+                    sum_b += pb * pa;
+                    sum_a += pa;
+                }
             }
+            if (sum_a == 0) continue;
+            uint8_t a = (uint8_t)(sum_a / n);
+            if (a == 0) continue;
+            uint8_t r = (uint8_t)(sum_r / sum_a);
+            uint8_t g = (uint8_t)(sum_g / sum_a);
+            uint8_t b = (uint8_t)(sum_b / sum_a);
 
             if (a == 255) {
                 g_backbuffer[py * FB_WIDTH + px] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);

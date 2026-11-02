@@ -182,19 +182,21 @@ void render_device_browser_view(void) {
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
         fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : g_theme.pal.outline);
 
+        /* Device images are 45 px line art, drawn at 28 px; command glyphs stay at 22 px */
+        int icon_size = g_browse_dev < 0 ? 28 : 22;
         char dev_icon_path[128] = {0};
         bool has_icon = false;
         if (g_browse_dev < 0) {
             if (resolve_device_icon(g_rf_devices[idx].icon_id, g_rf_devices[idx].icon, g_rf_devices[idx].name, g_rf_devices[idx].id, dev_icon_path, sizeof(dev_icon_path))) {
-                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+                has_icon = blit_png_file(14, y + (card_h - icon_size) / 2, icon_size, icon_size, dev_icon_path);
             }
         } else {
             if (resolve_button_icon(NULL, label, dev_icon_path, sizeof(dev_icon_path))) {
-                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+                has_icon = blit_png_file(14, y + (card_h - icon_size) / 2, icon_size, icon_size, dev_icon_path);
             }
         }
 
-        int text_x = has_icon ? 42 : 16;
+        int text_x = has_icon ? 14 + icon_size + 6 : 16;
         char fit[RF_NAME_SIZE];
         fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, FB_WIDTH - 30 - text_x);
         fb_draw_text_aa(text_x, y + 9, fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
