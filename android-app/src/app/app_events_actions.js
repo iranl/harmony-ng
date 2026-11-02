@@ -907,18 +907,19 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       if (trigVal && trigVal.includes(':')) {
         offDevId = trigVal.split(':')[0];
       }
-      const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[offDevId]) || [];
-      const offCmd = cmds.find(c => /poweroff|powertoggle|power|off/i.test(typeof c === 'string' ? c : (c.name || '')));
+      const offDev = (this.inventory?.devices || []).find(d => String(d.id) === String(offDevId));
+      const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[offDevId]) || offDev?.commands || [];
+      const offCmd = cmds.find(c => /poweroff|powertoggle|power|off|sleep|standby/i.test(typeof c === 'string' ? c : (c.name || '')));
       if (offCmd) {
         const offCmdName = typeof offCmd === 'string' ? offCmd : offCmd.name;
-        const devName = (this.inventory?.devices || []).find(d => String(d.id) === String(offDevId))?.name || 'device';
+        const devName = offDev?.name || 'device';
         showToast(`Sending "${offCmdName}" to ${devName}...`, 'info', 2000);
         try {
-          await this.client.sendDeviceCommand(offDevId, offCmdName);
+          await this.client.sendCommand(offDevId, offCmdName);
           const stateEl = document.getElementById('btCalibrateStateMsg');
           if (stateEl) stateEl.textContent = `Power off command "${offCmdName}" sent to ${devName}.`;
         } catch (e) {
-          showToast(t("error_sending_cmd") + e.message, 'error');
+          showToast(t("error_sending_cmd") + (e.message || e), 'error');
         }
       } else {
         showToast('No PowerOff/Toggle command found. Please turn off device manually.', 'info', 3000);

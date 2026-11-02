@@ -578,9 +578,10 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     if (targetCmdName) {
       msgEl.textContent = `Triggering "${targetCmdName}" on ${targetDevName}...`;
       try {
-        await this.client.sendDeviceCommand(targetDevId, targetCmdName);
+        await this.client.sendCommand(targetDevId, targetCmdName);
       } catch (e) {
         console.warn('Power command send error:', e);
+        showToast(`Failed to trigger "${targetCmdName}": ${e.message || e}`, 'warning');
       }
     }
 

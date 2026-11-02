@@ -198,6 +198,10 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     });
   }
 
+  async sendDeviceCommand(deviceId, command) {
+    return this.sendCommand(deviceId, command);
+  }
+
   async sendBtCommand(deviceId, command) {
     return this.postJson('/api/bt-saved-command', {
       deviceId: String(deviceId),

@@ -92,6 +92,10 @@ export function createDevicesApi(client) {
       });
     },
 
+    async sendDeviceCommand(deviceId, command) {
+      return this.sendCommand(deviceId, command);
+    },
+
     async sendBtCommand(deviceId, command) {
       return client.postJson('/api/bt-saved-command', {
         deviceId: String(deviceId),
