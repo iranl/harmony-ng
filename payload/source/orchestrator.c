@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -91,6 +92,10 @@ void orch_set_progress_callback(orch_progress_cb cb, void *user_data) {
 
 int orch_is_busy(void) {
     return (g_state == ORCH_STATE_STARTING || g_state == ORCH_STATE_STOPPING);
+}
+
+int orch_is_sending(void) {
+    return g_queue_len > 0 || g_bg_len > 0;
 }
 
 const char *orch_get_current_activity(void) {
@@ -440,4 +445,72 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
 
 int orch_power_off(int dry_run, char *preview_json, size_t preview_len) {
     return orch_switch_activity(ORCH_POWEROFF_ID, dry_run, preview_json, preview_len);
+}
+
+static int is_power_toggle(const orch_step_t *s) {
+    return s->type == STEP_ACT_DEVICE_CMD &&
+           (strcasecmp(s->command_name, "PowerToggle") == 0 || strcasecmp(s->command_name, "Power") == 0);
+}
+
+static void note_toggle(const orch_step_t *s, orch_toggle_t *toggles, size_t max, size_t *n) {
+    for (size_t i = 0; i < *n; i++) {
+        if (strcmp(toggles[i].device_id, s->device_id) == 0) return;
+    }
+    if (*n >= max) return;
+    snprintf(toggles[*n].device_id, sizeof(toggles[*n].device_id), "%s", s->device_id);
+    snprintf(toggles[*n].command, sizeof(toggles[*n].command), "%s", s->command_name);
+    (*n)++;
+}
+
+int orch_repair_activity(const char *act_id, int dry_run, orch_toggle_t *toggles, size_t max_toggles,
+                         size_t *toggle_count, char *preview_json, size_t preview_len) {
+    *toggle_count = 0;
+    if (!act_id || !act_id[0] || strcmp(act_id, ORCH_POWEROFF_ID) == 0) return -3;
+    if (!dry_run) {
+        if (orch_is_busy()) return -2;
+        pthread_mutex_lock(&g_act_lock);
+        int running = (strcmp(g_current_act, act_id) == 0);
+        pthread_mutex_unlock(&g_act_lock);
+        if (!running) return -3;
+    }
+
+    orch_step_t *main_steps = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+    orch_bg_step_t *bg_steps = (orch_bg_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_bg_step_t));
+    size_t main_count = 0, bg_count = 0;
+    uint32_t sw_ms = 0, end_ms = 0;
+    if (!main_steps || !bg_steps ||
+        orch_build_steps(ORCH_POWEROFF_ID, act_id, main_steps, ORCH_MAX_STEPS, &main_count,
+                         bg_steps, ORCH_MAX_STEPS, &bg_count, &sw_ms, &end_ms) != 0) {
+        free(main_steps);
+        free(bg_steps);
+        return -1;
+    }
+
+    size_t m = 0, b = 0;
+    for (size_t i = 0; i < main_count; i++) {
+        if (is_power_toggle(&main_steps[i])) note_toggle(&main_steps[i], toggles, max_toggles, toggle_count);
+        else main_steps[m++] = main_steps[i];
+    }
+    for (size_t i = 0; i < bg_count; i++) {
+        if (is_power_toggle(&bg_steps[i].step)) note_toggle(&bg_steps[i].step, toggles, max_toggles, toggle_count);
+        else bg_steps[b++] = bg_steps[i];
+    }
+
+    if (dry_run) {
+        orch_format_preview_json(act_id, main_steps, m, bg_steps, b, sw_ms, end_ms, preview_json, preview_len);
+    } else if (m > 0 || b > 0) {
+        g_bg_len = 0;
+        memset(g_bg_queue, 0, sizeof(g_bg_queue));
+        strncpy(g_target_act, act_id, sizeof(g_target_act) - 1);
+        /* The queue returns to RUNNING after its last main step; with none, stay RUNNING */
+        if (m > 0) g_state = ORCH_STATE_STARTING;
+        orch_enqueue_steps(main_steps, m);
+        orch_enqueue_bg_steps(bg_steps, b);
+        if (g_progress_cb) {
+            g_progress_cb(g_target_act, g_state, 0, (int)m, "Help: re-sending the activity's commands", g_cb_user_data);
+        }
+    }
+    free(main_steps);
+    free(bg_steps);
+    return 0;
 }
