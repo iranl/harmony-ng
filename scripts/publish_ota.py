@@ -235,6 +235,13 @@ def package_ota(output_dir: Path, version: str):
         "sha256": sha
     }
 
+    # MD5 checksum files expected by Hub OTA updater
+    (output_dir / "hub_ota.tar.gz.md5").write_text(f"{md5}  hub_ota.tar.gz\n", encoding="utf-8")
+    (output_dir / "hub_ota.md5").write_text(f"{md5}\n", encoding="utf-8")
+    if (output_dir / "v2").is_dir():
+        (output_dir / "v2" / "hub_ota.tar.gz.md5").write_text(f"{md5}  hub_ota.tar.gz\n", encoding="utf-8")
+        (output_dir / "v2" / "hub_ota.md5").write_text(f"{md5}\n", encoding="utf-8")
+
     # 6. Manifest.json
     manifest = {
         "version": version,
