@@ -59,12 +59,13 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
         "cap_buttons"
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-        cJSON *nitem = cJSON_GetObjectItem(norm, keys[i]);
+        /* Case-sensitive: "usbeth" must not match the camelCase bool "usbEth" */
+        cJSON *nitem = cJSON_GetObjectItemCaseSensitive(norm, keys[i]);
         if (!nitem) continue;
         int nval = nitem->valueint;
         int oval = -999;
         if (old_root) {
-            cJSON *oitem = cJSON_GetObjectItem(old_root, keys[i]);
+            cJSON *oitem = cJSON_GetObjectItemCaseSensitive(old_root, keys[i]);
             if (oitem) oval = oitem->valueint;
         }
         if (oval != nval && oval != -999) {
