@@ -219,15 +219,9 @@ void execute_settings_action(int idx) {
                 save_settings_conf();
                 break;
             case 1: {
-                g_gyro_rate_hz = (g_gyro_rate_hz == 10) ? 25 : ((g_gyro_rate_hz == 25) ? 50 : 10);
+                g_gyro_rate_hz = (g_gyro_rate_hz == 10) ? 25 : ((g_gyro_rate_hz == 25) ? 50 : ((g_gyro_rate_hz == 50) ? 100 : 10));
                 if (g_gyro_fd >= 0 && g_gyro_enabled) {
-                    int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
-                    if (fdr >= 0) {
-                        char rstr[16];
-                        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz);
-                        write(fdr, rstr, strlen(rstr));
-                        close(fdr);
-                    }
+                    init_gyro_interrupt();
                 }
                 save_settings_conf();
                 break;

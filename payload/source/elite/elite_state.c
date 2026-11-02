@@ -107,7 +107,7 @@ activity_trigger_btn_t g_act_triggers[MAX_ACT_TRIGGERS];
 int g_act_trigger_count = 0;
 
 bool g_gyro_enabled = true;
-int g_gyro_rate_hz = 25;       /* 10, 25, 50 Hz */
+int g_gyro_rate_hz = 50;       /* 10, 25, 50, 100 Hz */
 int g_deep_standby_min = 30;   /* 15, 30, 60, 120, 240, 0=never */
 int g_btn_backlight_mode = 2;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
 int g_night_start_hour = 22;   /* 10 PM */

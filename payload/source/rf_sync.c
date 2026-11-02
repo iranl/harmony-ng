@@ -104,7 +104,7 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     if (timeout <= 0) timeout = 10;
 
     int gyro = (p[11] != 0);
-    int gyro_rate = p[12] > 0 ? p[12] : 25;
+    int gyro_rate = p[12] > 0 ? p[12] : 50;
     int btn_backlight = p[13];
     int night_start = p[14];
     int night_end = p[15];
@@ -208,7 +208,7 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
     payload[8] = (uint8_t)(confirm_act ? 1 : 0);
     payload[9] = (uint8_t)(touch_sens >= 1 && touch_sens <= 3 ? touch_sens : 2);
     payload[10] = 0; /* remote_mode: always 0 (activity mode) */
-    payload[11] = (uint8_t)(gyro_rate > 0 ? gyro_rate : 25);
+    payload[11] = (uint8_t)(gyro_rate > 0 ? gyro_rate : 50);
     payload[12] = (uint8_t)(btn_backlight >= 0 && btn_backlight <= 2 ? btn_backlight : 2);
     payload[13] = (uint8_t)(night_start >= 0 && night_start <= 23 ? night_start : 22);
     payload[14] = (uint8_t)(night_end >= 0 && night_end <= 23 ? night_end : 7);

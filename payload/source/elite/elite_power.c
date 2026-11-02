@@ -623,7 +623,7 @@ void init_gyro_interrupt(void) {
     int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
     if (fdr >= 0) {
         char rstr[16];
-        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
+        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
         write(fdr, rstr, strlen(rstr));
         close(fdr);
     }
@@ -638,7 +638,7 @@ void init_gyro_interrupt(void) {
         close(fdd);
     }
     printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
-           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
+           g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
 }
 
 static int s_wdt_fd = -1;
