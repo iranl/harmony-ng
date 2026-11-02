@@ -34,66 +34,103 @@
 #define STATIC_CACHE_MAX_ENTRIES 32
 #define STATIC_CACHE_MAX_SIZE (384 * 1024)
 
+/* Files served from flash, kept in memory. An entry remembers the file it was read from and
+ * is dropped when that file changes, so a Web UI deploy is served without a restart. A
+ * request holds an entry while it sends it; a dropped entry is freed by its last user. */
 struct static_cache_entry {
     char rel_path[128];
     int is_gzip;
     char *data;
     size_t size;
     const char *mime;
+    char src_path[520];
+    time_t src_mtime;
+    off_t src_size;
+    int users;
+    int stale;
 };
 
 static struct static_cache_entry g_static_cache[STATIC_CACHE_MAX_ENTRIES];
 static int g_static_cache_count = 0;
-static pthread_rwlock_t g_static_cache_rwlock = PTHREAD_RWLOCK_INITIALIZER;
+static pthread_mutex_t g_static_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Frees an entry's data now, or marks it for its last user to free; called with the lock held */
+static void static_cache_drop(struct static_cache_entry *e) {
+    if (e->users > 0) {
+        e->stale = 1;
+        return;
+    }
+    free(e->data);
+    e->data = NULL;
+    e->stale = 0;
+    e->rel_path[0] = '\0';
+    e->size = 0;
+}
 
 void static_cache_flush(void) {
-    pthread_rwlock_wrlock(&g_static_cache_rwlock);
+    pthread_mutex_lock(&g_static_cache_mutex);
     for (int i = 0; i < g_static_cache_count; i++) {
-        if (g_static_cache[i].data) {
-            free(g_static_cache[i].data);
-            g_static_cache[i].data = NULL;
-        }
-        g_static_cache[i].rel_path[0] = '\0';
-        g_static_cache[i].size = 0;
+        if (g_static_cache[i].data) static_cache_drop(&g_static_cache[i]);
     }
-    g_static_cache_count = 0;
-    pthread_rwlock_unlock(&g_static_cache_rwlock);
+    pthread_mutex_unlock(&g_static_cache_mutex);
 }
 
-static struct static_cache_entry *static_cache_find_locked(const char *rel_path, int is_gzip) {
+/* The entry for rel_path, held for the caller until static_cache_release(); NULL when there is
+   none or its file changed */
+static struct static_cache_entry *static_cache_find(const char *rel_path, int is_gzip) {
+    struct static_cache_entry *found = NULL;
+    pthread_mutex_lock(&g_static_cache_mutex);
     for (int i = 0; i < g_static_cache_count; i++) {
-        if (g_static_cache[i].data &&
-            g_static_cache[i].is_gzip == is_gzip &&
-            strcmp(g_static_cache[i].rel_path, rel_path) == 0) {
-            return &g_static_cache[i];
+        struct static_cache_entry *e = &g_static_cache[i];
+        if (!e->data || e->stale || e->is_gzip != is_gzip || strcmp(e->rel_path, rel_path) != 0) continue;
+        struct stat st;
+        if (stat(e->src_path, &st) != 0 || st.st_mtime != e->src_mtime || st.st_size != e->src_size) {
+            static_cache_drop(e);
+            break;
         }
+        e->users++;
+        found = e;
+        break;
     }
-    return NULL;
+    pthread_mutex_unlock(&g_static_cache_mutex);
+    return found;
 }
 
-static void static_cache_insert(const char *rel_path, int is_gzip, const char *mime, const char *data, size_t size) {
-    if (!rel_path || !data || size == 0 || size > STATIC_CACHE_MAX_SIZE) return;
-    pthread_rwlock_wrlock(&g_static_cache_rwlock);
+static void static_cache_release(struct static_cache_entry *e) {
+    pthread_mutex_lock(&g_static_cache_mutex);
+    if (--e->users == 0 && e->stale) static_cache_drop(e);
+    pthread_mutex_unlock(&g_static_cache_mutex);
+}
+
+static void static_cache_insert(const char *rel_path, int is_gzip, const char *mime, const char *data, size_t size,
+                                const char *src_path, const struct stat *src) {
+    if (!rel_path || !data || size == 0 || size > STATIC_CACHE_MAX_SIZE || !src_path || !src) return;
+    pthread_mutex_lock(&g_static_cache_mutex);
+    struct static_cache_entry *slot = NULL;
     for (int i = 0; i < g_static_cache_count; i++) {
-        if (strcmp(g_static_cache[i].rel_path, rel_path) == 0 && g_static_cache[i].is_gzip == is_gzip) {
-            pthread_rwlock_unlock(&g_static_cache_rwlock);
+        struct static_cache_entry *e = &g_static_cache[i];
+        if (e->data && !e->stale && e->is_gzip == is_gzip && strcmp(e->rel_path, rel_path) == 0) {
+            pthread_mutex_unlock(&g_static_cache_mutex);
             return;
         }
+        if (!slot && !e->data && e->users == 0) slot = e;
     }
-    if (g_static_cache_count < STATIC_CACHE_MAX_ENTRIES) {
-        char *copy = (char *)malloc(size);
-        if (copy) {
-            memcpy(copy, data, size);
-            strncpy(g_static_cache[g_static_cache_count].rel_path, rel_path, sizeof(g_static_cache[0].rel_path) - 1);
-            g_static_cache[g_static_cache_count].rel_path[sizeof(g_static_cache[0].rel_path) - 1] = '\0';
-            g_static_cache[g_static_cache_count].is_gzip = is_gzip;
-            g_static_cache[g_static_cache_count].data = copy;
-            g_static_cache[g_static_cache_count].size = size;
-            g_static_cache[g_static_cache_count].mime = mime;
-            g_static_cache_count++;
-        }
+    if (!slot && g_static_cache_count < STATIC_CACHE_MAX_ENTRIES) slot = &g_static_cache[g_static_cache_count++];
+    char *copy = slot ? (char *)malloc(size) : NULL;
+    if (copy) {
+        memcpy(copy, data, size);
+        snprintf(slot->rel_path, sizeof(slot->rel_path), "%s", rel_path);
+        snprintf(slot->src_path, sizeof(slot->src_path), "%s", src_path);
+        slot->is_gzip = is_gzip;
+        slot->data = copy;
+        slot->size = size;
+        slot->mime = mime;
+        slot->src_mtime = src->st_mtime;
+        slot->src_size = src->st_size;
+        slot->stale = 0;
+        slot->users = 0;
     }
-    pthread_rwlock_unlock(&g_static_cache_rwlock);
+    pthread_mutex_unlock(&g_static_cache_mutex);
 }
 
 static const char *get_mime_type(const char *path) {
@@ -141,13 +178,12 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
 
     int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
 
-    pthread_rwlock_rdlock(&g_static_cache_rwlock);
     struct static_cache_entry *cached = NULL;
     if (client_gzip) {
-        cached = static_cache_find_locked(rel_path, 1);
+        cached = static_cache_find(rel_path, 1);
     }
     if (!cached) {
-        cached = static_cache_find_locked(rel_path, 0);
+        cached = static_cache_find(rel_path, 0);
     }
 
     if (cached) {
@@ -179,10 +215,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
                 sent += (size_t)s;
             }
         }
-        pthread_rwlock_unlock(&g_static_cache_rwlock);
+        static_cache_release(cached);
         return 1;
     }
-    pthread_rwlock_unlock(&g_static_cache_rwlock);
 
     char file_path[512];
     snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
@@ -219,6 +254,7 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
 
     int is_gzip = 0;
     FILE *f = NULL;
+    char src_path[520] = "";
     struct stat st_raw, st_gz;
     int has_raw = (stat(file_path, &st_raw) == 0);
 
@@ -228,13 +264,17 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         if (stat(gz_path, &st_gz) == 0) {
             if (!has_raw || st_gz.st_mtime >= st_raw.st_mtime) {
                 f = fopen(gz_path, "rb");
-                if (f) is_gzip = 1;
+                if (f) {
+                    is_gzip = 1;
+                    snprintf(src_path, sizeof(src_path), "%s", gz_path);
+                }
             }
         }
     }
 
     if (!f && has_raw) {
         f = fopen(file_path, "rb");
+        if (f) snprintf(src_path, sizeof(src_path), "%s", file_path);
     }
 
     if (!f && !strchr(rel_path, '.')) {
@@ -251,12 +291,16 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
             if (has_idx_gz) {
                 if (!has_idx_raw || st_gz.st_mtime >= st_raw.st_mtime) {
                     f = fopen(idx_gz, "rb");
-                    if (f) is_gzip = 1;
+                    if (f) {
+                        is_gzip = 1;
+                        snprintf(src_path, sizeof(src_path), "%s", idx_gz);
+                    }
                 }
             }
         }
         if (!f && has_idx_raw) {
             f = fopen(idx_raw, "rb");
+            if (f) snprintf(src_path, sizeof(src_path), "%s", idx_raw);
         }
         if (f) {
             strncpy(rel_path, "/index.html", sizeof(rel_path) - 1);
@@ -305,8 +349,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
                         sent += (size_t)s;
                     }
                 }
-                if (strncmp(file_path, "/tmp/", 5) != 0) {
-                    static_cache_insert(rel_path, is_gzip, mime, file_buf, nr);
+                struct stat src;
+                if (strncmp(file_path, "/tmp/", 5) != 0 && fstat(fileno(f), &src) == 0) {
+                    static_cache_insert(rel_path, is_gzip, mime, file_buf, nr, src_path, &src);
                 }
             }
             free(file_buf);
