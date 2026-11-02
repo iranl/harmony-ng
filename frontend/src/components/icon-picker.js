@@ -1,12 +1,34 @@
-// Icon Picker Overlay Component
+// Activity Icon Picker Overlay Component
 import { h } from '../utils/dom.js';
 import { createModal } from './modal.js';
-import { renderIcon } from '../icons/render.js';
-import iconMeta from '../icons/metadata.json';
+import { renderActivityIcon } from '../icons/render.js';
+import { api } from '../api/index.js';
 import { t } from '../i18n/index.js';
+import iconMeta from '../icons/metadata.json';
+
+// The remote draws three kinds of activity icon:
+// - keywords (rf_activity_icon_keyword in payload/source/rf_proto.h), which a theme can redraw;
+// - the remote's stock images, sent as a 16-bit index (payload/source/elite_stock_icons.c);
+// - icons uploaded to the Hub, which the Hub streams to the remote.
+const KEYWORDS = [
+  ['watchtv', 'Watch TV'], ['movie', 'Watch Movie / Stream'], ['music', 'Listen to Music'],
+  ['game', 'Play Game'], ['ps', 'PlayStation'], ['xbox', 'Xbox'], ['switch', 'Nintendo Switch'],
+  ['shield', 'NVIDIA Shield'], ['apple', 'Apple TV'], ['roku', 'Roku'], ['firetv', 'Fire TV'],
+  ['pc', 'PC / Computer'], ['smarttv', 'Smart TV'], ['sonos', 'Sonos'],
+  ['receiver', 'AV Receiver / Amplifier'], ['light', 'Smart Lights'], ['power', 'Power Off'],
+];
+
+// The stock activity images at the size the activity list draws
+const STOCK = Object.entries(iconMeta)
+  .filter(([file, meta]) => meta.category === 'activity' && file.endsWith('_small.png'))
+  .map(([file, meta]) => ({ key: file.replace(/\.png$/, ''), label: meta.name, tags: meta.tags || [] }));
+
+const iconKey = (icon) => String(icon || '').split('/').pop().replace(/\.png$/i, '').toLowerCase();
 
 export function openIconPicker(currentIcon = '', onSelect) {
   let filterText = '';
+  let uploaded = [];
+  const current = iconKey(currentIcon);
   const searchInput = h('input', {
     type: 'text',
     className: 'form-input',
@@ -17,7 +39,7 @@ export function openIconPicker(currentIcon = '', onSelect) {
   const gridContainer = h('div', {
     style: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(54px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
       gap: '8px',
       maxHeight: '360px',
       overflowY: 'auto',
@@ -25,40 +47,56 @@ export function openIconPicker(currentIcon = '', onSelect) {
     },
   });
 
-  const allIcons = Array.isArray(iconMeta) ? iconMeta : Object.keys(iconMeta);
-
   function renderGrid() {
     gridContainer.innerHTML = '';
-    const filtered = allIcons.filter(ic => {
-      const name = typeof ic === 'string' ? ic : (ic.name || ic.key || '');
-      return !filterText || name.toLowerCase().includes(filterText);
-    });
+    // The remote resolves a keyword or stock icon before the name, so the label doesn't affect the image
+    const remoteIcon = ({ key, label }) => () => renderActivityIcon({ id: `icon-picker-${key}`, name: label, icon: key }, 'app-icon');
+    const items = [
+      ...KEYWORDS.map(([key, label]) => ({ group: t('icons_keywords', 'Activity types'), key, label, preview: remoteIcon({ key, label }) })),
+      ...uploaded.map(u => ({
+        group: t('icons_uploaded', 'Uploaded'),
+        key: iconKey(u.filename),
+        label: iconKey(u.filename),
+        preview: () => h('img', { src: `${api.baseUrl}${u.url}`, className: 'app-icon', alt: '' }),
+      })),
+      ...STOCK.map(st => ({ group: t('icons_stock', 'Remote images'), ...st, preview: remoteIcon(st) })),
+    ];
 
-    filtered.slice(0, 150).forEach(ic => {
-      const iconKey = typeof ic === 'string' ? ic : (ic.key || ic.name);
-      const isSelected = iconKey === currentIcon;
+    let group = null;
+    items.filter(it => !filterText || [it.label, it.key, ...(it.tags || [])].some(w => w.toLowerCase().includes(filterText)))
+      .forEach(it => {
+        if (it.group !== group) {
+          group = it.group;
+          gridContainer.appendChild(h('div', { className: 'form-label', text: group, style: { gridColumn: '1 / -1', margin: '4px 0 0' } }));
+        }
+        const isSelected = iconKey(it.key) === current;
+        const preview = it.preview();
+        preview.width = 32;
+        preview.height = 32;
 
-      const btn = h('button', {
-        className: 'btn btn-secondary',
-        style: {
-          padding: '8px',
-          height: '54px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
-          background: isSelected ? 'rgba(56, 189, 248, 0.2)' : 'var(--bg-card)',
-        },
-        onclick: () => {
-          if (onSelect) onSelect(iconKey);
-          modal.close();
-        },
-      }, [
-        renderIcon(iconKey, { size: 32, alt: iconKey }),
-      ]);
-
-      gridContainer.appendChild(btn);
-    });
+        gridContainer.appendChild(h('button', {
+          className: 'btn btn-secondary',
+          title: it.label,
+          style: {
+            padding: '8px 4px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+            background: isSelected ? 'rgba(56, 189, 248, 0.2)' : 'var(--bg-card)',
+          },
+          onclick: () => {
+            if (onSelect) onSelect(it.key);
+            modal.close();
+          },
+        }, [
+          preview,
+          // Some keywords share an image on the remote, so the label tells them apart
+          h('span', { text: it.label, style: { fontSize: '11px', lineHeight: '1.2', textAlign: 'center', overflowWrap: 'anywhere' } }),
+        ]));
+      });
   }
 
   searchInput.oninput = (e) => {
@@ -68,6 +106,10 @@ export function openIconPicker(currentIcon = '', onSelect) {
 
   const body = h('div', {}, [searchInput, gridContainer]);
   renderGrid();
+  api.getCustomIcons().then((list) => {
+    uploaded = Array.isArray(list) ? list : [];
+    if (uploaded.length) renderGrid();
+  }).catch(() => {});
 
   const modal = createModal({
     title: t('select_icon', 'Select Icon'),
