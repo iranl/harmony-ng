@@ -21,6 +21,24 @@
 static struct fb_var_screeninfo s_vinfo;
 static int s_pages = 1;  /* pages to flip between; 1 = copy into every page */
 static int s_shown = 0;  /* page the display shows */
+static uint64_t s_last_paced_us = 0;
+
+/* Animation frames are shown on every second refresh of the 72 Hz display, 36 per second
+   (ADR-0009): wait for refreshes until 25 ms have passed since the last paced frame */
+#define PACED_FRAME_MIN_US 25000
+
+static void wait_for_paced_refresh(void) {
+    for (int i = 0; i < 3; i++) {
+        uint32_t crtc = 0;
+        if (ioctl(g_fb_fd, FBIO_WAITFORVSYNC, &crtc) != 0) {
+            uint64_t since = get_monotonic_us() - s_last_paced_us;
+            if (since < PACED_FRAME_MIN_US) usleep((useconds_t)(PACED_FRAME_MIN_US - since));
+            break;
+        }
+        if (get_monotonic_us() - s_last_paced_us >= PACED_FRAME_MIN_US) break;
+    }
+    s_last_paced_us = get_monotonic_us();
+}
 
 void fb_present_init(void) {
     s_pages = 1;
@@ -50,10 +68,7 @@ bool fb_present(const uint16_t *frame, bool wait_vsync) {
     }
     int next = (s_shown + 1) % s_pages;
     memcpy((uint8_t *)g_fb_mem + (size_t)next * FB_SIZE, frame, FB_SIZE);
-    if (wait_vsync) {
-        uint32_t crtc = 0;
-        ioctl(g_fb_fd, FBIO_WAITFORVSYNC, &crtc);
-    }
+    if (wait_vsync) wait_for_paced_refresh();
     s_vinfo.yoffset = (uint32_t)(next * FB_HEIGHT);
     if (ioctl(g_fb_fd, FBIOPAN_DISPLAY, &s_vinfo) != 0) {
         perror("[-] FBIOPAN_DISPLAY; copying frames into every page from now on");

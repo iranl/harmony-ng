@@ -13,8 +13,9 @@ extern "C" {
 
 /* Finds how many framebuffer pages can be flipped between, and shows page 0 */
 void fb_present_init(void);
-/* Shows a frame: copies it into a hidden page and pans the display to it, at the next
- * refresh when wait_vsync is set. Without page flipping it copies into every page.
+/* Shows a frame: copies it into a hidden page and pans the display to it. With wait_vsync
+ * set, it pans at a refresh at least 25 ms after the last such frame, so animation runs at
+ * 36 frames per second. Without page flipping it copies into every page.
  * Returns whether the frame was shown by page flipping. */
 bool fb_present(const uint16_t *frame, bool wait_vsync);
 
