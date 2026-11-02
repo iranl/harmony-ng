@@ -26,12 +26,14 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
 }
 
 
-static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command) {
+static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command, int action) {
     cJSON *j = cJSON_CreateObject();
     if (!j) return NULL;
     cJSON_AddStringToObject(j, "deviceId", device_id ? device_id : "");
     cJSON_AddStringToObject(j, "device", (dev_name && dev_name[0]) ? dev_name : "Dummy");
     cJSON_AddStringToObject(j, "command", command ? command : "");
+    const char *act_str = (action == HW_BTN_ACTION_RELEASE) ? "release" : ((action == HW_BTN_ACTION_REPEAT) ? "hold" : "press");
+    cJSON_AddStringToObject(j, "action", act_str);
     char *out = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     return out;
@@ -269,7 +271,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
     }
 }
 
-static int hw_device_command_send_match(const char *target, int match_mode, const char *command) {
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
     if (!target || !command) return -1;
 
     /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
@@ -533,11 +535,23 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    const char *actual_dev_id = target_id_str[0] ? target_id_str : target;
 
-    if (s_last_cmd_time_ms > 0) {
+    /* 90ms debounce rejection: drop rapid duplicate press/tap pulses on the same button */
+    if ((action == HW_BTN_ACTION_TAP || action == HW_BTN_ACTION_PRESS) &&
+        s_last_cmd_time_ms > 0 &&
+        strcmp(s_last_device_id, actual_dev_id) == 0 &&
+        strcmp(s_last_cmd_name, command) == 0) {
+        uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
+        if (elapsed < 90) {
+            pthread_mutex_unlock(&s_hw_cmd_lock);
+            return 0;
+        }
+    }
+
+    if (action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
         uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
         int req_delay = 0;
-        const char *actual_dev_id = target_id_str[0] ? target_id_str : target;
         if (strcmp(s_last_device_id, actual_dev_id) != 0) {
             req_delay = inter_device_delay;
         } else {
@@ -557,7 +571,7 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         if (!bdaddr[0]) {
             pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
-                   command, dev_name[0] ? dev_name : "BT-Device", target_id_str[0] ? target_id_str : target);
+                   command, dev_name[0] ? dev_name : "BT-Device", actual_dev_id);
             return 0; /* Skip gracefully without failing activity switch */
         }
 
@@ -571,9 +585,38 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         } else if (sscanf(keycode_str, "HID:%x:%x", &page, &usage) == 2 ||
                    sscanf(keycode_str, "hid:%x:%x", &page, &usage) == 2) {
             if (page == 0x07) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000|A1010000000000000000\n", (unsigned char)usage);
+                if (action == HW_BTN_ACTION_PRESS) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000\n", (unsigned char)usage);
+                } else if (action == HW_BTN_ACTION_RELEASE) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "RELEASE\n");
+                } else if (action == HW_BTN_ACTION_REPEAT) {
+                    pipe_cmd[0] = '\0';
+                    ret = 0;
+                } else {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000|A1010000000000000000\n", (unsigned char)usage);
+                }
             } else if (page == 0x0C) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER %X\n", usage);
+                if (action == HW_BTN_ACTION_PRESS) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_DOWN %X\n", usage);
+                } else if (action == HW_BTN_ACTION_RELEASE) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_UP\n");
+                } else if (action == HW_BTN_ACTION_REPEAT) {
+                    pipe_cmd[0] = '\0';
+                    ret = 0;
+                } else {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER %X\n", usage);
+                }
+            }
+        } else {
+            if (action == HW_BTN_ACTION_PRESS) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYDOWN %s\n", command);
+            } else if (action == HW_BTN_ACTION_RELEASE) {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYUP %s\n", command);
+            } else if (action == HW_BTN_ACTION_REPEAT) {
+                pipe_cmd[0] = '\0';
+                ret = 0;
+            } else {
+                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEY %s\n", command);
             }
         }
 
@@ -603,9 +646,8 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
                     ctime_r(&now, tbuf);
                     char *nl = strchr(tbuf, '\n');
                     if (nl) *nl = '\0';
-                    const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
-                    fprintf(bf, "[%s] Dev: %s (%s) | Cmd: %s | Page: 0x%02X Usage: 0x%04X | KeyCode: %s | ret=%d | Pipe: %s",
-                            tbuf, dev_name[0] ? dev_name : "BT-Device", actual_dev_id_str, command, page, usage, keycode_str, ret, pipe_cmd);
+                    fprintf(bf, "[%s] Dev: %s (%s) | Cmd: %s | Action: %d | Page: 0x%02X Usage: 0x%04X | KeyCode: %s | ret=%d | Pipe: %s",
+                            tbuf, dev_name[0] ? dev_name : "BT-Device", actual_dev_id, command, action, page, usage, keycode_str, ret, pipe_cmd);
                     fclose(bf);
                 }
             }
@@ -627,7 +669,7 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
                 setsockopt(mfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
                 setsockopt(mfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
                 if (connect(mfd, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-                    char *body = build_button_press_json(actual_dev_id_str, dev_name, command);
+                    char *body = build_button_press_json(actual_dev_id_str, dev_name, command, action);
                     char req[512];
                     snprintf(req, sizeof(req),
                              "POST /api/button-press HTTP/1.1\r\n"
@@ -648,13 +690,18 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
             }
         }
     } else if (keycode_str[0]) {
-        uint8_t repeats = 3;
-        cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "Repeats");
-        if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "repeats");
-        if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
-            repeats = (uint8_t)j_rep->valuedouble;
+        if (action == HW_BTN_ACTION_RELEASE) {
+            hw_ir_cancel(ir_ports);
+            ret = 0;
+        } else {
+            uint8_t repeats = 1;
+            cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "Repeats");
+            if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(target_cmd, "repeats");
+            if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
+                repeats = (uint8_t)j_rep->valuedouble;
+            }
+            ret = hw_ir_send_harmony_keycode(keycode_str, ir_ports, repeats);
         }
-        ret = hw_ir_send_harmony_keycode(keycode_str, ir_ports, repeats);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -668,16 +715,20 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     return ret;
 }
 
+int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
+    return hw_device_command_send_match(target, match_mode, command, action);
+}
+
 int hw_device_command_send(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 0, command);
+    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP);
 }
 
 int hw_device_command_send_by_id(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 1, command);
+    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP);
 }
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
-    return hw_device_command_send_match(device_name, 2, command);
+    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
 }
 
 int hw_bthid_send_report(const uint8_t *report, size_t len) {

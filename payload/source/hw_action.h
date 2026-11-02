@@ -50,10 +50,17 @@ int hw_ir_cancel(uint8_t ports);
  */
 int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats);
 
+/* Button actions for hold/repeat normalization */
+#define HW_BTN_ACTION_TAP     0
+#define HW_BTN_ACTION_PRESS   1
+#define HW_BTN_ACTION_REPEAT  2
+#define HW_BTN_ACTION_RELEASE 3
+
 /*
  * Direct device command dispatcher: looks up device and command in json,
  * encodes protocol waveform, and sends directly via I2S, BTstack FIFO, or MQTT.
  */
+int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action);
 int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);

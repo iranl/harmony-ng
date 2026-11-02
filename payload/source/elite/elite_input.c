@@ -97,7 +97,7 @@ void *key_repeat_thread(void *arg) {
             }
             pthread_mutex_unlock(&g_repeat_mutex);
 
-            rf_send_button_event(key, 1);
+            rf_send_button_event(key, 2);
             usleep(150000); /* 150ms repeat rate */
         }
     }

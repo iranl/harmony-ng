@@ -46,9 +46,9 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
 
     const holdCtrl = this.attachHoldToRepeat(
       el,
-      async () => {
+      async (action = 'press') => {
         if (btn.deviceId && btn.command && this.onSendCallback) {
-          await this.onSendCallback(btn.deviceId, btn.command);
+          await this.onSendCallback(btn.deviceId, btn.command, action);
         }
       },
       isRepeatable
@@ -130,9 +130,9 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
           const isRepeatable = this.isRepeatableCommand(cmdName);
           const holdCtrl = this.attachHoldToRepeat(
             chip,
-            async () => {
+            async (action = 'press') => {
               if (this.onSendCallback) {
-                await this.onSendCallback(dev.id, cmdName);
+                await this.onSendCallback(dev.id, cmdName, action);
               }
             },
             isRepeatable

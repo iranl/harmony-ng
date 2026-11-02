@@ -12,6 +12,14 @@ static char g_active_remote_btn[64] = "";
 static btstack_timer_source_t g_remote_wake_grace_timer;
 static bool g_remote_wake_grace_active = true;
 
+static uint64_t get_time_monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (ts.tv_nsec / 1000000ULL);
+}
+static uint64_t g_remote_btn_down_ms = 0;
+static uint64_t g_remote_btn_last_repeat_ms = 0;
+
 const char *parse_button(const uint8_t *data, uint16_t len) {
     if (len < 1) return NULL;
 
@@ -313,7 +321,8 @@ static void remote_wake_grace_timeout_handler(btstack_timer_source_t *ts) {
 static void remote_watchdog_timeout_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     g_remote_wake_grace_active = false;
-    g_remote_watchdog_active = false;
+    g_remote_btn_down_ms = 0;
+    g_remote_btn_last_repeat_ms = 0;
     if (g_active_remote_btn[0]) {
         char msg[128];
         snprintf(msg, sizeof(msg), "Remote hold watchdog expired (auto-release): %s", g_active_remote_btn);
@@ -325,7 +334,7 @@ static void remote_watchdog_timeout_handler(btstack_timer_source_t *ts) {
 
 void dispatch_button_event(const char *btn, int is_press) {
     if (!btn || !btn[0]) return;
-    if (is_press) {
+    if (is_press == 1) {
         strncpy(g_last_btn, btn, sizeof(g_last_btn) - 1);
         g_last_seen = time(NULL);
         update_status("ready");
@@ -352,6 +361,16 @@ void dispatch_button_event(const char *btn, int is_press) {
                  "{\"command\":\"%s\",\"action\":\"press\",\"source\":\"bt_remote\"}",
                  btn);
         trigger_http_post("/api/button-press", mqtt_body);
+    } else if (is_press == 2) {
+        char msg[160];
+        snprintf(msg, sizeof(msg), "Button repeat/hold: %s", btn);
+        hub_bt_log_debug(msg);
+
+        char mqtt_body[256];
+        snprintf(mqtt_body, sizeof(mqtt_body),
+                 "{\"command\":\"%s\",\"action\":\"hold\",\"source\":\"bt_remote\"}",
+                 btn);
+        trigger_http_post("/api/button-press", mqtt_body);
     } else {
         FILE *ef = fopen(BT_EVENT_FILE, "a");
         if (ef) {
@@ -367,6 +386,12 @@ void dispatch_button_event(const char *btn, int is_press) {
             btstack_run_loop_remove_timer(&g_remote_wake_grace_timer);
             hub_bt_log_debug("Remote first button released; wake grace window ended");
         }
+
+        char mqtt_body[256];
+        snprintf(mqtt_body, sizeof(mqtt_body),
+                 "{\"command\":\"%s\",\"action\":\"release\",\"source\":\"bt_remote\"}",
+                 btn);
+        trigger_http_post("/api/button-press", mqtt_body);
     }
 
     char act_id[32] = "-1";
@@ -427,11 +452,11 @@ void dispatch_button_event(const char *btn, int is_press) {
             }
         }
         if (g_host_connected && g_host_hid_cid) {
-            if (is_press) {
+            if (is_press == 1) {
                 int hold_mode = g_remote_wake_grace_active ? 0 : 1;
                 send_host_named_key_ex(cmd, hold_mode);
                 snprintf(msg, sizeof(msg), "Dispatched passthrough_bt %s: %s%s", hold_mode ? "hold" : "tap", cmd, g_remote_wake_grace_active ? " (wake-grace tap)" : "");
-            } else {
+            } else if (is_press == 0) {
                 send_host_release_all();
                 snprintf(msg, sizeof(msg), "Dispatched passthrough_bt release: %s", cmd);
             }
@@ -449,14 +474,14 @@ void dispatch_button_event(const char *btn, int is_press) {
                 }
             }
             if (g_host_connected && g_host_hid_cid) {
-                if (is_press) {
+                if (is_press == 1) {
                     int hold_mode = g_remote_wake_grace_active ? 0 : 1;
                     if (send_host_named_key_ex(cmd, hold_mode)) {
                         snprintf(msg, sizeof(msg), "Dispatched device_cmd %s to BT host: dev=%s cmd=%s%s", hold_mode ? "hold" : "tap", target, cmd, g_remote_wake_grace_active ? " (wake-grace tap)" : "");
                         hub_bt_log_debug(msg);
                         return;
                     }
-                } else {
+                } else if (is_press == 0) {
                     send_host_release_all();
                     snprintf(msg, sizeof(msg), "Dispatched device_cmd release to BT host: dev=%s cmd=%s", target, cmd);
                     hub_bt_log_debug(msg);
@@ -468,14 +493,14 @@ void dispatch_button_event(const char *btn, int is_press) {
                 return;
             }
         }
-        if (is_press) {
-            char body[256];
-            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", target, cmd);
-            trigger_http_post("/api/ir-send", body);
-            snprintf(msg, sizeof(msg), "Dispatched device_cmd: dev=%s cmd=%s", target, cmd);
-            hub_bt_log_debug(msg);
-        }
-    } else if (is_press) {
+        /* Non-BT device (IR / MQTT) */
+        char body[256];
+        const char *act_name = (is_press == 2) ? "hold" : (is_press == 0 ? "release" : "press");
+        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}", target, cmd, act_name);
+        trigger_http_post("/api/ir-send", body);
+        snprintf(msg, sizeof(msg), "Dispatched device_cmd %s: dev=%s cmd=%s", act_name, target, cmd);
+        hub_bt_log_debug(msg);
+    } else if (is_press == 1) {
         if (strcmp(action, "activity_start") == 0 && target[0]) {
             char body[64];
             snprintf(body, sizeof(body), "{\"id\":\"%s\"}", target);
@@ -520,6 +545,8 @@ void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8
             btstack_run_loop_remove_timer(&g_remote_watchdog_timer);
             g_remote_watchdog_active = false;
         }
+        g_remote_btn_down_ms = 0;
+        g_remote_btn_last_repeat_ms = 0;
         if (g_active_remote_btn[0]) {
             dispatch_button_event(g_active_remote_btn, 0 /* release */);
             g_active_remote_btn[0] = 0;
@@ -543,6 +570,12 @@ void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8
             btstack_run_loop_set_timer(&g_remote_watchdog_timer, 10000);
             btstack_run_loop_add_timer(&g_remote_watchdog_timer);
             g_remote_watchdog_active = true;
+
+            uint64_t now = get_time_monotonic_ms();
+            if (now >= g_remote_btn_down_ms + 350 && now >= g_remote_btn_last_repeat_ms + 140) {
+                g_remote_btn_last_repeat_ms = now;
+                dispatch_button_event(btn, 2 /* hold/repeat */);
+            }
             return;
         }
         if (g_active_remote_btn[0]) {
@@ -550,7 +583,9 @@ void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8
             g_active_remote_btn[0] = 0;
         }
         strncpy(g_active_remote_btn, btn, sizeof(g_active_remote_btn) - 1);
-        dispatch_button_event(btn, 1 /* press/hold */);
+        g_remote_btn_down_ms = get_time_monotonic_ms();
+        g_remote_btn_last_repeat_ms = g_remote_btn_down_ms;
+        dispatch_button_event(btn, 1 /* press */);
 
         if (g_remote_watchdog_active) {
             btstack_run_loop_remove_timer(&g_remote_watchdog_timer);

@@ -151,9 +151,7 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
     }
     http_post_local(DAEMON_PORT, "/api/button-press", mqtt_body);
 
-    if (!is_press) return;
-
-    if (strcmp(button_name, "PowerOffActivity") == 0) {
+    if (is_press && strcmp(button_name, "PowerOffActivity") == 0) {
         printf("[*] RF Dispatch: PowerOffActivity -> Stopping activity\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
         return;
@@ -173,8 +171,10 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
                         cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(b_cfg, "command");
                         if (j_cmd && cJSON_IsString(j_cmd) && j_cmd->valuestring[0]) {
                             char body[256];
-                            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id, j_cmd->valuestring);
-                            printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s\n", button_name, dev_id, j_cmd->valuestring);
+                            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                                     dev_id, j_cmd->valuestring, action_state ? action_state : "press");
+                            printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s action=%s\n",
+                                   button_name, dev_id, j_cmd->valuestring, action_state ? action_state : "press");
                             http_post_local(WEBUI_PORT, "/api/ir-send", body);
                             pthread_mutex_unlock(&g_map_lock);
                             return;
@@ -218,8 +218,10 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
                     }
                     if (matched_cmd) {
                         char body[256];
-                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id, matched_cmd);
-                        printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s\n", button_name, dev_id, matched_cmd);
+                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                                 dev_id, matched_cmd, action_state ? action_state : "press");
+                        printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
+                               button_name, dev_id, matched_cmd, action_state ? action_state : "press");
                         http_post_local(WEBUI_PORT, "/api/ir-send", body);
                         cJSON_Delete(root);
                         fclose(fd);
@@ -292,15 +294,16 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
                   (act_type_buf[0] == '\0' && dev_id_buf[0] && cmd_buf[0]));
     if (is_cmd && dev_id_buf[0] && cmd_buf[0]) {
         char body[256];
-        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev_id_buf, cmd_buf);
-        printf("[*] RF Dispatch: IR/BT send -> dev=%s cmd=%s\n", dev_id_buf, cmd_buf);
+        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                 dev_id_buf, cmd_buf, action_state ? action_state : "press");
+        printf("[*] RF Dispatch: IR/BT send -> dev=%s cmd=%s action=%s\n", dev_id_buf, cmd_buf, action_state ? action_state : "press");
         http_post_local(WEBUI_PORT, "/api/ir-send", body);
-    } else if ((strcmp(act_type_buf, "activity_start") == 0 || strcmp(act_type_buf, "change_activity") == 0) && target_act_id_buf[0]) {
+    } else if (is_press && (strcmp(act_type_buf, "activity_start") == 0 || strcmp(act_type_buf, "change_activity") == 0) && target_act_id_buf[0]) {
         char body[64];
         snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", target_act_id_buf);
         printf("[*] RF Dispatch: Start activity -> id=%s\n", target_act_id_buf);
         http_post_local(DAEMON_PORT, "/api/activity", body);
-    } else if (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0) {
+    } else if (is_press && (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0)) {
         printf("[*] RF Dispatch: Stop activity (PowerOff)\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
     }
@@ -413,13 +416,13 @@ void check_companion_timeouts(void) {
     uint64_t now_ms = get_monotonic_ms();
     for (int s = 0; s < MAX_PAIRED_REMOTES; s++) {
         if (s_companion_state[s].current_key != 0) {
-            /* Trigger HOLD when held longer than 300ms */
-            if (!s_companion_state[s].hold_sent && (now_ms - s_companion_state[s].press_start_ms >= 300)) {
-                s_companion_state[s].hold_sent = true;
-                printf("[*] Companion button HOLD: slot=%d code=0x%04X name=%s (held %llums)\n",
-                       s + 1, s_companion_state[s].current_key, s_companion_state[s].current_name,
-                       (unsigned long long)(now_ms - s_companion_state[s].press_start_ms));
-                enqueue_elite_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
+            /* Trigger continuous HOLD repeat pulses (initial hold >= 350ms, then every 140ms) */
+            if (now_ms - s_companion_state[s].press_start_ms >= 350) {
+                if (now_ms - s_companion_state[s].last_repeat_ms >= 140) {
+                    s_companion_state[s].last_repeat_ms = now_ms;
+                    s_companion_state[s].hold_sent = true;
+                    enqueue_elite_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
+                }
             }
             /* Safety timeout: only release if link lost or stuck for >30 seconds */
             else if (now_ms - s_companion_state[s].press_start_ms > 30000) {
@@ -494,12 +497,12 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
         printf("[*] Companion button PRESS: slot=%d code=0x%04X name=%s\n", slot, key_code, name);
         enqueue_elite_button(slot, name, "press", NULL);
     } else {
-        s_companion_state[sidx].last_repeat_ms = now_ms;
-        if (!s_companion_state[sidx].hold_sent && (now_ms - s_companion_state[sidx].press_start_ms >= 300)) {
-            s_companion_state[sidx].hold_sent = true;
-            printf("[*] Companion button HOLD: slot=%d code=0x%04X name=%s (held %llums)\n",
-                   slot, key_code, name, (unsigned long long)(now_ms - s_companion_state[sidx].press_start_ms));
-            enqueue_elite_button(slot, name, "hold", NULL);
+        if (now_ms - s_companion_state[sidx].press_start_ms >= 350) {
+            if (now_ms - s_companion_state[sidx].last_repeat_ms >= 140) {
+                s_companion_state[sidx].last_repeat_ms = now_ms;
+                s_companion_state[sidx].hold_sent = true;
+                enqueue_elite_button(slot, name, "hold", NULL);
+            }
         }
     }
 }

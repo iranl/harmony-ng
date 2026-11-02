@@ -111,9 +111,23 @@ void handle_ws_client_message(int cfd) {
         }
         const char *cmd = (cmd_j && cJSON_IsString(cmd_j)) ? cmd_j->valuestring : "";
 
+        int btn_action = HW_BTN_ACTION_TAP;
+        cJSON *act_j = cJSON_GetObjectItemCaseSensitive(root, "cmdAction");
+        if (!act_j) act_j = cJSON_GetObjectItemCaseSensitive(root, "action_type");
+        if (!act_j) act_j = cJSON_GetObjectItemCaseSensitive(root, "btnAction");
+        if (act_j && cJSON_IsString(act_j) && act_j->valuestring) {
+            if (strcasecmp(act_j->valuestring, "press") == 0 || strcasecmp(act_j->valuestring, "down") == 0) {
+                btn_action = HW_BTN_ACTION_PRESS;
+            } else if (strcasecmp(act_j->valuestring, "hold") == 0 || strcasecmp(act_j->valuestring, "repeat") == 0) {
+                btn_action = HW_BTN_ACTION_REPEAT;
+            } else if (strcasecmp(act_j->valuestring, "release") == 0 || strcasecmp(act_j->valuestring, "up") == 0) {
+                btn_action = HW_BTN_ACTION_RELEASE;
+            }
+        }
+
         int ok = 0;
         if (dev_buf[0] && cmd[0]) {
-            ok = (hw_device_command_send(dev_buf, cmd) == 0);
+            ok = (hw_device_command_send_action(dev_buf, 0, cmd, btn_action) == 0);
         }
 
         cJSON *resp = cJSON_CreateObject();

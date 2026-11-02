@@ -84,6 +84,7 @@ export class RemoteEngineBase {
     let hasFired = false;
     let hasMoved = false;
     let inFlight = false;
+    let lastTapMs = 0;
 
     const clearTimers = () => {
       if (holdTimer) {
@@ -97,11 +98,11 @@ export class RemoteEngineBase {
       el.classList.remove('active-press', 'is-holding');
     };
 
-    const fire = async () => {
+    const fire = async (action = 'press') => {
       if (inFlight) return;
       inFlight = true;
       try {
-        await onTrigger();
+        await onTrigger(action);
       } catch (err) {
         console.warn('Hold-repeat send error:', err);
       } finally {
@@ -113,6 +114,13 @@ export class RemoteEngineBase {
       if (e.button !== 0) return;
       if (this.editMode) return;
 
+      const now = Date.now();
+      if (now - lastTapMs < 100) {
+        e.preventDefault();
+        return;
+      }
+      lastTapMs = now;
+
       hasMoved = false;
       hasFired = true;
       startX = e.clientX;
@@ -121,14 +129,14 @@ export class RemoteEngineBase {
       clearTimers();
       el.classList.add('active-press');
       await this.triggerHaptic();
-      fire();
+      fire('press');
 
       if (isRepeatable) {
         holdTimer = setTimeout(() => {
           el.classList.add('is-holding');
           repeatInterval = setInterval(async () => {
             await this.triggerHaptic();
-            fire();
+            fire('hold');
           }, 180);
         }, 400);
       }
@@ -144,7 +152,11 @@ export class RemoteEngineBase {
     });
 
     const onPointerEnd = () => {
+      const wasHolding = Boolean(repeatInterval);
       clearTimers();
+      if (wasHolding && isRepeatable) {
+        fire('release');
+      }
     };
 
     el.addEventListener('pointerup', onPointerEnd);

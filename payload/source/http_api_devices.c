@@ -96,6 +96,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         char pronto_buf[2048] = {0};
         int port = 7;
         int repeats = 1;
+        int btn_action = HW_BTN_ACTION_TAP;
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
@@ -108,6 +109,17 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(req_j, "command");
             if (!jcmd) jcmd = cJSON_GetObjectItemCaseSensitive(req_j, "name");
             if (jcmd && cJSON_IsString(jcmd) && jcmd->valuestring) strncpy(cmd_name, jcmd->valuestring, sizeof(cmd_name) - 1);
+
+            cJSON *jact = cJSON_GetObjectItemCaseSensitive(req_j, "action");
+            if (jact && cJSON_IsString(jact) && jact->valuestring) {
+                if (strcasecmp(jact->valuestring, "press") == 0 || strcasecmp(jact->valuestring, "down") == 0) {
+                    btn_action = HW_BTN_ACTION_PRESS;
+                } else if (strcasecmp(jact->valuestring, "hold") == 0 || strcasecmp(jact->valuestring, "repeat") == 0) {
+                    btn_action = HW_BTN_ACTION_REPEAT;
+                } else if (strcasecmp(jact->valuestring, "release") == 0 || strcasecmp(jact->valuestring, "up") == 0) {
+                    btn_action = HW_BTN_ACTION_RELEASE;
+                }
+            }
 
             cJSON *jpronto = cJSON_GetObjectItemCaseSensitive(req_j, "pronto");
             if (!jpronto) jpronto = cJSON_GetObjectItemCaseSensitive(req_j, "code");
@@ -130,7 +142,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 rc = hw_ir_send_harmony_keycode(pronto_buf, (uint8_t)port, (uint8_t)repeats);
             }
         } else if (dev_id[0] && cmd_name[0]) {
-            rc = hw_device_command_send(dev_id, cmd_name);
+            rc = hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
         } else {
             send_json_error(client_fd, 400, "Missing deviceId/command or pronto code");
             close(client_fd);
