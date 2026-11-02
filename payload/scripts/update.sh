@@ -261,23 +261,20 @@ do_apply() {
         cp -f "$TMPDIR/pkg/cacert.pem" /data/harmony/cacert.pem 2>/dev/null || true
       fi
 
-      # B. Primary binaries -> /data/harmony/bin/
-      for b in hub_daemon hub_btstack dropbearmulti hub_sync; do
+      # B. Application binaries -> /data/harmony/bin/
+      for b in hub_daemon hub_rf hub_btstack dropbearmulti hub_sync register_ehci eth_fix; do
         if [ -f "$TMPDIR/pkg/bin/$b" ]; then
           chmod 755 "$TMPDIR/pkg/bin/$b"
           cp -f "$TMPDIR/pkg/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
+          rm -f "/cache/bin/$b" 2>/dev/null || true
         fi
       done
 
-      # C. Secondary binaries & BusyBox -> /cache/bin/
-      for b in hub_rf register_ehci eth_fix busybox; do
-        if [ -f "$TMPDIR/pkg/bin/$b" ]; then
-          chmod 755 "$TMPDIR/pkg/bin/$b"
-          cp -f "$TMPDIR/pkg/bin/$b" "/cache/bin/$b" 2>/dev/null || true
-          rm -f "/data/harmony/bin/$b" 2>/dev/null || true
-          ln -sf "/cache/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
-        fi
-      done
+      # C. BusyBox -> /cache/bin/
+      if [ -f "$TMPDIR/pkg/bin/busybox" ]; then
+        chmod 755 "$TMPDIR/pkg/bin/busybox"
+        cp -f "$TMPDIR/pkg/bin/busybox" "/cache/bin/busybox" 2>/dev/null || true
+      fi
 
       # D. Install extended BusyBox applets strictly to /cache/bin (/bin/sh is NEVER touched)
       rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
@@ -329,30 +326,21 @@ do_apply() {
       echo "[+] WebUI bundle updated in /cache/www."
     fi
 
-    for b in hub_daemon hub_btstack; do
+    for b in hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
+        rm -f "/cache/bin/$b" 2>/dev/null || true
         [ "$b" = "hub_daemon" ] && OTA_FALLBACK_OK=1
-      fi
-    done
-
-    for b in hub_rf register_ehci eth_fix hub_sync; do
-      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
-        chmod 755 "$TMPDIR/$b"
-        mv -f "$TMPDIR/$b" "/cache/bin/$b"
-        rm -f "/data/harmony/bin/$b" 2>/dev/null || true
-        ln -sf "/cache/bin/$b" "/data/harmony/bin/$b" 2>/dev/null || true
       fi
     done
   fi
 
-  # 4. Update Elite Remote OTA image (store on /cache to preserve /data flash)
+  # 4. Update Elite Remote OTA image (store on /data/harmony)
   echo "[*] Checking Elite remote OTA package..."
   if download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/elite_ui.ota.gz" 35 3; then
-    cp -f "$TMPDIR/elite_ui.ota.gz" /cache/elite_ui.ota.gz 2>/dev/null || true
-    rm -f /data/harmony/elite_ui.ota.gz 2>/dev/null || true
-    ln -sf /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    cp -f "$TMPDIR/elite_ui.ota.gz" /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    rm -f /cache/elite_ui.ota.gz 2>/dev/null || true
     rm -f "$TMPDIR/elite_ui.ota.gz"
     echo "[+] Elite remote OTA package cached (/cache/elite_ui.ota.gz)."
   fi
