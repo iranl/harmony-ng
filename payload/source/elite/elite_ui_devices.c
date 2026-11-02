@@ -2,6 +2,7 @@
 #include "elite_fb.h"
 #include "elite_config.h"
 #include "elite_rf.h"
+#include "elite_ui_scroll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,8 +26,6 @@ void execute_active_dev_cmd(int filtered_idx) {
 void render_devices_screen(void) {
     int start_y = UI_CONTENT_Y;
     int card_h = LIST_ROW_H;
-    int spacing = LIST_ROW_GAP;
-    int page_size = LIST_PAGE_SIZE;
     int total = get_active_dev_cmd_count();
 
     if (total <= 0) {
@@ -37,13 +36,14 @@ void render_devices_screen(void) {
         return;
     }
 
-    int page_start = (g_selected_device_cmd / page_size) * page_size;
-    int cur_page = (g_selected_device_cmd / page_size) + 1;
-    int total_pages = (total + page_size - 1) / page_size;
-
-    for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-        int idx = page_start + i;
-        int y = start_y + i * (card_h + spacing);
+    list_geom_t g;
+    list_geometry(&g);
+    int scroll = list_scroll_offset();
+    int first = scroll > 0 ? scroll / LIST_ROW_PITCH : 0;
+    fb_clip_rows(g.y, g.y + g.rows * LIST_ROW_PITCH);
+    for (int idx = first; idx < total; idx++) {
+        int y = start_y + idx * LIST_ROW_PITCH - scroll;
+        if (y >= g.y + g.rows * LIST_ROW_PITCH) break;
         bool is_sel = (idx == g_selected_device_cmd);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
         uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
@@ -69,8 +69,8 @@ void render_devices_screen(void) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", RGB_CYAN, &g_font_title);
         }
     }
-
-    render_page_indicator(cur_page, total_pages);
+    fb_clip_reset();
+    render_list_scrollbar();
 }
 
 /* Inside a device the rows are its commands, below a heading with the device's name */
@@ -122,13 +122,6 @@ void device_browser_move(int delta) {
     if (n > 0) g_browse_sel = ((g_browse_sel + delta) % n + n) % n;
 }
 
-void device_browser_page(int dir) {
-    int n = browser_item_count(), size = browser_page_size();
-    int page = g_browse_sel / size;
-    if (dir > 0) g_browse_sel = ((page + 1) * size < n) ? (page + 1) * size : (n > 0 ? n - 1 : 0);
-    else g_browse_sel = (page > 0) ? (page - 1) * size : 0;
-}
-
 /* Open a device from the list, or send the chosen command to the Hub */
 void device_browser_activate(int n) {
     if (n < 0 || n >= browser_item_count()) return;
@@ -155,8 +148,6 @@ void render_device_browser_view(void) {
     if (g_browse_dev >= g_rf_device_count) g_browse_dev = -1;
     int start_y = browser_list_y();
     int card_h = LIST_ROW_H;
-    int spacing = LIST_ROW_GAP;
-    int page_size = browser_page_size();
     int total = browser_item_count();
     if (g_browse_sel >= total) g_browse_sel = 0;
 
@@ -175,11 +166,14 @@ void render_device_browser_view(void) {
         return;
     }
 
-    int page_start = (g_browse_sel / page_size) * page_size;
-    int total_pages = (total + page_size - 1) / page_size;
-    for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-        int idx = page_start + i;
-        int y = start_y + i * (card_h + spacing);
+    list_geom_t g;
+    list_geometry(&g);
+    int scroll = list_scroll_offset();
+    int first = scroll > 0 ? scroll / LIST_ROW_PITCH : 0;
+    fb_clip_rows(g.y, g.y + g.rows * LIST_ROW_PITCH);
+    for (int idx = first; idx < total; idx++) {
+        int y = start_y + idx * LIST_ROW_PITCH - scroll;
+        if (y >= g.y + g.rows * LIST_ROW_PITCH) break;
         bool is_sel = (idx == g_browse_sel);
         const rf_dev_cmd_t *c = (g_browse_dev >= 0) ? browser_cmd(idx) : NULL;
         const char *label = (g_browse_dev < 0) ? g_rf_devices[idx].name : (c ? c->name : "");
@@ -209,6 +203,20 @@ void render_device_browser_view(void) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }
     }
+    fb_clip_reset();
+    render_list_scrollbar();
+}
 
-    render_page_indicator(page_start / page_size + 1, total_pages);
+/* A thumb at the right edge of the list, sized to the share of rows on screen */
+void render_list_scrollbar(void) {
+    list_geom_t g;
+    if (!list_geometry(&g) || g.count <= g.rows) return;
+    int track = g.rows * LIST_ROW_PITCH - LIST_ROW_GAP;
+    int max = (g.count - g.rows) * LIST_ROW_PITCH;
+    int thumb = track * g.rows / g.count;
+    if (thumb < 16) thumb = 16;
+    int scroll = list_scroll_offset();
+    if (scroll < 0) scroll = 0;
+    if (scroll > max) scroll = max;
+    fb_fill_rect(FB_WIDTH - 5, g.y + (track - thumb) * scroll / max, 3, thumb, RGB_TEXT_MUTED);
 }

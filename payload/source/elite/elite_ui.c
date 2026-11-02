@@ -284,7 +284,7 @@ void render_screen(void) {
     uint64_t t1 = get_monotonic_us();
     bool flipped = false;
     if (transition != TRANSITION_NONE) transition_play(transition);
-    else flipped = fb_present(g_backbuffer, home_scroll_active());
+    else flipped = fb_present(g_backbuffer, ui_scroll_active());
     uint64_t t2 = get_monotonic_us();
     if (frame_timing_enabled()) {
         frame_timing_t t = { screen_name(), g_theme.name, home_layout_name(),

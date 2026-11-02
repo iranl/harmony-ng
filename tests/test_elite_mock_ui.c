@@ -486,6 +486,90 @@ int main(void) {
         printf("[+] Back: one level up by swipe or key, no Back rows, device name as a heading\n");
     }
 
+    /* 15. Free-scrolling lists (ADR-0009) and device rows on the running activity's card */
+    {
+        uint64_t ms = 2000000;
+        #define SETTLE() do { for (int f = 0; f < 60 && list_scroll_settling(); f++) { ms += 28; list_scroll_tick(ms); } } while (0)
+        g_rf_device_count = 20;
+        g_rf_dev_cmd_count = 0;
+        for (int i = 0; i < 20; i++) snprintf(g_rf_devices[i].name, sizeof(g_rf_devices[i].name), "Device %d", i + 1);
+        open_device_browser();
+        list_geom_t g;
+        assert(list_geometry(&g) && g.rows == 7 && g.count == 20 && list_scroll_offset() == 0);
+        int max = 13 * LIST_ROW_PITCH;
+
+        /* A slow drag moves the list with the finger and comes to rest with a row at the top */
+        list_scroll_touch_down(120, 250, ms);
+        for (int y = 240; y >= 150; y -= 10) { ms += 100; list_scroll_touch_move(120, y, ms); }
+        assert(list_scroll_offset() == 100 && list_scroll_active());
+        ms += 100;
+        assert(list_scroll_touch_up(120, 150, ms));
+        SETTLE();
+        int at = list_scroll_offset();
+        assert(!list_scroll_active() && at > 0 && at < max && at % LIST_ROW_PITCH == 0);
+        assert(list_row_at(UI_CONTENT_Y + 5) == at / LIST_ROW_PITCH && list_row_at(10) == -1);
+
+        /* A tap opens the row under the finger, wherever the list is scrolled */
+        tap(120, UI_CONTENT_Y + LIST_ROW_PITCH + 5);
+        assert(g_browse_dev == at / LIST_ROW_PITCH + 1);
+        assert(ui_go_back() && g_browse_dev == -1 && g_browse_sel == at / LIST_ROW_PITCH + 1);
+
+        /* A fling carries on past several pages and stops at the last row */
+        list_scroll_touch_down(120, 250, ms);
+        ms += 10; list_scroll_touch_move(120, 225, ms);
+        ms += 10; list_scroll_touch_move(120, 200, ms);
+        ms += 10;
+        assert(list_scroll_touch_up(120, 200, ms));
+        SETTLE();
+        assert(list_scroll_offset() == max);
+
+        /* Past the last row the list moves a third as far, then returns */
+        list_scroll_touch_down(120, 250, ms);
+        ms += 40; list_scroll_touch_move(120, 160, ms);
+        assert(list_scroll_offset() == max + 30);
+        ms += 40;
+        list_scroll_touch_up(120, 160, ms);
+        SETTLE();
+        assert(list_scroll_offset() == max);
+
+        /* A touch during a fling stops it; its release is not a tap */
+        list_scroll_touch_down(120, 100, ms);
+        ms += 10; list_scroll_touch_move(120, 140, ms);
+        ms += 10; list_scroll_touch_move(120, 180, ms);
+        ms += 10; list_scroll_touch_up(120, 180, ms);
+        ms += 100; list_scroll_tick(ms);
+        assert(list_scroll_settling());
+        list_scroll_touch_down(120, 150, ms);
+        assert(!list_scroll_settling());
+        assert(list_scroll_touch_up(120, 150, ms + 50));
+        SETTLE();
+        assert(list_scroll_offset() % LIST_ROW_PITCH == 0);
+
+        /* Keys scroll the selection into view: a wrap from the last row jumps, a step slides */
+        g_browse_sel = 18;
+        device_browser_move(1);
+        list_scroll_reveal(ms);
+        SETTLE();
+        assert(g_browse_sel == 19 && list_scroll_offset() == max);
+        device_browser_move(1);
+        list_scroll_reveal(ms);
+        assert(g_browse_sel == 0 && list_scroll_offset() == 0 && !list_scroll_settling());
+        for (int i = 0; i < 7; i++) { device_browser_move(1); list_scroll_reveal(ms); }
+        assert(g_browse_sel == 7 && list_scroll_settling());
+        SETTLE();
+        assert(list_scroll_offset() == LIST_ROW_PITCH);
+
+        /* A list that fits doesn't scroll */
+        g_rf_device_count = 3;
+        open_device_browser();
+        list_scroll_touch_down(120, 250, ms);
+        ms += 40; list_scroll_touch_move(120, 100, ms);
+        assert(!list_scroll_active() && !list_scroll_touch_up(120, 100, ms));
+        #undef SETTLE
+
+        printf("[+] Lists: drag, fling, edge resistance, catch, key reveal\n");
+    }
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;

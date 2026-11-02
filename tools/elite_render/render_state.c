@@ -140,6 +140,7 @@ void render_load(const render_options_t *o) {
     }
     set_view(o);
     home_scroll_set_offset(o->scroll);
+    list_scroll_set_drag(o->scroll);
 }
 
 void render_keyword_sheet(const char *title, const char *icons) {
