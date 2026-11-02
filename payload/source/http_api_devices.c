@@ -260,6 +260,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
          strcmp(clean_path, "/ir/new-device") == 0 || strcmp(clean_path, "/api/new-device") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
         int success = 0;
+        char dev_id_out[32] = {0};
         if (p) {
             cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(p, "deviceId");
             if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(p, "id");
@@ -301,17 +302,45 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 else if (cJSON_IsString(j_en)) en_val = (strcmp(j_en->valuestring, "1") == 0 || strcasecmp(j_en->valuestring, "true") == 0) ? 1 : 0;
             }
 
+            cJSON *root = config_store_get_devices_json();
+            if (!root) {
+                root = cJSON_CreateObject();
+                cJSON_AddItemToObject(root, "devices", cJSON_CreateArray());
+            }
+            cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+            if (!devs) {
+                devs = cJSON_CreateArray();
+                cJSON_AddItemToObject(root, "devices", devs);
+            }
+
+            if (!dev_id[0]) {
+                int cand = 1;
+                while (1) {
+                    char cand_s[16];
+                    snprintf(cand_s, sizeof(cand_s), "%d", cand);
+                    int used = 0;
+                    cJSON *chk = NULL;
+                    cJSON_ArrayForEach(chk, devs) {
+                        cJSON *d = cJSON_GetObjectItemCaseSensitive(chk, "Device");
+                        if (!d) d = chk;
+                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                        char cur_id[32] = {0};
+                        if (jid && cJSON_IsNumber(jid)) snprintf(cur_id, sizeof(cur_id), "%ld", (long)jid->valuedouble);
+                        else if (jid && cJSON_IsString(jid)) strncpy(cur_id, jid->valuestring, sizeof(cur_id) - 1);
+                        if (strcmp(cur_id, cand_s) == 0) { used = 1; break; }
+                    }
+                    if (!used) {
+                        snprintf(dev_buf, sizeof(dev_buf), "%d", cand);
+                        dev_id = dev_buf;
+                        break;
+                    }
+                    cand++;
+                }
+            }
+
             if (dev_id[0]) {
-                cJSON *root = config_store_get_devices_json();
-                if (!root) {
-                    root = cJSON_CreateObject();
-                    cJSON_AddItemToObject(root, "devices", cJSON_CreateArray());
-                }
-                cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                if (!devs) {
-                    devs = cJSON_CreateArray();
-                    cJSON_AddItemToObject(root, "devices", devs);
-                }
+                strncpy(dev_id_out, dev_id, sizeof(dev_id_out) - 1);
                 cJSON *found_dev = NULL;
                 cJSON *dev_item = NULL;
                 cJSON_ArrayForEach(dev_item, devs) {
@@ -550,7 +579,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
-        send_cjson_resp(client_fd, 200, resp);
+        if (success && dev_id_out[0]) {
+            cJSON_AddStringToObject(resp, "deviceId", dev_id_out);
+            cJSON_AddStringToObject(resp, "id", dev_id_out);
+        }
+        send_cjson_resp(client_fd, success ? 200 : 400, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

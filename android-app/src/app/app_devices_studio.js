@@ -564,7 +564,15 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     try {
       if (status) status.textContent = 'Saving new device...';
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
+      const existingIds = new Set((this.inventory.devices || []).map(d => String(d.id)));
+      let cand = 1;
+      while (existingIds.has(String(cand))) {
+        cand++;
+      }
+      const generatedDevId = String(cand);
       const devPayload = {
+        deviceId: generatedDevId,
+        id: generatedDevId,
         name,
         type,
         manufacturer,
@@ -573,12 +581,15 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         transport: type === 'BT' ? 32 : 1
       };
       if (type === 'MQTT') {
-        devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\\s+/g, '_')}/{command}`;
+        devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
         devPayload.mqttEnabled = 1;
         devPayload.mqttPulseMs = 1000;
       }
       const res = await this.client.saveNewDevice(devPayload);
-      const newDevId = res?.deviceId || res?.id;
+      if (res && res.ok === false) {
+        throw new Error(res.error || res.message || 'Failed to save device on hub');
+      }
+      const newDevId = res?.deviceId || res?.id || generatedDevId;
       if (newDevId) {
         if (type === 'BT') {
           const btButtons = [
@@ -613,9 +624,22 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         }
       }
       if (status) status.innerHTML = '<span style="color:var(--success)">✓ Device created successfully!</span>';
+      const nameInput = document.getElementById('newDeviceName');
+      const mfgInput = document.getElementById('newDeviceManufacturer');
+      const modelInput = document.getElementById('newDeviceModel');
+      if (nameInput) nameInput.value = '';
+      if (mfgInput) mfgInput.value = '';
+      if (modelInput) modelInput.value = '';
+      const box = document.getElementById('studioNewDeviceBox');
+      if (box) {
+        setTimeout(() => {
+          box.style.display = 'none';
+          if (status) status.textContent = '';
+        }, 1500);
+      }
       await this.refreshData();
       if (newDevId) this.selectedIrDeviceId = String(newDevId);
-      this.renderIrView();
+      this.renderIrView(newDevId);
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
     }
