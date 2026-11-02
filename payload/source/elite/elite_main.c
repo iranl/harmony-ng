@@ -476,14 +476,22 @@ int main(int argc, char **argv) {
             g_screen_dirty = true;
         }
 
-        if (g_is_ota_updating && (now_ms - g_ota_last_packet_ms >= 20000)) {
-            printf("[!] OTA update timed out (20s without packets). Unlocking UI.\n");
-            g_is_ota_updating = false;
-            if (g_ota_file) {
-                fclose(g_ota_file);
-                g_ota_file = NULL;
+        static uint64_t last_ota_stall_sync_ms = 0;
+        if (g_is_ota_updating) {
+            if (now_ms - g_ota_last_packet_ms >= 5000 && now_ms - last_ota_stall_sync_ms >= 10000) {
+                last_ota_stall_sync_ms = now_ms;
+                rf_wake_and_reconnect();
             }
-            g_screen_dirty = true;
+            if (now_ms - g_ota_last_packet_ms >= 60000) {
+                printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
+                g_is_ota_updating = false;
+                if (g_ota_file) {
+                    fflush(g_ota_file);
+                    fclose(g_ota_file);
+                    g_ota_file = NULL;
+                }
+                g_screen_dirty = true;
+            }
         }
 
         static bool s_notice_active = false;

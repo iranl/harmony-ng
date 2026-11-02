@@ -127,6 +127,18 @@ static inline uint16_t rf_crc16(const uint8_t *data, size_t len) {
     return crc;
 }
 
+/* Helper: standard CRC32 for OTA binary verification / resume */
+static inline uint32_t rf_crc32(const uint8_t *data, size_t len) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int j = 0; j < 8; j++) {
+            crc = (crc >> 1) ^ (0xEDB88320 & (-(int)(crc & 1)));
+        }
+    }
+    return ~crc;
+}
+
 /* Helper: build ACK frame */
 static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_seq, uint8_t status) {
     memset(f, 0, sizeof(*f));

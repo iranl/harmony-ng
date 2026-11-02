@@ -14,7 +14,67 @@
 #include <time.h>
 #include <errno.h>
 
-static sha256_ctx_t s_ota_sha_ctx;
+#define OTA_MAX_CHUNKS 32768
+#define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
+static uint8_t s_ota_bitmap[OTA_BITMAP_SIZE];
+static uint32_t s_current_file_crc = 0;
+
+typedef struct {
+    uint32_t total_bytes;
+    uint16_t total_chunks;
+    uint32_t file_crc;
+    uint16_t highest_contiguous_chunk;
+} ota_meta_t;
+
+static inline bool ota_is_chunk_received(uint16_t c_idx) {
+    if (c_idx >= OTA_MAX_CHUNKS) return false;
+    return (s_ota_bitmap[c_idx / 8] & (1 << (c_idx % 8))) != 0;
+}
+
+static inline void ota_mark_chunk_received(uint16_t c_idx) {
+    if (c_idx >= OTA_MAX_CHUNKS) return;
+    s_ota_bitmap[c_idx / 8] |= (1 << (c_idx % 8));
+}
+
+static uint16_t ota_get_highest_contiguous_chunk(uint16_t total_chunks) {
+    for (uint16_t i = 0; i < total_chunks && i < OTA_MAX_CHUNKS; i++) {
+        if (!ota_is_chunk_received(i)) return i;
+    }
+    return total_chunks;
+}
+
+static void ota_save_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t contig_chunk) {
+    FILE *fm = fopen("/tmp/elite_ui.ota.meta", "wb");
+    if (!fm) return;
+    ota_meta_t m = { tot_b, tot_c, crc, contig_chunk };
+    fwrite(&m, sizeof(m), 1, fm);
+    size_t bm_len = (tot_c + 7) / 8;
+    if (bm_len > OTA_BITMAP_SIZE) bm_len = OTA_BITMAP_SIZE;
+    fwrite(s_ota_bitmap, 1, bm_len, fm);
+    fclose(fm);
+}
+
+static bool ota_load_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t *out_contig) {
+    FILE *fm = fopen("/tmp/elite_ui.ota.meta", "rb");
+    if (!fm) return false;
+    ota_meta_t m;
+    if (fread(&m, sizeof(m), 1, fm) != 1) {
+        fclose(fm);
+        return false;
+    }
+    if (m.total_bytes != tot_b || m.total_chunks != tot_c || (crc != 0 && m.file_crc != crc)) {
+        fclose(fm);
+        return false;
+    }
+    size_t bm_len = (tot_c + 7) / 8;
+    if (bm_len > OTA_BITMAP_SIZE || fread(s_ota_bitmap, 1, bm_len, fm) != bm_len) {
+        fclose(fm);
+        return false;
+    }
+    fclose(fm);
+    if (out_contig) *out_contig = ota_get_highest_contiguous_chunk(tot_c);
+    return true;
+}
 
 void render_ota_overlay(void) {
     /* Header */
@@ -58,9 +118,14 @@ void render_ota_overlay(void) {
     fb_draw_text_aa(22, card_y + 148, tr(STR_DO_NOT_POWER_OFF), RGB_RED, &g_font_main);
     fb_draw_text_aa(22, card_y + 172, tr(STR_KEEP_CLOSE_TO_HUB), RGB_TEXT_MUTED, &g_font_main);
 
-    /* Lock banner */
+    /* Lock banner / stall indication */
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
-    fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_UPDATE_IN_PROGRESS), RGB_YELLOW, &g_font_main);
+    uint64_t quiet_ms = (g_ota_last_packet_ms > 0) ? (get_monotonic_ms() - g_ota_last_packet_ms) : 0;
+    if (quiet_ms > 4000) {
+        fb_draw_text_aa(18, FB_HEIGHT - 22, "Waiting for Hub...", RGB_YELLOW, &g_font_main);
+    } else {
+        fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_UPDATE_IN_PROGRESS), RGB_YELLOW, &g_font_main);
+    }
 }
 
 bool handle_ota_frame(const rf_frame_t *f) {
@@ -70,9 +135,12 @@ bool handle_ota_frame(const rf_frame_t *f) {
             uint32_t tot_b = (uint32_t)f->payload[0] | ((uint32_t)f->payload[1] << 8) |
                              ((uint32_t)f->payload[2] << 16) | ((uint32_t)f->payload[3] << 24);
             uint16_t tot_c = (uint16_t)f->payload[4] | ((uint16_t)f->payload[5] << 8);
+            uint32_t file_crc = (uint32_t)f->payload[6] | ((uint32_t)f->payload[7] << 8) |
+                                ((uint32_t)f->payload[8] << 16) | ((uint32_t)f->payload[9] << 24);
+            s_current_file_crc = file_crc;
 
-            printf("[*] RF OTA START: %u bytes, %u chunks, batt=%d%% chg=%d\n",
-                   tot_b, tot_c, g_battery_info.percent, g_battery_info.charging);
+            printf("[*] RF OTA START: %u bytes, %u chunks, CRC32=0x%08X, batt=%d%% chg=%d\n",
+                   tot_b, tot_c, file_crc, g_battery_info.percent, g_battery_info.charging);
 
             if (g_battery_info.percent < 40 && !g_battery_info.charging) {
                 printf("[-] RF OTA REJECTED: Low battery (%d%%) and not charging!\n", g_battery_info.percent);
@@ -86,13 +154,35 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 fclose(g_ota_file);
                 g_ota_file = NULL;
             }
-            g_ota_file = fopen("/tmp/elite_ui.ota.gz", "wb");
-            if (!g_ota_file) {
-                printf("[-] RF OTA REJECTED: Could not open /tmp/elite_ui.ota.gz\n");
-                rf_frame_t ack;
-                rf_build_ack(&ack, g_remote_slot, f->seq, 0x03);
-                rf_send_frame(&ack);
-                return true;
+
+            uint16_t resume_chunk = 0;
+            bool can_resume = false;
+            struct stat st;
+            if (stat("/tmp/elite_ui.ota.gz", &st) == 0 && st.st_size > 0) {
+                if (ota_load_meta(tot_b, tot_c, file_crc, &resume_chunk)) {
+                    if (resume_chunk > 0 && resume_chunk < tot_c) {
+                        g_ota_file = fopen("/tmp/elite_ui.ota.gz", "r+b");
+                        if (g_ota_file) {
+                            can_resume = true;
+                            printf("[+] RF OTA resuming from chunk %u / %u (%u bytes)\n",
+                                   resume_chunk, tot_c, (uint32_t)resume_chunk * 22);
+                        }
+                    }
+                }
+            }
+
+            if (!can_resume) {
+                resume_chunk = 0;
+                memset(s_ota_bitmap, 0, sizeof(s_ota_bitmap));
+                unlink("/tmp/elite_ui.ota.meta");
+                g_ota_file = fopen("/tmp/elite_ui.ota.gz", "wb");
+                if (!g_ota_file) {
+                    printf("[-] RF OTA REJECTED: Could not open /tmp/elite_ui.ota.gz\n");
+                    rf_frame_t ack;
+                    rf_build_ack(&ack, g_remote_slot, f->seq, 0x03);
+                    rf_send_frame(&ack);
+                    return true;
+                }
             }
 
             g_is_ota_updating = true;
@@ -103,14 +193,15 @@ bool handle_ota_frame(const rf_frame_t *f) {
             g_ota_start_ms = get_monotonic_ms();
             g_ota_last_packet_ms = g_ota_start_ms;
             g_ota_total_bytes = tot_b;
-            g_ota_received_bytes = 0;
             g_ota_total_chunks = tot_c;
-            g_ota_received_chunks = 0;
-            sha256_init(&s_ota_sha_ctx);
+            g_ota_received_chunks = resume_chunk;
+            g_ota_received_bytes = (uint32_t)resume_chunk * 22;
             g_screen_dirty = true;
 
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            ack.payload[2] = (uint8_t)(resume_chunk & 0xFF);
+            ack.payload[3] = (uint8_t)((resume_chunk >> 8) & 0xFF);
             rf_send_frame(&ack);
             return true;
         }
@@ -125,16 +216,26 @@ bool handle_ota_frame(const rf_frame_t *f) {
             if (d_len > 22) d_len = 22;
 
             if (d_len > 0) {
+                /* Seek to precise chunk offset for idempotency against retransmissions */
+                fseek(g_ota_file, (long)c_idx * 22, SEEK_SET);
                 fwrite(&f->payload[3], 1, d_len, g_ota_file);
-                sha256_update(&s_ota_sha_ctx, &f->payload[3], d_len);
-                g_ota_received_bytes += d_len;
-                g_ota_received_chunks++;
+
+                bool already_had = ota_is_chunk_received(c_idx);
+                if (!already_had) {
+                    ota_mark_chunk_received(c_idx);
+                    g_ota_received_bytes += d_len;
+                    g_ota_received_chunks++;
+                }
             }
 
-            if ((f->flags & RF_FLAG_ACK_REQ) || (c_idx % 4 == 0)) {
+            if (f->flags & RF_FLAG_ACK_REQ) {
                 rf_frame_t ack;
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
                 rf_send_frame(&ack);
+
+                /* Persist checkpoint on ACK boundaries */
+                uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
+                ota_save_meta(g_ota_total_bytes, g_ota_total_chunks, s_current_file_crc, contig);
             }
             static uint64_t last_ota_render_ms = 0;
             uint64_t now_ms = get_monotonic_ms();
@@ -147,20 +248,43 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
         case RF_MSG_OTA_END: {
             if (!g_is_ota_updating || !g_ota_file) return true;
+            fflush(g_ota_file);
             fclose(g_ota_file);
             g_ota_file = NULL;
 
-            printf("[+] RF OTA END received! Received %u bytes (%u chunks). Verifying...\n",
+            /* Check that all chunks were actually received */
+            uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
+            if (contig < g_ota_total_chunks) {
+                printf("[-] OTA END rejected: missing chunks (have up to %u of %u)\n", contig, g_ota_total_chunks);
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x05);
+                rf_send_frame(&ack);
+                return true;
+            }
+
+            printf("[+] RF OTA END received! Received %u bytes (%u chunks). Verifying file from disk...\n",
                    g_ota_received_bytes, g_ota_received_chunks);
 
+            /* Compute SHA-256 of the complete file on disk (tmpfs in RAM) */
             uint8_t actual_digest[32] = {0};
-            sha256_final(actual_digest, &s_ota_sha_ctx);
+            FILE *vfile = fopen("/tmp/elite_ui.ota.gz", "rb");
+            if (vfile) {
+                sha256_ctx_t file_sha;
+                sha256_init(&file_sha);
+                uint8_t vbuf[4096];
+                size_t vrd;
+                while ((vrd = fread(vbuf, 1, sizeof(vbuf), vfile)) > 0) {
+                    sha256_update(&file_sha, vbuf, vrd);
+                }
+                sha256_final(actual_digest, &file_sha);
+                fclose(vfile);
+            }
 
             /* Check integrity if Hub provided SHA-256 digest (type 0x01) */
             if (f->payload[0] == 0x01) {
                 if (memcmp(&f->payload[1], actual_digest, 20) != 0) {
                     printf("[-] OTA SHA-256 digest mismatch! Corrupted transfer or untrusted payload.\n");
-                    system("rm -rf /tmp/elite_ota_pkg /data/elite_ui.new /tmp/elite_ui.ota.gz 2>/dev/null || true");
+                    system("rm -rf /tmp/elite_ota_pkg /data/elite_ui.new /tmp/elite_ui.ota.gz /tmp/elite_ui.ota.meta 2>/dev/null || true");
                     rf_frame_t ack;
                     rf_build_ack(&ack, g_remote_slot, f->seq, 0x06);
                     rf_send_frame(&ack);
@@ -170,6 +294,8 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 }
                 printf("[+] OTA SHA-256 digest verified successfully!\n");
             }
+
+            unlink("/tmp/elite_ui.ota.meta");
 
             system("rm -rf /tmp/elite_ota_pkg && mkdir -p /tmp/elite_ota_pkg");
             int tar_rc = system("tar -xzf /tmp/elite_ui.ota.gz -C /tmp/elite_ota_pkg 2>/dev/null || "

@@ -100,7 +100,30 @@ void *rf_ota_sender_worker(void *arg) {
     printf("[*] Starting RF OTA to slot %d: %u bytes, %u chunks from %s\n",
            target_slot, tot_bytes, tot_chunks, ota_path);
 
-    /* 1. RF_MSG_OTA_START */
+    /* Pre-compute CRC32 and SHA-256 of entire file upfront for resume and verification */
+    uint32_t file_crc = 0;
+    uint8_t ota_digest[32] = {0};
+    {
+        uint8_t cbuf[4096];
+        size_t crd;
+        uint32_t cval = 0xFFFFFFFF;
+        sha256_ctx_t full_sha;
+        sha256_init(&full_sha);
+        while ((crd = fread(cbuf, 1, sizeof(cbuf), f)) > 0) {
+            for (size_t i = 0; i < crd; i++) {
+                cval ^= cbuf[i];
+                for (int j = 0; j < 8; j++) {
+                    cval = (cval >> 1) ^ (0xEDB88320 & (-(int)(cval & 1)));
+                }
+            }
+            sha256_update(&full_sha, cbuf, crd);
+        }
+        file_crc = ~cval;
+        sha256_final(ota_digest, &full_sha);
+        fseek(f, 0, SEEK_SET);
+    }
+
+    /* 1. RF_MSG_OTA_START with CRC32 file ID */
     rf_frame_t frame;
     uint8_t start_payload[25] = {0};
     start_payload[0] = (uint8_t)(tot_bytes & 0xFF);
@@ -109,10 +132,14 @@ void *rf_ota_sender_worker(void *arg) {
     start_payload[3] = (uint8_t)((tot_bytes >> 24) & 0xFF);
     start_payload[4] = (uint8_t)(tot_chunks & 0xFF);
     start_payload[5] = (uint8_t)((tot_chunks >> 8) & 0xFF);
+    start_payload[6] = (uint8_t)(file_crc & 0xFF);
+    start_payload[7] = (uint8_t)((file_crc >> 8) & 0xFF);
+    start_payload[8] = (uint8_t)((file_crc >> 16) & 0xFF);
+    start_payload[9] = (uint8_t)((file_crc >> 24) & 0xFF);
 
     int ack_res = -1;
     for (int attempt = 1; attempt <= 10 && g_running; attempt++) {
-        rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 6);
+        rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 10);
         ack_res = rf_send_frame_acked(&frame, 1000);
         if (ack_res == 0) break;
         if (attempt < 10) {
@@ -139,18 +166,24 @@ void *rf_ota_sender_worker(void *arg) {
         return NULL;
     }
 
-    /* 2. Stream RF_MSG_OTA_CHUNK frames */
-    sha256_ctx_t sha_ctx;
-    sha256_init(&sha_ctx);
-
+    /* Check if remote requested to resume from existing progress */
     uint16_t c_idx = 0;
     uint32_t sent_bytes = 0;
+    uint16_t resume_chunk = (uint16_t)g_ack_payload[2] | ((uint16_t)g_ack_payload[3] << 8);
+    if (resume_chunk > 0 && resume_chunk < tot_chunks) {
+        c_idx = resume_chunk;
+        sent_bytes = (uint32_t)resume_chunk * 22;
+        fseek(f, (long)sent_bytes, SEEK_SET);
+        ota_set_progress(sent_bytes, c_idx);
+        printf("[+] Remote requested resume from chunk %u (%u / %u bytes, %u%%)\n",
+               c_idx, sent_bytes, tot_bytes, (uint32_t)((sent_bytes * 100ULL) / tot_bytes));
+    }
+
+    /* 2. Stream RF_MSG_OTA_CHUNK frames */
     while (c_idx < tot_chunks && g_running) {
         uint8_t chunk_data[22];
         size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
         if (rd == 0) break;
-
-        sha256_update(&sha_ctx, chunk_data, rd);
 
         uint8_t chunk_payload[25] = {0};
         chunk_payload[0] = (uint8_t)(c_idx & 0xFF);
@@ -165,18 +198,24 @@ void *rf_ota_sender_worker(void *arg) {
         if (need_ack) {
             int retries = 0;
             int ack_ok = -1;
-            while (retries < 5) {
+            while (retries < 15 && g_running) {
                 if (rf_send_frame_acked(&frame, 1200) == 0 && g_ack_status == 0x00) {
                     ack_ok = 0;
                     break;
                 }
                 retries++;
-                usleep(35000);
+                if (retries == 3 || retries == 7 || retries == 11) {
+                    uint8_t sync_pulse[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                    rf_write_cmd(sync_pulse, sizeof(sync_pulse));
+                }
+                int backoff_ms = 50 + (retries * 15);
+                if (backoff_ms > 275) backoff_ms = 275;
+                usleep(backoff_ms * 1000);
             }
             if (ack_ok != 0) {
                 fclose(f);
                 char err[128];
-                snprintf(err, sizeof(err), "Chunk %u ACK timeout", c_idx);
+                snprintf(err, sizeof(err), "Chunk %u ACK timeout (can resume)", c_idx);
                 ota_set_status(-1, false, err);
                 return NULL;
             }
@@ -196,9 +235,6 @@ void *rf_ota_sender_worker(void *arg) {
     }
 
     fclose(f);
-
-    uint8_t ota_digest[32] = {0};
-    sha256_final(ota_digest, &sha_ctx);
 
     /* 3. RF_MSG_OTA_END with SHA-256 digest */
     uint8_t end_payload[25] = {0};

@@ -86,7 +86,7 @@ void handle_rf_frame(const rf_frame_t *f) {
     }
     switch (f->msg_type) {
         case RF_MSG_ACK: {
-            rf_signal_ack(f->payload[0], f->payload[1]);
+            rf_signal_ack(f->payload[0], f->payload[1], f->payload);
             break;
         }
 

@@ -14,6 +14,7 @@
 
 uint8_t g_tx_seq = 0;
 int g_ack_status = 0;
+uint8_t g_ack_payload[25] = {0};
 static uint8_t g_pending_ack_seq = 0;
 static int g_ack_received = 0;
 static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -116,11 +117,16 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     return ok ? 0 : -1;
 }
 
-void rf_signal_ack(uint8_t seq, uint8_t status) {
+void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
     pthread_mutex_lock(&g_ack_mutex);
     if ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq) {
         g_ack_received = 1;
         g_ack_status = status;
+        if (payload) {
+            memcpy(g_ack_payload, payload, sizeof(g_ack_payload));
+        } else {
+            memset(g_ack_payload, 0, sizeof(g_ack_payload));
+        }
         pthread_cond_signal(&g_ack_cond);
     }
     pthread_mutex_unlock(&g_ack_mutex);
