@@ -69,6 +69,9 @@ class Builder:
 
     def download(self, src_id, name):
         src = self.cfg["sources"][src_id]
+        if "path" in src:  # drawn for the project, kept in the repository
+            self.used.add(src_id)
+            return os.path.join(REPO, src["path"].format(name=name)), src.get("pad", 0.0)
         url = src["url"].format(name=name)
         path, err = fetch(url, os.path.join(self.work, "svg", src_id, name.replace("/", "_")))
         if not path:
@@ -89,9 +92,12 @@ class Builder:
         by_url = {}
         for src_id in sorted(self.used):
             src = self.cfg["sources"][src_id]
-            by_url.setdefault(src["licence_url"], (src.get("title", src_id), src["licence"]))
+            by_url.setdefault(src.get("licence_url") or src["licence_file"], (src.get("title", src_id), src["licence"]))
         for url, (title, licence) in by_url.items():
-            text, err = fetch(url, os.path.join(self.work, "svg", "licences", url.split("//", 1)[1].replace("/", "_")))
+            if "//" not in url:
+                text, err = os.path.join(REPO, url), None
+            else:
+                text, err = fetch(url, os.path.join(self.work, "svg", "licences", url.split("//", 1)[1].replace("/", "_")))
             if not text:
                 raise SystemExit(f"[-] {url}: {err}")
             lines += [f"## {title} ({licence})", "", open(text, encoding="utf-8").read().strip(), ""]
@@ -99,8 +105,8 @@ class Builder:
             f.write("\n".join(lines))
 
 
-def build(name, cfg, out_root, builder):
-    src_dir = os.path.join(THEMES, name)
+def build(name, cfg, out_root, builder, themes=THEMES):
+    src_dir = os.path.join(themes, name)
     sources = json.load(open(os.path.join(src_dir, "sources.json")))
     out = os.path.join(out_root, name)
     shutil.rmtree(out, ignore_errors=True)
@@ -118,9 +124,14 @@ def build(name, cfg, out_root, builder):
     if kw:
         for keyword in cfg["keywords"]:
             own = cfg["generic"][kw["map"]].get(keyword)
-            src_id, icon = (kw["set"], own) if own else tuple(cfg["brands"][keyword])
+            if own:
+                src_id, icon = kw["set"], own
+            else:  # a theme can draw a brand keyword from another source ("brands" in sources.json)
+                src_id, icon = kw.get("brands", {}).get(keyword) or cfg["brands"][keyword]
+            # "tint" colours each keyword with its own colour from icon_sets.json
+            colour = cfg["tint"][keyword] if kw.get("color") == "tint" else kw.get("color")
             for size, suffix in ((LIST_ICON, "_small"), (HERO_ICON, "")):
-                builder.icon(src_id, icon, size, kw.get("color"), os.path.join(out, "icons", f"{keyword}{suffix}.png"))
+                builder.icon(src_id, icon, size, colour, os.path.join(out, "icons", f"{keyword}{suffix}.png"))
 
     glyphs = sources.get("glyphs", {})
     for path, (src_id, icon, size) in glyphs.get("icons", {}).items():
@@ -139,6 +150,7 @@ def main():
     ap.add_argument("--work", default=os.path.join(REPO, "build", "tmp", "elite-render"), help="build directory")
     ap.add_argument("-o", "--out", default=os.path.join(REPO, "build", "tmp", "elite-themes"))
     ap.add_argument("--tar", help="also write <name>.tar and index.json here")
+    ap.add_argument("--themes", default=THEMES, help="directory of theme sources (default: elite/themes)")
     args = ap.parse_args()
 
     cfg = json.load(open(os.path.join(HERE, "icon_sets.json")))
@@ -146,9 +158,9 @@ def main():
     if subprocess.run([os.path.join(HERE, "build.sh"), renderer], stdout=subprocess.DEVNULL).returncode != 0:
         raise SystemExit("[-] Cannot build the host renderer (needs a C compiler)")
     builder = Builder(cfg, args.work, renderer)
-    names = args.names or sorted(d for d in os.listdir(THEMES) if os.path.isfile(os.path.join(THEMES, d, "sources.json")))
+    names = args.names or sorted(d for d in os.listdir(args.themes) if os.path.isfile(os.path.join(args.themes, d, "sources.json")))
     for name in names:
-        build(name, cfg, args.out, builder)
+        build(name, cfg, args.out, builder, args.themes)
     if args.tar:
         os.makedirs(args.tar, exist_ok=True)
         index = [{"id": "classic", "name": "Classic"}]
