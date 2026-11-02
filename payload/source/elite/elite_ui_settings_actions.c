@@ -218,11 +218,30 @@ void execute_settings_action(int idx) {
                 set_gyro_enabled(!g_gyro_enabled);
                 save_settings_conf();
                 break;
-            case 1:
+            case 1: {
                 g_gyro_rate_hz = (g_gyro_rate_hz == 10) ? 25 : ((g_gyro_rate_hz == 25) ? 50 : 10);
+                if (g_gyro_fd >= 0 && g_gyro_enabled) {
+                    int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
+                    if (fdr >= 0) {
+                        char rstr[16];
+                        snprintf(rstr, sizeof(rstr), "%d\n", g_gyro_rate_hz);
+                        write(fdr, rstr, strlen(rstr));
+                        close(fdr);
+                    }
+                }
                 save_settings_conf();
                 break;
-            case 2: {
+            }
+            case 2:
+                if (g_deep_standby_min == 15) g_deep_standby_min = 30;
+                else if (g_deep_standby_min == 30) g_deep_standby_min = 60;
+                else if (g_deep_standby_min == 60) g_deep_standby_min = 120;
+                else if (g_deep_standby_min == 120) g_deep_standby_min = 240;
+                else if (g_deep_standby_min == 240) g_deep_standby_min = 0;
+                else g_deep_standby_min = 15;
+                save_settings_conf();
+                break;
+            case 3: {
                 read_elite_battery();
                 char bat_msg[64];
                 snprintf(bat_msg, sizeof(bat_msg), "Battery: %d%% (%dmV) %s",
@@ -231,7 +250,7 @@ void execute_settings_action(int idx) {
                 show_notice(bat_msg, 2000);
                 break;
             }
-            case 3:
+            case 4:
                 if (g_power_debug) {
                     log_power_debug("[*] Power debugging disabled from Power menu\n");
                     g_power_debug = false;
@@ -244,12 +263,12 @@ void execute_settings_action(int idx) {
                     show_notice("Power Debug: ENABLED", 2000);
                 }
                 break;
-            case 4:
+            case 5:
                 g_settings_subview = SETTINGS_VIEW_SUSPEND;
                 g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
                 break;
-            case 5:
+            case 6:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;

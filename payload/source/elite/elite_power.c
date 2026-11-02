@@ -145,6 +145,32 @@ void clearpad_hw_init(void) {
     printf("[+] Synaptics Clearpad initialized via I2C\n");
 }
 
+void clearpad_doze(void) {
+    int fd = open("/dev/i2c-1", O_RDWR);
+    if (fd >= 0) {
+        if (ioctl(fd, I2C_SLAVE_FORCE, 0x20) >= 0) {
+            union i2c_smbus_data data;
+            struct i2c_smbus_ioctl_data args;
+
+            data.byte = 0x00; /* Operating Mode: automatic hardware doze when untouched */
+            args.read_write = I2C_SMBUS_WRITE;
+            args.command = 0x35;
+            args.size = I2C_SMBUS_BYTE_DATA;
+            args.data = &data;
+            ioctl(fd, I2C_SMBUS, &args);
+
+            data.byte = 0x07;
+            args.command = 0x36;
+            ioctl(fd, I2C_SMBUS, &args);
+
+            args.read_write = I2C_SMBUS_READ;
+            args.command = 0x14;
+            ioctl(fd, I2C_SMBUS, &args);
+        }
+        close(fd);
+    }
+}
+
 void clearpad_sleep(void) {
     int fd = open("/dev/i2c-1", O_RDWR);
     if (fd >= 0) {
@@ -288,7 +314,7 @@ void fb_set_blank(bool blank) {
         s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
         set_cpu_freq_standby(true);
-        clearpad_sleep();
+        clearpad_doze();
         if (g_gyro_fd >= 0) {
             struct input_event ev[16];
             while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
@@ -526,58 +552,70 @@ void sig_deep_sleep_handler(int sig) {
     uint64_t now_ms = get_monotonic_ms();
     s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
     log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2\n");
+    clearpad_sleep();
+    enter_kernel_suspend();
 }
 
 void *power_manager(void *arg) {
     (void)arg;
     uint64_t last_standby_heartbeat_ms = 0;
+    static char s_last_dock_psrc[16] = "";
+    static uint64_t s_last_dock_wake_ms = 0;
 
     while (g_running) {
+        /* Check power source switch (battery <-> usb <-> cradle) */
+        FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
+        if (fpsrc) {
+            char psrc[16] = {0};
+            if (fscanf(fpsrc, "%15s", psrc) == 1) {
+                if (s_last_dock_psrc[0] == '\0') {
+                    strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
+                }
+                if (strcmp(s_last_dock_psrc, psrc) != 0) {
+                    uint64_t now_ms = get_monotonic_ms();
+                    if (now_ms - s_last_dock_wake_ms > 1500) {
+                        s_last_dock_wake_ms = now_ms;
+                        log_power_debug("[*] Power source transition (%s -> %s), waking display\n",
+                                        s_last_dock_psrc, psrc);
+                        strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
+                        s_last_batt_sample_ms = 0;
+                        read_elite_battery();
+                        g_wake_requested = 1;
+                    } else {
+                        strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
+                    }
+                }
+            }
+            fclose(fpsrc);
+        }
+
         if (!g_screen_on) {
             bool is_docked = is_elite_docked();
+            uint64_t now_ms = get_monotonic_ms();
+            uint64_t standby_s = (s_last_blank_time_ms > 0) ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
+
             if (is_docked) {
-                usleep(500000);
+                usleep(300000);
             } else {
                 read_elite_battery();
                 if (g_is_syncing_config || g_is_ota_updating) {
                     usleep(500000); /* a transfer that started with the screen off: suspend after it */
-                } else if (strcmp(g_battery_info.powersource, "battery") == 0) {
-                    enter_kernel_suspend();
-                    usleep(100000);
+                } else if (g_deep_standby_min > 0 && standby_s >= ((uint64_t)g_deep_standby_min * 60)) {
+                    if (strcmp(g_battery_info.powersource, "battery") == 0) {
+                        log_power_debug("[*] Standby time %llus reached deep standby threshold (%dm), suspending to RAM...\n",
+                                        (unsigned long long)standby_s, g_deep_standby_min);
+                        clearpad_sleep();
+                        enter_kernel_suspend();
+                        usleep(100000);
+                    } else {
+                        usleep(500000);
+                    }
                 } else {
-                    usleep(10000000);
+                    /* Light Standby: stay in Linux userspace, CPU idle in WFI, touch/gyro active */
+                    usleep(200000);
                 }
             }
 
-            FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
-            if (fpsrc) {
-                char psrc[16] = {0};
-                if (fscanf(fpsrc, "%15s", psrc) == 1) {
-                    static char s_last_dock_psrc[16] = "";
-                    static uint64_t s_last_dock_wake_ms = 0;
-                    if (s_last_dock_psrc[0] == '\0') {
-                        strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
-                    }
-                    bool was_docked = (strcmp(s_last_dock_psrc, "cradle") == 0 || strcmp(s_last_dock_psrc, "usb") == 0);
-                    bool now_docked = (strcmp(psrc, "cradle") == 0 || strcmp(psrc, "usb") == 0);
-
-                    if (was_docked != now_docked) {
-                        uint64_t now_ms = get_monotonic_ms();
-                        if (now_ms - s_last_dock_wake_ms > 3000) {
-                            s_last_dock_wake_ms = now_ms;
-                            strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
-                            log_power_debug("[*] Dock state transition (%s -> %s), waking display\n",
-                                            was_docked ? "docked" : "battery", psrc);
-                            s_last_batt_sample_ms = 0;
-                            read_elite_battery();
-                            g_wake_requested = 1;
-                        }
-                    }
-                }
-                fclose(fpsrc);
-            }
-
-            uint64_t now_ms = get_monotonic_ms();
             if (now_ms - last_standby_heartbeat_ms >= 300000) {
                 last_standby_heartbeat_ms = now_ms;
                 read_elite_battery();
@@ -632,14 +670,14 @@ void init_gyro_interrupt(void) {
     }
     int fdt = open(GYRO_INT1_THRESHOLD_SYS, O_WRONLY);
     if (fdt >= 0) {
-        write(fdt, "8\n", 2);
+        write(fdt, "5\n", 2);
         close(fdt);
     }
     int fdd = open(GYRO_INT1_DURATION_SYS, O_WRONLY);
     if (fdd >= 0) {
-        write(fdd, "2\n", 2);
+        write(fdd, "1\n", 2);
         close(fdd);
     }
-    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=8, dur=2)\n",
+    printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
            g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
 }

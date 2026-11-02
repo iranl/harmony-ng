@@ -332,7 +332,8 @@ int main(int argc, char **argv) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
-            tv.tv_sec = (!is_docked && standby_s >= 1800) ? 30 : 10;
+            bool in_deep = (g_deep_standby_min > 0 && standby_s >= (uint64_t)g_deep_standby_min * 60);
+            tv.tv_sec = (!is_docked && in_deep) ? 30 : 2;
             tv.tv_usec = 0;
         }
         int sel = select(max_fd + 1, &rfds, NULL, NULL, &tv);
@@ -649,11 +650,24 @@ int main(int argc, char **argv) {
             struct input_event ev;
             while (read(g_touch_fd, &ev, sizeof(ev)) == sizeof(ev)) {
                 if (!g_screen_on) {
-                    if (ev.type == EV_KEY && ev.value == 1 &&
-                        (ev.code == 330 || (g_cap_buttons_enabled && (ev.code == 102 || ev.code == 364)))) {
+                    bool should_wake = false;
+                    if (ev.type == EV_KEY && ev.value == 1) {
+                        if (g_cap_buttons_enabled && (ev.code == 102 || ev.code == 364)) {
+                            should_wake = true;
+                        } else if (g_touch_enabled && ev.code == 330) {
+                            should_wake = true;
+                        }
+                    } else if (g_touch_enabled && ev.type == EV_ABS) {
+                        if (ev.code == ABS_PRESSURE && ev.value > 0) {
+                            should_wake = true;
+                        } else if (ev.code == ABS_X || ev.code == ABS_Y) {
+                            should_wake = true;
+                        }
+                    }
+                    if (should_wake) {
+                        log_power_debug("[*] Touch / Cap button wake event: type=%d, code=%d, val=%d\n",
+                                        ev.type, ev.code, ev.value);
                         reset_idle_timer();
-                        fb_set_blank(false);
-                        render_screen();
                     }
                     continue;
                 }

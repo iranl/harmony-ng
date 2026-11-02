@@ -722,6 +722,11 @@ void load_settings_conf(void) {
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
             else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = (val > 0) ? val : 25;
+            else if (strcmp(key, "deep_standby") == 0 || strcmp(key, "deep_standby_min") == 0) {
+                if (val == 0 || val == 15 || val == 30 || val == 60 || val == 120 || val == 240) {
+                    g_deep_standby_min = val;
+                }
+            }
             else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = val;
             else if (strcmp(key, "night_start") == 0) g_night_start_hour = val;
             else if (strcmp(key, "night_end") == 0) g_night_end_hour = val;
@@ -766,6 +771,7 @@ void save_settings_conf(void) {
     fprintf(f, "touch_sens=%d\n", g_touch_sensitivity);
     fprintf(f, "gyro=%d\n", g_gyro_enabled ? 1 : 0);
     fprintf(f, "gyro_rate=%d\n", g_gyro_rate_hz);
+    fprintf(f, "deep_standby=%d\n", g_deep_standby_min);
     fprintf(f, "btn_backlight=%d\n", g_btn_backlight_mode);
     fprintf(f, "night_start=%d\n", g_night_start_hour);
     fprintf(f, "night_end=%d\n", g_night_end_hour);

@@ -183,6 +183,8 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Tilt / Pickup Wake", "Beim Anheben wecken", "Reveil au mouvement", "Ontwaken bij optillen", "Encender al mover", "Risveglio al movimento" },
     /* STR_GYRO_RATE */
     { "Gyroscope Rate", "Gyroskop-Rate", "Frequence gyro", "Gyroscoopsnelheid", "Tasa giroscopio", "Frequenza giroscopio" },
+    /* STR_DEEP_STANDBY */
+    { "Deep Standby", "Tiefschlaf", "Veille profonde", "Diepe slaapstand", "Suspension profunda", "Sospensione profonda" },
     /* STR_BATTERY_LEVEL */
     { "Battery Level", "Akkustand", "Niveau batterie", "Batterijniveau", "Nivel de bateria", "Livello batteria" },
     /* STR_BATTERY_VOLTAGE */

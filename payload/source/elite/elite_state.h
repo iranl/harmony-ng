@@ -272,6 +272,7 @@ extern int g_act_trigger_count;
 
 extern bool g_gyro_enabled;
 extern int g_gyro_rate_hz;
+extern int g_deep_standby_min;
 extern int g_btn_backlight_mode;
 extern int g_night_start_hour;
 extern int g_night_end_hour;

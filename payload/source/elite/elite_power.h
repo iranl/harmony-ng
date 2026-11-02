@@ -13,6 +13,7 @@ extern char g_timezone_str[48];
 void set_backlight_level(int level);
 void clearpad_hw_init(void);
 void clearpad_wake(bool full_reset);
+void clearpad_doze(void);
 void clearpad_sleep(void);
 bool is_elite_docked(void);
 void get_cpu_freq_status(char *out, size_t max_len);
