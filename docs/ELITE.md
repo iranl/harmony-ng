@@ -85,6 +85,27 @@ sync 2>/dev/null || /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || tr
 
 ---
 
+## Frame Timing
+
+`elite_ui` can log how long each screen update takes, to check screens against the 27.8 ms animation frame budget ([ADR-0009](adr/0009-retained-surface-renderer-for-motion.md)). Over SSH:
+
+```sh
+touch /tmp/elite_frame_timing     # start logging, within a second
+tail -f /tmp/frame_timing.log
+rm /tmp/elite_frame_timing        # stop
+```
+
+Each line is `ms screen render_us present_us flipped`:
+- `ms`: monotonic time;
+- `screen`: what the frame shows (`activities`, `activities-grid`, `activity`, `devices`, `settings/N`, `menu`, `help`, …);
+- `render_us`: time to draw the frame;
+- `present_us`: time to show it;
+- `flipped`: `1` when the frame was shown by page flipping, `0` when it was copied into every framebuffer page.
+
+The log is in `/tmp`, so it is lost at reboot.
+
+---
+
 ## Sleep Behavior & Expected Run Times
 
 The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** battery. In custom firmware (`elite_ui`), sleep is managed via a two-tier hardware power state architecture: **Light Standby** and **Deep Standby**.

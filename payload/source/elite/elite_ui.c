@@ -3,6 +3,7 @@
 #include "elite_power.h"
 #include "elite_rf.h"
 #include "elite_rf_ota.h"
+#include "elite_present.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -252,18 +253,34 @@ void render_frame(void) {
     }
 }
 
+/* What the frame shows, for the frame timing log */
+static const char *screen_name(void) {
+    static const char *views[VIEW_COUNT] = { "activities", "activity", "settings", "pairing", "not-paired", "devices" };
+    static char name[32];
+    if (g_is_ota_updating) return "ota";
+    if (g_is_syncing_config) return "sync";
+    if (g_is_switching_activity) return "switching";
+    if (g_menu_open) return "menu";
+    if (ui_help_active()) return "help";
+    if (g_current_view == VIEW_SETTINGS) {
+        snprintf(name, sizeof(name), "settings/%d", (int)g_settings_subview);
+        return name;
+    }
+    if (g_current_view == VIEW_ACTIVITIES && g_theme.layout == THEME_LAYOUT_GRID) return "activities-grid";
+    return (g_current_view >= 0 && g_current_view < VIEW_COUNT) ? views[g_current_view] : "?";
+}
+
 void render_screen(void) {
     if (!g_fb_mem || !g_screen_on) return;
     pthread_mutex_lock(&g_render_mutex);
 
+    uint64_t t0 = get_monotonic_us();
     render_frame();
-
-    memcpy((void *)g_fb_mem, g_backbuffer, FB_SIZE);
-    if (g_fb_size >= FB_SIZE * 2) {
-        memcpy((uint8_t *)g_fb_mem + FB_SIZE, g_backbuffer, FB_SIZE);
-    }
-    if (g_fb_size >= FB_SIZE * 3) {
-        memcpy((uint8_t *)g_fb_mem + (FB_SIZE * 2), g_backbuffer, FB_SIZE);
+    uint64_t t1 = get_monotonic_us();
+    bool flipped = fb_present(g_backbuffer, false);
+    uint64_t t2 = get_monotonic_us();
+    if (frame_timing_enabled()) {
+        frame_timing_record(screen_name(), (uint32_t)(t1 - t0), (uint32_t)(t2 - t1), flipped);
     }
 
     g_screen_dirty = false;

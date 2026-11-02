@@ -38,6 +38,7 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite/elite_i18n.c" \
     "$REPO_ROOT/payload/source/elite/elite_input.c" \
     "$REPO_ROOT/payload/source/elite/elite_power.c" \
+    "$REPO_ROOT/payload/source/elite/elite_present.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf_ota.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf_sync.c" \

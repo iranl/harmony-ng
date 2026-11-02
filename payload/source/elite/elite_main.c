@@ -7,6 +7,7 @@
 #include "elite_rf_ota.h"
 #include "elite_ui.h"
 #include "elite_input.h"
+#include "elite_present.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -569,6 +570,7 @@ int main(int argc, char **argv) {
             render_screen();
         }
 
+        frame_timing_poll();
         if (access("/tmp/trigger_rf_pair", F_OK) == 0) {
             unlink("/tmp/trigger_rf_pair");
             printf("[*] External trigger: starting RF pairing...\n");
