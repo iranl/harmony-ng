@@ -10,21 +10,62 @@
 #include "elite_ui.h"
 #include "elite_config.h"
 #include "elite_stock_icons.h"
+#include "elite_ui_scroll.h"
+
+#include <stdio.h>
+#include <string.h>
 
 static uint8_t g_rgba[FB_WIDTH * FB_HEIGHT * 4];
 
 EMSCRIPTEN_KEEPALIVE
 uint8_t *er_render(const char *root, const char *view, int select, const char *active, const char *icons,
                    int battery, int usb, int charging, int no_hub, int minutes, const char *theme,
-                   const char *layout) {
+                   const char *layout, int list_top) {
     render_options_t o = {
         .root = root, .view = view, .select = select, .active = active, .icons = icons, .theme = theme, .layout = layout,
         .battery = battery, .usb = usb != 0, .charging = charging != 0, .no_hub = no_hub != 0, .minutes = minutes,
+        .list_top = list_top, .has_list_top = list_top >= 0,
     };
     render_load(&o);
     render_frame();
     render_copy_out(g_rgba, FB_WIDTH, 0, 0, 4);
     return g_rgba;
+}
+
+/* Pixels the list on the last screen er_render() drew is scrolled down (0 without a list) */
+EMSCRIPTEN_KEEPALIVE
+int er_list_top(void) {
+    list_geom_t g;
+    return list_geometry(&g) ? list_scroll_offset() : 0;
+}
+
+/* Activities on a home page in the layout er_render() last drew */
+EMSCRIPTEN_KEEPALIVE
+int er_home_page_size(void) {
+    return activity_page_size();
+}
+
+/* What a tap at (x, y) on the last screen er_render() drew opens, found with the remote's own
+   touch handling: "activity ID" (the remote's activity ID), "device N" (the Nth device in the
+   config), or "" for anything else */
+EMSCRIPTEN_KEEPALIVE
+const char *er_hit(int x, int y) {
+    static char hit[48];
+    hit[0] = '\0';
+    if (g_menu_open || g_key_hint_pending || g_link_panel_open || ui_help_active() || g_is_syncing_config) return hit;
+    int dev = -1;
+    if (g_current_view == VIEW_ACTIVITIES) {
+        dev = home_card_device_at(y);
+        int idx = dev < 0 ? home_activity_at(x, y) : -1;
+        if (idx >= 0) snprintf(hit, sizeof(hit), "activity %s", g_activities[idx].id);
+    } else if (g_current_view == VIEW_DEVICES && get_active_dev_cmd_count() <= 0) {
+        const rf_activity_t *act = rf_activity_by_id(g_active_activity_id);
+        if (act) dev = activity_card_device_at(act, FB_HEIGHT, y);
+    } else if (g_current_view == VIEW_DEVICE_BROWSER && g_browse_dev < 0) {
+        dev = list_row_at(y);
+    }
+    if (dev >= 0) snprintf(hit, sizeof(hit), "device %d", dev);
+    return hit;
 }
 
 /* What the remote stores for an activity or device after the Hub's config push, so a page

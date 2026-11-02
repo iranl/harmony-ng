@@ -207,11 +207,13 @@ export async function themeList() {
 // colour, except in theme icons.
 const iconUrls = new Map();
 export function activityIconUrl(module, activityId, theme = 'classic') {
+  module.screenDrawn = false; // reloads the config: hitTest() needs a new render()
   return iconUrl(module, module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]), theme);
 }
 
 // The image the remote draws for a device, like activityIconUrl
 export function deviceIconUrl(module, deviceId, theme = 'classic') {
+  module.screenDrawn = false;
   return iconUrl(module, module.ccall('er_device_icon', 'string', ['string', 'string', 'string'], [ROOT, String(deviceId).slice(0, 4), theme]), theme);
 }
 
@@ -257,12 +259,33 @@ function iconUrl(module, path, theme) {
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
 // row, or the device for 'device'), active (remote activity ID), theme (loaded with
 // loadTheme()), layout ('theme', 'list', 'grid' or 'carousel'), icons, battery, usb, charging, noHub, minutes }
+// Draws a screen. state.listTop scrolls the list on it that many pixels down (clamped to its
+// ends); without it a list opens on the page holding its selection. Returns where the list
+// ended up ({ listTop }, 0 without a list) and the home layout's page size ({ homePageSize }).
 export function render(module, canvas, state = {}) {
   const ptr = module.ccall('er_render', 'number',
-    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string', 'string'],
+    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string', 'string', 'number'],
     [ROOT, state.view || 'activities', state.select || 0, state.active || '', state.icons || 'classic',
      state.battery ?? 80, state.usb ? 1 : 0, state.charging ? 1 : 0, state.noHub ? 1 : 0, state.minutes ?? 21 * 60 + 30,
-     state.theme || 'classic', state.layout || 'theme']);
+     state.theme || 'classic', state.layout || 'theme', state.listTop ?? -1]);
   const pixels = new ImageData(new Uint8ClampedArray(module.HEAPU8.buffer, ptr, 240 * 320 * 4).slice(), 240, 320);
   canvas.getContext('2d').putImageData(pixels, 0, 0);
+  module.screenDrawn = true;
+  return {
+    listTop: module.ccall('er_list_top', 'number', [], []),
+    homePageSize: module.ccall('er_home_page_size', 'number', [], []),
+  };
+}
+
+// What a tap at (x, y), in the remote's screen pixels, opens on the screen render() last drew,
+// found with the remote's own touch handling: { activity: remote activity ID }, { device:
+// index into the config's devices }, or null. Undefined when the module has loaded other
+// state since (activityIconUrl, deviceIconUrl): render() again first.
+export function hitTest(module, x, y) {
+  if (!module.screenDrawn) return undefined;
+  const hit = module.ccall('er_hit', 'string', ['number', 'number'], [Math.floor(x), Math.floor(y)]);
+  const [kind, id] = hit.split(' ');
+  if (kind === 'activity') return { activity: id };
+  if (kind === 'device') return { device: Number(id) };
+  return null;
 }

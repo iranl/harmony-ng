@@ -33,7 +33,7 @@
 @media (max-width: 640px) { .eb-layout { grid-template-columns: 1fr; } .eb-picture-col { max-width: 280px; margin: 0 auto; } }
 .eb-picture { position: relative; width: 100%; }
 .eb-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.eb-canvas { position: absolute; image-rendering: pixelated; pointer-events: none; }
+.eb-canvas { position: absolute; image-rendering: pixelated; }
 .eb-body { fill: #0e1116; stroke: #2b313b; stroke-width: 4; }
 .eb-screen { fill: #000; stroke: #222831; stroke-width: 2; }
 .eb-label { fill: currentColor; text-anchor: middle; dominant-baseline: central; font-family: var(--font-main); font-weight: 600; pointer-events: none; }

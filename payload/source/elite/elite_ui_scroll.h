@@ -60,6 +60,8 @@ int list_scroll_offset(void);
 /* Opens the list on screen afresh, then moves it as a drag of px pixels (positive: down), for
    host renders of a frame mid-drag */
 void list_scroll_set_drag(int px);
+/* Opens the list on screen afresh, scrolled px pixels down, within its ends */
+void list_scroll_to(int px);
 /* The row at screen y, or -1 */
 int list_row_at(int y);
 bool list_scroll_active(void);
