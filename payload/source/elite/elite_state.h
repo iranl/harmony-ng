@@ -108,7 +108,6 @@ typedef enum {
     SETTINGS_VIEW_SUSPEND
 } settings_subview_t;
 
-#define PAIR_OPT_COUNT 2
 
 /* Activity item */
 typedef struct {

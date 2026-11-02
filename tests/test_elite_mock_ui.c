@@ -464,6 +464,28 @@ int main(void) {
         printf("[+] Transitions: slides deeper and back, crossfades across\n");
     }
 
+    /* 14. Going back without Back rows (ADR-0014) */
+    {
+        /* Back goes up one level; Settings pages have no Back rows */
+        g_pairing_state = 2; /* paired: the categories go back to home, not the pairing prompt */
+        g_current_view = VIEW_SETTINGS; g_settings_subview = SETTINGS_VIEW_DISPLAY;
+        assert(get_settings_sub_count() == 6);
+        assert(ui_go_back() && g_settings_subview == SETTINGS_VIEW_CATEGORIES && g_selected_category == 1);
+        assert(ui_go_back() && g_current_view == VIEW_ACTIVITIES);
+        assert(!ui_go_back());
+        g_current_view = VIEW_DEVICES;
+        assert(ui_go_back() && g_current_view == VIEW_ACTIVITIES);
+        g_rf_device_count = 1;
+        snprintf(g_rf_devices[0].name, sizeof(g_rf_devices[0].name), "Marantz");
+        g_rf_dev_cmd_count = 2;
+        g_rf_dev_cmds[0].dev_idx = g_rf_dev_cmds[1].dev_idx = 0;
+        open_device_browser();
+        device_browser_activate(0);
+        assert(g_browse_dev == 0 && g_browse_sel == 0 && browser_item_count() == 2 && browser_cmd(0) == &g_rf_dev_cmds[0]);
+        assert(ui_go_back() && g_browse_dev == -1);
+        printf("[+] Back: one level up by swipe or key, no Back rows, device name as a heading\n");
+    }
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;

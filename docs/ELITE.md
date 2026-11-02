@@ -185,13 +185,13 @@ Every device configured on the Hub can be controlled directly, without starting 
 - **Help**: re-sends the running activity's commands except power toggles, then asks "Is it on?" for each device whose only power command is a toggle; `No` sends the toggle. Answer by tapping `Yes` or `No`, or with the D-pad and `OK`; `Back`, `Activities` or `Devices` closes Help. A summary shows for 3 s, then the activity screen.
 - **RF link indicator**: four bars show the link to the Hub over the last 30 s, from the share of CC2544 link reports that say "established" and the share of the remote's sync queries (every 800 ms while the screen is on) that the Hub answers within 1 s; the lower share sets the bars (≥ 90 % four, ≥ 70 % three, ≥ 40 % two, otherwise one amber bar). A red `NO HUB` shows when the link has been lost for 6 s, and a red `HUB?` when the link is up in at least 90 % of reports but the Hub has answered none of the last 10 s of queries. Tapping the indicator opens a panel with both shares and the time since the last frame from the Hub; any tap or key closes it.
 - **First start**: after the update, a card names the Activities, Devices and Off keys once; any key or tap dismisses it.
-- **Hub Device Browser**: Selecting a device lists all of its commands (7 per page) for touch execution, below a back row (`< Marantz`).
+- **Hub Device Browser**: Selecting a device lists all of its commands (6 per page) for touch execution, below the device's name.
 - **Physical Button Control in Device Browser**: When viewing any device in the Hub Device Browser, physical remote button presses (Volume, Mute, D-pad, Play/Pause, Channel, etc.) automatically transmit the target device ID to the Hub.
 - **Hub Mapping & Auto-Fallback**:
   - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
   - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
 - **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for longer device names. Names longer than the list chunk holds arrive in `RF_MSG_NAME_TAIL_CHUNK` frames, up to 39 characters.
-- **Back**: Swipe left-to-right or tap the back row; with touch disabled, press `Prev Tab` (`KEY_PROG2`) or `Back`. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
+- **Back**: Swipe left-to-right; with touch disabled, press `Prev Tab` (`KEY_PROG2`) or `Back`. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
 
 ---
 
@@ -208,6 +208,8 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
   ├── 5. SYSTEM      --> USB ethernet, power debug log, pairing, reboot, factory reset
   └── 6. PUSH TO HUB --> Force immediate RF backup push to Hub
 ```
+
+Pages have no Back item: swipe left to right, or press `Back`, to return to the categories. From the categories the same goes back to the home screen.
 
 ### 1. `ACTIVITIES`
 - **`Confirm Switch`**: `[ PROMPT ]` or `[ INSTANT ]`.

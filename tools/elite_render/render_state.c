@@ -53,7 +53,7 @@ static void set_view(const render_options_t *o) {
     } else if (strcmp(v, "device") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = o->select;
-        g_browse_sel = 1;
+        g_browse_sel = 0;
     } else if (strcmp(v, "settings") == 0) {
         g_current_view = VIEW_SETTINGS;
     } else if (strcmp(v, "pairing") == 0) {
