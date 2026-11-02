@@ -183,6 +183,11 @@ int main(int argc, char **argv) {
                     pthread_attr_t attr;
                     pthread_attr_init(&attr);
                     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+                    /*
+                     * Keep 512 KB stack size: cJSON recursive parsing and formatting
+                     * on large backup bundles (up to 2 MB) requires deep recursion headroom.
+                     * Dynamic HTTP request buffers are malloc'd on the heap in http_server.c.
+                     */
                     pthread_attr_setstacksize(&attr, 512 * 1024);
                     if (pthread_create(&th, &attr, http_client_worker, (void *)(intptr_t)cfd) != 0) {
                         fprintf(stderr, "[-] pthread_create failed for client fd %d\n", cfd);

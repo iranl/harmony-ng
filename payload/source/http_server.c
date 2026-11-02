@@ -44,10 +44,10 @@ struct static_cache_entry {
 
 static struct static_cache_entry g_static_cache[STATIC_CACHE_MAX_ENTRIES];
 static int g_static_cache_count = 0;
-static pthread_mutex_t g_static_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_rwlock_t g_static_cache_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 void static_cache_flush(void) {
-    pthread_mutex_lock(&g_static_cache_mutex);
+    pthread_rwlock_wrlock(&g_static_cache_rwlock);
     for (int i = 0; i < g_static_cache_count; i++) {
         if (g_static_cache[i].data) {
             free(g_static_cache[i].data);
@@ -57,29 +57,26 @@ void static_cache_flush(void) {
         g_static_cache[i].size = 0;
     }
     g_static_cache_count = 0;
-    pthread_mutex_unlock(&g_static_cache_mutex);
+    pthread_rwlock_unlock(&g_static_cache_rwlock);
 }
 
-static struct static_cache_entry *static_cache_find(const char *rel_path, int is_gzip) {
-    pthread_mutex_lock(&g_static_cache_mutex);
+static struct static_cache_entry *static_cache_find_locked(const char *rel_path, int is_gzip) {
     for (int i = 0; i < g_static_cache_count; i++) {
         if (g_static_cache[i].data &&
             g_static_cache[i].is_gzip == is_gzip &&
             strcmp(g_static_cache[i].rel_path, rel_path) == 0) {
-            pthread_mutex_unlock(&g_static_cache_mutex);
             return &g_static_cache[i];
         }
     }
-    pthread_mutex_unlock(&g_static_cache_mutex);
     return NULL;
 }
 
 static void static_cache_insert(const char *rel_path, int is_gzip, const char *mime, const char *data, size_t size) {
     if (!rel_path || !data || size == 0 || size > STATIC_CACHE_MAX_SIZE) return;
-    pthread_mutex_lock(&g_static_cache_mutex);
+    pthread_rwlock_wrlock(&g_static_cache_rwlock);
     for (int i = 0; i < g_static_cache_count; i++) {
         if (strcmp(g_static_cache[i].rel_path, rel_path) == 0 && g_static_cache[i].is_gzip == is_gzip) {
-            pthread_mutex_unlock(&g_static_cache_mutex);
+            pthread_rwlock_unlock(&g_static_cache_rwlock);
             return;
         }
     }
@@ -96,7 +93,7 @@ static void static_cache_insert(const char *rel_path, int is_gzip, const char *m
             g_static_cache_count++;
         }
     }
-    pthread_mutex_unlock(&g_static_cache_mutex);
+    pthread_rwlock_unlock(&g_static_cache_rwlock);
 }
 
 static const char *get_mime_type(const char *path) {
@@ -144,12 +141,13 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
 
     int client_gzip = (strstr(req, "Accept-Encoding") && strstr(req, "gzip")) ? 1 : 0;
 
+    pthread_rwlock_rdlock(&g_static_cache_rwlock);
     struct static_cache_entry *cached = NULL;
     if (client_gzip) {
-        cached = static_cache_find(rel_path, 1);
+        cached = static_cache_find_locked(rel_path, 1);
     }
     if (!cached) {
-        cached = static_cache_find(rel_path, 0);
+        cached = static_cache_find_locked(rel_path, 0);
     }
 
     if (cached) {
@@ -181,8 +179,10 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
                 sent += (size_t)s;
             }
         }
+        pthread_rwlock_unlock(&g_static_cache_rwlock);
         return 1;
     }
+    pthread_rwlock_unlock(&g_static_cache_rwlock);
 
     char file_path[512];
     snprintf(file_path, sizeof(file_path), "/tmp/www%s", rel_path);
@@ -347,14 +347,28 @@ static void http_process_request(int client_fd, const char *req) {
 
     /* Handle CORS OPTIONS preflight */
     if (strcmp(method, "OPTIONS") == 0) {
-        const char *opt_resp =
+        char origin_buf[128] = "*";
+        const char *orig_hdr = strcasestr(req, "Origin:");
+        if (orig_hdr) {
+            orig_hdr += 7;
+            while (*orig_hdr == ' ' || *orig_hdr == '\t') orig_hdr++;
+            const char *eol = strpbrk(orig_hdr, "\r\n");
+            size_t olen = eol ? (size_t)(eol - orig_hdr) : strlen(orig_hdr);
+            if (olen > 0 && olen < sizeof(origin_buf) - 1) {
+                memcpy(origin_buf, orig_hdr, olen);
+                origin_buf[olen] = '\0';
+            }
+        }
+        char opt_resp[512];
+        snprintf(opt_resp, sizeof(opt_resp),
             "HTTP/1.1 204 No Content\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Origin: %s\r\n"
             "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
             "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
             "Access-Control-Max-Age: 86400\r\n"
             "Content-Length: 0\r\n"
-            "Connection: close\r\n\r\n";
+            "Connection: close\r\n\r\n",
+            origin_buf);
         send(client_fd, opt_resp, strlen(opt_resp), 0);
         close(client_fd);
         return;
@@ -424,20 +438,38 @@ static void http_process_request(int client_fd, const char *req) {
 void http_handle_client(int client_fd) {
     if (client_fd < 0) return;
 
+    struct timeval rcv_tv = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
+
     int req_count = 0;
     while (req_count < 64) {
-        char init_buf[HTTP_REQ_BUF_SIZE] = {0};
-        ssize_t n = recv(client_fd, init_buf, sizeof(init_buf) - 1, 0);
-        if (n <= 0) {
+        char *init_buf = (char *)calloc(1, HTTP_REQ_BUF_SIZE);
+        if (!init_buf) {
             close(client_fd);
             return;
         }
-        init_buf[n] = '\0';
+
+        size_t total_hdr = 0;
+        while (total_hdr < HTTP_REQ_BUF_SIZE - 1) {
+            ssize_t n = recv(client_fd, init_buf + total_hdr, HTTP_REQ_BUF_SIZE - 1 - total_hdr, 0);
+            if (n <= 0) break;
+            total_hdr += (size_t)n;
+            init_buf[total_hdr] = '\0';
+            if (strstr(init_buf, "\r\n\r\n") != NULL || ws_is_upgrade_req(init_buf)) {
+                break;
+            }
+        }
+        if (total_hdr == 0) {
+            free(init_buf);
+            close(client_fd);
+            return;
+        }
         req_count++;
 
         /* Check for WebSocket upgrade */
         if (ws_is_upgrade_req(init_buf)) {
             ws_handle_upgrade(client_fd, init_buf);
+            free(init_buf);
             return;
         }
 
@@ -453,13 +485,13 @@ void http_handle_client(int client_fd) {
                 while (*cl_pos == ' ' || *cl_pos == '\t') cl_pos++;
                 long cl = atol(cl_pos);
                 size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
-                size_t body_recvd = (size_t)n - hdr_len;
+                size_t body_recvd = (total_hdr >= hdr_len) ? (total_hdr - hdr_len) : 0;
                 if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
                     size_t total_needed = hdr_len + (size_t)cl;
                     dyn_buf = (char *)malloc(total_needed + 1);
                     if (dyn_buf) {
-                        memcpy(dyn_buf, init_buf, (size_t)n);
-                        size_t total_read = (size_t)n;
+                        memcpy(dyn_buf, init_buf, total_hdr);
+                        size_t total_read = total_hdr;
                         while (total_read < total_needed) {
                             ssize_t r = recv(client_fd, dyn_buf + total_read, total_needed - total_read, 0);
                             if (r <= 0) break;
@@ -496,10 +528,12 @@ void http_handle_client(int client_fd) {
         if (!handled_static) {
             http_process_request(client_fd, req);
             if (dyn_buf) free(dyn_buf);
+            free(init_buf);
             return;
         }
 
         if (dyn_buf) free(dyn_buf);
+        free(init_buf);
 
         if (!keep_alive) {
             close(client_fd);

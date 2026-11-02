@@ -39,6 +39,7 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
 int save_user_accounts(const struct user_account *users, int count, int auth_enabled);
 int create_auth_session(const char *username, enum http_role role, const char *client_ip, char *out_token, size_t out_len);
 int destroy_auth_session(const char *token);
+void generate_random_hex(char *out, size_t num_bytes);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

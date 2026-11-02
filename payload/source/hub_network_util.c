@@ -404,35 +404,11 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
     }
     pclose(f_ping);
 
-    int current_net_id = -1;
-    FILE *f_list = popen("/usr/sbin/wpa_cli -i ath0 list_networks 2>/dev/null", "r");
-    if (f_list) {
-        char line[128];
-        while (fgets(line, sizeof(line), f_list)) {
-            if (strstr(line, "[CURRENT]")) {
-                current_net_id = atoi(line);
-                break;
-            }
-        }
-        pclose(f_list);
-    }
-
-    FILE *f_add = popen("/usr/sbin/wpa_cli -i ath0 add_network 2>/dev/null", "r");
-    if (!f_add) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "Failed to create test network in wpa_supplicant");
-        return -1;
-    }
-    char id_buf[32] = {0};
-    if (!fgets(id_buf, sizeof(id_buf), f_add)) {
-        pclose(f_add);
-        if (err_msg && err_len) snprintf(err_msg, err_len, "Failed to allocate network ID");
-        return -1;
-    }
-    pclose(f_add);
-    int test_net_id = atoi(id_buf);
-    if (test_net_id < 0) {
-        if (err_msg && err_len) snprintf(err_msg, err_len, "Invalid network ID returned");
-        return -1;
+    /* Back up current wpa_supplicant.conf */
+    size_t bak_len = 0;
+    char *orig_conf = read_file_text_alloc("/etc/wpa_supplicant.conf", 16384, &bak_len);
+    if (!orig_conf) {
+        orig_conf = read_file_text_alloc("/etc/wpa_supplicant.ath0.conf", 16384, &bak_len);
     }
 
     char esc_ssid[128] = {0};
@@ -440,38 +416,35 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
     escape_wpa_str(ssid, esc_ssid, sizeof(esc_ssid));
     if (psk) escape_wpa_str(psk, esc_psk, sizeof(esc_psk));
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d ssid '\"%s\"' >/dev/null 2>&1", test_net_id, esc_ssid);
-    system(cmd);
-
+    char test_wpa[1024];
     if (is_open) {
-        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d key_mgmt NONE >/dev/null 2>&1", test_net_id);
-        system(cmd);
+        snprintf(test_wpa, sizeof(test_wpa),
+            "ctrl_interface=/var/run/wpa_supplicant\n"
+            "update_config=1\n\n"
+            "network={\n"
+            "\tssid=\"%s\"\n"
+            "\tkey_mgmt=NONE\n"
+            "%s"
+            "}\n",
+            esc_ssid,
+            hidden ? "\tscan_ssid=1\n" : "");
     } else {
-        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d psk '\"%s\"' >/dev/null 2>&1", test_net_id, esc_psk);
-        system(cmd);
+        snprintf(test_wpa, sizeof(test_wpa),
+            "ctrl_interface=/var/run/wpa_supplicant\n"
+            "update_config=1\n\n"
+            "network={\n"
+            "\tssid=\"%s\"\n"
+            "\tpsk=\"%s\"\n"
+            "%s"
+            "}\n",
+            esc_ssid, esc_psk,
+            hidden ? "\tscan_ssid=1\n" : "");
     }
 
-    if (hidden) {
-        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 set_network %d scan_ssid 1 >/dev/null 2>&1", test_net_id);
-        system(cmd);
-    }
+    write_file_content("/etc/wpa_supplicant.conf", test_wpa);
+    write_file_content("/etc/wpa_supplicant.ath0.conf", test_wpa);
 
-    if (current_net_id >= 0) {
-        snprintf(cmd, sizeof(cmd),
-            "(sleep 20 && /usr/sbin/wpa_cli -i ath0 select_network %d && /usr/sbin/wpa_cli -i ath0 remove_network %d) >/dev/null 2>&1 &",
-            current_net_id, test_net_id);
-    } else {
-        snprintf(cmd, sizeof(cmd),
-            "(sleep 20 && /usr/sbin/wpa_cli -i ath0 remove_network %d) >/dev/null 2>&1 &",
-            test_net_id);
-    }
-    system(cmd);
-
-    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 enable_network %d >/dev/null 2>&1", test_net_id);
-    system(cmd);
-    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 select_network %d >/dev/null 2>&1", test_net_id);
-    system(cmd);
+    system("/usr/sbin/wpa_cli -i ath0 reconfigure >/dev/null 2>&1");
 
     int connected = 0;
     for (int t = 0; t < 12; t++) {
@@ -501,16 +474,16 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
         if (err_msg && err_len && !err_msg[0]) {
             snprintf(err_msg, err_len, "Connection timed out (AP unreachable or handshake failed)");
         }
-        if (current_net_id >= 0) {
-            snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 select_network %d >/dev/null 2>&1", current_net_id);
-            system(cmd);
+        /* Restore previous configuration */
+        if (orig_conf) {
+            write_file_content("/etc/wpa_supplicant.conf", orig_conf);
+            write_file_content("/etc/wpa_supplicant.ath0.conf", orig_conf);
+            system("/usr/sbin/wpa_cli -i ath0 reconfigure >/dev/null 2>&1");
+            free(orig_conf);
         }
-        snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 remove_network %d >/dev/null 2>&1", test_net_id);
-        system(cmd);
         return -1;
     }
 
-    snprintf(cmd, sizeof(cmd), "/usr/sbin/wpa_cli -i ath0 remove_network %d >/dev/null 2>&1", test_net_id);
-    system(cmd);
+    if (orig_conf) free(orig_conf);
     return 0;
 }

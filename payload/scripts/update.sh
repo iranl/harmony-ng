@@ -10,7 +10,25 @@ else
   BB="busybox"
 fi
 
-WGET="$BB wget --no-check-certificate"
+CA_BUNDLE=""
+for c in /data/harmony/cacert.pem /opt/luaworks/cacert.pem /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt; do
+  if [ -s "$c" ]; then
+    CA_BUNDLE="$c"
+    break
+  fi
+done
+
+if [ -n "$CA_BUNDLE" ]; then
+  export SSL_CERT_FILE="$CA_BUNDLE"
+  export SSL_CERT_DIR="$(dirname "$CA_BUNDLE")"
+  if $BB wget --help 2>&1 | grep -q 'ca-certificate'; then
+    WGET="$BB wget --ca-certificate=$CA_BUNDLE"
+  else
+    WGET="$BB wget"
+  fi
+else
+  WGET="$BB wget --no-check-certificate"
+fi
 MD5SUM="$BB md5sum"
 TAR="$BB tar"
 
@@ -199,18 +217,29 @@ do_apply() {
   if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3; then
     echo "[+] Downloaded unified OTA package to RAM ($TMPDIR/hub_ota.tar.gz)."
 
-    # Verify MD5 checksum if available from remote
-    if download_retry "${REPO}/hub_ota.tar.gz.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2 || \
-       download_retry "${REPO}/hub_ota.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2; then
-      EXPECTED_MD5=$(awk '{print $1}' "$TMPDIR/hub_ota.tar.gz.md5" | tr -d '\r\n ')
-      ACTUAL_MD5=$($MD5SUM "$TMPDIR/hub_ota.tar.gz" 2>/dev/null | awk '{print $1}')
-      if [ -n "$EXPECTED_MD5" ] && [ "$EXPECTED_MD5" != "$ACTUAL_MD5" ]; then
-        echo "[-] Checksum mismatch for hub_ota.tar.gz (expected $EXPECTED_MD5, got $ACTUAL_MD5)"
-        rm -rf "$TMPDIR" 2>/dev/null
-        return 1
-      fi
-      echo "[+] MD5 checksum verified successfully ($ACTUAL_MD5)."
+    # Verify MD5 checksum (MANDATORY)
+    echo "[*] Fetching and verifying mandatory MD5 checksum..."
+    if ! download_retry "${REPO}/hub_ota.tar.gz.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2 && \
+       ! download_retry "${REPO}/hub_ota.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2; then
+      echo "[-] Mandatory checksum file (.md5) missing or unreachable from ${REPO}. Aborting update."
+      rm -rf "$TMPDIR" 2>/dev/null
+      return 1
     fi
+
+    EXPECTED_MD5=$(awk '{print $1}' "$TMPDIR/hub_ota.tar.gz.md5" | tr -d '\r\n ')
+    if [ -z "$EXPECTED_MD5" ]; then
+      echo "[-] Invalid or empty MD5 checksum file. Aborting update."
+      rm -rf "$TMPDIR" 2>/dev/null
+      return 1
+    fi
+
+    ACTUAL_MD5=$($MD5SUM "$TMPDIR/hub_ota.tar.gz" 2>/dev/null | awk '{print $1}')
+    if [ "$EXPECTED_MD5" != "$ACTUAL_MD5" ]; then
+      echo "[-] Checksum mismatch for hub_ota.tar.gz (expected $EXPECTED_MD5, got $ACTUAL_MD5). Aborting."
+      rm -rf "$TMPDIR" 2>/dev/null
+      return 1
+    fi
+    echo "[+] MD5 checksum verified successfully ($ACTUAL_MD5)."
 
     mkdir -p "$TMPDIR/pkg" 2>/dev/null
     if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
@@ -223,6 +252,13 @@ do_apply() {
           cp -f /data/harmony/rcS.local /etc/init.d/rcS.local 2>/dev/null || true
           chmod 755 /etc/init.d/rcS.local 2>/dev/null || true
         fi
+      fi
+
+      # CA Bundle -> /data/harmony/cacert.pem
+      if [ -f "$TMPDIR/pkg/config/cacert.pem" ]; then
+        cp -f "$TMPDIR/pkg/config/cacert.pem" /data/harmony/cacert.pem 2>/dev/null || true
+      elif [ -f "$TMPDIR/pkg/cacert.pem" ]; then
+        cp -f "$TMPDIR/pkg/cacert.pem" /data/harmony/cacert.pem 2>/dev/null || true
       fi
 
       # B. Primary binaries -> /data/harmony/bin/

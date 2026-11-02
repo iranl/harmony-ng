@@ -12,21 +12,84 @@
 #include <sys/stat.h>
 #include <strings.h>
 
-static void generate_random_hex(char *out, size_t num_bytes) {
-    int fd = open("/dev/urandom", O_RDONLY);
-    uint8_t rnd[32];
-    if (num_bytes > sizeof(rnd)) num_bytes = sizeof(rnd);
-    if (fd >= 0) {
-        if (read(fd, rnd, num_bytes) != (ssize_t)num_bytes) {
-            for (size_t i = 0; i < num_bytes; i++) rnd[i] = (uint8_t)(rand() & 0xFF);
+#include <pthread.h>
+
+struct auth_rate_limit_entry {
+    char ip[48];
+    int fail_count;
+    time_t lock_until;
+    time_t last_attempt;
+};
+
+#define MAX_RATE_LIMIT_ENTRIES 32
+static struct auth_rate_limit_entry g_rate_limits[MAX_RATE_LIMIT_ENTRIES];
+static pthread_mutex_t g_rate_limit_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int auth_check_rate_limit(const char *client_ip) {
+    if (!client_ip || !client_ip[0]) return 0;
+    time_t now = time(NULL);
+    pthread_mutex_lock(&g_rate_limit_mutex);
+    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
+        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
+            if (now < g_rate_limits[i].lock_until) {
+                int remaining = (int)(g_rate_limits[i].lock_until - now);
+                pthread_mutex_unlock(&g_rate_limit_mutex);
+                return remaining > 0 ? remaining : 1;
+            }
+            break;
         }
-        close(fd);
-    } else {
-        for (size_t i = 0; i < num_bytes; i++) rnd[i] = (uint8_t)(rand() & 0xFF);
     }
-    for (size_t i = 0; i < num_bytes; i++) {
-        sprintf(out + (i * 2), "%02x", rnd[i]);
+    pthread_mutex_unlock(&g_rate_limit_mutex);
+    return 0;
+}
+
+static void auth_record_failure(const char *client_ip) {
+    if (!client_ip || !client_ip[0]) return;
+    time_t now = time(NULL);
+    pthread_mutex_lock(&g_rate_limit_mutex);
+    int target_idx = -1;
+    time_t oldest_time = now;
+    int oldest_idx = 0;
+
+    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
+        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
+            target_idx = i;
+            break;
+        }
+        if (!g_rate_limits[i].ip[0] && target_idx < 0) {
+            target_idx = i;
+        }
+        if (g_rate_limits[i].last_attempt < oldest_time) {
+            oldest_time = g_rate_limits[i].last_attempt;
+            oldest_idx = i;
+        }
     }
+    if (target_idx < 0) target_idx = oldest_idx;
+
+    strncpy(g_rate_limits[target_idx].ip, client_ip, sizeof(g_rate_limits[target_idx].ip) - 1);
+    g_rate_limits[target_idx].fail_count++;
+    g_rate_limits[target_idx].last_attempt = now;
+    if (g_rate_limits[target_idx].fail_count >= 3) {
+        /* Exponential backoff: 3 fails = 2s, 4 fails = 4s, 5 fails = 8s, max 30s */
+        int shift = g_rate_limits[target_idx].fail_count - 2;
+        int delay_sec = (shift <= 5) ? (1 << shift) : 30;
+        if (delay_sec > 30) delay_sec = 30;
+        g_rate_limits[target_idx].lock_until = now + delay_sec;
+    }
+    pthread_mutex_unlock(&g_rate_limit_mutex);
+}
+
+static void auth_record_success(const char *client_ip) {
+    if (!client_ip || !client_ip[0]) return;
+    pthread_mutex_lock(&g_rate_limit_mutex);
+    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
+        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
+            g_rate_limits[i].fail_count = 0;
+            g_rate_limits[i].lock_until = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_rate_limit_mutex);
 }
 
 int http_api_auth_handle(int client_fd, const char *method, const char *clean_path,
@@ -53,6 +116,19 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
     /* POST /api/auth/token */
     if (strcmp(clean_path, "/api/auth/token") == 0 && strcmp(method, "POST") == 0) {
+        int lock_secs = auth_check_rate_limit(client_ip);
+        if (lock_secs > 0) {
+            cJSON *err = cJSON_CreateObject();
+            cJSON_AddBoolToObject(err, "ok", 0);
+            char lock_msg[96];
+            snprintf(lock_msg, sizeof(lock_msg), "Too many failed attempts. Try again in %d seconds", lock_secs);
+            cJSON_AddStringToObject(err, "error", lock_msg);
+            send_cjson_resp(client_fd, 429, err);
+            cJSON_Delete(err);
+            close(client_fd);
+            return 1;
+        }
+
         cJSON *params = parse_request_params(body);
         const char *username = "";
         const char *password = "";
@@ -77,14 +153,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             for (int i = 0; i < ucnt; i++) {
                 if (username && strcmp(ulist[i].username, username) == 0) {
                     int ok = 0;
-                    if (password && ulist[i].password[0] && strcmp(ulist[i].password, password) == 0) {
-                        ok = 1;
-                    } else if (password && ulist[i].ha1[0]) {
+                    if (password && ulist[i].ha1[0]) {
                         char ha1_calc[65];
                         compute_ha1(username, HARMONY_AUTH_REALM, password, ha1_calc);
                         if (strcmp(ulist[i].ha1, ha1_calc) == 0) {
                             ok = 1;
                         }
+                    } else if (password && ulist[i].password[0] && strcmp(ulist[i].password, password) == 0) {
+                        ok = 1;
                     }
                     if (ok) {
                         found_role = ulist[i].role;
@@ -98,6 +174,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         if (params) cJSON_Delete(params);
 
         if (found_role == ROLE_NONE) {
+            auth_record_failure(client_ip);
             cJSON *err = cJSON_CreateObject();
             cJSON_AddBoolToObject(err, "ok", 0);
             cJSON_AddStringToObject(err, "error", "Invalid username or password");
@@ -107,6 +184,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             return 1;
         }
 
+        auth_record_success(client_ip);
         char token_buf[68] = {0};
         create_auth_session(matched_user, found_role, client_ip, token_buf, sizeof(token_buf));
 
@@ -376,7 +454,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         if (found_idx >= 0) {
             if (new_pass[0]) {
-                strncpy(ulist[found_idx].password, new_pass, sizeof(ulist[found_idx].password) - 1);
+                ulist[found_idx].password[0] = '\0';
                 compute_ha1(ulist[found_idx].username, HARMONY_AUTH_REALM, new_pass, ulist[found_idx].ha1);
             }
             if (jr && cJSON_IsString(jr)) {
@@ -396,7 +474,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                 return 1;
             }
             strncpy(ulist[ucnt].username, new_user, sizeof(ulist[ucnt].username) - 1);
-            strncpy(ulist[ucnt].password, new_pass, sizeof(ulist[ucnt].password) - 1);
+            ulist[ucnt].password[0] = '\0';
             compute_ha1(new_user, HARMONY_AUTH_REALM, new_pass, ulist[ucnt].ha1);
             ulist[ucnt].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
             ucnt++;
@@ -414,7 +492,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         }
         if (admin_count == 0 && ucnt < MAX_HTTP_USERS) {
             strncpy(ulist[ucnt].username, "admin", sizeof(ulist[ucnt].username) - 1);
-            strncpy(ulist[ucnt].password, "admin", sizeof(ulist[ucnt].password) - 1);
+            ulist[ucnt].password[0] = '\0';
             compute_ha1("admin", HARMONY_AUTH_REALM, "admin", ulist[ucnt].ha1);
             ulist[ucnt].role = ROLE_ADMIN;
             ucnt++;

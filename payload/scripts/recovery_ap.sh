@@ -15,7 +15,12 @@ ssid() {
   echo "${SSID_PREFIX}-${mac}"
 }
 
+# Configuration override file: /data/harmony/recovery_ap.conf
+# Override syntax:
+#   WPA_PASSPHRASE="your_custom_password"
+#   WPA_ENABLED=1
 CONF=/data/harmony/recovery_ap.conf
+# Default WPA2 Passphrase for emergency connection: "harmonyrecovery"
 WPA_PASSPHRASE=harmonyrecovery
 WPA_ENABLED=1
 

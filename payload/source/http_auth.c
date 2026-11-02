@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -52,7 +53,7 @@ void http_auth_init(void) {
     ensure_digest_secret();
 }
 
-static void generate_random_hex(char *out, size_t num_bytes) {
+void generate_random_hex(char *out, size_t num_bytes) {
     int fd = open("/dev/urandom", O_RDONLY);
     uint8_t rnd[32];
     if (num_bytes > sizeof(rnd)) num_bytes = sizeof(rnd);
@@ -65,7 +66,7 @@ static void generate_random_hex(char *out, size_t num_bytes) {
         for (size_t i = 0; i < num_bytes; i++) rnd[i] = (uint8_t)(rand() & 0xFF);
     }
     for (size_t i = 0; i < num_bytes; i++) {
-        sprintf(out + (i * 2), "%02x", rnd[i]);
+        snprintf(out + (i * 2), 3, "%02x", rnd[i]);
     }
 }
 
@@ -309,6 +310,7 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
         if (root) {
             cJSON *j_en = cJSON_GetObjectItemCaseSensitive(root, "auth_enabled");
             int is_en = j_en ? (cJSON_IsTrue(j_en) || (cJSON_IsNumber(j_en) && j_en->valueint != 0)) : 1;
+            int needs_resave = 0;
             cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "users");
             if (arr && cJSON_IsArray(arr)) {
                 const cJSON *it = NULL;
@@ -321,18 +323,16 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
                     if (ju && cJSON_IsString(ju)) {
                         if (users && count < max_users) {
                             strncpy(users[count].username, ju->valuestring, sizeof(users[count].username) - 1);
-                            if (jp && cJSON_IsString(jp)) {
-                                strncpy(users[count].password, jp->valuestring, sizeof(users[count].password) - 1);
-                            } else {
-                                users[count].password[0] = '\0';
-                            }
-                            if (jha && cJSON_IsString(jha) && strlen(jha->valuestring) == 64) {
+                            users[count].password[0] = '\0';
+                            if (jha && cJSON_IsString(jha) && (strlen(jha->valuestring) == 64 || strlen(jha->valuestring) == 32)) {
                                 strncpy(users[count].ha1, jha->valuestring, sizeof(users[count].ha1) - 1);
-                            } else if (users[count].password[0]) {
-                                compute_ha1(users[count].username, HARMONY_AUTH_REALM, users[count].password, users[count].ha1);
+                            } else if (jp && cJSON_IsString(jp) && jp->valuestring[0]) {
+                                compute_ha1(users[count].username, HARMONY_AUTH_REALM, jp->valuestring, users[count].ha1);
+                                needs_resave = 1;
                             } else {
                                 users[count].ha1[0] = '\0';
                             }
+                            if (jp && cJSON_IsString(jp)) needs_resave = 1;
                             const char *rstr = (jr && cJSON_IsString(jr)) ? jr->valuestring : "admin";
                             users[count].role = (strcasecmp(rstr, "user") == 0) ? ROLE_USER : ROLE_ADMIN;
                         }
@@ -342,6 +342,9 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
             }
             if (auth_enabled) *auth_enabled = (count > 0 && is_en);
             cJSON_Delete(root);
+            if (needs_resave && users && count > 0) {
+                save_user_accounts(users, count, (auth_enabled ? *auth_enabled : 1));
+            }
             return count;
         }
     }
@@ -373,8 +376,19 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
 
         if (users && count < max_users) {
             strncpy(users[count].username, user, sizeof(users[count].username) - 1);
-            strncpy(users[count].password, pass, sizeof(users[count].password) - 1);
-            compute_ha1(user, HARMONY_AUTH_REALM, pass, users[count].ha1);
+            users[count].password[0] = '\0';
+            size_t pass_len = strlen(pass);
+            int is_hex_hash = (pass_len == 64 || pass_len == 32);
+            if (is_hex_hash) {
+                for (size_t k = 0; k < pass_len; k++) {
+                    if (!isxdigit((unsigned char)pass[k])) { is_hex_hash = 0; break; }
+                }
+            }
+            if (is_hex_hash) {
+                strncpy(users[count].ha1, pass, sizeof(users[count].ha1) - 1);
+            } else {
+                compute_ha1(user, HARMONY_AUTH_REALM, pass, users[count].ha1);
+            }
             if (role_str && strcasecmp(role_str, "user") == 0) {
                 users[count].role = ROLE_USER;
             } else {
@@ -398,9 +412,7 @@ int save_user_accounts(const struct user_account *users, int count, int auth_ena
     for (int i = 0; i < count; i++) {
         cJSON *u = cJSON_CreateObject();
         cJSON_AddStringToObject(u, "username", users[i].username);
-        if (users[i].password[0]) {
-            cJSON_AddStringToObject(u, "password", users[i].password);
-        }
+        /* Plaintext password is NEVER saved to JSON; only HA1 */
         if (users[i].ha1[0]) {
             cJSON_AddStringToObject(u, "ha1", users[i].ha1);
         } else if (users[i].password[0]) {
@@ -428,8 +440,14 @@ int save_user_accounts(const struct user_account *users, int count, int auth_ena
         char conf_buf[2048] = {0};
         int offset = 0;
         for (int i = 0; i < count; i++) {
+            const char *cred = users[i].ha1[0] ? users[i].ha1 : "";
+            char ha1_buf[65];
+            if (!cred[0] && users[i].password[0]) {
+                compute_ha1(users[i].username, HARMONY_AUTH_REALM, users[i].password, ha1_buf);
+                cred = ha1_buf;
+            }
             int written = snprintf(conf_buf + offset, sizeof(conf_buf) - offset,
-                "%s:%s:%s\n", users[i].username, users[i].password,
+                "%s:%s:%s\n", users[i].username, cred,
                 users[i].role == ROLE_USER ? "user" : "admin");
             if (written > 0 && offset + written < (int)sizeof(conf_buf)) {
                 offset += written;

@@ -241,6 +241,20 @@ if (-not $WebUiOnly) {
         Install-HubFileIfChanged -LocalFile $versionFile -RemoteFile "/data/harmony/VERSION" -Perm "644" | Out-Null
     }
 
+    # 2a. Upload config files (e.g. curated CA bundle)
+    $ConfigDir = Join-Path $PayloadDir "config"
+    if (Test-Path $ConfigDir) {
+        Write-Host "[*] Syncing config files (/data/harmony/config)..." -ForegroundColor Yellow
+        & ssh @sshArgs $Target "mkdir -p /data/harmony/config 2>/dev/null"
+        $configs = Get-ChildItem -Path $ConfigDir -File | Where-Object { $_.Name -notmatch '^\.' }
+        foreach ($c in $configs) {
+            Install-HubFileIfChanged -LocalFile $c.FullName -RemoteFile "/data/harmony/config/$($c.Name)" -Perm "644" | Out-Null
+            if ($c.Name -eq "cacert.pem") {
+                & ssh @sshArgs $Target "ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true"
+            }
+        }
+    }
+
     # 2b. Upload USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
     if (Test-Path $ModulesDir) {
         $modFiles = Get-ChildItem -Path $ModulesDir -Filter *.ko -File

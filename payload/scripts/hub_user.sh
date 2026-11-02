@@ -22,6 +22,19 @@ show_help() {
     echo ""
 }
 
+SHA256SUM="sha256sum"
+if [ -x /cache/bin/busybox ]; then
+  SHA256SUM="/cache/bin/busybox sha256sum"
+elif [ -x /data/harmony/bin/busybox ]; then
+  SHA256SUM="/data/harmony/bin/busybox sha256sum"
+fi
+
+calc_ha1() {
+    _u="$1"
+    _p="$2"
+    printf '%s:%s:%s' "$_u" "Harmony Hub" "$_p" | $SHA256SUM 2>/dev/null | awk '{print $1}'
+}
+
 sync_to_json() {
     is_enabled="$1"
     [ -z "$is_enabled" ] && is_enabled=1
@@ -42,11 +55,15 @@ sync_to_json() {
             esac
             [ -z "$u" ] && continue
             [ -z "$r" ] && r="admin"
+            # If not already 64-char hex hash, compute HA1
+            if [ ${#p} -ne 64 ]; then
+                p=$(calc_ha1 "$u" "$p")
+            fi
             if [ $first -eq 0 ]; then
                 echo "," >> "$USERS_JSON.tmp"
             fi
             first=0
-            printf '    { "username": "%s", "password": "%s", "role": "%s" }' "$u" "$p" "$r" >> "$USERS_JSON.tmp"
+            printf '    { "username": "%s", "ha1": "%s", "role": "%s" }' "$u" "$p" "$r" >> "$USERS_JSON.tmp"
         done < "$AUTH_CONF"
     fi
     echo "" >> "$USERS_JSON.tmp"
@@ -65,6 +82,7 @@ case "$cmd" in
             echo "Error: Username and password required. Usage: $0 set-admin <username> <password>"
             exit 1
         fi
+        ha1=$(calc_ha1 "$user" "$pass")
         rm -f "$TMP_CONF" 2>/dev/null
         found=0
         if [ -f "$AUTH_CONF" ]; then
@@ -75,7 +93,7 @@ case "$cmd" in
                 [ -z "$u" ] && continue
                 [ -z "$r" ] && r="admin"
                 if [ "$u" = "$user" ] || [ "$r" = "admin" ]; then
-                    echo "$user:$pass:admin" >> "$TMP_CONF"
+                    echo "$user:$ha1:admin" >> "$TMP_CONF"
                     found=1
                 else
                     echo "$u:$p:$r" >> "$TMP_CONF"
@@ -83,7 +101,7 @@ case "$cmd" in
             done < "$AUTH_CONF"
         fi
         if [ $found -eq 0 ]; then
-            echo "$user:$pass:admin" >> "$TMP_CONF"
+            echo "$user:$ha1:admin" >> "$TMP_CONF"
         fi
         mv -f "$TMP_CONF" "$AUTH_CONF"
         sync_to_json 1
@@ -95,6 +113,7 @@ case "$cmd" in
             echo "Error: Username and password required. Usage: $0 add-user <username> <password>"
             exit 1
         fi
+        ha1=$(calc_ha1 "$user" "$pass")
         rm -f "$TMP_CONF" 2>/dev/null
         found=0
         if [ -f "$AUTH_CONF" ]; then
@@ -105,7 +124,7 @@ case "$cmd" in
                 [ -z "$u" ] && continue
                 [ -z "$r" ] && r="admin"
                 if [ "$u" = "$user" ]; then
-                    echo "$user:$pass:user" >> "$TMP_CONF"
+                    echo "$user:$ha1:user" >> "$TMP_CONF"
                     found=1
                 else
                     echo "$u:$p:$r" >> "$TMP_CONF"
@@ -113,7 +132,7 @@ case "$cmd" in
             done < "$AUTH_CONF"
         fi
         if [ $found -eq 0 ]; then
-            echo "$user:$pass:user" >> "$TMP_CONF"
+            echo "$user:$ha1:user" >> "$TMP_CONF"
         fi
         mv -f "$TMP_CONF" "$AUTH_CONF"
         sync_to_json 1

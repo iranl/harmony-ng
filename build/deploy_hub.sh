@@ -193,6 +193,20 @@ if [ -f "$REPO_ROOT/VERSION" ]; then
     deploy_file_if_changed "$REPO_ROOT/VERSION" "/data/harmony/VERSION" 644
 fi
 
+# Deploy config files (e.g. curated CA bundle)
+if [ -d "$PAYLOAD_DIR/config" ]; then
+    echo "[*] Syncing config files to /data/harmony/config/..."
+    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p /data/harmony/config 2>/dev/null || true"
+    for cfg in "$PAYLOAD_DIR/config"/*; do
+        [ -f "$cfg" ] || continue
+        cname=$(basename "$cfg")
+        deploy_file_if_changed "$cfg" "/data/harmony/config/$cname" 644
+        if [ "$cname" = "cacert.pem" ]; then
+            ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "ln -sf /data/harmony/config/cacert.pem /data/harmony/cacert.pem 2>/dev/null || true"
+        fi
+    done
+fi
+
 # Deploy USB Ethernet kernel modules to /cache/modules (symlinked to /data/harmony/modules)
 if [ -d "$MODULES_DIR" ]; then
     echo "[*] Syncing USB Ethernet kernel modules to /cache/modules/..."

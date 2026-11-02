@@ -236,14 +236,30 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         }
 
         if (dly > 0) {
-            const char *sh_bin = "/data/harmony/bt_reconnect.sh";
-            char sh_cmd[256];
-            if (target_bdaddr[0]) {
-                snprintf(sh_cmd, sizeof(sh_cmd), "%s %s %d %d >/dev/null 2>&1 &", sh_bin, target_bdaddr, dur, dly);
-            } else {
-                snprintf(sh_cmd, sizeof(sh_cmd), "%s \"\" %d %d >/dev/null 2>&1 &", sh_bin, dur, dly);
+            pid_t pid = fork();
+            if (pid == 0) {
+                int null_fd = open("/dev/null", O_RDWR);
+                if (null_fd >= 0) {
+                    dup2(null_fd, STDIN_FILENO);
+                    dup2(null_fd, STDOUT_FILENO);
+                    dup2(null_fd, STDERR_FILENO);
+                    if (null_fd > 2) close(null_fd);
+                }
+                char dur_str[16];
+                char dly_str[16];
+                snprintf(dur_str, sizeof(dur_str), "%d", dur);
+                snprintf(dly_str, sizeof(dly_str), "%d", dly);
+                char *args[] = {
+                    (char *)"/bin/sh",
+                    (char *)"/data/harmony/bt_reconnect.sh",
+                    target_bdaddr[0] ? target_bdaddr : (char *)"",
+                    dur_str,
+                    dly_str,
+                    NULL
+                };
+                execv("/bin/sh", args);
+                _exit(127);
             }
-            system(sh_cmd);
         } else {
             char cmd[128];
             if (target_bdaddr[0]) snprintf(cmd, sizeof(cmd), "connect_host %s %d\n", target_bdaddr, dur);
@@ -584,6 +600,9 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
                 if (bf) {
                     time_t now = time(NULL);
                     char tbuf[32];
+                    ctime_r(&now, tbuf);
+                    char *nl = strchr(tbuf, '\n');
+                    if (nl) *nl = '\0';
                     const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
                     fprintf(bf, "[%s] Dev: %s (%s) | Cmd: %s | Page: 0x%02X Usage: 0x%04X | KeyCode: %s | ret=%d | Pipe: %s",
                             tbuf, dev_name[0] ? dev_name : "BT-Device", actual_dev_id_str, command, page, usage, keycode_str, ret, pipe_cmd);

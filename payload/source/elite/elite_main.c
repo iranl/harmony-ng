@@ -211,6 +211,14 @@ int main(int argc, char **argv) {
         }
     }
 
+    /*
+     * EXCLUSIVE SPI ACCESS REQUIREMENT:
+     * cc2544_remote.ko driver does NOT support poll(), select(), or O_NONBLOCK.
+     * read() calls block indefinitely until hardware GPIO IRQ. Concurrent opens
+     * across processes corrupt CC2544 SPI protocol state and deadlock the kernel
+     * thread. elite_ui must be the sole process accessing RFSPI_DEV; supervisor
+     * scripts must killall -9 any previous instances prior to starting this process.
+     */
     g_rf_fd = open(RFSPI_DEV, O_RDWR);
     if (g_rf_fd >= 0) {
         printf("[+] Opened %s for RF TX/RX\n", RFSPI_DEV);
