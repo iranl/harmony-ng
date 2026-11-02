@@ -11,6 +11,9 @@ extern uint16_t g_backbuffer[FB_WIDTH * FB_HEIGHT];
 extern uint16_t g_bg_wallpaper[FB_WIDTH * FB_HEIGHT];
 extern bool g_has_wallpaper;
 
+/* Limits drawing to rows [y0, y1) until fb_clip_reset(); render_frame() starts unclipped */
+void fb_clip_rows(int y0, int y1);
+void fb_clip_reset(void);
 void fb_fill_rect(int x, int y, int w, int h, uint16_t color);
 void fb_draw_rect(int x, int y, int w, int h, uint16_t color);
 void fb_draw_cog(int cx, int cy, uint16_t color);

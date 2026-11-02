@@ -207,6 +207,7 @@ void render_sync_overlay(void) {
 
 /* Draws the current state into g_backbuffer. Shared by the remote and the host renderer. */
 void render_frame(void) {
+    fb_clip_reset();
     if (g_has_wallpaper) {
         memcpy(g_backbuffer, g_bg_wallpaper, sizeof(g_backbuffer));
     } else {

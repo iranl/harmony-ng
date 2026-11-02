@@ -105,9 +105,22 @@ static const uint8_t g_font_8x8[95][8] = {
     {0x0E, 0x18, 0x18, 0x70, 0x18, 0x18, 0x0E, 0x00}, /* 123 { */
 };
 
+/* Rows drawing may write: [g_clip_y0, g_clip_y1) */
+static int g_clip_y0 = 0, g_clip_y1 = FB_HEIGHT;
+
+void fb_clip_rows(int y0, int y1) {
+    g_clip_y0 = y0 < 0 ? 0 : y0;
+    g_clip_y1 = y1 > FB_HEIGHT ? FB_HEIGHT : y1;
+}
+
+void fb_clip_reset(void) {
+    g_clip_y0 = 0;
+    g_clip_y1 = FB_HEIGHT;
+}
+
 void fb_fill_rect(int x, int y, int w, int h, uint16_t color) {
-    for (int j = y; j < y + h && j < FB_HEIGHT; j++) {
-        if (j < 0) continue;
+    for (int j = y; j < y + h && j < g_clip_y1; j++) {
+        if (j < g_clip_y0) continue;
         for (int i = x; i < x + w && i < FB_WIDTH; i++) {
             if (i < 0) continue;
             g_backbuffer[j * FB_WIDTH + i] = color;
@@ -200,7 +213,7 @@ void fb_draw_text_aa(int x, int y, const char *text, uint16_t fg_color, const fo
             int dst_y = pen_y + g->oy;
             for (int r = 0; r < g->h; r++) {
                 int py = dst_y + r;
-                if (py < 0 || py >= FB_HEIGHT) continue;
+                if (py < g_clip_y0 || py >= g_clip_y1) continue;
                 for (int col = 0; col < g->w; col++) {
                     int px = dst_x + col;
                     if (px < 0 || px >= FB_WIDTH) continue;
@@ -327,7 +340,7 @@ static unsigned char *scale_rgba(const unsigned char *src, int w, int h, int tw,
 static void blit_rgba(int dst_x, int dst_y, const unsigned char *data, int w, int h, bool recolor) {
     for (int y = 0; y < h; y++) {
         int py = dst_y + y;
-        if (py < 0 || py >= FB_HEIGHT) continue;
+        if (py < g_clip_y0 || py >= g_clip_y1) continue;
         for (int x = 0; x < w; x++) {
             int px = dst_x + x;
             if (px < 0 || px >= FB_WIDTH) continue;
