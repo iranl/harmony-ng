@@ -245,7 +245,8 @@ void fb_draw_text_aa(int x, int y, const char *text, uint16_t fg_color, const fo
 }
 
 /* Cached PNG asset loader and blitter. An image drawn at another size is scaled once and
-   cached under "<path>@<w>x<h>", so a frame only composites it. */
+   cached under "<path>@<w>x<h>" (and the line art colour, when recoloured), so a frame only
+   composites it. */
 typedef struct {
     char path[128];
     int w, h;
@@ -286,9 +287,9 @@ static bool png_cache_add(const char *key, int w, int h, unsigned char *rgba) {
    pixels are drawn white */
 static void recolor_pixel(uint32_t *r, uint32_t *g, uint32_t *b, uint32_t a) {
     if (*r + *g + *b < 100 && a > 30) {
-        *r = 245;
-        *g = 245;
-        *b = 250;
+        *r = g_theme.line_art[0];
+        *g = g_theme.line_art[1];
+        *b = g_theme.line_art[2];
     }
 }
 
@@ -376,7 +377,13 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
     bool recolor = strstr(filepath, "/themes/") == NULL;
 
     char scaled_key[160];
-    snprintf(scaled_key, sizeof(scaled_key), "%s@%dx%d", filepath, target_w, target_h);
+    /* A recoloured copy depends on the theme's line art colour */
+    if (recolor) {
+        snprintf(scaled_key, sizeof(scaled_key), "%s@%dx%d#%02x%02x%02x", filepath, target_w, target_h,
+                 g_theme.line_art[0], g_theme.line_art[1], g_theme.line_art[2]);
+    } else {
+        snprintf(scaled_key, sizeof(scaled_key), "%s@%dx%d", filepath, target_w, target_h);
+    }
     cached_png_t *c = png_cache_find(scaled_key);
     if (c) {
         blit_rgba(dst_x, dst_y, c->rgba, c->w, c->h, false);

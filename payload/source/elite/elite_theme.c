@@ -16,7 +16,7 @@ static const theme_palette_t CLASSIC_PALETTE = CLASSIC_PALETTE_INIT;
 
 theme_t g_theme = {
     .name = "classic", .label = "Classic", .pal = CLASSIC_PALETTE_INIT,
-    .font_main = &g_font_main_classic, .font_title = &g_font_title_classic,
+    .font_main = &g_font_main_classic, .font_title = &g_font_title_classic, .line_art = { 245, 245, 250 },
 };
 
 static const struct { const char *name; size_t offset; } PALETTE_ROLES[] = {
@@ -116,6 +116,7 @@ void theme_load(const char *name) {
     g_theme.pal = CLASSIC_PALETTE;
     g_theme.layout = THEME_LAYOUT_LIST;
     g_theme.wallpaper[0] = '\0';
+    g_theme.line_art[0] = 245; g_theme.line_art[1] = 245; g_theme.line_art[2] = 250;
     g_theme.font_main = main_font;
     g_theme.font_title = title_font;
 
@@ -140,6 +141,12 @@ void theme_load(const char *name) {
     for (size_t i = 0; i < sizeof(PALETTE_ROLES) / sizeof(PALETTE_ROLES[0]); i++) {
         const cJSON *c = cJSON_GetObjectItem(palette, PALETTE_ROLES[i].name);
         if (cJSON_IsString(c)) parse_colour(c->valuestring, (uint16_t *)((char *)&g_theme.pal + PALETTE_ROLES[i].offset));
+    }
+    const cJSON *line_art = cJSON_GetObjectItem(root, "line_art");
+    unsigned int lr, lg, lb;
+    if (cJSON_IsString(line_art) && strlen(line_art->valuestring) == 7 &&
+        sscanf(line_art->valuestring, "#%2x%2x%2x", &lr, &lg, &lb) == 3) {
+        g_theme.line_art[0] = (uint8_t)lr; g_theme.line_art[1] = (uint8_t)lg; g_theme.line_art[2] = (uint8_t)lb;
     }
     const cJSON *fonts = cJSON_GetObjectItem(root, "fonts");
     set_font(&g_theme.font_main, &g_font_main_classic, fonts, "main");
