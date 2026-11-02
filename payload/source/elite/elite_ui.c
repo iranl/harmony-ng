@@ -266,7 +266,6 @@ static const char *screen_name(void) {
         snprintf(name, sizeof(name), "settings/%d", (int)g_settings_subview);
         return name;
     }
-    if (g_current_view == VIEW_ACTIVITIES && g_theme.layout == THEME_LAYOUT_GRID) return "activities-grid";
     return (g_current_view >= 0 && g_current_view < VIEW_COUNT) ? views[g_current_view] : "?";
 }
 
@@ -274,13 +273,18 @@ void render_screen(void) {
     if (!g_fb_mem || !g_screen_on) return;
     pthread_mutex_lock(&g_render_mutex);
 
+    int decodes, scales;
+    fb_png_work_take(&decodes, &scales);
     uint64_t t0 = get_monotonic_us();
     render_frame();
     uint64_t t1 = get_monotonic_us();
     bool flipped = fb_present(g_backbuffer, false);
     uint64_t t2 = get_monotonic_us();
     if (frame_timing_enabled()) {
-        frame_timing_record(screen_name(), (uint32_t)(t1 - t0), (uint32_t)(t2 - t1), flipped);
+        frame_timing_t t = { screen_name(), g_theme.name, g_theme.layout == THEME_LAYOUT_GRID ? "grid" : "list",
+                             (uint32_t)(t1 - t0), (uint32_t)(t2 - t1), flipped, 0, 0 };
+        fb_png_work_take(&t.decodes, &t.scales);
+        frame_timing_record(&t);
     }
 
     g_screen_dirty = false;

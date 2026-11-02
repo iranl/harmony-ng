@@ -95,12 +95,14 @@ tail -f /tmp/frame_timing.log
 rm /tmp/elite_frame_timing        # stop
 ```
 
-Each line is `ms screen render_us present_us flipped`:
+Each line is `ms screen theme layout render_us present_us flipped decodes scales`:
 - `ms`: monotonic time;
-- `screen`: what the frame shows (`activities`, `activities-grid`, `activity`, `devices`, `settings/N`, `menu`, `help`, …);
+- `screen`: what the frame shows (`activities`, `activity`, `devices`, `settings/N`, `menu`, `help`, …);
+- `theme`, `layout`: the theme's name and the home layout (`list` or `grid`);
 - `render_us`: time to draw the frame;
 - `present_us`: time to show it;
-- `flipped`: `1` when the frame was shown by page flipping, `0` when it was copied into every framebuffer page.
+- `flipped`: `1` when the frame was shown by page flipping, `0` when it was copied into every framebuffer page;
+- `decodes`, `scales`: PNG images decoded, and scaled to a new size, while drawing the frame. Both are 0 once a screen's images are cached.
 
 The log is in `/tmp`, so it is lost at reboot.
 

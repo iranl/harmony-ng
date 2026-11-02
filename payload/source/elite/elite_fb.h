@@ -22,6 +22,8 @@ void fb_draw_text_aa(int x, int y, const char *text, uint16_t fg_color, const fo
 bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char *filepath);
 void load_wallpaper_asset(void);
 void fb_invalidate_png_cache(const char *substr);
+/* PNG decodes and scalings since the last call, for the frame timing log */
+void fb_png_work_take(int *decodes, int *scales);
 
 #ifdef __cplusplus
 }
