@@ -7,6 +7,7 @@
 
 #include "elite/elite_state.h"
 #include "elite/elite_ui.h"
+#include "elite/elite_ui_scroll.h"
 #include "elite/elite_fb.h"
 #include "elite/elite_input.h"
 #include "elite/elite_power.h"
@@ -321,6 +322,68 @@ int main(void) {
     tap(FB_WIDTH / 2, FB_HEIGHT / 2);   /* a tap closes the summary */
     assert(!ui_help_active());
     printf("[+] Help: menu item only while an activity runs, questions answered, late frames ignored\n");
+
+    /* 12. Drag scrolling of the home pages (ADR-0009) */
+    g_activity_count = 13;
+    for (int i = 0; i < g_activity_count; i++) {
+        snprintf(g_activities[i].id, sizeof(g_activities[i].id), "%d", 30001 + i);
+        snprintf(g_activities[i].name, sizeof(g_activities[i].name), "Activity %d", i + 1);
+    }
+    g_current_view = VIEW_ACTIVITIES;
+    g_home_layout = HOME_LAYOUT_LIST;
+    g_touch_enabled = true;
+    g_menu_open = g_key_hint_pending = g_link_panel_open = false;
+    g_confirm_pending_idx = -1;
+    g_selected_activity = 0;
+    uint64_t ms = 1000000;
+    #define SETTLE() do { for (int f = 0; f < 40 && home_scroll_settling(); f++) { ms += 28; home_scroll_tick(ms); } } while (0)
+
+    /* Dragged past a third of a page: the next page settles in */
+    home_scroll_touch_down(120, 250, ms);
+    for (int y = 240; y >= 120; y -= 20) { ms += 40; home_scroll_touch_move(120, y, ms); }
+    assert(home_scroll_offset() == -130 && home_scroll_active());
+    ms += 40;
+    assert(home_scroll_touch_up(120, 120, ms));
+    SETTLE();
+    assert(!home_scroll_active() && home_scroll_offset() == 0 && g_selected_activity == 5);
+
+    /* A short fast flick moves a page too */
+    home_scroll_touch_down(120, 250, ms);
+    ms += 10; home_scroll_touch_move(120, 225, ms);
+    ms += 10; home_scroll_touch_move(120, 200, ms);
+    ms += 10;
+    assert(home_scroll_touch_up(120, 200, ms));
+    SETTLE();
+    assert(g_selected_activity == 10);
+
+    /* A short slow drag settles back on the same page */
+    home_scroll_touch_down(120, 150, ms);
+    for (int y = 160; y <= 200; y += 10) { ms += 100; home_scroll_touch_move(120, y, ms); }
+    ms += 100;
+    assert(home_scroll_touch_up(120, 200, ms));
+    SETTLE();
+    assert(g_selected_activity == 10 && home_scroll_offset() == 0);
+
+    /* Past the last page the page moves a third as far, then settles back */
+    home_scroll_touch_down(120, 250, ms);
+    ms += 40; home_scroll_touch_move(120, 100, ms);
+    assert(home_scroll_offset() == -50);
+    ms += 40;
+    home_scroll_touch_up(120, 100, ms);
+    SETTLE();
+    assert(g_selected_activity == 10);
+
+    /* A tap is not a drag */
+    home_scroll_touch_down(120, 150, ms);
+    ms += 50; home_scroll_touch_move(120, 155, ms);
+    assert(!home_scroll_touch_up(120, 155, ms) && !home_scroll_active());
+
+    /* The status bar doesn't start a drag */
+    home_scroll_touch_down(120, 10, ms);
+    ms += 40; home_scroll_touch_move(120, 200, ms);
+    assert(!home_scroll_active() && !home_scroll_touch_up(120, 200, ms));
+    #undef SETTLE
+    printf("[+] Home drag scrolling: drag, flick, snap back, edge resistance, taps\n");
 
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");

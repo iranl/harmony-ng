@@ -34,6 +34,7 @@ static void usage(void) {
         "  --active ID       running activity ID\n"
         "  --theme NAME      theme in /data/themes under the root (default classic)\n"
         "  --layout L        home layout: list or grid (default: the theme's)\n"
+        "  --scroll PX       home pages dragged PX pixels, as mid-drag (negative: towards the next page)\n"
         "  --icons DIR       activity icon directory on the remote's filesystem, or 'classic'\n"
         "  --title TEXT      heading of the keyword sheet (sheet)\n"
         "  --time HH:MM      clock shown in the status bar (default 21:30)\n"
@@ -181,6 +182,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--active")) { TAKE(); o.active = v; }
         else if (!strcmp(a, "--theme")) { TAKE(); o.theme = v; }
         else if (!strcmp(a, "--layout")) { TAKE(); o.layout = v; }
+        else if (!strcmp(a, "--scroll")) { TAKE(); o.scroll = atoi(v); }
         else if (!strcmp(a, "--icons")) { TAKE(); o.icons = v; }
         else if (!strcmp(a, "--title")) { TAKE(); title = v; }
         else if (!strcmp(a, "--time")) { TAKE(); if (sscanf(v, "%d:%d", &hh, &mm) != 2) usage(); o.minutes = hh * 60 + mm; }

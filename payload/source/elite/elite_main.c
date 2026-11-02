@@ -8,6 +8,7 @@
 #include "elite_ui.h"
 #include "elite_input.h"
 #include "elite_present.h"
+#include "elite_ui_scroll.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -123,6 +124,16 @@ static int touch_scale(int v, int max, int out) {
     int scaled = v * out / (max + 1);
     if (scaled >= out) scaled = out - 1;
     return scaled;
+}
+
+/* The end of a touch: a drag of the home pages settles, anything else is a tap or swipe */
+static void touch_released(void) {
+    if (home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, get_monotonic_ms())) {
+        reset_idle_timer();
+        g_screen_dirty = true;
+        return;
+    }
+    handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
 }
 
 int main(int argc, char **argv) {
@@ -361,7 +372,10 @@ int main(int argc, char **argv) {
         }
 
         struct timeval tv;
-        if (g_screen_on) {
+        if (g_screen_on && (home_scroll_settling() || g_screen_dirty)) {
+            tv.tv_sec = 0;
+            tv.tv_usec = 0; /* draw now; settle frames are paced by fb_present() */
+        } else if (g_screen_on) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
@@ -437,7 +451,8 @@ int main(int argc, char **argv) {
         static uint64_t last_battery_report_ms = 0;
         static uint8_t last_charging_state = 0xFF;
         static uint8_t last_reported_percent = 0xFF;
-        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
+        /* The battery read takes about 4 ms, so it waits until a drag or settle ends */
+        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating && !home_scroll_active()) {
             read_elite_battery();
             bool pct_changed = (last_reported_percent == 0xFF || abs((int)g_battery_info.percent - (int)last_reported_percent) >= 2);
             bool chg_changed = (g_battery_info.charging != last_charging_state);
@@ -563,6 +578,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (home_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
         if (g_screen_dirty && g_screen_on) {
             render_screen();
         }
@@ -725,7 +741,7 @@ int main(int argc, char **argv) {
                             if (g_touch_is_down) {
                                 g_touch_is_down = false;
                                 g_touch_need_down_latch = false;
-                                handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
+                                touch_released();
                             }
                         } else {
                             reset_idle_timer();
@@ -750,7 +766,7 @@ int main(int argc, char **argv) {
                             if (g_touch_is_down) {
                                 g_touch_is_down = false;
                                 g_touch_need_down_latch = false;
-                                handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
+                                touch_released();
                             }
                         }
                     }
@@ -761,6 +777,10 @@ int main(int argc, char **argv) {
                         g_touch_down_ms = get_monotonic_ms();
                         g_touch_need_down_latch = false;
                         printf("[*] Touch DOWN latched on SYN at (%d, %d)\n", g_touch_down_x, g_touch_down_y);
+                        home_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
+                    } else if (g_touch_is_down &&
+                               home_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, get_monotonic_ms())) {
+                        g_screen_dirty = true;
                     }
                 }
             }
