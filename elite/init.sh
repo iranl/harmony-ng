@@ -80,6 +80,12 @@ touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true
 killall -9 watchdog hal luaworks luadraws lua luajit 2>/dev/null || true
 
+# Kernel auto-reboot on panic, oops, or hung D-state task
+echo 3 > /proc/sys/kernel/panic 2>/dev/null || true
+echo 1 > /proc/sys/kernel/panic_on_oops 2>/dev/null || true
+echo 30 > /proc/sys/kernel/hung_task_timeout_secs 2>/dev/null || true
+echo 1 > /proc/sys/kernel/hung_task_panic 2>/dev/null || true
+
 # 1. Ensure USB Ethernet and Dropbear are active if USB connected
 chmod -x /usr/bin/usbhid 2>/dev/null || true
 POWERSOURCE="$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null)"
@@ -121,6 +127,7 @@ fi
                 continue
             fi
             echo "$(date) elite_ui died with exit code $EXIT_CODE. Restarting..." >> /data/harmony_crash.log
+            dmesg > /data/last_kmsg.log 2>/dev/null || true
             turn_off_lights
             sync_fs
             sleep 1

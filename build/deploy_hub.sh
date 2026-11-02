@@ -45,11 +45,13 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PAYLOAD_DIR="$REPO_ROOT/payload"
 if [ -d "$SCRIPT_DIR/bin" ]; then
     BIN_DIR="$SCRIPT_DIR/bin"
     WWW_DIR="$SCRIPT_DIR/www"
     SCRIPTS_DIR="$SCRIPT_DIR/scripts"
     MODULES_DIR="$SCRIPT_DIR/modules"
+    CONFIG_DIR="$SCRIPT_DIR/config"
     FW_TOOL="$SCRIPT_DIR/tools/harmony_firmware.py"
     ICONS_TAR="$SCRIPT_DIR/icons.tar.gz"
 else
@@ -57,6 +59,7 @@ else
     WWW_DIR="$REPO_ROOT/payload/www"
     SCRIPTS_DIR="$REPO_ROOT/payload/scripts"
     MODULES_DIR="$REPO_ROOT/payload/modules"
+    CONFIG_DIR="$REPO_ROOT/payload/config"
     FW_TOOL="$REPO_ROOT/tools/harmony_firmware.py"
     ICONS_TAR="$REPO_ROOT/build/icons.tar.gz"
 fi
@@ -158,8 +161,13 @@ deploy_file_if_changed() {
     local ddir
     ddir=$(dirname "$dst")
     ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p '$ddir' 2>/dev/null || true"
-    scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
-    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
+    if [ "$fname" = "icons.tar.gz" ]; then
+        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:/tmp/$fname"
+        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f '$dst' '${dst}.new' 2>/dev/null; mv -f /tmp/$fname '$dst' && chmod $perm '$dst' 2>/dev/null || true"
+    else
+        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
+        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
+    fi
 }
 
 for bin in hub_daemon hub_rf hub_sntp hub_btstack hub_sync hub_dhcpd hub_portal mknod register_ehci eth_fix; do
@@ -194,10 +202,10 @@ if [ -f "$REPO_ROOT/VERSION" ]; then
 fi
 
 # Deploy config files (e.g. curated CA bundle)
-if [ -d "$PAYLOAD_DIR/config" ]; then
+if [ -d "$CONFIG_DIR" ]; then
     echo "[*] Syncing config files to /data/harmony/config/..."
     ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p /data/harmony/config 2>/dev/null || true"
-    for cfg in "$PAYLOAD_DIR/config"/*; do
+    for cfg in "$CONFIG_DIR"/*; do
         [ -f "$cfg" ] || continue
         cname=$(basename "$cfg")
         deploy_file_if_changed "$cfg" "/data/harmony/config/$cname" 644

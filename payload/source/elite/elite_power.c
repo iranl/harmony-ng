@@ -439,6 +439,13 @@ void enter_kernel_suspend(void) {
         stop_usbeth_and_dropbear();
     }
 
+    int lfd = open(BTN_LED_SYSFS, O_WRONLY);
+    if (lfd >= 0) {
+        write(lfd, "0\n", 2);
+        close(lfd);
+    }
+    elite_wdt_close();
+
     int mfd = open("/sys/bus/i2c/devices/1-0034/wakeup", O_WRONLY);
     if (mfd >= 0) {
         write(mfd, "3600\n", 5);
@@ -452,11 +459,13 @@ void enter_kernel_suspend(void) {
         close(fd);
         if (w < 0) {
             log_power_debug("[-] Kernel suspend returned error: %s\n", strerror(errno));
+            elite_wdt_init();
             usleep(5000000);
             return;
         }
     }
     log_power_debug("[*] Resumed from kernel Suspend-to-RAM!\n");
+    elite_wdt_init();
 
     FILE *fev = fopen("/sys/bus/i2c/devices/1-0034/wakeup_event", "r");
     if (fev) {
@@ -512,6 +521,7 @@ void *power_manager(void *arg) {
     static uint64_t s_last_dock_wake_ms = 0;
 
     while (g_running) {
+        elite_wdt_ping();
         /* Check power source switch (battery <-> usb <-> cradle) */
         FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
         if (fpsrc) {
@@ -630,3 +640,35 @@ void init_gyro_interrupt(void) {
     printf("[+] Accelerometer INT1 hardware interrupt configured (rate=%dHz, thresh=5, dur=1)\n",
            g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 25);
 }
+
+static int s_wdt_fd = -1;
+static uint64_t s_last_wdt_ping_ms = 0;
+
+void elite_wdt_init(void) {
+    if (s_wdt_fd < 0) {
+        s_wdt_fd = open("/dev/watchdog", O_WRONLY);
+        if (s_wdt_fd >= 0) {
+            printf("[+] Hardware watchdog (/dev/watchdog) armed with 60s timeout\n");
+            elite_wdt_ping();
+        }
+    }
+}
+
+void elite_wdt_ping(void) {
+    if (s_wdt_fd >= 0) {
+        uint64_t now_ms = get_monotonic_ms();
+        if (s_last_wdt_ping_ms == 0 || (now_ms - s_last_wdt_ping_ms >= 5000)) {
+            write(s_wdt_fd, "\0", 1);
+            s_last_wdt_ping_ms = now_ms;
+        }
+    }
+}
+
+void elite_wdt_close(void) {
+    if (s_wdt_fd >= 0) {
+        close(s_wdt_fd);
+        s_wdt_fd = -1;
+        s_last_wdt_ping_ms = 0;
+    }
+}
+

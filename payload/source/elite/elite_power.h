@@ -33,6 +33,9 @@ void expand_timezone(const char *in, char *out, size_t out_sz);
 void sig_wake_handler(int sig);
 void sig_deep_sleep_handler(int sig);
 void init_gyro_interrupt(void);
+void elite_wdt_init(void);
+void elite_wdt_ping(void);
+void elite_wdt_close(void);
 
 #ifdef __cplusplus
 }

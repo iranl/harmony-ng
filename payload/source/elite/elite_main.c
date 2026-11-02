@@ -305,6 +305,8 @@ int main(int argc, char **argv) {
     }
     render_screen();
 
+    elite_wdt_init();
+
     uint64_t last_sync_query_ms = 0;
     while (g_running) {
         fd_set rfds;
@@ -343,6 +345,7 @@ int main(int argc, char **argv) {
         }
 
         uint64_t now_ms = get_monotonic_ms();
+        elite_wdt_ping();
         bool has_paired_hub = (g_paired_hub_addr[0] != 0 || g_paired_hub_addr[1] != 0 ||
                                g_paired_hub_addr[2] != 0 || g_paired_hub_addr[3] != 0);
         if (g_screen_on && g_rf_fd >= 0 && g_pairing_state != 1 && has_paired_hub && !g_is_syncing_config && !g_is_ota_updating && (now_ms - last_sync_query_ms >= 800)) {
@@ -741,6 +744,7 @@ int main(int argc, char **argv) {
     }
 
     printf("[+] Cleaning up hardware resources...\n");
+    elite_wdt_close();
     if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
     if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd); }
     if (g_rf_fd >= 0)    close(g_rf_fd);

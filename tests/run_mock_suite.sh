@@ -51,6 +51,7 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite_stock_icons.c" \
     "$REPO_ROOT/payload/source/cJSON.c" \
     "$REPO_ROOT/payload/source/sha256.c" \
+    "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm \
     -o "$BUILD_DIR/test_elite_mock_ui"
 
