@@ -150,10 +150,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
             bool match = false;
             bd_addr_t target_mac;
-            if (get_pinned_target(target_mac)) {
-                if (memcmp(adv_addr, target_mac, 6) == 0) {
-                    match = true;
-                }
+            if (get_pinned_target(target_mac) && memcmp(adv_addr, target_mac, 6) == 0) {
+                match = true;
             } else if (is_hid && (in_pairing_mode || dev_name[0])) {
                 match = true;
             }
@@ -541,6 +539,11 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             uint8_t status = sm_event_pairing_complete_get_status(packet);
             if (status == ERROR_CODE_SUCCESS) {
                 log_msg("SMP pairing & bonding complete! Connecting HIDS...");
+                FILE *tf = fopen(TARGET_FILE, "w");
+                if (tf) {
+                    fprintf(tf, "%s\n", bd_addr_to_str(remote_device.addr));
+                    fclose(tf);
+                }
                 app_state = APP_W4_HIDS;
                 hids_host_connect(connection_handle, handle_gatt_client_event, protocol_mode, &hids_cid);
             } else {

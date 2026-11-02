@@ -98,6 +98,23 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
 
     this.selectB25Button(this.b25SelectedBtn || 'power', false);
     this.updateB25ButtonStates();
+
+    if (this._b25PollTimer) {
+      clearInterval(this._b25PollTimer);
+      this._b25PollTimer = null;
+    }
+    this._b25PollTimer = setInterval(async () => {
+      const v = document.getElementById('view-remotes');
+      if (!v || !v.classList.contains('active')) {
+        clearInterval(this._b25PollTimer);
+        this._b25PollTimer = null;
+        return;
+      }
+      try {
+        const st = await this.client.getBtRemotePairStatus();
+        this.updateB25StatusUI(st);
+      } catch { }
+    }, 2000);
   }
 
   updateB25StatusUI(st) {
@@ -105,17 +122,62 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
     const pairedAddr = document.getElementById('b25PairedAddr');
     const stateText = document.getElementById('b25StateText');
     const badge = document.getElementById('b25StatusBadge');
+    const scanBtn = document.getElementById('b25ScanBtn');
+    const discList = document.getElementById('b25DiscoveredList');
 
     const bdaddr = st?.bdaddr || this.b25MapData?.remote?.bdaddr || this.b25MapData?.bdaddr || '';
     const name = st?.name || this.b25MapData?.remote?.name || 'Homatics B25';
-    const isConn = Boolean(st?.connected || (bdaddr && st?.running));
+    const isConn = Boolean(st?.connected || (bdaddr && st?.running && (st?.state === 'ready' || st?.state === 'connected')));
+    const isScanning = Boolean(st?.scanning);
 
     if (pairedName) pairedName.textContent = name;
     if (pairedAddr) pairedAddr.textContent = bdaddr || 'None';
-    if (stateText) stateText.textContent = st?.state || (isConn ? 'Connected / Ready' : (bdaddr ? 'Paired / Offline' : 'Idle'));
-    if (badge) {
-      badge.className = `badge ${isConn ? 'ok' : (bdaddr ? 'warn' : '')}`;
-      badge.textContent = isConn ? 'CONNECTED' : (bdaddr ? 'PAIRED' : 'OFFLINE');
+
+    if (isScanning) {
+      if (stateText) stateText.textContent = 'Scanning for BLE remotes...';
+      if (badge) {
+        badge.className = 'badge warn';
+        badge.textContent = 'SCANNING';
+      }
+    } else {
+      if (stateText) stateText.textContent = st?.state || (isConn ? 'Connected / Ready' : (bdaddr ? 'Paired / Offline' : 'Idle'));
+      if (badge) {
+        badge.className = `badge ${isConn ? 'ok' : (bdaddr ? 'warn' : '')}`;
+        badge.textContent = isConn ? 'CONNECTED' : (bdaddr ? 'PAIRED' : 'OFFLINE');
+      }
+    }
+
+    if (scanBtn) {
+      if (isScanning) {
+        scanBtn.textContent = 'Stop Scanning';
+        scanBtn.classList.remove('btn-primary');
+        scanBtn.classList.add('btn-warning');
+        scanBtn.setAttribute('data-scanning', 'true');
+      } else {
+        scanBtn.textContent = 'Scan for BLE Remotes';
+        scanBtn.classList.remove('btn-warning');
+        scanBtn.classList.add('btn-primary');
+        scanBtn.removeAttribute('data-scanning');
+      }
+    }
+
+    if (discList && Array.isArray(st?.devices)) {
+      const curVal = discList.value;
+      if (st.devices.length === 0) {
+        if (!isScanning && discList.options.length <= 1) {
+          discList.innerHTML = '<option value="">(No remotes found)</option>';
+        }
+      } else {
+        const opts = ['<option value="">(Select remote - ' + st.devices.length + ' found)</option>'];
+        for (const d of st.devices) {
+          const addr = d.bdaddr || d.addr || '';
+          const dname = d.name || 'Bluetooth Remote';
+          const rssi = (typeof d.rssi === 'number') ? ` (${d.rssi} dBm)` : '';
+          opts.push(`<option value="${escapeHtml(addr)}">${escapeHtml(dname)} - ${escapeHtml(addr)}${escapeHtml(rssi)}</option>`);
+        }
+        discList.innerHTML = opts.join('');
+        if (curVal) discList.value = curVal;
+      }
     }
   }
 
@@ -295,35 +357,50 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
   async scanB25Remote() {
     const btn = document.getElementById('b25ScanBtn');
     const log = document.getElementById('b25PairLog');
+    const isScanning = btn && btn.getAttribute('data-scanning') === 'true';
+
     try {
-      if (btn) btn.textContent = 'Scanning...';
-      if (log) log.textContent = 'Scanning for BLE remotes (10s)...';
-      await this.client.scanBtRemote();
-      setTimeout(async () => {
-        const st = await this.client.getBtRemotePairStatus();
-        if (log) log.textContent = st.message || 'Scan completed.';
-        const list = document.getElementById('b25DiscoveredList');
-        if (list && st.devices) {
-          list.innerHTML = st.devices.map(d => `<option value="${escapeHtml(d.bdaddr)}">${escapeHtml(d.name || d.bdaddr)}</option>`).join('');
+      if (isScanning) {
+        if (btn) btn.textContent = 'Stopping...';
+        if (log) log.textContent = 'Stopping scan...';
+        await this.client.stopScanBtRemote();
+      } else {
+        if (btn) {
+          btn.textContent = 'Starting scan...';
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-warning');
+          btn.setAttribute('data-scanning', 'true');
         }
-      }, 4000);
+        if (log) log.textContent = 'Scanning for BLE remotes (put remote in pairing mode)...';
+        await this.client.scanBtRemote();
+      }
+      const st = await this.client.getBtRemotePairStatus().catch(() => null);
+      if (st) this.updateB25StatusUI(st);
     } catch (err) {
-      if (log) log.textContent = 'Scan error: ' + err.message;
-    } finally {
-      if (btn) btn.textContent = 'Scan for Remote';
+      if (log) log.textContent = (isScanning ? 'Stop scan error: ' : 'Scan error: ') + err.message;
+      const st = await this.client.getBtRemotePairStatus().catch(() => null);
+      if (st) this.updateB25StatusUI(st);
     }
   }
 
   async pairB25Remote() {
     const addr = document.getElementById('b25DiscoveredList')?.value;
     const log = document.getElementById('b25PairLog');
-    if (!addr) return alert(t("select_discovered_remote"));
+    const btn = document.getElementById('b25PairBtn');
+    if (!addr) return alert(t("select_discovered_remote", "Select a discovered remote first."));
     try {
-      if (log) log.textContent = `Pairing with ${addr}...`;
+      if (btn) btn.disabled = true;
+      if (log) log.textContent = `Pairing with ${addr}... Put remote in pairing mode.`;
       await this.client.pairBtRemote(addr);
-      if (log) log.textContent = `Paired with ${addr}!`;
+      if (log) log.textContent = `Pairing initiated for ${addr}! Connecting...`;
+      setTimeout(async () => {
+        const st = await this.client.getBtRemotePairStatus().catch(() => null);
+        if (st) this.updateB25StatusUI(st);
+      }, 1500);
     } catch (err) {
       if (log) log.textContent = 'Pairing failed: ' + err.message;
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 

@@ -290,19 +290,23 @@ int is_proc_running(const char *proc_name) {
     while ((de = readdir(d)) != NULL) {
         if (!isdigit((unsigned char)de->d_name[0])) continue;
         char path[64];
-        snprintf(path, sizeof(path), "/proc/%s/comm", de->d_name);
+        snprintf(path, sizeof(path), "/proc/%s/stat", de->d_name);
         FILE *f = fopen(path, "r");
         if (f) {
-            char comm[32] = {0};
-            if (fgets(comm, sizeof(comm), f)) {
-                char *nl = strchr(comm, '\n'); if (nl) *nl = '\0';
-                nl = strchr(comm, '\r'); if (nl) *nl = '\0';
-                if (strcmp(comm, proc_name) == 0 ||
-                    (is_rf && strcmp(comm, "hub_rf") == 0) ||
-                    (is_bt && strcmp(comm, "hub_btstack") == 0)) {
-                    running = 1;
-                    fclose(f);
-                    break;
+            char statline[128] = {0};
+            if (fgets(statline, sizeof(statline), f)) {
+                char *openp = strchr(statline, '(');
+                char *closep = strrchr(statline, ')');
+                if (openp && closep && closep > openp) {
+                    *closep = '\0';
+                    const char *comm = openp + 1;
+                    if (strcmp(comm, proc_name) == 0 ||
+                        (is_rf && strcmp(comm, "hub_rf") == 0) ||
+                        (is_bt && strcmp(comm, "hub_btstack") == 0)) {
+                        running = 1;
+                        fclose(f);
+                        break;
+                    }
                 }
             }
             fclose(f);

@@ -30,6 +30,7 @@ void poll_bthid_fifo(void) {
                 strncasecmp(line, "pair_host_off", 13) == 0 ||
                 strncasecmp(line, "connect_host", 12) == 0 ||
                 strncasecmp(line, "disconnect_host", 15) == 0 ||
+                strncasecmp(line, "stop_scan", 9) == 0 ||
                 strncasecmp(line, "scan", 4) == 0 ||
                 strncasecmp(line, "pair ", 5) == 0) {
                 execute_btstack_cmd(line);
@@ -261,7 +262,9 @@ void execute_btstack_cmd(const char *cmd_in) {
     while (p >= cmd && (*p == '\r' || *p == '\n' || *p == ' ')) *p-- = 0;
     if (!cmd[0]) return;
 
-    if (strncasecmp(cmd, "scan", 4) == 0) {
+    if (strcasecmp(cmd, "stop_scan") == 0 || strcasecmp(cmd, "scan_off") == 0 || strcasecmp(cmd, "scan_stop") == 0) {
+        stop_user_scan();
+    } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {
         char *addr_str = cmd + 5;

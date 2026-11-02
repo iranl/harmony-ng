@@ -114,8 +114,33 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         }
         cJSON_AddBoolToObject(st, "ok", 1);
 
-        int running = is_proc_running("hub_btstack");
+        int running = (access("/tmp/hub_btstack.pid", F_OK) == 0 || is_proc_running("hub_btstack"));
         cJSON_AddBoolToObject(st, "running", running);
+
+        FILE *sf = fopen("/tmp/hub_btstack_scan.json", "r");
+        if (sf) {
+            char sbuf[4096] = {0};
+            size_t srn = fread(sbuf, 1, sizeof(sbuf) - 1, sf);
+            fclose(sf);
+            if (srn > 0) {
+                sbuf[srn] = '\0';
+                cJSON *sj = cJSON_Parse(sbuf);
+                if (sj) {
+                    cJSON *sc = cJSON_GetObjectItemCaseSensitive(sj, "scanning");
+                    if (sc) cJSON_AddBoolToObject(st, "scanning", cJSON_IsTrue(sc));
+                    cJSON *devs = cJSON_DetachItemFromObject(sj, "devices");
+                    if (devs) cJSON_AddItemToObject(st, "devices", devs);
+                    cJSON_Delete(sj);
+                }
+            }
+        }
+
+        cJSON *tgt = cJSON_GetObjectItemCaseSensitive(st, "target");
+        if (tgt && cJSON_IsString(tgt) && tgt->valuestring[0] && strcmp(tgt->valuestring, "00:00:00:00:00:00") != 0) {
+            if (!cJSON_GetObjectItemCaseSensitive(st, "bdaddr")) {
+                cJSON_AddStringToObject(st, "bdaddr", tgt->valuestring);
+            }
+        }
 
         if (!cJSON_GetObjectItemCaseSensitive(st, "bdaddr")) {
             FILE *mf = fopen(config_store_path("bt_remote_map.json"), "r");
@@ -153,6 +178,23 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "state", "scanning");
         cJSON_AddStringToObject(resp, "message", "Bluetooth remote scan started");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/remote-scan-stop */
+    if (strcmp(clean_path, "/api/remote-scan-stop") == 0 && strcmp(method, "POST") == 0) {
+        FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
+        if (cf) {
+            fputs("stop_scan\n", cf);
+            fclose(cf);
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "state", "idle");
+        cJSON_AddStringToObject(resp, "message", "Bluetooth remote scan stopped");
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

@@ -39,6 +39,7 @@ void hog_connect(void);
 void hog_start_connect(void);
 void schedule_reconnect(uint32_t delay_ms);
 void start_user_scan(void);
+void stop_user_scan(void);
 void start_user_pair(const char *addr_str);
 void write_scan_results(bool scanning);
 

@@ -73,6 +73,10 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.request('/api/remote-scan', { method: 'POST' });
   }
 
+  async stopScanBtRemote() {
+    return this.request('/api/remote-scan-stop', { method: 'POST' });
+  }
+
   async pairBtRemote(bdaddr, transport = 32) {
     return this.postForm('/api/remote-pair', { bdaddr: bdaddr || '', transport: String(transport) });
   }

@@ -619,7 +619,9 @@ void write_scan_results(bool scanning) {
     cJSON *devs = cJSON_CreateArray();
     for (int i = 0; i < g_discovered_count; i++) {
         cJSON *d = cJSON_CreateObject();
-        cJSON_AddStringToObject(d, "addr", bd_addr_to_str(g_discovered[i].addr));
+        const char *addr_str = bd_addr_to_str(g_discovered[i].addr);
+        cJSON_AddStringToObject(d, "addr", addr_str);
+        cJSON_AddStringToObject(d, "bdaddr", addr_str);
         cJSON_AddStringToObject(d, "name", g_discovered[i].name[0] ? g_discovered[i].name : "Bluetooth Remote");
         cJSON_AddNumberToObject(d, "rssi", g_discovered[i].rssi);
         cJSON_AddBoolToObject(d, "pairing", 1);
@@ -643,6 +645,9 @@ void write_scan_results(bool scanning) {
 void hog_start_scan(void) {
     bd_addr_t pinned;
     if (get_pinned_target(pinned)) {
+        if (is_null_bd_addr(remote_device.addr)) {
+            memcpy(remote_device.addr, pinned, 6);
+        }
         update_status("standby");
         gap_set_scan_parameters(0, 96, 24); // passive scanning (25% duty cycle): no SCAN_REQ delay, avoids Classic BT paging collision
     } else {
@@ -683,6 +688,16 @@ void start_user_scan(void) {
     update_status("scanning");
     gap_set_scan_parameters(1, 48, 48);
     gap_start_scan();
+}
+
+void stop_user_scan(void) {
+    if (g_user_scan_active) {
+        g_user_scan_active = false;
+        log_msg("User stopped BLE remote scan");
+        write_scan_results(false);
+        gap_stop_scan();
+        hog_start_connect();
+    }
 }
 
 void start_user_pair(const char *addr_str) {
