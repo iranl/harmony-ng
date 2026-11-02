@@ -141,7 +141,7 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
 }
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /cache/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
@@ -200,14 +200,15 @@ if (-not $WebUiOnly) {
     foreach ($b in $bins) {
         Install-HubFileIfChanged -LocalFile $b.FullName -RemoteFile "/data/harmony/bin/$($b.Name)" -Perm "755" | Out-Null
     }
-    # 1b. Upload Elite RF OTA image to /cache/elite_ui.ota.gz if available
+    # 1b. Upload Elite RF OTA image to /data/harmony/elite_ui.ota.gz if available
     $eliteOtaSrc = Join-Path $RepoRoot "elite\bin\elite_ui.ota.gz"
     if (-not (Test-Path $eliteOtaSrc)) {
         $eliteOtaSrc = Join-Path $RepoRoot "build\output\elite\elite_ui.ota.gz"
     }
     if (Test-Path $eliteOtaSrc) {
-        Write-Host "[*] Syncing Elite RF OTA image (/cache/elite_ui.ota.gz)..." -ForegroundColor Yellow
-        Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/cache/elite_ui.ota.gz" -Perm "644" | Out-Null
+        Write-Host "[*] Syncing Elite RF OTA image (/data/harmony/elite_ui.ota.gz)..." -ForegroundColor Yellow
+        Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/data/harmony/elite_ui.ota.gz" -Perm "644" | Out-Null
+        & ssh @sshArgs $Target "rm -f /cache/elite_ui.ota.gz 2>/dev/null || true"
     }
 
     # Extended BusyBox (default deployment)
