@@ -55,11 +55,10 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
 
     const char *keys[] = {
         "brightness", "timeout", "touch", "gyro", "nav_key", "nav_mode",
-        "btn_backlight", "night_start", "night_end", "remote_mode", "usbeth", "no_screen",
+        "btn_backlight", "night_start", "night_end", "remote_mode", "no_screen",
         "cap_buttons"
     };
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-        /* Case-sensitive: "usbeth" must not match the camelCase bool "usbEth" */
         cJSON *nitem = cJSON_GetObjectItemCaseSensitive(norm, keys[i]);
         if (!nitem) continue;
         int nval = nitem->valueint;
