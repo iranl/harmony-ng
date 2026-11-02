@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Drag scrolling of the home screen's pages (ADR-0009). A drag moves the page with the
+/* Drag scrolling (ADR-0009). Home: the home screen's pages. A drag moves the page with the
  * finger, up and down in the list and grid and sideways in the carousel; on release it
  * settles on a page boundary, moving to the neighbour page when dragged a third of a page or
  * flung. */
@@ -37,6 +37,39 @@ void home_scroll_slide_from(int old_page, uint64_t ms);
 int home_scroll_offset(void);
 /* Sets the offset directly, for host renders of a frame mid-drag */
 void home_scroll_set_offset(int px);
+
+/* Lists: the device browser and the activity screen's commands scroll freely. A drag moves
+ * the list with the finger; a fling carries on, slows down and stops with a row at the top. */
+
+#define LIST_ROW_PITCH (LIST_ROW_H + LIST_ROW_GAP)
+
+/* The list on screen: which list, its top, the rows that fit, its length and the selection */
+typedef struct { int key, y, rows, count, sel; } list_geom_t;
+
+/* Returns false when the screen shows no scrolling list */
+bool list_geometry(list_geom_t *g);
+void list_scroll_touch_down(int x, int y, uint64_t ms);
+bool list_scroll_touch_move(int x, int y, uint64_t ms);
+/* Returns whether the touch was a drag, or stopped a fling: a tap handler should ignore it */
+bool list_scroll_touch_up(int x, int y, uint64_t ms);
+bool list_scroll_tick(uint64_t ms);
+/* After a key moved the selection, scrolls it into view */
+void list_scroll_reveal(uint64_t ms);
+/* Pixels of list scrolled above the top row's place; negative or past the end while dragged */
+int list_scroll_offset(void);
+/* Opens the list on screen afresh, then moves it as a drag of px pixels (positive: down), for
+   host renders of a frame mid-drag */
+void list_scroll_set_drag(int px);
+/* The row at screen y, or -1 */
+int list_row_at(int y);
+bool list_scroll_active(void);
+bool list_scroll_settling(void);
+void list_scroll_cancel(void);
+
+/* Either scroller is moving: frames are paced to the display, and slow work waits */
+bool ui_scroll_active(void);
+/* Either is settling: the main loop draws its frames without waiting for input */
+bool ui_scroll_settling(void);
 
 #ifdef __cplusplus
 }

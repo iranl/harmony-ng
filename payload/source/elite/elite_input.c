@@ -195,13 +195,6 @@ void handle_screen_touch_tap(int x, int y) {
                 int cur_page = g_selected_activity / page_size;
                 if ((cur_page + 1) * page_size < activity_list_count()) g_selected_activity = (cur_page + 1) * page_size;
                 else if (activity_list_count() > 0) g_selected_activity = activity_list_count() - 1;
-            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
-                device_browser_page(1);
-            } else if (g_current_view == VIEW_DEVICES) {
-                int tot = get_active_dev_cmd_count();
-                int cur_page = g_selected_device_cmd / LIST_PAGE_SIZE;
-                if ((cur_page + 1) * LIST_PAGE_SIZE < tot) g_selected_device_cmd = (cur_page + 1) * LIST_PAGE_SIZE;
-                else if (tot > 0) g_selected_device_cmd = tot - 1;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 1) % 6;
@@ -219,12 +212,6 @@ void handle_screen_touch_tap(int x, int y) {
                 int cur_page = g_selected_activity / page_size;
                 if (cur_page > 0) g_selected_activity = (cur_page - 1) * page_size;
                 else g_selected_activity = 0;
-            } else if (g_current_view == VIEW_DEVICE_BROWSER) {
-                device_browser_page(-1);
-            } else if (g_current_view == VIEW_DEVICES) {
-                int cur_page = g_selected_device_cmd / LIST_PAGE_SIZE;
-                if (cur_page > 0) g_selected_device_cmd = (cur_page - 1) * LIST_PAGE_SIZE;
-                else g_selected_device_cmd = 0;
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 5) % 6;
@@ -276,29 +263,20 @@ void handle_screen_touch_tap(int x, int y) {
             }
         }
     } else if (g_current_view == VIEW_DEVICE_BROWSER) {
-        int size = browser_page_size();
-        int page_start = (g_browse_sel / size) * size;
-        for (int i = 0; i < size && (page_start + i) < browser_item_count(); i++) {
-            int cy = browser_list_y() + i * (LIST_ROW_H + LIST_ROW_GAP);
-            if (y >= cy && y < cy + LIST_ROW_H + LIST_ROW_GAP) {
-                device_browser_activate(page_start + i);
-                render_screen();
-                return;
-            }
+        int row = list_row_at(y);
+        if (row >= 0) {
+            device_browser_activate(row);
+            render_screen();
         }
+        return;
     } else if (g_current_view == VIEW_DEVICES) {
-        int card_h = LIST_ROW_H, spacing = LIST_ROW_GAP, page_size = LIST_PAGE_SIZE;
-        int page_start = (g_selected_device_cmd / page_size) * page_size;
-        int total = get_active_dev_cmd_count();
-        for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-            int cy = start_y + i * (card_h + spacing);
-            if (y >= cy && y < cy + card_h + spacing) {
-                g_selected_device_cmd = page_start + i;
-                execute_active_dev_cmd(g_selected_device_cmd);
-                render_screen();
-                return;
-            }
+        int row = list_row_at(y);
+        if (row >= 0) {
+            g_selected_device_cmd = row;
+            execute_active_dev_cmd(row);
+            render_screen();
         }
+        return;
     } else if (g_current_view == VIEW_SETTINGS) {
         if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
             int card_h = 35, spacing = 4;
@@ -445,12 +423,14 @@ void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_DEVICES) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) g_selected_device_cmd = (g_selected_device_cmd > 0) ? g_selected_device_cmd - 1 : count - 1;
+                list_scroll_reveal(get_monotonic_ms());
             } else if (g_current_view == VIEW_ACTIVITIES) {
                 int count = activity_list_count(), old_page = g_selected_activity / activity_page_size();
                 if (count > 0) g_selected_activity = (g_selected_activity > 0) ? g_selected_activity - 1 : count - 1;
                 if (home_layout_is_carousel()) home_scroll_slide_from(old_page, get_monotonic_ms());
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_move(-1);
+                list_scroll_reveal(get_monotonic_ms());
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 5) % 6;
@@ -469,12 +449,14 @@ void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_DEVICES) {
                 int count = get_active_dev_cmd_count();
                 if (count > 0) g_selected_device_cmd = (g_selected_device_cmd < count - 1) ? g_selected_device_cmd + 1 : 0;
+                list_scroll_reveal(get_monotonic_ms());
             } else if (g_current_view == VIEW_ACTIVITIES) {
                 int count = activity_list_count(), old_page = g_selected_activity / activity_page_size();
                 if (count > 0) g_selected_activity = (g_selected_activity < count - 1) ? g_selected_activity + 1 : 0;
                 if (home_layout_is_carousel()) home_scroll_slide_from(old_page, get_monotonic_ms());
             } else if (g_current_view == VIEW_DEVICE_BROWSER) {
                 device_browser_move(1);
+                list_scroll_reveal(get_monotonic_ms());
             } else if (g_current_view == VIEW_SETTINGS) {
                 if (g_settings_subview == SETTINGS_VIEW_CATEGORIES) {
                     g_selected_category = (g_selected_category + 1) % 6;

@@ -41,6 +41,8 @@ void render_key_hint(void);
 void render_link_panel(void);
 bool ui_link_panel_dismiss(void);
 void render_page_indicator(int page, int pages);
+/* The scrollbar of the list on screen (elite_ui_scroll.h), when it has more rows than fit */
+void render_list_scrollbar(void);
 /* The home layout (ADR-0008): the Settings choice, or the theme's when it is "theme". Drawing
    and touch handling place activities with these. */
 bool home_layout_is_grid(void);
@@ -78,7 +80,6 @@ void device_browser_back(void);
 /* One screen back, for the Back key and a left-to-right swipe; false when there is nowhere to go */
 bool ui_go_back(void);
 void device_browser_move(int delta);
-void device_browser_page(int dir);
 void device_browser_activate(int n);
 
 void trigger_activity_switch(const char *target_id, const char *target_name);

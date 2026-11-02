@@ -126,9 +126,11 @@ static int touch_scale(int v, int max, int out) {
     return scaled;
 }
 
-/* The end of a touch: a drag of the home pages settles, anything else is a tap or swipe */
+/* The end of a touch: a drag of the home pages or a list settles, anything else is a tap or swipe */
 static void touch_released(void) {
-    if (home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, get_monotonic_ms())) {
+    uint64_t ms = get_monotonic_ms();
+    if (home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms) ||
+        list_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms)) {
         reset_idle_timer();
         g_screen_dirty = true;
         return;
@@ -372,7 +374,7 @@ int main(int argc, char **argv) {
         }
 
         struct timeval tv;
-        if (g_screen_on && (home_scroll_settling() || g_screen_dirty)) {
+        if (g_screen_on && (ui_scroll_settling() || g_screen_dirty)) {
             tv.tv_sec = 0;
             tv.tv_usec = 0; /* draw now; settle frames are paced by fb_present() */
         } else if (g_screen_on) {
@@ -452,7 +454,7 @@ int main(int argc, char **argv) {
         static uint8_t last_charging_state = 0xFF;
         static uint8_t last_reported_percent = 0xFF;
         /* The battery read takes about 4 ms, so it waits until a drag or settle ends */
-        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating && !home_scroll_active()) {
+        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating && !ui_scroll_active()) {
             read_elite_battery();
             bool pct_changed = (last_reported_percent == 0xFF || abs((int)g_battery_info.percent - (int)last_reported_percent) >= 2);
             bool chg_changed = (g_battery_info.charging != last_charging_state);
@@ -579,6 +581,7 @@ int main(int argc, char **argv) {
         }
 
         if (home_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
+        if (list_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
         if (g_screen_dirty && g_screen_on) {
             render_screen();
         }
@@ -778,9 +781,11 @@ int main(int argc, char **argv) {
                         g_touch_need_down_latch = false;
                         printf("[*] Touch DOWN latched on SYN at (%d, %d)\n", g_touch_down_x, g_touch_down_y);
                         home_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
-                    } else if (g_touch_is_down &&
-                               home_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, get_monotonic_ms())) {
-                        g_screen_dirty = true;
+                        list_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
+                    } else if (g_touch_is_down) {
+                        uint64_t ms = get_monotonic_ms();
+                        if (home_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
+                        if (list_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
                     }
                 }
             }
