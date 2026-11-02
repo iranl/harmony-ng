@@ -540,7 +540,7 @@ Forces daemon to reload JSON configs from flash.
 
 ### 4.11 Help: Repair the Running Activity
 #### `POST /api/activity/help`
-Re-sends the running activity's start sequence, as if starting from Power Off, except power toggles (`PowerToggle`, `Power`), and lists the devices whose power command is a toggle so the caller can ask whether each is on ([ADR-0004](adr/0004-help-repairs-the-current-activity.md)).
+Re-sends the running activity's start sequence, as if starting from Power Off, except power toggles (`PowerToggle`, `Power`), and lists the devices whose power command is a toggle so the caller can ask whether each is on (ADR-0004).
 - **Request Body** (both fields optional; `activity` defaults to the running activity):
   ```json
   {
