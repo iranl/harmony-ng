@@ -112,15 +112,23 @@ class ApiTester:
         # 2. Settings (Verify Dry-Run schema)
         status, j, text, ms = self.http_request("/api/settings")
         schema_ok = status == 200 and j and "dry_run" in j and "hub_name" in j
-        self.assert_test("GET /api/settings", schema_ok, f"{ms:.1f}ms, dry_run={j.get('dry_run') if j else 'N/A'}")
+        orig_dry_run = j.get("dry_run", False) if (j and isinstance(j, dict)) else False
+        orig_hub_name = j.get("hub_name", "") if (j and isinstance(j, dict)) else ""
+        self.assert_test("GET /api/settings", schema_ok, f"{ms:.1f}ms, dry_run={orig_dry_run}")
 
-        # 3. Save Settings
+        # 3. Save Settings & Restore
         status, j, text, ms = self.http_request("/api/settings", method="POST", data={
             "hub_name": "Living Room Hub",
             "dry_run": 1
         })
         post_ok = status == 200 and j and j.get("ok") is True and j.get("hub_name") == "Living Room Hub"
         self.assert_test("POST /api/settings (Update Hub Settings)", post_ok, f"{ms:.1f}ms")
+
+        # Restore original hub settings so live hub is never left in dry_run mode
+        self.http_request("/api/settings", method="POST", data={
+            "hub_name": orig_hub_name,
+            "dry_run": 1 if orig_dry_run else 0
+        })
 
         # 4. Inventory
         status, j, text, ms = self.http_request("/api/inventory")

@@ -295,10 +295,14 @@ export class HarmonyClientCore {
       }, 4000);
       this.wsPendingReqs.set(msgId, (res) => {
         clearTimeout(timer);
-        resolve(res);
+        if (res && res.ok === false) {
+          reject(new Error(res.error || 'WS command failed'));
+        } else {
+          resolve(res);
+        }
       });
       try {
-        this.ws.send(JSON.stringify({ action, msgId, ...payload }));
+        this.ws.send(JSON.stringify({ ...payload, action, msgId }));
       } catch (err) {
         clearTimeout(timer);
         this.wsPendingReqs.delete(msgId);

@@ -184,15 +184,18 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
   async sendCommand(deviceId, command, action = 'press') {
     if (this.isWsConnected()) {
       try {
-        await this.sendWsCommand('send_command', {
+        const res = await this.sendWsCommand('send_command', {
           deviceId: String(deviceId),
           command: String(command),
-          action: String(action)
+          cmdAction: String(action)
         });
+        if (res && res.ok === false) {
+          throw new Error(res.error || 'WS send_command failed');
+        }
         return { ok: true, ws: true };
       } catch (err) {
-        /* If WS socket is still connected, don't duplicate request over HTTP */
-        if (this.isWsConnected()) {
+        /* If WS socket is still connected, don't duplicate request over HTTP unless WS rejected */
+        if (this.isWsConnected() && !err?.message?.includes('failed') && !err?.message?.includes('Unknown action')) {
           throw err;
         }
       }

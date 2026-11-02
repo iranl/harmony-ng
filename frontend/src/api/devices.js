@@ -75,10 +75,14 @@ export function createDevicesApi(client) {
       }
     },
 
-    async sendCommand(deviceId, command) {
+    async sendCommand(deviceId, command, action = 'press') {
       if (client.isWsConnected()) {
         try {
-          await client.sendWsCommand('send_command', { deviceId: String(deviceId), command: String(command) });
+          await client.sendWsCommand('send_command', {
+            deviceId: String(deviceId),
+            command: String(command),
+            cmdAction: String(action)
+          });
           return { ok: true, ws: true };
         } catch {
           // Fall back to HTTP
@@ -86,7 +90,8 @@ export function createDevicesApi(client) {
       }
       return client.postJson('/api/ir-send', {
         deviceId: String(deviceId),
-        command: String(command)
+        command: String(command),
+        action: String(action)
       });
     },
 
