@@ -121,7 +121,9 @@ uint16_t custom_icon_registry_get_id(const char *icon_name) {
 }
 
 
-static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out_len) {
+/* Icons uploaded to the Hub come first, then the stock images extracted from the icon archive.
+   uploaded_only skips the stock images. */
+static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out_len, bool uploaded_only) {
     if (!norm || !norm[0]) return false;
     const char *paths[] = {
         "/data/harmony/custom_icons/%s.png",
@@ -134,7 +136,8 @@ static bool locate_custom_icon_file(const char *norm, char *out_path, size_t out
         "/cache/www/assets/icons/%s",
         NULL
     };
-    for (int i = 0; paths[i]; i++) {
+    const int uploaded_paths = 4;
+    for (int i = 0; paths[i] && (!uploaded_only || i < uploaded_paths); i++) {
         char candidate[256];
         snprintf(candidate, sizeof(candidate), paths[i], norm);
         if (access(candidate, R_OK) == 0) {
@@ -153,7 +156,15 @@ bool custom_icon_registry_has_file(const char *icon_name) {
     char norm[80] = {0};
     normalize_name(icon_name, norm, sizeof(norm));
     if (!norm[0]) return false;
-    return locate_custom_icon_file(norm, NULL, 0);
+    return locate_custom_icon_file(norm, NULL, 0, false);
+}
+
+bool custom_icon_registry_has_uploaded_file(const char *icon_name) {
+    if (!icon_name || !icon_name[0]) return false;
+    char norm[80] = {0};
+    normalize_name(icon_name, norm, sizeof(norm));
+    if (!norm[0]) return false;
+    return locate_custom_icon_file(norm, NULL, 0, true);
 }
 
 int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, const char *icon_name) {
@@ -168,7 +179,7 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
 
     /* Locate custom PNG on Hub */
     char candidate[256] = {0};
-    bool found = locate_custom_icon_file(norm, candidate, sizeof(candidate));
+    bool found = locate_custom_icon_file(norm, candidate, sizeof(candidate), false);
 
     if (!found) {
         pthread_mutex_unlock(&s_reg_lock);

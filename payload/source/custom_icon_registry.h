@@ -22,6 +22,10 @@ int custom_icon_registry_sync_remote(uint8_t target_slot, uint16_t custom_id, co
 /* Check if custom icon file exists on Hub filesystem */
 bool custom_icon_registry_has_file(const char *icon_name);
 
+/* As custom_icon_registry_has_file, but only icons uploaded to the Hub, not the stock images.
+   For names such as activity and device IDs, which never name a stock image. */
+bool custom_icon_registry_has_uploaded_file(const char *icon_name);
+
 #ifdef __cplusplus
 }
 #endif

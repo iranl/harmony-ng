@@ -142,7 +142,7 @@ void *config_push_worker(void *arg) {
                                         }
                                     }
                                     if (icon_id == 0 && id_str[0]) {
-                                        if (custom_icon_registry_has_file(id_str)) {
+                                        if (custom_icon_registry_has_uploaded_file(id_str)) {
                                             icon_id = custom_icon_registry_get_id(id_str);
                                             strncpy(custom_name, id_str, sizeof(custom_name) - 1);
                                         }
@@ -251,7 +251,7 @@ void *config_push_worker(void *arg) {
                                         }
                                     }
                                     if (icon_id == 0 && id_str[0]) {
-                                        if (custom_icon_registry_has_file(id_str)) {
+                                        if (custom_icon_registry_has_uploaded_file(id_str)) {
                                             icon_id = custom_icon_registry_get_id(id_str);
                                             strncpy(custom_name, id_str, sizeof(custom_name) - 1);
                                         }
