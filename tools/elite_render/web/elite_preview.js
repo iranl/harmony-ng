@@ -203,21 +203,34 @@ export async function themeList() {
 
 // The image the remote draws for an activity in the config writeRemoteConfig() last wrote, in
 // a theme loadTheme() loaded, as an object URL ('' when there is none). Like the remote
-// (blit_png_file in elite/elite_fb.c), it recolours dark line art white, except in theme icons.
+// (blit_png_file in elite/elite_fb.c), it recolours dark line art in the theme's line_art
+// colour, except in theme icons.
 const iconUrls = new Map();
 export function activityIconUrl(module, activityId, theme = 'classic') {
-  return iconUrl(module, module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]));
+  return iconUrl(module, module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]), theme);
 }
 
 // The image the remote draws for a device, like activityIconUrl
 export function deviceIconUrl(module, deviceId, theme = 'classic') {
-  return iconUrl(module, module.ccall('er_device_icon', 'string', ['string', 'string', 'string'], [ROOT, String(deviceId).slice(0, 4), theme]));
+  return iconUrl(module, module.ccall('er_device_icon', 'string', ['string', 'string', 'string'], [ROOT, String(deviceId).slice(0, 4), theme]), theme);
 }
 
-function iconUrl(module, path) {
+// The theme's line_art colour as [r, g, b], read as load_theme in elite/elite_theme.c reads it
+function lineArt(module, theme) {
+  try {
+    const cfg = JSON.parse(module.FS.readFile(`${ROOT}/data/themes/${theme}/theme.json`, { encoding: 'utf8' }));
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(cfg.line_art || '');
+    if (m) return [1, 2, 3].map(i => parseInt(m[i], 16));
+  } catch { /* Classic, or no theme.json: the default */ }
+  return [245, 245, 250];
+}
+
+function iconUrl(module, path, theme) {
   if (!path) return Promise.resolve('');
-  if (!iconUrls.has(path)) {
-    iconUrls.set(path, (async () => {
+  const [r, g, b] = lineArt(module, theme);
+  const key = `${path}|${r},${g},${b}`;
+  if (!iconUrls.has(key)) {
+    iconUrls.set(key, (async () => {
       const bitmap = await createImageBitmap(new Blob([module.FS.readFile(`${ROOT}${path}`)], { type: 'image/png' }));
       const canvas = document.createElement('canvas');
       canvas.width = bitmap.width;
@@ -229,7 +242,7 @@ function iconUrl(module, path) {
         const px = img.data;
         for (let i = 0; i < px.length; i += 4) {
           if (px[i] + px[i + 1] + px[i + 2] < 100 && px[i + 3] > 30) {
-            px[i] = 245; px[i + 1] = 245; px[i + 2] = 250;
+            px[i] = r; px[i + 1] = g; px[i + 2] = b;
           }
         }
         ctx.putImageData(img, 0, 0);
@@ -238,7 +251,7 @@ function iconUrl(module, path) {
       return blob ? URL.createObjectURL(blob) : '';
     })().catch(() => '')); // the image isn't in this module's filesystem
   }
-  return iconUrls.get(path);
+  return iconUrls.get(key);
 }
 
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
