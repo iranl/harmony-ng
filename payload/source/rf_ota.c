@@ -64,11 +64,15 @@ void *rf_ota_sender_worker(void *arg) {
     g_rf_ota.total_chunks = 0;
     pthread_mutex_unlock(&g_ota_lock);
 
-    const char *ota_path = "/cache/elite_ui.ota.gz";
+    const char *ota_path = "/data/harmony/elite_ui.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
+        ota_path = "/cache/elite_ui.ota.gz";
+        f = fopen(ota_path, "rb");
+    }
+    if (!f) {
         char err[128];
-        snprintf(err, sizeof(err), "OTA image not found (%s)", ota_path);
+        snprintf(err, sizeof(err), "OTA image not found (/data/harmony or /cache)");
         ota_set_status(-1, false, err);
         return NULL;
     }

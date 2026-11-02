@@ -340,9 +340,10 @@ do_apply() {
   echo "[*] Checking Elite remote OTA package..."
   if download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/elite_ui.ota.gz" 35 3; then
     cp -f "$TMPDIR/elite_ui.ota.gz" /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    echo "$NEW_VER" > /data/harmony/elite_ui.version 2>/dev/null || true
     rm -f /cache/elite_ui.ota.gz 2>/dev/null || true
     rm -f "$TMPDIR/elite_ui.ota.gz"
-    echo "[+] Elite remote OTA package cached (/cache/elite_ui.ota.gz)."
+    echo "[+] Elite remote OTA package cached (/data/harmony/elite_ui.ota.gz)."
   fi
 
   # 5. Check if update succeeded before recording version

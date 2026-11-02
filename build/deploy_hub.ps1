@@ -208,7 +208,7 @@ if (-not $WebUiOnly) {
     if (Test-Path $eliteOtaSrc) {
         Write-Host "[*] Syncing Elite RF OTA image (/data/harmony/elite_ui.ota.gz)..." -ForegroundColor Yellow
         Install-HubFileIfChanged -LocalFile $eliteOtaSrc -RemoteFile "/data/harmony/elite_ui.ota.gz" -Perm "644" | Out-Null
-        & ssh @sshArgs $Target "rm -f /cache/elite_ui.ota.gz 2>/dev/null || true"
+        & ssh @sshArgs $Target "rm -f /cache/elite_ui.ota.gz 2>/dev/null || true; cp -f /data/harmony/VERSION /data/harmony/elite_ui.version 2>/dev/null || true"
     }
 
     # Extended BusyBox (default deployment)

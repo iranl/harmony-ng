@@ -216,6 +216,15 @@ if [ -f "$REPO_ROOT/VERSION" ]; then
     deploy_file_if_changed "$REPO_ROOT/VERSION" "/data/harmony/VERSION" 644
 fi
 
+# Deploy Elite RF OTA image if available
+ELITE_OTA_SRC="$REPO_ROOT/elite/bin/elite_ui.ota.gz"
+[ ! -f "$ELITE_OTA_SRC" ] && ELITE_OTA_SRC="$REPO_ROOT/build/output/elite/elite_ui.ota.gz"
+if [ -f "$ELITE_OTA_SRC" ]; then
+    echo "[*] Syncing Elite RF OTA image (/data/harmony/elite_ui.ota.gz)..."
+    deploy_file_if_changed "$ELITE_OTA_SRC" "/data/harmony/elite_ui.ota.gz" 644
+    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f /cache/elite_ui.ota.gz 2>/dev/null || true; cp -f /data/harmony/VERSION /data/harmony/elite_ui.version 2>/dev/null || true"
+fi
+
 # Deploy config files (e.g. curated CA bundle)
 if [ -d "$CONFIG_DIR" ]; then
     echo "[*] Syncing config files to /data/harmony/config/..."
