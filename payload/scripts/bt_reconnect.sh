@@ -69,7 +69,12 @@ fi
 TARGET=$(echo "$TARGET" | tr '[:lower:]' '[:upper:]')
 
 is_connected() {
-    [ -f "$STATUS_FILE" ] && grep -q '"state":"listening"' "$STATUS_FILE" 2>/dev/null
+    [ -f "$STATUS_FILE" ] || return 1
+    grep -q '"state":"listening"' "$STATUS_FILE" 2>/dev/null || return 1
+    if [ -n "$TARGET" ]; then
+        grep -qi "\"target\":\"$TARGET\"" "$STATUS_FILE" 2>/dev/null || return 1
+    fi
+    return 0
 }
 
 if is_connected; then

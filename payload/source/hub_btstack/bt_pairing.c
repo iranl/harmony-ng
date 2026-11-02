@@ -26,6 +26,13 @@ bool is_any_host_connected(void) {
     return false;
 }
 
+bool is_host_connected(const bd_addr_t addr) {
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (memcmp(g_hosts[i].addr, addr, 6) == 0 && g_hosts[i].connected && g_hosts[i].hid_cid) return true;
+    }
+    return false;
+}
+
 host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
     if (is_null_bd_addr(addr)) return NULL;
     for (int i = 0; i < MAX_HOST_CONNS; i++) {

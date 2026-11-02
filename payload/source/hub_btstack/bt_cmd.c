@@ -316,15 +316,16 @@ void execute_btstack_cmd(const char *cmd_in) {
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
-        if (is_any_host_connected()) return;
         if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;
         if (parse_bd_addr(addr_str, tgt)) {
+            if (is_host_connected(tgt)) return;
             register_host_target(tgt, NULL);
             start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
         } else {
+            if (is_any_host_connected()) return;
             bd_addr_t def_tgt;
             if (get_pinned_host_target(def_tgt)) {
                 start_host_reconnect(def_tgt, MAX_HOST_RECONNECT_ATTEMPTS);
