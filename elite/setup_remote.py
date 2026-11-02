@@ -296,7 +296,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             )
             res = query_latest_firmware(target_skin)
             if not res or not res.get("Id"):
-                res = query_latest_firmware(99)
+                res = query_latest_firmware(111)
             if res and res.get("Id"):
 
                 latest_fw = res["Id"]

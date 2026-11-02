@@ -44,7 +44,7 @@ class TestUsbState(unittest.TestCase):
                 error_code=28 if mode == UsbMode.DRIVER_ERROR else None,
                 error_details="Code 28 missing driver" if mode == UsbMode.DRIVER_ERROR else None,
                 fw_version="4.15.330",
-                fw_skin=99,
+                fw_skin=111,
                 fw_latest="4.15.330",
                 fw_up_to_date=True,
                 remediation_cmd="Set-StaticIP" if not (mode == UsbMode.USB_ETHERNET) else None,
@@ -55,11 +55,11 @@ class TestUsbState(unittest.TestCase):
         mock_hid = MagicMock()
         mock_hid.get_sysinfo.return_value = {
             "sw_version": "4.15.330",
-            "skin": "99",
+            "skin": "111",
         }
         fw, skin = require_firmware_or_exit(mock_hid)
         self.assertEqual(fw, "4.15.330")
-        self.assertEqual(skin, 99)
+        self.assertEqual(skin, 111)
 
     def test_require_firmware_fw_ver_and_hex_skin(self):
         mock_hid = MagicMock()
