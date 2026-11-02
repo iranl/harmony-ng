@@ -1,0 +1,62 @@
+name: Update Curated CA Bundle
+
+on:
+  schedule:
+    # Monthly on the 1st at 03:00 UTC
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-ca-bundle:
+    name: Check & Update Curated CA Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run CA Bundle Updater
+        id: update
+        run: |
+          python scripts/update_ca_bundle.py
+
+      - name: Verify Bundle Integrity
+        run: |
+          python -c "
+          import ssl
+          ctx = ssl.create_default_context()
+          ctx.load_verify_locations('payload/config/cacert.pem')
+          count = len(ctx.get_ca_certs())
+          print(f'Integrity check passed: {count} CAs verified in OpenSSL context')
+          assert count > 0, 'No certificates loaded!'
+          "
+
+      - name: Commit & Push / Create Pull Request if Changed
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="chore/update-ca-bundle-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH_NAME"
+          git add payload/config/cacert.pem payload/config/cmn_crt_authorities.csv
+          git commit -m "chore(certs): update curated ca bundle from ESP-IDF upstream"
+          git push origin "$BRANCH_NAME" --force
+          
+          # Create PR using GitHub CLI
+          gh pr create \
+            --title "chore(certs): update curated ca bundle from ESP-IDF upstream" \
+            --body "Automated monthly update of curated CA certificates based on ESP-IDF common certificate authorities.\n\nVerified with OpenSSL/Python SSL context." \
+            --base main \
+            --head "$BRANCH_NAME" || true

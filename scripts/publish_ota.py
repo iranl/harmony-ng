@@ -198,6 +198,12 @@ def package_ota(output_dir: Path, version: str):
             for f in scripts_dir.iterdir():
                 if f.is_file():
                     tar.add(f, arcname=f"scripts/{f.name}")
+        # Config (CA bundle etc.)
+        config_dir = REPO_ROOT / "payload" / "config"
+        if config_dir.is_dir():
+            for f in config_dir.iterdir():
+                if f.is_file():
+                    tar.add(f, arcname=f"config/{f.name}")
         # WebUI
         if www_src and www_src.is_dir():
             for root, _, files in os.walk(www_src):
