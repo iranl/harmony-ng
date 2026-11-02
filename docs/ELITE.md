@@ -232,8 +232,7 @@ The Elite settings menu is structured into 5 categories plus an RF sync push act
 
 ### 5. `SYSTEM`
 - **`Software Version`**: Displays current firmware version string (e.g. `v1.3.0`).
-- **`USB Ethernet Mode`**: `[ OFF ]`, `[ ACTIVE ]`, `[ UNPLUGGED ]`.
-  - Controls `/usr/bin/usbeth`. When `ACTIVE`, USB gadget is up and plugged in. When `UNPLUGGED`, gadget is up awaiting USB connection.
+- **`Automatic USB Ethernet`**: Handled automatically in hardware. When connected to a Micro-USB cable, USB Ethernet (`192.168.2.1`) and Dropbear SSH start automatically. When running on battery or in cradle, USB Ethernet and Dropbear are cleanly stopped to ensure minimal/no battery drain.
 - **`Power Debug Log`**: `[ ON ]` or `[ OFF ]`.
   - Toggles high-resolution power logging to `/tmp/power_debug.log` and `/data/power_debug.log` (logs standby transitions, voltage, CPU frequencies, and wake sources). Local setting, not pushed to Hub.
 - **`RF Pairing Menu`**: `[ LINKED ]` or `[ OPEN ]`.

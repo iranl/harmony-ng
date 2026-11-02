@@ -730,7 +730,6 @@ void load_settings_conf(void) {
             else if (strcmp(key, "screen") == 0) g_screen_on = (val != 0);
             else if (strcmp(key, "nav_key") == 0) g_nav_toggle_key = val;
             else if (strcmp(key, "nav_mode") == 0) g_nav_toggle_mode = val;
-            else if (strcmp(key, "usbeth") == 0) g_usbeth_enabled = (val != 0);
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
@@ -778,7 +777,6 @@ void save_settings_conf(void) {
     fprintf(f, "nav_key=%d\n", g_nav_toggle_key);
     fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
-    fprintf(f, "usbeth=%d\n", g_usbeth_enabled ? 1 : 0);
     fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "language=%s\n", elite_lang_code(g_language));
     fprintf(f, "tz=%s\n", g_timezone_str);

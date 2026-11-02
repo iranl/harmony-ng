@@ -296,8 +296,8 @@ void fb_set_blank(bool blank) {
         read_elite_battery();
         bool usb_plug = (strcmp(g_battery_info.powersource, "usb") == 0);
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
-        log_power_debug("  fb_blank=%d, bl=0 | USB Eth: cfg=%d, cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
-                        blank_res, g_usbeth_enabled, usb_plug,
+        log_power_debug("  fb_blank=%d, bl=0 | USB cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
+                        blank_res, usb_plug,
                         g_battery_info.voltage_mv, g_battery_info.percent,
                         g_battery_info.powersource, g_battery_info.charging);
     }
@@ -436,46 +436,32 @@ void read_elite_battery(void) {
 
 void stop_usbeth_and_dropbear(void) {
     log_power_debug("[*] Stopping USB Ethernet and Dropbear synchronously...\n");
-    system("killall -9 dropbear dropbearmulti 2>/dev/null; /usr/bin/usbeth stop 2>/dev/null; ifconfig usb0 down 2>/dev/null; chmod +x /usr/bin/usbhid 2>/dev/null; true");
+    system("killall -9 dropbear dropbearmulti usbhid 2>/dev/null; "
+           "/usr/bin/usbeth stop 2>/dev/null; "
+           "rmmod g_ether 2>/dev/null; "
+           "ifconfig usb0 down 2>/dev/null; "
+           "chmod -x /usr/bin/usbhid 2>/dev/null; "
+           "killall -9 usbhid 2>/dev/null; true");
     log_power_debug("[+] USB Ethernet stopped and Dropbear killed.\n");
 }
 
 void start_usbeth_and_dropbear(void) {
     log_power_debug("[*] Starting USB Ethernet and Dropbear...\n");
-    system("chmod -x /usr/bin/usbhid 2>/dev/null; "
+    system("chmod -x /usr/bin/usbhid 2>/dev/null; killall -9 usbhid 2>/dev/null; "
            "if [ ! -d /sys/class/net/usb0 ]; then /usr/bin/usbeth start 2>/dev/null & fi; "
            "if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then "
            "/data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true & fi");
     log_power_debug("[+] USB Ethernet and Dropbear started.\n");
 }
 
-void toggle_usbeth(void) {
-    g_usbeth_enabled = !g_usbeth_enabled;
-    if (g_usbeth_enabled) {
-        save_settings_conf();
-        g_usb_connected = is_usb_hardware_connected();
-        if (g_usb_connected) {
-            show_notice("Starting USB Ethernet...", 1500);
-            render_screen();
-            start_usbeth_and_dropbear();
-            show_notice("USB Ethernet: ACTIVE", 2000);
-        } else {
-            stop_usbeth_and_dropbear();
-            show_notice("USB Eth ON (unplugged)", 2500);
-        }
-    } else {
-        show_notice("Stopping USB Ethernet...", 1500);
-        render_screen();
-        stop_usbeth_and_dropbear();
-        save_settings_conf();
-        show_notice("USB Ethernet: OFF", 2000);
-    }
-}
-
 void enter_kernel_suspend(void) {
     read_elite_battery();
     if (strcmp(g_battery_info.powersource, "battery") != 0) {
         return;
+    }
+    if (g_usb_connected) {
+        g_usb_connected = false;
+        stop_usbeth_and_dropbear();
     }
 
     int mfd = open("/sys/bus/i2c/devices/1-0034/wakeup", O_WRONLY);

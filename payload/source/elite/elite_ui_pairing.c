@@ -22,7 +22,7 @@ void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 2;
+            g_selected_sub_item = 0;
         }
         g_selected_pair_opt = 0;
     } else if (is_paired) {
@@ -32,7 +32,7 @@ void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 2;
+            g_selected_sub_item = 0;
         }
     } else {
         if (idx == 0) {
@@ -41,7 +41,7 @@ void execute_pairing_menu_opt(int idx) {
         } else {
             g_current_view = VIEW_SETTINGS;
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 2;
+            g_selected_sub_item = 0;
         }
     }
     render_screen();

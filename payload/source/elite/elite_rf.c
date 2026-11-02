@@ -353,7 +353,7 @@ void send_remote_config_backup_rf(void) {
     payload[3] = (uint8_t)(g_nav_toggle_key & 0xFF);
     payload[4] = (uint8_t)((g_nav_toggle_key >> 8) & 0xFF);
     payload[5] = (uint8_t)(g_nav_toggle_mode & 0xFF);
-    payload[6] = (uint8_t)(g_usbeth_enabled ? 1 : 0);
+    payload[6] = (uint8_t)(g_usb_connected ? 1 : 0);
     payload[7] = (uint8_t)(g_confirm_activity ? 1 : 0);
     payload[8] = (uint8_t)g_config_version;
     payload[9] = (uint8_t)g_touch_sensitivity;

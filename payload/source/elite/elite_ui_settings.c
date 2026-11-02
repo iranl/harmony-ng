@@ -29,7 +29,7 @@ int get_settings_sub_count(void) {
         case SETTINGS_VIEW_DISPLAY:    return 5;
         case SETTINGS_VIEW_TOUCH:      return 6;
         case SETTINGS_VIEW_POWER:      return 6;
-        case SETTINGS_VIEW_SYSTEM:     return 5;
+        case SETTINGS_VIEW_SYSTEM:     return 4;
         case SETTINGS_VIEW_UPDATE:     return 3;
         case SETTINGS_VIEW_FACTORY_RESET: return 2;
         case SETTINGS_VIEW_REBOOT:        return 2;
@@ -461,38 +461,25 @@ void render_settings_screen(void) {
             break;
         }
         case SETTINGS_VIEW_SYSTEM: {
-            const char *labels[5] = { tr(STR_USB_ETHERNET), tr(STR_RF_PAIRING_LINK), tr(STR_REBOOT_REMOTE), tr(STR_FACTORY_RESET), tr(STR_BACK) };
-            char values[5][32];
-            uint16_t cols[5];
+            const char *labels[4] = { tr(STR_RF_PAIRING_LINK), tr(STR_REBOOT_REMOTE), tr(STR_FACTORY_RESET), tr(STR_BACK) };
+            char values[4][32];
+            uint16_t cols[4];
 
-            if (!g_usbeth_enabled) {
-                snprintf(values[0], sizeof(values[0]), "[ OFF ]");
-                cols[0] = RGB_TEXT_MUTED;
-            } else {
-                if (g_usb_connected) {
-                    snprintf(values[0], sizeof(values[0]), "[ ACTIVE ]");
-                    cols[0] = RGB_GREEN;
-                } else {
-                    snprintf(values[0], sizeof(values[0]), "[ UNPLUGGED ]");
-                    cols[0] = RGB_YELLOW;
-                }
-            }
-            snprintf(values[1], sizeof(values[1]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
-            cols[1] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
-            snprintf(values[2], sizeof(values[2]), "[ REBOOT ]");
-            cols[2] = RGB_YELLOW;
-            snprintf(values[3], sizeof(values[3]), "[ REVERT ]");
-            cols[3] = RGB_RED;
-            values[4][0] = '\0';
-            cols[4] = RGB_CYAN;
-            const char *icons[5] = {
-                "/opt/luadraws/appscommon/asset/header/usb.png",
+            snprintf(values[0], sizeof(values[0]), "[ %s ]", g_rf_link_connected ? "LINKED" : "OPEN");
+            cols[0] = g_rf_link_connected ? RGB_GREEN : RGB_YELLOW;
+            snprintf(values[1], sizeof(values[1]), "[ REBOOT ]");
+            cols[1] = RGB_YELLOW;
+            snprintf(values[2], sizeof(values[2]), "[ REVERT ]");
+            cols[2] = RGB_RED;
+            values[3][0] = '\0';
+            cols[3] = RGB_CYAN;
+            const char *icons[4] = {
                 "/opt/luadraws/appscommon/asset/pairing/connectHub.png",
                 "/opt/luadraws/appscommon/asset/home/power_icon.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items(tr(STR_CAT_SYSTEM), 5, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_SYSTEM), 4, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_UPDATE:

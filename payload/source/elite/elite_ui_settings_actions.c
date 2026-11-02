@@ -260,10 +260,6 @@ void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_SYSTEM) {
         switch (idx) {
             case 0:
-                toggle_usbeth();
-                save_settings_conf();
-                break;
-            case 1:
                 g_current_view = VIEW_PAIRING;
                 g_selected_pair_opt = 0;
                 g_unpair_confirm_active = false;
@@ -275,16 +271,16 @@ void execute_settings_action(int idx) {
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
                 }
                 break;
-            case 2:
+            case 1:
                 g_settings_subview = SETTINGS_VIEW_REBOOT;
                 g_selected_sub_item = 0;
                 break;
-            case 3:
+            case 2:
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
                 break;
-            case 4:
+            case 3:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
@@ -345,7 +341,7 @@ void execute_settings_action(int idx) {
     if (g_settings_subview == SETTINGS_VIEW_REBOOT) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 2;
+            g_selected_sub_item = 1;
         } else if (idx == 1) {
             execute_remote_reboot();
         }
@@ -356,7 +352,7 @@ void execute_settings_action(int idx) {
         if (idx == 0) {
             g_settings_subview = SETTINGS_VIEW_SYSTEM;
             g_factory_reset_stage = 0;
-            g_selected_sub_item = 3;
+            g_selected_sub_item = 2;
         } else if (idx == 1) {
             if (g_factory_reset_stage == 0) {
                 g_factory_reset_stage = 1;

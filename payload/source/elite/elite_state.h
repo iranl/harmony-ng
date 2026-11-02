@@ -289,7 +289,6 @@ extern bool g_screen_on;
 extern bool g_screen_nav_mode;
 extern int g_nav_toggle_key;
 extern int g_nav_toggle_mode;
-extern bool g_usbeth_enabled;
 extern bool g_usb_connected;
 
 extern volatile bool g_screen_dirty;

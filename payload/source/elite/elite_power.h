@@ -23,7 +23,6 @@ bool is_usb_hardware_connected(void);
 void read_elite_battery(void);
 void stop_usbeth_and_dropbear(void);
 void start_usbeth_and_dropbear(void);
-void toggle_usbeth(void);
 void enter_kernel_suspend(void);
 void trigger_manual_suspend_to_ram(void);
 void *power_manager(void *arg);

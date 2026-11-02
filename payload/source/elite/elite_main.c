@@ -126,9 +126,8 @@ int main(int argc, char **argv) {
     load_settings_conf();
 
     g_usb_connected = is_usb_hardware_connected();
-    log_power_debug("[*] elite_ui INIT: usbeth_enabled=%d, usb_cable_connected=%d\n",
-                    g_usbeth_enabled, g_usb_connected);
-    if (!g_usb_connected && !g_usbeth_enabled) {
+    log_power_debug("[*] elite_ui INIT: usb_cable_connected=%d\n", g_usb_connected);
+    if (!g_usb_connected) {
         stop_usbeth_and_dropbear();
     } else {
         start_usbeth_and_dropbear();
@@ -377,9 +376,8 @@ int main(int argc, char **argv) {
         }
 
         static uint64_t last_usb_check_ms = 0;
-        uint32_t usb_check_interval = g_usb_connected ? 1000 : 3000;
-        if ((g_usbeth_enabled || (g_screen_on && g_current_view == VIEW_SETTINGS)) &&
-            (now_ms - last_usb_check_ms >= usb_check_interval)) {
+        uint32_t usb_check_interval = g_usb_connected ? 1000 : 2500;
+        if (now_ms - last_usb_check_ms >= usb_check_interval) {
             last_usb_check_ms = now_ms;
             bool usb_now = is_usb_hardware_connected();
             if (usb_now != g_usb_connected) {
@@ -388,10 +386,8 @@ int main(int argc, char **argv) {
                     log_power_debug("[+] USB cable plugged: starting USB Ethernet and Dropbear...\n");
                     start_usbeth_and_dropbear();
                 } else {
-                    if (!g_usbeth_enabled) {
-                        log_power_debug("[-] USB cable disconnected: stopping Dropbear and USB Ethernet...\n");
-                        stop_usbeth_and_dropbear();
-                    }
+                    log_power_debug("[-] USB cable disconnected: stopping Dropbear and USB Ethernet...\n");
+                    stop_usbeth_and_dropbear();
                 }
                 g_screen_dirty = true;
             }
@@ -495,7 +491,7 @@ int main(int argc, char **argv) {
                 g_suspend_countdown_start_ms = 0;
                 trigger_manual_suspend_to_ram();
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 4;
+                g_selected_sub_item = 3;
                 g_screen_dirty = true;
             } else {
                 static uint64_t s_last_cd_render = 0;

@@ -80,18 +80,21 @@ touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws 2>/dev/null || true
 killall -9 watchdog hal luaworks luadraws lua luajit 2>/dev/null || true
 
-# 1. Ensure USB Ethernet and Dropbear are active
+# 1. Ensure USB Ethernet and Dropbear are active if USB connected
 chmod -x /usr/bin/usbhid 2>/dev/null || true
-if [ ! -d /sys/class/net/usb0 ]; then
-    /usr/bin/usbeth start &
-fi
-if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then
-    if [ -x /data/dropbearmulti ]; then
-        /data/dropbearmulti dropbear -R -p 0.0.0.0:22 2>/dev/null &
-    elif [ -x /data/dropbear ]; then
-        /data/dropbear -R -p 0.0.0.0:22 2>/dev/null &
-    elif [ -x /usr/sbin/dropbear ]; then
-        /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null &
+POWERSOURCE="$(cat /sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource 2>/dev/null)"
+if [ "$POWERSOURCE" = "usb" ] || [ -z "$POWERSOURCE" ]; then
+    if [ ! -d /sys/class/net/usb0 ]; then
+        /usr/bin/usbeth start &
+    fi
+    if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then
+        if [ -x /data/dropbearmulti ]; then
+            /data/dropbearmulti dropbear -R -p 0.0.0.0:22 2>/dev/null &
+        elif [ -x /data/dropbear ]; then
+            /data/dropbear -R -p 0.0.0.0:22 2>/dev/null &
+        elif [ -x /usr/sbin/dropbear ]; then
+            /usr/sbin/dropbear -R -p 0.0.0.0:22 2>/dev/null &
+        fi
     fi
 fi
 

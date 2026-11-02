@@ -125,7 +125,6 @@ bool g_screen_on = true;
 bool g_screen_nav_mode = true;  /* Default true: bottom buttons navigate screen UI on boot */
 int g_nav_toggle_key = 139;     /* Default: 139 (Menu), also 358 (Info), 395 (Guide), 389 (DVR), 174 (Exit) */
 int g_nav_toggle_mode = 1;      /* 0 = Short Press, 1 = Long Press (Hold >= 500ms) */
-bool g_usbeth_enabled = true;   /* Dynamic USB Ethernet mode: enabled by default */
 bool g_usb_connected = false;   /* Dynamic physical USB cable detection */
 
 volatile bool g_screen_dirty = true;

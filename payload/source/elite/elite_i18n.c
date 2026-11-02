@@ -142,7 +142,7 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_CAT_SYSTEM */
     { "SYSTEM", "SYSTEM", "SYSTEME", "SYSTEEM", "SISTEMA", "SISTEMA" },
     /* STR_CAT_SYSTEM_DESC */
-    { "USB ethernet, pairing, reset", "USB-Ethernet, Pairing, Reset", "Ethernet USB, pairage, reset", "USB-ethernet, koppelen, reset", "Ethernet USB, vinculo, reset", "Ethernet USB, abbinamento, reset" },
+    { "Pairing, reboot, reset", "Pairing, Neustart, Reset", "Pairage, redemarrage, reset", "Koppelen, herstarten, reset", "Vinculo, reiniciar, reset", "Abbinamento, riavvio, reset" },
     /* STR_CAT_UPDATE */
     { "FIRMWARE UPDATE", "FIRMWARE UPDATE", "MISE A JOUR", "FIRMWARE UPDATE", "ACTUALIZAR FIRMWARE", "AGGIORNAMENTO FIRMWARE" },
     /* STR_CAT_UPDATE_DESC */

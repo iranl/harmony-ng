@@ -373,9 +373,6 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
           }
         }
 
-        const usbEth = typeof cfg.usbeth !== 'undefined' ? cfg.usbeth : (typeof cfg.usbEth !== 'undefined' ? (cfg.usbEth ? 1 : 0) : 0);
-        if (document.getElementById('rfCfgUsbEth')) document.getElementById('rfCfgUsbEth').value = String(usbEth ? 1 : 0);
-
         const powerDebug = typeof cfg.power_debug !== 'undefined' ? cfg.power_debug : (typeof cfg.powerDebug !== 'undefined' ? (cfg.powerDebug ? 1 : 0) : 0);
         if (document.getElementById('rfCfgPowerDebug')) document.getElementById('rfCfgPowerDebug').value = String(powerDebug ? 1 : 0);
       }
@@ -405,7 +402,6 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const schedParts = (document.getElementById('rfCfgNightSchedule')?.value || '22-7').split('-');
     const night_start = parseInt(schedParts[0] || '22', 10);
     const night_end = parseInt(schedParts[1] || '7', 10);
-    const usbeth = parseInt(document.getElementById('rfCfgUsbEth')?.value || '0', 10);
     const power_debug = parseInt(document.getElementById('rfCfgPowerDebug')?.value || '0', 10);
     const language = document.getElementById('rfCfgLanguage')?.value || 'en';
     const langMap = ['en', 'de', 'fr', 'nl', 'es', 'it'];
@@ -453,8 +449,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       nightStart: night_start,
       night_end: night_end,
       nightEnd: night_end,
-      usbeth: usbeth,
-      usbEth: usbeth === 1,
+      usbeth: 0,
+      usbEth: false,
       power_debug: power_debug,
       powerDebug: power_debug === 1,
       no_screen: no_screen,

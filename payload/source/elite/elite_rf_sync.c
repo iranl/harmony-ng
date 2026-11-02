@@ -382,7 +382,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[12] <= 2) g_btn_backlight_mode = f->payload[12];
             if (f->payload[13] <= 23) g_night_start_hour = f->payload[13];
             if (f->payload[14] <= 23) g_night_end_hour = f->payload[14];
-            g_usbeth_enabled = (f->payload[15] != 0);
+            /* f->payload[15] was usbeth (now automatic on USB connection) */
             bool prev_no_screen = g_no_screen_mode;
             g_no_screen_mode = (f->payload[17] != 0);
             if (f->payload[18] == 1) g_cap_buttons_enabled = true;
@@ -401,10 +401,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d bl=%d night=%02d-%02d usbeth=%d no_screen=%d pwrdbg=%d lang=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
                    g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
                    g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity,
-                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_usbeth_enabled, g_no_screen_mode, g_power_debug, (int)g_language);
+                   g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_no_screen_mode, g_power_debug, (int)g_language);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
