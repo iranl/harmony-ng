@@ -334,6 +334,11 @@ if (Test-Path $WwwDir) {
                     $iconsTar = $archiveOut
                 }
             }
+            if (-not (Test-Path $archiveOut)) {
+                Write-Host "[!] No icon archive: the Hub's icons are left as they are. Copy an icons.tar.gz from a" -ForegroundColor Yellow
+                Write-Host "    release package to $archiveOut, or build it from a local bundle with:" -ForegroundColor Yellow
+                Write-Host "    python $fwTool extract-icons --firmware PATH.hfw2 --archive $archiveOut" -ForegroundColor Yellow
+            }
         }
         if ($iconsTar -and (Test-Path $iconsTar)) {
             Install-HubFileIfChanged -LocalFile $iconsTar -RemoteFile "/cache/icons.tar.gz" -Perm "644" | Out-Null

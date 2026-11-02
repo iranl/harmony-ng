@@ -299,6 +299,11 @@ if [ ! -f "$ICONS_TAR" ] && [ -f "$FW_TOOL" ]; then
         echo "[*] Extracting remote UI icons and packaging $ICONS_TAR..."
         python3 "$FW_TOOL" extract-icons --archive "$ICONS_TAR" || true
     fi
+    if [ ! -f "$ICONS_TAR" ]; then
+        echo "[!] No icon archive: the Hub's icons are left as they are. Copy an icons.tar.gz from a"
+        echo "    release package to $ICONS_TAR, or build it from a local bundle with:"
+        echo "    python3 $FW_TOOL extract-icons --firmware PATH.hfw2 --archive $ICONS_TAR"
+    fi
 fi
 
 if [ -f "$ICONS_TAR" ]; then
