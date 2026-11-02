@@ -15,6 +15,15 @@
 #include <unistd.h>
 #include <pthread.h>
 
+/* Whether to send an icon name's image as a custom icon. An icon uploaded to the Hub always is.
+   A stock image found under the name is sent only when the remote has no icon of its own for
+   it: for keywords such as "ps" and "switch" the remote draws its theme's icon, and the stock
+   image that shares the name (juniperDevice/ps.png, notification/switch.png) would replace it. */
+static bool send_as_custom_icon(const char *name) {
+    if (custom_icon_registry_has_uploaded_file(name)) return true;
+    return !rf_activity_icon_match(name) && custom_icon_registry_has_file(name);
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -127,14 +136,14 @@ void *config_push_worker(void *arg) {
 
                                     uint16_t icon_id = 0;
                                     char custom_name[64] = {0};
-                                    if (icon_str && icon_str[0] && custom_icon_registry_has_file(icon_str)) {
+                                    if (icon_str && icon_str[0] && send_as_custom_icon(icon_str)) {
                                         icon_id = custom_icon_registry_get_id(icon_str);
                                         strncpy(custom_name, icon_str, sizeof(custom_name) - 1);
                                     } else if (icon_str && icon_str[0]) {
                                         icon_id = lookup_stock_icon_id(icon_str);
                                     }
                                     if (icon_id == 0 && j_name->valuestring && j_name->valuestring[0]) {
-                                        if (custom_icon_registry_has_file(j_name->valuestring)) {
+                                        if (send_as_custom_icon(j_name->valuestring)) {
                                             icon_id = custom_icon_registry_get_id(j_name->valuestring);
                                             strncpy(custom_name, j_name->valuestring, sizeof(custom_name) - 1);
                                         } else {
@@ -236,14 +245,14 @@ void *config_push_worker(void *arg) {
 
                                     uint16_t icon_id = 0;
                                     char custom_name[64] = {0};
-                                    if (icon_str && icon_str[0] && custom_icon_registry_has_file(icon_str)) {
+                                    if (icon_str && icon_str[0] && send_as_custom_icon(icon_str)) {
                                         icon_id = custom_icon_registry_get_id(icon_str);
                                         strncpy(custom_name, icon_str, sizeof(custom_name) - 1);
                                     } else if (icon_str && icon_str[0]) {
                                         icon_id = lookup_stock_icon_id(icon_str);
                                     }
                                     if (icon_id == 0 && jname->valuestring && jname->valuestring[0]) {
-                                        if (custom_icon_registry_has_file(jname->valuestring)) {
+                                        if (send_as_custom_icon(jname->valuestring)) {
                                             icon_id = custom_icon_registry_get_id(jname->valuestring);
                                             strncpy(custom_name, jname->valuestring, sizeof(custom_name) - 1);
                                         } else {
