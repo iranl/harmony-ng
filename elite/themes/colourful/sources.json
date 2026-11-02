@@ -5,7 +5,7 @@
   },
   "keywords": {
     "set": "phosphor-duotone", "map": "phosphor", "color": "tint",
-    "brands": { "sonos": ["custom", "sonos"], "roku": ["custom", "roku"] }
+    "brands": { "sonos": ["custom", "sonos-duotone"], "roku": ["custom", "roku-duotone"] }
   },
   "glyphs": {
     "color": "#F2F4F8",

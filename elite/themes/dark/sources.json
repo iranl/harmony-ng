@@ -3,7 +3,10 @@
     "main": { "source": "inter-medium", "px": 12, "height": 15, "baseline": 12 },
     "title": { "source": "inter-semibold", "px": 14, "height": 19, "baseline": 15 }
   },
-  "keywords": { "set": "phosphor-regular", "map": "phosphor", "color": "#F2F4F8" },
+  "keywords": {
+    "set": "phosphor-regular", "map": "phosphor", "color": "#F2F4F8",
+    "brands": { "sonos": ["custom", "sonos-regular"], "roku": ["custom", "roku-regular"] }
+  },
   "glyphs": {
     "color": "#F2F4F8",
     "icons": {
