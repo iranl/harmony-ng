@@ -209,7 +209,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
             this.pollTimerActive = false;
             this.hideUpdatingOverlay();
             if (log) log.textContent = `Hub is updated and reboot complete!\nVersion: v${stat.current_version || stat.version || ''}`;
-            showToast('Hub is updated and reboot complete!', 'success', 5000);
+            showToast(t('hub_updating_status', 'Hub is updated and reboot complete!'), 'success', 5000);
             await this.refreshData();
           }
         } catch (_) {
@@ -221,7 +221,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       this.pollTimerActive = false;
       this.hideUpdatingOverlay();
       if (log) log.textContent = t('update_failed', 'Install failed: ') + err.message;
-      showToast('Install failed: ' + err.message, 'error');
+      showToast(t('update_failed', 'Install failed: ') + err.message, 'error');
     }
   }
 
@@ -361,7 +361,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     list.querySelectorAll('.btn-delete-hub').forEach(b => {
       b.addEventListener('click', async () => {
         const id = b.getAttribute('data-id');
-        if (await showConfirm('Delete this hub profile?', { title: 'Delete Hub Profile', okText: 'Delete' })) {
+        if (await showConfirm(t('delete_hub_profile_confirm', 'Delete this hub profile?'), { title: t('delete_hub_profile', 'Delete Hub Profile'), okText: t('delete', 'Delete') })) {
           await deleteHub(id);
           await this.loadActiveHub();
           this.renderHubsList();
@@ -468,7 +468,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
             await saveHub(foundHub);
             foundCount++;
 
-            showToast(`Found Harmony Hub: ${hubName} (${ip})`, 'success', 3000);
+            showToast(t('found_hub', 'Found Harmony Hub: {name} ({ip})').replace('{name}', hubName).replace('{ip}', ip), 'success', 3000);
             await this.renderHubsList();
 
             if (autoSelect || !this.activeHub || !this.activeHub.host) {
@@ -491,7 +491,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     if (btnIcon) btnIcon.textContent = '🔍';
 
     if (foundCount > 0) {
-      showToast(`Network scan complete! Added ${foundCount} Harmony Hub(s).`, 'success');
+      showToast(t('scan_complete_added', 'Network scan complete! Added {count} Harmony Hub(s).').replace('{count}', foundCount), 'success');
       await this.renderHubsList();
     } else if (!this._cancelScan) {
       showToast(t("scan_complete_none"), 'warning');
@@ -562,11 +562,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     modal.innerHTML = `
       <div class="card" style="width:100%;max-width:380px;">
         <h3 style="font-size:16px;margin-bottom:12px;">${isEdit ? 'Edit Hub Profile' : 'Add New Harmony Hub'}</h3>
-        <label>Hub Name</label><input id="hubFormName" class="form-control" value="${h.name || ''}">
-        <label>IP Address / Host</label><input id="hubFormHost" class="form-control" value="${h.host || ''}">
-        <label>HTTP Port</label><input id="hubFormPort" type="number" class="form-control" value="${h.port || 8089}">
-        <label>Username (Optional)</label><input id="hubFormUser" class="form-control" value="${h.username || ''}">
-        <label>Password (Optional)</label><input id="hubFormPass" type="password" class="form-control" value="${h.password || ''}">
+        <label>${t('hub_name', 'Hub Name')}</label><input id="hubFormName" class="form-control" value="${h.name || ''}">
+        <label>${t('ip_address_host_lbl', 'IP Address / Host')}</label><input id="hubFormHost" class="form-control" value="${h.host || ''}">
+        <label>${t('http_port_lbl', 'HTTP Port')}</label><input id="hubFormPort" type="number" class="form-control" value="${h.port || 8089}">
+        <label>${t('user_optional_lbl', 'Username (Optional)')}</label><input id="hubFormUser" class="form-control" value="${h.username || ''}">
+        <label>${t('pwd_optional_lbl', 'Password (Optional)')}</label><input id="hubFormPass" type="password" class="form-control" value="${h.password || ''}">
         <div id="hubTestStatus" class="subtle" style="margin-top:8px;"></div>
         <div class="actions" style="margin-top:14px;display:flex;justify-content:space-between;">
           <div style="display:flex;gap:6px;">

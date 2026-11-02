@@ -495,7 +495,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           alert(t("bt_cmds_cannot_delete"));
           return;
         }
-        if (!await showConfirm(`Delete command "${cmd}" from this device?`, { title: 'Delete Command', okText: 'Delete' })) return;
+        if (!await showConfirm(t('delete_cmd_from_dev_confirm').replace('{cmd}', cmd), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
         try {
           await this.client.deleteCommand(dId, cmd);
           await this.refreshData();

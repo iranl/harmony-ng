@@ -123,12 +123,12 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
             The connected hub requires a newer version of the Android App. Please update your app.
           </p>
           <div class="muted mini" style="margin-bottom:16px;">
-            Current: <strong>v${escapeHtml(curVer)}</strong> • Required: <strong>v${escapeHtml(minVer)}+</strong>
+            ${t('current_colon', 'Current:')} <strong>v${escapeHtml(curVer)}</strong> • ${t('required_colon', 'Required:')} <strong>v${escapeHtml(minVer)}+</strong>
           </div>
           <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-            <button type="button" class="btn btn-primary" onclick="window.location.reload(true)">Reload</button>
-            <button type="button" class="btn btn-secondary" onclick="if(window.caches){caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n)))).finally(()=>location.reload(true))}else{location.reload(true)}">Clear Cache</button>
-            <button type="button" class="btn btn-secondary" onclick="document.getElementById('outdatedAppModal').remove()">Continue Anyway</button>
+            <button type="button" class="btn btn-primary" onclick="window.location.reload(true)">${t('btn_reload', 'Reload')}</button>
+            <button type="button" class="btn btn-secondary" onclick="if(window.caches){caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n)))).finally(()=>location.reload(true))}else{location.reload(true)}">${t('btn_clear_cache', 'Clear Cache')}</button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('outdatedAppModal').remove()">${t('btn_continue_anyway', 'Continue Anyway')}</button>
           </div>
         </div>
       `;

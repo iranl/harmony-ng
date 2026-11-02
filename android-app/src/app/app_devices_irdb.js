@@ -326,53 +326,53 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
       editor.innerHTML = `
         <div class="card" style="margin-bottom: 12px;">
-          <h3 style="font-size: 15px; margin-bottom: 8px;">Device Details</h3>
+          <h3 style="font-size: 15px; margin-bottom: 8px;">${t('device_details_card', 'Device Details')}</h3>
           <div class="row">
-            <div><label>Name</label><input id="mgrDevName" class="form-control" value="${dev.name || ''}"></div>
-            <div><label>Type</label><input id="mgrDevType" class="form-control" value="${dev.type || ''}"></div>
+            <div><label>${t('name_lbl', 'Name')}</label><input id="mgrDevName" class="form-control" value="${dev.name || ''}"></div>
+            <div><label>${t('type_lbl', 'Type')}</label><input id="mgrDevType" class="form-control" value="${dev.type || ''}"></div>
           </div>
           <div class="row" style="margin-top: 8px;">
-            <div><label>Manufacturer</label><input id="mgrDevMan" class="form-control" value="${dev.manufacturer || ''}"></div>
-            <div><label>Model</label><input id="mgrDevMod" class="form-control" value="${dev.model || ''}"></div>
+            <div><label>${t('manufacturer_lbl', 'Manufacturer')}</label><input id="mgrDevMan" class="form-control" value="${dev.manufacturer || ''}"></div>
+            <div><label>${t('model_lbl', 'Model')}</label><input id="mgrDevMod" class="form-control" value="${dev.model || ''}"></div>
           </div>
           <div style="margin-top: 10px;">
-            <label>IR Blaster Assignment</label>
+            <label>${t('ir_blaster_assignment_lbl', 'IR Blaster Assignment')}</label>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterInternal" value="4" ${(cp & 4) ? 'checked' : ''}> Hub Internal</label>
-              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterP1" value="1" ${(cp & 1) ? 'checked' : ''}> Blaster Port 1</label>
-              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterP2" value="2" ${(cp & 2) ? 'checked' : ''}> Blaster Port 2</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterInternal" value="4" ${(cp & 4) ? 'checked' : ''}>${t('hub_internal', 'Hub Internal')}</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterP1" value="1" ${(cp & 1) ? 'checked' : ''}>${t('blaster_port_1', 'Blaster Port 1')}</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="mgrBlasterP2" value="2" ${(cp & 2) ? 'checked' : ''}>${t('blaster_port_2', 'Blaster Port 2')}</label>
             </div>
           </div>
           <div class="actions" style="margin-top: 12px; display: flex; justify-content: space-between;">
-            <button type="button" id="btnMgrSaveDev" class="btn btn-sm btn-primary">Save Device Details</button>
-            <button type="button" id="btnMgrDelDev" class="btn btn-sm btn-danger">Delete Device</button>
+            <button type="button" id="btnMgrSaveDev" class="btn btn-sm btn-primary">${t('save_device_details_btn', 'Save Device Details')}</button>
+            <button type="button" id="btnMgrDelDev" class="btn btn-sm btn-danger">${t('delete_device_btn', 'Delete Device')}</button>
           </div>
         </div>
 
         <div class="card" style="margin-bottom: 12px;">
-          <h3 style="font-size: 15px; margin-bottom: 8px;">Power Management</h3>
+          <h3 style="font-size: 15px; margin-bottom: 8px;">${t('power_mgmt_card', 'Power Management')}</h3>
           <label style="display: flex; align-items: center; gap: 6px;">
             <input type="checkbox" id="mgrDevAlwaysOn" ${dev.is_power_always_on ? 'checked' : ''}>
-            <span>Always On (leave powered between activities)</span>
+            <span>${t('always_on_leave_powered')}</span>
           </label>
           <div style="margin-top: 8px;">
-            <label>Warmup Delay (ms)</label>
+            <label>${t('warmup_delay_ms', 'Warmup Delay (ms)')}</label>
             <input id="mgrDevPowerDelay" type="number" class="form-control" value="${dev.power_on_delay || 1500}">
           </div>
           <div class="actions" style="margin-top: 12px;">
-            <button type="button" id="btnMgrSavePower" class="btn btn-sm btn-secondary">Save Power Settings</button>
+            <button type="button" id="btnMgrSavePower" class="btn btn-sm btn-secondary">${t('save_power_settings_btn', 'Save Power Settings')}</button>
           </div>
         </div>
 
         <div class="card" style="margin-bottom: 12px;">
-          <h3 style="font-size: 15px; margin-bottom: 8px;">MQTT Connection</h3>
+          <h3 style="font-size: 15px; margin-bottom: 8px;">${t('mqtt_conn_card', 'MQTT Connection')}</h3>
           <label style="display: flex; align-items: center; gap: 6px;">
             <input type="checkbox" id="mgrDevMqttEnabled" ${dev.mqttEnabled ? 'checked' : ''}>
-            <span>Publish button presses to MQTT</span>
+            <span>${t('publish_presses_mqtt')}</span>
           </label>
           <div class="row" style="margin-top: 8px;">
             <div>
-              <label>Topic Template</label>
+              <label>${t('topic_template_lbl', 'Topic Template')}</label>
               <input id="mgrDevMqttTopic" class="form-control" value="${dev.mqttTopic || '{root}/button/{device}/{command}'}">
               <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{root}">{root}</button>
@@ -384,8 +384,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
             <div><label>Pulse (ms)</label><input id="mgrDevMqttPulse" type="number" class="form-control" value="${dev.mqttPulseMs || 1000}"></div>
           </div>
           <div class="actions" style="margin-top: 12px; display: flex; gap: 8px;">
-            <button type="button" id="btnMgrSaveMqtt" class="btn btn-sm btn-secondary">Save MQTT</button>
-            <button type="button" id="btnMgrTestMqtt" class="btn btn-sm btn-ghost">Test Pulse</button>
+            <button type="button" id="btnMgrSaveMqtt" class="btn btn-sm btn-secondary">${t('save_mqtt_btn', 'Save MQTT')}</button>
+            <button type="button" id="btnMgrTestMqtt" class="btn btn-sm btn-ghost">${t('test_pulse_btn', 'Test Pulse')}</button>
           </div>
         </div>
 
@@ -395,7 +395,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
             <span class="muted mini">Device: ${dev.name || dev.id}</span>
           </div>
           <div style="margin-bottom: 8px;">
-            <input type="text" id="mgrCmdSearch" class="form-control" placeholder="Search commands (e.g. Power, Play, Volume)...">
+            <input type="text" id="mgrCmdSearch" class="form-control" placeholder="${t('ph_search_cmds')}">
           </div>
           <div id="mgrCmdsList" style="display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto;">
           </div>
@@ -431,7 +431,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       });
 
       editor.querySelector('#btnMgrDelDev')?.addEventListener('click', async () => {
-        if (!await showConfirm(`Delete device ${dev.name}?`, { title: 'Delete Device', okText: 'Delete' })) return;
+        if (!await showConfirm(t('delete_device_confirm', 'Delete device {name}?').replace('{name}', dev.name), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
         await this.client.deleteDevice(dev.id);
         alert(t("device_deleted"));
         await this.refreshData();
@@ -514,7 +514,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         listEl.querySelectorAll('.btn-mgr-del-cmd').forEach(b => {
           b.addEventListener('click', async () => {
             const cmd = b.getAttribute('data-cmd');
-            if (!await showConfirm(`Delete command ${cmd}?`, { title: 'Delete Command', okText: 'Delete' })) return;
+            if (!await showConfirm(t('delete_cmd_confirm', 'Delete command {name}?').replace('{name}', cmd), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
             await this.client.deleteCommand(dev.id, cmd);
             await this.refreshData();
             render();

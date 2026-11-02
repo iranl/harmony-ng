@@ -823,7 +823,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         }
         const fn = url.split('/').pop().split('?')[0] || 'remote_icon.png';
         loadImgFromBlob(blob, fn);
-        showToast('Image loaded and resized to 40×40', 'success');
+        showToast(t('image_loaded_resized'), 'success');
       } catch (err) {
         showToast(t("could_not_fetch_img") + err.message, 'error');
       } finally {
@@ -867,7 +867,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
         const uploadRes = await this.client.uploadCustomIcon(type, id, dataUrl, iconName);
         const iconFn = uploadRes.filename || `custom_${iconName}.png`;
-        showToast(`Custom icon "${iconName}" saved & queued for remote push!`, 'success');
+        showToast(t('custom_icon_saved_queued').replace('{name}', iconName), 'success');
 
         if (typeof this.iconPickerCallback === 'function') {
           await this.iconPickerCallback(iconFn);
@@ -945,7 +945,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       if (offCmd) {
         const offCmdName = typeof offCmd === 'string' ? offCmd : offCmd.name;
         const devName = offDev?.name || 'device';
-        showToast(`Sending "${offCmdName}" to ${devName}...`, 'info', 2000);
+        showToast(t('sending_cmd_to_dev').replace('{cmd}', offCmdName).replace('{dev}', devName), 'info', 2000);
         try {
           await this.client.sendCommand(offDevId, offCmdName);
           const stateEl = document.getElementById('btCalibrateStateMsg');
@@ -954,7 +954,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
           showToast(t("error_sending_cmd") + (e.message || e), 'error');
         }
       } else {
-        showToast('No PowerOff/Toggle command found. Please turn off device manually.', 'info', 3000);
+        showToast(t('no_poweroff_cmd_found'), 'info', 3000);
       }
     });
 

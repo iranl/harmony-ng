@@ -689,7 +689,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       const res = await fetch(url, { headers: this.client.getHeaders() });
       if (!res.ok) {
         if (res.status === 404) {
-          showToast(`No saved ${target} data on Hub to export.`, 'info');
+          showToast(t('no_saved_data_export').replace('{target}', target), 'info');
           return;
         }
         throw new Error(`HTTP ${res.status}`);
@@ -850,7 +850,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       if (progressBar) progressBar.style.width = '100%';
       if (pctLabel) pctLabel.textContent = '100%';
       if (statusText) statusText.textContent = `Completed! ${res.count} icons cached locally.`;
-      showToast(`Successfully cached ${res.count} icons offline!`, 'success');
+      showToast(t('cached_icons_offline').replace('{count}', res.count), 'success');
       this.updateIconCacheUI();
       await this.loadAvailableIcons(true);
       if (this.currentTab === 'activity-remote') this.renderActivityRemote();
@@ -869,8 +869,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   }
 
   async clearLocalIconCache() {
-    const ok = await showConfirm('Clear local icon cache? Icons will need to be reloaded from the Hub.', {
-      title: 'Clear Icon Cache',
+    const ok = await showConfirm(t('clear_icon_cache_confirm'), {
+      title: t('clear_icon_cache', 'Clear Icon Cache'),
       icon: '🗑️'
     });
     if (!ok) return;
@@ -926,7 +926,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   async toggleRfService() {
     const isEnabled = this.servicesState ? this.servicesState.rf_enabled : false;
     const action = isEnabled ? 'disable' : 'enable';
-    if (!await showConfirm(`${action === 'disable' ? 'Disable' : 'Enable'} Harmony Remote RF receiver service?`, { title: `${action === 'disable' ? 'Disable' : 'Enable'} RF Service`, okText: action === 'disable' ? 'Disable' : 'Enable' })) return;
+    if (!await showConfirm(action === 'disable' ? t('disable_rf_service_confirm') : t('enable_rf_service_confirm'), { title: action === 'disable' ? t('disable_rf_service_btn', 'Disable RF Service') : t('enable_rf_service_btn', 'Enable RF Service'), okText: action === 'disable' ? t('disable', 'Disable') : t('enable', 'Enable') })) return;
 
     try {
       await this.client.toggleRfService(!isEnabled);
@@ -939,7 +939,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   async toggleBtService() {
     const isEnabled = this.servicesState ? this.servicesState.bt_enabled : false;
     const action = isEnabled ? 'disable' : 'enable';
-    if (!await showConfirm(`${action === 'disable' ? 'Disable' : 'Enable'} Bluetooth service?`, { title: `${action === 'disable' ? 'Disable' : 'Enable'} Bluetooth Service`, okText: action === 'disable' ? 'Disable' : 'Enable' })) return;
+    if (!await showConfirm(action === 'disable' ? t('disable_bt_service_confirm') : t('enable_bt_service_confirm'), { title: action === 'disable' ? t('disable_bt_service', 'Disable Bluetooth Service') : t('enable_bt_service', 'Enable Bluetooth Service'), okText: action === 'disable' ? t('disable', 'Disable') : t('enable', 'Enable') })) return;
 
     try {
       await this.client.toggleBtService(!isEnabled);

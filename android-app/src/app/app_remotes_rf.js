@@ -483,7 +483,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
 
   async pullConfigFromRemote(slot) {
     const slotName = slot === 1 ? 'Slot 1' : 'Slot 2';
-    if (!await showConfirm(`Pull configuration from Remote in ${slotName} to Hub? This will overwrite the Hub's saved remote configuration with what is currently running on the remote.`, { title: `Pull Config (${slotName})`, okText: 'Pull Config', danger: false })) return;
+    if (!await showConfirm(t('pull_config_confirm').replace('{slot}', slotName), { title: `Pull Config (${slotName})`, okText: t('pull_config', 'Pull Config'), danger: false })) return;
     try {
       await this.client.pullRfConfig(slot);
       alert(t("config_pull_requested").replace("{slot}", slotName));
@@ -555,7 +555,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
   }
 
   async startEliteOta(slot = 1) {
-    if (!await showConfirm(`Start RF OTA firmware update for Remote in Slot ${slot}? Ensure remote is close to the Hub and has at least 40% battery.`, { title: 'RF OTA Update', okText: 'Start Update', danger: false })) return;
+    if (!await showConfirm(t('rf_ota_update_confirm').replace('{slot}', slot), { title: t('rf_ota_title', 'RF OTA Update'), okText: t('btn_start_update', 'Start Update'), danger: false })) return;
     const btn = document.getElementById(`rfSlot${slot}UpdateBtn`);
     const otherBtn = document.getElementById(`rfSlot${slot === 1 ? 2 : 1}UpdateBtn`);
     const statusDiv = document.getElementById(`rfSlot${slot}OtaStatus`);

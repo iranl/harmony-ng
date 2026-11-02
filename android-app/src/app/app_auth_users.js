@@ -210,12 +210,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         btn.addEventListener('click', async () => {
           const tid = btn.getAttribute('data-id');
           const tname = btn.getAttribute('data-name');
-          if (!await showConfirm(`Revoke Personal Access Token "${tname}"? Third-party integrations using this token will stop working.`, { title: 'Revoke Token', okText: 'Revoke' })) return;
+          if (!await showConfirm(t('revoke_token_confirm').replace('{name}', tname), { title: t('revoke_token'), okText: t('revoke') })) return;
           try {
             await this.client.deleteToken(tid);
             await this.loadPersonalAccessTokens();
           } catch (err) {
-            showToast(`Failed to revoke token: ${err.message}`, 'error');
+            showToast(t('fail_revoke_token', 'Failed to revoke token: ') + err.message, 'error');
           }
         });
       });
@@ -241,7 +241,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         await this.loadPersonalAccessTokens();
       }
     } catch (err) {
-      showToast(`Failed to create token: ${err.message}`, 'error');
+      showToast(t('fail_create_token', 'Failed to create token: ') + err.message, 'error');
     }
   }
 
@@ -298,7 +298,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     if (btnSession) {
       btnSession.addEventListener('click', async () => {
         if (this.client?.token) {
-          if (await showConfirm('Log out from Harmony Hub?', { title: 'Logout', okText: 'Log Out', danger: false })) {
+          if (await showConfirm(t('logout_confirm'), { title: t('logout'), okText: t('logout'), danger: false })) {
             await this.client.logout();
             this.checkAuthStatus();
             await this.refreshData();

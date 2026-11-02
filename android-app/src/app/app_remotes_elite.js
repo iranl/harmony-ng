@@ -270,17 +270,17 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     const curSlot = this.selectedRemoteSlot || 1;
     const otherSlot = curSlot === 1 ? 2 : 1;
     const confirmed = await showConfirm(
-      `Copy all activity and device button mappings from Slot ${otherSlot} to Slot ${curSlot}? Any existing mappings on Slot ${curSlot} will be overwritten.`,
-      { title: 'Copy Button Mappings', okText: 'Copy Mappings' }
+      t('copy_mappings_confirm').replace('{other}', otherSlot).replace('{cur}', curSlot),
+      { title: t('copy_button_mappings'), okText: t('copy_mappings') }
     );
     if (!confirmed) return;
 
     try {
       await this.client.copyRFMapping(otherSlot, curSlot);
-      showToast(`Mappings copied from Slot ${otherSlot} to Slot ${curSlot}!`, 'success');
+      showToast(t('mappings_copied_slots').replace('{other}', otherSlot).replace('{cur}', curSlot), 'success');
       await this.loadEliteView();
     } catch (err) {
-      showToast(`Copy failed: ${err.message || err}`, 'danger');
+      showToast(t('push_failed') + (err.message || err), 'danger');
     }
   }
 
@@ -508,9 +508,9 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
     try {
       if (btn) btn.textContent = 'Saving...';
       await this.client.saveRFMapping(this.eliteMapData, slot);
-      showToast(`Slot ${slot} mappings saved to Hub!`, 'success');
+      showToast(t('rf_config_saved'), 'success');
     } catch (err) {
-      showToast('Save failed: ' + (err.message || err), 'danger');
+      showToast(t('save_failed') + (err.message || err), 'danger');
     } finally {
       if (btn) btn.textContent = 'Save All to Hub';
     }

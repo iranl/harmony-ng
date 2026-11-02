@@ -248,7 +248,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     const pwrBtn = document.getElementById('btnBannerPowerOff');
     if (pwrBtn) {
       pwrBtn.addEventListener('click', async () => {
-        if (await showConfirm('Power off all devices in current activity?', { title: 'Power Off Activity', okText: 'Power Off' })) {
+        if (await showConfirm(t('power_off_act_confirm'), { title: t('power_off_act', 'Power Off Activity'), okText: t('power_off', 'Power Off') })) {
           await this.stopActivity();
         }
       });
@@ -597,7 +597,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     document.getElementById('btnCurDevBtUnpair')?.addEventListener('click', async () => {
       const devId = this.selectedIrDeviceId;
       if (!devId) return;
-      if (!await showConfirm('Unpair and unlink Bluetooth host from this device?', { title: 'Unpair Bluetooth Host', okText: 'Unpair' })) return;
+      if (!await showConfirm(t('unpair_bt_host_confirm'), { title: t('unpair_bt_host', 'Unpair Bluetooth Host'), okText: t('unpair', 'Unpair') })) return;
       try {
         await this.client.linkBtDevice('', devId);
         await this.refreshData();
@@ -769,7 +769,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     document.getElementById('btnDeleteCurrentDevice')?.addEventListener('click', async () => {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!devId) return;
-      if (!await showConfirm('Are you sure you want to delete this device and all its commands?', { title: 'Delete Device', okText: 'Delete' })) return;
+      if (!await showConfirm(t('delete_device_all_cmds_confirm'), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
       await this.client.deleteDevice(devId);
       await this.refreshData();
       this.renderIrView();

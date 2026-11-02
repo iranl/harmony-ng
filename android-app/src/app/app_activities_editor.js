@@ -122,7 +122,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
           <select id="actAddDevSelect" class="form-control" style="flex: 1;"></select>
           <button type="button" id="actAddDevBtn" class="btn btn-xs btn-secondary">+ Add Device</button>
         </div>
-        <div class="muted mini" style="margin-top: 4px;">Start/Stop Order: Devices power ON in order (#1..#N) and power OFF in reverse.</div>
+        <div class="muted mini" style="margin-top: 4px;">${t('act_start_stop_order_hint')}</div>
       `;
 
       const listWrap = document.getElementById('actDevOrderedList');
@@ -476,7 +476,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
   async deleteCurrentActivity() {
     const id = document.getElementById('actEditId')?.value;
     if (!id || String(id) === '-1') return alert(t("cannot_delete_act"));
-    if (!await showConfirm('Are you sure you want to delete this activity?', { title: 'Delete Activity', okText: 'Delete' })) return;
+    if (!await showConfirm(t('delete_activity_confirm', 'Are you sure you want to delete this activity?'), { title: t('delete_activity', 'Delete Activity'), okText: t('delete', 'Delete') })) return;
     try {
       await this.client.deleteActivity(id);
       document.getElementById('actEditorBox').style.display = 'none';

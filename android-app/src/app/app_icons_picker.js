@@ -406,7 +406,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           }
         }
         document.getElementById('iconPickerModal').style.display = 'none';
-        showToast(`Selected icon "${this.formatIconDisplayName(iconVal)}"`, 'info', 1800);
+        showToast(t('selected_icon').replace('{name}', this.formatIconDisplayName(iconVal)), 'info', 1800);
       });
     }
   }
@@ -581,7 +581,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         await this.client.sendCommand(targetDevId, targetCmdName);
       } catch (e) {
         console.warn('Power command send error:', e);
-        showToast(`Failed to trigger "${targetCmdName}": ${e.message || e}`, 'warning');
+        showToast(t('fail_trigger_cmd').replace('{name}', targetCmdName) + (e.message || e), 'warning');
       }
     }
 
@@ -638,7 +638,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
           this._lastSuggestedBtDelay = suggested;
           this._lastCalibratedDevId = dev.id;
 
-          showToast(`Bluetooth connected in ${elapsedSec}s! Suggested delay: ${suggested}s.`, 'success');
+          showToast(t('bt_connected_in').replace('{sec}', elapsedSec).replace('{suggested}', suggested), 'success');
         }
       } catch (err) { }
     }, 200);
@@ -675,7 +675,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         payload.btTriggerCommandName = trigCmdName;
       }
       await this.client.saveDeviceDetails(payload);
-      showToast(`Saved ${delay}s Bluetooth delay override for this device!`, 'success');
+      showToast(t('saved_bt_delay_override').replace('{delay}', delay), 'success');
       document.getElementById('btDelayCalibrateModal').style.display = 'none';
       await this.refreshData();
     } catch (e) {

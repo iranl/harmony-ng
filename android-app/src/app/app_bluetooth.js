@@ -246,7 +246,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       if (btn) btn.textContent = 'Entering pairing mode...';
       await this.client.setBtPairing(true, name, target);
       const devObj = (this.inventory.devices || []).find(d => String(d.id) === String(target));
-      showToast('Hub is now discoverable as "' + name + '" for ' + (devObj ? devObj.name : target) + '. Pair from your host device.', 'success');
+      showToast(t('hub_now_discoverable').replace('{name}', name).replace('{target}', devObj ? devObj.name : target), 'success');
     } catch (err) {
       alert(t('pairing_mode_failed', 'Pairing mode failed: ') + err.message);
     } finally {
@@ -356,7 +356,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       btn.addEventListener('click', async () => {
         const devId = btn.getAttribute('data-dev');
         const cmdName = btn.getAttribute('data-cmd');
-        if (!await showConfirm(`Delete Bluetooth macro "${cmdName}"?`, { title: 'Delete Bluetooth Macro', okText: 'Delete' })) return;
+        if (!await showConfirm(t('delete_bt_macro_confirm').replace('{name}', cmdName), { title: t('delete_bt_macro'), okText: t('delete') })) return;
         try {
           await this.client.deleteBtCommand(devId, cmdName);
           await this.refreshData();

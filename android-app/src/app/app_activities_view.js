@@ -62,11 +62,11 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       cont.innerHTML = `
         <div class="card" style="text-align: center; padding: 36px 16px;">
           <div style="font-size: 36px; margin-bottom: 8px;">🔍</div>
-          <h3 style="font-size: 16px; margin-bottom: 8px;">No Harmony Hub Configured</h3>
-          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Scan your network for Hubs or add one manually to start using the remote.</p>
+          <h3 style="font-size: 16px; margin-bottom: 8px;">${t('no_hub_configured', 'No Harmony Hub Configured')}</h3>
+          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">${t('scan_network_or_add_hub')}</p>
           <div style="display: flex; gap: 8px; justify-content: center;">
-            <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.scanNetwork(true)">Scan Network</button>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="window.harmonyApp && window.harmonyApp.switchTab('hubs')">Manage Hubs</button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.scanNetwork(true)">${t('scan_network_btn', 'Scan Network')}</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.harmonyApp && window.harmonyApp.switchTab('hubs')">${t('manage_hubs_btn', 'Manage Hubs')}</button>
           </div>
         </div>
       `;
@@ -77,9 +77,9 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       cont.innerHTML = `
         <div class="card" style="text-align: center; padding: 36px 16px;">
           <div style="font-size: 36px; margin-bottom: 8px;">📡</div>
-          <h3 style="font-size: 16px; margin-bottom: 8px; color: var(--danger);">Hub Connection Lost</h3>
-          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Unable to reach Harmony Hub at ${escapeHtml(this.activeHub.host)}. Checking health and reconnecting...</p>
-          <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.pollHubHealth(true)">Retry Connection</button>
+          <h3 style="font-size: 16px; margin-bottom: 8px; color: var(--danger);">${t('hub_conn_lost', 'Hub Connection Lost')}</h3>
+          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">${t('cannot_reach_hub', 'Cannot reach hub. Reconnecting...')}</p>
+          <button type="button" class="btn btn-sm btn-primary" onclick="window.harmonyApp && window.harmonyApp.pollHubHealth(true)">${t('retry_connection', 'Retry Connection')}</button>
         </div>
       `;
       return;
@@ -100,8 +100,8 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
 
       cont.innerHTML = `
         <div class="card" style="text-align: center; padding: 32px 16px;">
-          <h3 style="font-size: 16px; margin-bottom: 8px;">Hub is in PowerOff State</h3>
-          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">Select an activity from the top banner to turn on devices and use the remote.</p>
+          <h3 style="font-size: 16px; margin-bottom: 8px;">${t('hub_poweroff_state', 'Hub is in PowerOff State')}</h3>
+          <p class="muted" style="font-size: 13px; margin-bottom: 16px;">${t('hub_poweroff_hint')}</p>
           <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
             ${realActs.map(a => `
               <button type="button" class="btn btn-sm btn-primary btn-start-act-idle" data-act-id="${escapeHtml(a.id)}" style="display:inline-flex; align-items:center; gap:6px;">${getActivityIconSvg(a.icon, a.type, 16)}<span>Start ${escapeHtml(a.name || a.label)}</span></button>
@@ -404,7 +404,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
           act.icon = selectedIcon;
           try {
             await this.client.updateActivity({ ...act, icon: selectedIcon });
-            showToast(`Updated icon for "${act.name}"`, 'success');
+            showToast(t('updated_icon_for', 'Updated icon for "{name}"').replace('{name}', act.name), 'success');
             await this.refreshData();
             await this.loadActivitiesView();
           } catch (e) {
