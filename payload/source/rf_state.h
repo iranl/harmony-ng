@@ -57,7 +57,7 @@ typedef struct {
     uint64_t last_report_ms;
 } remote_version_t;
 
-/* RF traffic with one remote since hub_rf started, for diagnosing the link (ADR-0012) */
+/* RF traffic with one remote since hub_rf started, for diagnosing the link */
 typedef struct {
     uint32_t frames_rx;   /* protocol frames received from the remote */
     uint32_t acked_sent;  /* frames sent that wait for the remote's ACK, resends included */

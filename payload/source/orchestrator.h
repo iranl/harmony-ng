@@ -89,7 +89,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
 int orch_power_off(int dry_run, char *preview_json, size_t preview_len);
 
 /*
- * Help (ADR-0004): re-send the running activity's start sequence as if starting from Power
+ * Help: re-send the running activity's start sequence as if starting from Power
  * Off, except power toggles, which could turn a device off. toggles receives the devices whose
  * power control is a toggle, for the caller to ask about. With dry_run, nothing is sent,
  * preview_json gets the steps, and act_id need not be running. Returns 0, -2 if busy, -3 if

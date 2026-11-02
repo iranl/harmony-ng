@@ -88,7 +88,7 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
     return arr;
 }
 
-/* Help (ADR-0004): the devices the last Help asked about, so answers toggle only those */
+/* Help: the devices the last Help asked about, so answers toggle only those */
 static orch_toggle_t s_help_toggles[16];
 static size_t s_help_toggle_count;
 static pthread_mutex_t s_help_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -224,7 +224,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
     }
 
     /* Route: POST /api/activity/help: re-send the running activity's commands except power
-       toggles, and list the devices with toggles to ask about (ADR-0004) */
+       toggles, and list the devices with toggles to ask about */
     if (strcmp(clean_path, "/api/activity/help") == 0 && strcmp(method, "POST") == 0) {
         char act_id[32] = {0};
         int dry_run = 0;

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.0.0
+  version: 2.1.1
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Elite Remote** RF daemon.
     
@@ -65,6 +65,18 @@ paths:
                 status: ok
                 service: hub_daemon
 
+  /ws:
+    get:
+      tags:
+        - System & Status
+      summary: WebSocket live telemetry & event stream
+      description: |
+        WebSocket connection for real-time activity transitions, IR/RF events, and hub telemetry.
+        Requires upgrade headers `Connection: Upgrade` and `Upgrade: websocket`.
+      responses:
+        '101':
+          description: Switching protocols to WebSocket
+
   /api/status:
     get:
       tags:
@@ -120,6 +132,7 @@ paths:
       tags:
         - System & Status
       summary: Storage partition status
+      description: Returns filesystem storage metrics for flash partitions (/data and /cache).
       responses:
         '200':
           description: Storage partition details
@@ -127,12 +140,14 @@ paths:
             application/json:
               example:
                 ok: true
-                partitions:
-                  - mount: /data
-                    total_kb: 5120
-                    used_kb: 3748
-                    free_kb: 1372
-                    percent_used: 73
+                total_kb: 5120
+                free_kb: 1696
+                used_kb: 3424
+                percent_free: 33
+                cache_total_kb: 5120
+                cache_free_kb: 1824
+                cache_used_kb: 3296
+                cache_percent_free: 35
 
   /api/network-status:
     get:
@@ -668,7 +683,9 @@ paths:
       tags:
         - System & Status
       summary: Global hub settings
-      description: Returns global hub settings. Note that Bluetooth auto-reconnect parameters are configured per-device in /api/inventory.
+      description: |
+        Returns global hub settings. Note that Bluetooth auto-reconnect parameters are configured per-device in /api/inventory.
+        `timezone` accepts standard IANA timezone identifiers (e.g. "Europe/Amsterdam", "America/New_York", "Asia/Tokyo") or explicit POSIX TZ strings (e.g. "CET-1CEST,M3.5.0,M10.5.0/3").
       responses:
         '200':
           description: Hub configuration
@@ -685,7 +702,9 @@ paths:
       tags:
         - System & Status
       summary: Save global hub settings
-      description: Updates global hub settings.
+      description: |
+        Updates global hub settings.
+        `timezone` accepts standard IANA timezone identifiers (e.g. "Europe/Amsterdam") or POSIX TZ strings.
       requestBody:
         required: true
         content:
@@ -696,7 +715,7 @@ paths:
                 hub_name: {type: string}
                 dry_run: {type: boolean}
                 ntp_server: {type: string}
-                timezone: {type: string}
+                timezone: {type: string, description: "IANA timezone name or POSIX TZ string"}
                 led_mode: {type: string}
             example:
               hub_name: Living Room Hub
@@ -717,7 +736,7 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Execute system maintenance action
-      description: Reboot the hub, run factory reset, or send raw MQTT messages.
+      description: Reboot the hub, run factory reset, configure authentication, or send raw MQTT messages. Also available under /system.
       requestBody:
         required: true
         content:
@@ -727,7 +746,7 @@ paths:
               properties:
                 action:
                   type: string
-                  enum: [reboot, factory_reset, mqtt_publish]
+                  enum: [reboot, factory_reset, mqtt_publish, auth]
                 confirm:
                   type: string
                   description: Required confirmation string ('RESET') for factory_reset
@@ -739,6 +758,15 @@ paths:
                   description: MQTT payload for mqtt_publish action
                 retain:
                   type: boolean
+                authEnabled:
+                  type: boolean
+                  description: Enable or disable HTTP authentication (auth action)
+                authUsername:
+                  type: string
+                  description: Primary admin username (auth action)
+                authPassword:
+                  type: string
+                  description: Primary admin password (auth action)
               required: [action]
             examples:
               reboot:
@@ -747,6 +775,8 @@ paths:
                 value: {action: factory_reset, confirm: RESET}
               mqttPublish:
                 value: {action: mqtt_publish, topic: harmony/hub/notify, payload: "{\"event\":\"ready\"}"}
+              auth:
+                value: {action: auth, authEnabled: true, authUsername: admin, authPassword: secretpassword}
       responses:
         '200':
           description: Action accepted
@@ -761,6 +791,34 @@ paths:
       tags:
         - Devices & Commands
       summary: Get device inventory
+      description: Returns configured devices and command profiles. Also available under /api/devices.
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              example:
+                devices:
+                  - id: "70321456"
+                    name: LG OLED TV
+                    type: Television
+                    manufacturer: LG
+                    model: OLED65C2
+                    controlPort: 0
+                    mqttTopic: home/livingroom/tv
+                    mqttEnabled: true
+                    mqttPulse: 100
+                    commands:
+                      - name: PowerToggle
+                        raw: "0000 006d 0022 0002 0155 00aa ..."
+                        port: 7
+                        repeats: 3
+
+  /api/devices:
+    get:
+      tags:
+        - Devices & Commands
+      summary: Get device inventory (alias for /api/inventory)
       description: Returns configured devices and command profiles.
       responses:
         '200':
@@ -789,6 +847,7 @@ paths:
       tags:
         - Devices & Commands
       summary: Save or update device
+      description: Creates or updates a device definition. Also available under /api/new-device, /ir/device, /ir/new-device, /ir/device-mqtt, /ir/device-power.
       requestBody:
         required: true
         content:
@@ -1040,6 +1099,7 @@ paths:
       tags:
         - Activities
       summary: Current activity and state
+      description: Returns active activity ID, state, busy status (interlock held), and sending flag (pending command transmission). Also available under /api/current_activity.
       responses:
         '200':
           description: Current activity ID and orchestrator state
@@ -1049,10 +1109,12 @@ paths:
                 activity: "-1"
                 state: 0
                 busy: false
+                sending: false
     post:
       tags:
         - Activities
       summary: Start or switch activity
+      description: Initiates transition to target activity. Also available under /api/activity-start.
       requestBody:
         required: true
         content:
@@ -1077,11 +1139,105 @@ paths:
         '409':
           description: Orchestrator is busy transitioning another activity
 
+  /api/current_activity:
+    get:
+      tags:
+        - Activities
+      summary: Current activity and state (alias for /api/activity)
+      responses:
+        '200':
+          description: Current activity ID and orchestrator state
+          content:
+            application/json:
+              example:
+                activity: "-1"
+                state: 0
+                busy: false
+                sending: false
+
+  /api/activity/help:
+    post:
+      tags:
+        - Activities
+      summary: Repair the running activity
+      description: |
+        Re-sends the running activity's start sequence, as if starting from Power Off, except power toggles, and lists the devices whose power command is a toggle so the caller can ask whether each is on.
+        With `dry_run: true`, nothing is sent and `preview` holds the steps that would be sent.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                activity:
+                  type: string
+                  description: Target activity ID (defaults to running activity)
+                dry_run:
+                  type: boolean
+                  default: false
+            example:
+              activity: "1"
+              dry_run: false
+      responses:
+        '200':
+          description: Activity start commands re-sent, toggle devices returned
+          content:
+            application/json:
+              example:
+                success: true
+                activity: "1"
+                toggleDevices:
+                  - id: "4"
+                    name: "Sony Projector"
+                    command: "PowerToggle"
+        '409':
+          description: Interlock busy, or activity is not running
+          content:
+            application/json:
+              example:
+                error: "Interlock busy"
+
+  /api/activity/help/answer:
+    post:
+      tags:
+        - Activities
+      summary: Answer help power toggle prompt
+      description: Answers the question for one device of the last Help. "on": false sends that device's power toggle; "on": true sends nothing. Each device takes one answer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                device:
+                  type: string
+                  description: Device ID
+                on:
+                  type: boolean
+                  description: Whether the device is already on
+              required: [device, on]
+            example:
+              device: "4"
+              on: false
+      responses:
+        '200':
+          description: Answer processed
+          content:
+            application/json:
+              example:
+                success: true
+                sent: true
+        '404':
+          description: Device is not waiting for a Help answer
+
   /api/poweroff:
     post:
       tags:
         - Activities
       summary: Stop activity and power off
+      description: Initiates activity shutdown sequence. Also available under /api/activity-stop.
       requestBody:
         required: false
         content:
@@ -1106,7 +1262,7 @@ paths:
       tags:
         - Activities
       summary: Force reset orchestrator interlock
-      description: Cancels stalled activity transitions and resets orchestrator to idle.
+      description: Cancels stalled activity transitions and resets orchestrator to idle. Also available under /api/activity-reset and /api/interlock-reset.
       responses:
         '200':
           description: Interlock reset
@@ -1245,6 +1401,7 @@ paths:
       tags:
         - Activities
       summary: Reload configuration from flash
+      description: Forces daemon to reload JSON configs from flash. Also available under /api/reload.
       responses:
         '200':
           description: Configurations reloaded
@@ -1258,6 +1415,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Transmit IR code or device command
+      description: Transmits an IR command by device ID and command name, or raw Pronto hex. Also available under /ir/send.
       requestBody:
         required: true
         content:
@@ -1267,6 +1425,11 @@ paths:
               properties:
                 deviceId: {type: string}
                 command: {type: string}
+                action:
+                  type: string
+                  enum: [press, down, hold, repeat, release, up, tap]
+                  default: tap
+                  description: Button action for key holding and repeating
                 pronto: {type: string}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
@@ -1275,6 +1438,7 @@ paths:
                 value:
                   deviceId: "70321456"
                   command: PowerToggle
+                  action: tap
               byPronto:
                 value:
                   pronto: "0000 006d 0022 0002 0155 00aa ..."
@@ -1321,6 +1485,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Automated button pulse over MQTT & hardware
+      description: Dispatches button press or MQTT pulse. Also available under /api/mqtt-publish.
       requestBody:
         required: true
         content:
@@ -1329,8 +1494,13 @@ paths:
               type: object
               properties:
                 deviceId: {type: string}
+                device: {type: string}
                 command: {type: string}
+                source: {type: string}
+                action: {type: string}
+                topic: {type: string}
                 pulseMs: {type: integer, default: 100}
+                slot: {type: integer, enum: [1, 2], default: 1}
               required: [command]
             example:
               deviceId: "70321456"
@@ -1566,7 +1736,7 @@ paths:
       tags:
         - Bluetooth HID
       summary: BLE remote connection status
-      description: Returns connection state of the paired BLE remote (e.g. Homatics B25). When a BLE remote is sleeping, the first button press wakes its radio (showing a red light on B25) and drops; the second button registers after the remote reconnects to the Hub.
+      description: Returns connection state of the paired BLE remote (e.g. Homatics B25). Also available under /api/remote-pair-status. When a BLE remote is sleeping, the first button press wakes its radio (showing a red light on B25) and drops; the second button registers after the remote reconnects to the Hub.
       responses:
         '200':
           description: Remote link state
@@ -1593,6 +1763,22 @@ paths:
                 ok: true
                 state: scanning
                 message: Bluetooth remote scan started
+
+  /api/remote-scan-stop:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Stop scanning for BLE remotes
+      description: Halts active BTstack remote discovery scan.
+      responses:
+        '200':
+          description: Scan stopped
+          content:
+            application/json:
+              example:
+                ok: true
+                state: idle
+                message: Bluetooth remote scan stopped
 
   /api/remote-pair:
     post:
@@ -1659,30 +1845,79 @@ paths:
       tags:
         - RF & Elite Remote
       summary: CC2544 RF subsystem status
-      description: Proxied to hub_rf (port 8092). Returns remote RF addresses and active slots.
+      description: |
+        Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
       responses:
         '200':
           description: RF status
           content:
             application/json:
               example:
-                ok: true
                 running: true
-                state: running
-                connected: true
-                pairing_active: false
+                ok: true
+                fw_version: "v1.00"
                 paired: true
-                rf_address: 00000000
-                hub_rf_address: 00000000
+                rf_address: "12345678"
+                hub_rf_address: "12345678"
+                pairing_active: false
+                sync_pending: false
+                sync_pending_slot: 0
+                sync_pending_diff: ""
+                hub_config_version: 3
+                ota:
+                  in_progress: false
+                  slot: 0
+                  status: 0
+                  sent_bytes: 0
+                  total_bytes: 0
+                  sent_chunks: 0
+                  total_chunks: 0
+                  error: ""
                 slots:
                   - slot: 1
+                    name: "Harmony Companion (Slot 1)"
                     active: true
-                    address: 00000000
-                    rf_address: 00000000
+                    in_sync: true
+                    address: "12345678"
+                    rf_address: "12345678"
+                    model: "Harmony Companion"
+                    has_screen: false
+                    supports_ota: false
+                    sw_version: "N/A"
+                    config_version: 0
+                    battery:
+                      percent: 95
+                      charging: false
+                      voltage_mv: 3020
+                    link:
+                      frames_rx: 1520
+                      acked_sent: 412
+                      acked_ok: 398
+                      retries: 14
+                      naks: 9
+                      last_seen_s: 2
                   - slot: 2
-                    active: false
-                    address: None
-                    rf_address: None
+                    name: "Harmony Elite (Slot 2)"
+                    active: true
+                    in_sync: true
+                    address: "87654321"
+                    rf_address: "87654321"
+                    model: "elite"
+                    has_screen: true
+                    supports_ota: true
+                    sw_version: "v2.0.2"
+                    config_version: 3
+                    battery:
+                      percent: 78
+                      charging: false
+                      voltage_mv: 3840
+                    link:
+                      frames_rx: 210
+                      acked_sent: 85
+                      acked_ok: 82
+                      retries: 3
+                      naks: 1
+                      last_seen_s: 14
 
   /api/rf/pair:
     get:
@@ -2539,6 +2774,7 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Check online for firmware updates
+      description: Queries GitHub releases or local update state. Also available under /api/update-check-state.
       responses:
         '200':
           description: Check result
@@ -2546,9 +2782,44 @@ paths:
             application/json:
               example:
                 ok: true
-                current_version: 1.0.4
-                message: Hub binaries and WebUI are up to date (v1.0.4).
+                current_version: "2.1.1"
+                message: Hub binaries and WebUI are up to date (v2.1.1).
                 has_update: false
+    post:
+      tags:
+        - Updates & Maintenance
+      summary: Check online for firmware updates (custom repository or version)
+      description: Checks for updates against a specific GitHub repository, API token, or target version.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo:
+                  type: string
+                  description: Target GitHub repository owner/name
+                token:
+                  type: string
+                  description: GitHub personal access token (optional)
+                remote_version:
+                  type: string
+                  description: Expected remote version override
+            example:
+              repo: "iranl/harmony-ng"
+              remote_version: "2.1.1"
+      responses:
+        '200':
+          description: Check result
+          content:
+            application/json:
+              example:
+                ok: true
+                current_version: "2.1.1"
+                version: "2.1.1"
+                remote_version: "2.1.1"
+                update_available: false
 
   /api/update-apply:
     post:

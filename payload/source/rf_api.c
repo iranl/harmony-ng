@@ -632,7 +632,7 @@ void *api_server_worker(void *arg) {
                 snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
                 pthread_mutex_unlock(&g_ota_lock);
 
-                /* Link counters per slot (ADR-0012); last_seen_s is -1 before the first frame */
+                /* Link counters per slot; last_seen_s is -1 before the first frame */
                 char link_json[MAX_PAIRED_REMOTES][192];
                 uint64_t now_ms = get_monotonic_ms();
                 for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {

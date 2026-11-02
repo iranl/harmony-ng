@@ -35,7 +35,7 @@ export function createView() {
     h('p', { className: 'text-dim', style: { fontSize: '13px' }, text: t('card_elite_sub', 'Physical RF remote pairing, touchscreen layout & button mapping') }),
   ]);
 
-  // RF link counters for the selected slot (ADR-0012)
+  // RF link counters for the selected slot
   const linkStatus = h('p', { style: { fontSize: '13px', marginBottom: '12px' }, text: '' });
   async function loadLinkStatus() {
     const st = await api.getRfStatus().catch(() => null);

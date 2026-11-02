@@ -74,6 +74,10 @@ gcc -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/elite" 
 echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 
+# 6. Run OpenAPI Specification Contract Validation
+echo "[-] Running OpenAPI Specification Test Suite..."
+python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
+
 echo "==========================================================="
 echo "  ALL MOCKING & AUTOMATED TESTS COMPLETED WITH 100% PASS   "
 echo "==========================================================="
