@@ -396,6 +396,12 @@ void list_scroll_set_drag(int px) {
     l.dragging = px != 0; /* held where the finger left it, past the ends too */
 }
 
+void list_scroll_to(int px) {
+    list_geom_t g;
+    l.key = -1;
+    if (list_sync(&g)) l.scroll = clamp_scroll(&g, px);
+}
+
 int list_row_at(int y) {
     list_geom_t g;
     if (!list_sync(&g) || y < g.y || y >= g.y + g.rows * LIST_ROW_PITCH) return -1;

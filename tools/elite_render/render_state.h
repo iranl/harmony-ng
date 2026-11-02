@@ -20,7 +20,9 @@ typedef struct {
     bool hub_silent;     /* the link is up but the Hub doesn't answer */
     int sync_done, sync_total;
     int minutes;         /* clock shown in the status bar, minutes after midnight */
-    int scroll;          /* home pages dragged this many pixels (carousel: sideways); positive shows the previous page */
+    int scroll;          /* home pages or a list dragged this many pixels (carousel: sideways); positive shows the previous page or rows */
+    int list_top;        /* with has_list_top: a list scrolled this many pixels down, within its ends */
+    bool has_list_top;
 } render_options_t;
 
 /* Loads config and assets from o->root and sets up the state o describes */

@@ -50,6 +50,7 @@ static void set_view(const render_options_t *o) {
     } else if (strcmp(v, "devices") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = -1;
+        g_browse_sel = o->select;
     } else if (strcmp(v, "device") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = o->select;
@@ -140,7 +141,8 @@ void render_load(const render_options_t *o) {
     }
     set_view(o);
     home_scroll_set_offset(o->scroll);
-    list_scroll_set_drag(o->scroll);
+    if (o->has_list_top) list_scroll_to(o->list_top);
+    else list_scroll_set_drag(o->scroll);
 }
 
 void render_keyword_sheet(const char *title, const char *icons) {

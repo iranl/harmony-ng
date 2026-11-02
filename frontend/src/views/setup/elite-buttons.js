@@ -156,6 +156,9 @@ export function createButtonEditor() {
   let selected = 'VolumeUp';
   let dirty = false;
   let screenView = null; // a screen picked with the ACTIVITIES / DEVICES keys; null follows the context
+  let listTop = null;     // the screen's list scrolled this many remote pixels; null opens it on its selection
+  let homeSelect = 0;     // an activity on the home page shown
+  let shown = { view: '', listTop: 0, homePageSize: 5 };
 
   const activities = () => (store.get('activities.list') || []).filter(a => String(a.id) !== '-1');
   const deviceById = id => devices.find(d => String(d.id) === String(id));
@@ -238,7 +241,7 @@ export function createButtonEditor() {
       svg('text', { x: x + w / 2, y: y + hgt / 2, class: 'eb-label', 'font-size': 17, text: k.text }),
       svg('title', { text: `Shows the remote's ${k.text.toLowerCase()} screen; this key stays on the remote` }),
     ]);
-    g.addEventListener('click', () => { screenView = k.id; drawScreen(); });
+    g.addEventListener('click', () => { screenView = k.id; showScreen(); });
     picture.appendChild(g);
   });
 
@@ -255,11 +258,65 @@ export function createButtonEditor() {
   });
   const pictureWrap = h('div', { className: 'eb-picture', style: { aspectRatio: `${VIEW.w} / ${VIEW.h}` } }, [picture, screenCanvas]);
 
+  // The screen works like the remote's: tapping an activity or a device shows its screen and
+  // edits its bindings; the wheel scrolls a list or turns the home page
+  const screenPoint = (e) => {
+    const r = screenCanvas.getBoundingClientRect();
+    return [(e.clientX - r.left) * 240 / r.width, (e.clientY - r.top) * 320 / r.height];
+  };
+  function openHit(hit) {
+    let next = null;
+    if (hit?.activity) {
+      const a = activities().find(act => loadedPreview?.remoteActivityId(act.id) === hit.activity);
+      if (a) next = `a:${a.id}`;
+    } else if (hit && hit.device >= 0 && devices[hit.device]) {
+      next = `d:${devices[hit.device].id}`;
+    }
+    if (!next) return;
+    ctx = next;
+    ctxSelect.value = ctx;
+    screenView = null;
+    refresh();
+    showScreen();
+  }
+  screenCanvas.addEventListener('click', (e) => {
+    const [x, y] = screenPoint(e);
+    drawScreen(({ preview, module }) => openHit(preview.hitTest(module, x, y)));
+  });
+  screenCanvas.addEventListener('mousemove', async (e) => {
+    const renderer = await loadEliteRenderer();
+    if (!renderer) return;
+    const [x, y] = screenPoint(e);
+    const hit = renderer.preview.hitTest(renderer.module, x, y);
+    if (hit === undefined) { drawScreen(); return; } // the icon thumbnails used the module since
+    screenCanvas.style.cursor = hit ? 'pointer' : '';
+  });
+  let wheelTurn = 0;
+  screenCanvas.addEventListener('wheel', (e) => {
+    const step = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 280 : 1; // lines, pages, pixels
+    const dy = e.deltaY * step * 320 / screenCanvas.getBoundingClientRect().height;
+    if (shown.view === 'activities') {
+      const count = activities().length, size = shown.homePageSize;
+      wheelTurn += dy;
+      if (Math.abs(wheelTurn) < 40) { e.preventDefault(); return; }
+      const page = Math.floor(homeSelect / size) + Math.sign(wheelTurn);
+      wheelTurn = 0;
+      if (page < 0 || page * size >= count) return;
+      e.preventDefault();
+      homeSelect = page * size;
+      drawScreen();
+    } else if (['commands', 'devices', 'device'].includes(shown.view)) {
+      e.preventDefault();
+      listTop = Math.max(0, shown.listTop + dy);
+      drawScreen();
+    }
+  }, { passive: false });
+
   // ── Header: context, save ──
   const ctxSelect = h('select', {
     className: 'form-select',
     'aria-label': 'Bindings for',
-    onchange: () => { ctx = ctxSelect.value; screenView = null; refresh(); drawScreen(); },
+    onchange: () => { ctx = ctxSelect.value; screenView = null; refresh(); showScreen(); },
   });
   const dirtyBadge = h('span', { className: 'badge badge-accent', text: 'Unsaved changes', style: { display: 'none' } });
   const revertBtn = h('button', {
@@ -313,7 +370,7 @@ export function createButtonEditor() {
   const layoutSelect = h('select', {
     className: 'form-select',
     'aria-label': 'Home layout',
-    onchange: () => sendRemoteSetting({ layout: layoutSelect.value }, 'Home layout').then(drawScreen),
+    onchange: () => sendRemoteSetting({ layout: layoutSelect.value }, 'Home layout').then(() => showScreen()),
   }, [
     h('option', { value: 'theme', text: "The theme's" }),
     h('option', { value: 'list', text: 'List' }),
@@ -533,15 +590,25 @@ export function createButtonEditor() {
   }
 
   // ── Screen: the remote's own drawing code, from the config the Hub pushes to it ──
-  async function drawScreen() {
+  // A new screen: its list opens on its selection and home on its first page
+  function showScreen() {
+    listTop = null;
+    homeSelect = 0;
+    drawScreen();
+  }
+
+  // then(renderer) runs straight after the render, while the module still holds the screen
+  let loadedPreview = null;
+  async function drawScreen(then) {
     const renderer = await loadEliteRenderer();
     if (!renderer) return;
+    loadedPreview = renderer.preview;
     const { preview, module } = renderer;
     const pushed = devices.slice(0, 16); // the push sends the first 16
     preview.writeRemoteConfig(module, { activities: activities(), devices: pushed, eliteMap: map });
 
     const running = String(store.get('activities.currentId') || '-1');
-    const state = { view: 'activities', select: 0, active: running === '-1' ? '' : preview.remoteActivityId(running) };
+    const state = { view: 'activities', select: homeSelect, active: running === '-1' ? '' : preview.remoteActivityId(running) };
     if (screenView === 'devices' || (!screenView && ctxKind() === 'd')) {
       const idx = pushed.findIndex(d => String(d.id) === ctxId());
       if (!screenView && idx >= 0) { state.view = 'device'; state.select = idx; } else state.view = 'devices';
@@ -550,7 +617,12 @@ export function createButtonEditor() {
       state.active = preview.remoteActivityId(ctxId());
     }
     const now = new Date();
-    preview.render(module, screenCanvas, { ...state, theme: renderer.theme, layout: layoutSelect.value, battery: 100, minutes: now.getHours() * 60 + now.getMinutes() });
+    const out = preview.render(module, screenCanvas, {
+      ...state, listTop: listTop ?? undefined, theme: renderer.theme, layout: layoutSelect.value,
+      battery: 100, minutes: now.getHours() * 60 + now.getMinutes(),
+    });
+    shown = { view: state.view, ...out };
+    if (then) then(renderer);
   }
 
   async function load(newSlot) {
@@ -572,7 +644,7 @@ export function createButtonEditor() {
     ctx = [...ctxSelect.querySelectorAll('option')].some(o => o.value === wanted) ? wanted : 'a:-1';
     ctxSelect.value = ctx;
     refresh();
-    drawScreen();
+    showScreen();
     loadTheme();
   }
 
