@@ -5,6 +5,8 @@
                "sunrise", "fan"],
   "sources": {
     "phosphor-regular": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/regular/{name}.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
+    "custom": { "path": "elite/themes/icons/{name}.svg", "licence": "MIT", "licence_file": "LICENSE", "title": "Harmony NG theme icons" },
+    "phosphor-bold": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/bold/{name}-bold.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
     "phosphor-fill": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/fill/{name}-fill.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
     "phosphor-duotone": { "url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/assets/duotone/{name}-duotone.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@phosphor-icons/core@2.1.1/LICENSE", "title": "Phosphor Icons" },
     "tabler-outline": { "url": "https://cdn.jsdelivr.net/npm/@tabler/icons@3.50.0/icons/outline/{name}.svg", "licence": "MIT", "licence_url": "https://cdn.jsdelivr.net/npm/@tabler/icons@3.50.0/LICENSE", "title": "Tabler Icons" },
