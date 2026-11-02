@@ -3,6 +3,7 @@
 #include "elite_state.h"
 #include "elite_power.h"
 #include "elite_rf.h"
+#include "elite_present.h"
 
 char g_timezone_str[64] = "UTC0";
 time_t g_host_wall_time = 0;
@@ -12,6 +13,11 @@ void read_elite_battery(void) {}
 bool is_elite_docked(void) { return strcmp(g_battery_info.powersource, "usb") == 0; }
 void expand_timezone(const char *in, char *out, size_t out_sz) { snprintf(out, out_sz, "%s", in); }
 void fb_set_blank(bool blank) { (void)blank; }
+bool fb_present(const uint16_t *frame, bool wait_vsync) { (void)frame; (void)wait_vsync; return false; }
+bool frame_timing_enabled(void) { return false; }
+void frame_timing_record(const char *screen, uint32_t render_us, uint32_t present_us, bool flipped) {
+    (void)screen; (void)render_us; (void)present_us; (void)flipped;
+}
 void set_backlight_level(int level) { (void)level; }
 void trigger_manual_suspend_to_ram(void) {}
 void init_gyro_interrupt(void) {}

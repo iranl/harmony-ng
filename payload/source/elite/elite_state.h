@@ -340,6 +340,7 @@ extern uint64_t g_touch_down_ms;
 
 /* Utility / helper functions */
 uint64_t get_monotonic_ms(void);
+uint64_t get_monotonic_us(void);
 
 /* Files the renderer and config loader read are opened through elite_fs_path(). On the
    remote g_fs_root is empty; the host renderer points it at a directory laid out like the
