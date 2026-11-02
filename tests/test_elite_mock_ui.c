@@ -234,7 +234,7 @@ int main(void) {
     assert(strcmp(g_rf_devices[2].name, long_name) == 0);
     printf("[+] Long device name assembled: %s\n", g_rf_devices[2].name);
 
-    /* 9. RF link quality (ADR-0012): the lower of link reports and Hub replies sets the bars */
+    /* 10. RF link quality (ADR-0012): the lower of link reports and Hub replies sets the bars */
     const uint64_t T = 1000000;
     link_quality_t lq;
     g_rf_link_connected = true;
@@ -275,7 +275,7 @@ int main(void) {
     assert(lq.state == LINK_NO_HUB);
     printf("[+] Link quality: bars from the weaker measure, late replies ignored, silent Hub detected\n");
 
-    /* 10. Help (ADR-0004): listed in the menu only while an activity runs; follows the Hub's
+    /* 11. Help (ADR-0004): listed in the menu only while an activity runs; follows the Hub's
        status frames, ignores repeats and frames after it closed */
     g_is_syncing_config = false; /* the device list chunk above started a sync */
     snprintf(g_active_activity_id, sizeof(g_active_activity_id), "-1");
