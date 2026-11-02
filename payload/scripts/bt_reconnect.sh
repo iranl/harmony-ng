@@ -54,7 +54,7 @@ if [ -z "$TARGET" ]; then
     if [ -z "$TARGET" ]; then
         for cfg in /data/harmony/bt-devices.json /data/harmony/config/devices.json; do
             if [ -f "$cfg" ]; then
-                TARGET=$(sed -n 's/.*"\(bdaddr\|BTAddress\|bt_host\)"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\2/p' "$cfg" 2>/dev/null | awk '{print; exit}')
+                TARGET=$(sed -n 's/.*"bdaddr"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\1/p' "$cfg" 2>/dev/null | awk '{print; exit}')
                 [ -n "$TARGET" ] && break
             fi
         done

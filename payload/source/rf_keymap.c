@@ -261,7 +261,6 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
     if (!btn_cfg) {
         cJSON *def_obj = cJSON_GetObjectItemCaseSensitive(acts, "-1");
         if (!def_obj) def_obj = cJSON_GetObjectItemCaseSensitive(acts, "default");
-        if (!def_obj) def_obj = cJSON_GetObjectItemCaseSensitive(acts, "53591842");
         if (!def_obj && acts->child) def_obj = acts->child;
         if (def_obj && cJSON_IsObject(def_obj)) {
             btn_cfg = cJSON_GetObjectItemCaseSensitive(def_obj, button_name);
@@ -273,8 +272,8 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
         if (!j_act) j_act = cJSON_GetObjectItemCaseSensitive(btn_cfg, "type");
         if (j_act && cJSON_IsString(j_act)) strncpy(act_type_buf, j_act->valuestring, sizeof(act_type_buf) - 1);
 
-        cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(btn_cfg, "targetDevice");
-        if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(btn_cfg, "deviceId");
+        cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(btn_cfg, "deviceId");
+        if (!j_dev) j_dev = cJSON_GetObjectItemCaseSensitive(btn_cfg, "targetDevice");
         if (j_dev && cJSON_IsString(j_dev)) strncpy(dev_id_buf, j_dev->valuestring, sizeof(dev_id_buf) - 1);
 
         cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(btn_cfg, "command");
@@ -649,15 +648,11 @@ void get_activity_name_by_id(const char *act_id, char *out_name, size_t out_len)
                 free(buf);
                 if (root) {
                     cJSON *acts_arr = cJSON_GetObjectItem(root, "activities");
-                    if (!acts_arr) acts_arr = cJSON_GetObjectItem(root, "Activities");
                     if (acts_arr && cJSON_IsArray(acts_arr)) {
                         cJSON *elem = NULL;
                         cJSON_ArrayForEach(elem, acts_arr) {
                             cJSON *j_name = cJSON_GetObjectItem(elem, "name");
-                            if (!j_name) j_name = cJSON_GetObjectItem(elem, "Name");
                             cJSON *j_id = cJSON_GetObjectItem(elem, "id");
-                            if (!j_id) j_id = cJSON_GetObjectItem(elem, "Id");
-                            if (!j_id) j_id = cJSON_GetObjectItem(elem, "Id-");
                             if (j_name && cJSON_IsString(j_name) && j_id) {
                                 char id_str[32] = {0};
                                 if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%d", j_id->valueint);

@@ -308,16 +308,6 @@ int load_ir_inventory(struct ir_inventory *inv) {
                 dev->mqtt_enabled = (mqe && (cJSON_IsTrue(mqe) || (cJSON_IsNumber(mqe) && mqe->valueint > 0))) ? 1 : 0;
                 if (mqt && cJSON_IsString(mqt) && mqt->valuestring) strncpy(dev->mqtt_topic, mqt->valuestring, sizeof(dev->mqtt_topic) - 1);
                 dev->mqtt_pulse_ms = (mqp && cJSON_IsNumber(mqp) && mqp->valueint > 0) ? mqp->valueint : 1000;
-            } else {
-                const cJSON *mq = cJSON_GetObjectItemCaseSensitive(d, "mqtt");
-                if (mq && cJSON_IsObject(mq)) {
-                    const cJSON *sub_en = cJSON_GetObjectItemCaseSensitive(mq, "enabled");
-                    dev->mqtt_enabled = (sub_en && (cJSON_IsTrue(sub_en) || (cJSON_IsNumber(sub_en) && sub_en->valueint > 0))) ? 1 : 0;
-                    const cJSON *sub_top = cJSON_GetObjectItemCaseSensitive(mq, "topic");
-                    if (sub_top && cJSON_IsString(sub_top) && sub_top->valuestring) strncpy(dev->mqtt_topic, sub_top->valuestring, sizeof(dev->mqtt_topic) - 1);
-                    const cJSON *sub_pls = cJSON_GetObjectItemCaseSensitive(mq, "pulseMs");
-                    dev->mqtt_pulse_ms = (sub_pls && cJSON_IsNumber(sub_pls) && sub_pls->valueint > 0) ? sub_pls->valueint : 1000;
-                }
             }
 
             const cJSON *cmds = cJSON_GetObjectItemCaseSensitive(d, "commands");

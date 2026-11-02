@@ -113,38 +113,24 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     cJSON_AddNumberToObject(root, "brightness", p[0]);
     cJSON_AddNumberToObject(root, "timeout", timeout);
     cJSON_AddBoolToObject(root, "touchEnabled", p[2] != 0);
-    cJSON_AddNumberToObject(root, "touch", p[2] != 0 ? 1 : 0);
     uint16_t nk = (uint16_t)p[3] | ((uint16_t)p[4] << 8);
     cJSON_AddNumberToObject(root, "navToggleKey", nk);
-    cJSON_AddNumberToObject(root, "nav_key", nk);
     cJSON_AddNumberToObject(root, "navToggleMode", p[5]);
-    cJSON_AddNumberToObject(root, "nav_mode", p[5]);
     cJSON_AddBoolToObject(root, "usbEth", p[6] != 0);
-    cJSON_AddNumberToObject(root, "usbeth", p[6] != 0 ? 1 : 0);
     cJSON_AddBoolToObject(root, "confirmActivity", p[7] != 0);
-    cJSON_AddNumberToObject(root, "confirm_act", p[7] != 0 ? 1 : 0);
     cJSON_AddNumberToObject(root, "version", p[8]);
     int ts = (p[9] >= 1 && p[9] <= 3) ? p[9] : 2;
     cJSON_AddNumberToObject(root, "touchSensitivity", ts);
-    cJSON_AddNumberToObject(root, "touch_sensitivity", ts);
     cJSON_AddNumberToObject(root, "remoteMode", 0);
-    cJSON_AddNumberToObject(root, "remote_mode", 0);
     cJSON_AddBoolToObject(root, "gyroEnabled", gyro != 0);
-    cJSON_AddNumberToObject(root, "gyro", gyro != 0 ? 1 : 0);
     cJSON_AddNumberToObject(root, "gyroRate", gyro_rate);
-    cJSON_AddNumberToObject(root, "gyro_rate", gyro_rate);
     cJSON_AddNumberToObject(root, "btnBacklight", btn_backlight);
-    cJSON_AddNumberToObject(root, "btn_backlight", btn_backlight);
     cJSON_AddNumberToObject(root, "nightStart", night_start);
-    cJSON_AddNumberToObject(root, "night_start", night_start);
     cJSON_AddNumberToObject(root, "nightEnd", night_end);
-    cJSON_AddNumberToObject(root, "night_end", night_end);
     int cap_buttons = (p[17] == 0) ? 0 : 1;
     cJSON_AddBoolToObject(root, "capButtonsEnabled", cap_buttons != 0);
-    cJSON_AddNumberToObject(root, "cap_buttons", cap_buttons);
     int power_debug = (p[18] == 1) ? 1 : 0;
     cJSON_AddBoolToObject(root, "powerDebug", power_debug != 0);
-    cJSON_AddNumberToObject(root, "power_debug", power_debug);
 
     int lang_id = (p[19] <= 5) ? p[19] : 0;
     const char *lang_str = "en";
@@ -154,7 +140,6 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     else if (lang_id == 4) lang_str = "es";
     else if (lang_id == 5) lang_str = "it";
     cJSON_AddStringToObject(root, "language", lang_str);
-    cJSON_AddNumberToObject(root, "language_id", lang_id);
 
     char *txt = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

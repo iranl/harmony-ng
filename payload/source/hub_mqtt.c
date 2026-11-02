@@ -705,21 +705,15 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
         cJSON *droot = config_store_get_devices_json();
         if (droot) {
             cJSON *darr = cJSON_GetObjectItemCaseSensitive(droot, "devices");
-            if (!darr) darr = cJSON_GetObjectItemCaseSensitive(droot, "DevicesWithFeatures");
             if (darr && cJSON_IsArray(darr)) {
                 cJSON *di = NULL;
                 cJSON_ArrayForEach(di, darr) {
-                    cJSON *d = cJSON_GetObjectItemCaseSensitive(di, "Device");
-                    if (!d) d = di;
-                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
-                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id");
+                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(di, "id");
                     char d_id_str[64] = {0};
                     if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                     else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
 
-                    cJSON *jname = cJSON_GetObjectItemCaseSensitive(d, "name");
-                    if (!jname) jname = cJSON_GetObjectItemCaseSensitive(d, "Name");
+                    cJSON *jname = cJSON_GetObjectItemCaseSensitive(di, "name");
                     const char *d_name_str = (jname && cJSON_IsString(jname)) ? jname->valuestring : "";
 
                     if ((d_id_str[0] && strcmp(d_id_str, dev_id) == 0) ||
@@ -727,14 +721,11 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
                         if ((!dev_name_in || !dev_name_in[0]) && d_name_str[0]) {
                             strncpy(dev_name, d_name_str, sizeof(dev_name) - 1);
                         }
-                        cJSON *jtop = cJSON_GetObjectItemCaseSensitive(d, "mqttTopic");
-                        if (!jtop) jtop = cJSON_GetObjectItemCaseSensitive(d, "MQTTTopic");
+                        cJSON *jtop = cJSON_GetObjectItemCaseSensitive(di, "mqttTopic");
                         if (jtop && cJSON_IsString(jtop) && jtop->valuestring && jtop->valuestring[0]) {
                             strncpy(topic_pattern, jtop->valuestring, sizeof(topic_pattern) - 1);
                         }
-                        cJSON *jp = cJSON_GetObjectItemCaseSensitive(d, "mqttPulseMs");
-                        if (!jp) jp = cJSON_GetObjectItemCaseSensitive(d, "MQTTPulseMs");
-                        if (!jp) jp = cJSON_GetObjectItemCaseSensitive(d, "mqttPulse");
+                        cJSON *jp = cJSON_GetObjectItemCaseSensitive(di, "mqttPulseMs");
                         if (jp && cJSON_IsNumber(jp) && jp->valueint > 0) pulse_ms = jp->valueint;
                         break;
                     }

@@ -574,9 +574,6 @@ void load_rf_config(void) {
             if (g_rf_device_count >= MAX_RF_DEVICES) break;
             cJSON *jid = cJSON_GetObjectItem(d, "id");
             cJSON *jname = cJSON_GetObjectItem(d, "name");
-            if (!jname) jname = cJSON_GetObjectItem(d, "Name");
-            if (!jname) jname = cJSON_GetObjectItem(d, "label");
-            if (!jname) jname = cJSON_GetObjectItem(d, "FriendlyName");
             char dev_id_str[32] = {0};
             if (jid && cJSON_IsString(jid)) {
                 strncpy(dev_id_str, jid->valuestring, sizeof(dev_id_str) - 1);
@@ -620,7 +617,6 @@ void load_rf_config(void) {
             cJSON *jctype = cJSON_GetObjectItem(b, "ctype");
             cJSON *jatype = cJSON_GetObjectItem(b, "atype");
             cJSON *jico = cJSON_GetObjectItem(b, "icon");
-            if (!jico) jico = cJSON_GetObjectItem(b, "icon_key");
             if (jctx && jlbl && cJSON_IsString(jctx) && cJSON_IsString(jlbl)) {
                 strncpy(g_rf_buttons[g_rf_button_count].context_id, jctx->valuestring, 12);
                 g_rf_buttons[g_rf_button_count].context_id[12] = '\0';

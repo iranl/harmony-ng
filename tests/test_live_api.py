@@ -124,7 +124,7 @@ class ApiTester:
 
         # 4. Inventory
         status, j, text, ms = self.http_request("/api/inventory")
-        inv_ok = status == 200 and j and ("devices" in j or "DevicesWithFeatures" in j or isinstance(j, list))
+        inv_ok = status == 200 and j and ("devices" in j or isinstance(j, list))
         dev_count = len(j.get("devices", [])) if (j and isinstance(j, dict) and "devices" in j) else 0
         self.assert_test("GET /api/inventory", inv_ok, f"{ms:.1f}ms, {dev_count} devices found")
 

@@ -177,20 +177,15 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *root = config_store_get_devices_json();
             if (root) {
                 cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                 if (devs && cJSON_IsArray(devs)) {
                     cJSON *di = NULL;
                     cJSON_ArrayForEach(di, devs) {
-                        cJSON *d = cJSON_GetObjectItemCaseSensitive(di, "Device");
-                        if (!d) d = di;
-                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(di, "id");
                         char d_id_str[64] = {0};
                         if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                         else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                         if (strcmp(d_id_str, dev_id) == 0) {
                             cJSON *cmds = cJSON_GetObjectItemCaseSensitive(di, "commands");
-                            if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(di, "Commands");
                             if (cmds && cJSON_IsArray(cmds)) {
                                 cJSON *ci = NULL;
                                 cJSON_ArrayForEach(ci, cmds) {
@@ -282,9 +277,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *j_model = cJSON_GetObjectItemCaseSensitive(p, "model");
             cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(p, "controlPort");
             cJSON *j_mqtt = cJSON_GetObjectItemCaseSensitive(p, "mqttTopic");
-            if (!j_mqtt) j_mqtt = cJSON_GetObjectItemCaseSensitive(p, "MQTTTopic");
             cJSON *j_en = cJSON_GetObjectItemCaseSensitive(p, "mqttEnabled");
-            if (!j_en) j_en = cJSON_GetObjectItemCaseSensitive(p, "MQTTEnabled");
 
             const char *dev_id = j_dev ? (cJSON_IsString(j_dev) ? j_dev->valuestring : "") : "";
             char dev_buf[32] = {0};
@@ -299,10 +292,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             }
             const char *mqtt_top = (j_mqtt && cJSON_IsString(j_mqtt)) ? j_mqtt->valuestring : NULL;
 
-            cJSON *j_pulse = cJSON_GetObjectItemCaseSensitive(p, "mqttPulse");
-            if (!j_pulse) j_pulse = cJSON_GetObjectItemCaseSensitive(p, "MQTTPulseMs");
-            if (!j_pulse) j_pulse = cJSON_GetObjectItemCaseSensitive(p, "pulseMs");
-            if (!j_pulse) j_pulse = cJSON_GetObjectItemCaseSensitive(p, "mqttPulseMs");
+            cJSON *j_pulse = cJSON_GetObjectItemCaseSensitive(p, "mqttPulseMs");
             int pulse_val = (j_pulse && cJSON_IsNumber(j_pulse)) ? (int)j_pulse->valuedouble : 0;
             if (!pulse_val && j_pulse && cJSON_IsString(j_pulse)) pulse_val = atoi(j_pulse->valuestring);
 
@@ -333,10 +323,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     int used = 0;
                     cJSON *chk = NULL;
                     cJSON_ArrayForEach(chk, devs) {
-                        cJSON *d = cJSON_GetObjectItemCaseSensitive(chk, "Device");
-                        if (!d) d = chk;
-                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(chk, "id");
                         char cur_id[32] = {0};
                         if (jid && cJSON_IsNumber(jid)) snprintf(cur_id, sizeof(cur_id), "%ld", (long)jid->valuedouble);
                         else if (jid && cJSON_IsString(jid)) strncpy(cur_id, jid->valuestring, sizeof(cur_id) - 1);
@@ -356,15 +343,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 cJSON *found_dev = NULL;
                 cJSON *dev_item = NULL;
                 cJSON_ArrayForEach(dev_item, devs) {
-                    cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                    if (!d) d = dev_item;
-                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                    if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                     char d_id_str[32] = {0};
                     if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                     else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                     if (strcmp(d_id_str, dev_id) == 0) {
-                        found_dev = d;
+                        found_dev = dev_item;
                         break;
                     }
                 }
@@ -380,166 +364,113 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddItemToArray(devs, found_dev);
                 }
                 if (j_cp != NULL) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "ControlPort");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "control_port");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
                     cJSON_AddNumberToObject(found_dev, "controlPort", cp_val);
                 }
-                cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqtt");
-                cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "MQTTEnabled");
-                cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqtt_enabled");
                 if (has_en) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqttEnabled");
                     cJSON_AddNumberToObject(found_dev, "mqttEnabled", en_val);
                 }
                 if (mqtt_top) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "MQTTTopic");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqtt_topic");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqttTopic");
                     cJSON_AddStringToObject(found_dev, "mqttTopic", mqtt_top);
                 }
                 if (pulse_val > 0) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "MQTTPulseMs");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqtt_pulse_ms");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqttPulse");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mqttPulseMs");
                     cJSON_AddNumberToObject(found_dev, "mqttPulseMs", pulse_val);
                 }
                 if (j_name && cJSON_IsString(j_name) && j_name->valuestring[0]) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "Name");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "name");
                     cJSON_AddStringToObject(found_dev, "name", j_name->valuestring);
                 }
                 if (j_type && cJSON_IsString(j_type)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "DeviceTypeDisplayName");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "deviceType");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "type");
                     cJSON_AddStringToObject(found_dev, "type", j_type->valuestring);
                 }
                 if (j_mfg && cJSON_IsString(j_mfg)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "Manufacturer");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "manufacturer");
                     cJSON_AddStringToObject(found_dev, "manufacturer", j_mfg->valuestring);
                 }
                 if (j_model && cJSON_IsString(j_model)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "Model");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "model");
                     cJSON_AddStringToObject(found_dev, "model", j_model->valuestring);
                 }
                 cJSON *j_icon = cJSON_GetObjectItemCaseSensitive(p, "icon");
-                if (!j_icon) j_icon = cJSON_GetObjectItemCaseSensitive(p, "Icon");
                 if (j_icon) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "Icon");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "icon");
                     if (cJSON_IsString(j_icon)) cJSON_AddStringToObject(found_dev, "icon", j_icon->valuestring);
                     else if (cJSON_IsNumber(j_icon)) cJSON_AddNumberToObject(found_dev, "icon", j_icon->valueint);
                 }
 
                 cJSON *j_idd = cJSON_GetObjectItemCaseSensitive(p, "interDeviceDelay");
-                if (!j_idd) j_idd = cJSON_GetObjectItemCaseSensitive(p, "inter_device_delay");
-                if (!j_idd) j_idd = cJSON_GetObjectItemCaseSensitive(p, "InterDeviceDelay");
                 if (j_idd) {
                     int val = cJSON_IsNumber(j_idd) ? (int)j_idd->valuedouble : atoi(j_idd->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "inter_device_delay");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "InterDeviceDelay");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "interDeviceDelay");
                     cJSON_AddNumberToObject(found_dev, "interDeviceDelay", val);
                 }
 
                 cJSON *j_ikd = cJSON_GetObjectItemCaseSensitive(p, "interKeyDelay");
-                if (!j_ikd) j_ikd = cJSON_GetObjectItemCaseSensitive(p, "inter_key_delay");
-                if (!j_ikd) j_ikd = cJSON_GetObjectItemCaseSensitive(p, "InterKeyDelay");
                 if (j_ikd) {
                     int val = cJSON_IsNumber(j_ikd) ? (int)j_ikd->valuedouble : atoi(j_ikd->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "inter_key_delay");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "InterKeyDelay");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "interKeyDelay");
                     cJSON_AddNumberToObject(found_dev, "interKeyDelay", val);
                 }
 
                 cJSON *j_hikd = cJSON_GetObjectItemCaseSensitive(p, "holdInterKeyDelay");
-                if (!j_hikd) j_hikd = cJSON_GetObjectItemCaseSensitive(p, "hold_inter_key_delay");
-                if (!j_hikd) j_hikd = cJSON_GetObjectItemCaseSensitive(p, "HoldInterKeyDelay");
                 if (j_hikd) {
                     int val = cJSON_IsNumber(j_hikd) ? (int)j_hikd->valuedouble : atoi(j_hikd->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "hold_inter_key_delay");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "HoldInterKeyDelay");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "holdInterKeyDelay");
                     cJSON_AddNumberToObject(found_dev, "holdInterKeyDelay", val);
                 }
 
                 cJSON *j_pod = cJSON_GetObjectItemCaseSensitive(p, "powerOnDelay");
-                if (!j_pod) j_pod = cJSON_GetObjectItemCaseSensitive(p, "power_on_delay");
-                if (!j_pod) j_pod = cJSON_GetObjectItemCaseSensitive(p, "PowerOnDelay");
                 if (j_pod) {
                     int val = cJSON_IsNumber(j_pod) ? (int)j_pod->valuedouble : atoi(j_pod->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "power_on_delay");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "PowerOnDelay");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOnDelay");
                     cJSON_AddNumberToObject(found_dev, "powerOnDelay", val);
                 }
 
                 cJSON *j_pao = cJSON_GetObjectItemCaseSensitive(p, "isPowerAlwaysOn");
-                if (!j_pao) j_pao = cJSON_GetObjectItemCaseSensitive(p, "is_power_always_on");
-                if (!j_pao) j_pao = cJSON_GetObjectItemCaseSensitive(p, "IsPowerAlwaysOn");
                 if (j_pao) {
                     int val = cJSON_IsTrue(j_pao) || (cJSON_IsNumber(j_pao) && j_pao->valuedouble > 0) || (cJSON_IsString(j_pao) && (strcmp(j_pao->valuestring, "1") == 0 || strcasecmp(j_pao->valuestring, "true") == 0));
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "is_power_always_on");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "IsPowerAlwaysOn");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "isPowerAlwaysOn");
                     cJSON_AddBoolToObject(found_dev, "isPowerAlwaysOn", val);
                 }
 
                 cJSON *j_bthost = cJSON_GetObjectItemCaseSensitive(p, "bdaddr");
                 if (!j_bthost) j_bthost = cJSON_GetObjectItemCaseSensitive(p, "btHost");
-                if (!j_bthost) j_bthost = cJSON_GetObjectItemCaseSensitive(p, "bt_host");
-                if (!j_bthost) j_bthost = cJSON_GetObjectItemCaseSensitive(p, "BTAddress");
                 if (j_bthost && cJSON_IsString(j_bthost)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_host");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btHost");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "BTAddress");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bdaddr");
                     cJSON_AddStringToObject(found_dev, "bdaddr", j_bthost->valuestring);
                 }
 
                 cJSON *j_btrec = cJSON_GetObjectItemCaseSensitive(p, "btAutoReconnect");
-                if (!j_btrec) j_btrec = cJSON_GetObjectItemCaseSensitive(p, "bt_auto_reconnect");
                 if (j_btrec) {
                     int val = 1;
                     if (cJSON_IsNumber(j_btrec)) val = (int)j_btrec->valuedouble ? 1 : 0;
                     else if (cJSON_IsBool(j_btrec)) val = cJSON_IsTrue(j_btrec) ? 1 : 0;
                     else if (cJSON_IsString(j_btrec)) val = atoi(j_btrec->valuestring) ? 1 : 0;
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_auto_reconnect");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btAutoReconnect");
                     cJSON_AddNumberToObject(found_dev, "btAutoReconnect", val);
                 }
 
                 cJSON *j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDurationSec");
-                if (!j_btdur) j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDuration");
-                if (!j_btdur) j_btdur = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_duration_sec");
                 if (j_btdur) {
                     int val = cJSON_IsNumber(j_btdur) ? (int)j_btdur->valuedouble : atoi(j_btdur->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_reconnect_duration_sec");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDuration");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDurationSec");
                     cJSON_AddNumberToObject(found_dev, "btReconnectDurationSec", val);
                 }
 
                 cJSON *j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelaySec");
-                if (!j_btdly) j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelay");
-                if (!j_btdly) j_btdly = cJSON_GetObjectItemCaseSensitive(p, "bt_reconnect_delay_sec");
                 if (j_btdly) {
                     int val = cJSON_IsNumber(j_btdly) ? (int)j_btdly->valuedouble : atoi(j_btdly->valuestring);
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_reconnect_delay_sec");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDelay");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDelaySec");
                     cJSON_AddNumberToObject(found_dev, "btReconnectDelaySec", val);
                 }
 
                 cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(p, "btTriggerDeviceId");
-                if (!j_trig_dev) j_trig_dev = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_device_id");
                 if (j_trig_dev && cJSON_IsString(j_trig_dev)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_device_id");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerDeviceId");
                     if (j_trig_dev->valuestring[0]) {
                         cJSON_AddStringToObject(found_dev, "btTriggerDeviceId", j_trig_dev->valuestring);
@@ -547,13 +478,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
 
                 cJSON *j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "btTriggerCommandName");
-                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_command_name");
-                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "bt_trigger_command");
-                if (!j_trig_cmd) j_trig_cmd = cJSON_GetObjectItemCaseSensitive(p, "btTriggerCommand");
                 if (j_trig_cmd && cJSON_IsString(j_trig_cmd)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_command_name");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "bt_trigger_command");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerCommand");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btTriggerCommandName");
                     if (j_trig_cmd->valuestring[0]) {
                         cJSON_AddStringToObject(found_dev, "btTriggerCommandName", j_trig_cmd->valuestring);
@@ -561,11 +486,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
 
                 cJSON *j_po = cJSON_GetObjectItemCaseSensitive(p, "powerOnSequence");
-                if (!j_po) j_po = cJSON_GetObjectItemCaseSensitive(p, "power_on_sequence");
-                if (!j_po) j_po = cJSON_GetObjectItemCaseSensitive(p, "PowerOnActions");
                 if (j_po && cJSON_IsArray(j_po)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "power_on_sequence");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "PowerOnActions");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOnSequence");
                     cJSON *po_copy = cJSON_Duplicate(j_po, 1);
                     sanitize_activity_steps(po_copy);
@@ -573,11 +494,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
 
                 cJSON *j_pf = cJSON_GetObjectItemCaseSensitive(p, "powerOffSequence");
-                if (!j_pf) j_pf = cJSON_GetObjectItemCaseSensitive(p, "power_off_sequence");
-                if (!j_pf) j_pf = cJSON_GetObjectItemCaseSensitive(p, "PowerOffActions");
                 if (j_pf && cJSON_IsArray(j_pf)) {
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "power_off_sequence");
-                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "PowerOffActions");
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOffSequence");
                     cJSON *pf_copy = cJSON_Duplicate(j_pf, 1);
                     sanitize_activity_steps(pf_copy);
@@ -631,16 +548,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 cJSON *root = config_store_get_devices_json();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                     if (devs && cJSON_IsArray(devs)) {
                         int d_count = cJSON_GetArraySize(devs);
                         for (int di = 0; di < d_count; di++) {
                             cJSON *dev_item = cJSON_GetArrayItem(devs, di);
-                            cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                            if (!d) d = dev_item;
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id");
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                             char d_id_str[64] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);

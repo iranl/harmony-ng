@@ -396,19 +396,11 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             const char *icon_str = (p_icon && cJSON_IsString(p_icon)) ? p_icon->valuestring : "Default";
 
             cJSON *p_order = cJSON_GetObjectItemCaseSensitive(params, "order");
-            if (!p_order) p_order = cJSON_GetObjectItemCaseSensitive(params, "ActivityOrder");
             int order_val = (p_order && cJSON_IsNumber(p_order)) ? p_order->valueint :
                             (p_order && cJSON_IsString(p_order) ? atoi(p_order->valuestring) : 1);
 
             cJSON *p_enter = cJSON_GetObjectItemCaseSensitive(params, "startSequence");
-            if (!p_enter) p_enter = cJSON_GetObjectItemCaseSensitive(params, "startSteps");
-            if (!p_enter) p_enter = cJSON_GetObjectItemCaseSensitive(params, "enterSequence");
-            if (!p_enter) p_enter = cJSON_GetObjectItemCaseSensitive(params, "EnterActions");
-
             cJSON *p_leave = cJSON_GetObjectItemCaseSensitive(params, "stopSequence");
-            if (!p_leave) p_leave = cJSON_GetObjectItemCaseSensitive(params, "stopSteps");
-            if (!p_leave) p_leave = cJSON_GetObjectItemCaseSensitive(params, "leaveSequence");
-            if (!p_leave) p_leave = cJSON_GetObjectItemCaseSensitive(params, "LeaveActions");
 
             cJSON *enter_steps = NULL;
             if (p_enter && cJSON_IsArray(p_enter)) {
@@ -478,20 +470,16 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             cJSON *root = cached ? cJSON_Duplicate(cached, 1) : cJSON_CreateObject();
             if (root) {
                 cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
-                if (!acts) acts = cJSON_GetObjectItemCaseSensitive(root, "Activities");
                 if (!acts) acts = cJSON_AddArrayToObject(root, "activities");
                 if (acts && cJSON_IsArray(acts)) {
                     cJSON *matched = NULL;
                     cJSON *ai = NULL;
                     cJSON_ArrayForEach(ai, acts) {
                         cJSON *jid = cJSON_GetObjectItemCaseSensitive(ai, "id");
-                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(ai, "Id-");
-                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(ai, "Id");
                         char cur_id[32] = {0};
                         if (jid && cJSON_IsNumber(jid)) snprintf(cur_id, sizeof(cur_id), "%ld", (long)jid->valuedouble);
                         else if (jid && cJSON_IsString(jid)) strncpy(cur_id, jid->valuestring, sizeof(cur_id) - 1);
                         cJSON *jname = cJSON_GetObjectItemCaseSensitive(ai, "name");
-                        if (!jname) jname = cJSON_GetObjectItemCaseSensitive(ai, "Name");
                         const char *cur_name = (jname && cJSON_IsString(jname)) ? jname->valuestring : "";
 
                         if ((act_id_str[0] && strcmp(cur_id, act_id_str) == 0) ||
@@ -505,37 +493,26 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     if (matched) {
                         if (name_str[0]) {
                             cJSON_DeleteItemFromObject(matched, "name");
-                            cJSON_DeleteItemFromObject(matched, "Name");
                             cJSON_AddStringToObject(matched, "name", name_str);
                         }
                         if (type_str[0]) {
                             cJSON_DeleteItemFromObject(matched, "type");
-                            cJSON_DeleteItemFromObject(matched, "Type");
-                            cJSON_DeleteItemFromObject(matched, "SuggestedDisplay");
                             cJSON_AddStringToObject(matched, "type", type_str);
                         }
                         if (icon_str[0]) {
                             cJSON_DeleteItemFromObject(matched, "icon");
-                            cJSON_DeleteItemFromObject(matched, "Icon");
                             cJSON_AddStringToObject(matched, "icon", icon_str);
                         }
                         cJSON_DeleteItemFromObject(matched, "order");
-                        cJSON_DeleteItemFromObject(matched, "Order");
-                        cJSON_DeleteItemFromObject(matched, "ActivityOrder");
                         cJSON_AddNumberToObject(matched, "order", order_val);
 
                         cJSON_DeleteItemFromObject(matched, "deviceIds");
-                        cJSON_DeleteItemFromObject(matched, "Roles");
                         cJSON_AddItemToObject(matched, "deviceIds", dev_ids_arr);
 
                         cJSON_DeleteItemFromObject(matched, "startSequence");
-                        cJSON_DeleteItemFromObject(matched, "EnterActions");
-                        cJSON_DeleteItemFromObject(matched, "StartSequence");
                         cJSON_AddItemToObject(matched, "startSequence", enter_steps);
 
                         cJSON_DeleteItemFromObject(matched, "stopSequence");
-                        cJSON_DeleteItemFromObject(matched, "LeaveActions");
-                        cJSON_DeleteItemFromObject(matched, "StopSequence");
                         cJSON_AddItemToObject(matched, "stopSequence", leave_steps);
                     } else {
                         matched = cJSON_CreateObject();
@@ -614,8 +591,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             if (step_arr && cJSON_IsArray(step_arr)) {
                 cJSON *st = NULL;
                 cJSON_ArrayForEach(st, step_arr) {
-                    cJSON *jtype = cJSON_GetObjectItemCaseSensitive(st, "Type");
-                    if (!jtype) jtype = cJSON_GetObjectItemCaseSensitive(st, "type");
+                    cJSON *jtype = cJSON_GetObjectItemCaseSensitive(st, "type");
                     const char *type = (jtype && cJSON_IsString(jtype)) ? jtype->valuestring : "";
 
                     if (strcasecmp(type, "Switched") == 0 || strcasecmp(type, "ActivitySwitched") == 0) {
@@ -623,9 +599,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                         continue;
                     }
 
-                    cJSON *jdelay = cJSON_GetObjectItemCaseSensitive(st, "Delay");
-                    if (!jdelay) jdelay = cJSON_GetObjectItemCaseSensitive(st, "Duration");
-                    if (!jdelay) jdelay = cJSON_GetObjectItemCaseSensitive(st, "delay");
+                    cJSON *jdelay = cJSON_GetObjectItemCaseSensitive(st, "delay");
                     int dms = (jdelay && cJSON_IsNumber(jdelay)) ? (int)jdelay->valuedouble : 0;
 
                     if (strcasecmp(type, "Delay") == 0 || dms > 0) {
@@ -635,16 +609,12 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                         if (strcasecmp(type, "Delay") == 0) continue;
                     }
 
-                    cJSON *jdev = cJSON_GetObjectItemCaseSensitive(st, "DeviceId");
-                    if (!jdev) jdev = cJSON_GetObjectItemCaseSensitive(st, "DeviceId-");
-                    if (!jdev) jdev = cJSON_GetObjectItemCaseSensitive(st, "deviceId");
+                    cJSON *jdev = cJSON_GetObjectItemCaseSensitive(st, "deviceId");
                     char dev_buf[64] = {0};
                     if (jdev && cJSON_IsNumber(jdev)) snprintf(dev_buf, sizeof(dev_buf), "%ld", (long)jdev->valuedouble);
                     else if (jdev && cJSON_IsString(jdev)) strncpy(dev_buf, jdev->valuestring, sizeof(dev_buf) - 1);
 
-                    cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(st, "Command");
-                    if (!jcmd) jcmd = cJSON_GetObjectItemCaseSensitive(st, "CommandName");
-                    if (!jcmd) jcmd = cJSON_GetObjectItemCaseSensitive(st, "command");
+                    cJSON *jcmd = cJSON_GetObjectItemCaseSensitive(st, "command");
                     const char *cmd = (jcmd && cJSON_IsString(jcmd)) ? jcmd->valuestring : "";
 
                     if (dev_buf[0] && cmd[0]) {
@@ -681,13 +651,11 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 cJSON *root = config_store_get_activities_json();
                 if (root) {
                     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
-                    if (!acts) acts = cJSON_GetObjectItemCaseSensitive(root, "Activities");
                     if (acts && cJSON_IsArray(acts)) {
                         int count = cJSON_GetArraySize(acts);
                         for (int i = 0; i < count; i++) {
                             cJSON *item = cJSON_GetArrayItem(acts, i);
                             cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(item, "Id-");
                             char item_id[32] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(item_id, sizeof(item_id), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(item_id, jid->valuestring, sizeof(item_id) - 1);

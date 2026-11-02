@@ -206,12 +206,12 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       this.toggleB25ActionFields();
     }
 
-    const devId = mapping?.targetDevice || mapping?.deviceId;
+    const devId = mapping?.deviceId || mapping?.targetDevice;
     if (devId) {
       const devSel = document.getElementById('b25TargetDevice');
       if (devSel) devSel.value = devId;
     }
-    const actTargetId = mapping?.targetActivity || mapping?.activityId;
+    const actTargetId = mapping?.activityId || mapping?.targetActivity;
     if (actTargetId) {
       const actTargetSel = document.getElementById('b25TargetActivity');
       if (actTargetSel) actTargetSel.value = actTargetId;
@@ -257,8 +257,8 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       this.b25MapData.activities[actId][this.b25SelectedBtn] = {
         action: 'device_cmd',
         type: 'device_cmd',
-        targetDevice: devId,
         deviceId: devId,
+        targetDevice: devId,
         command: cmd
       };
     } else if (type === 'activity_start') {
@@ -266,8 +266,8 @@ export class HarmonyAppRemotesB25 extends HarmonyAppHarmonySearch {
       this.b25MapData.activities[actId][this.b25SelectedBtn] = {
         action: 'activity_start',
         type: 'activity_start',
-        targetActivity: actTarget,
-        activityId: actTarget
+        activityId: actTarget,
+        targetActivity: actTarget
       };
     } else if (type === 'activity_stop') {
       this.b25MapData.activities[actId][this.b25SelectedBtn] = {

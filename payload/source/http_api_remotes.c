@@ -766,24 +766,18 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             cJSON *root = config_store_get_devices_json();
             if (root) {
                 cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                 if (devs && cJSON_IsArray(devs)) {
                     cJSON *dev_item = NULL;
                     cJSON_ArrayForEach(dev_item, devs) {
-                        cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                        if (!d) d = dev_item;
-                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                        if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                         char d_id_str[32] = {0};
                         if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                         else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                         if (strcmp(d_id_str, dev_id) == 0) {
-                            cJSON_DeleteItemFromObjectCaseSensitive(d, "BTAddress");
-                            cJSON_DeleteItemFromObjectCaseSensitive(d, "bt_host");
-                            cJSON_DeleteItemFromObjectCaseSensitive(d, "btHost");
-                            cJSON_DeleteItemFromObjectCaseSensitive(d, "bdaddr");
+                            cJSON_DeleteItemFromObjectCaseSensitive(dev_item, "btHost");
+                            cJSON_DeleteItemFromObjectCaseSensitive(dev_item, "bdaddr");
                             if (bdaddr[0]) {
-                                cJSON_AddStringToObject(d, "bdaddr", bdaddr);
+                                cJSON_AddStringToObject(dev_item, "bdaddr", bdaddr);
                             }
                             config_store_save_devices(root);
                             success = 1;

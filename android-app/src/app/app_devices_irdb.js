@@ -367,13 +367,13 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         <div class="card" style="margin-bottom: 12px;">
           <h3 style="font-size: 15px; margin-bottom: 8px;">MQTT Connection</h3>
           <label style="display: flex; align-items: center; gap: 6px;">
-            <input type="checkbox" id="mgrDevMqttEnabled" ${dev.mqtt_enabled ? 'checked' : ''}>
+            <input type="checkbox" id="mgrDevMqttEnabled" ${dev.mqttEnabled ? 'checked' : ''}>
             <span>Publish button presses to MQTT</span>
           </label>
           <div class="row" style="margin-top: 8px;">
             <div>
               <label>Topic Template</label>
-              <input id="mgrDevMqttTopic" class="form-control" value="${dev.mqtt_topic || '{root}/button/{device}/{command}'}">
+              <input id="mgrDevMqttTopic" class="form-control" value="${dev.mqttTopic || '{root}/button/{device}/{command}'}">
               <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{root}">{root}</button>
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{device}">{device}</button>
@@ -381,7 +381,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{state}">{state}</button>
               </div>
             </div>
-            <div><label>Pulse (ms)</label><input id="mgrDevMqttPulse" type="number" class="form-control" value="${dev.mqtt_pulse_ms || 1000}"></div>
+            <div><label>Pulse (ms)</label><input id="mgrDevMqttPulse" type="number" class="form-control" value="${dev.mqttPulseMs || 1000}"></div>
           </div>
           <div class="actions" style="margin-top: 12px; display: flex; gap: 8px;">
             <button type="button" id="btnMgrSaveMqtt" class="btn btn-sm btn-secondary">Save MQTT</button>

@@ -233,13 +233,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (detailsEl) detailsEl.textContent = `Type: ${dev.type || 'Appliance'} • Brand: ${dev.manufacturer || 'Unknown'} • Model: ${dev.model || 'Unknown'}`;
     if (countEl) countEl.textContent = (dev.commands || []).length;
     if (portEl) {
-      const p = (dev.controlPort !== undefined) ? dev.controlPort : ((dev.control_port !== undefined) ? dev.control_port : 7);
+      const p = (dev.controlPort !== undefined) ? dev.controlPort : 7;
       portEl.value = String(p);
     }
 
     const isIr = (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt || Number(dev.transport) === 32);
-    const isMqtt = (dev.type === 'MQTT' || dev.mqtt_enabled);
+    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+    const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
 
     const blasterBox = document.getElementById('curDevBlasterBox');
     if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
@@ -258,7 +258,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       const btDur = document.getElementById('curDevBtDuration');
       const btDly = document.getElementById('curDevBtDelay');
 
-      const hostAddr = dev.btHost || dev.bt_host || dev.BTAddress || dev.host_addr || '';
+      const hostAddr = dev.bdaddr || dev.btHost || '';
       const hasHost = Boolean(hostAddr && hostAddr !== '00:00:00:00:00:00');
 
       if (btHostAddrText) {
@@ -313,11 +313,11 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         btAutoRec.value = String(recVal);
       }
       if (btDur) {
-        const dVal = dev.bt_reconnect_duration_sec !== undefined ? dev.bt_reconnect_duration_sec : (dev.btReconnectDurationSec !== undefined ? dev.btReconnectDurationSec : (dev.btReconnectDuration || 0));
+        const dVal = dev.btReconnectDurationSec !== undefined ? dev.btReconnectDurationSec : 0;
         btDur.value = dVal > 0 ? dVal : '';
       }
       if (btDly) {
-        const dVal = dev.bt_reconnect_delay_sec !== undefined ? dev.bt_reconnect_delay_sec : (dev.btReconnectDelaySec !== undefined ? dev.btReconnectDelaySec : (dev.btReconnectDelay !== undefined ? dev.btReconnectDelay : -1));
+        const dVal = dev.btReconnectDelaySec !== undefined ? dev.btReconnectDelaySec : -1;
         btDly.value = dVal >= 0 ? dVal : '';
       }
       const btTrigSel = document.getElementById('curDevBtTriggerCmd');
@@ -328,13 +328,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           const cmds = (this.deviceCommandsMap && this.deviceCommandsMap[d.id]) || d.commands || [];
           if (cmds.length > 0) {
             let typeLabel = '';
-            if (d.type === 'MQTT' || d.mqtt_enabled) typeLabel = 'MQTT';
-            else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt || Number(d.transport) === 32) typeLabel = 'Bluetooth';
+            if (d.type === 'MQTT' || d.mqttEnabled) typeLabel = 'MQTT';
+            else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt) typeLabel = 'Bluetooth';
             else if (d.type) typeLabel = d.type;
             else typeLabel = 'IR';
             html += `<optgroup label="${escapeHtml(d.name || d.id || 'Device')} (${typeLabel})">`;
             cmds.forEach(c => {
-              const cName = typeof c === 'string' ? c : (c.name || c.Name || '');
+              const cName = typeof c === 'string' ? c : (c.name || '');
               if (cName) {
                 const val = `${d.id}:${cName}`;
                 html += `<option value="${escapeHtml(val)}">${escapeHtml(cName)}</option>`;
@@ -345,8 +345,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         });
         btTrigSel.innerHTML = html;
 
-        const currentTrigDev = dev.bt_trigger_device_id || dev.btTriggerDeviceId || '';
-        const currentTrigCmd = dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '';
+        const currentTrigDev = dev.btTriggerDeviceId || '';
+        const currentTrigCmd = dev.btTriggerCommandName || '';
         if (currentTrigDev && currentTrigCmd) {
           btTrigSel.value = `${currentTrigDev}:${currentTrigCmd}`;
         } else if (currentTrigCmd && currentTrigCmd.includes(':')) {
@@ -407,17 +407,17 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       this.updateBadgeForSelect(editIcn, 'devIconPreviewBadge');
     }
     if (mqttTopicInput) {
-      mqttTopicInput.value = dev.mqttTopic || dev.MQTTTopic || `{base_topic}/button/${(dev.name || 'dev').toLowerCase().replace(/\s+/g, '_')}/{command}`;
+      mqttTopicInput.value = dev.mqttTopic || `{base_topic}/button/${(dev.name || 'dev').toLowerCase().replace(/\s+/g, '_')}/{command}`;
     }
 
     const mqttPulseInput = document.getElementById('devMqttPulse');
     if (mqttPulseInput) {
-      mqttPulseInput.value = dev.mqttPulseMs || dev.mqttPulse || dev.MQTTPulseMs || dev.mqtt_pulse_ms || 1000;
+      mqttPulseInput.value = dev.mqttPulseMs || 1000;
     }
 
     const mqttEnabledCheck = document.getElementById('devMqttEnabled');
     const mqttBadge = document.getElementById('devMqttEnabledBadge');
-    const isMqttEn = Boolean(dev.mqttEnabled || dev.mqtt_enabled || dev.MQTTEnabled);
+    const isMqttEn = Boolean(dev.mqttEnabled);
     if (mqttEnabledCheck) {
       mqttEnabledCheck.checked = isMqttEn;
     }
@@ -441,7 +441,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       return;
     }
 
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt || Number(dev.transport) === 32);
+    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
 
     listEl.innerHTML = cmds.map(c => {
       const isLocked = isBt && (c.name === 'Connect' || c.name === 'Disconnect');
@@ -516,8 +516,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const rawVal = c.raw || c.keyCode || '';
     document.getElementById('editCmdPayload').value = rawVal;
 
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt || Number(dev.transport) === 32);
-    const isMqtt = (dev.type === 'MQTT' || dev.mqtt_enabled);
+    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+    const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
     const isIr = !isBt && !isMqtt;
 
     const typeWrap = document.getElementById('editCmdTypeWrap');
@@ -577,8 +577,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         type,
         manufacturer,
         model,
-        icon,
-        transport: type === 'BT' ? 32 : 1
+        icon
       };
       if (type === 'MQTT') {
         devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
@@ -693,8 +692,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
   updateStudioAddPanels(dev) {
     if (!dev) return;
-    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt || Number(dev.transport) === 32);
-    const isMqtt = (dev.type === 'MQTT' || dev.mqtt_enabled);
+    const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+    const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
     const isIr = !isBt && !isMqtt;
 
     const irTabsRow = document.getElementById('irAddTabsRow');

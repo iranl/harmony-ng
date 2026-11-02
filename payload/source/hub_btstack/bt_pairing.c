@@ -262,23 +262,17 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
                 free(dbuf);
                 if (droot) {
                     cJSON *ddevs = cJSON_GetObjectItemCaseSensitive(droot, "devices");
-                    if (!ddevs) ddevs = cJSON_GetObjectItemCaseSensitive(droot, "DevicesWithFeatures");
                     if (ddevs && cJSON_IsArray(ddevs)) {
                         cJSON *ditem = NULL;
                         cJSON_ArrayForEach(ditem, ddevs) {
-                            cJSON *d = cJSON_GetObjectItemCaseSensitive(ditem, "Device");
-                            if (!d) d = ditem;
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(ditem, "id");
                             char d_id_str[32] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                             if (strcmp(d_id_str, dev_id) == 0) {
-                                cJSON_DeleteItemFromObjectCaseSensitive(d, "BTAddress");
-                                cJSON_DeleteItemFromObjectCaseSensitive(d, "bt_host");
-                                cJSON_DeleteItemFromObjectCaseSensitive(d, "btHost");
-                                cJSON_DeleteItemFromObjectCaseSensitive(d, "bdaddr");
-                                cJSON_AddStringToObject(d, "bdaddr", addr_str);
+                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "btHost");
+                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "bdaddr");
+                                cJSON_AddStringToObject(ditem, "bdaddr", addr_str);
                                 char *dout = cJSON_Print(droot);
                                 if (dout) {
                                     char tmp_dpath[128];
@@ -321,15 +315,12 @@ const char *get_default_host_name(void) {
             free(buf);
             if (root) {
                 cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                 if (devs && cJSON_IsArray(devs)) {
                     cJSON *di = NULL;
                     cJSON_ArrayForEach(di, devs) {
-                        cJSON *d = cJSON_GetObjectItemCaseSensitive(di, "Device");
-                        if (!d) d = di;
-                        cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "type");
-                        cJSON *n = cJSON_GetObjectItemCaseSensitive(d, "name");
-                        cJSON *tr = cJSON_GetObjectItemCaseSensitive(d, "transport");
+                        cJSON *t = cJSON_GetObjectItemCaseSensitive(di, "type");
+                        cJSON *n = cJSON_GetObjectItemCaseSensitive(di, "name");
+                        cJSON *tr = cJSON_GetObjectItemCaseSensitive(di, "controlPort");
                         const char *tstr = (t && t->valuestring) ? t->valuestring : "";
                         const char *nstr = (n && n->valuestring) ? n->valuestring : "";
                         int transport = (tr && cJSON_IsNumber(tr)) ? tr->valueint : 0;
@@ -412,32 +403,12 @@ void init_known_hosts(void) {
                         cJSON *item = NULL;
                         cJSON_ArrayForEach(item, devs) {
                             cJSON *ja = cJSON_GetObjectItemCaseSensitive(item, "bdaddr");
-                            if (!ja) ja = cJSON_GetObjectItemCaseSensitive(item, "BTAddress");
                             cJSON *jn = cJSON_GetObjectItemCaseSensitive(item, "name");
-                            if (!jn) jn = cJSON_GetObjectItemCaseSensitive(item, "Name");
                             if (ja && cJSON_IsString(ja) && ja->valuestring[0]) {
                                 bd_addr_t ba;
                                 if (parse_bd_addr(ja->valuestring, ba)) {
                                     const char *nm = (jn && cJSON_IsString(jn)) ? jn->valuestring : NULL;
                                     register_host_target(ba, nm);
-                                }
-                            }
-                        }
-                    } else {
-                        cJSON *dwf = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
-                        if (dwf && cJSON_IsArray(dwf)) {
-                            cJSON *item = NULL;
-                            cJSON_ArrayForEach(item, dwf) {
-                                cJSON *dev = cJSON_GetObjectItemCaseSensitive(item, "Device");
-                                if (!dev) continue;
-                                cJSON *ja = cJSON_GetObjectItemCaseSensitive(dev, "BTAddress");
-                                cJSON *jn = cJSON_GetObjectItemCaseSensitive(dev, "Name");
-                                if (ja && cJSON_IsString(ja) && ja->valuestring[0]) {
-                                    bd_addr_t ba;
-                                    if (parse_bd_addr(ja->valuestring, ba)) {
-                                        const char *nm = (jn && cJSON_IsString(jn)) ? jn->valuestring : NULL;
-                                        register_host_target(ba, nm);
-                                    }
                                 }
                             }
                         }

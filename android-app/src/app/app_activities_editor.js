@@ -420,15 +420,6 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
     return steps;
   }
 
-  serializeSequenceToString(containerId) {
-    const steps = this.serializeSequence(containerId);
-    return steps.map(s => {
-      if (s.type === 'Switched') return 'Switched|0|Switched|0';
-      if (s.type === 'Delay') return `Delay|||${s.delay}`;
-      return `Command|${s.deviceId}|${s.command}|0`;
-    }).join('\n');
-  }
-
   async testLiveSequence(containerId) {
     const steps = this.serializeSequence(containerId);
     if (!steps.length) return alert(t("no_steps_to_test"));
@@ -456,8 +447,6 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
 
     const startSeq = this.serializeSequence('actStartStepsList');
     const stopSeq = this.serializeSequence('actStopStepsList');
-    const startSteps = this.serializeSequenceToString('actStartStepsList');
-    const stopSteps = this.serializeSequenceToString('actStopStepsList');
 
     const icon = document.getElementById('actEditIcon')?.value || 'generic.png';
 
@@ -469,9 +458,7 @@ export class HarmonyAppActivitiesEditor extends HarmonyAppActivitiesView {
       order: order,
       deviceIds,
       startSequence: startSeq,
-      stopSequence: stopSeq,
-      startSteps,
-      stopSteps
+      stopSequence: stopSeq
     };
 
     try {

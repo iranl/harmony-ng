@@ -448,7 +448,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
 
     document.getElementById('btCalibrateDevId').value = dev.id;
     document.getElementById('btCalibrateDevName').textContent = dev.name || 'Bluetooth Device';
-    document.getElementById('btCalibrateDevHost').textContent = `Host BD_ADDR: ${dev.btHost || dev.bt_host || dev.BTAddress || 'Not linked'}`;
+    document.getElementById('btCalibrateDevHost').textContent = `Host BD_ADDR: ${dev.bdaddr || dev.btHost || 'Not linked'}`;
     document.getElementById('btCalibrateCurrentStatus').textContent = 'Status: Checking...';
     document.getElementById('btCalibrateTimer').textContent = '0.0s';
     document.getElementById('btCalibrateTimer').classList.remove('bt-timer-active');
@@ -459,8 +459,8 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
     if (cmdSel) {
       cmdSel.innerHTML = '';
       const allDevs = this.inventory?.devices || [];
-      const currentTrigDev = dev.bt_trigger_device_id || dev.btTriggerDeviceId || '';
-      const currentTrigCmd = dev.bt_trigger_command_name || dev.btTriggerCommandName || dev.bt_trigger_command || dev.btTriggerCommand || '';
+      const currentTrigDev = dev.btTriggerDeviceId || '';
+      const currentTrigCmd = dev.btTriggerCommandName || '';
       const activeFormTrig = document.getElementById('curDevBtTriggerCmd')?.value || '';
       const targetPreselect = activeFormTrig || (currentTrigDev && currentTrigCmd ? `${currentTrigDev}:${currentTrigCmd}` : (currentTrigCmd ? (currentTrigCmd.includes(':') ? currentTrigCmd : `${dev.id}:${currentTrigCmd}`) : ''));
 
@@ -477,8 +477,8 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         if (cmds.length === 0) return;
 
         let typeLabel = '';
-        if (d.type === 'MQTT' || d.mqtt_enabled) typeLabel = 'MQTT';
-        else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt || Number(d.transport) === 32) typeLabel = 'Bluetooth';
+        if (d.type === 'MQTT' || d.mqttEnabled) typeLabel = 'MQTT';
+        else if (d.type === 'BT' || d.type === 'Bluetooth' || d.isBt) typeLabel = 'Bluetooth';
         else if (d.type) typeLabel = d.type;
         else typeLabel = 'IR';
 
@@ -528,7 +528,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
 
   isDevBtConnected(dev, btStatus) {
     if (!btStatus) return false;
-    const targetAddr = (dev.btHost || dev.bt_host || dev.BTAddress || '').toLowerCase();
+    const targetAddr = (dev.bdaddr || dev.btHost || '').toLowerCase();
     if (btStatus.hosts && Array.isArray(btStatus.hosts)) {
       const match = btStatus.hosts.find(h => targetAddr && h.addr && h.addr.toLowerCase() === targetAddr);
       if (match && match.connected) return true;
@@ -585,7 +585,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
       }
     }
 
-    const targetAddr = dev.btHost || dev.bt_host || dev.BTAddress || '';
+    const targetAddr = dev.bdaddr || dev.btHost || '';
     if (this.client.reconnectBt) {
       this.client.reconnectBt(targetAddr, 60, 0).catch(() => {});
     } else if (this.client.connectBt && targetAddr) {

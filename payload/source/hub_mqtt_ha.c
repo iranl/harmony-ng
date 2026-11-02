@@ -42,7 +42,6 @@ int load_daemon_activities(struct daemon_activity_list *list) {
     if (!root) return -1;
 
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
-    if (!acts) acts = cJSON_GetObjectItemCaseSensitive(root, "Activities");
     if (!acts || !cJSON_IsArray(acts)) {
         cJSON_Delete(root);
         return -1;
@@ -52,27 +51,18 @@ int load_daemon_activities(struct daemon_activity_list *list) {
     cJSON_ArrayForEach(item, acts) {
         if (list->count >= 32) break;
 
-        cJSON *act_obj = item;
-        cJSON *inner = cJSON_GetObjectItemCaseSensitive(item, "Activity");
-        if (inner && cJSON_IsObject(inner)) act_obj = inner;
-
-        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(act_obj, "Id-");
-        if (!j_id) j_id = cJSON_GetObjectItemCaseSensitive(act_obj, "Id");
-        if (!j_id) j_id = cJSON_GetObjectItemCaseSensitive(act_obj, "id");
-
+        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(item, "id");
         char act_id[32] = {0};
         if (j_id) {
             if (cJSON_IsNumber(j_id)) snprintf(act_id, sizeof(act_id), "%ld", (long)j_id->valuedouble);
             else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(act_id, j_id->valuestring, sizeof(act_id) - 1);
         }
 
-        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(act_obj, "name");
-        if (!j_name) j_name = cJSON_GetObjectItemCaseSensitive(act_obj, "Name");
+        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(item, "name");
         const char *act_name = (j_name && cJSON_IsString(j_name) && j_name->valuestring) ? j_name->valuestring : "";
 
         int act_order = 999;
-        cJSON *j_order = cJSON_GetObjectItemCaseSensitive(act_obj, "ActivityOrder");
-        if (!j_order) j_order = cJSON_GetObjectItemCaseSensitive(act_obj, "Order");
+        cJSON *j_order = cJSON_GetObjectItemCaseSensitive(item, "order");
         if (j_order && cJSON_IsNumber(j_order)) act_order = (int)j_order->valuedouble;
 
         if (act_id[0] && act_name[0] && strcmp(act_name, "PowerOff") != 0 && strcmp(act_id, "-1") != 0) {

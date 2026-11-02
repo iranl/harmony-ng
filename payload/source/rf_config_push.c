@@ -45,7 +45,6 @@ void *config_push_worker(void *arg) {
     uint8_t target_slots[2] = {0};
     push_queue_t queue[2] = {{0}};
     int num_targets = 0;
-    uint64_t now_ms = get_monotonic_ms();
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         uint8_t s = g_paired_remotes[i].slot;
@@ -102,23 +101,15 @@ void *config_push_worker(void *arg) {
                 cJSON *root = cJSON_Parse(buf);
                 free(buf);
                 if (root) {
-                    cJSON *acts_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "Activities");
-                    if (!acts_arr) acts_arr = cJSON_GetObjectItem(root, "activities");
+                    cJSON *acts_arr = cJSON_GetObjectItem(root, "activities");
                     if (acts_arr && cJSON_IsArray(acts_arr)) {
-                        cJSON *elem = NULL;
-                        cJSON_ArrayForEach(elem, acts_arr) {
+                        cJSON *act_obj = NULL;
+                        cJSON_ArrayForEach(act_obj, acts_arr) {
                             if (act_count >= 16) break;
-                            cJSON *act_obj = elem;
-                            cJSON *inner = cJSON_GetObjectItemCaseSensitive(elem, "Activity");
-                            if (inner && cJSON_IsObject(inner)) act_obj = inner;
 
-                            cJSON *j_name = cJSON_GetObjectItem(act_obj, "Name");
-                            if (!j_name) j_name = cJSON_GetObjectItem(act_obj, "name");
-                            cJSON *j_id = cJSON_GetObjectItem(act_obj, "Id-");
-                            if (!j_id) j_id = cJSON_GetObjectItem(act_obj, "Id");
-                            if (!j_id) j_id = cJSON_GetObjectItem(act_obj, "id");
+                            cJSON *j_name = cJSON_GetObjectItem(act_obj, "name");
+                            cJSON *j_id = cJSON_GetObjectItem(act_obj, "id");
                             cJSON *j_icon = cJSON_GetObjectItem(act_obj, "icon");
-                            if (!j_icon) j_icon = cJSON_GetObjectItem(act_obj, "Icon");
                             const char *icon_str = (j_icon && cJSON_IsString(j_icon)) ? j_icon->valuestring : "";
                             cJSON *j_type = cJSON_GetObjectItem(act_obj, "type");
                             const char *type_str = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "";
@@ -218,36 +209,17 @@ void *config_push_worker(void *arg) {
                 cJSON *root = cJSON_Parse(buf);
                 free(buf);
                 if (root) {
-                    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "DevicesWithFeatures");
-                    if (!devs_arr) devs_arr = cJSON_GetObjectItem(root, "devices");
+                    cJSON *devs_arr = cJSON_GetObjectItem(root, "devices");
                     if (devs_arr && cJSON_IsArray(devs_arr)) {
-                        cJSON *elem = NULL;
-                        cJSON_ArrayForEach(elem, devs_arr) {
+                        cJSON *d_obj = NULL;
+                        cJSON_ArrayForEach(d_obj, devs_arr) {
                             if (dev_count >= 16) break;
-                            cJSON *d_obj = elem;
-                            cJSON *inner = cJSON_GetObjectItemCaseSensitive(elem, "Device");
-                            if (inner && cJSON_IsObject(inner)) d_obj = inner;
 
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d_obj, "Id-");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d_obj, "Id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d_obj, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d_obj, "ContentProfileKey");
-
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d_obj, "id");
                             cJSON *jname = cJSON_GetObjectItem(d_obj, "name");
-                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "Name");
-                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "FriendlyName");
-                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "label");
-                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "Model");
-                            if (!jname) jname = cJSON_GetObjectItem(d_obj, "ParentDeviceModel");
-
                             cJSON *j_icon = cJSON_GetObjectItem(d_obj, "icon");
-                            if (!j_icon) j_icon = cJSON_GetObjectItem(d_obj, "Icon");
                             const char *icon_str = (j_icon && cJSON_IsString(j_icon)) ? j_icon->valuestring : "";
-
                             cJSON *j_type = cJSON_GetObjectItem(d_obj, "type");
-                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "Type");
-                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "deviceType");
-                            if (!j_type) j_type = cJSON_GetObjectItem(d_obj, "DeviceTypeDisplayName");
                             const char *type_str = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "";
 
                             if (jid && jname && cJSON_IsString(jname)) {
@@ -715,37 +687,22 @@ void *config_push_worker(void *arg) {
                 cJSON *jb = cJSON_GetObjectItem(sroot, "brightness");
                 cJSON *jt = cJSON_GetObjectItem(sroot, "timeout");
                 cJSON *jtouch = cJSON_GetObjectItem(sroot, "touchEnabled");
-                if (!jtouch) jtouch = cJSON_GetObjectItem(sroot, "touch");
                 cJSON *jgyro = cJSON_GetObjectItem(sroot, "gyroEnabled");
-                if (!jgyro) jgyro = cJSON_GetObjectItem(sroot, "gyro");
                 cJSON *jnk = cJSON_GetObjectItem(sroot, "navToggleKey");
-                if (!jnk) jnk = cJSON_GetObjectItem(sroot, "nav_key");
                 cJSON *jnm = cJSON_GetObjectItem(sroot, "navToggleMode");
-                if (!jnm) jnm = cJSON_GetObjectItem(sroot, "nav_mode");
                 cJSON *jca = cJSON_GetObjectItem(sroot, "confirmActivity");
-                if (!jca) jca = cJSON_GetObjectItem(sroot, "confirm_act");
                 cJSON *jts = cJSON_GetObjectItem(sroot, "touchSensitivity");
-                if (!jts) jts = cJSON_GetObjectItem(sroot, "touch_sensitivity");
                 cJSON *jrm = cJSON_GetObjectItem(sroot, "remoteMode");
-                if (!jrm) jrm = cJSON_GetObjectItem(sroot, "remote_mode");
                 cJSON *jgr = cJSON_GetObjectItem(sroot, "gyroRate");
-                if (!jgr) jgr = cJSON_GetObjectItem(sroot, "gyro_rate");
                 cJSON *jbb = cJSON_GetObjectItem(sroot, "btnBacklight");
-                if (!jbb) jbb = cJSON_GetObjectItem(sroot, "btn_backlight");
                 cJSON *jns = cJSON_GetObjectItem(sroot, "nightStart");
-                if (!jns) jns = cJSON_GetObjectItem(sroot, "night_start");
                 cJSON *jne = cJSON_GetObjectItem(sroot, "nightEnd");
-                if (!jne) jne = cJSON_GetObjectItem(sroot, "night_end");
                 cJSON *jue = cJSON_GetObjectItem(sroot, "usbEth");
-                if (!jue) jue = cJSON_GetObjectItem(sroot, "usbeth");
                 cJSON *jpd = cJSON_GetObjectItem(sroot, "powerDebug");
-                if (!jpd) jpd = cJSON_GetObjectItem(sroot, "power_debug");
                 cJSON *jnscreen = cJSON_GetObjectItem(sroot, "noScreen");
-                if (!jnscreen) jnscreen = cJSON_GetObjectItem(sroot, "no_screen");
                 int no_screen = 0;
                 if (jnscreen) no_screen = cJSON_IsTrue(jnscreen) || (cJSON_IsNumber(jnscreen) && jnscreen->valueint != 0) ? 1 : 0;
                 cJSON *jcap = cJSON_GetObjectItem(sroot, "capButtonsEnabled");
-                if (!jcap) jcap = cJSON_GetObjectItem(sroot, "cap_buttons");
                 int cap_buttons = 1;
                 if (jcap) cap_buttons = (cJSON_IsFalse(jcap) || (cJSON_IsNumber(jcap) && jcap->valueint == 0)) ? 0 : 1;
 
@@ -757,6 +714,7 @@ void *config_push_worker(void *arg) {
                 if (jnm) nav_mode = jnm->valueint;
                 if (jca) confirm_act = cJSON_IsTrue(jca) || (cJSON_IsNumber(jca) && jca->valueint != 0) ? 1 : 0;
                 if (jts && jts->valueint >= 1 && jts->valueint <= 3) touch_sens = jts->valueint;
+                if (jrm && jrm->valueint >= 0) remote_mode = jrm->valueint;
                 if (jgr && jgr->valueint > 0) gyro_rate = jgr->valueint;
                 if (jbb && jbb->valueint >= 0 && jbb->valueint <= 2) btn_backlight = jbb->valueint;
                 if (jns && jns->valueint >= 0 && jns->valueint <= 23) night_start = jns->valueint;
@@ -765,7 +723,6 @@ void *config_push_worker(void *arg) {
                 if (jpd) power_debug = cJSON_IsTrue(jpd) || (cJSON_IsNumber(jpd) && jpd->valueint != 0) ? 1 : 0;
                 int language = 0;
                 cJSON *jlang = cJSON_GetObjectItem(sroot, "language");
-                if (!jlang) jlang = cJSON_GetObjectItem(sroot, "language_id");
                 if (jlang) {
                     if (cJSON_IsNumber(jlang)) {
                         language = jlang->valueint;

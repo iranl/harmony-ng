@@ -38,8 +38,6 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
         powerOnSequence: dev.powerOnSequence || [],
         powerOffSequence: dev.powerOffSequence || [],
         isBt: isBt,
-        transport: isBt ? 32 : (dev.transport !== undefined ? Number(dev.transport) : 0),
-        isKeyboardAssociated: isBt,
         mqttEnabled: isMqtt || !!dev.mqttEnabled,
         mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
         mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),

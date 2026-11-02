@@ -345,8 +345,8 @@ export class HarmonyAppRemotesElite extends HarmonyAppRemotesB25 {
         devSel.disabled = true;
       } else {
         devSel.disabled = false;
-        if (mapping && mapping.deviceId) {
-          devSel.value = mapping.deviceId;
+        if (mapping && (mapping.deviceId || mapping.targetDevice)) {
+          devSel.value = mapping.deviceId || mapping.targetDevice;
         }
       }
     }

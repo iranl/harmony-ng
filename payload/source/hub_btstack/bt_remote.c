@@ -227,14 +227,12 @@ int is_bt_device_id(const char *target) {
                         cJSON *item = NULL;
                         cJSON_ArrayForEach(item, devs) {
                             cJSON *j_id = cJSON_GetObjectItemCaseSensitive(item, "id");
-                            if (!j_id) j_id = cJSON_GetObjectItemCaseSensitive(item, "Id");
                             char id_str[64] = {0};
                             if (j_id) {
                                 if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
                                 else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
                             }
                             cJSON *j_name = cJSON_GetObjectItemCaseSensitive(item, "name");
-                            if (!j_name) j_name = cJSON_GetObjectItemCaseSensitive(item, "Name");
                             const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
                             if ((id_str[0] && strcmp(id_str, target) == 0) ||
                                 (name_str && name_str[0] && strcasecmp(name_str, target) == 0)) {
@@ -246,34 +244,6 @@ int is_bt_device_id(const char *target) {
                                     is_bt = 1;
                                 }
                                 break;
-                            }
-                        }
-                    } else {
-                        cJSON *dwf = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
-                        if (dwf && cJSON_IsArray(dwf)) {
-                            cJSON *item = NULL;
-                            cJSON_ArrayForEach(item, dwf) {
-                                cJSON *dev = cJSON_GetObjectItemCaseSensitive(item, "Device");
-                                if (!dev) continue;
-                                cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "Id-");
-                                if (!j_id) j_id = cJSON_GetObjectItemCaseSensitive(dev, "Id");
-                                if (!j_id) j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
-                                char id_str[64] = {0};
-                                if (j_id) {
-                                    if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
-                                    else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
-                                }
-                                cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "Name");
-                                const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
-                                if ((id_str[0] && strcmp(id_str, target) == 0) ||
-                                    (name_str && name_str[0] && strcasecmp(name_str, target) == 0)) {
-                                    cJSON *j_trans = cJSON_GetObjectItemCaseSensitive(dev, "Transport");
-                                    if (!j_trans) j_trans = cJSON_GetObjectItemCaseSensitive(dev, "TransportType");
-                                    if (j_trans && cJSON_IsNumber(j_trans) && (int)j_trans->valuedouble == 32) {
-                                        is_bt = 1;
-                                    }
-                                    break;
-                                }
                             }
                         }
                     }
@@ -434,9 +404,10 @@ void dispatch_button_event(const char *btn, int is_press) {
     if (!j_act) j_act = cJSON_GetObjectItemCaseSensitive(btn_obj, "type");
     const char *action = (j_act && cJSON_IsString(j_act)) ? j_act->valuestring : "";
 
-    cJSON *j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "targetDevice");
-    if (!j_tgt) j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "deviceId");
+    cJSON *j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "deviceId");
+    if (!j_tgt) j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "targetDevice");
     if (!j_tgt) j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "activityId");
+    if (!j_tgt) j_tgt = cJSON_GetObjectItemCaseSensitive(btn_obj, "targetActivity");
     const char *target = (j_tgt && cJSON_IsString(j_tgt)) ? j_tgt->valuestring : "";
 
     cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(btn_obj, "command");

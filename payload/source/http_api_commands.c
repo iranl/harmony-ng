@@ -54,20 +54,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                 cJSON *root = config_store_get_devices_json();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                     if (devs && cJSON_IsArray(devs)) {
                         cJSON *dev_item = NULL;
                         cJSON_ArrayForEach(dev_item, devs) {
-                            cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                            if (!d) d = dev_item;
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                             char d_id_str[32] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                             if (strcmp(d_id_str, dev_id) == 0) {
                                 cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "commands");
-                                if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "Commands");
                                 if (!cmds) {
                                     cmds = cJSON_CreateArray();
                                     cJSON_AddItemToObject(dev_item, "commands", cmds);
@@ -76,7 +71,6 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 cJSON *ci = NULL;
                                 cJSON_ArrayForEach(ci, cmds) {
                                     cJSON *cn = cJSON_GetObjectItemCaseSensitive(ci, "name");
-                                    if (!cn) cn = cJSON_GetObjectItemCaseSensitive(ci, "Name");
                                     if (cn && cJSON_IsString(cn) && cn->valuestring) {
                                         if ((old_name[0] && strcmp(cn->valuestring, old_name) == 0) ||
                                             strcmp(cn->valuestring, name) == 0) {
@@ -85,11 +79,9 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         }
                                     }
                                 }
-                                cJSON *dtype = cJSON_GetObjectItemCaseSensitive(d, "type");
-                                if (!dtype) dtype = cJSON_GetObjectItemCaseSensitive(d, "DeviceTypeDisplayName");
+                                cJSON *dtype = cJSON_GetObjectItemCaseSensitive(dev_item, "type");
                                 const char *tstr = (dtype && dtype->valuestring) ? dtype->valuestring : "";
-                                cJSON *dmfg = cJSON_GetObjectItemCaseSensitive(d, "manufacturer");
-                                if (!dmfg) dmfg = cJSON_GetObjectItemCaseSensitive(d, "Manufacturer");
+                                cJSON *dmfg = cJSON_GetObjectItemCaseSensitive(dev_item, "manufacturer");
                                 const char *mstr = (dmfg && dmfg->valuestring) ? dmfg->valuestring : "";
                                 int dev_is_bt = (strcasestr(tstr, "bluetooth") != NULL || strcasestr(tstr, "bt") != NULL || strcasestr(mstr, "bluetooth") != NULL);
                                 int dev_is_mqtt = (strcasestr(tstr, "mqtt") != NULL || strcasestr(mstr, "mqtt") != NULL);
@@ -97,16 +89,13 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
 
                                 if (cmd_match) {
-                                    cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Name");
                                     cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "name");
                                     cJSON_AddStringToObject(cmd_match, "name", name);
 
                                     if (raw_data[0]) {
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "KeyCode");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "keyCode");
                                         cJSON_AddStringToObject(cmd_match, "keyCode", raw_data);
 
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Raw");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
                                         cJSON_AddStringToObject(cmd_match, "raw", raw_data);
                                     }
@@ -116,19 +105,12 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     if (is_bt_cmd || is_mqtt_cmd) {
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Repeats");
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "controlPort");
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "ControlPort");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Port");
                                     } else {
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
 
                                         if (port > 0) {
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "ControlPort");
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "controlPort");
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                             cJSON_AddNumberToObject(cmd_match, "port", port);
                                         }
@@ -186,20 +168,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                 cJSON *root = config_store_get_devices_json();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                     if (devs && cJSON_IsArray(devs)) {
                         cJSON *dev_item = NULL;
                         cJSON_ArrayForEach(dev_item, devs) {
-                            cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                            if (!d) d = dev_item;
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                             char d_id_str[32] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                             if (strcmp(d_id_str, dev_id) == 0) {
                                 cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "commands");
-                                if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "Commands");
                                 if (!cmds) {
                                     cmds = cJSON_CreateArray();
                                     cJSON_AddItemToObject(dev_item, "commands", cmds);
@@ -221,28 +198,22 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     cJSON *ci = NULL;
                                     cJSON_ArrayForEach(ci, cmds) {
                                         cJSON *cn = cJSON_GetObjectItemCaseSensitive(ci, "name");
-                                        if (!cn) cn = cJSON_GetObjectItemCaseSensitive(ci, "Name");
                                         if (cn && cJSON_IsString(cn) && cn->valuestring && strcmp(cn->valuestring, name) == 0) {
                                             cmd_match = ci;
                                             break;
                                         }
                                     }
                                     if (cmd_match) {
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "KeyCode");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "keyCode");
                                         cJSON_AddStringToObject(cmd_match, "keyCode", raw_data);
 
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Raw");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "raw");
                                         cJSON_AddStringToObject(cmd_match, "raw", raw_data);
 
-                                        cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "Repeats");
                                         cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "repeats");
                                         cJSON_AddNumberToObject(cmd_match, "repeats", repeats);
 
                                         if (port > 0) {
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "ControlPort");
-                                            cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "controlPort");
                                             cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "port");
                                             cJSON_AddNumberToObject(cmd_match, "port", port);
                                         }
@@ -299,26 +270,20 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                 cJSON *root = config_store_get_devices_json();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                    if (!devs) devs = cJSON_GetObjectItemCaseSensitive(root, "DevicesWithFeatures");
                     if (devs && cJSON_IsArray(devs)) {
                         cJSON *dev_item = NULL;
                         cJSON_ArrayForEach(dev_item, devs) {
-                            cJSON *d = cJSON_GetObjectItemCaseSensitive(dev_item, "Device");
-                            if (!d) d = dev_item;
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-                            if (!jid) jid = cJSON_GetObjectItemCaseSensitive(d, "Id-");
+                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(dev_item, "id");
                             char d_id_str[32] = {0};
                             if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                             if (strcmp(d_id_str, dev_id) == 0) {
                                 cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "commands");
-                                if (!cmds) cmds = cJSON_GetObjectItemCaseSensitive(dev_item, "Commands");
                                 if (cmds && cJSON_IsArray(cmds)) {
                                     int c_count = cJSON_GetArraySize(cmds);
                                     for (int ci = 0; ci < c_count; ci++) {
                                         cJSON *c_item = cJSON_GetArrayItem(cmds, ci);
                                         cJSON *cn = cJSON_GetObjectItemCaseSensitive(c_item, "name");
-                                        if (!cn) cn = cJSON_GetObjectItemCaseSensitive(c_item, "Name");
                                         if (cn && cJSON_IsString(cn) && strcmp(cn->valuestring, cmd_name) == 0) {
                                             cJSON_DeleteItemFromArray(cmds, ci);
                                             config_store_save_devices(root);

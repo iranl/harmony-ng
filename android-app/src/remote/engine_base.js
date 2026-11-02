@@ -205,7 +205,7 @@ export class RemoteEngineBase {
 
   isDeviceBluetooth(dev) {
     if (!dev) return false;
-    if (Number(dev.transport) === 32 || dev.isBt || dev.type === 'BT' || dev.type === 'Bluetooth') return true;
+    if (dev.isBt || dev.type === 'BT' || dev.type === 'Bluetooth') return true;
     const name = `${dev.name || ''} ${dev.manufacturer || ''} ${dev.model || ''}`.toLowerCase();
     if (name.includes('shield') || name.includes('fire tv') || name.includes('firetv') || name.includes('apple tv') || name.includes('appletv')) {
       return true;

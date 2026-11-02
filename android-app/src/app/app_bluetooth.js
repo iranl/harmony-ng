@@ -75,7 +75,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       const devs = this.inventory.devices || [];
       pairTarget.innerHTML = '<option value="">-- Select Target Device (Required) --</option>' +
         devs.map(d => {
-          const isBt = d.type === 'BT' || d.type === 'Bluetooth' || d.isBt || Number(d.transport) === 32;
+          const isBt = d.type === 'BT' || d.type === 'Bluetooth' || d.isBt;
           return `<option value="${d.id}">${d.name || d.id}${isBt ? ' (BT)' : ''}</option>`;
         }).join('');
     }
@@ -103,7 +103,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
       const findAssignedDevice = (h) => {
         if (!h || !h.addr) return null;
         return (this.inventory.devices || []).find(d => {
-          const a = (d.bt_host || d.BTAddress || d.btHost || d.bdaddr || '').toLowerCase();
+          const a = (d.bdaddr || d.btHost || '').toLowerCase();
           return a && a === h.addr.toLowerCase();
         });
       };
@@ -118,7 +118,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
         });
         if (matchDev) return matchDev.name || matchDev.model || h.name;
         if (!h.name || h.name === 'Default Host' || h.name.startsWith('Host 00:')) {
-          const btDev = (this.inventory.devices || []).find(d => Number(d.transport) === 32 || (d.type && d.type.toLowerCase().includes('bt')));
+          const btDev = (this.inventory.devices || []).find(d => d.isBt || (d.type && d.type.toLowerCase().includes('bt')));
           if (btDev) return btDev.name || btDev.model;
         }
         return h.name || 'Bluetooth Host';

@@ -535,7 +535,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
             // Fallback: check if inventory was already updated directly
             await this.refreshData();
             const curDev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-            const pairedAddr = curDev ? (curDev.btHost || curDev.bt_host || curDev.BTAddress) : '';
+            const pairedAddr = curDev ? (curDev.bdaddr || curDev.btHost || '') : '';
             if (pairedAddr) {
               clearInterval(this._btPairPollTimer);
               this._btPairPollTimer = null;
@@ -571,7 +571,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
 
     document.getElementById('btnCurDevBtConnect')?.addEventListener('click', async () => {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(this.selectedIrDeviceId));
-      const addr = dev ? (dev.btHost || dev.bt_host || dev.BTAddress) : '';
+      const addr = dev ? (dev.bdaddr || dev.btHost || '') : '';
       if (!addr) return alert(t("no_bt_host_linked"));
       try {
         await this.client.connectBt(addr);
@@ -584,7 +584,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
 
     document.getElementById('btnCurDevBtDisconnect')?.addEventListener('click', async () => {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(this.selectedIrDeviceId));
-      const addr = dev ? (dev.btHost || dev.bt_host || dev.BTAddress) : '';
+      const addr = dev ? (dev.bdaddr || dev.btHost || '') : '';
       try {
         await this.client.disconnectBt(addr);
         alert(t("disconnect_cmd_sent"));
