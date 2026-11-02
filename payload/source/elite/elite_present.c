@@ -55,6 +55,10 @@ void fb_present_init(void) {
     printf("[+] Display: %d framebuffer pages, %s\n", pages, s_pages > 1 ? "page flipping" : "copying into every page");
 }
 
+bool fb_can_animate(void) {
+    return s_pages >= 2;
+}
+
 static void copy_to_every_page(const uint16_t *frame) {
     for (size_t off = 0; off + FB_SIZE <= g_fb_size && off < FB_SIZE * 3; off += FB_SIZE) {
         memcpy((uint8_t *)g_fb_mem + off, frame, FB_SIZE);

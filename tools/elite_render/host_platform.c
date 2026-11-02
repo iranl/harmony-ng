@@ -14,6 +14,7 @@ bool is_elite_docked(void) { return strcmp(g_battery_info.powersource, "usb") ==
 void expand_timezone(const char *in, char *out, size_t out_sz) { snprintf(out, out_sz, "%s", in); }
 void fb_set_blank(bool blank) { (void)blank; }
 bool fb_present(const uint16_t *frame, bool wait_vsync) { (void)frame; (void)wait_vsync; return false; }
+bool fb_can_animate(void) { return false; }
 bool frame_timing_enabled(void) { return false; }
 void frame_timing_record(const frame_timing_t *t) { (void)t; }
 void set_backlight_level(int level) { (void)level; }
