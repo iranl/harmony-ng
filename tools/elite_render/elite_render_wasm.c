@@ -15,9 +15,10 @@ static uint8_t g_rgba[FB_WIDTH * FB_HEIGHT * 4];
 
 EMSCRIPTEN_KEEPALIVE
 uint8_t *er_render(const char *root, const char *view, int select, const char *active, const char *icons,
-                   int battery, int usb, int charging, int no_hub, int minutes, const char *theme) {
+                   int battery, int usb, int charging, int no_hub, int minutes, const char *theme,
+                   const char *layout) {
     render_options_t o = {
-        .root = root, .view = view, .select = select, .active = active, .icons = icons, .theme = theme,
+        .root = root, .view = view, .select = select, .active = active, .icons = icons, .theme = theme, .layout = layout,
         .battery = battery, .usb = usb != 0, .charging = charging != 0, .no_hub = no_hub != 0, .minutes = minutes,
     };
     render_load(&o);
