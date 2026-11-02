@@ -131,15 +131,59 @@ deploy_file_if_changed() {
     echo "    -> Uploading $fname (local: $local_md5 != remote: ${remote_md5:-missing})..."
     local ddir
     ddir=$(dirname "$dst")
-    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p '$ddir' 2>/dev/null || true"
-    if [ "$fname" = "icons.tar.gz" ]; then
-        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:/tmp/$fname"
-        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f '$dst' '${dst}.new' 2>/dev/null; mv -f /tmp/$fname '$dst' && chmod $perm '$dst' 2>/dev/null || true"
+
+    # Failures are collected in DEPLOY_FAILURES and reported after the services restart, rather
+    # than stopping the deployment while they are stopped.
+    # The Hub's flash filesystems are small (/data is 5 MB). The new copy goes next to the old one
+    # as $dst.new when both fit; otherwise it is staged in RAM (/tmp) and replaces the old copy,
+    # which frees its space because the services using it are stopped. Either way the copy is
+    # checked against the local MD5 before it replaces anything.
+    local size_kb avail_kb old_kb
+    size_kb=$(( ($(wc -c < "$src") + 1023) / 1024 ))
+    read -r avail_kb old_kb < <(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
+        "mkdir -p '$ddir' 2>/dev/null; rm -f '${dst}.new' 2>/dev/null; a=\$(df -k '$ddir' 2>/dev/null | tail -1 | awk '{print \$(NF-2)}'); o=0; [ -f '$dst' ] && o=\$(du -k '$dst' 2>/dev/null | cut -f1); echo \"\${a:-0} \${o:-0}\"") || true
+    case "${avail_kb:-}" in ''|*[!0-9]*) avail_kb="" ;; esac  # unknown: try the side-by-side copy
+    case "${old_kb:-}" in ''|*[!0-9]*) old_kb=0 ;; esac
+    local need_kb=$((size_kb + 32))  # flash filesystems need room beyond the file's own size
+    local stage
+    if [ -z "${avail_kb:-}" ] || [ "$avail_kb" -ge "$need_kb" ]; then
+        stage="${dst}.new"
+    elif [ $((avail_kb + old_kb)) -ge "$need_kb" ]; then
+        stage="/tmp/deploy.$fname"
+        echo "       Not enough space for both copies (${avail_kb} KB free, ${size_kb} KB needed); replacing in place."
     else
-        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
-        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
+        echo "    [-] $fname: $ddir has ${avail_kb} KB free and the old copy frees ${old_kb} KB, but ${need_kb} KB is needed. Free space on the Hub and deploy again." >&2
+        DEPLOY_FAILURES+=("$dst (no space)")
+        return 0
     fi
+
+    if ! scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${stage}"; then
+        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f '$stage' 2>/dev/null"
+        echo "    [-] $fname: upload failed; the Hub keeps its old copy." >&2
+        DEPLOY_FAILURES+=("$dst (upload failed)")
+        return 0
+    fi
+    local result
+    result=$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
+        "s='$stage'; d='$dst'; m=\$(md5sum \"\$s\" 2>/dev/null | cut -d' ' -f1); \
+         if [ \"\$m\" != '$local_md5' ]; then rm -f \"\$s\"; echo staged-mismatch; exit; fi; \
+         chmod $perm \"\$s\" 2>/dev/null; \
+         if [ \"\$s\" = \"\$d.new\" ]; then mv -f \"\$s\" \"\$d\" && echo ok || echo move-failed; exit; fi; \
+         rm -f \"\$d\"; cp \"\$s\" \"\$d\" 2>/dev/null; m=\$(md5sum \"\$d\" 2>/dev/null | cut -d' ' -f1); \
+         if [ \"\$m\" = '$local_md5' ]; then chmod $perm \"\$d\" 2>/dev/null; rm -f \"\$s\"; echo ok; else rm -f \"\$d\"; echo copy-failed; fi")
+    case "$result" in
+        ok) return 0 ;;
+        staged-mismatch)
+            echo "    [-] $fname: the uploaded copy doesn't match the local file; the Hub keeps its old copy." >&2 ;;
+        copy-failed)
+            echo "    [-] $fname: writing $dst failed and the old copy is gone. The new copy is in $stage on the Hub until it reboots; free space and deploy again." >&2 ;;
+        *)
+            echo "    [-] $fname: replacing $dst failed (${result:-no reply})." >&2 ;;
+    esac
+    DEPLOY_FAILURES+=("$dst (${result:-no reply})")
+    return 0
 }
+DEPLOY_FAILURES=()
 
 if [ "$WEBUI_ONLY" = "0" ]; then
 # 1. Run automated backup first
@@ -340,4 +384,10 @@ else
     else
         echo "=== Deployment to $HUB_HOST Complete! Services started. ==="
     fi
+fi
+
+if [ "${#DEPLOY_FAILURES[@]}" -gt 0 ]; then
+    echo "[-] These files were not deployed; the Hub runs with its old copies:" >&2
+    for f in "${DEPLOY_FAILURES[@]}"; do echo "    $f" >&2; done
+    exit 1
 fi
