@@ -82,6 +82,7 @@ extern "C" {
 #define g_font_title        (*g_theme.font_title)
 
 enum { HOME_LAYOUT_THEME = 0, HOME_LAYOUT_LIST, HOME_LAYOUT_GRID, HOME_LAYOUT_COUNT };
+enum { ACTIVITY_ORDER_YOURS = 0, ACTIVITY_ORDER_MOST_USED };
 
 /* UI Views */
 typedef enum {
@@ -290,6 +291,7 @@ extern int g_timeout_seconds;
 extern int g_brightness_val;
 extern bool g_confirm_activity;
 extern int g_home_layout;            /* HOME_LAYOUT_*: the theme's, or the user's choice */
+extern int g_activity_order;         /* ACTIVITY_ORDER_*: the web UI's order, or most used first */
 extern int g_confirm_pending_idx;
 extern uint64_t g_confirm_pending_deadline_ms;
 extern int g_confirm_pending_rf_code;

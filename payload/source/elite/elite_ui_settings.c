@@ -14,7 +14,7 @@
 int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
-        case SETTINGS_VIEW_ACTIVITIES: return 4;
+        case SETTINGS_VIEW_ACTIVITIES: return 5;
         case SETTINGS_VIEW_DISPLAY:    return 7;
         case SETTINGS_VIEW_TOUCH:      return 4;
         case SETTINGS_VIEW_POWER:      return 7;
@@ -322,25 +322,28 @@ void render_settings_screen(void) {
             render_settings_categories();
             break;
         case SETTINGS_VIEW_ACTIVITIES: {
-            const char *labels[4] = { tr(STR_CONFIRM_SWITCH), tr(STR_LANGUAGE), tr(STR_SYNC_CONFIG_HUB), tr(STR_BACK) };
-            char values[4][32];
+            const char *labels[5] = { tr(STR_CONFIRM_SWITCH), tr(STR_LANGUAGE), tr(STR_SYNC_CONFIG_HUB), tr(STR_ACTIVITY_ORDER), tr(STR_BACK) };
+            char values[5][32];
             snprintf(values[0], sizeof(values[0]), "[ %s ]", g_confirm_activity ? tr(STR_CONFIRM_PROMPT) : tr(STR_CONFIRM_INSTANT));
             snprintf(values[1], sizeof(values[1]), "[ %s ]", elite_lang_name(g_language));
             snprintf(values[2], sizeof(values[2]), "v%d %s", g_config_version, g_update_config_available ? "[NEW]" : "[OK]");
-            values[3][0] = '\0';
-            uint16_t cols[4] = {
+            snprintf(values[3], sizeof(values[3]), "[ %s ]", g_activity_order == ACTIVITY_ORDER_MOST_USED ? "MOST USED" : "YOURS");
+            values[4][0] = '\0';
+            uint16_t cols[5] = {
                 g_confirm_activity ? RGB_GREEN : RGB_TEXT_MUTED,
                 RGB_TEAL,
                 g_update_config_available ? RGB_YELLOW : RGB_TEAL,
+                RGB_TEAL,
                 RGB_CYAN
             };
-            const char *icons[4] = {
+            const char *icons[5] = {
                 "/opt/luadraws/appscommon/asset/settings/checkmark.png",
                 "/opt/luadraws/appscommon/asset/footer/settings.png",
                 "/opt/luadraws/appscommon/asset/footer/devices.png",
+                "/opt/luadraws/appscommon/asset/footer/menu.png",
                 "/opt/luadraws/appscommon/asset/footer/close.png"
             };
-            render_settings_items(tr(STR_CAT_CONFIG), 4, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_CONFIG), 5, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {

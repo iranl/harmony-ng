@@ -715,6 +715,8 @@ void load_rf_config(void) {
     if (g_has_hub_config) build_activity_list();
 }
 
+static void sort_activity_list(void);
+
 void build_activity_list(void) {
     g_activity_count = 0;
     for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
@@ -736,6 +738,77 @@ void build_activity_list(void) {
         }
         g_activity_count++;
     }
+    sort_activity_list();
+}
+
+/* Activity starts on this remote, for the "most used first" order: id=count lines */
+#define ACTIVITY_USAGE_FILE "/data/elite_activity_usage.conf"
+static struct { char id[32]; unsigned count; } g_usage[MAX_ACTIVITIES * 2];
+static int g_usage_len;
+
+static unsigned activity_uses(const char *id) {
+    for (int i = 0; i < g_usage_len; i++) {
+        if (strcmp(g_usage[i].id, id) == 0) return g_usage[i].count;
+    }
+    return 0;
+}
+
+void load_activity_usage(void) {
+    FILE *f = fopen(ACTIVITY_USAGE_FILE, "r");
+    if (!f) return;
+    char line[64];
+    g_usage_len = 0;
+    while (g_usage_len < (int)(sizeof(g_usage) / sizeof(g_usage[0])) && fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%31[^=]=%u", g_usage[g_usage_len].id, &g_usage[g_usage_len].count) == 2) g_usage_len++;
+    }
+    fclose(f);
+}
+
+/* Most used first when that order is chosen; equal counts keep the web UI's order */
+static void sort_activity_list(void) {
+    if (g_activity_order != ACTIVITY_ORDER_MOST_USED) return;
+    for (int i = 1; i < g_activity_count; i++) {
+        activity_item_t item = g_activities[i];
+        unsigned uses = activity_uses(item.id);
+        int j = i - 1;
+        while (j >= 0 && activity_uses(g_activities[j].id) < uses) {
+            g_activities[j + 1] = g_activities[j];
+            j--;
+        }
+        g_activities[j + 1] = item;
+    }
+}
+
+void record_activity_start(const char *id) {
+    if (!id || !id[0] || strcmp(id, "-1") == 0) return;
+    int i = 0;
+    while (i < g_usage_len && strcmp(g_usage[i].id, id) != 0) i++;
+    if (i == g_usage_len) {
+        if (g_usage_len == (int)(sizeof(g_usage) / sizeof(g_usage[0]))) return;
+        snprintf(g_usage[i].id, sizeof(g_usage[i].id), "%s", id);
+        g_usage[i].count = 0;
+        g_usage_len++;
+    }
+    g_usage[i].count++;
+
+    FILE *f = fopen(ACTIVITY_USAGE_FILE, "w");
+    if (f) {
+        for (int k = 0; k < g_usage_len; k++) fprintf(f, "%s=%u\n", g_usage[k].id, g_usage[k].count);
+        fclose(f);
+    }
+
+    /* Re-sort now, keeping the selection on the same activity */
+    if (g_activity_order != ACTIVITY_ORDER_MOST_USED) return;
+    pthread_mutex_lock(&g_render_mutex);
+    char sel[sizeof(g_activities[0].id)] = "";
+    if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
+        snprintf(sel, sizeof(sel), "%s", g_activities[g_selected_activity].id);
+    }
+    sort_activity_list();
+    for (int k = 0; k < g_activity_count; k++) {
+        if (strcmp(g_activities[k].id, sel) == 0) g_selected_activity = k;
+    }
+    pthread_mutex_unlock(&g_render_mutex);
 }
 
 void apply_theme(const char *name) {
@@ -787,6 +860,9 @@ void load_settings_conf(void) {
                 g_home_layout = strcmp(sval, "grid") == 0 ? HOME_LAYOUT_GRID
                               : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST : HOME_LAYOUT_THEME;
             }
+            else if (strcmp(key, "order") == 0) {
+                g_activity_order = strcmp(sval, "used") == 0 ? ACTIVITY_ORDER_MOST_USED : ACTIVITY_ORDER_YOURS;
+            }
             else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
                 expand_timezone(sval, g_timezone_str, sizeof(g_timezone_str));
@@ -824,6 +900,7 @@ void save_settings_conf(void) {
     fprintf(f, "language=%s\n", elite_lang_code(g_language));
     fprintf(f, "theme=%s\n", g_theme.name);
     fprintf(f, "layout=%s\n", g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list" : "theme");
+    fprintf(f, "order=%s\n", g_activity_order == ACTIVITY_ORDER_MOST_USED ? "used" : "yours");
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;

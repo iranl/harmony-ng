@@ -12,6 +12,9 @@ void save_settings_conf(void);
 void load_rf_config(void);
 /* Builds the home screen's activity list and icon paths from the received RF config */
 void build_activity_list(void);
+/* Activity starts on this remote, which order the home screen when "most used first" is chosen */
+void load_activity_usage(void);
+void record_activity_start(const char *id);
 void save_rf_config(void);
 void load_activities(void);
 void init_act_triggers(void);
