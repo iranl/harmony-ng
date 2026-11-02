@@ -581,6 +581,25 @@ int main(void) {
         tap(120, ry + 30 + 5);
         assert(g_current_view == VIEW_DEVICE_BROWSER && g_browse_dev == 1);
         assert(ui_go_back() && g_current_view == VIEW_DEVICES && g_browse_dev == -1);
+
+        /* The home hit tests the Web UI's screen preview shares with the tap handler */
+        g_current_view = VIEW_ACTIVITIES;
+        g_home_layout = HOME_LAYOUT_LIST;
+        g_selected_activity = 5; /* the second page */
+        assert(home_activity_at(120, UI_CONTENT_Y + 2 * (ACT_CARD_H + ACT_CARD_GAP) + 5) == 7);
+        assert(home_activity_at(120, 10) == -1);
+        g_home_layout = HOME_LAYOUT_GRID;
+        g_selected_activity = 0;
+        assert(home_activity_at(200, UI_CONTENT_Y + ACT_TILE_H + ACT_CARD_GAP + 5) == 3);
+        g_home_layout = HOME_LAYOUT_CAROUSEL;
+        snprintf(g_activities[0].id, sizeof(g_activities[0].id), "40001");
+        g_selected_activity = 0;
+        int cry = UI_CONTENT_Y + HOME_PAGE_PITCH - 8 - 2 * 30;
+        assert(home_card_device_at(cry + 5) == 2 && home_card_device_at(cry - 5) == -1);
+        assert(home_activity_at(120, cry - 5) == 0);
+        g_selected_activity = 1; /* not the running activity: its card has no device taps */
+        assert(home_card_device_at(cry + 5) == -1);
+        g_home_layout = HOME_LAYOUT_LIST;
         printf("[+] Lists: drag, fling, edge resistance, catch, key reveal; card device rows open the device\n");
     }
 

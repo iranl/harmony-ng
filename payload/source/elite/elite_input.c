@@ -250,28 +250,18 @@ void handle_screen_touch_tap(int x, int y) {
     int start_y = UI_CONTENT_Y;
     if (g_current_view == VIEW_ACTIVITIES) {
         /* On the running activity's carousel card, a device row opens that device's commands */
-        if (home_layout_is_carousel() && g_selected_activity < activity_list_count() &&
-            strcmp(g_activities[g_selected_activity].id, g_active_activity_id) == 0) {
-            const rf_activity_t *act = rf_activity_by_id(g_active_activity_id);
-            int dev = act ? activity_card_device_at(act, UI_CONTENT_Y + HOME_PAGE_PITCH, y) : -1;
-            if (dev >= 0) {
-                open_device_from_card(dev);
-                render_screen();
-                return;
-            }
+        int dev = home_card_device_at(y);
+        if (dev >= 0) {
+            open_device_from_card(dev);
+            render_screen();
+            return;
         }
-        int page_size = activity_page_size();
-        int page_start = (g_selected_activity / page_size) * page_size;
-        for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
-            int cx, cy, cw, ch;
-            activity_slot_rect(i, &cx, &cy, &cw, &ch);
-            if (y >= cy && y < cy + ch + ACT_CARD_GAP && (!home_layout_is_grid() || (x >= cx && x < cx + cw + ACT_CARD_GAP))) {
-                int idx = page_start + i;
-                g_selected_activity = idx;
-                printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
-                request_activity_switch_with_confirm(idx);
-                return;
-            }
+        int idx = home_activity_at(x, y);
+        if (idx >= 0) {
+            g_selected_activity = idx;
+            printf("[*] Touch selected Activity: %s (id=%s)\n", g_activities[idx].name, g_activities[idx].id);
+            request_activity_switch_with_confirm(idx);
+            return;
         }
     } else if (g_current_view == VIEW_DEVICE_BROWSER) {
         int row = list_row_at(y);

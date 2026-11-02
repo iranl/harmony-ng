@@ -54,6 +54,10 @@ const char *home_layout_name(void);
 void home_select_running(void);
 int activity_page_size(void);
 void activity_slot_rect(int slot, int *x, int *y, int *w, int *h);
+/* The activity on the current home page under (x, y), or -1 */
+int home_activity_at(int x, int y);
+/* On the running activity's carousel card, the device row at y (an index into g_rf_devices), or -1 */
+int home_card_device_at(int y);
 void render_sync_overlay(void);
 void render_switching_view(void);
 
