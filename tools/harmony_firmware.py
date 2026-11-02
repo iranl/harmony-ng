@@ -84,7 +84,8 @@ SKIN_NAMES = {
 }
 
 DEFAULT_HUB_SKIN = 97
-DEFAULT_ELITE_SKIN = 99
+DEFAULT_ELITE_SKIN = 111
+ELITE_FALLBACK_SKINS = [111, 112, 102, 105, 99]
 
 
 # ==============================================================================
@@ -98,7 +99,7 @@ def get_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
-def query_latest_firmware(skin_id: int) -> Optional[dict[str, Any]]:
+def query_latest_firmware(skin_id: int, silent_on_empty: bool = False) -> Optional[dict[str, Any]]:
     """Query Logitech SUS for the latest image update result for a given skin ID."""
     url = f"{SUS_BASE_URL}product/{skin_id}/unit/0/image/latest?trigger=usb&channel=production"
     headers = {
@@ -109,22 +110,35 @@ def query_latest_firmware(skin_id: int) -> Optional[dict[str, Any]]:
     try:
         with urllib.request.urlopen(req, timeout=10, context=get_ssl_context()) as resp:
             body = resp.read()
-            # The service answers 204 with no body for a product it doesn't offer (the Elite,
-            # skin 99, as of 2026-11-02)
+            # The service answers 204 with no body for products it no longer offers on that endpoint
+            # (e.g. skin 99 retired in favor of skins 111/112).
             if not body.strip():
-                print(f"[-] Logitech's update service returned no firmware for skin {skin_id} "
-                      f"(HTTP {resp.status}, empty reply).", file=sys.stderr)
+                if not silent_on_empty:
+                    print(f"[-] Logitech's update service returned no firmware for skin {skin_id} "
+                          f"(HTTP {resp.status}, empty reply).", file=sys.stderr)
                 return None
             data = json.loads(body.decode("utf-8"))
             result = data.get("GetLatestImageUpdateResult")
             if result and result.get("URI"):
                 return result
     except urllib.error.HTTPError as e:
-        if e.code != 404:
+        if e.code != 404 and not silent_on_empty:
             print(f"[-] HTTP Error {e.code} querying skin {skin_id}: {e.reason}", file=sys.stderr)
     except Exception as e:
-        print(f"[-] Error querying skin {skin_id}: {e}", file=sys.stderr)
+        if not silent_on_empty:
+            print(f"[-] Error querying skin {skin_id}: {e}", file=sys.stderr)
     return None
+
+
+def query_latest_elite_firmware(silent_on_empty: bool = False) -> tuple[Optional[dict[str, Any]], int]:
+    """Query Logitech SUS for latest Elite firmware, falling back across compatible skins."""
+    for skin in ELITE_FALLBACK_SKINS:
+        res = query_latest_firmware(skin, silent_on_empty=True)
+        if res and res.get("URI"):
+            return res, skin
+    if not silent_on_empty:
+        print(f"[-] Logitech's update service returned no firmware for Elite skins ({ELITE_FALLBACK_SKINS}).", file=sys.stderr)
+    return None, DEFAULT_ELITE_SKIN
 
 
 def download_file(url: str, dest_path: pathlib.Path, progress_desc: str = "Downloading") -> bool:
@@ -598,10 +612,13 @@ def main():
 
     # ACTION: download
     elif args.action == "download":
-        skin = args.skin or (DEFAULT_HUB_SKIN if args.target == "hub" else DEFAULT_ELITE_SKIN)
+        if args.target == "elite" and not args.skin:
+            res, skin = query_latest_elite_firmware()
+        else:
+            skin = args.skin or (DEFAULT_HUB_SKIN if args.target == "hub" else DEFAULT_ELITE_SKIN)
+            res = query_latest_firmware(skin)
         target_name = SKIN_NAMES.get(skin, f"Skin {skin}")
         print(f"[*] Resolving latest firmware for {target_name} (Skin {skin})...")
-        res = query_latest_firmware(skin)
         if not res or not res.get("URI"):
             print(f"[-] Could not retrieve download URL for skin {skin}", file=sys.stderr)
             sys.exit(1)
@@ -638,13 +655,13 @@ def main():
                 print(f"[*] Using local Elite firmware bundle: {fw_path}")
             else:
                 print("[*] No local Elite firmware specified. Downloading latest from Logitech...")
-                res = query_latest_firmware(DEFAULT_ELITE_SKIN)
+                res, skin = query_latest_elite_firmware()
                 if not res or not res.get("URI"):
                     print("[-] Failed to query latest Elite firmware URL. Pass --firmware PATH.hfw2, "
                           f"or put an Elite .hfw2 bundle in {firmware_dir}.", file=sys.stderr)
                     sys.exit(1)
                 ver = res.get("Id", "latest")
-                fw_path = firmware_dir / f"elite_{DEFAULT_ELITE_SKIN}_{ver}.hfw2"
+                fw_path = firmware_dir / f"elite_{skin}_{ver}.hfw2"
                 if not download_file(res["URI"], fw_path, progress_desc="Downloading Elite firmware"):
                     sys.exit(1)
 
@@ -658,7 +675,7 @@ def main():
         if args.firmware:
             fw_path = pathlib.Path(args.firmware)
         else:
-            # Auto-download for detected device
+            # Auto-detect for connected Harmony USB device
             print("[*] Auto-detecting connected Harmony USB device...")
             connected_pid = None
             for pid in [ELITE_PID, HUB_PID, HUB_PRO_PID]:
@@ -674,15 +691,16 @@ def main():
 
             if connected_pid == ELITE_PID:
                 target = "elite"
-                skin = DEFAULT_ELITE_SKIN
+                res, skin = query_latest_elite_firmware()
             elif connected_pid == HUB_PRO_PID:
                 target = "hub"
                 skin = 115
+                res = query_latest_firmware(skin)
             else:
                 target = "hub"
                 skin = DEFAULT_HUB_SKIN
+                res = query_latest_firmware(skin)
             print(f"[+] Detected {target.upper()} (Skin {skin}). Downloading latest official firmware...")
-            res = query_latest_firmware(skin)
             if not res or not res.get("URI"):
                 print("[-] Failed to query latest firmware URL. Pass --firmware PATH.hfw2.", file=sys.stderr)
                 sys.exit(1)

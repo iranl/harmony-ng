@@ -229,25 +229,25 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                     or sysinfo.get("version")
                     or ""
                 ).strip()
-                skin_str = str(sysinfo.get("skin", "99")).strip()
+                skin_str = str(sysinfo.get("skin", "111")).strip()
                 if skin_str.startswith("0x") or skin_str.startswith("0X"):
                     try:
                         skin_id = int(skin_str, 16)
                     except ValueError:
-                        skin_id = 99
+                        skin_id = 111
                 elif skin_str.isdigit():
                     skin_id = int(skin_str)
                 else:
-                    skin_id = 99
+                    skin_id = 111
 
                 state.fw_version = sw_version if sw_version else None
                 state.fw_skin = skin_id
 
                 if state.fw_version:
-                    from tools.harmony_firmware import query_latest_firmware
-                    latest_res = query_latest_firmware(skin_id)
+                    from tools.harmony_firmware import query_latest_firmware, query_latest_elite_firmware
+                    latest_res = query_latest_firmware(skin_id, silent_on_empty=True)
                     if not latest_res or not latest_res.get("Id"):
-                        latest_res = query_latest_firmware(99)
+                        latest_res, _ = query_latest_elite_firmware(silent_on_empty=True)
                     if latest_res and latest_res.get("Id"):
                         state.fw_latest = latest_res["Id"]
                         state.fw_up_to_date = (state.fw_version == state.fw_latest)
@@ -444,7 +444,7 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
     print("=" * box_w + "\n")
 
 
-def require_firmware_or_exit(hid, skin_default: int = 99) -> tuple[str, int]:
+def require_firmware_or_exit(hid, skin_default: int = 111) -> tuple[str, int]:
     """Retrieve firmware version over USB HID. Hard abort if retrieval fails."""
     try:
         sysinfo = hid.get_sysinfo()
