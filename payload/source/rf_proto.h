@@ -205,11 +205,11 @@ static inline uint8_t rf_theme_id(const char *name) {
     return 0;
 }
 
-/* The home layouts the Hub can choose in the settings push (payload[22], 1..3): the theme's,
-   list or grid. 0 keeps the remote's own choice. */
+/* The home layouts the Hub can choose in the settings push (payload[22], 1..4): the theme's,
+   list, grid or carousel. 0 keeps the remote's own choice. */
 static inline const char *rf_layout_name(uint8_t id) {
-    static const char *const names[] = { "theme", "list", "grid" };
-    return (id >= 1 && id <= 3) ? names[id - 1] : NULL;
+    static const char *const names[] = { "theme", "list", "grid", "carousel" };
+    return (id >= 1 && id <= 4) ? names[id - 1] : NULL;
 }
 
 static inline uint8_t rf_layout_id(const char *name) {
