@@ -154,12 +154,30 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Unpair Slot**: `10 FF 80 B2 03 <slot> 00` (`0x01` = Slot 1, `0x02` = Slot 2, `0x00` = All).
 
 ### 4.5 Hardware Link Events & Notifications
-- **Link Status Event** (`10 <slot> 41 04 <status> <rssi> ...`):
+- **Link Status Event** (`10 <slot> 41 04 <status> <wpid_lo> <wpid_hi>`):
   - `status & 0x40 != 0`: Link **LOST** (`0x47`, `0x40`).
-  - `status & 0x40 == 0`: Link **ESTABLISHED** (`0x07`, `0x0B`).
+  - `status & 0x40 == 0`: Link **ESTABLISHED** (Remote: `0x07`, `0x0B`; Hub: `0x87`).
+  - `<wpid_lo> <wpid_hi>`: wireless product ID of the peer, little-endian, as in the HID++ 1.0 device connection notification. The Remote reports `0B 88` (the Hub, `0x880B`); the Hub reports `21 40` (the Elite, `0x4021`). The bytes stay the same whether the link is lost or established, so they carry no signal level.
 - **Hardware TX Status Report** (`20 <slot> 42 <status>`):
   - `status == 0x00`: The remote's radio received the packet. The remote application can still drop it, so this does not count as delivery; only `RF_MSG_ACK` does.
-  - `status != 0x00`: TX failure / drop.
+  - `status != 0x00`: TX failure / drop (`0x01` while the link is lost).
+
+### 4.6 Readable Registers (no RSSI)
+A sweep of every HID++ 1.0 short (`10 FF 81 <reg> 00 00 00`) and long (`10 FF 83 <reg> 00 00 00`) register read returned error `10 FF 8F <sub> <reg> 02 00` (invalid register) except for the registers below. `0xF1` returns error `03` without its parameter (see §4.1). Neither CC2544 exposes RSSI or link quality.
+
+| Register | Hub | Remote |
+| :--- | :--- | :--- |
+| `81 00` | `00 01 00`: notification flags, set by the Init Command | error `02` |
+| `81 01`, `81 03` | `00 00 00` | error `02` |
+| `81 02` | `00 01 00` (on Unifying receivers, the number of connected devices) | error `02` |
+| `81 D0` | `00 00 00` | `00 00 00` before `elite_ui` starts, `01 00 00` after |
+| `81 D2` | error `02` | `00 00 0D`, constant while the link alternates between lost and established |
+| `81 E6`, `81 F0` | `00 00 00` | error `02` |
+| `83 B3` | Device activity: byte 4 + n is an 8-bit counter of payload frames received from slot n + 1 | error `02` |
+| `83 B5 <pipe>` | §4.3 | §4.3; pipe `0x02` also answers |
+| `83 FD` | error `02` | all zero |
+
+On the Hub, `83 B3` advanced by exactly the number of `SYNC_REQUEST` frames that `hub_rf` received from slot 1, so it counts uplink frames, not attempts.
 
 ---
 
