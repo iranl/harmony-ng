@@ -39,10 +39,23 @@ const rf_activity_t *rf_activity_by_id(const char *id) {
     return NULL;
 }
 
-void draw_activity_card(const rf_activity_t *act, int x, int bottom, const char *state, uint16_t state_color) {
-    /* The device rows sit at the bottom, the last device nearest the edge */
+/* The device rows sit at the bottom, the last device nearest the edge */
+static int device_rows_y(const rf_activity_t *act, int bottom) {
     int rows = act->dev_count > HERO_DEVICE_ROWS ? HERO_DEVICE_ROWS + 1 : act->dev_count;
-    int ry = bottom - 8 - rows * HERO_ROW_H;
+    return bottom - 8 - rows * HERO_ROW_H;
+}
+
+int activity_card_device_at(const rf_activity_t *act, int bottom, int y) {
+    int ry = device_rows_y(act, bottom);
+    if (y < ry) return -1;
+    int i = (y - ry) / HERO_ROW_H;
+    if (i >= act->dev_count || i >= HERO_DEVICE_ROWS || act->devs[i] >= g_rf_device_count) return -1;
+    return act->devs[i];
+}
+
+void draw_activity_card(const rf_activity_t *act, int x, int bottom, const char *state, uint16_t state_color) {
+    int rows = act->dev_count > HERO_DEVICE_ROWS ? HERO_DEVICE_ROWS + 1 : act->dev_count;
+    int ry = device_rows_y(act, bottom);
 
     /* The icon, name and state are centred in the space above the device rows */
     int space_bottom = rows > 0 ? ry - 6 : bottom;

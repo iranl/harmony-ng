@@ -249,6 +249,17 @@ void handle_screen_touch_tap(int x, int y) {
 
     int start_y = UI_CONTENT_Y;
     if (g_current_view == VIEW_ACTIVITIES) {
+        /* On the running activity's carousel card, a device row opens that device's commands */
+        if (home_layout_is_carousel() && g_selected_activity < activity_list_count() &&
+            strcmp(g_activities[g_selected_activity].id, g_active_activity_id) == 0) {
+            const rf_activity_t *act = rf_activity_by_id(g_active_activity_id);
+            int dev = act ? activity_card_device_at(act, UI_CONTENT_Y + HOME_PAGE_PITCH, y) : -1;
+            if (dev >= 0) {
+                open_device_from_card(dev);
+                render_screen();
+                return;
+            }
+        }
         int page_size = activity_page_size();
         int page_start = (g_selected_activity / page_size) * page_size;
         for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
@@ -275,6 +286,14 @@ void handle_screen_touch_tap(int x, int y) {
             g_selected_device_cmd = row;
             execute_active_dev_cmd(row);
             render_screen();
+        } else if (get_active_dev_cmd_count() <= 0) {
+            /* The hero card: a device row opens that device's commands */
+            const rf_activity_t *act = rf_activity_by_id(g_active_activity_id);
+            int dev = act ? activity_card_device_at(act, FB_HEIGHT, y) : -1;
+            if (dev >= 0) {
+                open_device_from_card(dev);
+                render_screen();
+            }
         }
         return;
     } else if (g_current_view == VIEW_SETTINGS) {

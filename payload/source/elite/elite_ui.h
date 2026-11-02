@@ -64,6 +64,8 @@ const rf_activity_t *rf_activity_by_id(const char *id);
 /* An activity's large icon, name, state line and devices, x pixels from the left, with its
    device rows ending at bottom */
 void draw_activity_card(const rf_activity_t *act, int x, int bottom, const char *state, uint16_t state_color);
+/* The device (an index into g_rf_devices) on the card's row at screen y, or -1 */
+int activity_card_device_at(const rf_activity_t *act, int bottom, int y);
 void render_device_browser_view(void);
 void render_settings_screen(void);
 void render_pairing_screen(void);
@@ -76,6 +78,8 @@ const rf_dev_cmd_t *browser_cmd(int n);
 int browser_page_size(void);
 int browser_list_y(void);
 void open_device_browser(void);
+/* Opens a device's commands from an activity card; Back returns to the card */
+void open_device_from_card(int dev);
 void device_browser_back(void);
 /* One screen back, for the Back key and a left-to-right swipe; false when there is nowhere to go */
 bool ui_go_back(void);
