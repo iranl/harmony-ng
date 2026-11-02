@@ -108,7 +108,14 @@ def query_latest_firmware(skin_id: int) -> Optional[dict[str, Any]]:
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10, context=get_ssl_context()) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            body = resp.read()
+            # The service answers 204 with no body for a product it doesn't offer (the Elite,
+            # skin 99, as of 2026-11-02)
+            if not body.strip():
+                print(f"[-] Logitech's update service returned no firmware for skin {skin_id} "
+                      f"(HTTP {resp.status}, empty reply).", file=sys.stderr)
+                return None
+            data = json.loads(body.decode("utf-8"))
             result = data.get("GetLatestImageUpdateResult")
             if result and result.get("URI"):
                 return result
@@ -633,7 +640,8 @@ def main():
                 print("[*] No local Elite firmware specified. Downloading latest from Logitech...")
                 res = query_latest_firmware(DEFAULT_ELITE_SKIN)
                 if not res or not res.get("URI"):
-                    print("[-] Failed to query latest Elite firmware URL.", file=sys.stderr)
+                    print("[-] Failed to query latest Elite firmware URL. Pass --firmware PATH.hfw2, "
+                          f"or put an Elite .hfw2 bundle in {firmware_dir}.", file=sys.stderr)
                     sys.exit(1)
                 ver = res.get("Id", "latest")
                 fw_path = firmware_dir / f"elite_{DEFAULT_ELITE_SKIN}_{ver}.hfw2"
@@ -676,7 +684,7 @@ def main():
             print(f"[+] Detected {target.upper()} (Skin {skin}). Downloading latest official firmware...")
             res = query_latest_firmware(skin)
             if not res or not res.get("URI"):
-                print("[-] Failed to query latest firmware URL.", file=sys.stderr)
+                print("[-] Failed to query latest firmware URL. Pass --firmware PATH.hfw2.", file=sys.stderr)
                 sys.exit(1)
             ver = res.get("Id", "latest")
             firmware_dir = REPO_DIR / "firmware"
