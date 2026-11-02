@@ -844,7 +844,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       }
 
       if (exists) {
-        const ok = confirm(t("icon_already_exists").replace("{name}", iconName));
+        const ok = await showConfirm(t("icon_already_exists").replace("{name}", iconName), { title: t("confirm_title") || 'Confirmation', okText: t("replace") || 'Overwrite' });
         if (!ok) return;
       }
 

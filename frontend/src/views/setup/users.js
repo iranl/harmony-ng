@@ -91,7 +91,14 @@ export function createView() {
             className: 'btn btn-danger btn-sm',
             text: '×',
             onclick: async () => {
-              await api.deleteUser(u.username || u);
+              const uname = u.username || u;
+              const ok = await confirm.ask({
+                title: t('delete_user', 'Delete User'),
+                message: (t('delete_user_confirm', 'Delete non-admin user "{name}"?') || '').replace('{name}', uname),
+                danger: true,
+              });
+              if (!ok) return;
+              await api.deleteUser(uname);
               toast.info('User deleted');
               loadUsers();
             },
@@ -130,6 +137,12 @@ export function createView() {
             className: 'btn btn-danger btn-sm',
             text: 'Revoke',
             onclick: async () => {
+              const ok = await confirm.ask({
+                title: 'Revoke Token',
+                message: `Revoke Personal Access Token "${tok.name}"? Third-party integrations using this token will stop working.`,
+                danger: true,
+              });
+              if (!ok) return;
               await api.deleteToken(tok.id);
               toast.info('Token revoked');
               loadTokens();

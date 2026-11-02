@@ -95,12 +95,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       listEl.querySelectorAll('.btn-del-user').forEach(btn => {
         btn.addEventListener('click', async () => {
           const uname = btn.getAttribute('data-username');
-          if (!confirm(t("delete_user_confirm").replace("{name}", uname))) return;
+          if (!await showConfirm(t("delete_user_confirm").replace("{name}", uname), { title: t("delete_user") || 'Delete User', okText: t("delete") || 'Delete' })) return;
           try {
             await this.client.deleteUser(uname);
             await this.loadUserAccounts();
           } catch (err) {
-            alert(t("failed_delete_user") + err.message);
+            showToast(t("failed_delete_user") + err.message, 'error');
           }
         });
       });
@@ -210,12 +210,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         btn.addEventListener('click', async () => {
           const tid = btn.getAttribute('data-id');
           const tname = btn.getAttribute('data-name');
-          if (!confirm(`Revoke Personal Access Token "${tname}"? Third-party integrations using this token will stop working.`)) return;
+          if (!await showConfirm(`Revoke Personal Access Token "${tname}"? Third-party integrations using this token will stop working.`, { title: 'Revoke Token', okText: 'Revoke' })) return;
           try {
             await this.client.deleteToken(tid);
             await this.loadPersonalAccessTokens();
           } catch (err) {
-            alert(`Failed to revoke token: ${err.message}`);
+            showToast(`Failed to revoke token: ${err.message}`, 'error');
           }
         });
       });
@@ -241,7 +241,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         await this.loadPersonalAccessTokens();
       }
     } catch (err) {
-      alert(`Failed to create token: ${err.message}`);
+      showToast(`Failed to create token: ${err.message}`, 'error');
     }
   }
 
@@ -298,7 +298,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     if (btnSession) {
       btnSession.addEventListener('click', async () => {
         if (this.client?.token) {
-          if (confirm('Log out from Harmony Hub?')) {
+          if (await showConfirm('Log out from Harmony Hub?', { title: 'Logout', okText: 'Log Out', danger: false })) {
             await this.client.logout();
             this.checkAuthStatus();
             await this.refreshData();

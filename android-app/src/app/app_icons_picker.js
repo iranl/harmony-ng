@@ -370,7 +370,7 @@ export class HarmonyAppIconPicker extends HarmonyAppCore {
         if (delBtn) {
           e.stopPropagation();
           const fnToDelete = delBtn.getAttribute('data-fn');
-          if (confirm(t("del_custom_icon_confirm").replace("{name}", fnToDelete))) {
+          if (await showConfirm(t("del_custom_icon_confirm").replace("{name}", fnToDelete), { title: t("delete_icon") || 'Delete Icon', okText: t("delete") || 'Delete' })) {
             try {
               await this.client.deleteCustomIcon(fnToDelete);
               showToast(t("del_custom_icon_success").replace("{name}", fnToDelete), 'info');

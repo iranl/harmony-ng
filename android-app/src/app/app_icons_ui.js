@@ -144,11 +144,14 @@ export function showConfirm(message, options = {}) {
     if (titleEl) titleEl.textContent = options.title || 'Confirmation';
     if (msgEl) msgEl.textContent = message || '';
     if (okBtn) {
-      okBtn.textContent = options.okText || 'Confirm';
-      okBtn.className = `btn btn-sm ${options.danger !== false ? 'btn-danger' : 'btn-primary'}`;
+      okBtn.textContent = options.okText || (options.hideCancel ? 'OK' : 'Confirm');
+      okBtn.className = `btn btn-sm ${options.danger !== false && !options.hideCancel ? 'btn-danger' : 'btn-primary'}`;
     }
-    if (cancelBtn) cancelBtn.textContent = options.cancelText || 'Cancel';
-    if (iconEl) iconEl.textContent = options.icon || (options.danger !== false ? '⚠️' : '❓');
+    if (cancelBtn) {
+      cancelBtn.textContent = options.cancelText || 'Cancel';
+      cancelBtn.style.display = options.hideCancel ? 'none' : '';
+    }
+    if (iconEl) iconEl.textContent = options.icon || (options.hideCancel ? 'ℹ️' : (options.danger !== false ? '⚠️' : '❓'));
 
     modal.style.display = 'flex';
 
@@ -157,6 +160,7 @@ export function showConfirm(message, options = {}) {
       if (resolved) return;
       resolved = true;
       modal.style.display = 'none';
+      if (cancelBtn) cancelBtn.style.display = '';
       okBtn?.removeEventListener('click', onOk);
       cancelBtn?.removeEventListener('click', onCancel);
       closeBtn?.removeEventListener('click', onCancel);
@@ -190,16 +194,32 @@ export function showConfirm(message, options = {}) {
   });
 }
 
+export function showAlert(message, options = {}) {
+  return showConfirm(message, {
+    title: options.title || 'Notice',
+    okText: options.okText || 'OK',
+    danger: false,
+    icon: options.icon || 'ℹ️',
+    hideCancel: true,
+    ...options
+  });
+}
+
 if (typeof window !== 'undefined') {
   window.__harmonyFailedIcons = failedIconUrls;
   window.__harmonyAutoInvert = autoInvertDarkIcon;
   window.showToast = showToast;
   window.showConfirm = showConfirm;
+  window.showAlert = showAlert;
   window.alert = (msg) => {
     const str = String(msg || '');
     const isErr = /fail|error|cannot|invalid|not found|please|required/i.test(str);
     const isSuccess = /success|saved|loaded|linked|complete|imported|reset/i.test(str);
     showToast(str, isErr ? 'error' : (isSuccess ? 'success' : 'info'));
+  };
+  window.confirm = (msg) => {
+    console.warn('Standard window.confirm() forbidden. Use await showConfirm(). Suppressed prompt:', msg);
+    return false;
   };
 }
 
