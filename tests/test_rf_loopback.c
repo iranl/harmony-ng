@@ -34,7 +34,7 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
-                               int cap_buttons, int power_debug, int language, int theme) {
+                               int cap_buttons, int power_debug, int language, int theme, int layout) {
     (void)slot; (void)bright; (void)timeout; (void)touch; (void)gyro;
     (void)nav_key; (void)nav_mode; (void)confirm_act; (void)touch_sens;
     (void)remote_mode; (void)gyro_rate; (void)btn_backlight;

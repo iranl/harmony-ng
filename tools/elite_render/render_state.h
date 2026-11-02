@@ -8,7 +8,7 @@ typedef struct {
     const char *root;    /* directory laid out like the remote's filesystem */
     const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync|help-wait|help-question|help-done */
     const char *theme;   /* theme name (a directory under /data/themes), or "classic" */
-    const char *layout;  /* home layout: list or grid; the theme's when unset */
+    const char *layout;  /* home layout: list or grid; the theme's when unset or "theme" */
     const char *icons;   /* activity icon directory on the remote's filesystem, or "classic" */
     const char *active;  /* running activity ID */
     int select;

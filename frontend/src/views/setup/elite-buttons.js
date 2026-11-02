@@ -303,12 +303,22 @@ export function createButtonEditor() {
   });
   const title = h('h4', { className: 'card-title', text: 'Buttons' });
 
-  // ── Theme: the remote's look, which the Hub sets in its settings push (ADR-0007) ──
+  // ── Theme and home layout: the remote's look, which the Hub sets in its settings push
+  //    (ADR-0007, ADR-0008) ──
   const themeSelect = h('select', {
     className: 'form-select',
     'aria-label': 'Remote theme',
     onchange: () => setTheme(themeSelect.value),
   });
+  const layoutSelect = h('select', {
+    className: 'form-select',
+    'aria-label': 'Home layout',
+    onchange: () => sendRemoteSetting({ layout: layoutSelect.value }, 'Home layout').then(drawScreen),
+  }, [
+    h('option', { value: 'theme', text: "The theme's" }),
+    h('option', { value: 'list', text: 'List' }),
+    h('option', { value: 'grid', text: 'Grid' }),
+  ]);
   const remoteConfigPath = () => `/api/rf/remote-config?slot=${slot}`;
   async function loadTheme() {
     const renderer = await loadEliteRenderer();
@@ -316,19 +326,23 @@ export function createButtonEditor() {
     const [list, cfg] = await Promise.all([renderer.preview.themeList(), api.request(remoteConfigPath()).catch(() => null)]);
     themeSelect.replaceChildren(...list.map(th => h('option', { value: th.id, text: th.name })));
     themeSelect.value = list.some(th => th.id === cfg?.theme) ? cfg.theme : 'classic';
+    layoutSelect.value = ['list', 'grid'].includes(cfg?.layout) ? cfg.layout : 'theme';
     await setRendererTheme(renderer, themeSelect.value);
     drawScreen();
   }
-  async function setTheme(name) {
-    const renderer = await loadEliteRenderer();
+  async function sendRemoteSetting(change, label) {
     try {
       // The Hub rebuilds the remote's settings from the whole object
       const cfg = await api.request(remoteConfigPath());
-      await api.request(remoteConfigPath(), { method: 'POST', body: JSON.stringify({ ...cfg, theme: name }) });
-      toast.success('Theme sent to the remote.');
+      await api.request(remoteConfigPath(), { method: 'POST', body: JSON.stringify({ ...cfg, ...change }) });
+      toast.success(`${label} sent to the remote.`);
     } catch (e) {
       toast.error(e.message);
     }
+  }
+  async function setTheme(name) {
+    await sendRemoteSetting({ theme: name }, 'Theme');
+    const renderer = await loadEliteRenderer();
     if (renderer) await setRendererTheme(renderer, name);
     drawScreen();
   }
@@ -535,7 +549,7 @@ export function createButtonEditor() {
       state.active = preview.remoteActivityId(ctxId());
     }
     const now = new Date();
-    preview.render(module, screenCanvas, { ...state, theme: renderer.theme, battery: 100, minutes: now.getHours() * 60 + now.getMinutes() });
+    preview.render(module, screenCanvas, { ...state, theme: renderer.theme, layout: layoutSelect.value, battery: 100, minutes: now.getHours() * 60 + now.getMinutes() });
   }
 
   async function load(newSlot) {
@@ -576,6 +590,7 @@ export function createButtonEditor() {
           h('span', {}, [h('span', { className: 'eb-swatch eb-none' }), 'Unbound']),
         ]),
         h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Remote theme' }), themeSelect]),
+        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Home layout' }), layoutSelect]),
       ]),
       h('div', { className: 'eb-panel-col' }, [keyPanel]),
     ]),

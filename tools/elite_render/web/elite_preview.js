@@ -235,13 +235,13 @@ export function activityIconUrl(module, activityId, theme = 'classic') {
 
 // state: { view: 'activities'|'commands'|'devices'|'device'|'settings'|'sync', select (the
 // row, or the device for 'device'), active (remote activity ID), theme (loaded with
-// loadTheme()), icons, battery, usb, charging, noHub, minutes }
+// loadTheme()), layout ('theme', 'list' or 'grid'), icons, battery, usb, charging, noHub, minutes }
 export function render(module, canvas, state = {}) {
   const ptr = module.ccall('er_render', 'number',
-    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string'],
+    ['string', 'string', 'number', 'string', 'string', 'number', 'number', 'number', 'number', 'number', 'string', 'string'],
     [ROOT, state.view || 'activities', state.select || 0, state.active || '', state.icons || 'classic',
      state.battery ?? 80, state.usb ? 1 : 0, state.charging ? 1 : 0, state.noHub ? 1 : 0, state.minutes ?? 21 * 60 + 30,
-     state.theme || 'classic']);
+     state.theme || 'classic', state.layout || 'theme']);
   const pixels = new ImageData(new Uint8ClampedArray(module.HEAPU8.buffer, ptr, 240 * 320 * 4).slice(), 240, 320);
   canvas.getContext('2d').putImageData(pixels, 0, 0);
 }

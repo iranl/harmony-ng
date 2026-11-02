@@ -806,8 +806,10 @@ void *config_push_worker(void *arg) {
                 if (language < 0 || language > 5) language = 0;
                 cJSON *jtheme = cJSON_GetObjectItem(sroot, "theme");
                 int theme = cJSON_IsString(jtheme) ? rf_theme_id(jtheme->valuestring) : 0;
+                cJSON *jlayout = cJSON_GetObjectItem(sroot, "layout");
+                int layout = cJSON_IsString(jlayout) ? rf_layout_id(jlayout->valuestring) : 0;
                 cJSON_Delete(sroot);
-                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme);
+                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout);
                 push_queue_add(&queue[t], &f);
             }
         }

@@ -291,6 +291,7 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[19]`: Power Debug Log (`1` Enabled, `2` Disabled in push; byte 18 `1`/`0` in backup)
 - `payload[20]`: Language (`0` en, `1` de, `2` fr, `3` nl, `4` es, `5` it); byte 19 in backup
 - `payload[21]`: Theme (`1` classic, `2` dark, `3` light, `4` colourful; `0` in a push keeps the Remote's choice); byte 20 in backup, where `0` means a theme with no id
+- `payload[22]`: Home layout (`1` the theme's, `2` list, `3` grid; `0` in a push keeps the Remote's choice); byte 21 in backup
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:

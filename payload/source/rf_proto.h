@@ -205,6 +205,20 @@ static inline uint8_t rf_theme_id(const char *name) {
     return 0;
 }
 
+/* The home layouts the Hub can choose in the settings push (payload[22], 1..3): the theme's,
+   list or grid. 0 keeps the remote's own choice. */
+static inline const char *rf_layout_name(uint8_t id) {
+    static const char *const names[] = { "theme", "list", "grid" };
+    return (id >= 1 && id <= 3) ? names[id - 1] : NULL;
+}
+
+static inline uint8_t rf_layout_id(const char *name) {
+    for (uint8_t id = 1; name && rf_layout_name(id); id++) {
+        if (strcmp(name, rf_layout_name(id)) == 0) return id;
+    }
+    return 0;
+}
+
 /* True if word occurs in s with no letter directly before or after it, so "ps" matches
    "PS5" and "ps.png" but not "Apps" or "Upstairs". */
 static inline int rf_has_word(const char *s, const char *word) {
