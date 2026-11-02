@@ -1,4 +1,4 @@
-/* Screen transitions (ADR-0014). Shared with the host renderer, which never runs them: they
+/* Screen transitions. Shared with the host renderer, which never runs them: they
  * need page flipping to wait for display refreshes. */
 #include "elite_transition.h"
 #include "elite_fb.h"

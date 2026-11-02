@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/* Help (ADR-0004) for a remote: RF_MSG_HELP_REQUEST and RF_MSG_HELP_ANSWER frames */
+/* Help for a remote: RF_MSG_HELP_REQUEST and RF_MSG_HELP_ANSWER frames */
 void rf_help_request(const rf_frame_t *f);
 void rf_help_answer(const rf_frame_t *f);
 

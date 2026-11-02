@@ -246,7 +246,7 @@ Follows an `RF_MSG_ACTIVITY_LIST_CHUNK` or `RF_MSG_DEVICE_LIST_CHUNK` whose name
 - `payload[3..24]`: Name bytes, NUL-padded
 
 #### Help: `RF_MSG_HELP_REQUEST` (`0x2D`), `RF_MSG_HELP_STATUS` (`0x2E`), `RF_MSG_HELP_ANSWER` (`0x2F`)
-Help re-sends the running activity's commands except power toggles, then asks about each device whose only power command is a toggle ([ADR-0004](adr/0004-help-repairs-the-current-activity.md)). The Hub sends `RF_MSG_HELP_STATUS` only to a remote that asked, so no capability bit is needed.
+Help re-sends the running activity's commands except power toggles, then asks about each device whose only power command is a toggle. The Hub sends `RF_MSG_HELP_STATUS` only to a remote that asked, so no capability bit is needed.
 
 1. The remote sends `RF_MSG_HELP_REQUEST` and repeats it every 2 s, up to 3 times, until it gets "started".
 2. hub_rf calls `POST /api/activity/help` on the daemon and replies "started", or "busy" or "failed".
@@ -273,7 +273,7 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[0]`: Display Brightness (1–5)
 - `payload[1]`: Screen Timeout low byte (seconds)
 - `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
-- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current Elite firmware has no NAV toggle ([ADR-0013](adr/0013-nav-mode-only-without-touch.md)): it ignores these bytes and sends `0`; older firmware reads them.
+- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current Elite firmware has no NAV toggle: it ignores these bytes and sends `0`; older firmware reads them.
 - `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press); ignored and sent as `0` like the key
 - `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
 - `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)

@@ -110,7 +110,7 @@ int activity_page_size(void) {
     return home_layout_is_carousel() ? 1 : home_layout_is_grid() ? ACT_GRID_COLS * ACT_GRID_ROWS : ACT_PAGE_SIZE;
 }
 
-/* The carousel starts on the running activity (ADR-0008) */
+/* The carousel starts on the running activity */
 void home_select_running(void) {
     if (!home_layout_is_carousel()) return;
     for (int i = 0; i < g_activity_count; i++) {

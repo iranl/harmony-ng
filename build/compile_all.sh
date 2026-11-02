@@ -167,7 +167,7 @@ build_elite() {
     cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
     cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/init.sh" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
     sed -i 's/\r$//' "$REPO_ROOT/build/tmp/elite_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/elite_ota_pkg"/rcS.local 2>/dev/null || true
-    # Theme packages (docs/ELITE_UI_DESIGN.md §4). Building them needs a host C compiler and the
+    # Theme packages. Building them needs a host C compiler and the
     # pinned downloads; without them, themes built earlier into build/tmp/elite-themes are used.
     echo "[-] Building Elite themes..."
     python3 "$REPO_ROOT/tools/elite_render/build_theme.py" >/dev/null \

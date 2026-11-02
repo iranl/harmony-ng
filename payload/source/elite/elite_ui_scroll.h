@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Drag scrolling (ADR-0009). Home: the home screen's pages. A drag moves the page with the
+/* Drag scrolling. Home: the home screen's pages. A drag moves the page with the
  * finger, up and down in the list and grid and sideways in the carousel; on release it
  * settles on a page boundary, moving to the neighbour page when dragged a third of a page or
  * flung. */

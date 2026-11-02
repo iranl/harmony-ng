@@ -1,5 +1,5 @@
 /* Themes: the palette, fonts, icons, wallpaper and home layout the screens draw with.
-   A theme is a directory /data/themes/<name>/ (docs/ELITE_UI_DESIGN.md §4); Classic is built in
+   A theme is a directory /data/themes/<name>/; Classic is built in
    and supplies everything a theme leaves out. */
 #ifndef HARMONY_ELITE_THEME_H
 #define HARMONY_ELITE_THEME_H

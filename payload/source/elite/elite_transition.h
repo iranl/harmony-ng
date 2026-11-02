@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Screen transitions (ADR-0014): a snapshot of the screen before a change and one of the
+/* Screen transitions: a snapshot of the screen before a change and one of the
  * screen after it are composited for 150-200 ms. Going deeper slides the new screen in from
  * the right, going back slides it in from the left, other changes crossfade. The status bar
  * stays still. */

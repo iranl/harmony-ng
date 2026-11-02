@@ -181,7 +181,7 @@ void handle_screen_touch_tap(int x, int y) {
         return;
     }
 
-    /* Horizontal swipes no longer cycle views (ADR-0001); left to right goes back (ADR-0014) */
+    /* Horizontal swipes no longer cycle views; left to right goes back */
     if (!is_tap && abs(dx) >= h_thresh && abs(dx) >= (abs(dy) * 3 / 2) && y < FB_HEIGHT) {
         if (dx > 0 && ui_go_back()) render_screen();
         return;

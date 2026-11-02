@@ -87,7 +87,7 @@ sync 2>/dev/null || /data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || tr
 
 ## Frame Timing
 
-`elite_ui` can log how long each screen update takes, to check screens against the 27.8 ms animation frame budget ([ADR-0009](adr/0009-retained-surface-renderer-for-motion.md)). Over SSH:
+`elite_ui` can log how long each screen update takes, to check screens against the 27.8 ms animation frame budget. Over SSH:
 
 ```sh
 touch /tmp/elite_frame_timing     # start logging, within a second
@@ -158,7 +158,7 @@ The Harmony Elite remote can be operated **100% via physical buttons**, allowing
 *These buttons never transmit over RF to the Hub; they exclusively control UI navigation.*
 
 ### Bottom Navigation Row (Dimmer & Smart Home Buttons)
-With touch enabled, these keys go to the Hub like every other button, except in the **SETTINGS** and **PAIRING** views. With touch disabled in Settings (`touch=0`), they drive the screen everywhere, and a NAV indicator shows in the status bar ([ADR-0013](adr/0013-nav-mode-only-without-touch.md)):
+With touch enabled, these keys go to the Hub like every other button, except in the **SETTINGS** and **PAIRING** views. With touch disabled in Settings (`touch=0`), they drive the screen everywhere, and a NAV indicator shows in the status bar:
 
 | Button Name | Linux Input Code | Function when driving the screen |
 | :--- | :---: | :--- |
@@ -337,7 +337,7 @@ The Hub and Elite keep configuration synchronized using 17-byte binary payload s
    - `Byte 0`: Display Brightness (1–5)
    - `Byte 1`: Screen Timeout low byte (seconds)
    - `Byte 2`: Touchscreen Enable flag (0/1)
-   - `Bytes 3-5`: Nav toggle key and mode of older firmware; current firmware sends 0 ([ADR-0013](adr/0013-nav-mode-only-without-touch.md))
+   - `Bytes 3-5`: Nav toggle key and mode of older firmware; current firmware sends 0
    - `Byte 6`: USB Ethernet Enable flag (0/1)
    - `Byte 7`: Confirm Activity Switch flag (0/1)
    - `Byte 8`: Config Version number

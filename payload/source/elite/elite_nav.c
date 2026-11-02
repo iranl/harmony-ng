@@ -1,4 +1,4 @@
-/* Going back one screen, by the Back key or a left-to-right swipe (ADR-0014). Screens have no
+/* Going back one screen, by the Back key or a left-to-right swipe. Screens have no
  * Back rows: a confirmation goes back to its page, a Settings page to the categories, the
  * categories and the activity screen to home, and the device browser up a level. */
 #include "elite_ui.h"

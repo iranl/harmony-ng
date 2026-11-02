@@ -61,7 +61,7 @@
 #define RF_MSG_ACT_DEVICES_CHUNK   0x2B  /* Hub -> Remote: devices one activity uses (ACK'd) */
 #define RF_MSG_NAME_TAIL_CHUNK     0x2C  /* Hub -> Remote: rest of an activity or device name (ACK'd) */
 
-/* Help (ADR-0004); the Hub sends RF_MSG_HELP_STATUS only in reply to a remote's request */
+/* Help; the Hub sends RF_MSG_HELP_STATUS only in reply to a remote's request */
 #define RF_MSG_HELP_REQUEST        0x2D  /* Remote -> Hub: repair the running activity */
 #define RF_MSG_HELP_STATUS         0x2E  /* Hub -> Remote: Help progress, or a device to ask about (ACK'd) */
 #define RF_MSG_HELP_ANSWER         0x2F  /* Remote -> Hub: whether a device is on (ACK'd) */
