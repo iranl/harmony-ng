@@ -1,4 +1,5 @@
 #include "elite_ui.h"
+#include "elite_ui_scroll.h"
 #include "elite_fb.h"
 #include "elite_config.h"
 #include "elite_rf.h"
@@ -135,25 +136,17 @@ static void draw_centered_text(int x, int w, int y, const char *text, uint16_t c
     fb_draw_text_aa(x + (w - fb_text_width_aa(fit, &g_font_main)) / 2, y, fit, color, &g_font_main);
 }
 
-void render_activities_screen(void) {
+/* One page of activities, page_start first, drawn y_off pixels below its place */
+static void render_activity_page(int page_start, int y_off) {
     int page_size = activity_page_size();
     int total = activity_list_count();
     bool grid = home_layout_is_grid();
-
-    if (total <= 0) {
-        fb_draw_text_aa(8, UI_CONTENT_Y + 20, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(8, UI_CONTENT_Y + 45, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
-        return;
-    }
-
-    int page_start = (g_selected_activity / page_size) * page_size;
-    int cur_page = (g_selected_activity / page_size) + 1;
-    int total_pages = (total + page_size - 1) / page_size;
 
     for (int i = 0; i < page_size && (page_start + i) < total; i++) {
         int idx = page_start + i;
         int x, y, w, card_h;
         activity_slot_rect(i, &x, &y, &w, &card_h);
+        y += y_off;
         bool is_sel = (idx == g_selected_activity);
         bool is_active = (strcmp(g_activities[idx].id, g_active_activity_id) == 0);
 
@@ -195,7 +188,31 @@ void render_activities_screen(void) {
         }
     }
 
-    render_page_indicator(cur_page, total_pages);
+}
+
+void render_activities_screen(void) {
+    int page_size = activity_page_size();
+    int total = activity_list_count();
+
+    if (total <= 0) {
+        fb_draw_text_aa(8, UI_CONTENT_Y + 20, tr(STR_NO_ACTIVITIES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, UI_CONTENT_Y + 45, tr(STR_SYNCING_WITH_HUB), RGB_CYAN, &g_font_main);
+        return;
+    }
+
+    int page = g_selected_activity / page_size;
+    int total_pages = (total + page_size - 1) / page_size;
+
+    /* While dragging, the page moves with the finger and its neighbour follows it in;
+       both are clipped to the rows between the status bar and the page indicator */
+    int off = home_scroll_offset();
+    fb_clip_rows(UI_CONTENT_Y, UI_CONTENT_Y + HOME_PAGE_PITCH);
+    render_activity_page(page * page_size, off);
+    if (off > 0 && page > 0) render_activity_page((page - 1) * page_size, off - HOME_PAGE_PITCH);
+    if (off < 0 && page + 1 < total_pages) render_activity_page((page + 1) * page_size, off + HOME_PAGE_PITCH);
+    fb_clip_reset();
+
+    render_page_indicator(page + 1, total_pages);
 }
 
 void render_switching_view(void) {

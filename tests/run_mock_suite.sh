@@ -54,6 +54,7 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings_actions.c" \
     "$REPO_ROOT/payload/source/elite/elite_theme.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_scroll.c" \
     "$REPO_ROOT/payload/source/elite_stock_icons.c" \
     "$REPO_ROOT/payload/source/cJSON.c" \
     "$REPO_ROOT/payload/source/sha256.c" \

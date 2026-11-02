@@ -4,6 +4,7 @@
 #include "elite_config.h"
 #include "elite_link.h"
 #include "elite_ui.h"
+#include "elite_ui_scroll.h"
 
 #define KEYWORD_COUNT 17
 
@@ -137,6 +138,7 @@ void render_load(const render_options_t *o) {
         }
     }
     set_view(o);
+    home_scroll_set_offset(o->scroll);
 }
 
 void render_keyword_sheet(const char *title, const char *icons) {
