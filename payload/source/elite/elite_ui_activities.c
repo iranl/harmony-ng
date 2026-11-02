@@ -138,6 +138,26 @@ void activity_slot_rect(int slot, int *x, int *y, int *w, int *h) {
     }
 }
 
+int home_activity_at(int x, int y) {
+    int page_size = activity_page_size();
+    int page_start = (g_selected_activity / page_size) * page_size;
+    for (int i = 0; i < page_size && (page_start + i) < activity_list_count(); i++) {
+        int cx, cy, cw, ch;
+        activity_slot_rect(i, &cx, &cy, &cw, &ch);
+        if (y >= cy && y < cy + ch + ACT_CARD_GAP && (!home_layout_is_grid() || (x >= cx && x < cx + cw + ACT_CARD_GAP))) {
+            return page_start + i;
+        }
+    }
+    return -1;
+}
+
+int home_card_device_at(int y) {
+    if (!home_layout_is_carousel() || g_selected_activity >= activity_list_count() ||
+        strcmp(g_activities[g_selected_activity].id, g_active_activity_id) != 0) return -1;
+    const rf_activity_t *act = rf_activity_by_id(g_active_activity_id);
+    return act ? activity_card_device_at(act, UI_CONTENT_Y + HOME_PAGE_PITCH, y) : -1;
+}
+
 /* The icon in its well; a placeholder when the image is missing. In the grid the tile's own
    border shows the selection, so the well keeps its idle border. */
 static void draw_activity_icon(int idx, int icon_x, int icon_y, bool is_sel, bool grid) {
