@@ -8,6 +8,7 @@
 #include "elite/elite_state.h"
 #include "elite/elite_ui.h"
 #include "elite/elite_ui_scroll.h"
+#include "elite/elite_transition.h"
 #include "elite/elite_fb.h"
 #include "elite/elite_input.h"
 #include "elite/elite_power.h"
@@ -411,6 +412,57 @@ int main(void) {
     g_home_layout = HOME_LAYOUT_LIST;
     #undef SETTLE
     printf("[+] Home drag scrolling: drag, flick, snap back, edge resistance, taps, carousel\n");
+
+    /* 13. Screen transitions (ADR-0014) */
+    {
+        g_is_switching_activity = g_is_syncing_config = g_is_ota_updating = false;
+        g_menu_open = g_key_hint_pending = g_link_panel_open = false;
+        g_current_view = VIEW_ACTIVITIES;
+        screen_place_t home = screen_place();
+        g_current_view = VIEW_DEVICES;
+        screen_place_t activity = screen_place();
+        g_current_view = VIEW_SETTINGS; g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+        screen_place_t categories = screen_place();
+        g_settings_subview = SETTINGS_VIEW_DISPLAY;
+        screen_place_t display = screen_place();
+        g_settings_subview = SETTINGS_VIEW_REBOOT;
+        screen_place_t reboot = screen_place();
+        g_current_view = VIEW_DEVICE_BROWSER; g_browse_dev = -1;
+        screen_place_t devices = screen_place();
+        g_browse_dev = 0;
+        screen_place_t device = screen_place();
+        assert(transition_between(home, activity) == TRANSITION_PUSH);
+        assert(transition_between(activity, home) == TRANSITION_POP);
+        assert(transition_between(categories, display) == TRANSITION_PUSH);
+        assert(transition_between(reboot, display) == TRANSITION_POP);
+        assert(transition_between(devices, device) == TRANSITION_PUSH);
+        assert(transition_between(home, categories) == TRANSITION_FADE);
+        assert(transition_between(activity, devices) == TRANSITION_FADE);
+        assert(transition_between(home, home) == TRANSITION_NONE);
+        g_link_panel_open = true;
+        assert(transition_between(home, screen_place()) == TRANSITION_NONE);
+        g_link_panel_open = false;
+
+        /* A slide halfway: the old screen's right half, then the new screen's left half;
+           the status bar is the new screen's */
+        static uint16_t from[FB_WIDTH * FB_HEIGHT], to[FB_WIDTH * FB_HEIGHT], out[FB_WIDTH * FB_HEIGHT];
+        for (int i = 0; i < FB_WIDTH * FB_HEIGHT; i++) { from[i] = (uint16_t)(i % FB_WIDTH); to[i] = (uint16_t)(0x8000 | (i % FB_WIDTH)); }
+        transition_compose(TRANSITION_PUSH, from, to, out, 128);
+        assert(out[10 * FB_WIDTH + 5] == to[10 * FB_WIDTH + 5]);
+        assert(out[200 * FB_WIDTH + 0] == from[200 * FB_WIDTH + 120]);
+        assert(out[200 * FB_WIDTH + 120] == to[200 * FB_WIDTH + 0]);
+        transition_compose(TRANSITION_POP, from, to, out, 128);
+        assert(out[200 * FB_WIDTH + 0] == to[200 * FB_WIDTH + 120]);
+        assert(out[200 * FB_WIDTH + 120] == from[200 * FB_WIDTH + 0]);
+        for (int i = 0; i < FB_WIDTH * FB_HEIGHT; i++) { from[i] = 0x0000; to[i] = 0xFFFF; }
+        transition_compose(TRANSITION_FADE, from, to, out, 256);
+        assert(out[200 * FB_WIDTH] == 0xFFFF);
+        transition_compose(TRANSITION_FADE, from, to, out, 0);
+        assert(out[200 * FB_WIDTH] == 0x0000);
+        transition_compose(TRANSITION_FADE, from, to, out, 128);
+        assert(out[200 * FB_WIDTH] == ((15 << 11) | (31 << 5) | 15));
+        printf("[+] Transitions: slides deeper and back, crossfades across\n");
+    }
 
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");

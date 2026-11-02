@@ -5,6 +5,7 @@
 #include "elite_rf_ota.h"
 #include "elite_present.h"
 #include "elite_ui_scroll.h"
+#include "elite_transition.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -277,10 +278,13 @@ void render_screen(void) {
 
     int decodes, scales;
     fb_png_work_take(&decodes, &scales);
+    transition_t transition = transition_prepare(screen_place());
     uint64_t t0 = get_monotonic_us();
     render_frame();
     uint64_t t1 = get_monotonic_us();
-    bool flipped = fb_present(g_backbuffer, home_scroll_active());
+    bool flipped = false;
+    if (transition != TRANSITION_NONE) transition_play(transition);
+    else flipped = fb_present(g_backbuffer, home_scroll_active());
     uint64_t t2 = get_monotonic_us();
     if (frame_timing_enabled()) {
         frame_timing_t t = { screen_name(), g_theme.name, home_layout_name(),

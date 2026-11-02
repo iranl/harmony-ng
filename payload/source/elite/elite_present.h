@@ -19,6 +19,9 @@ void fb_present_init(void);
  * Returns whether the frame was shown by page flipping. */
 bool fb_present(const uint16_t *frame, bool wait_vsync);
 
+/* Whether frames can wait for display refreshes, which animation needs */
+bool fb_can_animate(void);
+
 /* Frame timing: while /tmp/elite_frame_timing exists, each frame is appended to
  * /tmp/frame_timing.log */
 typedef struct {

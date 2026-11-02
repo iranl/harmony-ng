@@ -104,6 +104,8 @@ Each line is `ms screen theme layout render_us present_us flipped decodes scales
 - `flipped`: `1` when the frame was shown by page flipping, `0` when it was copied into every framebuffer page;
 - `decodes`, `scales`: PNG images decoded, and scaled to a new size, while drawing the frame. Both are 0 once a screen's images are cached.
 
+A screen change that slides or crossfades (`transition` lines) logs each frame of the transition with the time to composite it as `render_us`. The frame that started it logs the whole transition as its `present_us`.
+
 The log is in `/tmp`, so it is lost at reboot.
 
 ---
