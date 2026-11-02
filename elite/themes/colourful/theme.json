@@ -1,0 +1,30 @@
+{
+  "name": "Colourful",
+  "palette": {
+    "bg": "#0E1116",
+    "card": "#171B22",
+    "card_sel": "#1F2A36",
+    "card_border": "#2A303A",
+    "divider": "#2A303A",
+    "outline": "#262C35",
+    "text": "#F2F4F8",
+    "text_muted": "#B4BCC8",
+    "on_accent": "#0E1116",
+    "accent": "#5AA9FF",
+    "success": "#3DDC84",
+    "danger": "#FF5A5A",
+    "danger_dim": "#5A2328",
+    "warning": "#FFC857",
+    "warning_bg": "#3A2F12",
+    "info": "#5AA9FF",
+    "header": "#12161C",
+    "status_bg": "#12161C",
+    "icon_well": "#11151B",
+    "icon_well_sel": "#1B2633",
+    "icon_well_border": "#262C35",
+    "icon_outline": "#3A424E"
+  },
+  "fonts": { "main": "fonts/main.faa", "title": "fonts/title.faa" },
+  "layout": "list",
+  "wallpaper": "none"
+}

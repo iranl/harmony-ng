@@ -1,0 +1,33 @@
+{
+  "fonts": {
+    "main": { "source": "inter-medium", "px": 12, "height": 15, "baseline": 12 },
+    "title": { "source": "inter-semibold", "px": 14, "height": 19, "baseline": 15 }
+  },
+  "keywords": {
+    "set": "phosphor-duotone", "map": "phosphor", "color": "tint",
+    "brands": { "sonos": ["custom", "sonos"], "roku": ["custom", "roku"] }
+  },
+  "glyphs": {
+    "color": "#F2F4F8",
+    "icons": {
+      "footer/settings.png": ["phosphor-duotone", "gear-six", 22],
+      "footer/help.png": ["phosphor-duotone", "question", 22],
+      "footer/close.png": ["phosphor-duotone", "x", 20],
+      "footer/devices.png": ["phosphor-duotone", "devices", 20],
+      "footer/flip.png": ["phosphor-duotone", "lightning", 20],
+      "footer/footermenu_sleeptimer.png": ["phosphor-duotone", "timer", 20],
+      "hue/brightness.png": ["phosphor-duotone", "sun", 20],
+      "gesture/gesturehand.png": ["phosphor-duotone", "hand-tap", 20],
+      "gesture/hint.png": ["phosphor-duotone", "hand-pointing", 20],
+      "pairing/connectHub.png": ["phosphor-duotone", "plugs-connected", 20],
+      "settings/checkmark.png": ["phosphor-duotone", "check-circle", 20],
+      "juniperHomeAutomation/lamp_on.png": ["phosphor-duotone", "lamp", 20],
+      "commands/145.png": ["phosphor-duotone", "clock-countdown", 20],
+      "clock_small.png": ["phosphor-duotone", "moon", 20],
+      "battery/level100.png": ["phosphor-duotone", "battery-full", 20],
+      "home/power_icon.png": ["phosphor-duotone", "power", 20],
+      "footer/menu.png": ["phosphor-duotone", "squares-four", 20]
+    }
+  },
+  "solid": { "footer/toolbarBG.png": [240, 34, "#12161C"] }
+}
