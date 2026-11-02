@@ -153,9 +153,9 @@ int parse_bd_addr(const char *str, bd_addr_t addr) {
     if (sscanf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
                &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6) {
         for (int i = 0; i < 6; i++) addr[i] = (uint8_t)b[i];
-        return 0;
+        return 1;
     }
-    return -1;
+    return 0;
 }
 
 int is_null_bd_addr(const bd_addr_t addr) {

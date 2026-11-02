@@ -26,12 +26,12 @@ void poll_bthid_fifo(void) {
     while (line) {
         while (*line == ' ') line++;
         if (*line) {
-            if (strncmp(line, "pair_host_on", 12) == 0 ||
-                strncmp(line, "pair_host_off", 13) == 0 ||
-                strncmp(line, "connect_host", 12) == 0 ||
-                strncmp(line, "disconnect_host", 15) == 0 ||
-                strncmp(line, "scan", 4) == 0 ||
-                strncmp(line, "pair ", 5) == 0) {
+            if (strncasecmp(line, "pair_host_on", 12) == 0 ||
+                strncasecmp(line, "pair_host_off", 13) == 0 ||
+                strncasecmp(line, "connect_host", 12) == 0 ||
+                strncasecmp(line, "disconnect_host", 15) == 0 ||
+                strncasecmp(line, "scan", 4) == 0 ||
+                strncasecmp(line, "pair ", 5) == 0) {
                 execute_btstack_cmd(line);
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
@@ -261,13 +261,13 @@ void execute_btstack_cmd(const char *cmd_in) {
     while (p >= cmd && (*p == '\r' || *p == '\n' || *p == ' ')) *p-- = 0;
     if (!cmd[0]) return;
 
-    if (strncmp(cmd, "scan", 4) == 0) {
+    if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
-    } else if (strncmp(cmd, "pair ", 5) == 0) {
+    } else if (strncasecmp(cmd, "pair ", 5) == 0) {
         char *addr_str = cmd + 5;
         while (*addr_str == ' ') addr_str++;
         start_user_pair(addr_str);
-    } else if (strncmp(cmd, "pair_host_on", 12) == 0) {
+    } else if (strncasecmp(cmd, "pair_host_on", 12) == 0) {
         stop_host_reconnect();
         for (int i = 0; i < MAX_HOST_CONNS; i++) {
             if (g_hosts[i].hid_cid) {
@@ -306,13 +306,13 @@ void execute_btstack_cmd(const char *cmd_in) {
         log_msg(msg);
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
-    } else if (strncmp(cmd, "pair_host_off", 13) == 0) {
+    } else if (strncasecmp(cmd, "pair_host_off", 13) == 0) {
         g_host_pairing = false;
         gap_discoverable_control(0);
         log_msg("Classic HID Host pairing disabled");
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
-    } else if (strncmp(cmd, "connect_host", 12) == 0) {
+    } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
         if (is_any_host_connected()) return;
         if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;
@@ -331,7 +331,7 @@ void execute_btstack_cmd(const char *cmd_in) {
                 try_connect_host();
             }
         }
-    } else if (strncmp(cmd, "disconnect_host", 15) == 0) {
+    } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         stop_host_reconnect();
         char *addr_str = cmd + 15;
         while (*addr_str == ' ') addr_str++;

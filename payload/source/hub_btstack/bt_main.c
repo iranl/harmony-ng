@@ -569,7 +569,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {
                 log_msg("Re-encryption failed: key missing on remote. Deleting local bond and re-pairing...");
                 sm_event_reencryption_complete_get_address(packet, addr);
-                addr_type = sm_event_reencryption_started_get_addr_type(packet);
+                addr_type = sm_event_reencryption_complete_get_addr_type(packet);
                 gap_delete_bonding(addr_type, addr);
                 sm_request_pairing(sm_event_reencryption_complete_get_handle(packet));
             } else {
