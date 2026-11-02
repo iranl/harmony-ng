@@ -567,7 +567,7 @@ int main(int argc, char **argv) {
                 g_suspend_countdown_start_ms = 0;
                 trigger_manual_suspend_to_ram();
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 3;
+                g_selected_sub_item = 0;
                 g_screen_dirty = true;
             } else {
                 static uint64_t s_last_cd_render = 0;

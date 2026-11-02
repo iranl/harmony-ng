@@ -73,10 +73,10 @@ void render_devices_screen(void) {
     render_page_indicator(cur_page, total_pages);
 }
 
-/* Inside a device, row 0 is the back row ("< Marantz") and the commands follow */
+/* Inside a device the rows are its commands, below a heading with the device's name */
 int browser_item_count(void) {
     if (g_browse_dev < 0) return g_rf_device_count;
-    int n = 1;
+    int n = 0;
     for (int i = 0; i < g_rf_dev_cmd_count; i++) {
         if (g_rf_dev_cmds[i].dev_idx == g_browse_dev) n++;
     }
@@ -85,11 +85,18 @@ int browser_item_count(void) {
 
 /* The command on row n of the browsed device, in the order the Hub sent them */
 const rf_dev_cmd_t *browser_cmd(int n) {
-    n--;
     for (int i = 0; i < g_rf_dev_cmd_count; i++) {
         if (g_rf_dev_cmds[i].dev_idx == g_browse_dev && n-- == 0) return &g_rf_dev_cmds[i];
     }
     return NULL;
+}
+
+int browser_page_size(void) {
+    return g_browse_dev >= 0 ? LIST_PAGE_SIZE - 1 : LIST_PAGE_SIZE;
+}
+
+int browser_list_y(void) {
+    return g_browse_dev >= 0 ? SETTINGS_LIST_Y : UI_CONTENT_Y;
 }
 
 void open_device_browser(void) {
@@ -116,10 +123,10 @@ void device_browser_move(int delta) {
 }
 
 void device_browser_page(int dir) {
-    int n = browser_item_count();
-    int page = g_browse_sel / LIST_PAGE_SIZE;
-    if (dir > 0) g_browse_sel = ((page + 1) * LIST_PAGE_SIZE < n) ? (page + 1) * LIST_PAGE_SIZE : (n > 0 ? n - 1 : 0);
-    else g_browse_sel = (page > 0) ? (page - 1) * LIST_PAGE_SIZE : 0;
+    int n = browser_item_count(), size = browser_page_size();
+    int page = g_browse_sel / size;
+    if (dir > 0) g_browse_sel = ((page + 1) * size < n) ? (page + 1) * size : (n > 0 ? n - 1 : 0);
+    else g_browse_sel = (page > 0) ? (page - 1) * size : 0;
 }
 
 /* Open a device from the list, or send the chosen command to the Hub */
@@ -128,11 +135,7 @@ void device_browser_activate(int n) {
     g_browse_sel = n;
     if (g_browse_dev < 0) {
         g_browse_dev = n;
-        g_browse_sel = 1;
-        return;
-    }
-    if (n == 0) {
-        device_browser_back();
+        g_browse_sel = 0;
         return;
     }
     const rf_dev_cmd_t *c = browser_cmd(n);
@@ -147,15 +150,24 @@ void device_browser_activate(int n) {
     printf("[*] RF TX DEVICE_CMD_INDEX: dev=%s idx=%d cmd=%s\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name);
 }
 
-/* Render the device list, or the browsed device's back row and commands */
+/* Render the device list, or the browsed device's heading and commands */
 void render_device_browser_view(void) {
-    int start_y = UI_CONTENT_Y;
+    if (g_browse_dev >= g_rf_device_count) g_browse_dev = -1;
+    int start_y = browser_list_y();
     int card_h = LIST_ROW_H;
     int spacing = LIST_ROW_GAP;
-    int page_size = LIST_PAGE_SIZE;
-    if (g_browse_dev >= g_rf_device_count) g_browse_dev = -1;
+    int page_size = browser_page_size();
     int total = browser_item_count();
     if (g_browse_sel >= total) g_browse_sel = 0;
+
+    if (g_browse_dev >= 0) {
+        char fit[RF_NAME_SIZE];
+        fb_draw_text_aa(14, SETTINGS_HEADING_Y, fb_fit_text_aa(fit, sizeof(fit), g_rf_devices[g_browse_dev].name, &g_font_title, FB_WIDTH - 28), RGB_CYAN, &g_font_title);
+        if (total <= 0) {
+            fb_draw_text_aa(14, start_y + 10, tr(STR_CONFIGURE_IN_WEBUI), RGB_TEXT_MUTED, &g_font_main);
+            return;
+        }
+    }
 
     if (total <= 0) {
         fb_draw_text_aa(8, start_y + 20, tr(STR_NO_DEVICES), RGB_WHITE, &g_font_title);
@@ -169,13 +181,6 @@ void render_device_browser_view(void) {
         int idx = page_start + i;
         int y = start_y + i * (card_h + spacing);
         bool is_sel = (idx == g_browse_sel);
-        if (g_browse_dev >= 0 && idx == 0) {
-            char back[RF_NAME_SIZE + 2], fit[sizeof(back)];
-            snprintf(back, sizeof(back), "< %s", g_rf_devices[g_browse_dev].name);
-            if (is_sel) fb_fill_rect(8, y, FB_WIDTH - 16, card_h, RGB_CARD_SEL);
-            fb_draw_text_aa(14, y + 7, fb_fit_text_aa(fit, sizeof(fit), back, &g_font_title, FB_WIDTH - 14 - 14), is_sel ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_title);
-            continue;
-        }
         const rf_dev_cmd_t *c = (g_browse_dev >= 0) ? browser_cmd(idx) : NULL;
         const char *label = (g_browse_dev < 0) ? g_rf_devices[idx].name : (c ? c->name : "");
 

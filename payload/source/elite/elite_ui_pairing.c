@@ -5,6 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Unpairing asks to confirm or cancel; otherwise the one option starts, stops or unpairs.
+   Back (the key or a swipe) returns to Settings. */
+int pair_opt_count(void) {
+    return g_unpair_confirm_active ? 2 : 1;
+}
+
 void execute_pairing_menu_opt(int idx) {
     bool is_paired = g_rf_link_connected || (g_pairing_state == 2) ||
                      (g_paired_hub_addr[0] | g_paired_hub_addr[1] | g_paired_hub_addr[2] | g_paired_hub_addr[3]) != 0;
@@ -16,33 +22,15 @@ void execute_pairing_menu_opt(int idx) {
             g_unpair_confirm_active = false;
         }
         g_selected_pair_opt = 0;
-    } else if (g_pairing_state == 1) {
-        if (idx == 0) {
-            rf_stop_pairing();
-        } else {
-            g_current_view = VIEW_SETTINGS;
-            g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 0;
-        }
+    } else if (idx == 0 && g_pairing_state == 1) {
+        rf_stop_pairing();
         g_selected_pair_opt = 0;
-    } else if (is_paired) {
-        if (idx == 0) {
-            g_unpair_confirm_active = true;
-            g_selected_pair_opt = 0;
-        } else {
-            g_current_view = VIEW_SETTINGS;
-            g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 0;
-        }
-    } else {
-        if (idx == 0) {
-            rf_start_pairing();
-            g_selected_pair_opt = 0;
-        } else {
-            g_current_view = VIEW_SETTINGS;
-            g_settings_subview = SETTINGS_VIEW_SYSTEM;
-            g_selected_sub_item = 0;
-        }
+    } else if (idx == 0 && is_paired) {
+        g_unpair_confirm_active = true;
+        g_selected_pair_opt = 0;
+    } else if (idx == 0) {
+        rf_start_pairing();
+        g_selected_pair_opt = 0;
     }
     render_screen();
 }
@@ -103,26 +91,23 @@ void render_pairing_screen(void) {
         fb_draw_text_aa(16, start_y + 84, "Protocol: eQuad / CC2544", RGB_TEXT_MUTED, &g_font_main);
     }
 
-    const char *opts[PAIR_OPT_COUNT];
+    const char *opts[2];
     if (g_unpair_confirm_active) {
         opts[0] = tr(STR_CONFIRM_UNPAIR);
         opts[1] = tr(STR_CANCEL);
     } else if (g_pairing_state == 1) {
         opts[0] = tr(STR_STOP_PAIRING);
-        opts[1] = tr(STR_BACK_TO_SETTINGS);
     } else if (is_paired) {
         opts[0] = tr(STR_UNPAIR_FROM_HUB);
-        opts[1] = tr(STR_BACK_TO_SETTINGS);
     } else {
         opts[0] = tr(STR_START_PAIRING);
-        opts[1] = tr(STR_BACK_TO_SETTINGS);
     }
 
     int opt_y = start_y + 114;
     int opt_h = 40;
     int spacing = 10;
 
-    for (int i = 0; i < PAIR_OPT_COUNT; i++) {
+    for (int i = 0; i < pair_opt_count(); i++) {
         int y = opt_y + i * (opt_h + spacing);
         bool is_sel = (i == g_selected_pair_opt);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;

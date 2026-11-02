@@ -24,10 +24,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "CMD", "BEF", "CMD", "OPD", "CMD", "CMD" },
     /* STR_TAB_DEV */
     { "DEV", "GER", "DIS", "APP", "DIS", "DIS" },
-    /* STR_BACK */
-    { "< Back", "< Zurueck", "< Retour", "< Terug", "< Atras", "< Indietro" },
-    /* STR_BACK_TO_SETTINGS */
-    { "< Back to Settings", "< Zu Einstellungen", "< Retour Parametres", "< Naar Instellingen", "< Volver a Ajustes", "< A Impostazioni" },
 
     /* STR_NO_ACTIVITIES */
     { "No Activities", "Keine Aktivitaeten", "Aucune activite", "Geen activiteiten", "Sin actividades", "Nessuna attivita" },

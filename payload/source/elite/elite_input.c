@@ -181,12 +181,9 @@ void handle_screen_touch_tap(int x, int y) {
         return;
     }
 
-    /* Horizontal swipes no longer cycle views (ADR-0001); inside a device they go back */
+    /* Horizontal swipes no longer cycle views (ADR-0001); left to right goes back (ADR-0014) */
     if (!is_tap && abs(dx) >= h_thresh && abs(dx) >= (abs(dy) * 3 / 2) && y < FB_HEIGHT) {
-        if (g_current_view == VIEW_DEVICE_BROWSER && dx > 0 && g_browse_dev >= 0) {
-            device_browser_back();
-            render_screen();
-        }
+        if (dx > 0 && ui_go_back()) render_screen();
         return;
     }
 
@@ -213,7 +210,7 @@ void handle_screen_touch_tap(int x, int y) {
                     if (count > 0) g_selected_sub_item = (g_selected_sub_item + 1) % count;
                 }
             } else if (g_current_view == VIEW_PAIRING) {
-                g_selected_pair_opt = (g_selected_pair_opt + 1) % PAIR_OPT_COUNT;
+                g_selected_pair_opt = (g_selected_pair_opt + 1) % pair_opt_count();
             }
         } else {
             printf("[*] Swipe Down (dy=%d) -> prev page\n", dy);
@@ -236,7 +233,7 @@ void handle_screen_touch_tap(int x, int y) {
                     if (count > 0) g_selected_sub_item = (g_selected_sub_item + count - 1) % count;
                 }
             } else if (g_current_view == VIEW_PAIRING) {
-                g_selected_pair_opt = (g_selected_pair_opt + PAIR_OPT_COUNT - 1) % PAIR_OPT_COUNT;
+                g_selected_pair_opt = (g_selected_pair_opt + pair_opt_count() - 1) % pair_opt_count();
             }
         }
         render_screen();
@@ -279,9 +276,10 @@ void handle_screen_touch_tap(int x, int y) {
             }
         }
     } else if (g_current_view == VIEW_DEVICE_BROWSER) {
-        int page_start = (g_browse_sel / LIST_PAGE_SIZE) * LIST_PAGE_SIZE;
-        for (int i = 0; i < LIST_PAGE_SIZE && (page_start + i) < browser_item_count(); i++) {
-            int cy = start_y + i * (LIST_ROW_H + LIST_ROW_GAP);
+        int size = browser_page_size();
+        int page_start = (g_browse_sel / size) * size;
+        for (int i = 0; i < size && (page_start + i) < browser_item_count(); i++) {
+            int cy = browser_list_y() + i * (LIST_ROW_H + LIST_ROW_GAP);
             if (y >= cy && y < cy + LIST_ROW_H + LIST_ROW_GAP) {
                 device_browser_activate(page_start + i);
                 render_screen();
@@ -353,7 +351,7 @@ void handle_screen_touch_tap(int x, int y) {
         }
     } else if (g_current_view == VIEW_PAIRING) {
         int opt_y = 42 + 114, opt_h = 40, spacing = 10;
-        for (int i = 0; i < PAIR_OPT_COUNT; i++) {
+        for (int i = 0; i < pair_opt_count(); i++) {
             int cy = opt_y + i * (opt_h + spacing);
             if (y >= cy && y < cy + opt_h) {
                 g_selected_pair_opt = i;
@@ -462,7 +460,7 @@ void handle_navigation_key(int code, int value) {
                 }
             } else if (g_current_view == VIEW_PAIRING) {
                 if (g_selected_pair_opt > 0) g_selected_pair_opt--;
-                else g_selected_pair_opt = PAIR_OPT_COUNT - 1;
+                else g_selected_pair_opt = pair_opt_count() - 1;
             }
             render_screen();
             break;
@@ -485,7 +483,7 @@ void handle_navigation_key(int code, int value) {
                     if (count > 0) g_selected_sub_item = (g_selected_sub_item + 1) % count;
                 }
             } else if (g_current_view == VIEW_PAIRING) {
-                if (g_selected_pair_opt < PAIR_OPT_COUNT - 1) g_selected_pair_opt++;
+                if (g_selected_pair_opt < pair_opt_count() - 1) g_selected_pair_opt++;
                 else g_selected_pair_opt = 0;
             }
             render_screen();
@@ -564,7 +562,7 @@ void handle_navigation_key(int code, int value) {
                 if (g_current_view == VIEW_PAIRING) {
                     g_current_view = VIEW_SETTINGS;
                     g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                    g_selected_sub_item = 3;
+                    g_selected_sub_item = 0;
                 } else if (g_current_view == VIEW_NOT_PAIRED) {
                     g_current_view = VIEW_SETTINGS;
                     g_settings_subview = SETTINGS_VIEW_CATEGORIES;
@@ -583,7 +581,7 @@ void handle_navigation_key(int code, int value) {
             if (g_current_view == VIEW_PAIRING) {
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 3;
+                g_selected_sub_item = 0;
             } else if (g_current_view == VIEW_ACTIVITIES) {
                 g_current_view = VIEW_DEVICES;
             } else if (g_current_view == VIEW_DEVICES) {
@@ -670,42 +668,13 @@ void handle_navigation_key(int code, int value) {
             break;
 
         case 158: case 202: /* KEY_BACK / KEY_PROG3 */
-            if (g_current_view == VIEW_DEVICE_BROWSER) {
-                device_browser_back();
-            } else if (g_current_view == VIEW_PAIRING) {
-                if (g_unpair_confirm_active) {
-                    g_unpair_confirm_active = false;
-                } else {
-                    if (!is_remote_paired()) {
-                        g_current_view = VIEW_NOT_PAIRED;
-                    } else {
-                        g_current_view = VIEW_SETTINGS;
-                        g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                        g_selected_sub_item = 0;
-                    }
-                }
-            } else if (g_current_view == VIEW_SETTINGS) {
-                if (g_settings_subview == SETTINGS_VIEW_REBOOT || g_settings_subview == SETTINGS_VIEW_FACTORY_RESET || g_settings_subview == SETTINGS_VIEW_SUSPEND) {
-                    bool was_reboot = (g_settings_subview == SETTINGS_VIEW_REBOOT);
-                    bool was_suspend = (g_settings_subview == SETTINGS_VIEW_SUSPEND);
-                    g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
-                    g_factory_reset_stage = 0;
-                    g_suspend_countdown_start_ms = 0;
-                    g_selected_sub_item = was_suspend ? 4 : (was_reboot ? 1 : 2);
-                } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
-                    g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                    g_factory_reset_stage = 0;
-                    g_suspend_countdown_start_ms = 0;
-                } else {
-                    if (is_remote_paired()) open_device_browser(); else g_current_view = VIEW_NOT_PAIRED;
-                }
-            } else if (g_current_view == VIEW_NOT_PAIRED) {
-                break;
-            } else if (g_current_view == VIEW_DEVICES) {
-                g_current_view = VIEW_ACTIVITIES;
-            } else if (g_current_view == VIEW_ACTIVITIES) {
+            if (g_current_view == VIEW_NOT_PAIRED) break;
+            if (g_current_view == VIEW_ACTIVITIES) {
+                /* With touch off, Back on the home screen opens Settings */
                 g_current_view = VIEW_SETTINGS;
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+            } else {
+                ui_go_back();
             }
             render_screen();
             break;

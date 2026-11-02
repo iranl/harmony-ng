@@ -27,8 +27,6 @@ typedef enum {
     STR_TAB_ACT,
     STR_TAB_CMD,
     STR_TAB_DEV,
-    STR_BACK,
-    STR_BACK_TO_SETTINGS,
 
     /* Activities screen */
     STR_NO_ACTIVITIES,

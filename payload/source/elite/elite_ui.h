@@ -70,8 +70,13 @@ void render_not_paired_screen(void);
 int activity_list_count(void);
 int browser_item_count(void);
 const rf_dev_cmd_t *browser_cmd(int n);
+/* Device browser rows per page, and where they start: inside a device, below its heading */
+int browser_page_size(void);
+int browser_list_y(void);
 void open_device_browser(void);
 void device_browser_back(void);
+/* One screen back, for the Back key and a left-to-right swipe; false when there is nowhere to go */
+bool ui_go_back(void);
 void device_browser_move(int delta);
 void device_browser_page(int dir);
 void device_browser_activate(int n);
@@ -81,6 +86,7 @@ void trigger_activity_switch_external(const char *id, const char *name);
 void request_activity_switch_with_confirm(int act_idx);
 void execute_active_dev_cmd(int idx);
 void execute_settings_action(int idx);
+int pair_opt_count(void);
 void execute_pairing_menu_opt(int idx);
 int get_settings_sub_count(void);
 

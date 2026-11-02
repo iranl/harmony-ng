@@ -124,9 +124,6 @@ void execute_settings_action(int idx) {
                 pthread_mutex_unlock(&g_render_mutex);
                 save_settings_conf();
                 break;
-            case 4:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                break;
             default: break;
         }
         return;
@@ -170,9 +167,6 @@ void execute_settings_action(int idx) {
                 home_select_running();
                 save_settings_conf();
                 break;
-            case 6:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                break;
             default: break;
         }
         return;
@@ -191,9 +185,6 @@ void execute_settings_action(int idx) {
             case 2:
                 cycle_touch_sensitivity();
                 save_settings_conf();
-                break;
-            case 3:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
         }
@@ -250,9 +241,6 @@ void execute_settings_action(int idx) {
                 g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
                 break;
-            case 6:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                break;
             default: break;
         }
         return;
@@ -280,9 +268,6 @@ void execute_settings_action(int idx) {
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
-                break;
-            case 3:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
         }
@@ -315,10 +300,6 @@ void execute_settings_action(int idx) {
                     rf_send_sync_query();
                     show_notice("Checking for updates...", 2000);
                 }
-                break;
-            case 2:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_category = 5;
                 break;
             default: break;
         }
