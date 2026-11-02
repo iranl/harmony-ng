@@ -180,16 +180,13 @@ int main(int argc, char **argv) {
                 g_fb_size = finfo.smem_len;
                 g_fb_mem = (uint16_t *)mmap(NULL, g_fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
                 if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
-
-                vinfo.xoffset = 0;
-                vinfo.yoffset = 0;
-                ioctl(g_fb_fd, FBIOPAN_DISPLAY, &vinfo);
             } else {
                 g_fb_mem = (uint16_t *)mmap(NULL, FB_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
                 if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
             }
         }
 
+        fb_present_init();
         fb_set_blank(!g_screen_on);
         reset_idle_timer();
         load_wallpaper_asset();
