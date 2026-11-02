@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-HUB_HOST="${1:-192.168.1.1}"
+HUB_HOST=""
 HUB_USER="root"
 DEBUG_BUSYBOX="${DEBUG_BUSYBOX:-0}"
 SSH_KEY="${SSH_KEY:-}"
@@ -37,11 +37,20 @@ for arg in "$@"; do
         --key=*|-k=*)
             SSH_KEY="${arg#*=}"
             ;;
-        192.*|10.*|172.*|*.local)
-            HUB_HOST="$arg"
+        -*)
+            echo "[-] Unknown option: $arg" >&2
+            exit 1
+            ;;
+        *)
+            # The Hub's address: the first argument that isn't a flag
+            [ -z "$HUB_HOST" ] && HUB_HOST="$arg"
             ;;
     esac
 done
+if [ -z "$HUB_HOST" ]; then
+    echo "usage: $0 HUB_ADDRESS [--webui-only] [--ui=new|legacy] [--reboot] [--debug] [--key=PATH]" >&2
+    exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -220,7 +229,11 @@ if [ "$WWW_DIR" = "$REPO_ROOT/payload/www" ] && [ -d "$REPO_ROOT/frontend" ]; th
         UI_SRC_DIR="$REPO_ROOT/android-app"
     fi
     echo "[*] Compiling frontend bundle with Vite ($UI_SRC_DIR)..."
-    (cd "$UI_SRC_DIR" && npm run build) || true
+    # A failed build stops here, before the last good copy in $WWW_DIR is emptied
+    if ! (cd "$UI_SRC_DIR" && npm run build) || [ ! -f "$UI_SRC_DIR/dist/index.html" ]; then
+        echo "[-] WebUI build failed in $UI_SRC_DIR (run 'npm install' there?); nothing was deployed from this step." >&2
+        exit 1
+    fi
     mkdir -p "$WWW_DIR"
     find "$WWW_DIR" -maxdepth 1 -type f -delete 2>/dev/null || true
     rm -rf "$WWW_DIR/assets" 2>/dev/null || true
