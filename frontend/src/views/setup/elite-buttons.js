@@ -318,6 +318,7 @@ export function createButtonEditor() {
     h('option', { value: 'theme', text: "The theme's" }),
     h('option', { value: 'list', text: 'List' }),
     h('option', { value: 'grid', text: 'Grid' }),
+    h('option', { value: 'carousel', text: 'Carousel' }),
   ]);
   const remoteConfigPath = () => `/api/rf/remote-config?slot=${slot}`;
   async function loadTheme() {
@@ -326,7 +327,7 @@ export function createButtonEditor() {
     const [list, cfg] = await Promise.all([renderer.preview.themeList(), api.request(remoteConfigPath()).catch(() => null)]);
     themeSelect.replaceChildren(...list.map(th => h('option', { value: th.id, text: th.name })));
     themeSelect.value = list.some(th => th.id === cfg?.theme) ? cfg.theme : 'classic';
-    layoutSelect.value = ['list', 'grid'].includes(cfg?.layout) ? cfg.layout : 'theme';
+    layoutSelect.value = ['list', 'grid', 'carousel'].includes(cfg?.layout) ? cfg.layout : 'theme';
     await setRendererTheme(renderer, themeSelect.value);
     drawScreen();
   }
