@@ -52,6 +52,8 @@ typedef struct {
     const font_aa_t *font_title;
     theme_layout_t layout;
     char wallpaper[96];        /* remote path of the wallpaper; empty: Classic's; "none": pal.bg */
+    uint8_t line_art[3];       /* RGB the dark pixels of stock line art are drawn in: near-white on
+                                  dark themes, dark on light ones (theme.json "line_art") */
 } theme_t;
 
 extern theme_t g_theme;
