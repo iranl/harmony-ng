@@ -206,7 +206,15 @@ export async function themeList() {
 // (blit_png_file in elite/elite_fb.c), it recolours dark line art white, except in theme icons.
 const iconUrls = new Map();
 export function activityIconUrl(module, activityId, theme = 'classic') {
-  const path = module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]);
+  return iconUrl(module, module.ccall('er_activity_icon', 'string', ['string', 'string', 'string'], [ROOT, remoteActivityId(activityId), theme]));
+}
+
+// The image the remote draws for a device, like activityIconUrl
+export function deviceIconUrl(module, deviceId, theme = 'classic') {
+  return iconUrl(module, module.ccall('er_device_icon', 'string', ['string', 'string', 'string'], [ROOT, String(deviceId).slice(0, 4), theme]));
+}
+
+function iconUrl(module, path) {
   if (!path) return Promise.resolve('');
   if (!iconUrls.has(path)) {
     iconUrls.set(path, (async () => {

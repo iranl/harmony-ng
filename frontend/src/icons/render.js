@@ -72,42 +72,42 @@ export function renderIcon(iconKey, options = {}) {
   return img;
 }
 
-// Activity icons are keywords (or uploaded images) that the remote resolves to its own
-// images; the remote's renderer resolves them the same way, so the web UI shows the image the
-// remote shows. Uploaded icons, which the Hub sends to the remote, load from the Hub.
+// Activity and device icons are keywords (or uploaded images) that the remote resolves to its
+// own images, in its theme; the remote's renderer resolves them the same way, so the web UI
+// shows the image the remote shows. Uploaded icons, which the Hub sends to the remote, load
+// from the Hub.
 let uploadedIcons = null;
-async function remoteActivityIconUrl(activity) {
+async function remoteIconUrl(kind, item) {
   uploadedIcons = uploadedIcons || api.getCustomIcons().catch(() => []);
-  const key = String(activity.icon || '').split('/').pop().replace(/\.png$/i, '').toLowerCase();
-  const uploaded = ((await uploadedIcons) || []).find(u => (u.type === 'activity' && String(u.id) === String(activity.id))
+  const key = String(item.icon || '').split('/').pop().replace(/\.png$/i, '').toLowerCase();
+  const uploaded = ((await uploadedIcons) || []).find(u => (u.type === kind && String(u.id) === String(item.id))
     || (key && [u.id, String(u.filename || '').replace(/\.png$/i, '')].some(n => String(n || '').toLowerCase() === key)));
   if (uploaded?.url) return `${api.baseUrl}${uploaded.url}`;
   const renderer = await loadEliteRenderer();
   if (!renderer) return '';
-  renderer.preview.writeRemoteConfig(renderer.module, { activities: [activity] });
-  return renderer.preview.activityIconUrl(renderer.module, activity.id, renderer.theme);
+  if (kind === 'device') {
+    renderer.preview.writeRemoteConfig(renderer.module, { devices: [item] });
+    return renderer.preview.deviceIconUrl(renderer.module, item.id, renderer.theme);
+  }
+  renderer.preview.writeRemoteConfig(renderer.module, { activities: [item] });
+  return renderer.preview.activityIconUrl(renderer.module, item.id, renderer.theme);
 }
 
-export function renderActivityIcon(activity, className = 'activity-icon') {
-  if (!activity) return h('span', { className });
-  const fallback = () => renderIcon(activity.icon, {
-    className,
-    alt: activity.name,
-    fallbackText: activity.name || 'AC',
-  });
-  const img = h('img', { className, alt: activity.name || '', width: 24, height: 24 });
-  remoteActivityIconUrl(activity).then((url) => {
+function renderRemoteIcon(kind, item, className, fallbackText) {
+  if (!item) return h('span', { className });
+  const fallback = () => renderIcon(item.icon, { className, alt: item.name, fallbackText: item.name || fallbackText });
+  const img = h('img', { className, alt: item.name || '', width: 24, height: 24 });
+  remoteIconUrl(kind, item).then((url) => {
     if (url) img.src = url;
     else img.replaceWith(fallback());
   });
   return img;
 }
 
+export function renderActivityIcon(activity, className = 'activity-icon') {
+  return renderRemoteIcon('activity', activity, className, 'AC');
+}
+
 export function renderDeviceIcon(device, className = 'device-icon') {
-  if (!device) return h('span', { className });
-  return renderIcon(device.icon, {
-    className,
-    alt: device.name,
-    fallbackText: device.name || 'DV',
-  });
+  return renderRemoteIcon('device', device, className, 'DV');
 }

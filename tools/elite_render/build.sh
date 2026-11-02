@@ -24,7 +24,7 @@ if [ "${1:-}" = "--wasm" ]; then
     [ -z "${2:-}" ] && cp "$HERE/web/index.html" "$OUT/"
     emcc "${FLAGS[@]}" -I"$HERE/wasm_compat" "$HERE/elite_render_wasm.c" "${FIRMWARE[@]}" \
         -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEliteRenderer -sENVIRONMENT=web \
-        -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_main,_er_render,_er_assets_changed,_er_icon_keyword,_er_stock_icon_id,_er_activity_icon \
+        -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_main,_er_render,_er_assets_changed,_er_icon_keyword,_er_stock_icon_id,_er_activity_icon,_er_device_icon \
         -sEXPORTED_RUNTIME_METHODS=ccall,FS,HEAPU8 \
         -o "$OUT/elite_render.js"
     cp "$HERE/web/elite_preview.js" "$OUT/"

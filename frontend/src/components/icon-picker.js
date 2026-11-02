@@ -1,12 +1,12 @@
-// Activity Icon Picker Overlay Component
+// Activity and Device Icon Picker Overlay Component
 import { h } from '../utils/dom.js';
 import { createModal } from './modal.js';
-import { renderActivityIcon } from '../icons/render.js';
+import { renderActivityIcon, renderDeviceIcon } from '../icons/render.js';
 import { api } from '../api/index.js';
 import { t } from '../i18n/index.js';
 import iconMeta from '../icons/metadata.json';
 
-// The remote draws three kinds of activity icon:
+// The remote draws three kinds of activity and device icon:
 // - keywords (rf_activity_icon_keyword in payload/source/rf_proto.h), which a theme can redraw;
 // - the remote's stock images, sent as a 16-bit index (payload/source/elite_stock_icons.c);
 // - icons uploaded to the Hub, which the Hub streams to the remote.
@@ -28,7 +28,8 @@ const STOCK = Object.entries(iconMeta)
 
 const iconKey = (icon) => String(icon || '').split('/').pop().replace(/\.png$/i, '').toLowerCase();
 
-export function openIconPicker(currentIcon = '', onSelect) {
+// kind: 'activity' or 'device', which the previews draw the icon as
+export function openIconPicker(currentIcon = '', onSelect, { kind = 'activity' } = {}) {
   let filterText = '';
   let uploaded = [];
   const current = iconKey(currentIcon);
@@ -53,9 +54,11 @@ export function openIconPicker(currentIcon = '', onSelect) {
   function renderGrid() {
     gridContainer.innerHTML = '';
     // The remote resolves a keyword or stock icon before the name, so the label doesn't affect the image
-    const remoteIcon = ({ key, label }) => () => renderActivityIcon({ id: `icon-picker-${key}`, name: label, icon: key }, 'app-icon');
+    const renderRemote = kind === 'device' ? renderDeviceIcon : renderActivityIcon;
+    const remoteIcon = ({ key, label }) => () => renderRemote({ id: `icon-picker-${key}`, name: label, icon: key }, 'app-icon');
+    const keywordGroup = kind === 'device' ? t('icons_keywords_theme', 'Theme icons') : t('icons_keywords', 'Activity types');
     const items = [
-      ...KEYWORDS.map(([key, label]) => ({ group: t('icons_keywords', 'Activity types'), key, label, preview: remoteIcon({ key, label }) })),
+      ...KEYWORDS.map(([key, label]) => ({ group: keywordGroup, key, label, preview: remoteIcon({ key, label }) })),
       ...uploaded.map(u => ({
         group: t('icons_uploaded', 'Uploaded'),
         key: iconKey(u.filename),

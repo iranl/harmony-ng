@@ -26,6 +26,24 @@ void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_
     out[out_len - 1] = '\0';
 }
 
+/* The stock image of the same subject for a keyword added after the original 17 (NULL for
+   the others), which Classic draws for it */
+static const char *added_keyword_stock_icon(uint8_t type) {
+    static const char *const added[RF_ACTIVITY_ICON_COUNT - 17] = {
+        "1978f30f-e27f-4126-b622-fc230936ae2f_small", /* projector */
+        "29281b8d-fc8d-4c13-89c4-60705b8429f9_small", /* bluray */
+        "d22a587c-e45c-4b4a-9396-19396eb8e32b_small", /* satellite */
+        "cedd3f0f-932a-4135-8f2d-1670550f20ee_small", /* soundbar */
+        "311d40b5-6cf9-4da2-8820-e17012b852a1_small", /* hifi */
+        "a12ff2be-5c15-4e5d-8e51-1f328716ef3d_small", /* netflix */
+        "6d621a24-72d6-4ccd-8ed8-1114b52952ae_small", /* night */
+        "ab95c212-7b27-4118-8cd3-0e595ea061d5_small", /* fireplace */
+        "718b691b-df39-4787-989d-eab9d39d595e_small", /* sunrise */
+        "9ccf9a96-b984-4aeb-9227-9b565ff74e06_small", /* fan */
+    };
+    return type > 17 && type <= RF_ACTIVITY_ICON_COUNT ? get_stock_icon_path(lookup_stock_icon_id(added[type - 18])) : NULL;
+}
+
 void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len) {
     if (!out_path || max_len == 0) return;
     out_path[0] = '\0';
@@ -102,20 +120,7 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     uint8_t type = rf_activity_icon_match(low);
     if (theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return;
 
-    /* Keywords added after the original 17 use the stock image of the same subject */
-    static const char *const added[RF_ACTIVITY_ICON_COUNT - 17] = {
-        "1978f30f-e27f-4126-b622-fc230936ae2f_small", /* projector */
-        "29281b8d-fc8d-4c13-89c4-60705b8429f9_small", /* bluray */
-        "d22a587c-e45c-4b4a-9396-19396eb8e32b_small", /* satellite */
-        "cedd3f0f-932a-4135-8f2d-1670550f20ee_small", /* soundbar */
-        "311d40b5-6cf9-4da2-8820-e17012b852a1_small", /* hifi */
-        "a12ff2be-5c15-4e5d-8e51-1f328716ef3d_small", /* netflix */
-        "6d621a24-72d6-4ccd-8ed8-1114b52952ae_small", /* night */
-        "ab95c212-7b27-4118-8cd3-0e595ea061d5_small", /* fireplace */
-        "718b691b-df39-4787-989d-eab9d39d595e_small", /* sunrise */
-        "9ccf9a96-b984-4aeb-9227-9b565ff74e06_small", /* fan */
-    };
-    const char *stock = type > 17 ? get_stock_icon_path(lookup_stock_icon_id(added[type - 18])) : NULL;
+    const char *stock = added_keyword_stock_icon(type);
     if (stock) {
         snprintf(out_path, max_len, "%s", stock);
         return;
@@ -173,6 +178,10 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
             return true;
         }
     } else if (icon_id > 0 && icon_id < 0x8000) {
+        /* As for activities, a theme draws its icon for the keyword in place of the keyword's
+           own stock image */
+        uint8_t type = icon_key && lookup_stock_icon_id(icon_key) == icon_id ? rf_activity_icon_match(icon_key) : 0;
+        if (type && theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return true;
         const char *stock = get_stock_icon_path(icon_id);
         if (stock && stock[0]) {
             strncpy(out_path, stock, max_len - 1);
@@ -220,6 +229,11 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     const char *src = base[0] ? base : (dev_name ? dev_name : "");
     for (int k = 0; src[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)src[k]);
 
+    /* A theme draws its own icon for the keyword; Classic keeps the stock device images */
+    uint8_t type = rf_activity_icon_match(low);
+    if (type && theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return true;
+    const char *added_stock = added_keyword_stock_icon(type);
+
     if (strstr(low, "shield")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/shield.png");
     } else if (strstr(low, "xbox")) {
@@ -258,6 +272,8 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/plug_on.png");
     } else if (strstr(low, "blind") || strstr(low, "shade")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/blinds_on.png");
+    } else if (added_stock) {
+        snprintf(out_path, max_len, "%s", added_stock);
     } else {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/default.png");
     }

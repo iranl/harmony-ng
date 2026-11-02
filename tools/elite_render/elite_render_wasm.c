@@ -59,6 +59,21 @@ const char *er_activity_icon(const char *root, const char *id, const char *theme
     return "";
 }
 
+/* The image the remote draws for a device in a theme (id as the push cuts it, 4 characters),
+   resolved like er_activity_icon */
+EMSCRIPTEN_KEEPALIVE
+const char *er_device_icon(const char *root, const char *id, const char *theme) {
+    static char path[256];
+    g_fs_root = root ? root : "";
+    theme_load(theme);
+    load_rf_config();
+    for (int i = 0; i < g_rf_device_count; i++) {
+        rf_device_t *d = &g_rf_devices[i];
+        if (strcmp(d->id, id) == 0 && resolve_device_icon(d->icon_id, d->icon, d->name, d->id, path, sizeof(path))) return path;
+    }
+    return "";
+}
+
 /* Call after replacing files in the filesystem, so cached images are decoded again */
 EMSCRIPTEN_KEEPALIVE
 void er_assets_changed(void) {
