@@ -15,9 +15,7 @@ void expand_timezone(const char *in, char *out, size_t out_sz) { snprintf(out, o
 void fb_set_blank(bool blank) { (void)blank; }
 bool fb_present(const uint16_t *frame, bool wait_vsync) { (void)frame; (void)wait_vsync; return false; }
 bool frame_timing_enabled(void) { return false; }
-void frame_timing_record(const char *screen, uint32_t render_us, uint32_t present_us, bool flipped) {
-    (void)screen; (void)render_us; (void)present_us; (void)flipped;
-}
+void frame_timing_record(const frame_timing_t *t) { (void)t; }
 void set_backlight_level(int level) { (void)level; }
 void trigger_manual_suspend_to_ram(void) {}
 void init_gyro_interrupt(void) {}

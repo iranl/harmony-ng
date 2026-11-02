@@ -18,11 +18,18 @@ void fb_present_init(void);
  * Returns whether the frame was shown by page flipping. */
 bool fb_present(const uint16_t *frame, bool wait_vsync);
 
-/* Frame timing: while /tmp/elite_frame_timing exists, each frame's times are appended to
+/* Frame timing: while /tmp/elite_frame_timing exists, each frame is appended to
  * /tmp/frame_timing.log */
+typedef struct {
+    const char *screen, *theme, *layout;
+    uint32_t render_us, present_us;
+    bool flipped;
+    int decodes, scales; /* PNGs decoded and scaled while drawing the frame */
+} frame_timing_t;
+
 void frame_timing_poll(void);
 bool frame_timing_enabled(void);
-void frame_timing_record(const char *screen, uint32_t render_us, uint32_t present_us, bool flipped);
+void frame_timing_record(const frame_timing_t *t);
 
 #ifdef __cplusplus
 }

@@ -75,7 +75,7 @@ void frame_timing_poll(void) {
     bool want = access(FRAME_TIMING_FLAG, F_OK) == 0;
     if (want && !s_timing_log) {
         s_timing_log = fopen(FRAME_TIMING_LOG, "a");
-        if (s_timing_log) fprintf(s_timing_log, "# ms screen render_us present_us flipped\n");
+        if (s_timing_log) fprintf(s_timing_log, "# ms screen theme layout render_us present_us flipped decodes scales\n");
     } else if (!want && s_timing_log) {
         fclose(s_timing_log);
         s_timing_log = NULL;
@@ -86,9 +86,10 @@ bool frame_timing_enabled(void) {
     return s_timing_log != NULL;
 }
 
-void frame_timing_record(const char *screen, uint32_t render_us, uint32_t present_us, bool flipped) {
+void frame_timing_record(const frame_timing_t *t) {
     if (!s_timing_log) return;
-    fprintf(s_timing_log, "%llu %s %u %u %d\n", (unsigned long long)get_monotonic_ms(), screen,
-            render_us, present_us, flipped ? 1 : 0);
+    fprintf(s_timing_log, "%llu %s %s %s %u %u %d %d %d\n", (unsigned long long)get_monotonic_ms(),
+            t->screen, t->theme, t->layout, t->render_us, t->present_us, t->flipped ? 1 : 0,
+            t->decodes, t->scales);
     fflush(s_timing_log);
 }

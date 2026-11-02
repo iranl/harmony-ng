@@ -243,6 +243,13 @@ typedef struct {
 #define MAX_CACHED_PNG 192
 static cached_png_t g_png_cache[MAX_CACHED_PNG];
 static int g_png_cache_count = 0;
+static int g_png_decodes = 0, g_png_scales = 0;
+
+void fb_png_work_take(int *decodes, int *scales) {
+    *decodes = g_png_decodes;
+    *scales = g_png_scales;
+    g_png_decodes = g_png_scales = 0;
+}
 
 static cached_png_t *png_cache_find(const char *key) {
     for (int i = 0; i < g_png_cache_count; i++) {
@@ -376,6 +383,7 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
         char fs_path[256];
         data = stbi_load(elite_fs_path(filepath, fs_path, sizeof(fs_path)), &w, &h, &comp, 4);
         if (!data) return false;
+        g_png_decodes++;
         data_cached = png_cache_add(filepath, w, h, data);
     }
 
@@ -383,6 +391,7 @@ bool blit_png_file(int dst_x, int dst_y, int target_w, int target_h, const char 
         blit_rgba(dst_x, dst_y, data, w, h, recolor);
     } else {
         unsigned char *scaled = scale_rgba(data, w, h, target_w, target_h, recolor);
+        g_png_scales++;
         if (scaled) {
             blit_rgba(dst_x, dst_y, scaled, target_w, target_h, false);
             if (!png_cache_add(scaled_key, target_w, target_h, scaled)) free(scaled);
