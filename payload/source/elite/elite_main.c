@@ -124,6 +124,7 @@ int main(int argc, char **argv) {
     printf("[+] Starting Harmony Elite Custom Interface (elite_ui v%s)...\n", HARMONY_ELITE_VERSION);
 
     load_settings_conf();
+    load_activity_usage();
 
     g_usb_connected = is_usb_hardware_connected();
     log_power_debug("[*] elite_ui INIT: usb_cable_connected=%d\n", g_usb_connected);

@@ -30,6 +30,7 @@ void trigger_activity_switch(const char *id, const char *name) {
            g_switching_target_name, g_switching_target_id, step_cnt, g_switching_total_ms);
 
     rf_send_activity_start(id ? id : "-1");
+    record_activity_start(id);
     render_screen();
 }
 

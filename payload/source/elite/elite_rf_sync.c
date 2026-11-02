@@ -166,17 +166,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_has_hub_config = true;
                 g_update_config_available = false;
                 save_rf_config();
-                g_activity_count = 0;
-                for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
-                    strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
-                    strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-                    resolve_activity_icon(g_rf_activities[i].icon_id,
-                                          g_rf_activities[i].icon,
-                                          g_rf_activities[i].name,
-                                          g_activities[g_activity_count].icon_path,
-                                          sizeof(g_activities[0].icon_path));
-                    g_activity_count++;
-                }
+                build_activity_list();
                 if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
                     open_device_browser();
                 }

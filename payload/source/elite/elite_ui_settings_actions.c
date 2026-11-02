@@ -117,6 +117,14 @@ void execute_settings_action(int idx) {
                 }
                 break;
             case 3:
+                g_activity_order = g_activity_order == ACTIVITY_ORDER_MOST_USED ? ACTIVITY_ORDER_YOURS : ACTIVITY_ORDER_MOST_USED;
+                pthread_mutex_lock(&g_render_mutex);
+                if (g_has_hub_config) build_activity_list();
+                g_selected_activity = 0;
+                pthread_mutex_unlock(&g_render_mutex);
+                save_settings_conf();
+                break;
+            case 4:
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
