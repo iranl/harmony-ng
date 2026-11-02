@@ -1,4 +1,4 @@
-/* RF link quality (ADR-0012). Neither CC2544 exposes RSSI, so the remote measures the link from
+/* RF link quality. Neither CC2544 exposes RSSI, so the remote measures the link from
  * two things it sees: the CC2544's link status reports, and whether the Hub answers the sync
  * queries the remote sends every 800 ms while the screen is on. */
 #include "elite_link.h"

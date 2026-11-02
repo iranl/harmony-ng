@@ -1,4 +1,4 @@
-/* The status bar menu (ADR-0002), the RF link panel (ADR-0012) and the one-time key hint (ADR-0001).
+/* The status bar menu, the RF link panel and the one-time key hint.
  * The menu opens from the gear at the left of the status bar, or from a long press of the
  * Activities key, and holds actions that have no physical key. */
 #include "elite_ui.h"

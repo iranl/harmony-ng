@@ -1,4 +1,4 @@
-/* Showing frames on the remote's framebuffer, and the frame timing log (ADR-0009).
+/* Showing frames on the remote's framebuffer, and the frame timing log.
  *
  * The framebuffer has up to three pages of 240x320. A frame is copied into a page the
  * display isn't showing, and FBIOPAN_DISPLAY points the LCD controller at it. That costs
@@ -23,8 +23,8 @@ static int s_pages = 1;  /* pages to flip between; 1 = copy into every page */
 static int s_shown = 0;  /* page the display shows */
 static uint64_t s_last_paced_us = 0;
 
-/* Animation frames are shown on every second refresh of the 72 Hz display, 36 per second
-   (ADR-0009): wait for refreshes until 25 ms have passed since the last paced frame */
+/* Animation frames are shown on every second refresh of the 72 Hz display, 36 per second:
+   wait for refreshes until 25 ms have passed since the last paced frame */
 #define PACED_FRAME_MIN_US 25000
 
 static void wait_for_paced_refresh(void) {

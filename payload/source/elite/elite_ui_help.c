@@ -1,4 +1,4 @@
-/* Help (ADR-0004): repairs the running activity. The Hub re-sends the activity's commands
+/* Help: repairs the running activity. The Hub re-sends the activity's commands
  * except power toggles, then the remote asks about each device with only a power toggle; on
  * "No" the Hub sends the toggle. Help covers the content area until it finishes. */
 #include "elite_ui.h"

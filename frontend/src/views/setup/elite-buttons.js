@@ -360,8 +360,7 @@ export function createButtonEditor() {
   });
   const title = h('h4', { className: 'card-title', text: 'Buttons' });
 
-  // ── Theme and home layout: the remote's look, which the Hub sets in its settings push
-  //    (ADR-0007, ADR-0008) ──
+  // ── Theme and home layout: the remote's look, which the Hub sets in its settings push ──
   const themeSelect = h('select', {
     className: 'form-select',
     'aria-label': 'Remote theme',

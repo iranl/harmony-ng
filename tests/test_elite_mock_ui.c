@@ -236,7 +236,7 @@ int main(void) {
     assert(strcmp(g_rf_devices[2].name, long_name) == 0);
     printf("[+] Long device name assembled: %s\n", g_rf_devices[2].name);
 
-    /* 10. RF link quality (ADR-0012): the lower of link reports and Hub replies sets the bars */
+    /* 10. RF link quality: the lower of link reports and Hub replies sets the bars */
     const uint64_t T = 1000000;
     link_quality_t lq;
     g_rf_link_connected = true;
@@ -277,7 +277,7 @@ int main(void) {
     assert(lq.state == LINK_NO_HUB);
     printf("[+] Link quality: bars from the weaker measure, late replies ignored, silent Hub detected\n");
 
-    /* 11. Help (ADR-0004): listed in the menu only while an activity runs; follows the Hub's
+    /* 11. Help: listed in the menu only while an activity runs; follows the Hub's
        status frames, ignores repeats and frames after it closed */
     g_is_syncing_config = false; /* the device list chunk above started a sync */
     snprintf(g_active_activity_id, sizeof(g_active_activity_id), "-1");
@@ -324,7 +324,7 @@ int main(void) {
     assert(!ui_help_active());
     printf("[+] Help: menu item only while an activity runs, questions answered, late frames ignored\n");
 
-    /* 12. Drag scrolling of the home pages (ADR-0009) */
+    /* 12. Drag scrolling of the home pages */
     g_activity_count = 13;
     for (int i = 0; i < g_activity_count; i++) {
         snprintf(g_activities[i].id, sizeof(g_activities[i].id), "%d", 30001 + i);
@@ -413,7 +413,7 @@ int main(void) {
     #undef SETTLE
     printf("[+] Home drag scrolling: drag, flick, snap back, edge resistance, taps, carousel\n");
 
-    /* 13. Screen transitions (ADR-0014) */
+    /* 13. Screen transitions */
     {
         g_is_switching_activity = g_is_syncing_config = g_is_ota_updating = false;
         g_menu_open = g_key_hint_pending = g_link_panel_open = false;
@@ -464,7 +464,7 @@ int main(void) {
         printf("[+] Transitions: slides deeper and back, crossfades across\n");
     }
 
-    /* 14. Going back without Back rows (ADR-0014) */
+    /* 14. Going back without Back rows */
     {
         /* Back goes up one level; Settings pages have no Back rows */
         g_pairing_state = 2; /* paired: the categories go back to home, not the pairing prompt */
@@ -486,7 +486,7 @@ int main(void) {
         printf("[+] Back: one level up by swipe or key, no Back rows, device name as a heading\n");
     }
 
-    /* 15. Free-scrolling lists (ADR-0009) and device rows on the running activity's card */
+    /* 15. Free-scrolling lists and device rows on the running activity's card */
     {
         uint64_t ms = 2000000;
         #define SETTLE() do { for (int f = 0; f < 60 && list_scroll_settling(); f++) { ms += 28; list_scroll_tick(ms); } } while (0)

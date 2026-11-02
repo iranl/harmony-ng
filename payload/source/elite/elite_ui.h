@@ -43,7 +43,7 @@ bool ui_link_panel_dismiss(void);
 void render_page_indicator(int page, int pages);
 /* The scrollbar of the list on screen (elite_ui_scroll.h), when it has more rows than fit */
 void render_list_scrollbar(void);
-/* The home layout (ADR-0008): the Settings choice, or the theme's when it is "theme". Drawing
+/* The home layout: the Settings choice, or the theme's when it is "theme". Drawing
    and touch handling place activities with these. */
 bool home_layout_is_grid(void);
 bool home_layout_is_carousel(void);

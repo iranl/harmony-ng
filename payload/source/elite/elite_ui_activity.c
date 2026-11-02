@@ -1,6 +1,6 @@
-/* The activity screen's hero card (ADR-0005): shown when the running activity has no screen
+/* The activity screen's hero card: shown when the running activity has no screen
  * buttons, it confirms what is running and which devices it uses. The carousel home layout
- * (ADR-0008) draws the same card for each activity. */
+ * draws the same card for each activity. */
 #include "elite_ui.h"
 #include "elite_fb.h"
 #include "elite_config.h"

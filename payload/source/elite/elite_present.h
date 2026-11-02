@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Showing frames on /dev/fb0 by page flipping (ADR-0009), and the frame timing log.
+/* Showing frames on /dev/fb0 by page flipping, and the frame timing log.
  * Remote only: the host renderer stubs these in tools/elite_render/host_platform.c. */
 
 /* Finds how many framebuffer pages can be flipped between, and shows page 0 */

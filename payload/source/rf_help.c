@@ -1,4 +1,4 @@
-/* Help (ADR-0004) over RF. The remote asks for Help; the Hub daemon re-sends the activity's
+/* Help over RF. The remote asks for Help; the Hub daemon re-sends the activity's
  * commands except power toggles (POST /api/activity/help). Once they are sent, the remote
  * gets one RF_MSG_HELP_STATUS question per device with only a power toggle, and its answers
  * go to POST /api/activity/help/answer. */

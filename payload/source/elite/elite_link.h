@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* RF link quality, measured from what the remote observes over the last 30 s (ADR-0012) */
+/* RF link quality, measured from what the remote observes over the last 30 s */
 typedef enum {
     LINK_OK,         /* bars 1-4 */
     LINK_NO_HUB,     /* the CC2544 reports the link lost */

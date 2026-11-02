@@ -1,4 +1,4 @@
-/* Drag scrolling (ADR-0009): the home screen's pages, up and down in the list and grid and
+/* Drag scrolling: the home screen's pages, up and down in the list and grid and
  * sideways in the carousel, and the free-scrolling lists. No hardware access: the host
  * renderer links it to draw frames mid-drag. */
 #include "elite_ui_scroll.h"
@@ -12,7 +12,7 @@
 #define EDGE_MAX_PX       60
 #define SETTLE_MIN_MS     120
 #define SETTLE_MAX_MS     250
-#define SLIDE_MS          200  /* a key moving to the neighbour page (ADR-0009: <= 200 ms) */
+#define SLIDE_MS          200  /* a key moving to the neighbour page (at most 200 ms) */
 
 _Static_assert(ACT_PAGE_SIZE * (ACT_CARD_H + ACT_CARD_GAP) == HOME_PAGE_PITCH, "list page height");
 _Static_assert(ACT_GRID_ROWS * (ACT_TILE_H + ACT_CARD_GAP) == HOME_PAGE_PITCH, "grid page height");
