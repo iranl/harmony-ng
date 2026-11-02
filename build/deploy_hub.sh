@@ -37,6 +37,10 @@ for arg in "$@"; do
         --key=*|-k=*)
             SSH_KEY="${arg#*=}"
             ;;
+        --help|-h)
+            echo "usage: $0 HUB_ADDRESS [--webui-only] [--ui=new|legacy] [--reboot] [--debug] [--key=PATH]"
+            exit 0
+            ;;
         -*)
             echo "[-] Unknown option: $arg" >&2
             exit 1
@@ -101,6 +105,42 @@ else
     echo "Mode: Standard User (Stock BusyBox; existing installation left untouched)"
 fi
 
+# Uploads a file when its MD5 differs from the Hub's copy in $REMOTE_MD5_LIST, which each
+# deployment mode reads from the Hub before its first upload
+if command -v md5sum >/dev/null 2>&1; then
+    compute_md5() { md5sum "$1" | awk '{print $1}'; }
+else
+    compute_md5() { md5 -q "$1"; }  # macOS before 15 ships md5 but not md5sum
+fi
+
+deploy_file_if_changed() {
+    local src="$1"
+    local dst="$2"
+    local perm="${3:-755}"
+    [ ! -f "$src" ] && return 0
+    local local_md5
+    local_md5=$(compute_md5 "$src")
+    local remote_md5
+    remote_md5=$(echo "$REMOTE_MD5_LIST" | awk -v p="$dst" '$2 == p {print $1; exit}')
+    local fname
+    fname=$(basename "$src")
+    if [ -n "$remote_md5" ] && [ "$remote_md5" = "$local_md5" ]; then
+        echo "    -> $fname (MD5 match: $local_md5 - skipped)"
+        return 0
+    fi
+    echo "    -> Uploading $fname (local: $local_md5 != remote: ${remote_md5:-missing})..."
+    local ddir
+    ddir=$(dirname "$dst")
+    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p '$ddir' 2>/dev/null || true"
+    if [ "$fname" = "icons.tar.gz" ]; then
+        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:/tmp/$fname"
+        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f '$dst' '${dst}.new' 2>/dev/null; mv -f /tmp/$fname '$dst' && chmod $perm '$dst' 2>/dev/null || true"
+    else
+        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
+        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
+    fi
+}
+
 if [ "$WEBUI_ONLY" = "0" ]; then
 # 1. Run automated backup first
 echo "[1/5] Running pre-deployment backup..."
@@ -144,40 +184,6 @@ if [ "$HAS_DEV" = "0" ]; then
 fi
 
 REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
-
-if command -v md5sum >/dev/null 2>&1; then
-    compute_md5() { md5sum "$1" | awk '{print $1}'; }
-else
-    compute_md5() { md5 -q "$1"; }  # macOS before 15 ships md5 but not md5sum
-fi
-
-deploy_file_if_changed() {
-    local src="$1"
-    local dst="$2"
-    local perm="${3:-755}"
-    [ ! -f "$src" ] && return 0
-    local local_md5
-    local_md5=$(compute_md5 "$src")
-    local remote_md5
-    remote_md5=$(echo "$REMOTE_MD5_LIST" | awk -v p="$dst" '$2 == p {print $1; exit}')
-    local fname
-    fname=$(basename "$src")
-    if [ -n "$remote_md5" ] && [ "$remote_md5" = "$local_md5" ]; then
-        echo "    -> $fname (MD5 match: $local_md5 - skipped)"
-        return 0
-    fi
-    echo "    -> Uploading $fname (local: $local_md5 != remote: ${remote_md5:-missing})..."
-    local ddir
-    ddir=$(dirname "$dst")
-    ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "mkdir -p '$ddir' 2>/dev/null || true"
-    if [ "$fname" = "icons.tar.gz" ]; then
-        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:/tmp/$fname"
-        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f '$dst' '${dst}.new' 2>/dev/null; mv -f /tmp/$fname '$dst' && chmod $perm '$dst' 2>/dev/null || true"
-    else
-        scp -O "${SSH_OPTS[@]}" "$src" "${HUB_USER}@${HUB_HOST}:${dst}.new"
-        ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "chmod $perm ${dst}.new 2>/dev/null && mv -f ${dst}.new $dst 2>/dev/null || true"
-    fi
-}
 
 for bin in hub_daemon hub_rf hub_sntp hub_btstack hub_sync hub_dhcpd hub_portal mknod register_ehci eth_fix; do
     if [ -f "$BIN_DIR/$bin" ]; then
@@ -241,6 +247,7 @@ fi
     fi
 else
     echo "[*] WebUI-only deployment mode active (--webui-only)."
+    REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /cache/www/* /cache/www/assets/* /cache/www/assets/themes/* /cache/icons.tar.gz 2>/dev/null || true")
 fi
 
 # 4. Deploy WebUI to /cache/www/ (preserves critical /data flash)
