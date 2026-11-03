@@ -1,6 +1,7 @@
 #include "bt_cmd.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+#include "bt_adv.h"
 
 btstack_timer_source_t cmd_poll_timer;
 static int g_cmd_sock_fd = -1;
@@ -360,6 +361,8 @@ void execute_btstack_cmd(const char *cmd_in) {
             }
             log_msg("Host disconnect requested for all");
         }
+    } else if (strncasecmp(cmd, "adv ", 4) == 0) {
+        bt_adv_handle_cmd(cmd + 4);
     } else if (strncmp(cmd, "key ", 4) == 0) {
         send_host_named_key(cmd + 4);
     } else if (strncmp(cmd, "text ", 5) == 0) {

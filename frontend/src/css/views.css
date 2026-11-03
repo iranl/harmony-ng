@@ -25,3 +25,46 @@
     padding: 10px;
   }
 }
+
+/* Harmony Elite key bindings (views/setup/elite-buttons.js) */
+.eb-ctx { margin-bottom: 14px; }
+.eb-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; color: var(--text-muted); }
+.eb-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 640px) { .eb-layout { grid-template-columns: 1fr; } .eb-picture-col { max-width: 280px; margin: 0 auto; } }
+.eb-picture { position: relative; width: 100%; }
+.eb-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.eb-canvas { position: absolute; image-rendering: pixelated; }
+.eb-body { fill: #0e1116; stroke: #2b313b; stroke-width: 4; }
+.eb-screen { fill: #000; stroke: #222831; stroke-width: 2; }
+.eb-label { fill: currentColor; text-anchor: middle; dominant-baseline: central; font-family: var(--font-main); font-weight: 600; pointer-events: none; }
+.eb-glyph { fill: currentColor; pointer-events: none; }
+.eb-glyph .eb-glyph-line, .eb-glyph .eb-glyph-rec { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; }
+.eb-glyph .eb-glyph-rec { stroke: #f87171; }
+.eb-key, .eb-nav { cursor: pointer; outline: none; }
+.eb-key > :first-child { fill: #262c36; stroke: #0e1116; stroke-width: 4; transition: fill 0.12s ease; }
+.eb-key { color: #e5e7eb; }
+.eb-key.eb-here > :first-child { fill: #0c4a6e; }
+.eb-key.eb-here { color: #e0f2fe; }
+.eb-key.eb-default > :first-child, .eb-key.eb-name > :first-child { fill: #1e3a4c; }
+.eb-key.eb-none { color: #6b7280; }
+.eb-key.eb-fixed > :first-child { fill: #3a2530; }
+.eb-key:hover > :first-child, .eb-key:focus-visible > :first-child { fill: #075985; }
+.eb-key.eb-selected > :first-child { stroke: var(--warning); stroke-width: 6; }
+.eb-nav > rect { fill: transparent; stroke: #9ca3af; stroke-width: 3; }
+.eb-nav { color: #d1d5db; }
+.eb-nav:hover > rect, .eb-nav:focus-visible > rect { stroke: var(--accent); }
+.eb-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+.eb-theme { margin-top: 14px; max-width: 260px; }
+.eb-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.eb-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; background: #262c36; border: 1px solid #4b5563; }
+.eb-swatch.eb-here { background: #0c4a6e; }
+.eb-swatch.eb-default { background: #1e3a4c; }
+.eb-panel-col { position: sticky; top: 12px; }
+.eb-key-panel { background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; }
+.eb-key-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.eb-key-head code { font-size: 12px; color: var(--text-dim); }
+.eb-key-head .badge { margin-left: auto; }
+.eb-key-now { margin: 6px 0 12px; font-size: 15px; }
+.eb-hint { font-size: 12px; margin: -6px 0 12px; }
+.eb-inherited { font-style: italic; color: var(--text-muted); }
+.eb-remove-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }

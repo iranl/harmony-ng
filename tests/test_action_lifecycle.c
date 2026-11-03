@@ -14,7 +14,11 @@
 static cJSON *s_mock_device_root = NULL;
 cJSON *get_device_list_cached(void) {
     if (!s_mock_device_root) {
-        s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]}]}");
+        s_mock_device_root = cJSON_Parse("{\"devices\":["
+            "{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]},"
+            "{\"id\":\"ble_dev\",\"name\":\"BleFan\",\"type\":\"BLE\",\"commands\":["
+            "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
+            "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]}]}");
     }
     return s_mock_device_root;
 }
@@ -54,6 +58,28 @@ static int mock_mqtt_handler(const char *device_id, const char *dev_name, const 
     return 0;
 }
 
+extern int g_dry_run;
+
+/* Run one command with stdout redirected so the dry-run BTstack command line can be checked */
+static int capture_send(const char *dev, const char *cmd, int action, char *out, size_t out_sz) {
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    FILE *tf = tmpfile();
+    assert(saved >= 0 && tf);
+    dup2(fileno(tf), STDOUT_FILENO);
+    g_dry_run = 1;
+    int rc = hw_device_command_send_action(dev, 0, cmd, action);
+    g_dry_run = 0;
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    rewind(tf);
+    size_t n = fread(out, 1, out_sz - 1, tf);
+    out[n] = '\0';
+    fclose(tf);
+    return rc;
+}
+
 int main(void) {
     printf("[*] Running Action Lifecycle & Debounce Verification Tests...\n");
 
@@ -91,6 +117,19 @@ int main(void) {
     int res = hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_RELEASE);
     assert(res == 0);
     printf("[+] RELEASE action cleanly handled by hw_device_command_send_action().\n");
+
+    /* 5. BLE broadcast commands reach hub_btstack as "adv <hex>" */
+    char out[512] = {0};
+    res = capture_send("ble_dev", "LightOff", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "BTstack command simulated: adv 02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201") != NULL);
+    res = capture_send("ble_dev", "LightOff", HW_BTN_ACTION_RELEASE, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "adv ") == NULL);
+    res = capture_send("ble_dev", "Broken", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == -2);
+    assert(strstr(out, "adv ") == NULL);
+    printf("[+] BLE broadcast commands forwarded, releases ignored, bad payloads rejected.\n");
 
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);

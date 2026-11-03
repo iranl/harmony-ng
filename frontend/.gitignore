@@ -9,3 +9,5 @@ android/local.properties
 public/assets/elite_render.js
 public/assets/elite_render.wasm
 public/assets/elite_preview.js
+# Elite theme packages for the screen preview, built by tools/elite_render/build_theme.py --tar public/assets/themes
+public/assets/themes/

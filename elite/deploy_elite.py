@@ -61,13 +61,15 @@ def main() -> None:
     parser.add_argument("--factory-reset", action="store_true",
                         help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
-                        help="Perform hardware reboot after deployment (default: False, hot-restarts services)")
+                        help="Accepted for older command lines; the deployment always reboots the remote")
     parser.add_argument("--no-sync", action="store_true",
                         help="Skip forcing full configuration sync from Hub after deployment (default: False)")
     args = parser.parse_args()
 
     target = f"{args.user}@{args.ip}"
-    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+    # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
+    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
     if args.key and args.key.is_file():
         ssh_opts.extend(["-i", str(args.key)])
 
@@ -116,7 +118,7 @@ def main() -> None:
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
             "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
             "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
+            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
         )
         run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
@@ -126,14 +128,11 @@ def main() -> None:
     # Preserve stock rcS.local backup before installing (ensure not corrupted/custom)
     run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
 
-    # 1. Stop existing runtime using /data/init.sh stop if present, else fallback
-    print("[*] Stopping existing runtime services (/data/init.sh stop)...")
-    stop_cmd = (
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
-        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
-        "sleep 1"
-    )
-    run_cmd(["ssh"] + ssh_opts + [target, stop_cmd])
+    # 1. elite_ui keeps running while files are uploaded. It feeds the hardware watchdog, whose
+    # heartbeat is 10 s and which cannot be stopped once armed, so stopping elite_ui for longer
+    # than that resets the remote, possibly while it is writing flash. Each file is uploaded
+    # beside the old one and moved into place, which is safe for a running binary, and the
+    # remote reboots into the new files at the end.
 
     # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
@@ -178,6 +177,22 @@ def main() -> None:
         print(f"[*] Syncing /data/{safe_reboot_script.name} (MD5 check)...")
         deploy_file_if_changed(safe_reboot_script, f"/data/{safe_reboot_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
+    # Theme packages: each built-in theme replaces its older version; other themes stay. Each is
+    # unpacked beside the old one and swapped in, since elite_ui may be drawing from it.
+    themes_dir = BIN_DIR / "themes"
+    if themes_dir.is_dir():
+        for theme in sorted(p for p in themes_dir.iterdir() if (p / "theme.json").is_file()):
+            print(f"[*] Syncing theme /data/themes/{theme.name}...")
+            tar = subprocess.run(["tar", "-c", "-C", str(theme), "."], capture_output=True, check=True).stdout
+            d, tmp = f"/data/themes/{theme.name}", f"/data/themes/.{theme.name}.new"  # the theme list skips dot names
+            res = subprocess.run(["ssh"] + ssh_opts + [target,
+                                  f"mkdir -p /data/themes && rm -rf {tmp} && mkdir {tmp} && "
+                                  f"(/data/busybox tar -x -C {tmp} 2>/dev/null || tar -x -C {tmp}) && "
+                                  f"rm -rf {d} && mv {tmp} {d}"],
+                                 input=tar, capture_output=True)
+            if res.returncode != 0:
+                print(f"[-] Failed syncing theme {theme.name}: {res.stderr.decode(errors='replace').strip()}")
+
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
         print("[*] Syncing /etc/init.d/rcS.local (MD5 check)...")
@@ -203,18 +218,16 @@ def main() -> None:
         print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")
         run_cmd(["ssh"] + ssh_opts + [target, "touch /data/force_sync 2>/dev/null || true"])
 
-    if args.reboot:
-        print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
-        reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
-        run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
-        print("[+] Deployment complete! Elite Remote is rebooting safely.")
-    else:
-        print("[*] Hot-restarting Elite runtime services (/data/init.sh start)...")
-        restart_cmd = "rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &)"
-        run_cmd(["ssh"] + ssh_opts + [target, restart_cmd])
-        print("[+] Deployment complete! elite_ui hot-restarted (no reboot).")
+    # A hot restart would leave the watchdog unfed from stopping elite_ui until the new one has
+    # started, which can take longer than the watchdog's 10 s
+    print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
+    reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
+    res = run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
+    if "CRITICAL" in res.stdout:
+        print(f"[-] Reboot aborted: {(res.stdout + res.stderr).strip()}")
+        sys.exit(1)
     print()
-    print("[+] Deployment complete!")
+    print("[+] Deployment complete! Elite Remote is rebooting safely.")
 
 
 if __name__ == "__main__":

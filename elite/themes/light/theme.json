@@ -1,0 +1,31 @@
+{
+  "name": "Light",
+  "palette": {
+    "bg": "#F2F2F7",
+    "card": "#FFFFFF",
+    "card_sel": "#E3EEFC",
+    "card_border": "#D1D5DB",
+    "divider": "#D9DCE1",
+    "outline": "#D1D5DB",
+    "text": "#1C1C1E",
+    "text_muted": "#5B6270",
+    "on_accent": "#FFFFFF",
+    "accent": "#0A64D6",
+    "success": "#1E9E52",
+    "danger": "#D93030",
+    "danger_dim": "#F6D5D5",
+    "warning": "#B7791F",
+    "warning_bg": "#FFF3D6",
+    "info": "#0A64D6",
+    "header": "#E9EAEF",
+    "status_bg": "#E9EAEF",
+    "icon_well": "#F2F2F7",
+    "icon_well_sel": "#D7E6FA",
+    "icon_well_border": "#D1D5DB",
+    "icon_outline": "#A0A7B3"
+  },
+  "line_art": "#2B2F36",
+  "fonts": { "main": "fonts/main.faa", "title": "fonts/title.faa" },
+  "layout": "list",
+  "wallpaper": "none"
+}

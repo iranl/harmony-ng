@@ -16,7 +16,7 @@ static void expect(const char *icon, const char *name, const char *type, const c
 
 int main(void) {
     /* Every keyword, bare and as the web UI's "<keyword>.png", maps to itself */
-    for (uint8_t t = 1; t <= 17; t++) {
+    for (uint8_t t = 1; t <= RF_ACTIVITY_ICON_COUNT; t++) {
         char png[32];
         const char *kw = rf_activity_icon_keyword(t);
         snprintf(png, sizeof(png), "%s.png", kw);
@@ -44,11 +44,24 @@ int main(void) {
     expect(NULL, "Lamp", "", "light");
     expect(NULL, "Lamps", "", "light");
     expect(NULL, "Office", "", "watchtv");
-    expect(NULL, "Fireplace", "", "watchtv");
+    expect(NULL, "Fireplace", "", "fireplace");
     expect(NULL, "Fire TV", "", "firetv");
     expect(NULL, "Smart Lights", "", "light");
     expect(NULL, "PowerOff", "", "power");
-    expect(NULL, "Kitchen", "VirtualDvd", "movie");
+    expect(NULL, "Kitchen", "VirtualDvd", "bluray");
+
+    /* Keywords added after the original 17, and the words they must not take over */
+    expect(NULL, "Movie Night", "", "movie");
+    expect(NULL, "Good Night", "", "night");
+    expect(NULL, "Night Light", "", "light");
+    expect(NULL, "Netflix", "", "netflix");
+    expect(NULL, "Projector TV", "", "projector");
+    expect(NULL, "Satellite TV", "", "satellite");
+    expect(NULL, "Soundbar Audio", "", "soundbar");
+    expect(NULL, "Vinyl", "", "hifi");
+    expect(NULL, "Ceiling Fan", "", "fan");
+    expect(NULL, "Fantasy Films", "", "watchtv");
+    expect(NULL, "Wake Up", "", "sunrise");
 
     /* Device icon cases from WebUI / Android */
     expect("shield.png", "Shield TV", "MediaStreamer", "shield");

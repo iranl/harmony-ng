@@ -13,37 +13,12 @@
 
 static void set_touch_enabled(bool enable) {
     g_touch_enabled = enable;
-    if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
-        show_notice(tr(STR_NOTICE_NAV_MOVED), 4000);
-    }
+    if (!g_touch_enabled) show_notice(tr(STR_NOTICE_NAV_MOVED), 4000);
     save_settings_conf();
 }
 
 static void set_gyro_enabled(bool enable) {
     g_gyro_enabled = enable;
-}
-
-static void cycle_nav_key(void) {
-    if (!g_touch_enabled) {
-        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
-        return;
-    }
-    if (g_nav_toggle_key == 139) g_nav_toggle_key = 358;
-    else if (g_nav_toggle_key == 358) g_nav_toggle_key = 395;
-    else if (g_nav_toggle_key == 395) g_nav_toggle_key = 389;
-    else if (g_nav_toggle_key == 389) g_nav_toggle_key = 174;
-    else g_nav_toggle_key = 139;
-    save_settings_conf();
-}
-
-static void cycle_nav_mode(void) {
-    if (!g_touch_enabled) {
-        show_notice(tr(STR_NOTICE_NAV_LOCKED), 3000);
-        return;
-    }
-    g_nav_toggle_mode = !g_nav_toggle_mode;
-    save_settings_conf();
 }
 
 static void cycle_touch_sensitivity(void) {
@@ -106,7 +81,7 @@ static void execute_elite_factory_reset(void) {
            "printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi; "
            "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
            "rm -f /data/elite_ui /data/elite_ui.new /data/elite_sync /data/init.sh /data/safe_reboot.sh /data/elite_watchdog.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
-           "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
+           "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
            "/sbin/reboot -f 2>/dev/null || reboot -f; fi &");
     sleep(1);
     exit(0);
@@ -142,7 +117,12 @@ void execute_settings_action(int idx) {
                 }
                 break;
             case 3:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+                g_activity_order = g_activity_order == ACTIVITY_ORDER_MOST_USED ? ACTIVITY_ORDER_YOURS : ACTIVITY_ORDER_MOST_USED;
+                pthread_mutex_lock(&g_render_mutex);
+                if (g_has_hub_config) build_activity_list();
+                g_selected_activity = 0;
+                pthread_mutex_unlock(&g_render_mutex);
+                save_settings_conf();
                 break;
             default: break;
         }
@@ -174,8 +154,18 @@ void execute_settings_action(int idx) {
                 else { g_night_start_hour = 22; g_night_end_hour = 7; }
                 save_settings_conf();
                 break;
-            case 4:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
+            case 4: {
+                char next[32];
+                theme_next_name(next, sizeof(next));
+                apply_theme(next);
+                save_settings_conf();
+                break;
+            }
+            case 5:
+                g_home_layout = (g_home_layout + 1) % HOME_LAYOUT_COUNT;
+                g_selected_activity = 0;
+                home_select_running();
+                save_settings_conf();
                 break;
             default: break;
         }
@@ -195,17 +185,6 @@ void execute_settings_action(int idx) {
             case 2:
                 cycle_touch_sensitivity();
                 save_settings_conf();
-                break;
-            case 3:
-                cycle_nav_key();
-                save_settings_conf();
-                break;
-            case 4:
-                cycle_nav_mode();
-                save_settings_conf();
-                break;
-            case 5:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
         }
@@ -262,9 +241,6 @@ void execute_settings_action(int idx) {
                 g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
                 break;
-            case 6:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                break;
             default: break;
         }
         return;
@@ -292,9 +268,6 @@ void execute_settings_action(int idx) {
                 g_settings_subview = SETTINGS_VIEW_FACTORY_RESET;
                 g_factory_reset_stage = 0;
                 g_selected_sub_item = 0;
-                break;
-            case 3:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
                 break;
             default: break;
         }
@@ -327,10 +300,6 @@ void execute_settings_action(int idx) {
                     rf_send_sync_query();
                     show_notice("Checking for updates...", 2000);
                 }
-                break;
-            case 2:
-                g_settings_subview = SETTINGS_VIEW_CATEGORIES;
-                g_selected_category = 5;
                 break;
             default: break;
         }

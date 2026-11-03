@@ -1,16 +1,15 @@
 // Harmony (RF) Remote Mapping, Pairing, Screen Layout & OTA View
 import { h } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
-import { store } from '../../store.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { createButtonEditor } from './elite-buttons.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-rfremote', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
   let currentSlot = 1;
-  let activeMapping = null;
   let isPairing = false;
 
   const headerCard = h('div', { className: 'card' }, [
@@ -52,6 +51,13 @@ export function createView() {
     else loadLinkStatus();
   }, 5000);
 
+  // Key bindings, on a picture of the remote with its screen
+  const buttons = createButtonEditor();
+  function loadSlot() {
+    loadLinkStatus();
+    buttons.load(currentSlot);
+  }
+
   // Pairing & Hardware Status Card
   const pairingCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
@@ -60,12 +66,12 @@ export function createView() {
         h('button', {
           className: 'btn btn-secondary btn-sm',
           text: currentSlot === 1 ? 'Slot 1 (Active)' : 'Slot 1',
-          onclick: () => { currentSlot = 1; loadMapping(); },
+          onclick: () => { currentSlot = 1; loadSlot(); },
         }),
         h('button', {
           className: 'btn btn-secondary btn-sm',
           text: currentSlot === 2 ? 'Slot 2 (Active)' : 'Slot 2',
-          onclick: () => { currentSlot = 2; loadMapping(); },
+          onclick: () => { currentSlot = 2; loadSlot(); },
         }),
       ]),
     ]),
@@ -159,196 +165,12 @@ export function createView() {
     }),
   ]);
 
-  // Mapping View Card
-  const mappingCard = h('div', { className: 'card' }, [
-    h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: `Button Mappings (Slot ${currentSlot})` }),
-      h('div', { style: { display: 'flex', gap: '8px' } }, [
-        h('button', {
-          className: 'btn btn-secondary btn-sm',
-          text: `📋 Copy from Slot ${currentSlot === 1 ? 2 : 1}`,
-          onclick: async () => {
-            const otherSlot = currentSlot === 1 ? 2 : 1;
-            const ok = await confirm.ask({
-              title: 'Copy Remote Mappings',
-              message: `Copy all button mappings from Slot ${otherSlot} to Slot ${currentSlot}? Any existing mappings on Slot ${currentSlot} will be overwritten.`,
-              danger: true,
-            });
-            if (ok) {
-              try {
-                await api.copyRFMapping(otherSlot, currentSlot);
-                toast.success(`Copied mappings from Slot ${otherSlot} to Slot ${currentSlot}`);
-                loadMapping();
-              } catch (e) {
-                toast.error(e.message);
-              }
-            }
-          },
-        }),
-        h('button', {
-          className: 'btn btn-primary btn-sm',
-          text: t('save_mapping', 'Save Mapping'),
-          onclick: async () => {
-            if (!activeMapping) return;
-            try {
-              await api.saveRFMapping(activeMapping, currentSlot);
-              toast.success(t('elite_mapping_saved', 'Harmony remote mappings saved to Hub!'));
-            } catch (e) {
-              toast.error(e.message);
-            }
-          },
-        }),
-      ]),
-    ]),
-    h('div', { id: 'rf-mapping-content', className: 'text-dim', text: 'Loading mapping...' }),
-  ]);
-
-  // Screen preview: the remote's own drawing code (tools/elite_render, built into
-  // public/assets/elite_preview.js) draws its screens from the config the Hub pushes to it.
-  // Builds without the renderer leave the card hidden.
-  const SCREEN_VIEWS = [
-    ['activities', t('activities', 'Activities')],
-    ['commands', 'Buttons'],
-    ['devices', t('devices', 'Devices')],
-  ];
-  let screenView = 'activities';
-  const screenChoice = {}; // the select's value in each view
-  let screenDevices = [];
-  let screenRenderer = null;
-  const screenCanvas = h('canvas', {
-    width: 240,
-    height: 320,
-    style: { width: '100%', maxWidth: '360px', aspectRatio: '3 / 4', imageRendering: 'pixelated', borderRadius: '10px', background: '#000' },
-  });
-  const screenSelect = h('select', {
-    className: 'form-select',
-    onchange: () => { screenChoice[screenView] = screenSelect.value; drawScreen(); },
-  });
-  const screenViewButtons = SCREEN_VIEWS.map(([view, label]) => h('button', {
-    className: 'btn btn-secondary btn-sm',
-    text: label,
-    onclick: () => { screenView = view; drawScreen(true); },
-  }));
-  const screenCard = h('div', { className: 'card', style: { display: 'none' } }, [
-    h('div', { className: 'card-header' }, [
-      h('h4', { className: 'card-title', text: 'Remote Screen' }),
-      h('div', { style: { display: 'flex', gap: '6px' } }, screenViewButtons),
-    ]),
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: 'Drawn by the remote\'s firmware from the configuration the Hub pushes to it.' }),
-    h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' } }, [screenSelect, screenCanvas]),
-  ]);
-
-  // The Hub's push lists devices from devices.json (/api/devices), whose order and commands
-  // differ from the inventory
-  async function loadScreenDevices() {
-    screenDevices = (await api.request('/api/devices').catch(() => null))?.devices || [];
-  }
-
-  async function drawScreen(rebuildSelect = false) {
-    if (!screenRenderer) {
-      screenRenderer = (async () => {
-        const preview = await import(/* @vite-ignore */ new URL(`assets/elite_preview.js?v=${__ELITE_RENDERER_VERSION__}`, document.baseURI).href);
-        return { preview, module: await preview.loadHubRenderer(api.baseUrl) };
-      })().catch((e) => {
-        console.warn('Elite preview: no renderer in this build', e);
-        return null;
-      });
-    }
-    const renderer = await screenRenderer;
-    if (!renderer) return;
-    const { preview, module } = renderer;
-
-    const activities = (store.get('activities.list') || []).filter(a => String(a.id) !== '-1');
-    const devices = screenDevices.slice(0, 16); // the push sends the first 16
-    const choices = screenView === 'commands'
-      ? activities.map(a => [a.id, a.name])
-      : screenView === 'devices' ? [['', 'All devices'], ...devices.map(d => [String(d.id), d.name])] : [];
-    if (rebuildSelect) {
-      screenSelect.replaceChildren(...choices.map(([value, text]) => h('option', { value, text })));
-      const want = screenChoice[screenView] ?? (screenView === 'commands' ? String(store.get('activities.currentId')) : '');
-      if (choices.some(([v]) => v === want)) screenSelect.value = want;
-    }
-    screenSelect.style.display = choices.length ? '' : 'none';
-    screenViewButtons.forEach((b, i) => {
-      b.className = `btn btn-sm ${SCREEN_VIEWS[i][0] === screenView ? 'btn-primary' : 'btn-secondary'}`;
-    });
-
-    preview.writeRemoteConfig(module, { activities, devices, eliteMap: activeMapping || {} });
-    const running = String(store.get('activities.currentId') || '-1');
-    const state = { view: screenView, select: 0, active: running === '-1' ? '' : preview.remoteActivityId(running) };
-    if (screenView === 'commands' && screenSelect.value) {
-      state.active = preview.remoteActivityId(screenSelect.value);
-    } else if (screenView === 'devices' && screenSelect.value) {
-      state.view = 'device';
-      state.select = devices.findIndex(d => String(d.id) === screenSelect.value);
-    }
-    const now = new Date();
-    preview.render(module, screenCanvas, { ...state, battery: 100, minutes: now.getHours() * 60 + now.getMinutes() });
-    screenCard.style.display = '';
-  }
-
-  // Redraw when the Hub's activities or devices change; views aren't unmounted, so each
-  // listener removes itself once this page has gone
-  const redrawOn = (path, reload) => {
-    const off = store.on(path, async () => {
-      if (!container.isConnected) { off(); return; }
-      if (reload) await reload();
-      drawScreen(true);
-    });
-  };
-  redrawOn('activities.list');
-  redrawOn('activities.currentId');
-  redrawOn('devices', loadScreenDevices);
-
-  async function loadMapping() {
-    loadLinkStatus();
-    const mount = container.querySelector('#rf-mapping-content');
-    if (!mount) return;
-    mount.textContent = 'Loading mapping...';
-
-    try {
-      const data = await api.getRFMapping(currentSlot);
-      activeMapping = data || {};
-      mount.innerHTML = '';
-
-      const activities = store.get('activities.list') || [];
-      const devices = store.get('devices') || [];
-
-      const actSelect = h('select', { className: 'form-select', style: { marginBottom: '12px' } },
-        activities.map(a => h('option', { value: a.id, text: a.name }))
-      );
-
-      const buttonsList = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
-
-      const BUTTONS = ['Power', 'VolumeUp', 'VolumeDown', 'Mute', 'ChannelUp', 'ChannelDown', 'DirectionUp', 'DirectionDown', 'DirectionLeft', 'DirectionRight', 'Select', 'Back', 'Home', 'Play', 'Pause', 'Stop', 'Rewind', 'FastForward'];
-
-      BUTTONS.forEach(bName => {
-        const row = h('div', {
-          className: 'card',
-          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', margin: 0 },
-        }, [
-          h('span', { style: { fontWeight: '600', fontSize: '13px' }, text: bName }),
-          h('span', { className: 'badge badge-accent', text: 'Default' }),
-        ]);
-        buttonsList.appendChild(row);
-      });
-
-      mount.appendChild(actSelect);
-      mount.appendChild(buttonsList);
-    } catch (e) {
-      mount.textContent = `Error loading mapping: ${e.message}`;
-    }
-    drawScreen();
-  }
-
   container.appendChild(headerCard);
-  container.appendChild(screenCard);
+  container.appendChild(buttons.element);
   container.appendChild(pairingCard);
   container.appendChild(otaCard);
-  container.appendChild(mappingCard);
 
-  loadMapping();
-  loadScreenDevices().then(() => drawScreen(true));
+  loadSlot();
   return container;
 }
 

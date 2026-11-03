@@ -66,7 +66,7 @@ sleep 1
 
 echo "[*] Removing custom binaries and supervisor scripts..."
 rm -f /data/elite_ui /data/elite_ui.new /data/elite_sync /data/init.sh /data/safe_reboot.sh /data/elite_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true
-rm -rf /data/stock_backup /data/assets 2>/dev/null || true
+rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true
 
 echo "[*] Restoring preserved configuration for future re-install..."
 cp -f /data/elite_conf_p/* /data/ 2>/dev/null || true
