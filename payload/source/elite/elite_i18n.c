@@ -283,8 +283,8 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Help could not run", "Hilfe nicht moeglich", "Aide impossible", "Help kon niet starten", "No se pudo ejecutar", "Aiuto non disponibile" },
     /* STR_HELP_BACK_CLOSES */
     { "Back: close", "Zurueck: schliessen", "Retour : fermer", "Terug: sluiten", "Atras: cerrar", "Indietro: chiudi" },
-    /* STR_HOLD_AND_SLIDE */
-    { "Hold and slide to set", "Halten und schieben", "Maintenir et glisser", "Vasthouden en schuiven", "Mantener y deslizar", "Tieni premuto e scorri" },
+    /* STR_SLIDE_TO_SET */
+    { "Slide sideways to set", "Zum Einstellen seitlich schieben", "Glisser de cote pour regler", "Zijwaarts schuiven om in te stellen", "Desliza de lado para ajustar", "Scorri di lato per regolare" },
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

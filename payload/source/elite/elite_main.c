@@ -374,8 +374,6 @@ int main(int argc, char **argv) {
         }
 
 
-        if (g_touch_is_down && value_slider_tick(g_touch_cur_x, now_ms)) g_screen_dirty = true;
-
         if (g_act_key_down_ms > 0 && !g_act_key_long_fired && now_ms - g_act_key_down_ms >= ACT_KEY_LONG_MS) {
             g_act_key_long_fired = true;
             printf("[*] Activities key held: opening the menu\n");
@@ -549,6 +547,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        value_slider_tick(get_monotonic_ms());
         if (home_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
         if (list_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
         if (g_screen_dirty && g_screen_on) {

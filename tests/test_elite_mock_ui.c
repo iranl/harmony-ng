@@ -603,7 +603,7 @@ int main(void) {
         printf("[+] Lists: drag, fling, edge resistance, catch, key reveal; card device rows open the device\n");
     }
 
-    /* 16. Hold and slide on a command stored without its value */
+    /* 16. Slide on a command stored without its value */
     {
         uint64_t ms = 3000000;
         g_rf_device_count = 1;
@@ -622,33 +622,45 @@ int main(void) {
         /* A tap only shows how to use it */
         g_notice_msg[0] = '\0';
         tap(120, ry);
-        assert(strcmp(g_notice_msg, tr(STR_HOLD_AND_SLIDE)) == 0 && g_rf_dev_cmds[1].value == -1);
+        assert(strcmp(g_notice_msg, tr(STR_SLIDE_TO_SET)) == 0 && g_rf_dev_cmds[1].value == -1);
 
-        /* Moving before the hold is up is not a slide */
+        /* An up or down drag is not a slide */
         value_slider_touch_down(120, ry, ms);
-        assert(!value_slider_touch_move(120, ry + 40, ms + 100));
-        assert(!value_slider_tick(120, ms + 500) && !value_slider_active());
-        assert(!value_slider_touch_up(120, ry + 40, ms + 600));
+        assert(!value_slider_touch_move(124, ry + 40, ms + 100));
+        assert(!value_slider_touch_move(220, ry + 40, ms + 200) && !value_slider_active());
+        assert(!value_slider_touch_up(220, ry + 40, ms + 300));
 
-        /* Held still, the row follows the finger; lifting it sends the value */
+        /* A sideways drag slides at once and sends the value; the fill follows the finger */
         value_slider_touch_down(120, ry, ms);
-        assert(!value_slider_tick(120, ms + 100));
-        assert(value_slider_tick(120, ms + 400) && value_slider_active() && g_browse_sel == 1);
-        assert(value_slider_touch_move(FB_WIDTH - 16, ry + 30, ms + 500));
+        assert(!value_slider_touch_move(125, ry + 2, ms + 30) && !value_slider_active());
+        assert(value_slider_touch_move(160, ry + 6, ms + 60) && value_slider_active() && g_browse_sel == 1);
+        int first = g_rf_dev_cmds[1].value;
+        assert(first > 60 && first < 75);
+
+        /* Further values go out at most every 200 ms, and a value the finger stops on is sent when due */
+        assert(value_slider_touch_move(200, ry + 6, ms + 150) && g_rf_dev_cmds[1].value == first);
+        value_slider_tick(ms + 200);
+        assert(g_rf_dev_cmds[1].value == first);
+        value_slider_tick(ms + 260);
+        assert(g_rf_dev_cmds[1].value > first);
+        assert(value_slider_touch_move(FB_WIDTH - 8, ry + 30, ms + 300));
         render_screen();
-        assert(value_slider_touch_up(FB_WIDTH - 16, ry + 30, ms + 600));
+
+        /* Lifting the finger sends where it lifted, however recent the last send */
+        assert(value_slider_touch_up(FB_WIDTH - 8, ry + 30, ms + 320));
         assert(!value_slider_active() && g_rf_dev_cmds[1].value == 100);
         value_slider_touch_down(120, ry, ms);
-        value_slider_tick(0, ms + 400);
-        assert(value_slider_touch_up(0, ry, ms + 500) && g_rf_dev_cmds[1].value == 1);
+        assert(value_slider_touch_move(40, ry, ms + 50));
+        assert(value_slider_touch_up(0, ry, ms + 100) && g_rf_dev_cmds[1].value == 1);
+        render_screen();
 
         /* A command with its value set, or a fresh copy of the command list, is a plain row */
         value_slider_touch_down(120, ry - LIST_ROW_PITCH, ms);
-        assert(!value_slider_tick(120, ms + 400));
+        assert(!value_slider_touch_move(200, ry - LIST_ROW_PITCH, ms + 50) && !value_slider_active());
         store_rf_dev_cmd(0, 1, "Brightness");
         assert(!g_rf_dev_cmds[1].ranged && g_rf_dev_cmds[1].value == 1);
         render_screen();
-        printf("[+] Value commands: tap hint, hold to slide, release sends\n");
+        printf("[+] Value commands: tap hint, sideways drag slides and sends live\n");
     }
 
     free(g_fb_mem);

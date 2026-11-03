@@ -185,7 +185,7 @@ typedef enum {
     STR_HELP_BUSY,
     STR_HELP_FAILED,
     STR_HELP_BACK_CLOSES,
-    STR_HOLD_AND_SLIDE,
+    STR_SLIDE_TO_SET,
 
     STR_COUNT
 } elite_str_id_t;

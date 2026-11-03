@@ -151,7 +151,7 @@ void device_browser_activate(int n) {
     }
     const rf_dev_cmd_t *c = browser_cmd(n);
     if (c && c->ranged) {
-        show_notice(tr(STR_HOLD_AND_SLIDE), 2000);
+        show_notice(tr(STR_SLIDE_TO_SET), 2000);
         return;
     }
     if (!c || g_rf_fd < 0) return;
@@ -165,18 +165,23 @@ void device_browser_activate(int n) {
     printf("[*] RF TX DEVICE_CMD_INDEX: dev=%s idx=%d cmd=%s\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name);
 }
 
-/* Hold and slide: a finger held still on a command stored without its value turns the row
-   into a slider; the value follows the finger across the row and lifting the finger sends it */
+/* Slide: a sideways drag on a command stored without its value sets the value, filling the
+   row from its left edge to the finger. The value is sent as the finger moves, at most every
+   SLIDER_SEND_MS, and once more where the finger lifts. An up or down drag still scrolls the
+   list. */
 
-#define VALUE_HOLD_MS 350
+#define SLIDER_LEFT    8
+#define SLIDER_WIDTH   (FB_WIDTH - 16)
+#define SLIDER_SEND_MS 200
 
 static struct {
-    bool armed;    /* went down on a slider row and has not moved yet */
+    bool tracking; /* went down on a slider row and has not moved past the tap slop yet */
     bool sliding;
     int row;
     int down_x, down_y;
-    uint64_t down_ms;
     int value;
+    int sent;        /* the value last sent during this slide, or -1 */
+    uint64_t sent_ms;
 } s_slide;
 
 static rf_dev_cmd_t *ranged_cmd_at(int row) {
@@ -185,11 +190,10 @@ static rf_dev_cmd_t *ranged_cmd_at(int row) {
     return c && c->ranged ? c : NULL;
 }
 
-/* The value at screen x, from vmin at the row's left edge to vmax at its right edge */
+/* The value at screen x, from vmin at the card's left edge to vmax at its right edge */
 static int slider_value_at(const rf_dev_cmd_t *c, int x) {
-    int left = 16, width = FB_WIDTH - 32;
-    int pos = x < left ? 0 : (x > left + width ? width : x - left);
-    return c->vmin + (pos * (c->vmax - c->vmin) + width / 2) / width;
+    int pos = x < SLIDER_LEFT ? 0 : (x > SLIDER_LEFT + SLIDER_WIDTH ? SLIDER_WIDTH : x - SLIDER_LEFT);
+    return c->vmin + (pos * (c->vmax - c->vmin) + SLIDER_WIDTH / 2) / SLIDER_WIDTH;
 }
 
 static void send_cmd_value(const rf_dev_cmd_t *c, int value) {
@@ -205,61 +209,72 @@ static void send_cmd_value(const rf_dev_cmd_t *c, int value) {
     printf("[*] RF TX DEVICE_CMD_VALUE: dev=%s idx=%d cmd=%s value=%d\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name, value);
 }
 
+/* Sends the slider's value unless it was sent already, or another was sent under
+   SLIDER_SEND_MS ago and force is false */
+static void slider_send(uint64_t ms, bool force) {
+    rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+    if (!c || s_slide.value == s_slide.sent) return;
+    if (!force && s_slide.sent >= 0 && ms - s_slide.sent_ms < SLIDER_SEND_MS) return;
+    c->value = (int16_t)s_slide.value;
+    send_cmd_value(c, s_slide.value);
+    s_slide.sent = s_slide.value;
+    s_slide.sent_ms = ms;
+}
+
 void value_slider_touch_down(int x, int y, uint64_t ms) {
-    s_slide.armed = s_slide.sliding = false;
+    (void)ms;
+    s_slide.tracking = s_slide.sliding = false;
     if (!g_touch_enabled || g_menu_open || ui_help_active() || g_link_panel_open || g_key_hint_pending) return;
     int row = list_row_at(y);
     if (!ranged_cmd_at(row)) return;
-    s_slide.armed = true;
+    s_slide.tracking = true;
     s_slide.row = row;
     s_slide.down_x = x;
     s_slide.down_y = y;
-    s_slide.down_ms = ms;
 }
 
+/* Called before the list sees the move, so a sideways drag never scrolls it */
 bool value_slider_touch_move(int x, int y, uint64_t ms) {
-    (void)ms;
-    if (s_slide.sliding) {
-        const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
-        if (!c) {
-            s_slide.sliding = false;
-            return true;
-        }
-        int v = slider_value_at(c, x);
-        if (v == s_slide.value) return false;
-        s_slide.value = v;
+    const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+    if (s_slide.tracking) {
+        int dx = abs(x - s_slide.down_x), dy = abs(y - s_slide.down_y);
+        if (dx <= touch_tap_slop() && dy <= touch_tap_slop()) return false;
+        s_slide.tracking = false;
+        if (dx < dy || !c) return false;
+        list_scroll_cancel();
+        g_browse_sel = s_slide.row;
+        s_slide.sliding = true;
+        s_slide.value = slider_value_at(c, x);
+        s_slide.sent = -1;
+        slider_send(ms, true);
         return true;
     }
-    /* Moving before the hold is up scrolls the list or swipes back instead */
-    if (s_slide.armed && (abs(x - s_slide.down_x) > touch_tap_slop() || abs(y - s_slide.down_y) > touch_tap_slop())) {
-        s_slide.armed = false;
+    if (!s_slide.sliding) return false;
+    if (!c) {
+        s_slide.sliding = false;
+        return true;
     }
-    return false;
+    int v = slider_value_at(c, x);
+    if (v == s_slide.value) return false;
+    s_slide.value = v;
+    slider_send(ms, false);
+    return true;
 }
 
-bool value_slider_tick(int x, uint64_t ms) {
-    if (!s_slide.armed || ms - s_slide.down_ms < VALUE_HOLD_MS) return false;
-    s_slide.armed = false;
-    const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
-    if (!c) return false;
-    list_scroll_cancel();
-    g_browse_sel = s_slide.row;
-    s_slide.sliding = true;
-    s_slide.value = slider_value_at(c, x);
-    return true;
+void value_slider_tick(uint64_t ms) {
+    if (s_slide.sliding) slider_send(ms, false);
 }
 
 bool value_slider_touch_up(int x, int y, uint64_t ms) {
     (void)y;
-    (void)ms;
-    s_slide.armed = false;
+    s_slide.tracking = false;
     if (!s_slide.sliding) return false;
-    s_slide.sliding = false;
-    rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+    const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
     if (c) {
-        c->value = (int16_t)slider_value_at(c, x);
-        send_cmd_value(c, c->value);
+        s_slide.value = slider_value_at(c, x);
+        slider_send(ms, true);
     }
+    s_slide.sliding = false;
     return true;
 }
 
@@ -267,23 +282,29 @@ bool value_slider_active(void) {
     return s_slide.sliding;
 }
 
-/* A slider row's track along the bottom of its card, filled to the value, and the value or,
-   before one was sent, the range at the right */
-static void render_value_track(const rf_dev_cmd_t *c, int y, int card_h, bool sliding, int value) {
-    int left = 16, width = FB_WIDTH - 32;
-    int track_h = sliding ? 5 : 3;
-    int ty = y + card_h - track_h - 3;
-    fb_fill_rect(left, ty, width, track_h, RGB_TEXT_MUTED);
+/* a mixed with b, weight 0 (all b) to 256 (all a), in RGB565 */
+static uint16_t mix565(uint16_t a, uint16_t b, int weight) {
+    int r = (((a >> 11) & 0x1F) * weight + ((b >> 11) & 0x1F) * (256 - weight)) >> 8;
+    int g = (((a >> 5) & 0x3F) * weight + ((b >> 5) & 0x3F) * (256 - weight)) >> 8;
+    int bl = ((a & 0x1F) * weight + (b & 0x1F) * (256 - weight)) >> 8;
+    return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+
+/* A slider row: the card filled with the accent from its left edge to the value, brighter
+   while the finger is on it, and the value at the right, or the range before one was sent */
+static void render_value_fill(const rf_dev_cmd_t *c, int y, int card_h, bool sliding, int value) {
     if (value >= 0) {
-        int fill = width * (value - c->vmin) / (c->vmax - c->vmin);
-        fb_fill_rect(left, ty, fill, track_h, RGB_TEAL);
-        if (sliding) fb_fill_rect(left + fill - 2, y + 4, 4, card_h - 8, RGB_WHITE);
+        int fill = SLIDER_WIDTH * (value - c->vmin) / (c->vmax - c->vmin);
+        fb_fill_rect(SLIDER_LEFT + 1, y + 1, fill - 2, card_h - 2, mix565(RGB_TEAL, RGB_CARD, sliding ? 200 : 120));
+        if (sliding && fill > 0) fb_fill_rect(SLIDER_LEFT + fill - 3, y + 1, 3, card_h - 2, RGB_WHITE);
     }
+    if (sliding) fb_draw_rect(SLIDER_LEFT, y, SLIDER_WIDTH, card_h, RGB_WHITE);
     char text[12];
     if (value >= 0) snprintf(text, sizeof(text), "%d", value);
     else snprintf(text, sizeof(text), "%d-%d", c->vmin, c->vmax);
-    int tw = fb_text_width_aa(text, &g_font_main);
-    fb_draw_text_aa(FB_WIDTH - 20 - tw, y + 7, text, value >= 0 ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_main);
+    const font_aa_t *font = value >= 0 ? &g_font_title : &g_font_main;
+    int tw = fb_text_width_aa(text, font);
+    fb_draw_text_aa(FB_WIDTH - 18 - tw, y + (value >= 0 ? 8 : 9), text, value >= 0 ? RGB_WHITE : RGB_TEXT_MUTED, font);
 }
 
 /* Render the device list, or the browsed device's heading and commands */
@@ -342,12 +363,12 @@ void render_device_browser_view(void) {
         int text_w = FB_WIDTH - 30 - text_x;
         if (c && c->ranged) {
             bool sliding = s_slide.sliding && s_slide.row == idx;
-            render_value_track(c, y, card_h, sliding, sliding ? s_slide.value : c->value);
-            text_w -= 56; /* room for the value */
+            render_value_fill(c, y, card_h, sliding, sliding ? s_slide.value : c->value);
+            text_w -= 50; /* room for the value */
         }
         char fit[RF_NAME_SIZE];
         fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, text_w);
-        fb_draw_text_aa(text_x, y + (c && c->ranged ? 7 : 9), fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(text_x, y + 9, fit, is_sel || (c && c->ranged) ? RGB_WHITE : RGB_CYAN, &g_font_main);
         if (g_browse_dev < 0) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }
