@@ -20,6 +20,7 @@
 #include "bt_hid.h"
 #include "bt_cmd.h"
 #include "bt_remote.h"
+#include "bt_mantra.h"
 
 static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     UNUSED(channel);
@@ -71,6 +72,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             break;
 
         case GAP_EVENT_ADVERTISING_REPORT: {
+            bt_mantra_handle_adv(gap_event_advertising_report_get_data(packet),
+                                 gap_event_advertising_report_get_data_length(packet),
+                                 gap_event_advertising_report_get_rssi(packet));
             if (app_state != APP_SCANNING) break;
             bd_addr_t adv_addr;
             gap_event_advertising_report_get_address(packet, adv_addr);

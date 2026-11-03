@@ -2,6 +2,7 @@
 #include "bt_pairing.h"
 #include "bt_hid.h"
 #include "bt_adv.h"
+#include "bt_mantra.h"
 
 btstack_timer_source_t cmd_poll_timer;
 static int g_cmd_sock_fd = -1;
@@ -361,6 +362,10 @@ void execute_btstack_cmd(const char *cmd_in) {
             }
             log_msg("Host disconnect requested for all");
         }
+    } else if (strcasecmp(cmd, "mantra_learn_stop") == 0) {
+        bt_mantra_learn_cmd(NULL, true);
+    } else if (strncasecmp(cmd, "mantra_learn", 12) == 0) {
+        bt_mantra_learn_cmd(cmd + 12, false);
     } else if (strncasecmp(cmd, "adv ", 4) == 0) {
         bt_adv_handle_cmd(cmd + 4);
     } else if (strncmp(cmd, "key ", 4) == 0) {
@@ -422,6 +427,7 @@ void cleanup_cmd_socket(void) {
 
 void check_command_file(void) {
     poll_bthid_fifo();
+    bt_mantra_learn_poll();
 
     if (g_user_scan_active && time(NULL) >= g_user_scan_end) {
         g_user_scan_active = false;
