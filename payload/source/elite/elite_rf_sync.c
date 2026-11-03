@@ -334,6 +334,25 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_CMD_RANGE_CHUNK: {
+            /* [0] device index, [1] command index, [2] min, [3] max; follows the command's name */
+            sync_touch_chunk();
+            for (int i = 0; i < g_rf_dev_cmd_count; i++) {
+                rf_dev_cmd_t *c = &g_rf_dev_cmds[i];
+                if (c->dev_idx == f->payload[0] && c->cmd_idx == f->payload[1] && f->payload[2] < f->payload[3]) {
+                    c->ranged = true;
+                    c->vmin = f->payload[2];
+                    c->vmax = f->payload[3];
+                    if (c->value > c->vmax || c->value < c->vmin) c->value = -1;
+                    break;
+                }
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            break;
+        }
+
         case RF_MSG_BUTTON_LIST_CHUNK: {
             sync_touch_chunk();
             uint8_t idx = f->payload[0];

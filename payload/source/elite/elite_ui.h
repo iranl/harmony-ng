@@ -89,6 +89,15 @@ void device_browser_back(void);
 bool ui_go_back(void);
 void device_browser_move(int delta);
 void device_browser_activate(int n);
+/* Hold and slide on a device command stored without its value; touch_up returns whether it
+   sent a value, which a tap handler should then ignore */
+void value_slider_touch_down(int x, int y, uint64_t ms);
+/* Returns whether the screen needs a new frame */
+bool value_slider_touch_move(int x, int y, uint64_t ms);
+/* Called while the finger is down: turns the row into a slider once held long enough */
+bool value_slider_tick(int x, uint64_t ms);
+bool value_slider_touch_up(int x, int y, uint64_t ms);
+bool value_slider_active(void);
 
 void trigger_activity_switch(const char *target_id, const char *target_name);
 void trigger_activity_switch_external(const char *id, const char *name);

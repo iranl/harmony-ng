@@ -139,7 +139,8 @@ void device_browser_move(int delta) {
     if (n > 0) g_browse_sel = ((g_browse_sel + delta) % n + n) % n;
 }
 
-/* Open a device from the list, or send the chosen command to the Hub */
+/* Open a device from the list, or send the chosen command to the Hub. A command stored without
+   its value takes one from the slider, so a tap only says how to use it. */
 void device_browser_activate(int n) {
     if (n < 0 || n >= browser_item_count()) return;
     g_browse_sel = n;
@@ -149,6 +150,10 @@ void device_browser_activate(int n) {
         return;
     }
     const rf_dev_cmd_t *c = browser_cmd(n);
+    if (c && c->ranged) {
+        show_notice(tr(STR_HOLD_AND_SLIDE), 2000);
+        return;
+    }
     if (!c || g_rf_fd < 0) return;
     uint8_t payload[25] = {0};
     memcpy(payload, g_rf_devices[g_browse_dev].id, strnlen(g_rf_devices[g_browse_dev].id, 4));
@@ -158,6 +163,127 @@ void device_browser_activate(int n) {
     rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_INDEX, ++g_tx_seq, 0, payload, sizeof(payload));
     rf_send_frame(&f);
     printf("[*] RF TX DEVICE_CMD_INDEX: dev=%s idx=%d cmd=%s\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name);
+}
+
+/* Hold and slide: a finger held still on a command stored without its value turns the row
+   into a slider; the value follows the finger across the row and lifting the finger sends it */
+
+#define VALUE_HOLD_MS 350
+
+static struct {
+    bool armed;    /* went down on a slider row and has not moved yet */
+    bool sliding;
+    int row;
+    int down_x, down_y;
+    uint64_t down_ms;
+    int value;
+} s_slide;
+
+static rf_dev_cmd_t *ranged_cmd_at(int row) {
+    if (g_current_view != VIEW_DEVICE_BROWSER || g_browse_dev < 0 || row < 0) return NULL;
+    rf_dev_cmd_t *c = (rf_dev_cmd_t *)browser_cmd(row);
+    return c && c->ranged ? c : NULL;
+}
+
+/* The value at screen x, from vmin at the row's left edge to vmax at its right edge */
+static int slider_value_at(const rf_dev_cmd_t *c, int x) {
+    int left = 16, width = FB_WIDTH - 32;
+    int pos = x < left ? 0 : (x > left + width ? width : x - left);
+    return c->vmin + (pos * (c->vmax - c->vmin) + width / 2) / width;
+}
+
+static void send_cmd_value(const rf_dev_cmd_t *c, int value) {
+    if (g_rf_fd < 0) return;
+    uint8_t payload[25] = {0};
+    memcpy(payload, g_rf_devices[g_browse_dev].id, strnlen(g_rf_devices[g_browse_dev].id, 4));
+    payload[4] = c->cmd_idx;
+    payload[5] = (uint8_t)value;
+    memcpy(&payload[6], c->name, strnlen(c->name, 19));
+    rf_frame_t f;
+    rf_build_frame(&f, g_remote_slot, RF_MSG_DEVICE_CMD_VALUE, ++g_tx_seq, 0, payload, sizeof(payload));
+    rf_send_frame(&f);
+    printf("[*] RF TX DEVICE_CMD_VALUE: dev=%s idx=%d cmd=%s value=%d\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name, value);
+}
+
+void value_slider_touch_down(int x, int y, uint64_t ms) {
+    s_slide.armed = s_slide.sliding = false;
+    if (!g_touch_enabled || g_menu_open || ui_help_active() || g_link_panel_open || g_key_hint_pending) return;
+    int row = list_row_at(y);
+    if (!ranged_cmd_at(row)) return;
+    s_slide.armed = true;
+    s_slide.row = row;
+    s_slide.down_x = x;
+    s_slide.down_y = y;
+    s_slide.down_ms = ms;
+}
+
+bool value_slider_touch_move(int x, int y, uint64_t ms) {
+    (void)ms;
+    if (s_slide.sliding) {
+        const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+        if (!c) {
+            s_slide.sliding = false;
+            return true;
+        }
+        int v = slider_value_at(c, x);
+        if (v == s_slide.value) return false;
+        s_slide.value = v;
+        return true;
+    }
+    /* Moving before the hold is up scrolls the list or swipes back instead */
+    if (s_slide.armed && (abs(x - s_slide.down_x) > touch_tap_slop() || abs(y - s_slide.down_y) > touch_tap_slop())) {
+        s_slide.armed = false;
+    }
+    return false;
+}
+
+bool value_slider_tick(int x, uint64_t ms) {
+    if (!s_slide.armed || ms - s_slide.down_ms < VALUE_HOLD_MS) return false;
+    s_slide.armed = false;
+    const rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+    if (!c) return false;
+    list_scroll_cancel();
+    g_browse_sel = s_slide.row;
+    s_slide.sliding = true;
+    s_slide.value = slider_value_at(c, x);
+    return true;
+}
+
+bool value_slider_touch_up(int x, int y, uint64_t ms) {
+    (void)y;
+    (void)ms;
+    s_slide.armed = false;
+    if (!s_slide.sliding) return false;
+    s_slide.sliding = false;
+    rf_dev_cmd_t *c = ranged_cmd_at(s_slide.row);
+    if (c) {
+        c->value = (int16_t)slider_value_at(c, x);
+        send_cmd_value(c, c->value);
+    }
+    return true;
+}
+
+bool value_slider_active(void) {
+    return s_slide.sliding;
+}
+
+/* A slider row's track along the bottom of its card, filled to the value, and the value or,
+   before one was sent, the range at the right */
+static void render_value_track(const rf_dev_cmd_t *c, int y, int card_h, bool sliding, int value) {
+    int left = 16, width = FB_WIDTH - 32;
+    int track_h = sliding ? 5 : 3;
+    int ty = y + card_h - track_h - 3;
+    fb_fill_rect(left, ty, width, track_h, RGB_TEXT_MUTED);
+    if (value >= 0) {
+        int fill = width * (value - c->vmin) / (c->vmax - c->vmin);
+        fb_fill_rect(left, ty, fill, track_h, RGB_TEAL);
+        if (sliding) fb_fill_rect(left + fill - 2, y + 4, 4, card_h - 8, RGB_WHITE);
+    }
+    char text[12];
+    if (value >= 0) snprintf(text, sizeof(text), "%d", value);
+    else snprintf(text, sizeof(text), "%d-%d", c->vmin, c->vmax);
+    int tw = fb_text_width_aa(text, &g_font_main);
+    fb_draw_text_aa(FB_WIDTH - 20 - tw, y + 7, text, value >= 0 ? RGB_WHITE : RGB_TEXT_MUTED, &g_font_main);
 }
 
 /* Render the device list, or the browsed device's heading and commands */
@@ -213,9 +339,15 @@ void render_device_browser_view(void) {
         }
 
         int text_x = has_icon ? 14 + icon_size + 6 : 16;
+        int text_w = FB_WIDTH - 30 - text_x;
+        if (c && c->ranged) {
+            bool sliding = s_slide.sliding && s_slide.row == idx;
+            render_value_track(c, y, card_h, sliding, sliding ? s_slide.value : c->value);
+            text_w -= 56; /* room for the value */
+        }
         char fit[RF_NAME_SIZE];
-        fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, FB_WIDTH - 30 - text_x);
-        fb_draw_text_aa(text_x, y + 9, fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+        fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, text_w);
+        fb_draw_text_aa(text_x, y + (c && c->ranged ? 7 : 9), fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
         if (g_browse_dev < 0) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }

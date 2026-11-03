@@ -96,7 +96,8 @@ static void sig_handler(int sig) {
 /* The end of a touch: a drag of the home pages or a list settles, anything else is a tap or swipe */
 static void touch_released(void) {
     uint64_t ms = get_monotonic_ms();
-    if (home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms) ||
+    if (value_slider_touch_up(g_touch_cur_x, g_touch_cur_y, ms) ||
+        home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms) ||
         list_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms)) {
         reset_idle_timer();
         g_screen_dirty = true;
@@ -372,6 +373,8 @@ int main(int argc, char **argv) {
             last_reconnect_pulse_ms = now_ms;
         }
 
+
+        if (g_touch_is_down && value_slider_tick(g_touch_cur_x, now_ms)) g_screen_dirty = true;
 
         if (g_act_key_down_ms > 0 && !g_act_key_long_fired && now_ms - g_act_key_down_ms >= ACT_KEY_LONG_MS) {
             g_act_key_long_fired = true;
@@ -748,8 +751,10 @@ int main(int argc, char **argv) {
                         printf("[*] Touch DOWN latched on SYN at (%d, %d)\n", g_touch_down_x, g_touch_down_y);
                         home_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
                         list_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
+                        value_slider_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
                     } else if (g_touch_is_down) {
                         uint64_t ms = get_monotonic_ms();
+                        if (value_slider_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
                         if (home_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
                         if (list_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
                     }

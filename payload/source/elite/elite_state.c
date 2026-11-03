@@ -43,8 +43,10 @@ void store_rf_dev_cmd(uint8_t dev_idx, uint8_t cmd_idx, const char *name) {
     while (i < g_rf_dev_cmd_count &&
            (g_rf_dev_cmds[i].dev_idx != dev_idx || g_rf_dev_cmds[i].cmd_idx != cmd_idx)) i++;
     if (i >= MAX_RF_DEV_CMDS) return;
+    if (i == g_rf_dev_cmd_count || strcmp(g_rf_dev_cmds[i].name, name) != 0) g_rf_dev_cmds[i].value = -1;
     g_rf_dev_cmds[i].dev_idx = dev_idx;
     g_rf_dev_cmds[i].cmd_idx = cmd_idx;
+    g_rf_dev_cmds[i].ranged = false; /* a range chunk follows if it still has one */
     strncpy(g_rf_dev_cmds[i].name, name, sizeof(g_rf_dev_cmds[0].name) - 1);
     g_rf_dev_cmds[i].name[sizeof(g_rf_dev_cmds[0].name) - 1] = '\0';
     if (i == g_rf_dev_cmd_count) g_rf_dev_cmd_count++;

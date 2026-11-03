@@ -146,6 +146,9 @@ typedef struct {
     uint8_t dev_idx;  /* index into g_rf_devices */
     uint8_t cmd_idx;  /* index into the device's commands on the Hub */
     char name[23];
+    bool ranged;      /* stored without its value: the remote picks one between vmin and vmax */
+    uint8_t vmin, vmax;
+    int16_t value;    /* the value last sent, or -1 */
 } rf_dev_cmd_t;
 
 typedef struct {

@@ -603,6 +603,54 @@ int main(void) {
         printf("[+] Lists: drag, fling, edge resistance, catch, key reveal; card device rows open the device\n");
     }
 
+    /* 16. Hold and slide on a command stored without its value */
+    {
+        uint64_t ms = 3000000;
+        g_rf_device_count = 1;
+        snprintf(g_rf_devices[0].name, sizeof(g_rf_devices[0].name), "Fan");
+        g_rf_dev_cmd_count = 0;
+        store_rf_dev_cmd(0, 0, "LightOn");
+        store_rf_dev_cmd(0, 1, "Brightness");
+        g_rf_dev_cmds[1].ranged = true;
+        g_rf_dev_cmds[1].vmin = 1;
+        g_rf_dev_cmds[1].vmax = 100;
+        assert(g_rf_dev_cmds[1].value == -1);
+        open_device_browser();
+        device_browser_activate(0);
+        int ry = browser_list_y() + LIST_ROW_PITCH + 10;
+
+        /* A tap only shows how to use it */
+        g_notice_msg[0] = '\0';
+        tap(120, ry);
+        assert(strcmp(g_notice_msg, tr(STR_HOLD_AND_SLIDE)) == 0 && g_rf_dev_cmds[1].value == -1);
+
+        /* Moving before the hold is up is not a slide */
+        value_slider_touch_down(120, ry, ms);
+        assert(!value_slider_touch_move(120, ry + 40, ms + 100));
+        assert(!value_slider_tick(120, ms + 500) && !value_slider_active());
+        assert(!value_slider_touch_up(120, ry + 40, ms + 600));
+
+        /* Held still, the row follows the finger; lifting it sends the value */
+        value_slider_touch_down(120, ry, ms);
+        assert(!value_slider_tick(120, ms + 100));
+        assert(value_slider_tick(120, ms + 400) && value_slider_active() && g_browse_sel == 1);
+        assert(value_slider_touch_move(FB_WIDTH - 16, ry + 30, ms + 500));
+        render_screen();
+        assert(value_slider_touch_up(FB_WIDTH - 16, ry + 30, ms + 600));
+        assert(!value_slider_active() && g_rf_dev_cmds[1].value == 100);
+        value_slider_touch_down(120, ry, ms);
+        value_slider_tick(0, ms + 400);
+        assert(value_slider_touch_up(0, ry, ms + 500) && g_rf_dev_cmds[1].value == 1);
+
+        /* A command with its value set, or a fresh copy of the command list, is a plain row */
+        value_slider_touch_down(120, ry - LIST_ROW_PITCH, ms);
+        assert(!value_slider_tick(120, ms + 400));
+        store_rf_dev_cmd(0, 1, "Brightness");
+        assert(!g_rf_dev_cmds[1].ranged && g_rf_dev_cmds[1].value == 1);
+        render_screen();
+        printf("[+] Value commands: tap hint, hold to slide, release sends\n");
+    }
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
     return 0;
