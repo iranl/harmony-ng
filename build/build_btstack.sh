@@ -99,6 +99,7 @@ payload/source/hub_btstack/bt_state.c
 payload/source/hub_btstack/bt_pairing.c
 payload/source/hub_btstack/bt_hid.c
 payload/source/hub_btstack/bt_cmd.c
+payload/source/hub_btstack/bt_adv.c
 payload/source/hub_btstack/bt_remote.c
 payload/source/hub_btstack/bt_main.c
 "
