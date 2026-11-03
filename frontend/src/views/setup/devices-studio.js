@@ -1,4 +1,4 @@
-// Devices Studio View (IR Learn, Pronto, BLE Broadcast, Command Manager, Device Timing)
+// Devices Studio View (IR Learn, Pronto, BLE Broadcast, Mantra Fans, Command Manager, Device Timing)
 import { h } from '../../utils/dom.js';
 import { store } from '../../store.js';
 import { api } from '../../api/index.js';
@@ -8,7 +8,8 @@ import { confirm } from '../../components/confirm.js';
 import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
-import { BLE_ADV_PREFIX, BLE_PRESETS, toAdvHex } from '../../utils/ble-adv.js';
+import { BLE_ADV_PREFIX, toAdvHex } from '../../utils/ble-adv.js';
+import { mantraActionsFor, mantraDefaultCommands, mantraKeyCode, normalizeMantraId, randomMantraId } from '../../utils/mantra.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -199,7 +200,7 @@ export function createView() {
 
     const blePayloadInput = h('textarea', {
       className: 'form-textarea',
-      placeholder: 'uuids=AABBCCDD,11223344,... or 02010619054E6F72...',
+      placeholder: 'uuids=AABBCCDD,11223344,... or 0201060303AAFE...',
       rows: 2,
     });
 
@@ -235,6 +236,176 @@ export function createView() {
           },
         }),
       ]),
+    ]);
+
+    // Mantra fan: the id the fan obeys, set by pairing the fan with the Hub or learned from the mAntra app
+    const mantraIdInput = h('input', { type: 'text', className: 'form-input', value: dev.mantraId || '', placeholder: 'e.g. 1A2B', maxLength: 6 });
+    const mantraVersionSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: 0, text: t('mantra_v0', 'Fan and light (most models)') }),
+      h('option', { value: 1, text: t('mantra_v1', 'Light only (v1)') }),
+    ]);
+    mantraVersionSelect.value = String(dev.mantraVersion || 0);
+    const learnResult = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' } });
+
+    async function saveMantraSettings() {
+      const id = normalizeMantraId(mantraIdInput.value);
+      if (!id) {
+        toast.warn(t('mantra_id_invalid', 'Fan id must be 1-4 hex digits'));
+        return false;
+      }
+      await api.saveDeviceDetails({ id: dev.id, mantraId: id, mantraVersion: Number(mantraVersionSelect.value) || 0 });
+      mantraIdInput.value = id;
+      return true;
+    }
+
+    async function listenForApp(btn) {
+      btn.disabled = true;
+      learnResult.innerHTML = '';
+      learnResult.appendChild(h('span', { className: 'text-dim', text: t('mantra_listening', 'Listening… use any control in the mAntra app near the Hub.') }));
+      try {
+        await api.mantraLearnStart(30);
+        const deadline = Date.now() + 32000;
+        let found = [];
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1500));
+          const st = await api.mantraLearnStatus();
+          found = st?.found || [];
+          if (found.length || st?.listening === false) break;
+        }
+        await api.mantraLearnStop().catch(() => {});
+        learnResult.innerHTML = '';
+        if (!found.length) {
+          learnResult.appendChild(h('span', { className: 'text-dim', text: t('mantra_none_heard', 'No Mantra app broadcast heard. Move the phone closer to the Hub and try again.') }));
+        }
+        found.forEach(f => {
+          learnResult.appendChild(h('button', {
+            className: 'btn btn-secondary btn-sm',
+            text: `${t('mantra_use_id', 'Use')} ${f.id} (${f.rssi} dBm)`,
+            onclick: async () => {
+              mantraIdInput.value = f.id;
+              mantraVersionSelect.value = String(f.version || 0);
+              try {
+                if (await saveMantraSettings()) {
+                  toast.success(`Fan id ${f.id} saved`);
+                  refreshInventory();
+                }
+              } catch (e) {
+                toast.error(e.message);
+              }
+            },
+          }));
+        });
+      } catch (e) {
+        learnResult.innerHTML = '';
+        toast.error(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    const mantraCard = h('div', { className: 'card' }, [
+      h('div', { className: 'card-header' }, [
+        h('h4', { className: 'card-title', text: t('mantra_fan', 'Mantra Fan') }),
+      ]),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: t('mantra_id', 'Fan Id') }),
+        mantraIdInput,
+      ]),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: t('mantra_variant', 'Mantra Model') }),
+        mantraVersionSelect,
+      ]),
+      h('button', {
+        className: 'btn btn-secondary btn-sm',
+        text: t('save', 'Save'),
+        onclick: async () => {
+          try {
+            if (await saveMantraSettings()) {
+              toast.success('Fan settings saved');
+              refreshInventory();
+            }
+          } catch (e) {
+            toast.error(e.message);
+          }
+        },
+      }),
+      h('h5', { style: { margin: '16px 0 4px' }, text: t('mantra_pair_title', 'Pair the fan with the Hub') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_pair_desc', 'Switch the fan off at the wall for 5 seconds and back on, then press Pair within 30 seconds. The light blinks 3 times when the fan accepts the id above. The fan may stop obeying the mAntra app until the app pairs again.') }),
+      h('button', {
+        className: 'btn btn-primary btn-sm',
+        text: t('mantra_pair', 'Pair'),
+        onclick: async () => {
+          try {
+            if (!(await saveMantraSettings())) return;
+            const res = await api.mantraPair(dev.id);
+            if (res?.ok === false) throw new Error(res.error || 'Pairing failed');
+            toast.info(t('mantra_pair_sent', 'Pairing broadcast sent; watch for the light to blink 3 times'));
+          } catch (e) {
+            toast.error(e.message);
+          }
+        },
+      }),
+      h('h5', { style: { margin: '16px 0 4px' }, text: t('mantra_learn_title', 'Or use the id the mAntra app already uses') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_learn_desc', 'Press Listen, then use any control in the mAntra lighting app near the Hub. The fan keeps obeying the app as well.') }),
+      h('button', {
+        className: 'btn btn-secondary btn-sm',
+        text: t('mantra_listen', 'Listen'),
+        onclick: (e) => listenForApp(e.currentTarget),
+      }),
+      learnResult,
+    ]);
+
+    // Mantra command builder: the Hub encodes the action with the fan id when the command runs
+    const mantraNameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Command Name (e.g. FanSpeed20)' });
+    const mantraActionSelect = h('select', { className: 'form-select' },
+      mantraActionsFor(dev.mantraVersion).map(a => h('option', { value: a.action, text: a.label })));
+    const mantraValueInput = h('input', { type: 'number', className: 'form-input' });
+    const mantraValueGroup = h('div', { className: 'form-group' }, [
+      h('label', { className: 'form-label', text: t('value', 'Value') }),
+      mantraValueInput,
+    ]);
+    const syncValueField = () => {
+      const def = mantraActionsFor(dev.mantraVersion).find(a => a.action === mantraActionSelect.value);
+      mantraValueGroup.style.display = def?.value ? 'block' : 'none';
+      if (def?.value) {
+        mantraValueInput.min = def.value[0];
+        mantraValueInput.max = def.value[1];
+        mantraValueInput.placeholder = def.value[2];
+      }
+    };
+    mantraActionSelect.onchange = syncValueField;
+    syncValueField();
+
+    const mantraCmdCard = h('div', { className: 'card' }, [
+      h('div', { className: 'card-header' }, [
+        h('h4', { className: 'card-title', text: t('mantra_add_command', 'Add Fan Command') }),
+      ]),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: 'Command Name' }),
+        mantraNameInput,
+      ]),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: t('action', 'Action') }),
+        mantraActionSelect,
+      ]),
+      mantraValueGroup,
+      h('button', {
+        className: 'btn btn-primary',
+        text: t('save_command', 'Save to Device'),
+        onclick: async () => {
+          const name = mantraNameInput.value.trim();
+          if (!name) return toast.warn('Enter command name');
+          const keyCode = mantraKeyCode(mantraActionSelect.value, mantraValueInput.value);
+          if (!keyCode) return toast.warn(t('mantra_value_invalid', 'Enter a value in the range shown'));
+          try {
+            await api.saveCommand({ deviceId: dev.id, name, raw: keyCode });
+            toast.success(`Command ${name} saved!`);
+            refreshInventory();
+          } catch (e) {
+            toast.error(e.message);
+          }
+        },
+      }),
     ]);
 
     // Device Commands List & Delete
@@ -325,7 +496,10 @@ export function createView() {
 
     container.appendChild(header);
     container.appendChild(iconCard);
-    if (dev.type === 'BLE') {
+    if (dev.type === 'MANTRA') {
+      container.appendChild(mantraCard);
+      container.appendChild(mantraCmdCard);
+    } else if (dev.type === 'BLE') {
       container.appendChild(bleCard);
     } else {
       container.appendChild(learnCard);
@@ -395,32 +569,28 @@ export function createView() {
     ]);
     const typeSelect = h('select', { className: 'form-select' }, [
       h('option', { value: 'IR', text: t('device_type_ir', 'Infrared (IR)') }),
-      h('option', { value: 'BLE', text: t('device_type_ble', 'BLE broadcast') }),
+      h('option', { value: 'MANTRA', text: t('device_type_mantra', 'Mantra fan (BLE)') }),
+      h('option', { value: 'BLE', text: t('device_type_ble', 'BLE broadcast (captured packets)') }),
     ]);
-    const presetSelect = h('select', { className: 'form-select' }, [
-      h('option', { value: '', text: t('ble_preset_none', 'None (add commands later)') }),
-      ...BLE_PRESETS.map(p => h('option', { value: p.id, text: p.label })),
+    const versionSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: 0, text: t('mantra_v0', 'Fan and light (most models)') }),
+      h('option', { value: 1, text: t('mantra_v1', 'Light only (v1)') }),
     ]);
 
     const portGroup = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
       h('label', { className: 'form-label', text: 'IR Control Port' }),
       portSelect,
     ]);
-    const presetGroup = h('div', { style: { display: 'none', flexDirection: 'column', gap: '10px' } }, [
-      h('label', { className: 'form-label', text: t('ble_preset', 'Command Preset') }),
-      presetSelect,
+    const mantraGroup = h('div', { style: { display: 'none', flexDirection: 'column', gap: '10px' } }, [
+      h('label', { className: 'form-label', text: t('mantra_variant', 'Mantra Model') }),
+      versionSelect,
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: 0 }, text: t('mantra_add_hint', 'After creating the device, pair the fan with the Hub or learn its id from the mAntra app.') }),
     ]);
 
     typeSelect.onchange = () => {
-      const isBle = typeSelect.value === 'BLE';
-      portGroup.style.display = isBle ? 'none' : 'flex';
-      presetGroup.style.display = isBle ? 'flex' : 'none';
-    };
-    presetSelect.onchange = () => {
-      const preset = BLE_PRESETS.find(p => p.id === presetSelect.value);
-      if (!preset) return;
-      if (!mfgInput.value.trim()) mfgInput.value = preset.manufacturer;
-      if (!modelInput.value.trim()) modelInput.value = preset.model;
+      portGroup.style.display = typeSelect.value === 'IR' ? 'flex' : 'none';
+      mantraGroup.style.display = typeSelect.value === 'MANTRA' ? 'flex' : 'none';
+      if (typeSelect.value === 'MANTRA' && !mfgInput.value.trim()) mfgInput.value = 'Mantra';
     };
 
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
@@ -433,7 +603,7 @@ export function createView() {
       h('label', { className: 'form-label', text: 'Model' }),
       modelInput,
       portGroup,
-      presetGroup,
+      mantraGroup,
     ]);
 
     createModal({
@@ -451,7 +621,7 @@ export function createView() {
               return false;
             }
             const type = typeSelect.value;
-            const preset = type === 'BLE' ? BLE_PRESETS.find(p => p.id === presetSelect.value) : null;
+            const version = Number(versionSelect.value) || 0;
             try {
               const res = await api.saveNewDevice({
                 name,
@@ -459,13 +629,21 @@ export function createView() {
                 model: modelInput.value.trim(),
                 controlPort: type === 'IR' ? (Number(portSelect.value) || 7) : 0,
                 type,
+                // A fresh id for the Hub to pair the fan with; replaced if the id is learned from the app
+                ...(type === 'MANTRA' ? { mantraId: randomMantraId(), mantraVersion: version } : {}),
               });
-              if (preset && res?.deviceId) {
-                await api.saveBatchCommands(res.deviceId, preset.commands);
+              if (type === 'MANTRA' && res?.deviceId) {
+                await api.saveBatchCommands(res.deviceId, mantraDefaultCommands(version));
               }
               toast.success(`Device ${name} added!`);
               await refreshInventory();
-              renderDeviceSelector();
+              const created = (store.get('devices') || []).find(d => String(d.id) === String(res?.deviceId));
+              if (type === 'MANTRA' && created) {
+                selectedDevice = created;
+                renderStudio();
+              } else {
+                renderDeviceSelector();
+              }
               return true;
             } catch (e) {
               toast.error(e.message);

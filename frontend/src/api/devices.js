@@ -1,5 +1,6 @@
 // Devices and IR API methods for Harmony Hub
 import { BLE_ADV_PREFIX } from '../utils/ble-adv.js';
+import { MANTRA_PREFIX } from '../utils/mantra.js';
 
 export function createDevicesApi(client) {
   return {
@@ -9,10 +10,10 @@ export function createDevicesApi(client) {
       const rawDevs = data.devices || (Array.isArray(data) ? data : []);
       const normalized = rawDevs.map((dev) => {
         const rawCmds = dev.commands || [];
-        const cleanType = ['BT', 'MQTT', 'BLE'].includes(dev.type) ? dev.type : 'IR';
+        const cleanType = ['BT', 'MQTT', 'BLE', 'MANTRA'].includes(dev.type) ? dev.type : 'IR';
         const isBt = cleanType === 'BT';
         const isMqtt = cleanType === 'MQTT';
-        const isBle = cleanType === 'BLE';
+        const isBle = cleanType === 'BLE' || cleanType === 'MANTRA';
         const hostAddr = dev.bdaddr || dev.btHost || '';
 
         return {
@@ -40,6 +41,8 @@ export function createDevicesApi(client) {
           powerOffSequence: dev.powerOffSequence || [],
           isBt,
           isBle,
+          mantraId: dev.mantraId || '',
+          mantraVersion: Number(dev.mantraVersion) === 1 ? 1 : 0,
           mqttEnabled: isMqtt || !!dev.mqttEnabled,
           mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
           mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
@@ -49,7 +52,7 @@ export function createDevicesApi(client) {
             const rawStr = c.raw || '';
             const isBtCmd = isBt || kCode.startsWith('HID:') || rawStr.startsWith('HID:');
             const isMqttCmd = isMqtt || kCode.startsWith('G:MQTT') || rawStr.startsWith('G:MQTT');
-            const isBleCmd = isBle || kCode.startsWith(BLE_ADV_PREFIX) || rawStr.startsWith(BLE_ADV_PREFIX);
+            const isBleCmd = isBle || [BLE_ADV_PREFIX, MANTRA_PREFIX].some(p => kCode.startsWith(p) || rawStr.startsWith(p));
             const cmdObj = {
               name: c.name || '',
               id: c.id !== undefined ? c.id : idx,
@@ -108,6 +111,24 @@ export function createDevicesApi(client) {
         deviceId: String(deviceId),
         command: String(command)
       });
+    },
+
+    // Mantra fans: listen for the mAntra app's broadcasts to learn a paired fan's id
+    async mantraLearnStart(seconds = 30) {
+      return client.postJson('/api/mantra-learn', { seconds });
+    },
+
+    async mantraLearnStop() {
+      return client.postJson('/api/mantra-learn', { stop: true });
+    },
+
+    async mantraLearnStatus() {
+      return client.request('/api/mantra-learn');
+    },
+
+    // Pairs the fan with the device's id; the fan must have been powered on in the last 30 s
+    async mantraPair(deviceId) {
+      return client.postJson('/api/mantra-pair', { deviceId: String(deviceId) });
     },
 
     async captureIr() {

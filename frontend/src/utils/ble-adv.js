@@ -48,6 +48,3 @@ export function toAdvHex(input) {
   if (!hex || !/^([0-9A-F]{2})+$/.test(hex) || !structureValid(hex)) return null;
   return hex;
 }
-
-// Command packets for known devices, offered when adding a BLE broadcast device
-export const BLE_PRESETS = [];
