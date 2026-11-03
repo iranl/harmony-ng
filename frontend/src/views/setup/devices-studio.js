@@ -9,7 +9,7 @@ import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
 import { BLE_ADV_PREFIX, toAdvHex } from '../../utils/ble-adv.js';
-import { mantraActionsFor, mantraDefaultCommands, mantraKeyCode, normalizeMantraId, randomMantraId } from '../../utils/mantra.js';
+import { mantraActionsFor, mantraDefaultCommands, mantraKeyCode, normalizeMantraId } from '../../utils/mantra.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -258,6 +258,46 @@ export function createView() {
       return true;
     }
 
+    // Saves a fan id the Hub found, from pairing or listening
+    async function adoptFanId(id, version) {
+      mantraIdInput.value = id;
+      mantraVersionSelect.value = String(version || 0);
+      if (await saveMantraSettings()) {
+        toast.success(`Fan id ${id} saved`);
+        refreshInventory();
+      }
+    }
+
+    const pairResult = h('div', { className: 'text-dim', style: { fontSize: '12px', marginTop: '8px' } });
+
+    async function pairFan(btn) {
+      btn.disabled = true;
+      pairResult.textContent = t('mantra_pairing', 'Searching for the fan…');
+      try {
+        const res = await api.mantraPair(30);
+        if (res?.ok === false) throw new Error(res.error || 'Pairing failed');
+        const deadline = Date.now() + 36000;
+        let st = null;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1500));
+          st = await api.mantraLearnStatus();
+          if (st?.paired || st?.pairing === false) break;
+        }
+        if (st?.paired) {
+          pairResult.textContent = t('mantra_paired', 'The fan answered; the light should blink 3 times.');
+          await adoptFanId(st.paired, st.pairedVersion);
+        } else {
+          await api.mantraLearnStop().catch(() => {});
+          pairResult.textContent = t('mantra_pair_none', 'No fan answered. Switch the fan off for 5 seconds and on again, then press Pair within 30 seconds.');
+        }
+      } catch (e) {
+        pairResult.textContent = '';
+        toast.error(e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     async function listenForApp(btn) {
       btn.disabled = true;
       learnResult.innerHTML = '';
@@ -282,13 +322,8 @@ export function createView() {
             className: 'btn btn-secondary btn-sm',
             text: `${t('mantra_use_id', 'Use')} ${f.id} (${f.rssi} dBm)`,
             onclick: async () => {
-              mantraIdInput.value = f.id;
-              mantraVersionSelect.value = String(f.version || 0);
               try {
-                if (await saveMantraSettings()) {
-                  toast.success(`Fan id ${f.id} saved`);
-                  refreshInventory();
-                }
+                await adoptFanId(f.id, f.version);
               } catch (e) {
                 toast.error(e.message);
               }
@@ -330,23 +365,15 @@ export function createView() {
         },
       }),
       h('h5', { style: { margin: '16px 0 4px' }, text: t('mantra_pair_title', 'Pair the fan with the Hub') }),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_pair_desc', 'Switch the fan off at the wall for 5 seconds and back on, then press Pair within 30 seconds. The light blinks 3 times when the fan accepts the id above. The fan may stop obeying the mAntra app until the app pairs again.') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_pair_desc', 'Switch the fan off at the wall for 5 seconds and back on, then press Pair within 30 seconds. The fan answers with its id, which is saved above, and the light blinks 3 times. The mAntra app keeps working.') }),
       h('button', {
         className: 'btn btn-primary btn-sm',
         text: t('mantra_pair', 'Pair'),
-        onclick: async () => {
-          try {
-            if (!(await saveMantraSettings())) return;
-            const res = await api.mantraPair(dev.id);
-            if (res?.ok === false) throw new Error(res.error || 'Pairing failed');
-            toast.info(t('mantra_pair_sent', 'Pairing broadcast sent; watch for the light to blink 3 times'));
-          } catch (e) {
-            toast.error(e.message);
-          }
-        },
+        onclick: (e) => pairFan(e.currentTarget),
       }),
-      h('h5', { style: { margin: '16px 0 4px' }, text: t('mantra_learn_title', 'Or use the id the mAntra app already uses') }),
-      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_learn_desc', 'Press Listen, then use any control in the mAntra lighting app near the Hub. The fan keeps obeying the app as well.') }),
+      pairResult,
+      h('h5', { style: { margin: '16px 0 4px' }, text: t('mantra_learn_title', 'Or learn the id from the mAntra app') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: '0 0 8px' }, text: t('mantra_learn_desc', 'Press Listen, then use any control in the mAntra lighting app near the Hub.') }),
       h('button', {
         className: 'btn btn-secondary btn-sm',
         text: t('mantra_listen', 'Listen'),
@@ -590,7 +617,7 @@ export function createView() {
     const mantraGroup = h('div', { style: { display: 'none', flexDirection: 'column', gap: '10px' } }, [
       h('label', { className: 'form-label', text: t('mantra_variant', 'Mantra Model') }),
       versionSelect,
-      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: 0 }, text: t('mantra_add_hint', 'After creating the device, pair the fan with the Hub or learn its id from the mAntra app.') }),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', margin: 0 }, text: t('mantra_add_hint', 'After creating the device, pair the fan with the Hub to get its id.') }),
     ]);
 
     typeSelect.onchange = () => {
@@ -637,8 +664,8 @@ export function createView() {
                 model: modelInput.value.trim(),
                 controlPort: type === 'IR' ? (Number(portSelect.value) || 7) : 0,
                 type,
-                // A fresh id for the Hub to pair the fan with; replaced if the id is learned from the app
-                ...(type === 'MANTRA' ? { mantraId: randomMantraId(), mantraVersion: version } : {}),
+                // The fan id comes from pairing, on the device's page
+                ...(type === 'MANTRA' ? { mantraVersion: version } : {}),
               });
               if (type === 'MANTRA' && res?.deviceId) {
                 await api.saveBatchCommands(res.deviceId, mantraDefaultCommands(version));

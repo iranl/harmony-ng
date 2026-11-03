@@ -126,9 +126,10 @@ export function createDevicesApi(client) {
       return client.request('/api/mantra-learn');
     },
 
-    // Pairs the fan with the device's id; the fan must have been powered on in the last 30 s
-    async mantraPair(deviceId) {
-      return client.postJson('/api/mantra-pair', { deviceId: String(deviceId) });
+    // Searches for a fan powered on in the last 30 s and binds with the id it announces;
+    // the id appears as "paired" in mantraLearnStatus()
+    async mantraPair(seconds = 30) {
+      return client.postJson('/api/mantra-pair', { seconds });
     },
 
     async captureIr() {

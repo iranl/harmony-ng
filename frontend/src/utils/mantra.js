@@ -44,12 +44,6 @@ export function normalizeMantraId(input) {
   return s.toUpperCase().padStart(4, '0');
 }
 
-// An id for the Hub to pair a fan with; 0000 and FFFF are avoided
-export function randomMantraId() {
-  const n = 1 + Math.floor(Math.random() * 0xFFFE);
-  return n.toString(16).toUpperCase().padStart(4, '0');
-}
-
 // Commands a new Mantra device starts with; fan speeds follow the remote's six steps
 export function mantraDefaultCommands(version) {
   const light = [
