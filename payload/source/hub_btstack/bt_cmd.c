@@ -364,6 +364,8 @@ void execute_btstack_cmd(const char *cmd_in) {
         }
     } else if (strcasecmp(cmd, "mantra_learn_stop") == 0) {
         bt_mantra_learn_cmd(NULL, true);
+    } else if (strncasecmp(cmd, "mantra_pair", 11) == 0) {
+        bt_mantra_pair_cmd(cmd + 11);
     } else if (strncasecmp(cmd, "mantra_learn", 12) == 0) {
         bt_mantra_learn_cmd(cmd + 12, false);
     } else if (strncasecmp(cmd, "adv ", 4) == 0) {

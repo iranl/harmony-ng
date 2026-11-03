@@ -53,29 +53,15 @@ static void adv_start_next(void) {
     btstack_run_loop_add_timer(&g_adv_timer);
 }
 
-void bt_adv_handle_cmd(const char *args) {
-    if (!args) return;
-    while (*args == ' ') args++;
-
-    uint8_t data[BLE_ADV_MAX_LEN];
-    const char *end = NULL;
-    int len = ble_adv_parse_hex(args, data, &end);
-    if (len < 0) {
-        log_msg("BLE broadcast rejected: payload is not valid advertising data");
-        return;
-    }
-
-    int ms = ADV_DEFAULT_MS;
-    if (end && *end) {
-        int req = atoi(end);
-        if (req > 0) ms = req;
-    }
+int bt_adv_enqueue(const uint8_t *data, int len, int ms) {
+    if (len <= 0 || len > BLE_ADV_MAX_LEN) return -1;
+    if (ms <= 0) ms = ADV_DEFAULT_MS;
     if (ms < ADV_MIN_MS) ms = ADV_MIN_MS;
     if (ms > ADV_MAX_MS) ms = ADV_MAX_MS;
 
     if (g_adv_count == ADV_QUEUE_LEN) {
         log_msg("BLE broadcast dropped: queue full");
-        return;
+        return -1;
     }
     adv_entry_t *e = &g_adv_queue[(g_adv_head + g_adv_count) % ADV_QUEUE_LEN];
     memcpy(e->data, data, len);
@@ -88,4 +74,23 @@ void bt_adv_handle_cmd(const char *args) {
     hub_bt_log_debug(msg);
 
     if (!g_adv_active) adv_start_next();
+    return 0;
+}
+
+int bt_adv_pending(void) {
+    return g_adv_count + (g_adv_active ? 1 : 0);
+}
+
+void bt_adv_handle_cmd(const char *args) {
+    if (!args) return;
+    while (*args == ' ') args++;
+
+    uint8_t data[BLE_ADV_MAX_LEN];
+    const char *end = NULL;
+    int len = ble_adv_parse_hex(args, data, &end);
+    if (len < 0) {
+        log_msg("BLE broadcast rejected: payload is not valid advertising data");
+        return;
+    }
+    bt_adv_enqueue(data, len, (end && *end) ? atoi(end) : 0);
 }
