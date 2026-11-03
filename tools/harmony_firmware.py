@@ -72,7 +72,7 @@ SUS_API_KEY = "UV6nr6k8ZqlLYksPWMOlv5qwNU2lo1j8Q57WgwE5"
 SKIN_NAMES = {
     97: "Harmony Hub",
     99: "Harmony Elite / Touch / Ultimate Remote",
-    100: "Harmony Home Control / Smart Control Remote",
+    100: "Harmony Ultimate Remote (2013)",
     102: "Harmony Ultimate Remote",
     105: "Harmony Ultimate Home Remote",
     106: "Harmony Hub (Creemore)",

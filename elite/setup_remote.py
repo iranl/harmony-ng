@@ -289,14 +289,19 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             print(f"[*] Current Firmware Version: {current_fw}")
             print("[*] Checking official Logitech SUS update servers...")
             from tools.harmony_firmware import (
+                DEFAULT_ELITE_SKIN,
                 query_latest_firmware,
                 download_file,
                 parse_hfw2_bundle,
                 flash_firmware,
             )
-            res = query_latest_firmware(target_skin)
-            if not res or not res.get("Id"):
-                res = query_latest_firmware(111)
+            res = query_latest_firmware(target_skin, silent_on_empty=True)
+            if (not res or not res.get("Id")) and target_skin != DEFAULT_ELITE_SKIN:
+                # Some skins (e.g. 100, Harmony Ultimate 2013) have no entry of their own;
+                # the remote bundle published for skin 111 lists them as intended devices
+                print(f"[*] No firmware listed for skin {target_skin}, checking skin {DEFAULT_ELITE_SKIN} "
+                      f"(same remote firmware bundle)")
+                res = query_latest_firmware(DEFAULT_ELITE_SKIN)
             if res and res.get("Id"):
 
                 latest_fw = res["Id"]
