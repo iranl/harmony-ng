@@ -156,6 +156,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── deploy_hub.sh       # Hub deployment script (Bash)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
+│   ├── BLE_BROADCAST.md    # BLE broadcast commands and packet capture
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
 │   ├── ELITE.md            # Elite remote hardware, RF protocol, and display specs
 │   ├── ELITE_BATTERY_OPTIMIZATION.md # Power management & battery life guide
@@ -186,6 +187,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── hub_dhcpd.c     # Clean-room RFC 2131 DHCP recovery server
 │       └── hub_portal.c    # Wi-Fi recovery captive portal
 └── tools/
+    ├── ble_capture/        # macOS BLE advertisement capture and replay tools
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
