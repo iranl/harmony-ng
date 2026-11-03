@@ -91,6 +91,35 @@ static void sig_handler(int sig) {
     g_running = false;
 }
 
+/* Touch controllers that report their own coordinate range (the Clearpad TM2176
+ * on the Harmony Ultimate reports 0-782 x 0-1009) are scaled to the framebuffer.
+ * Controllers whose range is already close to screen pixels are left as they are. */
+static int s_touch_max_x = 0;
+static int s_touch_max_y = 0;
+
+static void touch_probe_range(int fd) {
+    struct input_absinfo ax, ay;
+    s_touch_max_x = 0;
+    s_touch_max_y = 0;
+    if (ioctl(fd, EVIOCGABS(ABS_X), &ax) != 0 || ioctl(fd, EVIOCGABS(ABS_Y), &ay) != 0) {
+        printf("[*] Touch range: EVIOCGABS not available, using raw coordinates\n");
+        return;
+    }
+    printf("[*] Touch range: x=%d..%d y=%d..%d\n", ax.minimum, ax.maximum, ay.minimum, ay.maximum);
+    if (ax.maximum >= 2 * FB_WIDTH && ay.maximum >= 2 * FB_HEIGHT) {
+        s_touch_max_x = ax.maximum;
+        s_touch_max_y = ay.maximum;
+        printf("[+] Touch range: scaling to %dx%d\n", FB_WIDTH, FB_HEIGHT);
+    }
+}
+
+static int touch_scale(int v, int max, int out) {
+    if (max <= 0) return v;
+    if (v < 0) v = 0;
+    if (v > max) v = max;
+    return v * (out - 1) / max;
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
@@ -200,6 +229,7 @@ int main(int argc, char **argv) {
             perror("[-] Failed to open touchscreen node");
         } else {
             printf("[+] Opened touchscreen fd=%d\n", g_touch_fd);
+            touch_probe_range(g_touch_fd);
         }
         if (g_touch_fd >= 0 && !g_touch_enabled) {
             set_backlight_level(g_brightness_val);
@@ -708,9 +738,9 @@ int main(int argc, char **argv) {
                 } else if (ev.type == EV_ABS) {
                     if (!g_touch_enabled) continue;
                     if (ev.code == ABS_X || ev.code == ABS_MT_POSITION_X) {
-                        g_touch_cur_x = ev.value;
+                        g_touch_cur_x = touch_scale(ev.value, s_touch_max_x, FB_WIDTH);
                     } else if (ev.code == ABS_Y || ev.code == ABS_MT_POSITION_Y) {
-                        g_touch_cur_y = ev.value;
+                        g_touch_cur_y = touch_scale(ev.value, s_touch_max_y, FB_HEIGHT);
                     } else if (ev.code == ABS_PRESSURE) {
                         if (ev.value > 0) {
                             reset_idle_timer();
