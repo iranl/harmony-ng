@@ -58,7 +58,7 @@ The USB Ethernet gadget uses fixed IP subnets on each device:
 Do not set a default gateway on the USB adapter: the device is only reachable on its own subnet, and a gateway there can take over the PC's default route.
 
 > [!NOTE]
-> Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling and network setup as Elite, but are currently untested, try at your own risk.
+> Tested on a Harmony Ultimate (2013, skin 100) with the same tooling and network setup as the Elite. Harmony Ultimate Home and Harmony Touch **SHOULD** also work, but are untested, try at your own risk.
 
 ### Setting Host Static IP in Windows:
 1. Press `Win + R`, type `ncpa.cpl`, and press **Enter** to open Network Connections.

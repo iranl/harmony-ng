@@ -28,7 +28,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
 | **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) |
-| **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(Ultimate/Touch/Pro 2400 fully supported, untested on physical hardware)* |
+| **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
 | **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/ELITE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
@@ -114,7 +114,7 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
    - Instant bidirectional RF state sync (time, activities, settings, device browser) over CC2544 Report `0x12`/`0x20`.
    - Two-tier hardware power management (Light and Deep standby with motion wake).
    - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
-   - *Harmony Ultimate (Home) and Harmony Touch share this architecture and are supported by the same binaries.*
+   - *Harmony Ultimate, Ultimate Home and Harmony Touch share this architecture and are supported by the same binaries (tested on a Harmony Ultimate, 2013).*
 
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
