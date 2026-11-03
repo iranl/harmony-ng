@@ -160,28 +160,6 @@ int main(void) {
     assert(res == -2 && strstr(out, "adv ") == NULL);
     printf("[+] Mantra commands encoded with the device's fan id; unknown actions and missing ids rejected.\n");
 
-    /* 7. Pairing queues the search then the bind broadcast */
-    fflush(stdout);
-    int saved = dup(STDOUT_FILENO);
-    FILE *tf = tmpfile();
-    dup2(fileno(tf), STDOUT_FILENO);
-    g_dry_run = 1;
-    res = hw_mantra_pair("fan");
-    int res_noid = hw_mantra_pair("fan_noid");
-    int res_missing = hw_mantra_pair("nope");
-    g_dry_run = 0;
-    fflush(stdout);
-    dup2(saved, STDOUT_FILENO);
-    close(saved);
-    rewind(tf);
-    size_t n = fread(out, 1, sizeof(out) - 1, tf);
-    out[n] = '\0';
-    fclose(tf);
-    assert(res == 0 && res_noid == -2 && res_missing == -5);
-    char *first = strstr(out, "adv 02011A190569635F48");
-    assert(first && strstr(first, " 2000") && strstr(first + 1, "adv 02011A190569635F48"));
-    printf("[+] Mantra pairing sends search and bind; devices without an id or not found are rejected.\n");
-
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);
         s_mock_device_root = NULL;

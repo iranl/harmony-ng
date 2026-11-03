@@ -66,13 +66,6 @@ int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
 
 /*
- * Pairs a Mantra fan with the device's mantraId: broadcasts the mAntra app's search and bind
- * packets, which the fan accepts within 30 s of being powered on.
- * Returns 0, -5 if the device is not found, or -2 if it has no valid mantraId.
- */
-int hw_mantra_pair(const char *device_id);
-
-/*
  * Callback registration for in-process MQTT button dispatch (used by hub_daemon to avoid loopback socket deadlock).
  */
 typedef int (*hw_mqtt_button_handler_t)(const char *device_id, const char *dev_name, const char *command);

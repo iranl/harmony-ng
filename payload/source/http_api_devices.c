@@ -162,8 +162,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/mantra-learn — listen for the mAntra app's broadcasts; body {"seconds":30} or {"stop":true} */
-    if (strcmp(clean_path, "/api/mantra-learn") == 0 && strcmp(method, "POST") == 0) {
+    /* Route: POST /api/mantra-learn or /api/mantra-pair — open hub_btstack's Mantra window.
+     * Learn listens for the mAntra app or the fan; pair searches for a fan powered on in the last
+     * 30 s and binds with the id it announces. Body {"seconds":30} or {"stop":true}. */
+    if ((strcmp(clean_path, "/api/mantra-learn") == 0 || strcmp(clean_path, "/api/mantra-pair") == 0) &&
+        strcmp(method, "POST") == 0) {
+        int pair = (strcmp(clean_path, "/api/mantra-pair") == 0);
         cJSON *p = body ? parse_request_params(body) : NULL;
         cJSON *j_stop = p ? cJSON_GetObjectItemCaseSensitive(p, "stop") : NULL;
         cJSON *j_sec = p ? cJSON_GetObjectItemCaseSensitive(p, "seconds") : NULL;
@@ -173,19 +177,20 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
         char cmd[48];
         if (stop) snprintf(cmd, sizeof(cmd), "mantra_learn_stop\n");
-        else snprintf(cmd, sizeof(cmd), "mantra_learn %d\n", secs > 0 ? secs : 30);
+        else snprintf(cmd, sizeof(cmd), "%s %d\n", pair ? "mantra_pair" : "mantra_learn", secs > 0 ? secs : 30);
         int rc = hub_send_btstack_cmd(cmd);
 
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", rc == 0);
-        cJSON_AddBoolToObject(resp, "listening", rc == 0 && !stop);
+        cJSON_AddBoolToObject(resp, pair ? "pairing" : "listening", rc == 0 && !stop);
+        if (rc != 0) cJSON_AddStringToObject(resp, "error", "Bluetooth daemon did not accept the command");
         send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
     }
 
-    /* Route: GET /api/mantra-learn — fan ids heard so far */
+    /* Route: GET /api/mantra-learn — window state, fan ids heard, and the fan id pairing found */
     if (strcmp(clean_path, "/api/mantra-learn") == 0 && strcmp(method, "GET") == 0) {
         cJSON *resp = NULL;
         FILE *f = fopen("/tmp/hub_mantra_learn.json", "r");
@@ -199,31 +204,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         if (!resp) {
             resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "listening", 0);
+            cJSON_AddBoolToObject(resp, "pairing", 0);
+            cJSON_AddStringToObject(resp, "paired", "");
             cJSON_AddArrayToObject(resp, "found");
         }
         cJSON_AddBoolToObject(resp, "ok", 1);
         send_cjson_resp(client_fd, 200, resp);
-        cJSON_Delete(resp);
-        close(client_fd);
-        return 1;
-    }
-
-    /* Route: POST /api/mantra-pair — body {"deviceId":"..."}; the fan must have been powered on in the last 30 s */
-    if (strcmp(clean_path, "/api/mantra-pair") == 0 && strcmp(method, "POST") == 0) {
-        char dev_id[64] = {0};
-        cJSON *p = body ? parse_request_params(body) : NULL;
-        cJSON *jid = p ? cJSON_GetObjectItemCaseSensitive(p, "deviceId") : NULL;
-        if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
-        else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
-        if (p) cJSON_Delete(p);
-
-        int rc = hw_mantra_pair(dev_id);
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddBoolToObject(resp, "ok", rc == 0);
-        if (rc == -5) cJSON_AddStringToObject(resp, "error", "Device not found");
-        else if (rc == -2) cJSON_AddStringToObject(resp, "error", "Device has no valid Mantra fan id");
-        else if (rc != 0) cJSON_AddStringToObject(resp, "error", "Bluetooth daemon did not accept the broadcast");
-        send_cjson_resp(client_fd, rc == 0 ? 200 : (rc == -5 ? 404 : (rc == -2 ? 400 : 500)), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

@@ -861,35 +861,6 @@ int hw_device_command_send_by_name(const char *device_name, const char *command)
     return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
 }
 
-int hw_mantra_pair(const char *device_id) {
-    if (!device_id || !device_id[0]) return -5;
-    /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
-    cJSON *root = get_device_list_cached();
-    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
-    cJSON *dev = NULL;
-    cJSON_ArrayForEach(dev, devs) {
-        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
-        char id_str[64] = {0};
-        if (j_id && cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
-        else if (j_id && cJSON_IsString(j_id) && j_id->valuestring) snprintf(id_str, sizeof(id_str), "%s", j_id->valuestring);
-        if (strcmp(id_str, device_id) == 0) break;
-    }
-    if (!dev) return -5;
-
-    uint16_t id;
-    int version;
-    if (mantra_device_params(dev, &id, &version) != 0) return -2;
-
-    /* The app sends a search, then a bind a few seconds later; hub_btstack queues them in order */
-    uint8_t adv[MANTRA_ADV_LEN];
-    int len = mantra_encode_pair_adv(0, id, mantra_next_counter(), adv);
-    int rc = mantra_send_adv(adv, len, 2000);
-    len = mantra_encode_pair_adv(1, id, mantra_next_counter(), adv);
-    if (rc == 0) rc = mantra_send_adv(adv, len, 3000);
-    printf("[*] Mantra pairing broadcast for device %s, fan id %04X: %s\n", device_id, id, rc == 0 ? "queued" : "failed");
-    return rc;
-}
-
 int hw_bthid_send_report(const uint8_t *report, size_t len) {
     if (!report || len == 0) return -1;
 
