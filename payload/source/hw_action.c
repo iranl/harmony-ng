@@ -5,6 +5,7 @@
 #include "ir_i2s.h"
 #include "config_store.h"
 #include "bt_common.h"
+#include "ble_adv_payload.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -599,7 +600,27 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         }
     }
 
-    if (is_bt) {
+    int is_ble_adv = (strncmp(keycode_str, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+
+    if (is_ble_adv) {
+        /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
+        if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+            ret = 0;
+        } else {
+            const char *hex = keycode_str + BLE_ADV_KEYCODE_PREFIX_LEN;
+            uint8_t adv[BLE_ADV_MAX_LEN];
+            int adv_len = ble_adv_parse_hex(hex, adv, NULL);
+            if (adv_len < 0) {
+                printf("[!] BLE broadcast '%s' skipped: Device '%s' (%s) has an invalid payload\n",
+                       command, dev_name[0] ? dev_name : "BLE-Device", actual_dev_id);
+                ret = -2;
+            } else {
+                char adv_cmd[8 + 2 * BLE_ADV_MAX_LEN];
+                snprintf(adv_cmd, sizeof(adv_cmd), "adv %.*s\n", 2 * adv_len, hex);
+                ret = hub_send_btstack_cmd(adv_cmd);
+            }
+        }
+    } else if (is_bt) {
         if (!bdaddr[0]) {
             pthread_mutex_unlock(&s_hw_cmd_lock);
             printf("[!] BT command '%s' skipped: Device '%s' (%s) has no host paired\n",
