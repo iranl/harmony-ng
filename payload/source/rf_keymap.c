@@ -373,6 +373,15 @@ void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
 void enqueue_elite_device_cmd_value(const char *dev_id, const char *cmd, int value) {
     if (!dev_id || !cmd) return;
     pthread_mutex_lock(&g_rf_q_mutex);
+    if (value >= 0) {
+        /* A slider sends values faster than a slow device takes them: only the newest is due */
+        for (int i = g_rf_q_tail; i != g_rf_q_head; i = (i + 1) % RF_QUEUE_SIZE) {
+            if (g_rf_queue[i].kind == RF_EV_DEVICE_CMD && g_rf_queue[i].param3[0] &&
+                strcmp(g_rf_queue[i].param1, dev_id) == 0 && strcmp(g_rf_queue[i].param2, cmd) == 0) {
+                g_rf_queue[i].kind = RF_EV_NONE;
+            }
+        }
+    }
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
     if (next != g_rf_q_tail) {
         g_rf_queue[g_rf_q_head].kind = RF_EV_DEVICE_CMD;
