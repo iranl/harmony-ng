@@ -136,6 +136,21 @@ int main(void) {
     wave_add_segment(&repeat, &CAMBRIDGE_REPEAT, 0, 0);
     check("G:Cambridge 32 Bit Dual:(0x881E057F_0x881E5F7F)(Repeat)():3", 38000, &start, &repeat);
 
+    /* NEC family still encodes; a protocol without an encoder is an error, not an NEC frame */
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    assert(ir_encode_harmony_keycode("G:Toshiba 32 Bit:(0x011B54AB)(Repeat)():3", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("G:NEC1:()(0x20DF10EF)():3", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("20DF10EF", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("G:HID 16 Bit:()(07000027)():1", 1, &buf, &len) != 0);
+    assert(ir_encode_harmony_keycode("G:Unknown 24 Bit:()(0x123456)():3", 3, &buf, &len) != 0);
+
     printf("ALL IR ENCODER TESTS PASSED!\n");
     return 0;
 }
