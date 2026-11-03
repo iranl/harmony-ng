@@ -13,10 +13,10 @@ Mantra ceiling fans and fan-lights (mAntra lighting app by HuiZhou NewEnergy) us
 
 ### Adding a fan
 
-In Devices Studio, choose **Add Device** and set **Device Type** to **Mantra fan or light (Bluetooth)**. The device gets a random fan id and a starting set of commands. Then give the fan an id in one of two ways, from the device's **Mantra Fan** card:
+In Devices Studio, choose **Add Device** and set **Device Type** to **Mantra fan or light (Bluetooth)**. The device gets a starting set of commands, and needs the fan's id before they work. Get it in one of two ways, from the device's **Mantra Fan** card:
 
-- **Pair:** switch the fan off at the wall for 5 s and back on, then press **Pair** within 30 s. The Hub broadcasts the app's pairing packets with the device's id, and the light blinks 3 times when the fan accepts it. The fan may then ignore the mAntra app until the app pairs again.
-- **Listen:** press **Listen**, then use any control in the mAntra lighting app near the Hub. The Hub decodes the fan id from the app's broadcast; choose it to save it. The fan keeps obeying the app as well.
+- **Pair:** switch the fan off at the wall for 5 s and back on, then press **Pair** within 30 s. The Hub searches until the fan answers with its id, binds with it as the app does (the light blinks 3 times) and saves the id. The mAntra app keeps working.
+- **Listen:** press **Listen**, then use any control in the mAntra lighting app near the Hub. The Hub decodes the fan id from the app's command or the fan's acknowledgement; choose it to save it.
 
 The id can also be typed in as 4 hex digits. **Mantra Model** selects the codec variant: fan and light (most models), or light only.
 
@@ -49,7 +49,9 @@ Each command is an 18-byte body:
 
 Bytes from offset 5 are whitened with a 16-bit LFSR seeded by the counter, and the Hub uses a new counter for every broadcast. The app sends the body as manufacturer data (company `0x6F4E`) and, from iOS, as a list of six 32-bit service UUIDs `4E 6F <body> 04 03 02 01`; the Hub sends the UUID-list form. The light-only variant uses `72 0F`.
 
-Pairing uses the same whitening with header `69 63` and prefix `5F 48`, and is not part of ha-ble-adv; it follows the app's broadcasts. The app sends a search (`cmd F4`), then a bind (`cmd 05`) carrying `00 01 <fan id> <fan id>`; the fan obeys the bound id from then on.
+The id belongs to the fan: every controller uses the same one. The fan acknowledges each command it accepts with a packet of its own (manufacturer data, `01 F6` in place of `06 <cmd>`, carrying the counter and the fan id).
+
+Pairing is not part of ha-ble-adv; it follows the app's broadcasts. The controller repeats a search (header `69 63`, prefix `5F 48`, same whitening, `cmd F4`). For 30 s after power-on the fan answers with `01 F5 <2 bytes> 00 01 <fan id> <fan id>`, and the controller replies with a bind (`cmd 05`) repeating `00 01 <fan id> <fan id>`, which makes the light blink. `hub_btstack` runs this exchange and reports the fan id.
 
 `POST /api/mantra-pair` and `/api/mantra-learn` are described in [API.md](API.md#67-mantra-fans).
 

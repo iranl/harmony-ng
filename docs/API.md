@@ -700,23 +700,23 @@ Pairs with target BLE remote MAC address.
 - **Request Body**: `{"bdaddr": "11:22:33:44:55:66"}`
 
 ### 6.7 Mantra Fans
-Mantra fan devices (`"type": "MANTRA"`) store the 16-bit fan id they control as `mantraId` (4 hex digits) and the codec variant as `mantraVersion` (`0` fan and light, `1` light only); both are set with `POST /ir/device`. See [BLE_BROADCAST.md](BLE_BROADCAST.md#mantra-fans).
+Mantra fan devices (`"type": "MANTRA"`) store the 16-bit fan id they control as `mantraId` (4 hex digits) and the codec variant as `mantraVersion` (`0` fan and light, `1` light only); both are set with `POST /ir/device`, usually from the result of pairing. See [BLE_BROADCAST.md](BLE_BROADCAST.md#mantra-fans).
 
 #### `POST /api/mantra-pair`
-Broadcasts the mAntra app's pairing packets with the device's `mantraId`. The fan accepts them within 30 s of being powered on.
-- **Request Body**: `{"deviceId": "12"}`
-- **Response `200 OK`**: `{"ok": true}`; `400` if the device has no valid `mantraId`, `404` if it does not exist.
+Searches for a Mantra fan powered on in the last 30 s; when it answers with its fan id, the Hub binds with that id (the light blinks 3 times). Poll `GET /api/mantra-learn` for the result.
+- **Request Body**: `{"seconds": 30}` (default 30, at most 120)
+- **Response `200 OK`**: `{"ok": true, "pairing": true}`
 
 #### `POST /api/mantra-learn`
-Opens a listening window in which the Hub decodes the fan id from the mAntra app's broadcasts.
-- **Request Body**: `{"seconds": 30}` to start (default 30, at most 120), or `{"stop": true}` to end the window.
+Opens a listening window in which the Hub decodes the fan id from the mAntra app's commands or the fan's acknowledgements.
+- **Request Body**: `{"seconds": 30}` to start (default 30, at most 120), or `{"stop": true}` to end a listening or pairing window.
 - **Response `200 OK`**: `{"ok": true, "listening": true}`
 
 #### `GET /api/mantra-learn`
-Returns the fan ids heard in the current or last listening window.
+Returns the state of the current or last window: the fan id pairing found (`paired`, empty if none) and the fan ids heard while listening.
 - **Response `200 OK`**:
   ```json
-  {"ok": true, "listening": false, "found": [{"id": "1A2B", "version": 0, "rssi": -48}]}
+  {"ok": true, "listening": false, "pairing": false, "paired": "1A2B", "pairedVersion": 0, "found": [{"id": "1A2B", "version": 0, "rssi": -48}]}
   ```
 
 ### 6.8 Remote Key Mappings

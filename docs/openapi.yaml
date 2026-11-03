@@ -1785,38 +1785,37 @@ paths:
       tags:
         - Bluetooth HID
       summary: Pair a Mantra fan
-      description: Broadcasts the mAntra app's search and bind packets with the device's mantraId. The fan accepts them within 30 s of being powered on.
+      description: Searches for a Mantra fan powered on in the last 30 s; when it answers with its fan id, the Hub binds with that id. The id appears as "paired" in GET /api/mantra-learn.
       requestBody:
-        required: true
         content:
           application/json:
             example:
-              deviceId: "12"
+              seconds: 30
       responses:
         '200':
-          description: Pairing broadcast queued
+          description: Pairing window opened
           content:
             application/json:
               example:
                 ok: true
-        '400':
-          description: Device has no valid mantraId
-        '404':
-          description: Device not found
+                pairing: true
 
   /api/mantra-learn:
     get:
       tags:
         - Bluetooth HID
-      summary: Mantra fan ids heard from the mAntra app
+      summary: Result of the Mantra listening or pairing window
       responses:
         '200':
-          description: Listening state and fan ids heard
+          description: Window state, the fan id pairing found, and fan ids heard
           content:
             application/json:
               example:
                 ok: true
                 listening: false
+                pairing: false
+                paired: "1A2B"
+                pairedVersion: 0
                 found:
                   - id: "1A2B"
                     version: 0
@@ -1824,8 +1823,8 @@ paths:
     post:
       tags:
         - Bluetooth HID
-      summary: Listen for the mAntra app's broadcasts
-      description: Opens a listening window (seconds, default 30, at most 120) in which the Hub decodes fan ids from the app's commands; {"stop":true} ends it.
+      summary: Listen for Mantra fan ids
+      description: Opens a listening window (seconds, default 30, at most 120) in which the Hub decodes fan ids from the mAntra app's commands or the fan's acknowledgements; {"stop":true} ends a listening or pairing window.
       requestBody:
         content:
           application/json:
