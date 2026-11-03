@@ -6,6 +6,7 @@
 #include "config_store.h"
 #include "bt_common.h"
 #include "ble_adv_payload.h"
+#include "mantra_codec.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -21,6 +22,71 @@
 #include <pthread.h>
 
 static hw_mqtt_button_handler_t g_mqtt_button_handler = NULL;
+
+/* Every Mantra broadcast gets a new counter, as the app's do; the counter also seeds the whitening */
+static pthread_mutex_t s_mantra_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint16_t s_mantra_counter = 0;
+
+/* The fan sets brightness and colour temperature together, so each device's last values are kept */
+#define MANTRA_STATE_MAX 16
+static struct {
+    char device_id[64];
+    int br_pct;
+    int ct_pct;
+} s_mantra_state[MANTRA_STATE_MAX];
+static int s_mantra_state_count = 0;
+
+static uint16_t mantra_next_counter(void) {
+    pthread_mutex_lock(&s_mantra_lock);
+    if (s_mantra_counter == 0) s_mantra_counter = (uint16_t)(time(NULL) ^ getpid());
+    uint16_t c = ++s_mantra_counter;
+    pthread_mutex_unlock(&s_mantra_lock);
+    return c;
+}
+
+static int mantra_send_adv(const uint8_t *adv, int len, int ms) {
+    char cmd[16 + 2 * MANTRA_ADV_LEN];
+    int n = snprintf(cmd, sizeof(cmd), "adv ");
+    for (int i = 0; i < len; i++) n += snprintf(cmd + n, sizeof(cmd) - n, "%02X", adv[i]);
+    if (ms > 0) n += snprintf(cmd + n, sizeof(cmd) - n, " %d", ms);
+    snprintf(cmd + n, sizeof(cmd) - n, "\n");
+    return hub_send_btstack_cmd(cmd);
+}
+
+/* Reads the device's mantraId (hex string) and mantraVersion. Returns 0, or -2 if the id is missing or invalid. */
+static int mantra_device_params(const cJSON *dev, uint16_t *id, int *version) {
+    const cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "mantraId");
+    if (!j_id || !cJSON_IsString(j_id) || mantra_parse_id(j_id->valuestring, id) != 0) return -2;
+    const cJSON *j_ver = cJSON_GetObjectItemCaseSensitive(dev, "mantraVersion");
+    *version = (j_ver && cJSON_IsNumber(j_ver) && j_ver->valueint == 1) ? 1 : 0;
+    return 0;
+}
+
+static int mantra_send_command(const cJSON *dev, const char *device_id, const char *action) {
+    uint16_t id;
+    int version;
+    if (mantra_device_params(dev, &id, &version) != 0) return -2;
+
+    pthread_mutex_lock(&s_mantra_lock);
+    int idx = -1;
+    for (int i = 0; i < s_mantra_state_count; i++) {
+        if (strcmp(s_mantra_state[i].device_id, device_id) == 0) { idx = i; break; }
+    }
+    if (idx < 0) {
+        idx = (s_mantra_state_count < MANTRA_STATE_MAX) ? s_mantra_state_count++ : MANTRA_STATE_MAX - 1;
+        snprintf(s_mantra_state[idx].device_id, sizeof(s_mantra_state[idx].device_id), "%s", device_id);
+        s_mantra_state[idx].br_pct = 100;
+        s_mantra_state[idx].ct_pct = 50;
+    }
+    uint8_t cmd7[7];
+    int rc = mantra_build_command(version, action, &s_mantra_state[idx].br_pct, &s_mantra_state[idx].ct_pct, cmd7);
+    pthread_mutex_unlock(&s_mantra_lock);
+    if (rc != 0) return -2;
+
+    uint8_t adv[MANTRA_ADV_LEN];
+    int len = mantra_encode_adv(version, id, mantra_next_counter(), cmd7, adv);
+    return mantra_send_adv(adv, len, 0);
+}
 
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
     g_mqtt_button_handler = handler;
@@ -601,8 +667,20 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     }
 
     int is_ble_adv = (strncmp(keycode_str, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+    int is_mantra = (strncmp(keycode_str, MANTRA_KEYCODE_PREFIX, MANTRA_KEYCODE_PREFIX_LEN) == 0);
 
-    if (is_ble_adv) {
+    if (is_mantra) {
+        /* One broadcast per press, like other BLE broadcast commands */
+        if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+            ret = 0;
+        } else {
+            ret = mantra_send_command(target_dev, actual_dev_id, keycode_str + MANTRA_KEYCODE_PREFIX_LEN);
+            if (ret != 0) {
+                printf("[!] Mantra command '%s' (%s) skipped: Device '%s' (%s) needs a valid mantraId and action\n",
+                       command, keycode_str, dev_name[0] ? dev_name : "Mantra", actual_dev_id);
+            }
+        }
+    } else if (is_ble_adv) {
         /* One broadcast per press: the receiver acts on the packet, not on how long it is held */
         if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
             ret = 0;
@@ -781,6 +859,35 @@ int hw_device_command_send_by_id(const char *device_id, const char *command) {
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
     return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
+}
+
+int hw_mantra_pair(const char *device_id) {
+    if (!device_id || !device_id[0]) return -5;
+    /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
+    cJSON *root = get_device_list_cached();
+    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs) {
+        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+        char id_str[64] = {0};
+        if (j_id && cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
+        else if (j_id && cJSON_IsString(j_id) && j_id->valuestring) snprintf(id_str, sizeof(id_str), "%s", j_id->valuestring);
+        if (strcmp(id_str, device_id) == 0) break;
+    }
+    if (!dev) return -5;
+
+    uint16_t id;
+    int version;
+    if (mantra_device_params(dev, &id, &version) != 0) return -2;
+
+    /* The app sends a search, then a bind a few seconds later; hub_btstack queues them in order */
+    uint8_t adv[MANTRA_ADV_LEN];
+    int len = mantra_encode_pair_adv(0, id, mantra_next_counter(), adv);
+    int rc = mantra_send_adv(adv, len, 2000);
+    len = mantra_encode_pair_adv(1, id, mantra_next_counter(), adv);
+    if (rc == 0) rc = mantra_send_adv(adv, len, 3000);
+    printf("[*] Mantra pairing broadcast for device %s, fan id %04X: %s\n", device_id, id, rc == 0 ? "queued" : "failed");
+    return rc;
 }
 
 int hw_bthid_send_report(const uint8_t *report, size_t len) {

@@ -3,6 +3,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "ble_adv_payload.h"
+#include "mantra_codec.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -88,7 +89,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                 int dev_is_mqtt = (strcasestr(tstr, "mqtt") != NULL || strcasestr(mstr, "mqtt") != NULL);
                                 int is_bt_cmd = dev_is_bt || (strncmp(raw_data, "G:HID", 5) == 0) || (strncmp(raw_data, "HID:", 4) == 0) || (strncmp(raw_data, "hid:", 4) == 0) || is_macro;
                                 int is_mqtt_cmd = dev_is_mqtt || (strncmp(raw_data, "G:MQTT", 6) == 0);
-                                int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+                                int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0 ||
+                                                  strncmp(raw_data, MANTRA_KEYCODE_PREFIX, MANTRA_KEYCODE_PREFIX_LEN) == 0);
 
                                 if (cmd_match) {
                                     cJSON_DeleteItemFromObjectCaseSensitive(cmd_match, "name");
@@ -195,7 +197,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     int repeats = (jrep && cJSON_IsNumber(jrep)) ? (int)jrep->valuedouble : 3;
                                     int port = (jport && cJSON_IsNumber(jport)) ? (int)jport->valuedouble : 0;
                                     if (!name[0] || !raw_data[0]) continue;
-                                    int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0);
+                                    int is_ble_cmd = (strncmp(raw_data, BLE_ADV_KEYCODE_PREFIX, BLE_ADV_KEYCODE_PREFIX_LEN) == 0 ||
+                                                      strncmp(raw_data, MANTRA_KEYCODE_PREFIX, MANTRA_KEYCODE_PREFIX_LEN) == 0);
 
                                     cJSON *cmd_match = NULL;
                                     cJSON *ci = NULL;

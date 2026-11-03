@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "../payload/source/cJSON.h"
 #include "../payload/source/hw_action.h"
+#include "../payload/source/mantra_codec.h"
 
 /* Mock device database */
 static cJSON *s_mock_device_root = NULL;
@@ -18,7 +19,13 @@ cJSON *get_device_list_cached(void) {
             "{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]},"
             "{\"id\":\"ble_dev\",\"name\":\"BleFan\",\"type\":\"BLE\",\"commands\":["
             "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
-            "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]}]}");
+            "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]},"
+            "{\"id\":\"fan\",\"name\":\"MantraFan\",\"type\":\"MANTRA\",\"mantraId\":\"C5F0\",\"mantraVersion\":0,\"commands\":["
+            "{\"name\":\"LightOn\",\"keyCode\":\"MANTRA:LIGHT_ON\"},"
+            "{\"name\":\"Speed\",\"keyCode\":\"MANTRA:SPEED:20\"},"
+            "{\"name\":\"Dance\",\"keyCode\":\"MANTRA:DANCE\"}]},"
+            "{\"id\":\"fan_noid\",\"name\":\"Unpaired\",\"type\":\"MANTRA\",\"commands\":["
+            "{\"name\":\"LightOn\",\"keyCode\":\"MANTRA:LIGHT_ON\"}]}]}");
     }
     return s_mock_device_root;
 }
@@ -130,6 +137,50 @@ int main(void) {
     assert(res == -2);
     assert(strstr(out, "adv ") == NULL);
     printf("[+] BLE broadcast commands forwarded, releases ignored, bad payloads rejected.\n");
+
+    /* 6. Mantra commands are built from the device's fan id and sent as one broadcast */
+    res = capture_send("fan", "LightOn", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    char *hex = strstr(out, "adv 02011A19054E6F");
+    assert(hex != NULL);
+    uint8_t adv[MANTRA_ADV_LEN];
+    for (int i = 0; i < MANTRA_ADV_LEN; i++) {
+        unsigned int b;
+        sscanf(hex + 4 + 2 * i, "%2x", &b);
+        adv[i] = (uint8_t)b;
+    }
+    uint16_t fan_id = 0;
+    int fan_ver = -1;
+    assert(mantra_decode_adv(adv, MANTRA_ADV_LEN, &fan_id, &fan_ver) == 1 && fan_id == 0xC5F0 && fan_ver == 0);
+    res = capture_send("fan", "Speed", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0 && strstr(out, "adv 02011A19054E6F") != NULL);
+    res = capture_send("fan", "Dance", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == -2 && strstr(out, "adv ") == NULL);
+    res = capture_send("fan_noid", "LightOn", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == -2 && strstr(out, "adv ") == NULL);
+    printf("[+] Mantra commands encoded with the device's fan id; unknown actions and missing ids rejected.\n");
+
+    /* 7. Pairing queues the search then the bind broadcast */
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    FILE *tf = tmpfile();
+    dup2(fileno(tf), STDOUT_FILENO);
+    g_dry_run = 1;
+    res = hw_mantra_pair("fan");
+    int res_noid = hw_mantra_pair("fan_noid");
+    int res_missing = hw_mantra_pair("nope");
+    g_dry_run = 0;
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    rewind(tf);
+    size_t n = fread(out, 1, sizeof(out) - 1, tf);
+    out[n] = '\0';
+    fclose(tf);
+    assert(res == 0 && res_noid == -2 && res_missing == -5);
+    char *first = strstr(out, "adv 02011A190569635F48");
+    assert(first && strstr(first, " 2000") && strstr(first + 1, "adv 02011A190569635F48"));
+    printf("[+] Mantra pairing sends search and bind; devices without an id or not found are rejected.\n");
 
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);

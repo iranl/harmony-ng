@@ -7,6 +7,8 @@
 #include "hw_action.h"
 #include "ir_i2s.h"
 #include "config_sanitize.h"
+#include "bt_common.h"
+#include "mantra_codec.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -155,6 +157,73 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         if (cmd_name[0]) cJSON_AddStringToObject(resp, "command", cmd_name);
         if (rc != 0) cJSON_AddStringToObject(resp, "error", "IR transmit failed");
         send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/mantra-learn — listen for the mAntra app's broadcasts; body {"seconds":30} or {"stop":true} */
+    if (strcmp(clean_path, "/api/mantra-learn") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *p = body ? parse_request_params(body) : NULL;
+        cJSON *j_stop = p ? cJSON_GetObjectItemCaseSensitive(p, "stop") : NULL;
+        cJSON *j_sec = p ? cJSON_GetObjectItemCaseSensitive(p, "seconds") : NULL;
+        int stop = j_stop && (cJSON_IsTrue(j_stop) || (cJSON_IsString(j_stop) && strcmp(j_stop->valuestring, "true") == 0));
+        int secs = j_sec ? (cJSON_IsNumber(j_sec) ? j_sec->valueint : atoi(j_sec->valuestring ? j_sec->valuestring : "")) : 30;
+        if (p) cJSON_Delete(p);
+
+        char cmd[48];
+        if (stop) snprintf(cmd, sizeof(cmd), "mantra_learn_stop\n");
+        else snprintf(cmd, sizeof(cmd), "mantra_learn %d\n", secs > 0 ? secs : 30);
+        int rc = hub_send_btstack_cmd(cmd);
+
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", rc == 0);
+        cJSON_AddBoolToObject(resp, "listening", rc == 0 && !stop);
+        send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: GET /api/mantra-learn — fan ids heard so far */
+    if (strcmp(clean_path, "/api/mantra-learn") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *resp = NULL;
+        FILE *f = fopen("/tmp/hub_mantra_learn.json", "r");
+        if (f) {
+            char buf[1024] = {0};
+            size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+            fclose(f);
+            buf[n] = '\0';
+            resp = cJSON_Parse(buf);
+        }
+        if (!resp) {
+            resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "listening", 0);
+            cJSON_AddArrayToObject(resp, "found");
+        }
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/mantra-pair — body {"deviceId":"..."}; the fan must have been powered on in the last 30 s */
+    if (strcmp(clean_path, "/api/mantra-pair") == 0 && strcmp(method, "POST") == 0) {
+        char dev_id[64] = {0};
+        cJSON *p = body ? parse_request_params(body) : NULL;
+        cJSON *jid = p ? cJSON_GetObjectItemCaseSensitive(p, "deviceId") : NULL;
+        if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
+        else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
+        if (p) cJSON_Delete(p);
+
+        int rc = hw_mantra_pair(dev_id);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", rc == 0);
+        if (rc == -5) cJSON_AddStringToObject(resp, "error", "Device not found");
+        else if (rc == -2) cJSON_AddStringToObject(resp, "error", "Device has no valid Mantra fan id");
+        else if (rc != 0) cJSON_AddStringToObject(resp, "error", "Bluetooth daemon did not accept the broadcast");
+        send_cjson_resp(client_fd, rc == 0 ? 200 : (rc == -5 ? 404 : (rc == -2 ? 400 : 500)), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -400,6 +469,22 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "icon");
                     if (cJSON_IsString(j_icon)) cJSON_AddStringToObject(found_dev, "icon", j_icon->valuestring);
                     else if (cJSON_IsNumber(j_icon)) cJSON_AddNumberToObject(found_dev, "icon", j_icon->valueint);
+                }
+
+                /* Mantra fan: the 16-bit id the fan obeys, stored as 4 hex digits, and the codec variant */
+                cJSON *j_mid = cJSON_GetObjectItemCaseSensitive(p, "mantraId");
+                uint16_t mantra_id;
+                if (j_mid && cJSON_IsString(j_mid) && mantra_parse_id(j_mid->valuestring, &mantra_id) == 0) {
+                    char id_hex[8];
+                    snprintf(id_hex, sizeof(id_hex), "%04X", mantra_id);
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mantraId");
+                    cJSON_AddStringToObject(found_dev, "mantraId", id_hex);
+                }
+                cJSON *j_mver = cJSON_GetObjectItemCaseSensitive(p, "mantraVersion");
+                if (j_mver) {
+                    int val = cJSON_IsNumber(j_mver) ? j_mver->valueint : (cJSON_IsString(j_mver) ? atoi(j_mver->valuestring) : 0);
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "mantraVersion");
+                    cJSON_AddNumberToObject(found_dev, "mantraVersion", val == 1 ? 1 : 0);
                 }
 
                 cJSON *j_idd = cJSON_GetObjectItemCaseSensitive(p, "interDeviceDelay");

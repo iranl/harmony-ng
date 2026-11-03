@@ -71,13 +71,22 @@ void sanitize_devices_json(cJSON *root) {
         }
         cJSON_AddStringToObject(cdev, "type", final_type);
 
+        /* BLE broadcast devices (raw packets or Mantra fans) have no IR port or repeats */
+        int is_ble = (strcasecmp(final_type, "BLE") == 0 || strcasecmp(final_type, "MANTRA") == 0);
+        if (strcasecmp(final_type, "MANTRA") == 0) {
+            cJSON *jmid = cJSON_GetObjectItemCaseSensitive(src_d, "mantraId");
+            if (jmid && cJSON_IsString(jmid) && jmid->valuestring) cJSON_AddStringToObject(cdev, "mantraId", jmid->valuestring);
+            cJSON *jmver = cJSON_GetObjectItemCaseSensitive(src_d, "mantraVersion");
+            cJSON_AddNumberToObject(cdev, "mantraVersion", (jmver && cJSON_IsNumber(jmver) && jmver->valueint == 1) ? 1 : 0);
+        }
+
         cJSON *jicon = cJSON_GetObjectItemCaseSensitive(src_d, "icon");
         if (jicon) {
             if (cJSON_IsString(jicon) && jicon->valuestring) cJSON_AddStringToObject(cdev, "icon", jicon->valuestring);
             else if (cJSON_IsNumber(jicon)) cJSON_AddNumberToObject(cdev, "icon", jicon->valueint);
         }
 
-        if (!is_bt && !is_mqtt) {
+        if (!is_bt && !is_mqtt && !is_ble) {
             cJSON *jcp = cJSON_GetObjectItemCaseSensitive(src_d, "controlPort");
             int cp_val = (jcp && cJSON_IsNumber(jcp)) ? jcp->valueint : 7;
             cJSON_AddNumberToObject(cdev, "controlPort", (cp_val >= 0 && cp_val <= 7) ? cp_val : 7);
@@ -188,7 +197,7 @@ void sanitize_devices_json(cJSON *root) {
                 const char *raw_str = (craw && craw->valuestring) ? craw->valuestring : "";
                 cJSON_AddStringToObject(ccmd, "raw", raw_str[0] ? raw_str : kc_str);
 
-                if (!is_bt && !is_mqtt) {
+                if (!is_bt && !is_mqtt && !is_ble) {
                     cJSON *cp_item = cJSON_GetObjectItemCaseSensitive(c, "port");
                     cJSON *dev_cp = cJSON_GetObjectItemCaseSensitive(cdev, "controlPort");
                     int port_val = (cp_item && cJSON_IsNumber(cp_item)) ? cp_item->valueint : (dev_cp ? dev_cp->valueint : 7);

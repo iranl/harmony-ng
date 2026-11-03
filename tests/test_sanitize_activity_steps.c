@@ -77,6 +77,23 @@ int main(void) {
     assert(cJSON_GetObjectItemCaseSensitive(s0, "delay_ms") == NULL);
     cJSON_Delete(steps5);
 
+    /* Mantra devices keep their fan id and codec version; BLE devices get no IR port or repeats */
+    cJSON *devroot = cJSON_Parse("{\"devices\":[{\"id\":\"1\",\"name\":\"Fan\",\"type\":\"MANTRA\","
+                                 "\"mantraId\":\"C5F0\",\"mantraVersion\":1,\"controlPort\":7,"
+                                 "\"commands\":[{\"name\":\"LightOn\",\"keyCode\":\"MANTRA:LIGHT_ON\"}]}]}");
+    sanitize_devices_json(devroot);
+    cJSON *fan = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(devroot, "devices"), 0);
+    cJSON *mid = cJSON_GetObjectItemCaseSensitive(fan, "mantraId");
+    cJSON *mver = cJSON_GetObjectItemCaseSensitive(fan, "mantraVersion");
+    assert(mid && strcmp(mid->valuestring, "C5F0") == 0);
+    assert(mver && mver->valueint == 1);
+    assert(cJSON_GetObjectItemCaseSensitive(fan, "controlPort") == NULL);
+    cJSON *fcmd = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(fan, "commands"), 0);
+    assert(cJSON_GetObjectItemCaseSensitive(fcmd, "port") == NULL);
+    assert(cJSON_GetObjectItemCaseSensitive(fcmd, "repeats") == NULL);
+    cJSON_Delete(devroot);
+    printf("[+] Mantra device fields preserved, IR fields omitted.\n");
+
     printf("[+] ALL sanitize_activity_steps tests passed (100%% canonical, zero duplicate keys)!\n");
     return 0;
 }
