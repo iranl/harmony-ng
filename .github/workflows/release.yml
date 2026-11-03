@@ -291,7 +291,7 @@ jobs:
               cp -rf artifacts/webui-assets/* staging_hub/www/
             fi
             cp -f build/deploy_hub.sh build/deploy_hub.ps1 build/backup_hub.sh staging_hub/
-            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py staging_hub/tools/
+            cp -f tools/root_hub_usb.py tools/harmony_hid.py tools/harmony_firmware.py tools/migrate_hub_configs.py staging_hub/tools/
             if [ -d payload/config ]; then
               mkdir -p staging_hub/config
               cp -rf payload/config/* staging_hub/config/
@@ -307,7 +307,7 @@ jobs:
             mkdir -p staging_elite/bin staging_elite/tools
             cp -rf artifacts/elite-binaries/* staging_elite/bin/
             rm -f staging_elite/bin/elite_ui.gz staging_elite/bin/elite_ui.ota.gz 2>/dev/null || true
-            cp -f elite/rcS.local staging_elite/
+            cp -f elite/rcS.local elite/init.sh elite/elite_watchdog.sh elite/safe_reboot.sh staging_elite/
             cp -f elite/deploy_elite.py elite/deploy_elite.ps1 staging_elite/
             cp -f tools/harmony_hid.py tools/harmony_firmware.py elite/setup_remote.py staging_elite/tools/
 

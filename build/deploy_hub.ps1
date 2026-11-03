@@ -117,14 +117,18 @@ $stopCmd = 'touch /tmp/harmony_stop 2>/dev/null || true; if [ -x /data/harmony/i
 & ssh @sshArgs $Target "$stopCmd"
 
 Write-Host "[*] Migrating legacy codex paths and preparing directories..." -ForegroundColor Yellow
-& ssh @sshArgs $Target "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; [ -f /data/harmony/mqtt_config.json ] && [ ! -f /data/harmony/mqtt.json ] && mv -f /data/harmony/mqtt_config.json /data/harmony/mqtt.json 2>/dev/null || true; [ -f /data/harmony/elite_remote_map.json ] && [ ! -f /data/harmony/remote_slot1_map.json ] && mv -f /data/harmony/elite_remote_map.json /data/harmony/remote_slot1_map.json 2>/dev/null || true; [ -f /data/harmony/bt_devices.json ] && [ ! -f /data/harmony/bt-devices.json ] && mv -f /data/harmony/bt_devices.json /data/harmony/bt-devices.json 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/elite_ui.ota.gz /data/elite_ui.version 2>/dev/null || true; rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/www /data/harmony/www/assets /data/harmony/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/harmony/www/assets/icons ] || ln -s /cache/www/assets/icons /data/harmony/www/assets/icons"
+& ssh @sshArgs $Target "if [ -d /data/codex ] && [ ! -L /data/codex ]; then if [ ! -d /data/harmony ]; then mv /data/codex /data/harmony 2>/dev/null || true; else cp -rn /data/codex/* /data/harmony/ 2>/dev/null || true; rm -rf /data/codex 2>/dev/null || true; fi; fi; rm -f /data/codex /data/codex_p 2>/dev/null || true; [ -f /data/harmony/mqtt_config.json ] && [ ! -f /data/harmony/mqtt.json ] && mv -f /data/harmony/mqtt_config.json /data/harmony/mqtt.json 2>/dev/null || true; [ -f /data/harmony/elite_remote_map.json ] && [ ! -f /data/harmony/remote_slot1_map.json ] && mv -f /data/harmony/elite_remote_map.json /data/harmony/remote_slot1_map.json 2>/dev/null || true; [ -f /data/harmony/bt_devices.json ] && [ ! -f /data/harmony/bt-devices.json ] && mv -f /data/harmony/bt_devices.json /data/harmony/bt-devices.json 2>/dev/null || true; rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/elite_ui.ota.gz /data/elite_ui.version 2>/dev/null || true; rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /cache/www/*.new /cache/www/assets/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; mkdir -p /data/harmony/bin /data/harmony/config /data/harmony/www /data/harmony/www/assets /data/harmony/custom_icons /etc/init.d /cache/www/assets/icons; [ -L /data/harmony/www/assets/icons ] || ln -s /cache/www/assets/icons /data/harmony/www/assets/icons"
 
 # If no devices.json exists yet, check if stock Logitech resources are present and migrate them
 $hasDev = & ssh @sshArgs $Target "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0"
 if ($hasDev -and ($hasDev.Trim() -eq "0")) {
     $hasStock = & ssh @sshArgs $Target "[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0"
-    $migScript = "$PSScriptRoot\..\tools\migrate_hub_configs.py"
-    if ($hasStock -and ($hasStock.Trim() -eq "1") -and (Test-Path $migScript)) {
+    # Release bundle: tools\ next to this script. Repository: tools\ next to build\.
+    $migScript = @("$PSScriptRoot\tools\migrate_hub_configs.py", "$PSScriptRoot\..\tools\migrate_hub_configs.py") | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($hasStock -and ($hasStock.Trim() -eq "1") -and -not $migScript) {
+        Write-Host "[!] Stock configuration found but migrate_hub_configs.py is missing: devices and activities were NOT migrated." -ForegroundColor Red
+    }
+    if ($hasStock -and ($hasStock.Trim() -eq "1") -and $migScript) {
         Write-Host "[*] Migrating stock Logitech configurations to canonical v2.0 format..." -ForegroundColor Yellow
         $tmpMig = New-Item -ItemType Directory -Path "$env:TEMP\harmony_mig_$([Guid]::NewGuid().ToString('N'))"
         & scp @scpArgs -r "${Target}:/data/resources" "$tmpMig\resources" | Out-Null
@@ -134,14 +138,20 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
             Get-ChildItem -Path "$tmpMig\out" -Filter *.json | ForEach-Object {
                 & scp @scpArgs $_.FullName "${Target}:/data/harmony/" | Out-Null
             }
-            Write-Host "[+] Stock configurations converted and uploaded successfully." -ForegroundColor Green
+            $uploaded = & ssh @sshArgs $Target "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0"
+            if ($uploaded -and ($uploaded.Trim() -eq "1")) {
+                Write-Host "[+] Stock configurations converted and uploaded successfully." -ForegroundColor Green
+            }
+            else {
+                Write-Host "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub." -ForegroundColor Red
+            }
         }
         Remove-Item -Recurse -Force $tmpMig -ErrorAction SilentlyContinue
     }
 }
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {
