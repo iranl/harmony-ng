@@ -13,7 +13,7 @@ Mantra ceiling fans and fan-lights (mAntra lighting app by HuiZhou NewEnergy) us
 
 ### Adding a fan
 
-In Devices Studio, choose **Add Device** and set **Device Type** to **Mantra fan (BLE)**. The device gets a random fan id and a starting set of commands. Then give the fan an id in one of two ways, from the device's **Mantra Fan** card:
+In Devices Studio, choose **Add Device** and set **Device Type** to **Mantra fan or light (Bluetooth)**. The device gets a random fan id and a starting set of commands. Then give the fan an id in one of two ways, from the device's **Mantra Fan** card:
 
 - **Pair:** switch the fan off at the wall for 5 s and back on, then press **Pair** within 30 s. The Hub broadcasts the app's pairing packets with the device's id, and the light blinks 3 times when the fan accepts it. The fan may then ignore the mAntra app until the app pairs again.
 - **Listen:** press **Listen**, then use any control in the mAntra lighting app near the Hub. The Hub decodes the fan id from the app's broadcast; choose it to save it. The fan keeps obeying the app as well.
@@ -70,7 +70,7 @@ BLEADV:0201060303AAFE
 
 When the command runs, `hub_daemon` checks the payload and sends `adv <hex>` to `hub_btstack` on `/tmp/hub_btstack.sock`. `adv <hex> <ms>` sets a different duration, from 200 ms to 10 s; device commands use the default.
 
-To add such a device, choose **Add Device**, set **Device Type** to **BLE broadcast (captured packets)**, and add each command in the **BLE Broadcast Command** card. The card accepts a `uuids=` line from `ble_scan` or raw advertising data hex.
+To add such a device, choose **Add Device**, set **Device Type** to **Other Bluetooth broadcast device (advanced)**, and add each command in the **BLE Broadcast Command** card. The card accepts a `uuids=` line from `ble_scan` or raw advertising data hex.
 
 ### Capturing packets (macOS)
 

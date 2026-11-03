@@ -569,9 +569,15 @@ export function createView() {
     ]);
     const typeSelect = h('select', { className: 'form-select' }, [
       h('option', { value: 'IR', text: t('device_type_ir', 'Infrared (IR)') }),
-      h('option', { value: 'MANTRA', text: t('device_type_mantra', 'Mantra fan (BLE)') }),
-      h('option', { value: 'BLE', text: t('device_type_ble', 'BLE broadcast (captured packets)') }),
+      h('option', { value: 'MANTRA', text: t('device_type_mantra', 'Mantra fan or light (Bluetooth)') }),
+      h('option', { value: 'BLE', text: t('device_type_ble', 'Other Bluetooth broadcast device (advanced)') }),
     ]);
+    const typeHints = {
+      IR: t('device_type_ir_hint', 'Controlled by an infrared remote. Learn its codes with the Hub or enter Pronto codes.'),
+      MANTRA: t('device_type_mantra_hint', 'For fans and lights that use the mAntra lighting app. The Hub creates the commands and pairs with the fan, so there is nothing to capture.'),
+      BLE: t('device_type_ble_hint', "For other devices whose app sends Bluetooth broadcasts. Capture each command from the app with tools/ble_capture on a Mac and paste it in; the Hub replays it."),
+    };
+    const typeHint = h('p', { className: 'text-dim', style: { fontSize: '12px', margin: 0 }, text: typeHints.IR });
     const versionSelect = h('select', { className: 'form-select' }, [
       h('option', { value: 0, text: t('mantra_v0', 'Fan and light (most models)') }),
       h('option', { value: 1, text: t('mantra_v1', 'Light only (v1)') }),
@@ -588,6 +594,7 @@ export function createView() {
     ]);
 
     typeSelect.onchange = () => {
+      typeHint.textContent = typeHints[typeSelect.value];
       portGroup.style.display = typeSelect.value === 'IR' ? 'flex' : 'none';
       mantraGroup.style.display = typeSelect.value === 'MANTRA' ? 'flex' : 'none';
       if (typeSelect.value === 'MANTRA' && !mfgInput.value.trim()) mfgInput.value = 'Mantra';
@@ -598,6 +605,7 @@ export function createView() {
       nameInput,
       h('label', { className: 'form-label', text: t('device_type', 'Device Type') }),
       typeSelect,
+      typeHint,
       h('label', { className: 'form-label', text: 'Manufacturer' }),
       mfgInput,
       h('label', { className: 'form-label', text: 'Model' }),
