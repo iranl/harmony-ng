@@ -27,11 +27,12 @@ export function mantraActionsFor(version) {
   return MANTRA_ACTIONS.filter(a => Number(version) !== 1 || a.v1);
 }
 
-// Returns "MANTRA:ACTION[:value]" or null if the value is missing or out of range
+// Returns "MANTRA:ACTION[:value]", or null if the value is out of range. An action left without
+// its value takes one with each send: the Elite remote shows it as a slider.
 export function mantraKeyCode(action, value) {
   const def = MANTRA_ACTIONS.find(a => a.action === action);
   if (!def) return null;
-  if (!def.value) return MANTRA_PREFIX + action;
+  if (!def.value || String(value ?? '').trim() === '') return MANTRA_PREFIX + action;
   const n = Number(value);
   if (!Number.isInteger(n) || n < def.value[0] || n > def.value[1]) return null;
   return `${MANTRA_PREFIX}${action}:${n}`;

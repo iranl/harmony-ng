@@ -37,6 +37,8 @@ A Mantra command's keyCode is `MANTRA:<action>`:
 | `ALL_OFF` | Light and fan off |
 | `RAW:<cmd>:<param>:<a0>:<a1>:<a2>:<a3>:<a4>` | Any codec command, in hex |
 
+`BRIGHTNESS`, `CT` and `SPEED` can also be stored without a value. Each send then supplies the value: the Elite remote's device browser shows such a command as a slider (hold the row, slide, release to send), and `POST /api/ir-send` takes it as `value`.
+
 The light-only variant supports `LIGHT_ON`, `LIGHT_OFF`, `BRIGHTNESS`, `CT` and `RAW`. The fan sets brightness and colour temperature in one packet, so `hub_daemon` keeps each fan's last values (100 % and 50 after a restart). The **Add Fan Command** card builds these keyCodes.
 
 ### Packet format

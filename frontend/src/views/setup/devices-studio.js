@@ -397,7 +397,7 @@ export function createView() {
       if (def?.value) {
         mantraValueInput.min = def.value[0];
         mantraValueInput.max = def.value[1];
-        mantraValueInput.placeholder = def.value[2];
+        mantraValueInput.placeholder = `${def.value[2]}, ${t('mantra_value_slider', 'empty: slider on the remote')}`;
       }
     };
     mantraActionSelect.onchange = syncValueField;
