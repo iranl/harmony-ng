@@ -581,6 +581,7 @@ Transmits an IR command either by device ID and command name, or raw Pronto hex.
     "command": "PowerToggle"
   }
   ```
+  - `value` (optional): fills in a Mantra command stored without its value, such as `MANTRA:BRIGHTNESS` (see [BLE_BROADCAST.md](BLE_BROADCAST.md)).
 - **Request by Raw Pronto**:
   ```json
   {

@@ -99,6 +99,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         int port = 7;
         int repeats = 1;
         int btn_action = HW_BTN_ACTION_TAP;
+        int value = -1;
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
@@ -131,6 +132,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *jport = cJSON_GetObjectItemCaseSensitive(req_j, "port");
             if (jport && cJSON_IsNumber(jport) && jport->valueint > 0) port = jport->valueint;
 
+            cJSON *jval = cJSON_GetObjectItemCaseSensitive(req_j, "value");
+            if (jval && cJSON_IsNumber(jval) && jval->valuedouble >= 0) value = (int)jval->valuedouble;
+
             cJSON *jrep = cJSON_GetObjectItemCaseSensitive(req_j, "repeats");
             if (jrep && cJSON_IsNumber(jrep) && jrep->valueint > 0) repeats = jrep->valueint;
 
@@ -143,6 +147,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             if (rc != 0 && strncmp(pronto_buf, "G:", 2) == 0) {
                 rc = hw_ir_send_harmony_keycode(pronto_buf, (uint8_t)port, (uint8_t)repeats);
             }
+        } else if (dev_id[0] && cmd_name[0] && value >= 0) {
+            rc = hw_device_command_send_value(dev_id, cmd_name, value);
         } else if (dev_id[0] && cmd_name[0]) {
             rc = hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
         } else {

@@ -367,6 +367,10 @@ void enqueue_elite_button(uint8_t slot, const char *name, const char *action, co
 }
 
 void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
+    enqueue_elite_device_cmd_value(dev_id, cmd, -1);
+}
+
+void enqueue_elite_device_cmd_value(const char *dev_id, const char *cmd, int value) {
     if (!dev_id || !cmd) return;
     pthread_mutex_lock(&g_rf_q_mutex);
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
@@ -377,6 +381,8 @@ void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
         g_rf_queue[g_rf_q_head].param1[sizeof(g_rf_queue[0].param1) - 1] = '\0';
         strncpy(g_rf_queue[g_rf_q_head].param2, cmd, sizeof(g_rf_queue[0].param2) - 1);
         g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
+        if (value >= 0) snprintf(g_rf_queue[g_rf_q_head].param3, sizeof(g_rf_queue[0].param3), "%d", value);
+        else g_rf_queue[g_rf_q_head].param3[0] = '\0';
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
     } else {
@@ -531,8 +537,13 @@ void *dispatch_worker(void *arg) {
             continue;
         } else if (ev.kind == RF_EV_DEVICE_CMD) {
             char body[256];
-            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                     ev.param1, ev.param2);
+            if (ev.param3[0]) {
+                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"value\":%s}",
+                         ev.param1, ev.param2, ev.param3);
+            } else {
+                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
+                         ev.param1, ev.param2);
+            }
             http_post_local(WEBUI_PORT, "/api/ir-send", body);
         } else if (ev.kind == RF_EV_ACTIVITY) {
             dispatch_activity_to_daemon(ev.param1);

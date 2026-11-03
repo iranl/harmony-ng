@@ -62,6 +62,8 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
  */
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action);
 int hw_device_command_send(const char *device_id, const char *command);
+/* Sends a command stored without its value (a Mantra "MANTRA:BRIGHTNESS") with value filled in */
+int hw_device_command_send_value(const char *target, const char *command, int value);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
 

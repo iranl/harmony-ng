@@ -259,6 +259,23 @@ static inline int mantra_build_command(int version, const char *action, int *br_
     return -1;
 }
 
+/* Whether an action names a value but leaves it out ("BRIGHTNESS" rather than "BRIGHTNESS:50"):
+ * the value then comes with each send. Returns 1 and sets the range, or 0. */
+static inline int mantra_value_range(const char *action, int *min, int *max) {
+    static const struct { const char *name; int min, max; } ranged[] = {
+        {"SPEED", 0, 31}, {"BRIGHTNESS", 1, 100}, {"CT", 0, 100},
+    };
+    if (!action) return 0;
+    for (size_t i = 0; i < sizeof(ranged) / sizeof(ranged[0]); i++) {
+        if (strcasecmp(action, ranged[i].name) == 0) {
+            *min = ranged[i].min;
+            *max = ranged[i].max;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Parse a fan id written as hex ("C5F0" or "0xC5F0"). Returns 0 and sets *id, or -1. */
 static inline int mantra_parse_id(const char *s, uint16_t *id) {
     char *end = NULL;

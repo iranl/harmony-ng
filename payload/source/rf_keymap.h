@@ -14,6 +14,8 @@ const char *map_button_code(uint8_t k0, uint8_t k1);
 void dispatch_elite_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id);
 void enqueue_elite_button(uint8_t slot, const char *name, const char *action, const char *dev_id);
 void enqueue_elite_device_cmd(const char *dev_id, const char *cmd);
+/* value >= 0 fills in a command stored without its value; -1 sends it as stored */
+void enqueue_elite_device_cmd_value(const char *dev_id, const char *cmd, int value);
 void enqueue_elite_activity(const char *act_id);
 void *dispatch_worker(void *arg);
 void handle_companion_packet(const uint8_t *pkt, size_t len);

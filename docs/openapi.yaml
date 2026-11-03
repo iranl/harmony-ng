@@ -1430,6 +1430,10 @@ paths:
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
+                value:
+                  type: integer
+                  minimum: 0
+                  description: Fills in a Mantra command stored without its value, such as MANTRA:BRIGHTNESS
                 pronto: {type: string}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}

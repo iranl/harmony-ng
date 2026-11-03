@@ -401,7 +401,8 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
     }
 }
 
-static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
+/* value >= 0 fills in a Mantra action stored without its value ("MANTRA:BRIGHTNESS") */
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action, int value) {
     if (!target || !command) return -1;
 
     /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
@@ -596,6 +597,14 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     }
 
     if (strncmp(keycode_str, "G:MQTT", 6) == 0) is_mqtt = 1;
+
+    int vmin, vmax;
+    if (value >= 0 && strncmp(keycode_str, MANTRA_KEYCODE_PREFIX, MANTRA_KEYCODE_PREFIX_LEN) == 0 &&
+        mantra_value_range(keycode_str + MANTRA_KEYCODE_PREFIX_LEN, &vmin, &vmax)) {
+        if (value < vmin || value > vmax) return -7;
+        size_t len = strlen(keycode_str);
+        snprintf(keycode_str + len, sizeof(keycode_str) - len, ":%d", value);
+    }
 
     uint8_t ir_ports = IR_PORT_ALL;
     cJSON *j_cp = cJSON_GetObjectItemCaseSensitive(target_dev, "controlPort");
@@ -846,19 +855,23 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
 }
 
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
-    return hw_device_command_send_match(target, match_mode, command, action);
+    return hw_device_command_send_match(target, match_mode, command, action, -1);
+}
+
+int hw_device_command_send_value(const char *target, const char *command, int value) {
+    return hw_device_command_send_match(target, 0, command, HW_BTN_ACTION_TAP, value);
 }
 
 int hw_device_command_send(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 0, command, HW_BTN_ACTION_TAP, -1);
 }
 
 int hw_device_command_send_by_id(const char *device_id, const char *command) {
-    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_id, 1, command, HW_BTN_ACTION_TAP, -1);
 }
 
 int hw_device_command_send_by_name(const char *device_name, const char *command) {
-    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
+    return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP, -1);
 }
 
 int hw_bthid_send_report(const uint8_t *report, size_t len) {

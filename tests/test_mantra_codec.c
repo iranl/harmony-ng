@@ -144,6 +144,16 @@ int main(void) {
     assert(mantra_decode_search_reply(reply_ad, sizeof(reply_ad), &id, &version) == 0);
     printf("Test 13 fan acknowledgement: OK\n");
 
+    /* Test 14: an action without its value takes the value with each send */
+    int lo = -1, hi = -1;
+    assert(mantra_value_range("BRIGHTNESS", &lo, &hi) == 1 && lo == 1 && hi == 100);
+    assert(mantra_value_range("speed", &lo, &hi) == 1 && lo == 0 && hi == 31);
+    assert(mantra_value_range("CT", &lo, &hi) == 1 && lo == 0 && hi == 100);
+    assert(mantra_value_range("BRIGHTNESS:50", &lo, &hi) == 0);
+    assert(mantra_value_range("LIGHT_ON", &lo, &hi) == 0);
+    assert(mantra_build_command(0, "BRIGHTNESS", &br, &ct, cmd7) == -1);
+    printf("Test 14 value ranges: OK\n");
+
     printf("ALL MANTRA CODEC TESTS PASSED!\n");
     return 0;
 }
