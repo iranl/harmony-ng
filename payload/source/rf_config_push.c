@@ -7,6 +7,7 @@
 #include "rf_push_queue.h"
 #include "elite_stock_icons.h"
 #include "custom_icon_registry.h"
+#include "mantra_codec.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,21 @@
 static bool send_as_custom_icon(const char *name) {
     if (custom_icon_registry_has_uploaded_file(name)) return true;
     return !rf_activity_icon_match(name) && custom_icon_registry_has_file(name);
+}
+
+/* Queue a command's value range when it is stored without its value, for remotes that report
+   RF_CAP_CMD_VALUES: the remote then shows it as a slider */
+static void queue_cmd_range(push_queue_t *q, uint8_t slot, int dev_idx, int cmd_idx, const cJSON *cmd) {
+    if (slot < 1 || slot > 2 || !(g_remote_versions[slot - 1].caps & RF_CAP_CMD_VALUES) || !cJSON_IsObject(cmd)) return;
+    const cJSON *jk = cJSON_GetObjectItem(cmd, "keyCode");
+    if (!cJSON_IsString(jk) || !jk->valuestring[0]) jk = cJSON_GetObjectItem(cmd, "raw");
+    if (!cJSON_IsString(jk) || strncmp(jk->valuestring, MANTRA_KEYCODE_PREFIX, MANTRA_KEYCODE_PREFIX_LEN) != 0) return;
+    int min, max;
+    if (!mantra_value_range(jk->valuestring + MANTRA_KEYCODE_PREFIX_LEN, &min, &max)) return;
+    uint8_t payload[4] = { (uint8_t)dev_idx, (uint8_t)cmd_idx, (uint8_t)min, (uint8_t)max };
+    rf_frame_t f;
+    rf_build_frame(&f, slot, RF_MSG_CMD_RANGE_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, sizeof(payload));
+    push_queue_add(q, &f);
 }
 
 /* Queue the part of an activity (kind 0) or device (kind 1) name that did not fit in its
@@ -377,6 +393,7 @@ void *config_push_worker(void *arg) {
                     strncpy((char *)&payload[3], jn->valuestring, 22);
                     rf_build_frame(&f, target_slot, RF_MSG_DEVICE_CMD_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
                     push_queue_add(&queue[t], &f);
+                    queue_cmd_range(&queue[t], target_slot, i, c, cmd);
                 }
                 c++;
             }

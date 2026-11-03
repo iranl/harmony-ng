@@ -219,6 +219,8 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x2D` | `RF_MSG_HELP_REQUEST` | Remote -> Hub | Help: repair the running activity |
 | `0x2E` | `RF_MSG_HELP_STATUS` | Hub -> Remote | Help progress, or a device to ask about (ACK'd except a repeated "started"); sent only in reply to `RF_MSG_HELP_REQUEST` |
 | `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
+| `0x30` | `RF_MSG_CMD_RANGE_CHUNK` | Hub -> Remote | Value range of a command stored without its value (ACK'd); sent only to remotes that report `RF_CAP_CMD_VALUES` |
+| `0x31` | `RF_MSG_DEVICE_CMD_VALUE` | Remote -> Hub | Send a browsed device command with a value |
 
 ### 5.2 Key Payload Structures
 
@@ -228,6 +230,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 - `payload[4]`: Capabilities, a bit mask of `RF_CAP_*`. Older remotes send `0x00`.
   - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
   - `0x02` `RF_CAP_LONG_NAMES`: understands `RF_MSG_NAME_TAIL_CHUNK`
+  - `0x04` `RF_CAP_CMD_VALUES`: understands `RF_MSG_CMD_RANGE_CHUNK` and sends `RF_MSG_DEVICE_CMD_VALUE`
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/elite_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
@@ -361,6 +364,22 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[4]`: Command index.
   - `payload[5..24]`: First 20 chars of the command name prefix.
 - The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
+
+#### `RF_MSG_CMD_RANGE_CHUNK` (`0x30`)
+- Follows the `RF_MSG_DEVICE_CMD_CHUNK` of a command stored without its value, such as a Mantra `MANTRA:BRIGHTNESS` (see [BLE_BROADCAST.md](BLE_BROADCAST.md)):
+  - `payload[0]`: Device index, as in `RF_MSG_DEVICE_CMD_CHUNK`.
+  - `payload[1]`: Command index, as in `RF_MSG_DEVICE_CMD_CHUNK`.
+  - `payload[2]`: Lowest value.
+  - `payload[3]`: Highest value.
+- The remote shows the command as a slider: a finger held still on the row for 350 ms sets the value by its position across the row, and lifting it sends `RF_MSG_DEVICE_CMD_VALUE`.
+
+#### `RF_MSG_DEVICE_CMD_VALUE` (`0x31`)
+- Remote transmits when the slider of a command stored without its value is released:
+  - `payload[0..3]`: Shortened Device ID, as in `RF_MSG_DEVICE_CMD_INDEX`.
+  - `payload[4]`: Command index.
+  - `payload[5]`: Value.
+  - `payload[6..24]`: First 19 chars of the command name prefix.
+- The Hub finds the command as for `RF_MSG_DEVICE_CMD_INDEX` and sends it with the value filled in (`POST /api/ir-send` with `value`).
 
 #### `RF_MSG_DEVICE_CMD_REQUEST` (`0x16`)
 - Remote transmits for direct device command execution:

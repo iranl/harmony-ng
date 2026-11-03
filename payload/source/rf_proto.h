@@ -66,6 +66,10 @@
 #define RF_MSG_HELP_STATUS         0x2E  /* Hub -> Remote: Help progress, or a device to ask about (ACK'd) */
 #define RF_MSG_HELP_ANSWER         0x2F  /* Remote -> Hub: whether a device is on (ACK'd) */
 
+/* Commands stored without their value (a Mantra "MANTRA:BRIGHTNESS"): the remote picks the value */
+#define RF_MSG_CMD_RANGE_CHUNK     0x30  /* Hub -> Remote: [0] device index, [1] command index, [2] min, [3] max (ACK'd) */
+#define RF_MSG_DEVICE_CMD_VALUE    0x31  /* Remote -> Hub: [0..3] device id, [4] command index, [5] value, [6..24] name prefix */
+
 /* RF_MSG_HELP_STATUS payload[0] */
 #define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */
 #define RF_HELP_STARTED            0x01  /* re-sending the activity's commands */
@@ -76,6 +80,7 @@
 /* VERSION_REPORT payload[4]: what the remote's software understands (older remotes send 0) */
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
+#define RF_CAP_CMD_VALUES          0x04  /* RF_MSG_CMD_RANGE_CHUNK */
 
 /* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
 #define RF_NAME_SIZE               40
@@ -119,7 +124,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_DEVICE_CMD_VALUE) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -129,7 +134,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_DEVICE_CMD_VALUE) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
