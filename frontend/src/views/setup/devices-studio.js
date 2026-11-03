@@ -1,4 +1,4 @@
-// Devices Studio View (IR Learn, Pronto, Command Manager, Device Timing)
+// Devices Studio View (IR Learn, Pronto, BLE Broadcast, Command Manager, Device Timing)
 import { h } from '../../utils/dom.js';
 import { store } from '../../store.js';
 import { api } from '../../api/index.js';
@@ -8,6 +8,7 @@ import { confirm } from '../../components/confirm.js';
 import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
 import { openIconPicker } from '../../components/icon-picker.js';
+import { BLE_ADV_PREFIX, BLE_PRESETS, toAdvHex } from '../../utils/ble-adv.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -189,6 +190,53 @@ export function createView() {
       ]),
     ]);
 
+    // BLE Broadcast Add: a captured advertisement the Hub rebroadcasts when the command runs
+    const bleNameInput = h('input', {
+      type: 'text',
+      className: 'form-input',
+      placeholder: 'Command Name (e.g. LightOn)',
+    });
+
+    const blePayloadInput = h('textarea', {
+      className: 'form-textarea',
+      placeholder: 'uuids=AABBCCDD,11223344,... or 02010619054E6F72...',
+      rows: 2,
+    });
+
+    const bleCard = h('div', { className: 'card' }, [
+      h('div', { className: 'card-header' }, [
+        h('h4', { className: 'card-title', text: t('ble_broadcast_title', 'BLE Broadcast Command') }),
+      ]),
+      h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('ble_broadcast_desc', 'Paste a captured advertisement: a uuids= line from tools/ble_capture/ble_scan, or raw advertising data as hex.') }),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: 'Command Name' }),
+        bleNameInput,
+      ]),
+      h('div', { className: 'form-group' }, [
+        h('label', { className: 'form-label', text: t('ble_payload', 'Advertisement') }),
+        blePayloadInput,
+      ]),
+      h('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
+        h('button', {
+          className: 'btn btn-primary',
+          text: t('save_command', 'Save to Device'),
+          onclick: async () => {
+            const name = bleNameInput.value.trim();
+            if (!name) return toast.warn('Enter command name');
+            const hex = toAdvHex(blePayloadInput.value);
+            if (!hex) return toast.warn(t('ble_payload_invalid', 'Not a valid advertisement (at most 31 bytes of AD structures)'));
+            try {
+              await api.saveCommand({ deviceId: dev.id, name, raw: BLE_ADV_PREFIX + hex });
+              toast.success(`Command ${name} saved!`);
+              refreshInventory();
+            } catch (e) {
+              toast.error(e.message);
+            }
+          },
+        }),
+      ]),
+    ]);
+
     // Device Commands List & Delete
     const cmds = dev.commands || [];
     const cmdsList = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
@@ -277,8 +325,12 @@ export function createView() {
 
     container.appendChild(header);
     container.appendChild(iconCard);
-    container.appendChild(learnCard);
-    container.appendChild(prontoCard);
+    if (dev.type === 'BLE') {
+      container.appendChild(bleCard);
+    } else {
+      container.appendChild(learnCard);
+      container.appendChild(prontoCard);
+    }
     container.appendChild(cmdsCard);
     container.appendChild(dangerCard);
   }
@@ -341,16 +393,47 @@ export function createView() {
       h('option', { value: 2, text: 'Port 2 (Blaster 1)' }),
       h('option', { value: 3, text: 'Port 3 (Blaster 2)' }),
     ]);
+    const typeSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: 'IR', text: t('device_type_ir', 'Infrared (IR)') }),
+      h('option', { value: 'BLE', text: t('device_type_ble', 'BLE broadcast') }),
+    ]);
+    const presetSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: '', text: t('ble_preset_none', 'None (add commands later)') }),
+      ...BLE_PRESETS.map(p => h('option', { value: p.id, text: p.label })),
+    ]);
+
+    const portGroup = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+      h('label', { className: 'form-label', text: 'IR Control Port' }),
+      portSelect,
+    ]);
+    const presetGroup = h('div', { style: { display: 'none', flexDirection: 'column', gap: '10px' } }, [
+      h('label', { className: 'form-label', text: t('ble_preset', 'Command Preset') }),
+      presetSelect,
+    ]);
+
+    typeSelect.onchange = () => {
+      const isBle = typeSelect.value === 'BLE';
+      portGroup.style.display = isBle ? 'none' : 'flex';
+      presetGroup.style.display = isBle ? 'flex' : 'none';
+    };
+    presetSelect.onchange = () => {
+      const preset = BLE_PRESETS.find(p => p.id === presetSelect.value);
+      if (!preset) return;
+      if (!mfgInput.value.trim()) mfgInput.value = preset.manufacturer;
+      if (!modelInput.value.trim()) modelInput.value = preset.model;
+    };
 
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
       h('label', { className: 'form-label', text: 'Device Name' }),
       nameInput,
+      h('label', { className: 'form-label', text: t('device_type', 'Device Type') }),
+      typeSelect,
       h('label', { className: 'form-label', text: 'Manufacturer' }),
       mfgInput,
       h('label', { className: 'form-label', text: 'Model' }),
       modelInput,
-      h('label', { className: 'form-label', text: 'IR Control Port' }),
-      portSelect,
+      portGroup,
+      presetGroup,
     ]);
 
     createModal({
@@ -367,14 +450,19 @@ export function createView() {
               toast.warn('Device name is required');
               return false;
             }
+            const type = typeSelect.value;
+            const preset = type === 'BLE' ? BLE_PRESETS.find(p => p.id === presetSelect.value) : null;
             try {
-              await api.saveNewDevice({
+              const res = await api.saveNewDevice({
                 name,
                 manufacturer: mfgInput.value.trim(),
                 model: modelInput.value.trim(),
-                controlPort: Number(portSelect.value) || 7,
-                type: 'IR',
+                controlPort: type === 'IR' ? (Number(portSelect.value) || 7) : 0,
+                type,
               });
+              if (preset && res?.deviceId) {
+                await api.saveBatchCommands(res.deviceId, preset.commands);
+              }
               toast.success(`Device ${name} added!`);
               await refreshInventory();
               renderDeviceSelector();

@@ -1,4 +1,5 @@
 // Devices and IR API methods for Harmony Hub
+import { BLE_ADV_PREFIX } from '../utils/ble-adv.js';
 
 export function createDevicesApi(client) {
   return {
@@ -8,9 +9,10 @@ export function createDevicesApi(client) {
       const rawDevs = data.devices || (Array.isArray(data) ? data : []);
       const normalized = rawDevs.map((dev) => {
         const rawCmds = dev.commands || [];
-        const cleanType = dev.type === 'BT' ? 'BT' : (dev.type === 'MQTT' ? 'MQTT' : 'IR');
+        const cleanType = ['BT', 'MQTT', 'BLE'].includes(dev.type) ? dev.type : 'IR';
         const isBt = cleanType === 'BT';
         const isMqtt = cleanType === 'MQTT';
+        const isBle = cleanType === 'BLE';
         const hostAddr = dev.bdaddr || dev.btHost || '';
 
         return {
@@ -37,6 +39,7 @@ export function createDevicesApi(client) {
           powerOnSequence: dev.powerOnSequence || [],
           powerOffSequence: dev.powerOffSequence || [],
           isBt,
+          isBle,
           mqttEnabled: isMqtt || !!dev.mqttEnabled,
           mqttTopic: dev.mqttTopic || '{base_topic}/button/{device}/{command}',
           mqttPulseMs: Number(dev.mqttPulseMs !== undefined ? dev.mqttPulseMs : 1000),
@@ -46,13 +49,14 @@ export function createDevicesApi(client) {
             const rawStr = c.raw || '';
             const isBtCmd = isBt || kCode.startsWith('HID:') || rawStr.startsWith('HID:');
             const isMqttCmd = isMqtt || kCode.startsWith('G:MQTT') || rawStr.startsWith('G:MQTT');
+            const isBleCmd = isBle || kCode.startsWith(BLE_ADV_PREFIX) || rawStr.startsWith(BLE_ADV_PREFIX);
             const cmdObj = {
               name: c.name || '',
               id: c.id !== undefined ? c.id : idx,
               keyCode: kCode,
               raw: rawStr
             };
-            if (!isBtCmd && !isMqttCmd) {
+            if (!isBtCmd && !isMqttCmd && !isBleCmd) {
               cmdObj.repeats = c.repeats !== undefined ? c.repeats : 3;
               cmdObj.port = c.port !== undefined ? c.port : (c.controlPort || dev.controlPort || 7);
             }
@@ -112,6 +116,11 @@ export function createDevicesApi(client) {
 
     async testLearnedIr(data) {
       return client.postJson('/api/ir-test-learned', data);
+    },
+
+    // Saves a command whose code is stored as-is, e.g. { deviceId, name, raw: 'BLEADV:...' }
+    async saveCommand(data) {
+      return client.postForm('/ir/command', data);
     },
 
     async saveLearnedCommand(data) {
