@@ -45,16 +45,18 @@ export function normalizeMantraId(input) {
   return s.toUpperCase().padStart(4, '0');
 }
 
-// Commands a new Mantra device starts with; fan speeds follow the remote's six steps
+// Commands a new Mantra device starts with; fan speeds follow the remote's six steps. Brightness,
+// ColorTemperature and FanSpeed have no value, so the Elite remote shows them as sliders.
 export function mantraDefaultCommands(version) {
   const light = [
     ['LightOn', 'LIGHT_ON'], ['LightOff', 'LIGHT_OFF'],
+    ['Brightness', 'BRIGHTNESS'], ['ColorTemperature', 'CT'],
     ['Brightness25', 'BRIGHTNESS:25'], ['Brightness50', 'BRIGHTNESS:50'],
     ['Brightness75', 'BRIGHTNESS:75'], ['Brightness100', 'BRIGHTNESS:100'],
     ['ColorWarm', 'CT:100'], ['ColorNeutral', 'CT:50'], ['ColorCool', 'CT:0'],
   ];
   const fan = [
-    ['FanOn', 'FAN_ON'], ['FanOff', 'FAN_OFF'],
+    ['FanOn', 'FAN_ON'], ['FanOff', 'FAN_OFF'], ['FanSpeed', 'SPEED'],
     ...[1, 2, 3, 4, 5, 6].map(n => [`FanSpeed${n}`, `SPEED:${Math.floor((n * 31) / 6)}`]),
     ['DirectionForward', 'FORWARD'], ['DirectionReverse', 'REVERSE'],
     ['Breeze', 'BREEZE'], ['Sleep', 'SLEEP'],
