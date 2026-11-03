@@ -652,7 +652,8 @@ void elite_wdt_init(void) {
     if (s_wdt_fd < 0) {
         s_wdt_fd = open("/dev/watchdog", O_WRONLY);
         if (s_wdt_fd >= 0) {
-            printf("[+] Hardware watchdog (/dev/watchdog) armed with 60s timeout\n");
+            /* The Elite's driver resets after 10 s without a write; elite_wdt_ping writes every 5 s */
+            printf("[+] Hardware watchdog (/dev/watchdog) armed with 10s timeout\n");
             elite_wdt_ping();
         }
     }
