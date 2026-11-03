@@ -699,7 +699,27 @@ Initiates Bluetooth scan for nearby BLE remotes.
 Pairs with target BLE remote MAC address.
 - **Request Body**: `{"bdaddr": "11:22:33:44:55:66"}`
 
-### 6.7 Remote Key Mappings
+### 6.7 Mantra Fans
+Mantra fan devices (`"type": "MANTRA"`) store the 16-bit fan id they control as `mantraId` (4 hex digits) and the codec variant as `mantraVersion` (`0` fan and light, `1` light only); both are set with `POST /ir/device`. See [BLE_BROADCAST.md](BLE_BROADCAST.md#mantra-fans).
+
+#### `POST /api/mantra-pair`
+Broadcasts the mAntra app's pairing packets with the device's `mantraId`. The fan accepts them within 30 s of being powered on.
+- **Request Body**: `{"deviceId": "12"}`
+- **Response `200 OK`**: `{"ok": true}`; `400` if the device has no valid `mantraId`, `404` if it does not exist.
+
+#### `POST /api/mantra-learn`
+Opens a listening window in which the Hub decodes the fan id from the mAntra app's broadcasts.
+- **Request Body**: `{"seconds": 30}` to start (default 30, at most 120), or `{"stop": true}` to end the window.
+- **Response `200 OK`**: `{"ok": true, "listening": true}`
+
+#### `GET /api/mantra-learn`
+Returns the fan ids heard in the current or last listening window.
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "listening": false, "found": [{"id": "1A2B", "version": 0, "rssi": -48}]}
+  ```
+
+### 6.8 Remote Key Mappings
 #### `GET /api/remote-mapping`
 Returns physical key bindings for BLE remote.
 

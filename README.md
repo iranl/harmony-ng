@@ -156,7 +156,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── deploy_hub.sh       # Hub deployment script (Bash)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
-│   ├── BLE_BROADCAST.md    # BLE broadcast commands and packet capture
+│   ├── BLE_BROADCAST.md    # BLE broadcast commands, Mantra fans and packet capture
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
 │   ├── ELITE.md            # Elite remote hardware, RF protocol, and display specs
 │   ├── ELITE_BATTERY_OPTIMIZATION.md # Power management & battery life guide
@@ -276,6 +276,7 @@ This project was originally inspired by and based on the foundational research a
 - **cJSON**: MIT License (Dave Gamble and contributors).
 - **stb libraries**: MIT / Public Domain (Sean Barrett).
 - **Dropbear**: MIT/X11-style license (Matt Johnston).
+- **ha-ble-adv** ([NicoIIT/ha-ble-adv](https://github.com/NicoIIT/ha-ble-adv)): MIT License (@NicoIIT). The Mantra fan codec in `payload/source/mantra_codec.h` follows its `mantra` codec.
 
 ### Trademark Disclaimer
 Logitech, Harmony, and associated trademarks are the property of Logitech Europe S.A.
