@@ -32,8 +32,8 @@
  * Packet body (18 bytes): 72 <0E|0F> <counter:2> 06 <cmd> 12 34 56 78 <id:2> <param> <arg0..arg4>
  * Bytes from offset 5 are whitened with a 16-bit LFSR seeded by the counter. The app sends the
  * body as manufacturer data (company 0x6F4E) and, from iOS, as a list of six 32-bit service
- * UUIDs: 4E 6F <body> 04 03 02 01. The id is the 16-bit value the fan paired with; pairing
- * (mantra_encode_pair_adv) lets the Hub choose its own.
+ * UUIDs: 4E 6F <body> 04 03 02 01. The id is the fan's own 16-bit id, which it announces when
+ * paired (mantra_encode_pair_adv, mantra_decode_search_reply).
  *
  * All functions are static inline so each translation unit gets its own copy.
  */
@@ -93,8 +93,9 @@ static inline int mantra_encode_adv(int version, uint16_t id, uint16_t counter, 
 }
 
 /* Pairing, decoded from the mAntra lighting app's broadcasts (ha-ble-adv has no pairing for
- * Mantra). Within 30 s of the fan being powered on, the app sends a search, then a bind that
- * carries the id the fan will obey from then on. Header 69 63, prefix 5F 48, same whitening. */
+ * Mantra). Within 30 s of being powered on, the fan answers a search (header 69 63, prefix 5F 48,
+ * same whitening) with its own id; the app then sends a bind repeating "00 01 <id> <id>" from the
+ * answer, and the light blinks 3 times. The id belongs to the fan: every controller uses it. */
 static inline int mantra_encode_pair_adv(int bind, uint16_t id, uint16_t counter, uint8_t out[MANTRA_ADV_LEN]) {
     uint8_t hi = (uint8_t)(id >> 8), lo = (uint8_t)id;
     uint8_t body[MANTRA_BODY_LEN] = {0x5F, 0x48, (uint8_t)(counter >> 8), (uint8_t)counter, 0x06};
@@ -108,20 +109,9 @@ static inline int mantra_encode_pair_adv(int bind, uint16_t id, uint16_t counter
     return mantra_wrap_adv(0x69, 0x63, body, out);
 }
 
-/* Unwhiten an 18-byte body and check it; sets id/version. Returns 1 for a Mantra command. */
-static inline int mantra_decode_body(const uint8_t *in, uint16_t *id, int *version) {
-    uint8_t body[MANTRA_BODY_LEN];
-    if (in[0] != 0x72 || (in[1] != 0x0E && in[1] != 0x0F)) return 0;
-    memcpy(body, in, MANTRA_BODY_LEN);
-    mantra_whiten16(body + 5, MANTRA_BODY_LEN - 5, (uint16_t)((body[2] << 8) | body[3]));
-    if (body[4] != 0x06 || body[6] != 0x12 || body[7] != 0x34 || body[8] != 0x56 || body[9] != 0x78) return 0;
-    if (id) *id = (uint16_t)((body[10] << 8) | body[11]);
-    if (version) *version = (body[1] == 0x0F);
-    return 1;
-}
-
-/* Find a Mantra command in raw advertising data (either form the app sends). */
-static inline int mantra_decode_adv(const uint8_t *ad, int ad_len, uint16_t *id, int *version) {
+/* Find the 18-byte Mantra body in raw advertising data, in either form: manufacturer data
+ * (company 0x6F4E) or the iOS-style UUID list. Returns NULL if there is none. */
+static inline const uint8_t *mantra_find_body(const uint8_t *ad, int ad_len) {
     int pos = 0;
     while (pos + 1 < ad_len) {
         int len = ad[pos];
@@ -129,16 +119,51 @@ static inline int mantra_decode_adv(const uint8_t *ad, int ad_len, uint16_t *id,
         uint8_t type = ad[pos + 1];
         const uint8_t *data = ad + pos + 2;
         int data_len = len - 1;
-        if (data_len >= 2 + MANTRA_BODY_LEN && data[0] == 0x4E && data[1] == 0x6F) {
+        if (data_len >= 2 + MANTRA_BODY_LEN && data[0] == 0x4E && data[1] == 0x6F &&
+            data[2] == 0x72 && (data[3] == 0x0E || data[3] == 0x0F)) {
             if ((type == 0xFF && data_len == 2 + MANTRA_BODY_LEN) ||
                 (type == 0x05 && data_len == 2 + MANTRA_BODY_LEN + 4 &&
                  data[20] == 0x04 && data[21] == 0x03 && data[22] == 0x02 && data[23] == 0x01)) {
-                if (mantra_decode_body(data + 2, id, version)) return 1;
+                return data + 2;
             }
         }
         pos += 1 + len;
     }
-    return 0;
+    return NULL;
+}
+
+static inline void mantra_unwhiten_body(const uint8_t *in, uint8_t body[MANTRA_BODY_LEN]) {
+    memcpy(body, in, MANTRA_BODY_LEN);
+    mantra_whiten16(body + 5, MANTRA_BODY_LEN - 5, (uint16_t)((body[2] << 8) | body[3]));
+}
+
+/* Recognise a command from a controller (06) or the fan's acknowledgement of one (01, cmd F6);
+ * both carry the family bytes and the fan id. Returns 1 and sets id/version. */
+static inline int mantra_decode_adv(const uint8_t *ad, int ad_len, uint16_t *id, int *version) {
+    const uint8_t *in = mantra_find_body(ad, ad_len);
+    if (!in) return 0;
+    uint8_t body[MANTRA_BODY_LEN];
+    mantra_unwhiten_body(in, body);
+    int from_app = (body[4] == 0x06);
+    int fan_ack = (body[4] == 0x01 && body[5] == 0xF6);
+    if (!(from_app || fan_ack) || body[6] != 0x12 || body[7] != 0x34 || body[8] != 0x56 || body[9] != 0x78) return 0;
+    if (id) *id = (uint16_t)((body[10] << 8) | body[11]);
+    if (version) *version = (in[1] == 0x0F);
+    return 1;
+}
+
+/* Recognise the fan's answer to a pairing search: 01 F5 <2 bytes> 00 01 <id> <id>.
+ * Returns 1 and sets the fan id and codec version. */
+static inline int mantra_decode_search_reply(const uint8_t *ad, int ad_len, uint16_t *id, int *version) {
+    const uint8_t *in = mantra_find_body(ad, ad_len);
+    if (!in) return 0;
+    uint8_t body[MANTRA_BODY_LEN];
+    mantra_unwhiten_body(in, body);
+    if (body[4] != 0x01 || body[5] != 0xF5 || body[8] != 0x00 || body[9] != 0x01) return 0;
+    if (body[10] != body[12] || body[11] != body[13]) return 0;
+    if (id) *id = (uint16_t)((body[10] << 8) | body[11]);
+    if (version) *version = (in[1] == 0x0F);
+    return 1;
 }
 
 static inline int mantra_round255(double v) {

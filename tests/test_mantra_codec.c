@@ -121,6 +121,29 @@ int main(void) {
     assert(mantra_decode_adv(adv, MANTRA_ADV_LEN, &id, &version) == 0); /* not a command packet */
     printf("Test 11 pairing bind layout: OK\n");
 
+    /* Test 12: the fan's answer to a search announces its id; this one is built for fan 0xC5F0 */
+    uint8_t reply[MANTRA_BODY_LEN] = {0x72, 0x0E, 0xBA, 0x0E, 0x01, 0xF5, 0x0E, 0x01, 0x00, 0x01,
+                                      0xC5, 0xF0, 0xC5, 0xF0, 0x00, 0x00, 0x00, 0x00};
+    mantra_whiten16(reply + 5, MANTRA_BODY_LEN - 5, 0xBA0E);
+    uint8_t reply_ad[2 + 2 + MANTRA_BODY_LEN] = {0x15, 0xFF, 0x4E, 0x6F};
+    memcpy(reply_ad + 4, reply, MANTRA_BODY_LEN);
+    id = 0;
+    assert(mantra_decode_search_reply(reply_ad, sizeof(reply_ad), &id, &version) == 1);
+    assert(id == 0xC5F0 && version == 0);
+    assert(mantra_decode_adv(reply_ad, sizeof(reply_ad), &id, &version) == 0); /* not a command */
+    assert(mantra_decode_search_reply(adv, MANTRA_ADV_LEN, &id, &version) == 0); /* a bind is not a reply */
+    printf("Test 12 fan search reply: OK\n");
+
+    /* Test 13: the fan's acknowledgement of a command (01 F6) also gives its id */
+    uint8_t ack[MANTRA_BODY_LEN] = {0x72, 0x0E, 0x00, 0x05, 0x01, 0xF6, 0x12, 0x34, 0x56, 0x78,
+                                    0xC5, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
+    mantra_whiten16(ack + 5, MANTRA_BODY_LEN - 5, 0x0005);
+    memcpy(reply_ad + 4, ack, MANTRA_BODY_LEN);
+    id = 0;
+    assert(mantra_decode_adv(reply_ad, sizeof(reply_ad), &id, &version) == 1 && id == 0xC5F0);
+    assert(mantra_decode_search_reply(reply_ad, sizeof(reply_ad), &id, &version) == 0);
+    printf("Test 13 fan acknowledgement: OK\n");
+
     printf("ALL MANTRA CODEC TESTS PASSED!\n");
     return 0;
 }
