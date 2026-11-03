@@ -7,6 +7,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -14,8 +16,19 @@
 #include <linux/input.h>
 #include <pthread.h>
 
-/* Puts the Hub light back to the led_mode setting hub_daemon saved. */
-void hub_led_restore(void) {
+/* Every light change by hub_rf counts here, so a delayed restore can tell that the
+   light changed again in the meantime. A setter bumps the count and writes the light
+   under s_led_lock, so a check of the count and the write that follows it cannot
+   interleave with another setter. */
+static pthread_mutex_t s_led_lock = PTHREAD_MUTEX_INITIALIZER;
+static unsigned s_led_changes;
+
+#define HUB_LED_FAILURE_S 5
+
+/* Puts the Hub light back to the led_mode setting hub_daemon saved.
+   The caller holds s_led_lock. */
+static void led_restore_locked(void) {
+    ++s_led_changes;
     char mode[32] = {0};
     FILE *f = fopen(HARMONY_SETTINGS_FILE, "r");
     if (f) {
@@ -33,6 +46,48 @@ void hub_led_restore(void) {
     hub_led_write(hub_led_mode_value(mode));
 }
 
+void hub_led_show(int value) {
+    pthread_mutex_lock(&s_led_lock);
+    ++s_led_changes;
+    hub_led_write(value);
+    pthread_mutex_unlock(&s_led_lock);
+}
+
+void hub_led_restore(void) {
+    pthread_mutex_lock(&s_led_lock);
+    led_restore_locked();
+    pthread_mutex_unlock(&s_led_lock);
+}
+
+/* Restores the light only if nothing changed it since change number shown */
+static void led_restore_if_unchanged(unsigned shown) {
+    pthread_mutex_lock(&s_led_lock);
+    if (s_led_changes == shown) led_restore_locked();
+    pthread_mutex_unlock(&s_led_lock);
+}
+
+static void *failure_restore_worker(void *arg) {
+    unsigned shown = (unsigned)(uintptr_t)arg;
+    sleep(HUB_LED_FAILURE_S);
+    led_restore_if_unchanged(shown);
+    return NULL;
+}
+
+void hub_led_show_failure(void) {
+    pthread_mutex_lock(&s_led_lock);
+    unsigned shown = ++s_led_changes;
+    hub_led_write(HUB_LED_RED_SLOW);
+    pthread_mutex_unlock(&s_led_lock);
+    pthread_t th;
+    if (pthread_create(&th, NULL, failure_restore_worker, (void *)(uintptr_t)shown) == 0) {
+        pthread_detach(th);
+    } else {
+        led_restore_if_unchanged(shown);
+    }
+}
+
+static void stop_pairing(bool timed_out);
+
 static void *pairing_timeout_worker(void *arg) {
     (void)arg;
     for (int i = 0; i < 30 && g_running && g_pairing_mode; i++) {
@@ -40,7 +95,7 @@ static void *pairing_timeout_worker(void *arg) {
     }
     if (g_pairing_mode) {
         printf("[*] Pairing mode timed out after 30s\n");
-        stop_pairing_mode();
+        stop_pairing(true);
     }
     return NULL;
 }
@@ -54,7 +109,7 @@ void start_pairing_mode(int slot) {
     rf_write_cmd(open_lock, sizeof(open_lock));
     g_pairing_mode = true;
 
-    hub_led_write(HUB_LED_RED_FAST);
+    hub_led_show(HUB_LED_GREEN_FAST);
 
     pthread_t timer_th;
     if (pthread_create(&timer_th, NULL, pairing_timeout_worker, NULL) == 0) {
@@ -62,14 +117,20 @@ void start_pairing_mode(int slot) {
     }
 }
 
-void stop_pairing_mode(void) {
+/* A timeout shows as a failure on the light; a pairing or a cancel does not */
+static void stop_pairing(bool timed_out) {
     if (g_pairing_mode) {
         g_pairing_mode = false;
         uint8_t close_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x02, 0x00, 0x00};
         printf("[*] Closing pairing lock (10 FF 80 B2 02 00 00)...\n");
         rf_write_cmd(close_lock, sizeof(close_lock));
-        hub_led_restore();
+        if (timed_out) hub_led_show_failure();
+        else hub_led_restore();
     }
+}
+
+void stop_pairing_mode(void) {
+    stop_pairing(false);
 }
 
 void *hub_button_worker(void *arg) {

@@ -294,7 +294,7 @@ export default {
     "free": "free",
     "from_activity": "From Activity",
     "front_led": "Hub Front LED",
-    "front_led_desc": "Colour of the Hub's front light while it runs normally. It flashes red while pairing a remote or updating RF firmware.",
+    "front_led_desc": "Colour of the Hub's front light while it runs normally. It flashes green while pairing a remote, alternates red and green while updating RF firmware, and flashes red slowly when either fails.",
     "front_led_off": "Off",
     "front_led_saved": "Hub light saved",
     "full_backup_bundle": "Full Backup Bundle",

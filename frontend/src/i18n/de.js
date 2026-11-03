@@ -294,7 +294,7 @@ export default {
     "free": "frei",
     "from_activity": "Ausgangsaktion",
     "front_led": "Hub Front-LED",
-    "front_led_desc": "Farbe der Front-LED des Hubs im Normalbetrieb. Beim Koppeln einer Fernbedienung oder beim RF-Firmware-Update blinkt sie rot.",
+    "front_led_desc": "Farbe der Front-LED des Hubs im Normalbetrieb. Beim Koppeln einer Fernbedienung blinkt sie grün, beim RF-Firmware-Update wechselt sie zwischen Rot und Grün, und schlägt eines davon fehl, blinkt sie langsam rot.",
     "front_led_off": "Aus",
     "front_led_saved": "Hub-LED gespeichert",
     "full_backup_bundle": "Vollständiges Backup-Paket",

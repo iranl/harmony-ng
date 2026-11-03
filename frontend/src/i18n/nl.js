@@ -294,7 +294,7 @@ export default {
     "free": "vrij",
     "from_activity": "Van activiteit",
     "front_led": "Hub LED voorzijde",
-    "front_led_desc": "Kleur van het lampje aan de voorkant van de Hub tijdens normaal gebruik. Het knippert rood tijdens het koppelen van een afstandsbediening of het bijwerken van de RF-firmware.",
+    "front_led_desc": "Kleur van het lampje aan de voorkant van de Hub tijdens normaal gebruik. Het knippert groen tijdens het koppelen van een afstandsbediening, wisselt rood en groen af tijdens het bijwerken van de RF-firmware en knippert langzaam rood als een van beide mislukt.",
     "front_led_off": "Uit",
     "front_led_saved": "Hub-lampje opgeslagen",
     "full_backup_bundle": "Volledig back-uppakket",

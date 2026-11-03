@@ -121,7 +121,8 @@ void ota_set_status(int status, bool in_prog, const char *err) {
         g_rf_ota.error_msg[0] = '\0';
     }
     pthread_mutex_unlock(&g_ota_lock);
-    if (in_prog) hub_led_write(HUB_LED_RED_FAST);
+    if (in_prog) hub_led_show(HUB_LED_ALT_SLOW);
+    else if (status < 0) hub_led_show_failure();
     else hub_led_restore();
     if (!in_prog) {
         rf_set_power_mode(RF_PM_ACTIVE);

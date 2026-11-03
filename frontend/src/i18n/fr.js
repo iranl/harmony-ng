@@ -294,7 +294,7 @@ export default {
     "free": "libre",
     "from_activity": "Depuis l'activité",
     "front_led": "LED frontale du Hub",
-    "front_led_desc": "Couleur du voyant avant du Hub en fonctionnement normal. Il clignote en rouge pendant l'appairage d'une télécommande ou la mise à jour du firmware RF.",
+    "front_led_desc": "Couleur du voyant avant du Hub en fonctionnement normal. Il clignote en vert pendant l'appairage d'une télécommande, alterne rouge et vert pendant la mise à jour du firmware RF et clignote lentement en rouge en cas d'échec.",
     "front_led_off": "Éteint",
     "front_led_saved": "Voyant du Hub enregistré",
     "full_backup_bundle": "Pack de sauvegarde complet",

@@ -50,7 +50,7 @@ export function createView() {
     h('div', { className: 'card-header' }, [
       h('h3', { className: 'card-title', text: t('front_led', 'Hub Front LED') }),
     ]),
-    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('front_led_desc', "Colour of the Hub's front light while it runs normally. It flashes red while pairing a remote or updating RF firmware.") }),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('front_led_desc', "Colour of the Hub's front light while it runs normally. It flashes green while pairing a remote, alternates red and green while updating RF firmware, and flashes red slowly when either fails.") }),
     ledSelect,
   ]);
 

@@ -294,7 +294,7 @@ export default {
     "free": "libero",
     "from_activity": "Dall'attività",
     "front_led": "LED frontale dell'Hub",
-    "front_led_desc": "Colore della luce frontale dell'Hub durante il normale funzionamento. Lampeggia in rosso durante l'abbinamento di un telecomando o l'aggiornamento del firmware RF.",
+    "front_led_desc": "Colore della luce frontale dell'Hub durante il normale funzionamento. Lampeggia in verde durante l'abbinamento di un telecomando, alterna rosso e verde durante l'aggiornamento del firmware RF e lampeggia lentamente in rosso se uno dei due non riesce.",
     "front_led_off": "Spento",
     "front_led_saved": "Luce dell'Hub salvata",
     "full_backup_bundle": "Pacchetto backup completo",

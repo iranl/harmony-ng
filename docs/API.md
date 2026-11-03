@@ -181,7 +181,7 @@ Updates global hub settings.
     "led_mode": "green"
   }
   ```
-  *Note: `led_mode` sets the Hub's front light while it runs normally: `"green"` (default), `"amber"`, `"red"` or `"off"`. The light flashes red during remote pairing and RF firmware updates, then returns to this setting. The older values `"always_on"` (green) and `"always_off"` (off) are still accepted.*
+  *Note: `led_mode` sets the Hub's front light while it runs normally: `"green"` (default), `"amber"`, `"red"` or `"off"`. The light flashes green fast while it pairs a remote and alternates red and green slowly during an RF firmware update, then returns to this setting. A pairing that times out or a failed update flashes red slowly for 5 s first. The older values `"always_on"` (green) and `"always_off"` (off) are still accepted, and `"flashing_fast"` and `"flashing_slow"` now mean green.*
   *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`).*
 - **Response `200 OK`**: `{"ok": true}`
 

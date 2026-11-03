@@ -294,7 +294,7 @@ export default {
     "free": "libre",
     "from_activity": "Desde actividad",
     "front_led": "LED frontal del Hub",
-    "front_led_desc": "Color de la luz frontal del Hub durante el funcionamiento normal. Parpadea en rojo al emparejar un mando o actualizar el firmware RF.",
+    "front_led_desc": "Color de la luz frontal del Hub durante el funcionamiento normal. Parpadea en verde al emparejar un mando, alterna rojo y verde al actualizar el firmware RF y parpadea lentamente en rojo si alguno falla.",
     "front_led_off": "Apagado",
     "front_led_saved": "Luz del Hub guardada",
     "full_backup_bundle": "Paquete de copia de seguridad completa",
