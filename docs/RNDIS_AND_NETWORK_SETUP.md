@@ -23,16 +23,39 @@ Windows 10/11 frequently fails to automatically bind the correct driver, showing
 10. Click **Next** and click **Yes** on the Update Driver Warning dialog.
 11. Device Manager will now show a new network adapter under Network Adapters.
 
+### Windows 11: device stuck as "USB Serial Device (COMx)"
+
+On current Windows 11 builds the remote can enumerate as `USB\VID_0525&PID_A4A2` and bind to the in-box serial driver (it shows up under **Ports (COM & LPT)** as `USB Serial Device (COMx)`). The steps above then do not work: the in-box RNDIS driver packages (`rndiscmp.inf`, `netrndis.inf`, `wceisvista.inf`) all declare `ExcludeFromSelect=*` in `[ControlFlags]`, so no RNDIS model appears in the driver list, not even through **Have Disk...**
+
+A working alternative is to pass the device to WSL2 with [usbipd-win](https://github.com/dorssel/usbipd-win), where the Linux kernel binds it with `cdc_ether`/`cdc_subset`:
+
+```powershell
+usbipd list
+usbipd bind --busid <BUSID>
+usbipd attach --wsl --busid <BUSID>
+```
+
+```bash
+ip -br link
+sudo ip addr add 192.168.2.2/24 dev <interface>
+sudo ip link set <interface> up
+ssh root@192.168.2.1
+```
+
+`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_elite.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
+
 ---
 
 ## 2. Static IP Configuration
 
 The USB Ethernet gadget uses fixed IP subnets on each device:
 
-| Device | Device USB IP | Recommended Host PC IP | Subnet Mask | Gateway |
-| :--- | :--- | :--- | :--- | :--- |
-| **Harmony Hub** (Stock / Recovery) | `192.168.1.1` | `192.168.1.2` | `255.255.255.0` | `192.168.1.1` |
-| **Harmony Elite 950 / Ultimate / Touch** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` | `192.168.2.1` |
+| Device | Device USB IP | Recommended Host PC IP | Subnet Mask |
+| :--- | :--- | :--- | :--- |
+| **Harmony Hub** (Stock / Recovery) | `192.168.1.1` | `192.168.1.2` | `255.255.255.0` |
+| **Harmony Elite 950 / Ultimate / Touch** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` |
+
+Do not set a default gateway on the USB adapter: the device is only reachable on its own subnet, and a gateway there can take over the PC's default route.
 
 > [!NOTE]
 > Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling and network setup as Elite, but are currently untested, try at your own risk.
@@ -44,7 +67,7 @@ The USB Ethernet gadget uses fixed IP subnets on each device:
 4. Select **Use the following IP address**:
    - **IP address**: `192.168.2.2` (for Elite) or `192.168.1.2` (for Hub)
    - **Subnet mask**: `255.255.255.0`
-   - **Default gateway**: `192.168.2.1` (for Elite) or `192.168.1.1` (for Hub)
+   - **Default gateway**: leave empty
 5. Leave DNS blank and click **OK**.
 
 ### Setting Host Static IP in Linux / WSL2:

@@ -47,10 +47,11 @@ cd harmony-ng
    ```bash
    python elite/setup_remote.py --check-usb
    ```
-3. Run the automated all-in-one setup tool:
+3. Root the remote without installing anything yet, so you can take the stock backup in section 3 first:
    ```bash
-   python elite/setup_remote.py
+   python elite/setup_remote.py --step 1
    ```
+   Running `python elite/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `elite_ui` and stops the stock UI before you have a backup.
 
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
@@ -90,6 +91,14 @@ ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/
 
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
+
+> [!WARNING]
+> **Harmony Ultimate / Touch**: the stock BusyBox on these remotes has no `tar`, `find` or `dd`, so the command above fails. Copy a static ARMv5 BusyBox to RAM first and use it for the backup. Tested on a Harmony Ultimate (skin 100, firmware 4.15.330): BusyBox 1.21.1 `busybox-armv5l` from busybox.net works; the 1.31.0 `defconfig-multiarch-musl` `busybox-armv5l` build exits with `Illegal instruction`.
+> ```bash
+> ssh root@192.168.2.1 "cat > /tmp/busybox && chmod 755 /tmp/busybox" < busybox-armv5l
+> ssh root@192.168.2.1 "cd / && /tmp/busybox tar -cf - bin cache data etc home lib linuxrc opt pkg root sbin usr" > backups/elite/golden_elite_backup.tar
+> ```
+> `/tmp` is RAM, so the BusyBox copy is gone after the next reboot.
 
 ---
 
@@ -198,3 +207,17 @@ The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
 
 - `elite_ui` binary: **~718 KB**
 - Total HarmonyNG footprint on `/data`: **< 3 MB** out of 32 MB free space.
+
+### Harmony Ultimate (2013) layout
+
+Observed on a Harmony Ultimate (hostname `juniper`, skin 100, firmware 4.15.330, kernel 2.6.37, armv5tejl). There are no separate `/data` and `/opt` partitions: the root filesystem is a unionfs with a writable UBIFS layer over a read-only SquashFS image, plus a separate `/cache` UBIFS volume.
+
+```text
+rootfs / rootfs rw
+ubi0:cache /cache ubifs rw
+/dev/mtdblock6 /mnt/root squashfs ro
+ubi0:data /mnt/data ubifs rw
+none / unionfs rw,dirs=/mnt/data=rw:/mnt/root=ro
+```
+
+`/data`, `/opt` and `/etc` are directories in that union, and everything written to them lands in the `ubi0:data` layer. The hardware factory reset (Menu + Off) wipes that layer: after a reset `/data/resources` and `/etc/tdeenable` are gone and the remote boots the stock firmware again.
