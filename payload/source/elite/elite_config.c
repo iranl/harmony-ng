@@ -516,6 +516,15 @@ void save_rf_config(void) {
                 }
                 cJSON_AddItemToArray(cmds, cJSON_CreateString(cname));
             }
+            /* [command index, min, max] for each command stored without its value */
+            cJSON *ranges = NULL;
+            for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+                const rf_dev_cmd_t *dc = &g_rf_dev_cmds[c];
+                if (dc->dev_idx != i || !dc->ranged) continue;
+                if (!ranges) ranges = cJSON_AddArrayToObject(d, "ranges");
+                int r[3] = { dc->cmd_idx, dc->vmin, dc->vmax };
+                cJSON_AddItemToArray(ranges, cJSON_CreateIntArray(r, 3));
+            }
         }
         cJSON_AddItemToArray(devs, d);
     }
@@ -547,7 +556,8 @@ void save_rf_config(void) {
 
     char *json = cJSON_PrintUnformatted(root);
     if (json) {
-        FILE *f = fopen(RF_CONFIG_FILE, "w");
+        char fs_path[256];
+        FILE *f = fopen(elite_fs_path(RF_CONFIG_FILE, fs_path, sizeof(fs_path)), "w");
         if (f) { fputs(json, f); fclose(f); }
         free(json);
     }
@@ -654,6 +664,20 @@ void load_rf_config(void) {
                     if (k > 255) break;
                     if (cJSON_IsString(jc) && jc->valuestring[0]) store_rf_dev_cmd(g_rf_device_count, k, jc->valuestring);
                     k++;
+                }
+                cJSON *jr = NULL;
+                cJSON_ArrayForEach(jr, cJSON_GetObjectItem(d, "ranges")) {
+                    if (cJSON_GetArraySize(jr) != 3) continue;
+                    int idx = cJSON_GetArrayItem(jr, 0)->valueint;
+                    int vmin = cJSON_GetArrayItem(jr, 1)->valueint, vmax = cJSON_GetArrayItem(jr, 2)->valueint;
+                    if (vmin < 0 || vmax > 255 || vmin >= vmax) continue;
+                    for (int c = 0; c < g_rf_dev_cmd_count; c++) {
+                        rf_dev_cmd_t *dc = &g_rf_dev_cmds[c];
+                        if (dc->dev_idx != g_rf_device_count || dc->cmd_idx != idx) continue;
+                        dc->ranged = true;
+                        dc->vmin = (uint8_t)vmin;
+                        dc->vmax = (uint8_t)vmax;
+                    }
                 }
                 g_rf_device_count++;
             }

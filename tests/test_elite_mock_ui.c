@@ -4,12 +4,14 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "elite/elite_state.h"
 #include "elite/elite_ui.h"
 #include "elite/elite_ui_scroll.h"
 #include "elite/elite_transition.h"
 #include "elite/elite_fb.h"
+#include "elite/elite_config.h"
 #include "elite/elite_input.h"
 #include "elite/elite_power.h"
 #include "elite/elite_rf.h"
@@ -607,6 +609,7 @@ int main(void) {
     {
         uint64_t ms = 3000000;
         g_rf_device_count = 1;
+        snprintf(g_rf_devices[0].id, sizeof(g_rf_devices[0].id), "8");
         snprintf(g_rf_devices[0].name, sizeof(g_rf_devices[0].name), "Fan");
         g_rf_dev_cmd_count = 0;
         store_rf_dev_cmd(0, 0, "LightOn");
@@ -653,6 +656,24 @@ int main(void) {
         assert(value_slider_touch_move(40, ry, ms + 50));
         assert(value_slider_touch_up(0, ry, ms + 100) && g_rf_dev_cmds[1].value == 1);
         render_screen();
+
+        /* The ranges outlive a restart: they are saved with the command names */
+        char fs_root[] = "/tmp/elite_cfg_XXXXXX", data_dir[64];
+        assert(mkdtemp(fs_root));
+        snprintf(data_dir, sizeof(data_dir), "%s/data", fs_root);
+        assert(mkdir(data_dir, 0755) == 0);
+        const char *saved_root = g_fs_root;
+        g_fs_root = fs_root;
+        save_rf_config();
+        g_rf_dev_cmds[1].ranged = false;
+        load_rf_config();
+        g_fs_root = saved_root;
+        assert(g_rf_dev_cmd_count == 2 && !g_rf_dev_cmds[0].ranged);
+        assert(g_rf_dev_cmds[1].ranged && g_rf_dev_cmds[1].vmin == 1 && g_rf_dev_cmds[1].vmax == 100);
+        assert(g_rf_dev_cmds[1].value == -1); /* the last value sent is not saved */
+        g_rf_dev_cmds[1].value = 1;
+        open_device_browser();
+        device_browser_activate(0);
 
         /* A command with its value set, or a fresh copy of the command list, is a plain row */
         value_slider_touch_down(120, ry - LIST_ROW_PITCH, ms);
