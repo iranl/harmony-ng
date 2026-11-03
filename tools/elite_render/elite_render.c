@@ -29,7 +29,7 @@ static void usage(void) {
     fprintf(stderr,
         "usage: elite_render render|sheet|compare|rasterize|font [options] -o out.png\n"
         "  --root DIR        directory laid out like the remote's filesystem\n"
-        "  --view NAME       activities|menu|hint|link|commands|devices|device|settings|pairing|not-paired|sync|\n                    help-wait|help-question|help-done (render; help views need --active)\n"
+        "  --view NAME       activities|menu|hint|link|charging|commands|devices|device|settings|pairing|not-paired|sync|\n                    help-wait|help-question|help-done (render; help views need --active)\n"
         "  --select N        selected list row (render)\n"
         "  --active ID       running activity ID\n"
         "  --theme NAME      theme in /data/themes under the root (default classic)\n"
