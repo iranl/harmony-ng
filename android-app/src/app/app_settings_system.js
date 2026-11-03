@@ -771,11 +771,16 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           }
         }
         const ledSel = document.getElementById('hubLedModeSelect');
-        if (ledSel && st.led_mode) {
-          let mode = st.led_mode;
-          if (mode === 'red') mode = 'always_on';
-          else if (mode === 'amber' || mode === 'orange') mode = 'flashing_slow';
-          ledSel.value = mode;
+        if (ledSel) {
+          /* Older settings use values the Hub still accepts; this is how the Hub
+             shows each. The Hub shows any other value as green, so the select does too. */
+          const legacy = {
+            always_on: 'green', always_off: 'off', orange: 'amber',
+            flashing_slow: 'green', flashing_fast: 'green'
+          };
+          const raw = String(st.led_mode || 'green').toLowerCase();
+          const mode = legacy[raw] || raw;
+          ledSel.value = ['green', 'amber', 'red', 'off'].includes(mode) ? mode : 'green';
         }
       }
     }).catch(() => { });
