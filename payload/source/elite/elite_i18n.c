@@ -282,7 +282,9 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_HELP_FAILED */
     { "Help could not run", "Hilfe nicht moeglich", "Aide impossible", "Help kon niet starten", "No se pudo ejecutar", "Aiuto non disponibile" },
     /* STR_HELP_BACK_CLOSES */
-    { "Back: close", "Zurueck: schliessen", "Retour : fermer", "Terug: sluiten", "Atras: cerrar", "Indietro: chiudi" }
+    { "Back: close", "Zurueck: schliessen", "Retour : fermer", "Terug: sluiten", "Atras: cerrar", "Indietro: chiudi" },
+    /* STR_CHARGING */
+    { "Charging", "Wird geladen", "En charge", "Opladen", "Cargando", "In carica" },
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

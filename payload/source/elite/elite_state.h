@@ -304,6 +304,9 @@ extern bool g_usb_connected;
 extern volatile bool g_screen_dirty;
 extern char g_notice_msg[64];
 extern uint64_t g_notice_until_ms;
+/* Low 32 bits of the monotonic ms until which the charging page shows after docking, 0 when off.
+   The power manager thread sets it, so it is one word wide. */
+extern volatile uint32_t g_charging_page_until_ms;
 
 extern uint64_t g_act_key_down_ms;   /* Activities key press time, 0 when released */
 extern bool g_act_key_long_fired;    /* the current press already opened the menu */

@@ -55,7 +55,7 @@ static int pitch(void) {
 
 static bool can_scroll(void) {
     return g_current_view == VIEW_ACTIVITIES && g_touch_enabled && !g_menu_open && !ui_help_active() &&
-           !g_link_panel_open && !g_key_hint_pending && g_confirm_pending_idx < 0 &&
+           !g_link_panel_open && !g_key_hint_pending && !ui_charging_page_active() && g_confirm_pending_idx < 0 &&
            !g_is_switching_activity && !g_is_syncing_config && !g_is_ota_updating && page_count() > 1;
 }
 
@@ -264,7 +264,7 @@ static bool list_sync(list_geom_t *g) {
 
 static bool list_can_scroll(list_geom_t *g) {
     return list_sync(g) && g_touch_enabled && !g_menu_open && !ui_help_active() && !g_link_panel_open &&
-           !g_key_hint_pending && !g_is_switching_activity && !g_is_syncing_config && !g_is_ota_updating &&
+           !g_key_hint_pending && !ui_charging_page_active() && !g_is_switching_activity && !g_is_syncing_config && !g_is_ota_updating &&
            g->count > g->rows;
 }
 

@@ -93,6 +93,20 @@ static void sig_handler(int sig) {
     g_running = false;
 }
 
+/* Physical keys whose press only closed an overlay; their repeats and release are dropped so the
+   hub never gets a button-up, or a repeat, for a press it was not sent */
+static uint8_t s_swallowed_keys[(KEY_CNT + 7) / 8];
+
+static bool key_swallowed(int code) {
+    return code >= 0 && code < KEY_CNT && (s_swallowed_keys[code / 8] & (1u << (code % 8)));
+}
+
+static void key_set_swallowed(int code, bool on) {
+    if (code < 0 || code >= KEY_CNT) return;
+    if (on) s_swallowed_keys[code / 8] |= (uint8_t)(1u << (code % 8));
+    else s_swallowed_keys[code / 8] &= (uint8_t)~(1u << (code % 8));
+}
+
 /* Touch controllers that report their own coordinate range (the Clearpad TM2176
  * on the Harmony Ultimate reports 0-782 x 0-1009) are scaled to the framebuffer.
  * Controllers whose range is already close to screen pixels are left as they are. */
@@ -556,6 +570,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        /* Redraw once when the charging page times out */
+        if (g_charging_page_until_ms != 0 && !ui_charging_page_active()) {
+            g_charging_page_until_ms = 0;
+            g_screen_dirty = true;
+        }
+
         static bool s_notice_active = false;
         if (g_notice_until_ms > 0) {
             if (now_ms < g_notice_until_ms) {
@@ -621,9 +641,18 @@ int main(int argc, char **argv) {
                         continue;
                     }
 
+                    /* A new press means the release was missed; it acts as usual */
+                    if (key_swallowed(ev.code)) {
+                        key_set_swallowed(ev.code, ev.value == 2);
+                        if (ev.value != 1) continue;
+                    }
+
                     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) continue;
 
-                    if (ev.value == 1 && ui_key_hint_dismiss()) continue;
+                    if (ev.value == 1 && (ui_charging_page_dismiss() || ui_key_hint_dismiss())) {
+                        key_set_swallowed(ev.code, true);
+                        continue;
+                    }
                     if (ev.value == 1) ui_link_panel_dismiss(); /* the key still acts */
                     /* The open menu takes the D-pad, OK and Back; releases pass through */
                     if (g_menu_open && ev.value != 0 && ui_menu_handle_key(ev.code)) continue;

@@ -526,6 +526,8 @@ void sig_deep_sleep_handler(int sig) {
     enter_kernel_suspend();
 }
 
+#define CHARGING_PAGE_MS 4000
+
 void *power_manager(void *arg) {
     (void)arg;
     uint64_t last_standby_heartbeat_ms = 0;
@@ -548,6 +550,9 @@ void *power_manager(void *arg) {
                         s_last_dock_wake_ms = now_ms;
                         log_power_debug("[*] Power source transition (%s -> %s), waking display\n",
                                         s_last_dock_psrc, psrc);
+                        if (strcmp(s_last_dock_psrc, "battery") == 0)
+                            g_charging_page_until_ms = (uint32_t)(now_ms + CHARGING_PAGE_MS) | 1; /* 0 means off */
+                        g_screen_dirty = true; /* the header's battery changes even when the screen is on */
                         strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
                         s_last_batt_sample_ms = 0;
                         read_elite_battery();

@@ -150,6 +150,7 @@ void handle_screen_touch_tap(int x, int y) {
     int dy = y - g_touch_down_y;
     bool is_tap = (abs(dx) <= tap_slop && abs(dy) <= tap_slop);
 
+    if (ui_charging_page_dismiss()) return;
     if (ui_key_hint_dismiss()) return;
     if (ui_link_panel_dismiss()) return;
     if (ui_help_active()) {
@@ -400,7 +401,7 @@ void handle_navigation_key(int code, int value) {
     if (code == 364) {
         if (!g_cap_buttons_enabled) return;
         if (value == 1) {
-            if (ui_key_hint_dismiss()) return;
+            if (ui_charging_page_dismiss() || ui_key_hint_dismiss()) return;
             g_act_key_down_ms = get_monotonic_ms();
             g_act_key_long_fired = false;
         }
@@ -408,7 +409,7 @@ void handle_navigation_key(int code, int value) {
     }
     if (code == 102) {
         if (!g_cap_buttons_enabled || value != 1) return;
-        if (ui_key_hint_dismiss()) return;
+        if (ui_charging_page_dismiss() || ui_key_hint_dismiss()) return;
         if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
         if (!is_remote_paired()) {
             show_notice("Remote not paired - pair first", 2500);

@@ -130,6 +130,7 @@ bool g_usb_connected = false;   /* Dynamic physical USB cable detection */
 volatile bool g_screen_dirty = true;
 char g_notice_msg[64] = {0};
 uint64_t g_notice_until_ms = 0;
+volatile uint32_t g_charging_page_until_ms = 0;
 
 uint64_t g_act_key_down_ms = 0;
 bool g_act_key_long_fired = false;
