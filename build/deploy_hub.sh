@@ -137,11 +137,12 @@ deploy_file_if_changed() {
     # The Hub's flash filesystems are small (/data is 5 MB). The new copy goes next to the old one
     # as $dst.new when both fit; otherwise it is staged in RAM (/tmp) and replaces the old copy,
     # which frees its space because the services using it are stopped. Either way the copy is
-    # checked against the local MD5 before it replaces anything.
+    # checked against the local MD5 before it replaces anything. Stock BusyBox 1.13.4 lacks df, so
+    # without the extended BusyBox the free space is unknown and the side-by-side copy is tried.
     local size_kb avail_kb old_kb
     size_kb=$(( ($(wc -c < "$src") + 1023) / 1024 ))
     read -r avail_kb old_kb < <(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
-        "mkdir -p '$ddir' 2>/dev/null; rm -f '${dst}.new' 2>/dev/null; a=\$(df -k '$ddir' 2>/dev/null | tail -1 | awk '{print \$(NF-2)}'); o=0; [ -f '$dst' ] && o=\$(du -k '$dst' 2>/dev/null | cut -f1); echo \"\${a:-0} \${o:-0}\"") || true
+        "mkdir -p '$ddir' 2>/dev/null; rm -f '${dst}.new' 2>/dev/null; a=\$(df -k '$ddir' 2>/dev/null | awk 'END {print \$(NF-2)}'); o=0; [ -f '$dst' ] && o=\$(ls -l '$dst' 2>/dev/null | awk '{print int((\$5+1023)/1024)}'); echo \"\${a:-unknown} \${o:-0}\"") || true
     case "${avail_kb:-}" in ''|*[!0-9]*) avail_kb="" ;; esac  # unknown: try the side-by-side copy
     case "${old_kb:-}" in ''|*[!0-9]*) old_kb=0 ;; esac
     local need_kb=$((size_kb + 32))  # flash filesystems need room beyond the file's own size
