@@ -132,7 +132,7 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
         Write-Host "[*] Migrating stock Logitech configurations to canonical v2.0 format..." -ForegroundColor Yellow
         $tmpMig = New-Item -ItemType Directory -Path "$env:TEMP\harmony_mig_$([Guid]::NewGuid().ToString('N'))"
         & scp @scpArgs -r "${Target}:/data/resources" "$tmpMig\resources" | Out-Null
-        python $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Null
+        python $migScript --src "$tmpMig\resources" --dest "$tmpMig\out"
         if (Test-Path "$tmpMig\out\config\devices.json") {
             & scp @scpArgs "$tmpMig\out\config\*" "${Target}:/data/harmony/config/" | Out-Null
             Get-ChildItem -Path "$tmpMig\out" -Filter *.json | ForEach-Object {
