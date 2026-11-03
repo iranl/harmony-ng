@@ -2,6 +2,7 @@
 #include "config_store.h"
 #include "bt_migrate.h"
 #include "config_sanitize.h"
+#include "hub_led.h"
 #include "bt_common.h"
 #include "cJSON.h"
 
@@ -539,7 +540,7 @@ int config_store_get_settings(struct hub_settings *settings) {
     settings->hub_name[sizeof(settings->hub_name) - 1] = '\0';
     settings->ntp_server[0] = '\0';
     strncpy(settings->timezone, "UTC", sizeof(settings->timezone) - 1);
-    strncpy(settings->led_mode, "always_on", sizeof(settings->led_mode) - 1);
+    strncpy(settings->led_mode, HUB_LED_DEFAULT_MODE, sizeof(settings->led_mode) - 1);
 
     const char *settings_path = HARMONY_SETTINGS_FILE;
     char *raw = read_file_text(settings_path, 64 * 1024);
@@ -589,7 +590,7 @@ int config_store_save_settings(const struct hub_settings *settings) {
     cJSON_AddStringToObject(root, "hub_name", settings->hub_name[0] ? settings->hub_name : "Harmony Hub");
     cJSON_AddStringToObject(root, "ntp_server", settings->ntp_server);
     cJSON_AddStringToObject(root, "timezone", settings->timezone[0] ? settings->timezone : "UTC");
-    cJSON_AddStringToObject(root, "led_mode", settings->led_mode[0] ? settings->led_mode : "always_on");
+    cJSON_AddStringToObject(root, "led_mode", settings->led_mode[0] ? settings->led_mode : HUB_LED_DEFAULT_MODE);
 
     char *out = cJSON_Print(root);
     cJSON_Delete(root);

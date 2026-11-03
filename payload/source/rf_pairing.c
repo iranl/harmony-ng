@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "rf_pairing.h"
 #include "rf_spi.h"
+#include "hub_led.h"
+#include "config_store.h"
+#include "cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,27 +14,23 @@
 #include <linux/input.h>
 #include <pthread.h>
 
-void set_hub_led(int state) {
-    int fd = open("/sys/class/input/input0/led", O_WRONLY);
-    if (fd >= 0) {
-        /* On Harmony Hub Atheros input0: 0 is Off, 1 is Solid Red, 2 is Fast Blink, 3 is Slow Blink */
-        const char *val = (state == 0) ? "0\n" : "1\n";
-        ssize_t w = write(fd, val, strlen(val));
-        (void)w;
-        close(fd);
+/* Puts the Hub light back to the led_mode setting hub_daemon saved. */
+void hub_led_restore(void) {
+    char mode[32] = {0};
+    FILE *f = fopen(HARMONY_SETTINGS_FILE, "r");
+    if (f) {
+        char buf[4096];
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[n] = '\0';
+        cJSON *root = cJSON_Parse(buf);
+        cJSON *item = root ? cJSON_GetObjectItemCaseSensitive(root, "led_mode") : NULL;
+        if (cJSON_IsString(item) && item->valuestring) {
+            snprintf(mode, sizeof(mode), "%s", item->valuestring);
+        }
+        cJSON_Delete(root);
     }
-}
-
-static void *led_blink_worker(void *arg) {
-    (void)arg;
-    int state = 0;
-    while (g_running && g_pairing_mode) {
-        set_hub_led(state ? 1 : 0); /* Blink Red during pairing */
-        state = !state;
-        usleep(250000);
-    }
-    set_hub_led(1); /* Solid Red when ready */
-    return NULL;
+    hub_led_write(hub_led_mode_value(mode));
 }
 
 static void *pairing_timeout_worker(void *arg) {
@@ -55,10 +54,7 @@ void start_pairing_mode(int slot) {
     rf_write_cmd(open_lock, sizeof(open_lock));
     g_pairing_mode = true;
 
-    pthread_t led_th;
-    if (pthread_create(&led_th, NULL, led_blink_worker, NULL) == 0) {
-        pthread_detach(led_th);
-    }
+    hub_led_write(HUB_LED_RED_FAST);
 
     pthread_t timer_th;
     if (pthread_create(&timer_th, NULL, pairing_timeout_worker, NULL) == 0) {
@@ -72,7 +68,7 @@ void stop_pairing_mode(void) {
         uint8_t close_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x02, 0x00, 0x00};
         printf("[*] Closing pairing lock (10 FF 80 B2 02 00 00)...\n");
         rf_write_cmd(close_lock, sizeof(close_lock));
-        set_hub_led(1);
+        hub_led_restore();
     }
 }
 

@@ -503,7 +503,7 @@ int main(int argc, char **argv) {
         perror("pthread_create hub_button_worker");
     }
 
-    set_hub_led(1);
+    hub_led_restore();
 
     /* Optional CLI flags */
     if (argc > 1) {

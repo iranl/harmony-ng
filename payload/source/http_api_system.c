@@ -10,6 +10,7 @@
 #include "resource_cache.h"
 #include "cJSON.h"
 #include "timezone_db.h"
+#include "hub_led.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,23 +53,7 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
 
 void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
-    int lfd = open("/sys/class/input/input0/led", O_WRONLY);
-    if (lfd >= 0) {
-        const char *val = "1\n";
-        if (strcasecmp(s->led_mode, "always_off") == 0 || strcasecmp(s->led_mode, "off") == 0) {
-            val = "0\n";
-        } else if (strcasecmp(s->led_mode, "flashing_fast") == 0 || strcasecmp(s->led_mode, "fast") == 0) {
-            val = "2\n";
-        } else if (strcasecmp(s->led_mode, "flashing_slow") == 0 || strcasecmp(s->led_mode, "slow") == 0 ||
-                   strcasecmp(s->led_mode, "amber") == 0 || strcasecmp(s->led_mode, "orange") == 0) {
-            val = "3\n";
-        } else {
-            val = "1\n";
-        }
-        ssize_t w = write(lfd, val, strlen(val));
-        (void)w;
-        close(lfd);
-    }
+    hub_led_write(hub_led_mode_value(s->led_mode));
     if (s->timezone[0]) {
         char posix_tz[64];
         timezone_to_posix(s->timezone, posix_tz, sizeof(posix_tz));
@@ -683,7 +668,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddBoolToObject(resp, "dry_run", g_dry_run ? 1 : 0);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
-        cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : "always_on");
+        cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -732,7 +717,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON_AddBoolToObject(resp, "dry_run", g_dry_run ? 1 : 0);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
-        cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : "always_on");
+        cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : HUB_LED_DEFAULT_MODE);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
