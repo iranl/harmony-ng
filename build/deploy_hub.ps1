@@ -132,18 +132,29 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
         Write-Host "[*] Migrating stock Logitech configurations to canonical v2.0 format..." -ForegroundColor Yellow
         $tmpMig = New-Item -ItemType Directory -Path "$env:TEMP\harmony_mig_$([Guid]::NewGuid().ToString('N'))"
         & scp @scpArgs -r "${Target}:/data/resources" "$tmpMig\resources" | Out-Null
-        python $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Null
-        if (Test-Path "$tmpMig\out\config\devices.json") {
-            & scp @scpArgs "$tmpMig\out\config\*" "${Target}:/data/harmony/config/" | Out-Null
-            Get-ChildItem -Path "$tmpMig\out" -Filter *.json | ForEach-Object {
-                & scp @scpArgs $_.FullName "${Target}:/data/harmony/" | Out-Null
-            }
-            $uploaded = & ssh @sshArgs $Target "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0"
-            if ($uploaded -and ($uploaded.Trim() -eq "1")) {
-                Write-Host "[+] Stock configurations converted and uploaded successfully." -ForegroundColor Green
+        $pyCmd = if (Get-Command "python3" -ErrorAction SilentlyContinue) { "python3" } elseif (Get-Command "python" -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command "py" -ErrorAction SilentlyContinue) { "py" } else { $null }
+        if (-not $pyCmd) {
+            Write-Host "[!] Python is not installed or not in PATH: devices and activities could not be migrated." -ForegroundColor Red
+        }
+        else {
+            & $pyCmd $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Null
+            if (Test-Path "$tmpMig\out\config\devices.json") {
+                Get-ChildItem -Path "$tmpMig\out\config" -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
+                    & scp @scpArgs $_.FullName "${Target}:/data/harmony/config/" | Out-Null
+                }
+                Get-ChildItem -Path "$tmpMig\out" -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
+                    & scp @scpArgs $_.FullName "${Target}:/data/harmony/" | Out-Null
+                }
+                $uploaded = & ssh @sshArgs $Target "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0"
+                if ($uploaded -and ($uploaded.Trim() -eq "1")) {
+                    Write-Host "[+] Stock configurations converted and uploaded successfully." -ForegroundColor Green
+                }
+                else {
+                    Write-Host "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub." -ForegroundColor Red
+                }
             }
             else {
-                Write-Host "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub." -ForegroundColor Red
+                Write-Host "[!] Stock configuration conversion failed: devices.json was not generated." -ForegroundColor Red
             }
         }
         Remove-Item -Recurse -Force $tmpMig -ErrorAction SilentlyContinue

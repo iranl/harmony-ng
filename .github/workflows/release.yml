@@ -307,7 +307,7 @@ jobs:
             mkdir -p staging_elite/bin staging_elite/tools
             cp -rf artifacts/elite-binaries/* staging_elite/bin/
             rm -f staging_elite/bin/elite_ui.gz staging_elite/bin/elite_ui.ota.gz 2>/dev/null || true
-            cp -f elite/rcS.local elite/init.sh elite/elite_watchdog.sh elite/safe_reboot.sh staging_elite/
+            cp -f elite/rcS.local elite/init.sh elite/elite_watchdog.sh elite/safe_reboot.sh elite/factory_reset.sh staging_elite/
             cp -f elite/deploy_elite.py elite/deploy_elite.ps1 staging_elite/
             cp -f tools/harmony_hid.py tools/harmony_firmware.py elite/setup_remote.py staging_elite/tools/
 

@@ -177,18 +177,26 @@ if [ "$HAS_DEV" = "0" ]; then
         echo "[*] Migrating stock Logitech configurations to canonical v2.0 format..."
         TMP_MIG=$(mktemp -d 2>/dev/null || mktemp -d -t 'harmig')
         scp -O -r "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}:/data/resources" "$TMP_MIG/" 2>/dev/null || true
-        PY_BIN="python3"
-        command -v python3 >/dev/null 2>&1 || PY_BIN="python"
-        $PY_BIN "$MIG_SCRIPT" --src "$TMP_MIG/resources" --dest "$TMP_MIG/out" 2>/dev/null || true
-        if [ -f "$TMP_MIG/out/config/devices.json" ]; then
-            scp -O "${SSH_OPTS[@]}" "$TMP_MIG/out/config/"* "${HUB_USER}@${HUB_HOST}:/data/harmony/config/" 2>/dev/null || true
-            for _mf in "$TMP_MIG/out/"*.json; do
-                [ -f "$_mf" ] && scp -O "${SSH_OPTS[@]}" "$_mf" "${HUB_USER}@${HUB_HOST}:/data/harmony/" 2>/dev/null || true
-            done
-            if [ "$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0" 2>/dev/null)" = "1" ]; then
-                echo "[+] Stock configurations converted and uploaded successfully."
+        PY_BIN=""
+        for _py in python3 python; do
+            if command -v "$_py" >/dev/null 2>&1; then PY_BIN="$_py"; break; fi
+        done
+        if [ -z "$PY_BIN" ]; then
+            echo "[!] Python is not installed or not in PATH: devices and activities could not be migrated."
+        else
+            $PY_BIN "$MIG_SCRIPT" --src "$TMP_MIG/resources" --dest "$TMP_MIG/out" || true
+            if [ -f "$TMP_MIG/out/config/devices.json" ]; then
+                scp -O "${SSH_OPTS[@]}" "$TMP_MIG/out/config/"* "${HUB_USER}@${HUB_HOST}:/data/harmony/config/" 2>/dev/null || true
+                for _mf in "$TMP_MIG/out/"*.json; do
+                    [ -f "$_mf" ] && scp -O "${SSH_OPTS[@]}" "$_mf" "${HUB_USER}@${HUB_HOST}:/data/harmony/" 2>/dev/null || true
+                done
+                if [ "$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0" 2>/dev/null)" = "1" ]; then
+                    echo "[+] Stock configurations converted and uploaded successfully."
+                else
+                    echo "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub."
+                fi
             else
-                echo "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub."
+                echo "[!] Stock configuration conversion failed: devices.json was not generated."
             fi
         fi
         rm -rf "$TMP_MIG" 2>/dev/null || true
