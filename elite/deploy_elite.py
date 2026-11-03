@@ -182,15 +182,18 @@ def main() -> None:
         print(f"[*] Syncing /data/{factory_reset_script.name} (MD5 check)...")
         deploy_file_if_changed(factory_reset_script, f"/data/{factory_reset_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
-    # Theme packages: each built-in theme replaces its older version; other themes stay
+    # Theme packages: each built-in theme replaces its older version; other themes stay. Each is
+    # unpacked beside the old one and swapped in, since elite_ui may be drawing from it.
     themes_dir = BIN_DIR / "themes"
     if themes_dir.is_dir():
         for theme in sorted(p for p in themes_dir.iterdir() if (p / "theme.json").is_file()):
             print(f"[*] Syncing theme /data/themes/{theme.name}...")
             tar = subprocess.run(["tar", "-c", "-C", str(theme), "."], capture_output=True, check=True).stdout
+            d, tmp = f"/data/themes/{theme.name}", f"/data/themes/.{theme.name}.new"  # the theme list skips dot names
             res = subprocess.run(["ssh"] + ssh_opts + [target,
-                                  f"mkdir -p /data/themes && rm -rf /data/themes/{theme.name} && mkdir /data/themes/{theme.name} && "
-                                  f"(/data/busybox tar -x -C /data/themes/{theme.name} 2>/dev/null || tar -x -C /data/themes/{theme.name})"],
+                                  f"mkdir -p /data/themes && rm -rf {tmp} && mkdir {tmp} && "
+                                  f"(/data/busybox tar -x -C {tmp} 2>/dev/null || tar -x -C {tmp}) && "
+                                  f"rm -rf {d} && mv {tmp} {d}"],
                                  input=tar, capture_output=True)
             if res.returncode != 0:
                 print(f"[-] Failed syncing theme {theme.name}: {res.stderr.decode(errors='replace').strip()}")
