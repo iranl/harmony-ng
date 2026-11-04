@@ -113,11 +113,15 @@ static void touch_probe_range(int fd) {
     }
 }
 
+/* Maps 0..max onto 0..out-1 so that every pixel gets an equal share of the raw range
+ * (for 0..782 onto 240 pixels, about 3.26 counts each, the last pixel included). */
 static int touch_scale(int v, int max, int out) {
     if (max <= 0) return v;
     if (v < 0) v = 0;
     if (v > max) v = max;
-    return v * (out - 1) / max;
+    int scaled = v * out / (max + 1);
+    if (scaled >= out) scaled = out - 1;
+    return scaled;
 }
 
 int main(int argc, char **argv) {
