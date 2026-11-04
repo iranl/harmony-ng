@@ -480,9 +480,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             printf("[*] Remote RF TIME_SYNC received: epoch=%u tz=%s\n", epoch, tz_str);
             if (epoch > 1500000000U) {
-                struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
-                settimeofday(&tv, NULL);
-                set_msp430_rtc(epoch);
+                /* Only touch the clock and the RTC (an I2C write) when they are off */
+                long drift = (long)time(NULL) - (long)epoch;
+                if (drift > 1 || drift < -1) {
+                    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+                    settimeofday(&tv, NULL);
+                    set_msp430_rtc(epoch);
+                }
             }
             if (tz_str[0]) {
                 char full_tz[64] = {0};
@@ -493,10 +497,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
                     setenv("TZ", g_timezone_str, 1);
                     tzset();
-                    FILE *ftz = fopen("/etc/TZ", "w");
-                    if (ftz) {
-                        fprintf(ftz, "%s\n", full_tz);
-                        fclose(ftz);
+                    /* /etc is on flash: write it only when something changed */
+                    if (tz_changed || access("/etc/TZ", F_OK) != 0) {
+                        FILE *ftz = fopen("/etc/TZ", "w");
+                        if (ftz) {
+                            fprintf(ftz, "%s\n", full_tz);
+                            fclose(ftz);
+                        }
                     }
                     if (tz_changed) {
                         save_settings_conf();

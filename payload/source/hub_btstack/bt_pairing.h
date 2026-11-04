@@ -23,13 +23,17 @@ extern time_t g_user_scan_end;
 uint16_t get_target_host_hid_cid(void);
 bool is_any_host_connected(void);
 bool is_host_connected(const bd_addr_t addr);
+/* Per-host "disconnect requested" flag; a null address applies to every known host */
+bool host_manual_disconnect(const bd_addr_t addr);
+void set_host_manual_disconnect(const bd_addr_t addr, bool on);
+/* Host to reconnect after a drop: the current target host, else the pinned one */
+bool get_reconnect_target(bd_addr_t out);
 host_conn_t * register_host_target(const bd_addr_t addr, const char *name);
 void update_bthid_status(void);
 void update_status(const char *state_str);
 int get_pinned_target(bd_addr_t addr);
 int get_pinned_host_target(bd_addr_t addr);
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str);
-const char *get_default_host_name(void);
 void init_known_hosts(void);
 void try_connect_host_addr(const bd_addr_t addr);
 void try_connect_host(void);

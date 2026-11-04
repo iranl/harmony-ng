@@ -181,7 +181,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                                                                    connection_handle, NULL);
                 app_state = APP_ENCRYPTING;
                 update_status("connecting");
-                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 sm_request_pairing(connection_handle);
             }
             break;
@@ -247,7 +246,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 log_msg(msg);
                 bool host_cleared = false;
                 for (int i = 0; i < MAX_HOST_CONNS; i++) {
-                    if (g_hosts[i].acl_handle == disconn_handle || (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].connected)) {
+                    if (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].acl_handle == disconn_handle) {
                         g_hosts[i].connected = false;
                         g_hosts[i].hid_cid = 0;
                         g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
@@ -262,9 +261,11 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                     char cur_act[64] = "-1";
                     read_current_activity(cur_act, sizeof(cur_act));
-                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    /* No auto-reconnect in pairing mode: the reconnecting host would end it (any HID open
+                     * clears g_host_pairing) and take the pending device link. pair_host_off reconnects. */
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_pinned_host_target(tgt)) {
+                        if (get_reconnect_target(tgt) && !host_manual_disconnect(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host idle disconnect during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
@@ -321,6 +322,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t lk_addr;
             reverse_bd_addr(&packet[2], lk_addr);
             memcpy(g_host_addr, lk_addr, sizeof(bd_addr_t));
+            if (g_host_pairing) {
+                memcpy(g_pairing_new_key_addr, lk_addr, sizeof(bd_addr_t));
+                g_pairing_new_key_valid = true;
+            }
             if (tlv_impl) {
                 tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)lk_addr, sizeof(bd_addr_t));
             }
@@ -381,8 +386,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         update_bthid_status();
                         char cur_act[64] = "-1";
                         read_current_activity(cur_act, sizeof(cur_act));
-                        if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
-                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr)) {
+                        if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr) && !host_manual_disconnect(conn_addr)) {
                                 start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
                             }
                         } else {
@@ -394,23 +399,36 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     g_host_connecting = false;
                     stop_host_reconnect();
                     g_host_connected = true;
-                    g_host_pairing = false;
-                    gap_discoverable_control(0);
-                    g_host_hid_cid = cid;
+                    /* Only the host that got a new link key during pairing mode is the new
+                     * pairing. A known host that connects on its own while pairing mode is on
+                     * used to end pairing mode and take the pending device link. */
+                    bool new_pairing = g_host_pairing && g_pairing_new_key_valid &&
+                                       memcmp(g_pairing_new_key_addr, conn_addr, 6) == 0;
+                    if (new_pairing) {
+                        pairing_timeout_cancel();
+                        g_host_pairing = false;
+                        g_pairing_new_key_valid = false;
+                        gap_discoverable_control(0);
+                    }
+
                     memcpy(g_host_addr, conn_addr, 6);
 
                     host_conn_t *h = register_host_target(conn_addr, NULL);
                     if (h) {
                         h->connected = true;
                         h->hid_cid = cid;
+                        h->manual_disconnect = false;
                     }
+                    /* Keep the active link on the chosen target, as everywhere else: a second host
+                     * connecting must not take over keys meant for the activity's host */
+                    g_host_hid_cid = get_target_host_hid_cid();
 
                     char msg[128];
                     snprintf(msg, sizeof(msg), "Classic HID Host CONNECTED: %s (cid=0x%04x)",
                              bd_addr_to_str(conn_addr), cid);
                     log_msg(msg);
 
-                    FILE *pf = fopen("/tmp/bt_pending_pair_device", "r");
+                    FILE *pf = new_pairing ? fopen("/tmp/bt_pending_pair_device", "r") : NULL;
                     if (pf) {
                         char link_dev_id[64] = {0};
                         if (fgets(link_dev_id, sizeof(link_dev_id), pf)) {
@@ -427,15 +445,22 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     if (tlv_impl) {
                         tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)conn_addr, sizeof(bd_addr_t));
                     }
-                    FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
-                    if (hf) {
-                        fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
-                        fclose(hf);
+                    /* The pinned host (fallback target for BT devices without an address) is the
+                     * last host paired; every connection used to rewrite it, so whichever host
+                     * connected last became the default for all devices */
+                    if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
+                        FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
+                        if (hf) {
+                            fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
+                            fclose(hf);
+                        }
                     }
-                    FILE *btf = fopen("/data/harmony/bthid_target", "w");
-                    if (btf) {
-                        fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
-                        fclose(btf);
+                    if (new_pairing || access("/data/harmony/bthid_target", F_OK) != 0) {
+                        FILE *btf = fopen("/data/harmony/bthid_target", "w");
+                        if (btf) {
+                            fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
+                            fclose(btf);
+                        }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
@@ -495,9 +520,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                     char cur_act[64] = "-1";
                     read_current_activity(cur_act, sizeof(cur_act));
-                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_pinned_host_target(tgt)) {
+                        if (get_reconnect_target(tgt) && !host_manual_disconnect(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host HID closed during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
@@ -544,6 +569,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     fprintf(tf, "%s\n", bd_addr_to_str(remote_device.addr));
                     fclose(tf);
                 }
+                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 app_state = APP_W4_HIDS;
                 hids_host_connect(connection_handle, handle_gatt_client_event, protocol_mode, &hids_cid);
             } else {
@@ -569,6 +595,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 log_msg("Link re-encryption complete -> Remote READY");
                 app_state = APP_READY;
                 update_status("ready");
+                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {
                 log_msg("Re-encryption failed: key missing on remote. Deleting local bond and re-pairing...");
                 sm_event_reencryption_complete_get_address(packet, addr);

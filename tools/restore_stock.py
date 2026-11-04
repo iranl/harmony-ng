@@ -288,7 +288,10 @@ def restore_stock_configuration(
     if not bb_bin:
         local_bb = find_busybox_binary()
         if not local_bb:
-            raise FileNotFoundError("Local MIPS BusyBox binary with tar support not found.")
+            raise FileNotFoundError(
+                "Local MIPS BusyBox binary with tar support not found "
+                "(bin/busybox of the release bundle, or build it with ./build/build_busybox.sh mips)."
+            )
         print(f"    + Staging temporary BusyBox ({local_bb.stat().st_size:,} bytes) to /tmp/busybox...")
         with open(local_bb, "rb") as f_in:
             proc = subprocess.run(

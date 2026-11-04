@@ -264,43 +264,63 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
         if pnp_dev:
             name = pnp_dev.get("FriendlyName") or pnp_dev.get("InstanceId") or "RNDIS Gadget"
             problem = pnp_dev.get("Problem")
+            dev_class = pnp_dev.get("Class") or ""
 
-            # Check if driver has failed / missing (Problem != CM_PROB_NONE / Code 28)
-            if problem and problem != "CM_PROB_NONE":
+            # Check if device is bound to serial driver or in PnP problem state
+            is_serial = (dev_class == "Ports" or "serial" in name.lower())
+            has_problem = (problem and problem != "CM_PROB_NONE")
+
+            if is_serial or has_problem:
                 state.mode = UsbMode.DRIVER_ERROR
                 state.driver_ok = False
                 state.description = name
                 state.error_code = 28
-                state.error_details = (
-                    f"RNDIS hardware detected ({name}), but Windows driver failed to bind "
-                    f"(Problem: {problem}). Exclamation mark in Device Manager."
-                )
+                if is_serial:
+                    state.error_details = (
+                        f"Remote ({name}) is bound to Windows USB Serial driver (COM port) instead of "
+                        f"an RNDIS network adapter. Run tools/setup_remote_driver.ps1 to install RNDIS driver."
+                    )
+                else:
+                    state.error_details = (
+                        f"RNDIS hardware detected ({name}), but Windows driver failed to bind "
+                        f"(Problem: {problem}). Exclamation mark in Device Manager."
+                    )
+                state.remediation_cmd = "powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1"
                 return state
 
-            # Driver installed properly -> find matching network adapter
-            state.mode = UsbMode.USB_ETHERNET
-            state.driver_ok = True
-            state.description = name
-
-            # Match adapter
+            # Find matching network adapter
             matching_adapter = None
             for ad in adapters:
                 ad_name = ad.get("Name", "")
                 ad_desc = ad.get("InterfaceDescription", "")
                 ad_lower = f"{ad_name} {ad_desc}".lower()
-                if "ndis" in ad_lower or "rndis" in ad_lower or "ethernet gadget" in ad_lower:
+                if "ndis" in ad_lower or "rndis" in ad_lower or "ethernet gadget" in ad_lower or "acer" in ad_lower:
                     matching_adapter = ad
                     break
 
-
-
             if not matching_adapter and adapters:
                 for ad in adapters:
-                    ad_name = ad.get("Name", "")
                     ad_desc = ad.get("InterfaceDescription", "")
                     if "usb" in ad_desc.lower() or "gadget" in ad_desc.lower():
                         matching_adapter = ad
                         break
+
+            if not matching_adapter:
+                if not (state.http_reachable or state.ssh_reachable):
+                    state.mode = UsbMode.DRIVER_ERROR
+                    state.driver_ok = False
+                    state.description = name
+                    state.error_code = 28
+                    state.error_details = (
+                        f"RNDIS hardware detected ({name}), but no matching network adapter found in Windows. "
+                        f"Run tools/setup_remote_driver.ps1 to install driver."
+                    )
+                    state.remediation_cmd = "powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1"
+                    return state
+
+            state.mode = UsbMode.USB_ETHERNET
+            state.driver_ok = True
+            state.description = name
 
             if matching_adapter:
                 state.adapter_name = matching_adapter.get("Name")
@@ -319,7 +339,7 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 target_alias = state.adapter_name or "Remote NDIS Compatible Device"
                 state.remediation_cmd = (
                     f'New-NetIPAddress -InterfaceAlias "{target_alias}" '
-                    f'-IPAddress 192.168.2.2 -PrefixLength 24 -DefaultGateway 192.168.2.1'
+                    f'-IPAddress 192.168.2.2 -PrefixLength 24'
                 )
             return state
 
@@ -430,11 +450,9 @@ def print_usb_state_banner(state: UsbState, label: str = "USB DEVICE & NETWORK S
             print(f" Details:          {state.error_details}")
         print("-" * box_w)
         print(" [!] ACTION REQUIRED (WINDOWS RNDIS DRIVER):")
-        print("     1. Open Device Manager (Win+X -> Device Manager).")
-        print("     2. Find device under 'Other devices' with exclamation mark.")
-        print("     3. Right-click -> Update driver -> Browse my computer -> Let me pick.")
-        print("     4. Select 'Network adapters' -> Manufacturer: 'Microsoft'.")
-        print("     5. Model: 'Remote NDIS Compatible Device' -> Click Next.")
+        print("     Run the automated setup tool (elevated):")
+        print("         powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1")
+        print("     Or let setup_remote.py trigger driver installation automatically.")
 
     else:
         print(" Connection Mode:  [-] DISCONNECTED")

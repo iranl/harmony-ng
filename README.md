@@ -28,7 +28,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
 | **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) |
-| **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(Ultimate/Touch/Pro 2400 fully supported, untested on physical hardware)* |
+| **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
 | **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/ELITE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
@@ -89,7 +89,7 @@ The table below details every major functional component for both the **Harmony 
 | **Bluetooth Engine** | **BlueZ 4 Stack**: Legacy BlueZ daemon with heavy D-Bus overhead, prone to random disconnections and pairing drops. | **BlueKitchen BTstack**: Direct UART HCI transport (`/dev/ttyATH0`), persistent pairing table, media keys, and automated reconnect daemon (`bt_reconnect.sh`). |
 | **RF Remote Engine** | **Proprietary eQuad Protocol**: Managed by `hal_hub` via `/dev/rfspi`. Locked to stock remote pairings and cloud IDs. | **Clean-Room CC2544 Driver**: Direct `/dev/rfspi` SPI Report `0x12` & `0x20` framing with ACK tracking, dynamic pairing, instantaneous bidirectional synchronization with Elite remotes, and native decoding for Harmony Companion & Smart Control screenless remotes with dual-slot activity mappings and MQTT event mirroring. |
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` tracks discrete device power states, interlocks, step queues, and delays, with live WebSocket and MQTT progress feeds. |
-| **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (`homeassistant/remote/` and `homeassistant/select/`). Full REST & WebSocket API. |
+| **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (activity `select`, plus `sensor` and `button` entities; Home Assistant's MQTT integration has no `remote` platform). Full REST & WebSocket API. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). Automatic reboot loop counter resets Hub into Safe Recovery mode if 5 boot crashes occur. |
 
 ### Harmony Elite 950 Handheld Remote
@@ -114,7 +114,7 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
    - Instant bidirectional RF state sync (time, activities, settings, device browser) over CC2544 Report `0x12`/`0x20`.
    - Two-tier hardware power management (Light and Deep standby with motion wake).
    - Remote settings backup to Hub and over-the-air (OTA) firmware updating.
-   - *Harmony Ultimate (Home) and Harmony Touch share this architecture and are supported by the same binaries.*
+   - *Harmony Ultimate, Ultimate Home and Harmony Touch share this architecture and are supported by the same binaries (tested on a Harmony Ultimate, 2013).*
 
 2. **Harmony Companion & Harmony Smart Control (Screenless Remotes)**:
    - **Native zero-rooting RF support**: Communicate directly with the Hub via CC2544 2.4 GHz eQuad protocol. No USB connection, rooting, or custom firmware installation required on the remote.
@@ -148,12 +148,11 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 ├── build/                  # Cross-compilation toolchains, build, and deploy scripts
 │   ├── cc2544/             # GPLv2 kernel driver for CC2544 RF transceiver
 │   ├── patches/            # BTstack patches
-│   ├── build_apk.ps1       # Android APK build and package script
+│   ├── build_apk.py        # Android APK build and package script
 │   ├── build_btstack.sh    # MIPS32 BTstack cross-compilation script
-│   ├── build_webui.ps1     # Frontend Vite builder and gzip compressor
+│   ├── build_webui.py      # Frontend Vite builder and gzip compressor
 │   ├── compile_all.sh      # Master Hub userspace binary build script
-│   ├── deploy_hub.ps1      # Hub deployment script (PowerShell)
-│   └── deploy_hub.sh       # Hub deployment script (Bash)
+│   └── deploy_hub.py       # Hub deployment script (cross-platform Python)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
@@ -165,8 +164,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
 ├── elite/                  # Elite 950 remote userspace binaries and deployment tools
 │   ├── bootstrap_serial.py # Hardware serial bootstrap
-│   ├── deploy_elite.ps1    # Remote deployment script (PowerShell)
-│   ├── deploy_elite.py     # Remote deployment script (Python)
+│   ├── deploy_elite.py     # Remote deployment script (cross-platform Python)
 │   ├── setup_remote.py     # Multi-step remote provisioning tool
 │   └── rcS.local           # Elite safe-boot script with panic recovery
 ├── payload/
@@ -219,7 +217,7 @@ npm run build
 The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing an Elite remote connected over USB or transferring files over SSH.
 
 ### Automated Extraction During Hub Deployment
-When running `./build/deploy_hub.ps1` or `./build/deploy_hub.sh`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_99_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
+When running `python build/deploy_hub.py <HUB_IP>`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
 
 ### Standalone Extraction Using Python
 You can also extract icons or build the WebUI archive manually at any time on any platform (Windows, macOS, Linux):
@@ -233,7 +231,7 @@ python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icon
 ```
 
 ### How It Works
-1. Downloads official Elite firmware bundle (`elite_99_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
+1. Downloads official Elite firmware bundle (`elite_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem using Python.
 3. Indexes and extracts all 1,347+ PNG assets across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
 4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon dynamically unpacks icons into `/tmp/www/assets/icons` on first request.
@@ -242,7 +240,7 @@ python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icon
 
 ## Backup & Restoration Safety (No Gzip)
 
-All Hub partition backups and stock configuration restores (`tools/root_hub_usb.py`, `tools/restore_stock.py`, `build/backup_hub.sh`) use **plain uncompressed tar archives** (`.tar`, not `.tar.gz`).
+All Hub partition backups and stock configuration restores (`tools/root_hub_usb.py`, `tools/restore_stock.py`, `tools/backup_hub.py`) use **plain uncompressed tar archives** (`.tar`, not `.tar.gz`).
 
 - **Why no gzip?** Embedded MIPS BusyBox has limited RAM and flash bandwidth. Streaming uncompressed tar avoids CPU exhaustion, reduces write cycles, and prevents out-of-memory kernel panics during recovery.
 - **Stock Backup Location**: `backups/stock_hub_backup_<timestamp>.tar` (and `backups/stock_hub_backup_latest.tar`).

@@ -281,31 +281,84 @@ void rf_send_hub_activity_sync(const char *act_id) {
     rf_send_hub_activity_sync_seq(act_id, ++g_tx_seq);
 }
 
+#define TZ_CACHE_TTL_S       86400  /* 24 hours */
+#define OTA_CACHE_TTL_S      86400  /* 24 hours */
+
+static char s_cached_tz_prefix[TZ_MAX_RF_PREFIX_LEN + 1];
+static uint8_t s_cached_tz_len = 0;
+static uint32_t s_tz_cache_epoch = 0;
+
+static char s_cached_ota_ver[32] = {0};
+static bool s_cached_ota_avail = false;
+static uint32_t s_ota_cache_epoch = 0;
+
+void rf_sync_cache_invalidate(void) {
+    s_tz_cache_epoch = 0;
+    s_ota_cache_epoch = 0;
+}
+
+static void get_cached_tz_prefix(uint32_t now, char *out_prefix, uint8_t *out_len) {
+    if (s_tz_cache_epoch == 0 || now < s_tz_cache_epoch || now - s_tz_cache_epoch >= TZ_CACHE_TTL_S) {
+        FILE *ftz = fopen("/etc/TZ", "r");
+        char tz[64] = TZ_DEFAULT_POSIX;
+        if (ftz) {
+            if (fgets(tz, sizeof(tz), ftz)) {
+                char *nl = strchr(tz, '\n'); if (nl) *nl = '\0';
+                char *cr = strchr(tz, '\r'); if (cr) *cr = '\0';
+            }
+            fclose(ftz);
+        }
+        timezone_get_rf_prefix(tz, s_cached_tz_prefix, sizeof(s_cached_tz_prefix));
+        s_cached_tz_len = (uint8_t)strlen(s_cached_tz_prefix);
+        if (s_cached_tz_len > TZ_MAX_RF_PREFIX_LEN) s_cached_tz_len = TZ_MAX_RF_PREFIX_LEN;
+        s_tz_cache_epoch = now;
+    }
+    memcpy(out_prefix, s_cached_tz_prefix, s_cached_tz_len);
+    out_prefix[s_cached_tz_len] = '\0';
+    *out_len = s_cached_tz_len;
+}
+
 uint8_t rf_check_update_flags(uint8_t slot) {
     uint8_t flags = 0;
     int idx = (slot == 2) ? 1 : 0;
 
-    /* 1. Config update check: Hub config_version differs from remote (including remote v0 after factory reset) */
+    /* 1. Config update check (pure in-memory): Hub config_version differs from remote */
     if (g_config_version > 0 && g_config_version != g_remote_versions[idx].config_version) {
         flags |= 0x01;
     }
 
-    /* 2. OTA update check: Hub has OTA file in /data/harmony with higher version than remote */
-    const char *ota_path = "/data/harmony/elite_ui.ota.gz";
-    if (access(ota_path, R_OK) != 0) ota_path = "/cache/elite_ui.ota.gz";
-    if (access(ota_path, R_OK) == 0) {
-        FILE *vf = fopen("/data/harmony/elite_ui.version", "r");
-        if (!vf) vf = fopen("/data/harmony/VERSION", "r");
-        if (vf) {
-            char ota_ver[32] = {0};
-            if (fgets(ota_ver, sizeof(ota_ver), vf)) {
-                char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
-                nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
-                if (harmony_version_compare(ota_ver, g_remote_versions[idx].sw_version) > 0) {
-                    flags |= 0x02;
+    /* 2. OTA update check (cached from flash with 24h TTL) */
+    uint32_t now = (uint32_t)time(NULL);
+    if (s_ota_cache_epoch == 0 || now < s_ota_cache_epoch || now - s_ota_cache_epoch >= OTA_CACHE_TTL_S) {
+        const char *ota_path = "/data/harmony/elite_ui.ota.gz";
+        if (access(ota_path, R_OK) != 0) ota_path = "/cache/elite_ui.ota.gz";
+        if (access(ota_path, R_OK) == 0) {
+            FILE *vf = fopen("/data/harmony/elite_ui.version", "r");
+            if (!vf) vf = fopen("/data/harmony/VERSION", "r");
+            if (vf) {
+                char ota_ver[32] = {0};
+                if (fgets(ota_ver, sizeof(ota_ver), vf)) {
+                    char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
+                    nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
+                    strncpy(s_cached_ota_ver, ota_ver, sizeof(s_cached_ota_ver) - 1);
+                    s_cached_ota_ver[sizeof(s_cached_ota_ver) - 1] = '\0';
+                    s_cached_ota_avail = true;
                 }
+                fclose(vf);
+            } else {
+                s_cached_ota_avail = false;
+                s_cached_ota_ver[0] = '\0';
             }
-            fclose(vf);
+        } else {
+            s_cached_ota_avail = false;
+            s_cached_ota_ver[0] = '\0';
+        }
+        s_ota_cache_epoch = now;
+    }
+
+    if (s_cached_ota_avail && s_cached_ota_ver[0]) {
+        if (harmony_version_compare(s_cached_ota_ver, g_remote_versions[idx].sw_version) > 0) {
+            flags |= 0x02;
         }
     }
     return flags;
@@ -320,27 +373,29 @@ void rf_notify_update_available(uint8_t target_slot) {
     uint8_t payload[25] = {0};
     payload[0] = flags;
     payload[1] = g_config_version;
-    FILE *vf = fopen("/data/harmony/elite_ui.version", "r");
-    if (!vf) vf = fopen("/data/harmony/VERSION", "r");
-    if (vf) {
+    if (s_cached_ota_avail && s_cached_ota_ver[0]) {
         unsigned int maj = 0, min = 0, pat = 0;
-        if (fscanf(vf, "%u.%u.%u", &maj, &min, &pat) >= 2) {
+        if (sscanf(s_cached_ota_ver, "%u.%u.%u", &maj, &min, &pat) >= 2) {
             payload[2] = (uint8_t)maj;
             payload[3] = (uint8_t)min;
             payload[4] = (uint8_t)pat;
         }
-        fclose(vf);
     }
     rf_build_frame(&f, target_slot ? target_slot : 0x01, RF_MSG_UPDATE_NOTIFY, ++g_tx_seq, 0, payload, 8);
     rf_send_frame(&f);
 }
 
-void rf_send_hub_time_sync_slot(uint8_t slot) {
-    if (g_rf_fd < 0 || !g_has_paired_device) return;
-    if (is_companion_slot(slot)) return;
+#define TIME_SYNC_PAYLOAD_LEN 25
+/* A remote with its screen on sends SYNC_REQUEST every 800 ms. The time itself only needs
+ * a refresh every few minutes (the remote keeps time with its RTC), but the timezone,
+ * update flags, config version and Hub address in the same frame must reach it as soon as
+ * they change. */
+#define TIME_SYNC_REFRESH_S 300
 
-    rf_frame_t f;
-    uint8_t payload[26] = {0};
+static uint32_t s_time_sync_last_epoch[3];
+static uint8_t s_time_sync_last_payload[3][TIME_SYNC_PAYLOAD_LEN];
+
+static void build_time_sync_payload(uint8_t slot, uint8_t *payload) {
     uint32_t now_epoch = (uint32_t)time(NULL);
 
     /* 4 bytes epoch seconds (little-endian) */
@@ -349,22 +404,10 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
     payload[2] = (uint8_t)((now_epoch >> 16) & 0xFF);
     payload[3] = (uint8_t)((now_epoch >> 24) & 0xFF);
 
-    /* Read /etc/TZ */
-    FILE *ftz = fopen("/etc/TZ", "r");
-    char tz[64] = TZ_DEFAULT_POSIX;
-    if (ftz) {
-        if (fgets(tz, sizeof(tz), ftz)) {
-            char *nl = strchr(tz, '\n');
-            if (nl) *nl = '\0';
-            char *cr = strchr(tz, '\r');
-            if (cr) *cr = '\0';
-        }
-        fclose(ftz);
-    }
-    char rf_prefix[TZ_MAX_RF_PREFIX_LEN + 1];
-    timezone_get_rf_prefix(tz, rf_prefix, sizeof(rf_prefix));
-    uint8_t tz_len = (uint8_t)strlen(rf_prefix);
-    if (tz_len > TZ_MAX_RF_PREFIX_LEN) tz_len = TZ_MAX_RF_PREFIX_LEN;
+    /* Timezone prefix string (cached with 24h TTL) */
+    char rf_prefix[TZ_MAX_RF_PREFIX_LEN + 1] = {0};
+    uint8_t tz_len = 0;
+    get_cached_tz_prefix(now_epoch, rf_prefix, &tz_len);
     payload[4] = tz_len;
     memcpy(&payload[5], rf_prefix, tz_len);
 
@@ -380,9 +423,41 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
     } else if (g_paired_addr[0] || g_paired_addr[1] || g_paired_addr[2] || g_paired_addr[3]) {
         memcpy(&payload[21], g_paired_addr, 4);
     }
+}
 
-    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, 25);
+static void send_time_sync_payload(uint8_t slot, const uint8_t *payload) {
+    rf_frame_t f;
+    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, TIME_SYNC_PAYLOAD_LEN);
     rf_send_frame(&f);
+    printf("[*] TIME_SYNC -> slot %d (cfg=%d flags=0x%02X)\n", slot ? slot : 1, payload[20], payload[19]);
+    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    s_time_sync_last_epoch[idx] = (uint32_t)time(NULL);
+    memcpy(s_time_sync_last_payload[idx], payload, TIME_SYNC_PAYLOAD_LEN);
+}
+
+void rf_send_hub_time_sync_slot(uint8_t slot) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
+
+    uint8_t payload[26] = {0};
+    build_time_sync_payload(slot, payload);
+    send_time_sync_payload(slot, payload);
+}
+
+void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
+
+    uint8_t payload[26] = {0};
+    build_time_sync_payload(slot, payload);
+    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    uint32_t now = (uint32_t)time(NULL);
+    bool due = s_time_sync_last_epoch[idx] == 0 ||
+               now < s_time_sync_last_epoch[idx] ||
+               now - s_time_sync_last_epoch[idx] >= TIME_SYNC_REFRESH_S ||
+               /* bytes 4.. (timezone, flags, config version, Hub address); 0..3 is the time */
+               memcmp(&payload[4], &s_time_sync_last_payload[idx][4], TIME_SYNC_PAYLOAD_LEN - 4) != 0;
+    if (due) send_time_sync_payload(slot, payload);
 }
 
 void rf_send_hub_time_sync(void) {

@@ -1,10 +1,43 @@
 #include "bt_cmd.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+#include "bt_remote.h"
 
 btstack_timer_source_t cmd_poll_timer;
 static int g_cmd_sock_fd = -1;
 static btstack_data_source_t g_cmd_sock_ds;
+static btstack_timer_source_t g_pairing_timer;
+
+void pairing_timeout_cancel(void) {
+    btstack_run_loop_remove_timer(&g_pairing_timer);
+}
+
+/* Leave pairing mode: not discoverable, drop the pending device link, and reconnect the
+ * host that pairing mode disconnected if an activity is running. */
+void pairing_mode_off(const char *reason) {
+    pairing_timeout_cancel();
+    g_host_pairing = false;
+    gap_discoverable_control(0);
+    /* A pairing that never happened must not link its device to the next host that connects */
+    unlink("/tmp/bt_pending_pair_device");
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Classic HID Host pairing disabled (%s)", reason);
+    log_msg(msg);
+    update_status(app_state == APP_READY ? "ready" : "standby");
+    update_bthid_status();
+    char cur_act[64] = "-1";
+    read_current_activity(cur_act, sizeof(cur_act));
+    bd_addr_t tgt;
+    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0 &&
+        get_reconnect_target(tgt) && !is_host_connected(tgt)) {
+        start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+    }
+}
+
+static void pairing_timeout_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    if (g_host_pairing) pairing_mode_off("timeout");
+}
 
 void poll_bthid_fifo(void) {
     if (g_bthid_fifo_fd < 0) {
@@ -73,6 +106,20 @@ void poll_bthid_fifo(void) {
             }
             if (strncmp(line, "TEXT ", 5) == 0) {
                 send_host_text(line + 5);
+            } else if (strncmp(line, "KBD_DOWN ", 9) == 0) {
+                /* Keyboard usage (hex), held until RELEASE */
+                unsigned int kcode = 0;
+                if (sscanf(line + 9, "%x", &kcode) == 1 && kcode > 0 && kcode <= 0xFF) {
+                    g_host_send_hold_mode = 1;
+                    send_host_keyboard_report(0, (uint8_t)kcode);
+                    g_host_send_hold_mode = 0;
+                }
+            } else if (strncmp(line, "KBD ", 4) == 0) {
+                /* Keyboard usage (hex), press and release */
+                unsigned int kcode = 0;
+                if (sscanf(line + 4, "%x", &kcode) == 1 && kcode > 0 && kcode <= 0xFF) {
+                    send_host_keyboard_report(0, (uint8_t)kcode);
+                }
             } else if (strncmp(line, "KEYDOWN ", 8) == 0) {
                 send_host_named_key_ex(line + 8, 1);
             } else if (strncmp(line, "KEYUP ", 6) == 0) {
@@ -272,28 +319,21 @@ void execute_btstack_cmd(const char *cmd_in) {
         start_user_pair(addr_str);
     } else if (strncasecmp(cmd, "pair_host_on", 12) == 0) {
         stop_host_reconnect();
+        /* Disconnect the hosts the way disconnect_host does: close the HID channels and let the
+         * close events update g_hosts[]. Tearing the ACL link down at once (gap_disconnect) and
+         * clearing hid_cid by hand left BTstack's HID instance with a stale channel, so every
+         * later hid_device_connect() to that host returned the old cid and did nothing until
+         * hub_btstack restarted. Keep the link keys: pairing a new host must not unpair the
+         * others; a host that forgot its key starts Secure Simple Pairing, which pairing mode
+         * accepts. */
         for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].hid_cid) {
+            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
                 hid_device_disconnect(g_hosts[i].hid_cid);
-                g_hosts[i].hid_cid = 0;
             }
-            if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
-                gap_disconnect(g_hosts[i].acl_handle);
-                g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
-            }
-            if (!is_null_bd_addr(g_hosts[i].addr)) {
-                gap_drop_link_key_for_bd_addr(g_hosts[i].addr);
-            }
-            g_hosts[i].connected = false;
         }
-        if (g_host_hid_cid) {
+        if (g_host_connected && g_host_hid_cid) {
             hid_device_disconnect(g_host_hid_cid);
-            g_host_hid_cid = 0;
         }
-        if (!is_null_bd_addr(g_host_addr)) {
-            gap_drop_link_key_for_bd_addr(g_host_addr);
-        }
-        g_host_connected = false;
         char *name = cmd + 12;
         while (*name == ' ') name++;
         if (name[0]) {
@@ -301,20 +341,23 @@ void execute_btstack_cmd(const char *cmd_in) {
             gap_set_local_name(g_host_name);
         }
         g_host_pairing = true;
+        g_pairing_new_key_valid = false;
         gap_set_class_of_device(0x0025C0); // Combo: Keyboard + Pointing Device
         gap_connectable_control(1);
         gap_discoverable_control(1);
+        /* Pairing mode used to stay on until switched off, discoverable and accepting any
+         * pairing request; end it after PAIRING_TIMEOUT_MS */
+        btstack_run_loop_remove_timer(&g_pairing_timer);
+        btstack_run_loop_set_timer_handler(&g_pairing_timer, pairing_timeout_handler);
+        btstack_run_loop_set_timer(&g_pairing_timer, PAIRING_TIMEOUT_MS);
+        btstack_run_loop_add_timer(&g_pairing_timer);
         char msg[128];
-        snprintf(msg, sizeof(msg), "Classic HID Host pairing enabled as '%s'", g_host_name);
+        snprintf(msg, sizeof(msg), "Classic HID Host pairing enabled as '%s' (%d s)", g_host_name, PAIRING_TIMEOUT_MS / 1000);
         log_msg(msg);
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
     } else if (strncasecmp(cmd, "pair_host_off", 13) == 0) {
-        g_host_pairing = false;
-        gap_discoverable_control(0);
-        log_msg("Classic HID Host pairing disabled");
-        update_status(app_state == APP_READY ? "ready" : "standby");
-        update_bthid_status();
+        pairing_mode_off("requested");
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
         if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;
@@ -337,10 +380,14 @@ void execute_btstack_cmd(const char *cmd_in) {
         }
     } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         stop_host_reconnect();
+        /* A disconnect that was asked for must not be undone by the auto-reconnect on the close
+         * event; a key for the host, connect_host or the next activity start reconnects it.
+         * Per host: disconnecting one host must not stop another from auto-reconnecting. */
         char *addr_str = cmd + 15;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;
         if (parse_bd_addr(addr_str, tgt)) {
+            set_host_manual_disconnect(tgt, true);
             for (int i = 0; i < MAX_HOST_CONNS; i++) {
                 if (memcmp(g_hosts[i].addr, tgt, 6) == 0 && g_hosts[i].hid_cid) {
                     hid_device_disconnect(g_hosts[i].hid_cid);
@@ -350,6 +397,9 @@ void execute_btstack_cmd(const char *cmd_in) {
                 }
             }
         } else {
+            bd_addr_t all_hosts;
+            memset(all_hosts, 0, sizeof(all_hosts));
+            set_host_manual_disconnect(all_hosts, true);
             for (int i = 0; i < MAX_HOST_CONNS; i++) {
                 if (g_hosts[i].connected && g_hosts[i].hid_cid) {
                     hid_device_disconnect(g_hosts[i].hid_cid);

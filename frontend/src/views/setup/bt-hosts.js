@@ -71,8 +71,9 @@ export function createView() {
       const data = await api.getBtStatus();
       statusMount.innerHTML = '';
 
-      const isPairing = Boolean(data?.pairing);
-      const isConnected = Boolean(data?.connected);
+      // hub_btstack reports pairing and the active link under "host"
+      const isPairing = Boolean(data?.host?.pairing ?? data?.pairing);
+      const isConnected = Boolean(data?.host?.connected ?? data?.connected);
 
       const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' } }, [
         h('div', { className: 'card', style: { margin: 0, padding: '8px' } }, [
@@ -98,14 +99,16 @@ export function createView() {
       } else {
         const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
         hosts.forEach(hItem => {
-          const bdaddr = hItem.bdaddr || hItem.address || hItem;
+          // hub_btstack lists hosts as { addr, name, connected, paired }
+          const bdaddr = hItem.addr || hItem.bdaddr || hItem.address || String(hItem);
+          const state = hItem.connected ? 'Connected' : (hItem.paired === false ? 'Not paired (no link key)' : 'Paired');
           const row = h('div', {
             className: 'card',
             style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', margin: 0 },
           }, [
             h('div', {}, [
               h('div', { style: { fontWeight: 'bold' }, text: hItem.name || 'Bluetooth Host' }),
-              h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: bdaddr }),
+              h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `${bdaddr} • ${state}` }),
             ]),
             h('div', { style: { display: 'flex', gap: '6px' } }, [
               h('button', {
