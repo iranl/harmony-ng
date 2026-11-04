@@ -39,12 +39,33 @@ fi
 
 mkdir -p "$BIN" "$OUT" "$TMP"
 
-if [ ! -d "$BTSTACK_DIR/src" ]; then
-    echo "Cloning BTstack..."
-    git clone --depth 1 https://github.com/bluekitchen/btstack.git "$BTSTACK_DIR"
+# BTstack is pinned: master moves, and build/patches/btstack.patch (four HID host instances and
+# more) is made for this commit. To update, change the commit and check that the patch applies.
+BTSTACK_REPO="https://github.com/bluekitchen/btstack.git"
+BTSTACK_COMMIT="9edb5d82ea6ec4466a393415d65030929330acdf"  # master of 2026-10-30
+BTSTACK_PATCH="$SCRIPT_DIR/patches/btstack.patch"
+
+if [ -d "$BTSTACK_DIR" ] && [ "$(git -C "$BTSTACK_DIR" rev-parse HEAD 2>/dev/null || true)" != "$BTSTACK_COMMIT" ]; then
+    echo "BTstack in $BTSTACK_DIR is not $BTSTACK_COMMIT, fetching it again..."
+    rm -rf "$BTSTACK_DIR"
 fi
-if [ -f "$SCRIPT_DIR/patches/btstack.patch" ]; then
-    (cd "$BTSTACK_DIR" && (git apply --whitespace=nowarn "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || git apply -3 "$SCRIPT_DIR/patches/btstack.patch" 2>/dev/null || true))
+if [ ! -d "$BTSTACK_DIR/src" ]; then
+    echo "Fetching BTstack $BTSTACK_COMMIT..."
+    rm -rf "$BTSTACK_DIR"
+    git init -q "$BTSTACK_DIR"
+    git -C "$BTSTACK_DIR" fetch -q --depth 1 "$BTSTACK_REPO" "$BTSTACK_COMMIT"
+    git -C "$BTSTACK_DIR" checkout -q FETCH_HEAD
+fi
+if [ -f "$BTSTACK_PATCH" ]; then
+    # A patch that does not apply used to be ignored, building hub_btstack without it
+    if (cd "$BTSTACK_DIR" && git apply --check --reverse --whitespace=nowarn "$BTSTACK_PATCH" 2>/dev/null); then
+        echo "btstack.patch already applied"
+    elif (cd "$BTSTACK_DIR" && git apply --whitespace=nowarn "$BTSTACK_PATCH"); then
+        echo "Applied btstack.patch"
+    else
+        echo "[!] $BTSTACK_PATCH does not apply to BTstack $BTSTACK_COMMIT" >&2
+        exit 1
+    fi
 fi
 
 echo "=== Compiling hub_btstack for MIPS32 ==="
