@@ -33,6 +33,8 @@ cd harmony-ng
 
 # Compile ARM userspace binaries
 ./build/compile_all.sh elite
+# BusyBox with tar, used for the remote backup (the release bundle ships it in bin/)
+./build/build_busybox.sh arm
 ```
 
 ---
@@ -78,15 +80,19 @@ The tool automatically:
 
 ---
 
-## 3. Create Stock Remote Backup (Recommended)
+## 3. Stock Remote Backup (Automatic)
 
-Before modifying flash contents, save a complete backup of stock Lua scripts and configuration:
+As soon as SSH is up, `setup_remote.py` saves `/data`, `/opt/luadraws` and `/etc` of the remote to `backups/elite/elite_backup_<timestamp>.tar`, before the HarmonyNG runtime is installed. The first backup is also kept as `backups/elite/golden_elite_backup.tar`, which later runs never overwrite.
+
+The stock BusyBox on the Elite, 950, Touch and Ultimate has no `tar`. The tool copies the project's own ARM BusyBox to `/tmp/busybox` (RAM) for the backup and removes it afterwards; nothing is written to flash. It looks for that BusyBox in `bin/` of the release bundle or in `elite/bin/` after `./build/build_busybox.sh arm`.
+
+To make another backup of a rooted remote at any time:
 
 ```bash
-# On host PC (plain uncompressed tar, no gzip):
-mkdir -p backups/elite
-ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/elite/golden_elite_backup.tar
+python elite/setup_remote.py --backup
 ```
+
+Pass `--no-backup` to skip the automatic backup during setup.
 
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
