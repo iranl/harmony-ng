@@ -271,6 +271,41 @@ static void device_name_for_id(const char *dev_id, char *out, size_t out_len) {
     fclose(f);
 }
 
+/* Ask hub_daemon to link the device (POST /api/bt-link-device on loopback, which it trusts).
+ * hub_daemon owns devices.json and keeps it cached: a file written behind its back is not seen
+ * by its command sending and is overwritten by the next device edit in the web UI. */
+static bool link_via_daemon(const char *dev_id, const char *addr_str) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return false;
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(8089);
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    bool ok = false;
+    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+        char body[160], req[400];
+        int blen = snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"bdaddr\":\"%s\"}", dev_id, addr_str);
+        int rlen = snprintf(req, sizeof(req),
+                            "POST /api/bt-link-device HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                            "Content-Length: %d\r\nConnection: close\r\n\r\n%s", blen, body);
+        if (blen > 0 && blen < (int)sizeof(body) && rlen > 0 && rlen < (int)sizeof(req) &&
+            send(s, req, (size_t)rlen, MSG_NOSIGNAL) == rlen) {
+            char resp[512];
+            size_t got = 0;
+            ssize_t n;
+            while (got < sizeof(resp) - 1 && (n = recv(s, resp + got, sizeof(resp) - 1 - got, 0)) > 0) got += (size_t)n;
+            resp[got] = '\0';
+            ok = strncmp(resp, "HTTP/1.1 200", 12) == 0 && strstr(resp, "\"ok\":true") != NULL;
+        }
+    }
+    close(s);
+    return ok;
+}
+
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     if (!dev_id || !dev_id[0] || !addr_str || !addr_str[0]) return;
     char msg[128];
@@ -280,10 +315,16 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     device_name_for_id(dev_id, dev_name, sizeof(dev_name));
 
     /* config/devices.json is the only device-to-host mapping; bt-devices.json, which used to
-     * hold a second copy, is no longer written (hub_daemon folds old copies in, bt_migrate.c) */
-    bool linked = false;
+     * hold a second copy, is no longer written (hub_daemon folds old copies in, bt_migrate.c).
+     * hub_daemon writes it; editing the file directly is the fallback when it does not answer. */
+    bool linked = link_via_daemon(dev_id, addr_str);
+    if (linked) {
+        log_msg("Device link saved by hub_daemon");
+    } else {
+        log_msg("hub_daemon did not confirm the device link, writing devices.json directly");
+    }
     const char *dpath = "/data/harmony/config/devices.json";
-    FILE *df = fopen(dpath, "r");
+    FILE *df = linked ? NULL : fopen(dpath, "r");
     if (df) {
         fseek(df, 0, SEEK_END);
         long dsz = ftell(df);
