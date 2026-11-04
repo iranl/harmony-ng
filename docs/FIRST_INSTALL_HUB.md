@@ -134,6 +134,8 @@ Run the deployment script to push `hub_daemon`, the WebUI, network manager, and 
 ./deploy_hub.sh <YOUR_HUB_IP>
 ```
 
+Add `--dry-run` (or `-n`) to see what a deployment would change without changing anything: it reads the Hub's checksums, lists the files it would upload or purge and the steps it would run (backup, service stop, restart or reboot), and leaves the Hub and the local tree as they are. It does not build the web UI; from the repository it compares the files already in `payload/www`.
+
 The installer automatically:
 1. Validates available flash memory before writing.
 2. Installs `hub_daemon` (Hub micro-daemon) to `/data/harmony/bin/`.
