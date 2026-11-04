@@ -119,7 +119,7 @@ dry_skip() {
 }
 if [ "$DRY_RUN" = "1" ]; then
     echo "Dry run: the Hub is only read, nothing is changed"
-    if ! ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "true"; then
+    if ! ssh -n -o ConnectTimeout=5 "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "true"; then
         echo "[-] Cannot reach ${HUB_USER}@${HUB_HOST} over SSH." >&2
         exit 1
     fi
@@ -346,7 +346,8 @@ if [ "$DRY_RUN" = "1" ] && [ ! -d "$WWW_DIR" ]; then
     echo "    [dry-run] $WWW_DIR does not exist (web UI not built yet): web UI files are not compared"
 else
 # Clean up stale assets on Hub (/cache/www/assets)
-for remote_file in $(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "ls -1 /cache/www/assets/ 2>/dev/null || true"); do
+# Regular files only: directories such as assets/icons (extracted icon packs) are not WebUI build assets
+for remote_file in $(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "for f in /cache/www/assets/*; do [ -f \"\$f\" ] && echo \"\${f##*/}\"; done; true"); do
     if [ ! -f "$WWW_DIR/assets/$remote_file" ]; then
         if [ "$DRY_RUN" = "1" ]; then
             echo "    -> Would purge obsolete asset: $remote_file"
