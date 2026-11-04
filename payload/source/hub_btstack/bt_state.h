@@ -116,6 +116,8 @@ extern uint16_t g_host_hid_cid;
 extern bd_addr_t g_host_addr;
 extern bool g_host_connected;
 extern bool g_host_pairing;
+/* Set by disconnect_host: no auto-reconnect until something asks for a connection again */
+extern bool g_host_manual_disconnect;
 extern char g_host_name[64];
 extern uint8_t hid_service_buffer[1024];
 extern uint8_t device_id_sdp_service_buffer[512];

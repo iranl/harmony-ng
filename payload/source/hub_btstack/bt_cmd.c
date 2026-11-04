@@ -341,6 +341,9 @@ void execute_btstack_cmd(const char *cmd_in) {
         }
     } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         stop_host_reconnect();
+        /* A disconnect that was asked for must not be undone by the auto-reconnect on the close
+         * event; a key for the host, connect_host or the next activity start reconnects it */
+        g_host_manual_disconnect = true;
         char *addr_str = cmd + 15;
         while (*addr_str == ' ') addr_str++;
         bd_addr_t tgt;

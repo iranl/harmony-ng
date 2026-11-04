@@ -449,6 +449,7 @@ void init_known_hosts(void) {
 
 void try_connect_host_addr(const bd_addr_t addr) {
     if (is_null_bd_addr(addr)) return;
+    g_host_manual_disconnect = false;
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (g_hosts[i].connected && g_hosts[i].hid_cid != 0 && memcmp(g_hosts[i].addr, addr, 6) == 0) {
             return;
@@ -552,6 +553,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
 void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     (void)max_attempts;
+    g_host_manual_disconnect = false;
     /* Another connected host must not block this one (several HID hosts are supported) */
     if (host_target_connected(target)) {
         log_msg("Host reconnect: Host already connected");

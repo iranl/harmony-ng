@@ -21,6 +21,7 @@ uint16_t g_host_hid_cid = 0;
 bd_addr_t g_host_addr;
 bool g_host_connected = false;
 bool g_host_pairing = false;
+bool g_host_manual_disconnect = false;
 char g_host_name[64] = "Harmony Keyboard";
 uint8_t hid_service_buffer[1024];
 uint8_t device_id_sdp_service_buffer[512];
