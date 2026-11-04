@@ -94,14 +94,6 @@ ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
 
-> [!WARNING]
-> **Harmony Ultimate / Touch**: the stock BusyBox on these remotes has no `tar`, `find` or `dd`, so the command above fails. Copy a static ARMv5 BusyBox to RAM first and use it for the backup. Tested on a Harmony Ultimate (skin 100, firmware 4.15.330): BusyBox 1.21.1 `busybox-armv5l` from busybox.net works; the 1.31.0 `defconfig-multiarch-musl` `busybox-armv5l` build exits with `Illegal instruction`.
-> ```bash
-> ssh root@192.168.2.1 "cat > /tmp/busybox && chmod 755 /tmp/busybox" < busybox-armv5l
-> ssh root@192.168.2.1 "cd / && /tmp/busybox tar -cf - bin cache data etc home lib linuxrc opt pkg root sbin usr" > backups/elite/golden_elite_backup.tar
-> ```
-> `/tmp` is RAM, so the BusyBox copy is gone after the next reboot.
-
 ---
 
 ## 4. Deploy HarmonyNG Firmware
@@ -229,4 +221,4 @@ Other differences from the Elite 950:
 - **Skin 100.** Logitech's update service has no firmware entry for it; `setup_remote.py` looks up the remote firmware under skin 111 (the 4.15.330 remote bundle lists skin 100 among its intended devices).
 - **Touch controller.** The Synaptics ClearPad TM2176-003 reports `ABS_X` 0-782 and `ABS_Y` 0-1009 instead of screen pixels; `elite_ui` scales these to the 240x320 screen.
 - **Capacitive keys.** The star and home touch keys send `KEY_FAVORITES` (364) and `KEY_HOME` (102), like the Elite's capacitive buttons, and open **ACTIVITIES** and **DEVICES**. One touch can register as 2 or 3 presses.
-- **No `tar`, `find` or `dd`** in the stock BusyBox, see the backup warning in section 3.
+- **No `tar`, `find` or `dd`** in the stock BusyBox (the same as on a stock Elite); `setup_remote.py` stages the project's own BusyBox in RAM for its backup, see section 3.
