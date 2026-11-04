@@ -181,7 +181,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                                                                    connection_handle, NULL);
                 app_state = APP_ENCRYPTING;
                 update_status("connecting");
-                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 sm_request_pairing(connection_handle);
             }
             break;
@@ -544,6 +543,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     fprintf(tf, "%s\n", bd_addr_to_str(remote_device.addr));
                     fclose(tf);
                 }
+                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 app_state = APP_W4_HIDS;
                 hids_host_connect(connection_handle, handle_gatt_client_event, protocol_mode, &hids_cid);
             } else {
@@ -569,6 +569,7 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 log_msg("Link re-encryption complete -> Remote READY");
                 app_state = APP_READY;
                 update_status("ready");
+                gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {
                 log_msg("Re-encryption failed: key missing on remote. Deleting local bond and re-pairing...");
                 sm_event_reencryption_complete_get_address(packet, addr);
