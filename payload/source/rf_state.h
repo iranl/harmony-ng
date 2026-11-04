@@ -54,6 +54,7 @@ typedef struct {
 typedef struct {
     char sw_version[32];
     uint8_t config_version;
+    uint8_t caps;             /* RF_CAP_* from the remote's VERSION_REPORT */
     uint64_t last_report_ms;
 } remote_version_t;
 
@@ -107,6 +108,10 @@ uint64_t get_monotonic_ms(void);
 void mark_remote_slot_active(uint8_t slot);
 bool is_ota_busy(void);
 void http_post_local(int port, const char *endpoint, const char *json_body);
+/* One request to a local HTTP server; returns the status code and copies the body into resp,
+   or returns -1 if there was no response */
+int http_request_local(int port, const char *method, const char *endpoint, const char *json_body,
+                       char *resp, size_t resp_len, int timeout_ms);
 bool is_companion_slot(uint8_t slot);
 const char *get_remote_model_name(remote_model_t model);
 

@@ -38,6 +38,7 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite/elite_i18n.c" \
     "$REPO_ROOT/payload/source/elite/elite_input.c" \
     "$REPO_ROOT/payload/source/elite/elite_power.c" \
+    "$REPO_ROOT/payload/source/elite/elite_present.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf_ota.c" \
     "$REPO_ROOT/payload/source/elite/elite_rf_sync.c" \
@@ -46,8 +47,16 @@ gcc -Wall -O2 \
     "$REPO_ROOT/payload/source/elite/elite_ui_activities.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_devices.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_pairing.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_menu.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_help.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_activity.c" \
+    "$REPO_ROOT/payload/source/elite/elite_link.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings.c" \
     "$REPO_ROOT/payload/source/elite/elite_ui_settings_actions.c" \
+    "$REPO_ROOT/payload/source/elite/elite_theme.c" \
+    "$REPO_ROOT/payload/source/elite/elite_ui_scroll.c" \
+    "$REPO_ROOT/payload/source/elite/elite_transition.c" \
+    "$REPO_ROOT/payload/source/elite/elite_nav.c" \
     "$REPO_ROOT/payload/source/elite_stock_icons.c" \
     "$REPO_ROOT/payload/source/cJSON.c" \
     "$REPO_ROOT/payload/source/sha256.c" \

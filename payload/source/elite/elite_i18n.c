@@ -24,10 +24,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "CMD", "BEF", "CMD", "OPD", "CMD", "CMD" },
     /* STR_TAB_DEV */
     { "DEV", "GER", "DIS", "APP", "DIS", "DIS" },
-    /* STR_BACK */
-    { "< Back", "< Zurueck", "< Retour", "< Terug", "< Atras", "< Indietro" },
-    /* STR_BACK_TO_SETTINGS */
-    { "< Back to Settings", "< Zu Einstellungen", "< Retour Parametres", "< Naar Instellingen", "< Volver a Ajustes", "< A Impostazioni" },
 
     /* STR_NO_ACTIVITIES */
     { "No Activities", "Keine Aktivitaeten", "Aucune activite", "Geen activiteiten", "Sin actividades", "Nessuna attivita" },
@@ -37,8 +33,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "CONFIRM? PRESS OK", "BESTAETIGEN? OK", "CONFIRMER? APPUYEZ OK", "BEVESTIGEN? DRUK OK", "CONFIRMAR? PULSE OK", "CONFERMA? PREMI OK" },
     /* STR_ACTIVE */
     { "ACTIVE", "AKTIV", "ACTIF", "ACTIEF", "ACTIVO", "ATTIVO" },
-    /* STR_ACT_ALREADY_ACTIVE */
-    { "Activity already active", "Aktivitaet bereits aktiv", "Activite deja active", "Activiteit al actief", "Actividad ya activa", "Attivita gia attiva" },
     /* STR_PRESS_OK_TO_CONFIRM */
     { "Press OK or tap to confirm", "OK oder tippen zum Bestaetigen", "Appuyez OK pour confirmer", "Druk OK om te bevestigen", "Pulse OK para confirmar", "Premi OK per confermare" },
 
@@ -167,6 +161,12 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Button Backlight", "Tastenbeleuchtung", "Eclairage touches", "Knopverlichting", "Luz de botones", "Retroilluminazione tasti" },
     /* STR_NIGHT_SCHEDULE */
     { "Night Schedule", "Nachtmodus Zeit", "Horaire nuit", "Nachtschema", "Horario nocturno", "Orario notturno" },
+    /* STR_DISPLAY_THEME */
+    { "Theme", "Design", "Theme", "Thema", "Tema", "Tema" },
+    /* STR_HOME_LAYOUT */
+    { "Home Layout", "Startseite", "Accueil", "Startscherm", "Inicio", "Home" },
+    /* STR_ACTIVITY_ORDER */
+    { "Activity Order", "Reihenfolge", "Ordre", "Volgorde", "Orden", "Ordine" },
 
     /* STR_TOUCHSCREEN */
     { "Touchscreen", "Touchscreen", "Ecran tactile", "Touchscreen", "Pantalla tactil", "Touchscreen" },
@@ -174,10 +174,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     { "Capacitive Buttons", "Sensortasten", "Touches capacitives", "Sensorknoppen", "Botones capacitivos", "Tasti capacitivi" },
     /* STR_TOUCH_SENSITIVITY */
     { "Touch Sensitivity", "Touch-Empfindlichkeit", "Sensibilite tactile", "Aanraakgevoeligheid", "Sensibilidad tactil", "Sensibilita tocco" },
-    /* STR_NAV_TOGGLE_BTN */
-    { "Nav Toggle Button", "Nav-Umschalttaste", "Touche bascule nav", "Nav-wisselknop", "Boton alternar nav", "Tasto cambio nav" },
-    /* STR_NAV_TOGGLE_MODE */
-    { "Nav Toggle Mode", "Nav-Umschaltmodus", "Mode bascule nav", "Nav-wisselmodus", "Modo alternar nav", "Modalita cambio nav" },
 
     /* STR_TILT_WAKE */
     { "Tilt / Pickup Wake", "Beim Anheben wecken", "Reveil au mouvement", "Ontwaken bij optillen", "Encender al mover", "Risveglio al movimento" },
@@ -227,8 +223,6 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
 
     /* STR_NOTICE_NAV_MOVED */
     { "Screen nav moved to bottom buttons", "Nav auf untere Tasten gelegt", "Nav deplacee vers touches bas", "Nav naar onderste knoppen", "Nav movida a botones inferiores", "Nav spostata sui tasti inferiori" },
-    /* STR_NOTICE_NAV_LOCKED */
-    { "Screen nav locked ON", "Nav-Modus gesperrt AN", "Nav verrouillee ACTIVE", "Nav vergrendeld AAN", "Nav bloqueada ACTIVA", "Nav bloccata ATTIVA" },
     /* STR_NOTICE_HUB_NOT_CONNECTED */
     { "Hub not connected", "Hub nicht verbunden", "Hub non connecte", "Hub niet verbonden", "Hub no conectado", "Hub non connesso" },
     /* STR_NOTICE_SYNCING */
@@ -240,7 +234,55 @@ static const char * const g_elite_strings[STR_COUNT][ELITE_LANG_COUNT] = {
     /* STR_NOTICE_RESTORING */
     { "Restoring stock & rebooting...", "Werkseinstellung & Neustart...", "Restauration Logitech...", "Herstellen en herstarten...", "Restaurando y reiniciando...", "Ripristino e riavvio..." },
     /* STR_NOTICE_LANG_CHANGED */
-    { "Language changed", "Sprache geaendert", "Langue modifiee", "Taal gewijzigd", "Idioma cambiado", "Lingua modificata" }
+    { "Language changed", "Sprache geaendert", "Langue modifiee", "Taal gewijzigd", "Idioma cambiado", "Lingua modificata" },
+    /* STR_KEY_HINT_TITLE */
+    { "Navigation moved", "Navigation geaendert", "Navigation deplacee", "Navigatie verplaatst", "Navegacion movida", "Navigazione spostata" },
+    /* STR_KEY_HINT_ACTIVITIES */
+    { "Activities key: activity list", "Aktivitaeten-Taste: Liste", "Touche Activites: liste", "Activiteiten-toets: lijst", "Tecla Actividades: lista", "Tasto Attivita: elenco" },
+    /* STR_KEY_HINT_DEVICES */
+    { "Devices key: all devices", "Geraete-Taste: alle Geraete", "Touche Appareils: appareils", "Apparaten-toets: apparaten", "Tecla Dispositivos: todos", "Tasto Dispositivi: tutti" },
+    /* STR_KEY_HINT_OFF */
+    { "Off key: power off", "Aus-Taste: ausschalten", "Touche Off: eteindre", "Uit-toets: uitschakelen", "Tecla Off: apagar", "Tasto Off: spegni" },
+    /* STR_KEY_HINT_MENU */
+    { "Gear or hold Activities: menu", "Zahnrad/Halten: Menue", "Engrenage/maintien: menu", "Tandwiel/vasthouden: menu", "Engranaje/mantener: menu", "Ingranaggio/tieni: menu" },
+    /* STR_KEY_HINT_DISMISS */
+    { "Press any key to continue", "Taste druecken", "Appuyez sur une touche", "Druk op een toets", "Pulse una tecla", "Premi un tasto" },
+    /* STR_HUB_SILENT */
+    { "HUB?", "HUB?", "HUB?", "HUB?", "HUB?", "HUB?" },
+    /* STR_LINK_TITLE */
+    { "RF link to the Hub", "Funk zum Hub", "Liaison radio au Hub", "Radioverbinding met Hub", "Enlace de radio al Hub", "Collegamento radio all'Hub" },
+    /* STR_LINK_UP */
+    { "Link up", "Verbunden", "Liaison active", "Verbonden", "Enlace activo", "Collegato" },
+    /* STR_LINK_REPLIES */
+    { "Hub replies", "Hub-Antworten", "Reponses du Hub", "Hub-antwoorden", "Respuestas del Hub", "Risposte dell'Hub" },
+    /* STR_LINK_LAST_FRAME */
+    { "Last from Hub", "Zuletzt vom Hub", "Dernier du Hub", "Laatst van Hub", "Ultimo del Hub", "Ultimo dall'Hub" },
+    /* STR_LINK_LOST */
+    { "Link lost", "Verbindung verloren", "Liaison perdue", "Verbinding verloren", "Enlace perdido", "Collegamento perso" },
+    /* STR_LINK_HUB_SILENT */
+    { "Hub is not answering", "Hub antwortet nicht", "Le Hub ne repond pas", "Hub antwoordt niet", "El Hub no responde", "L'Hub non risponde" },
+    /* STR_HELP */
+    { "Help", "Hilfe", "Aide", "Help", "Ayuda", "Aiuto" },
+    /* STR_HELP_RESENDING */
+    { "Re-sending commands...", "Sende Befehle erneut...", "Renvoi des commandes...", "Opdrachten opnieuw...", "Reenviando comandos...", "Reinvio dei comandi..." },
+    /* STR_HELP_IS_IT_ON */
+    { "Is it on?", "Ist es an?", "Est-il allume ?", "Staat het aan?", "Esta encendido?", "E acceso?" },
+    /* STR_HELP_DEVICE_N_OF */
+    { "Device %d of %d", "Geraet %d von %d", "Appareil %d sur %d", "Apparaat %d van %d", "Dispositivo %d de %d", "Dispositivo %d di %d" },
+    /* STR_YES */
+    { "Yes", "Ja", "Oui", "Ja", "Si", "Si" },
+    /* STR_NO */
+    { "No", "Nein", "Non", "Nee", "No", "No" },
+    /* STR_HELP_SWITCHED_ON */
+    { "Switched on: %d", "Eingeschaltet: %d", "Allumes : %d", "Aangezet: %d", "Encendidos: %d", "Accesi: %d" },
+    /* STR_HELP_ALL_ON */
+    { "Everything should be on", "Alles sollte an sein", "Tout devrait etre allume", "Alles zou aan moeten staan", "Todo deberia estar encendido", "Tutto dovrebbe essere acceso" },
+    /* STR_HELP_BUSY */
+    { "Hub is busy, try again", "Hub beschaeftigt", "Hub occupe, reessayez", "Hub bezig, probeer opnieuw", "Hub ocupado, reintente", "Hub occupato, riprova" },
+    /* STR_HELP_FAILED */
+    { "Help could not run", "Hilfe nicht moeglich", "Aide impossible", "Help kon niet starten", "No se pudo ejecutar", "Aiuto non disponibile" },
+    /* STR_HELP_BACK_CLOSES */
+    { "Back: close", "Zurueck: schliessen", "Retour : fermer", "Terug: sluiten", "Atras: cerrar", "Indietro: chiudi" }
 };
 
 const char *tr_lang(elite_str_id_t id, elite_lang_t lang) {

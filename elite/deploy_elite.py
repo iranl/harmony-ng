@@ -12,13 +12,27 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import pathlib
+import shutil
 import subprocess
 import sys
+import tarfile
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 BIN_DIR = SCRIPT_DIR / "bin"
 RCS_LOCAL_FILE = SCRIPT_DIR / "rcS.local"
+THEMES_DIR = BIN_DIR / "themes"
+
+# Uploaded in this order. busybox goes first: the theme sync unpacks with its tar, which
+# stock BusyBox 1.13.4 lacks.
+DEPLOY_FILES = [BIN_DIR / b for b in ("busybox", "elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp")] + \
+               [SCRIPT_DIR / s for s in ("init.sh", "elite_watchdog.sh", "safe_reboot.sh", "factory_reset.sh")]
+REQUIRED_FILES = [BIN_DIR / "elite_ui", BIN_DIR / "elite_sync"]
+# Commands the deployment runs on the remote, other than through /data/busybox
+REMOTE_COMMANDS = ("md5sum", "mkdir", "rm", "mv", "cp", "chmod", "ln", "grep", "touch", "scp")
+CHECK_BUSYBOX = "/tmp/.deploy_check_busybox"  # the local busybox, run from RAM by the check
+FLASH_SLACK_KB = 32  # JFFS2/UBIFS need room beyond each file's own size
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -51,6 +65,116 @@ def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp
     return True
 
 
+def kb(n: int) -> int:
+    return (n + 1023) // 1024
+
+
+def theme_dirs() -> list[pathlib.Path]:
+    if not THEMES_DIR.is_dir():
+        return []
+    return sorted(p for p in THEMES_DIR.iterdir() if (p / "theme.json").is_file())
+
+
+def probe_archive() -> bytes:
+    """A one-file archive that a working tar lists as ready_to_go"""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.USTAR_FORMAT) as t:
+        t.addfile(tarfile.TarInfo("ready_to_go"), io.BytesIO(b""))
+    return buf.getvalue()
+
+
+def ready_to_go(target: str, ssh_opts: list[str], scp_opts: list[str], remote_hashes: dict[str, str]) -> bool:
+    """Checks, before anything on the remote changes, that the deployment can finish: the local
+    files, the remote's commands, a BusyBox with tar for the themes, and the space on /data."""
+    problems: list[tuple[str, str]] = []  # what is wrong, what to do about it
+    themes = theme_dirs()
+
+    for f in REQUIRED_FILES:
+        if not f.is_file():
+            problems.append((f"{f} is missing", "Build it with ./build/compile_all.sh elite"))
+    if themes and not shutil.which("tar"):
+        problems.append(("tar is not installed on this computer; it packs the themes", "Install tar"))
+
+    # The BusyBox whose tar unpacks the themes: the local one when it will replace /data/busybox,
+    # run from RAM so the check changes nothing on /data
+    local_bb = BIN_DIR / "busybox"
+    staged = local_bb.is_file() and remote_hashes.get("/data/busybox") != get_file_md5(local_bb)
+    if staged:
+        res = run_cmd(["scp"] + scp_opts + [str(local_bb), f"{target}:{CHECK_BUSYBOX}"])
+        if res.returncode != 0:
+            problems.append((f"Copying {local_bb.name} to the remote's /tmp failed: {res.stderr.strip()}",
+                             "Check that the remote has scp (installed with dropbear by elite/setup_remote.py)"))
+    bb = CHECK_BUSYBOX if staged else "/data/busybox"
+
+    # tar lists the probe archive from stdin; df's output follows its marker line
+    probe = (
+        (f"chmod 755 {bb} 2>/dev/null; " if staged else "") +
+        "echo arch=$(uname -m); "
+        f"for c in {' '.join(REMOTE_COMMANDS)}; do type $c >/dev/null 2>&1 || echo missing=$c; done; "
+        f"[ -x {bb} ] && {bb} tar -t 2>/dev/null | grep -q ready_to_go && echo tar=ok; "
+        "echo df=; "
+        f"df -k /data 2>/dev/null || {bb} df -k /data 2>/dev/null; "
+        f"rm -f {CHECK_BUSYBOX}"
+    )
+    res = subprocess.run(["ssh"] + ssh_opts + [target, probe], input=probe_archive(), capture_output=True)
+    facts: dict[str, list[str]] = {}
+    out = res.stdout.decode(errors="replace").splitlines()
+    for i, line in enumerate(out):
+        key, _, value = line.partition("=")
+        if key == "df":
+            facts["df"] = [" ".join(out[i + 1:])]
+            break
+        facts.setdefault(key.strip(), []).append(value.strip())
+
+    arch = (facts.get("arch") or [""])[0]
+    if res.returncode != 0 and not arch:
+        problems.append((f"The check could not run on the remote: {res.stderr.decode(errors='replace').strip()}",
+                         "Check the USB connection and SSH key, then run the deployment again"))
+    elif not arch.startswith("arm"):
+        problems.append((f"{target} is not a Harmony Elite (uname -m: {arch or 'unknown'})",
+                         "Pass the remote's address with --ip (the Elite is 192.168.2.1 over USB)"))
+    for c in facts.get("missing", []):
+        hint = ("Install dropbear and its scp with elite/setup_remote.py" if c == "scp" else
+                "The remote's firmware lacks a command the deployment uses; report this with the remote's model")
+        problems.append((f"The remote has no {c} command", hint))
+    if themes and "tar" not in facts:
+        if local_bb.is_file():
+            problems.append((f"{local_bb} has no working tar applet; the themes cannot be unpacked",
+                             "Rebuild it with ./build/build_busybox.sh arm"))
+        else:
+            problems.append(("The remote has no BusyBox with tar (stock BusyBox lacks it), and there is none to install",
+                             "Build one with ./build/build_busybox.sh arm, which writes elite/bin/busybox"))
+
+    # Each changed file and each theme is written beside the old copy before it replaces it
+    need_kb = 0
+    for f in DEPLOY_FILES:
+        if f.is_file() and remote_hashes.get(f"/data/{f.name}") != get_file_md5(f):
+            need_kb += kb(f.stat().st_size) + FLASH_SLACK_KB
+    for theme in themes:
+        need_kb += sum(kb(p.stat().st_size) for p in theme.rglob("*") if p.is_file()) + FLASH_SLACK_KB
+    # "Filesystem 1K-blocks Used Available Use% Mounted on", then one row, which may wrap
+    df = (facts.get("df") or [""])[0].split()
+    avail_kb = int(df[-3]) if len(df) >= 10 and df[-3].isdigit() else None
+    if avail_kb is None:
+        problems.append(("The free space on the remote's /data cannot be measured (stock BusyBox lacks df)",
+                         "Build BusyBox with ./build/build_busybox.sh arm, which writes elite/bin/busybox"))
+    elif avail_kb < need_kb:
+        problems.append((f"The remote's /data has {avail_kb} KB free and the deployment needs {need_kb} KB",
+                         "Free space on /data, for example by removing themes from /data/themes that you do not use"))
+
+    print("[*] Ready-to-go check:")
+    print(f"    Remote: {arch or 'unknown'}, /data {avail_kb if avail_kb is not None else 'unknown'} KB free, "
+          f"{need_kb} KB needed; themes: {len(themes)}, unpacked with {'the new ' if staged else ''}/data/busybox tar")
+    if not problems:
+        print("[+] Ready to go")
+        return True
+    print("[-] Not ready to go; nothing on the remote was changed:")
+    for what, fix in problems:
+        print(f"    - {what}")
+        print(f"      Fix: {fix}")
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy elite_ui and recovery scripts to Harmony Elite")
     parser.add_argument("--ip", default="192.168.2.1", help="Elite IP address (default 192.168.2.1)")
@@ -61,13 +185,17 @@ def main() -> None:
     parser.add_argument("--factory-reset", action="store_true",
                         help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
-                        help="Perform hardware reboot after deployment (default: False, hot-restarts services)")
+                        help="Accepted for older command lines; the deployment always reboots the remote")
     parser.add_argument("--no-sync", action="store_true",
                         help="Skip forcing full configuration sync from Hub after deployment (default: False)")
+    parser.add_argument("--check", action="store_true",
+                        help="Run only the ready-to-go check, which changes nothing on the remote")
     args = parser.parse_args()
 
     target = f"{args.user}@{args.ip}"
-    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+    # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
+    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
     if args.key and args.key.is_file():
         ssh_opts.extend(["-i", str(args.key)])
 
@@ -116,24 +244,37 @@ def main() -> None:
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
             "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
             "rm -f /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
+            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
         )
         run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
         print("[+] Elite Remote is rebooting into official Logitech firmware.")
         sys.exit(0)
 
+    # Query remote MD5 hashes, then check that the deployment can finish before changing anything
+    print("[*] Querying remote checksums (md5sum)...")
+    remote_hashes = {}
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
+    if md5_res.returncode == 0 and md5_res.stdout:
+        for line in md5_res.stdout.strip().splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                remote_hashes[parts[1].strip()] = parts[0].strip().lower()
+
+    scp_opts = ["-O"] + ssh_opts
+    if not ready_to_go(target, ssh_opts, scp_opts, remote_hashes):
+        sys.exit(1)
+    if args.check:
+        sys.exit(0)
+
     # Preserve stock rcS.local backup before installing (ensure not corrupted/custom)
     run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
 
-    # 1. Stop existing runtime using /data/init.sh stop if present, else fallback
-    print("[*] Stopping existing runtime services (/data/init.sh stop)...")
-    stop_cmd = (
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
-        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
-        "sleep 1"
-    )
-    run_cmd(["ssh"] + ssh_opts + [target, stop_cmd])
+    # 1. elite_ui keeps running while files are uploaded. It feeds the hardware watchdog, whose
+    # heartbeat is 10 s and which cannot be stopped once armed, so stopping elite_ui for longer
+    # than that resets the remote, possibly while it is writing flash. Each file is uploaded
+    # beside the old one and moved into place, which is safe for a running binary, and the
+    # remote reboots into the new files at the end.
 
     # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
@@ -144,44 +285,31 @@ def main() -> None:
     )
     run_cmd(["ssh"] + ssh_opts + [target, migration_cmd])
 
-    # 2. Query remote MD5 hashes
-    print("[*] Querying remote checksums (md5sum)...")
-    remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
-    if md5_res.returncode == 0 and md5_res.stdout:
-        for line in md5_res.stdout.strip().splitlines():
-            parts = line.strip().split()
-            if len(parts) >= 2:
-                remote_hashes[parts[1].strip()] = parts[0].strip().lower()
+    # 3. Upload binaries and scripts (only when MD5 differs)
+    print("[*] Syncing binaries and scripts to /data/ (MD5 check)...")
+    for src in DEPLOY_FILES:
+        deploy_file_if_changed(src, f"/data/{src.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        if src.name == "busybox" and theme_dirs():
+            # The check found a working tar; stop here, before any other file changes, if the upload lost it
+            ok = subprocess.run(["ssh"] + ssh_opts + [target, "/data/busybox tar -t 2>/dev/null | grep -q ready_to_go && echo ok"],
+                                input=probe_archive(), capture_output=True)
+            if ok.stdout.strip() != b"ok":
+                print("[-] /data/busybox has no working tar after the upload; stopping before the other files change.")
+                sys.exit(1)
 
-    # 3. Upload binaries (only when MD5 differs)
-    scp_opts = ["-O"] + ssh_opts
-    print("[*] Syncing core ARM binaries to /data/ (MD5 check)...")
-    binaries = ["elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "busybox"]
-    for b in binaries:
-        src = BIN_DIR / b
-        if src.is_file():
-            deploy_file_if_changed(src, f"/data/{b}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    init_script = SCRIPT_DIR / "init.sh"
-    if init_script.is_file():
-        print(f"[*] Syncing /data/{init_script.name} (MD5 check)...")
-        deploy_file_if_changed(init_script, f"/data/{init_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    watchdog_script = SCRIPT_DIR / "elite_watchdog.sh"
-    if watchdog_script.is_file():
-        print(f"[*] Syncing /data/{watchdog_script.name} (MD5 check)...")
-        deploy_file_if_changed(watchdog_script, f"/data/{watchdog_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    safe_reboot_script = SCRIPT_DIR / "safe_reboot.sh"
-    if safe_reboot_script.is_file():
-        print(f"[*] Syncing /data/{safe_reboot_script.name} (MD5 check)...")
-        deploy_file_if_changed(safe_reboot_script, f"/data/{safe_reboot_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    factory_reset_script = SCRIPT_DIR / "factory_reset.sh"
-    if factory_reset_script.is_file():
-        print(f"[*] Syncing /data/{factory_reset_script.name} (MD5 check)...")
-        deploy_file_if_changed(factory_reset_script, f"/data/{factory_reset_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+    # Theme packages: each built-in theme replaces its older version; other themes stay. Each is
+    # unpacked beside the old one and swapped in, since elite_ui may be drawing from it.
+    for theme in theme_dirs():
+        print(f"[*] Syncing theme /data/themes/{theme.name}...")
+        tar = subprocess.run(["tar", "-c", "-C", str(theme), "."], capture_output=True, check=True).stdout
+        d, tmp = f"/data/themes/{theme.name}", f"/data/themes/.{theme.name}.new"  # the theme list skips dot names
+        res = subprocess.run(["ssh"] + ssh_opts + [target,
+                              f"mkdir -p /data/themes && rm -rf {tmp} && mkdir {tmp} && "
+                              f"/data/busybox tar -x -C {tmp} && "
+                              f"rm -rf {d} && mv {tmp} {d}"],
+                             input=tar, capture_output=True)
+        if res.returncode != 0:
+            print(f"[-] Failed syncing theme {theme.name}: {res.stderr.decode(errors='replace').strip()}")
 
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
@@ -208,18 +336,16 @@ def main() -> None:
         print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")
         run_cmd(["ssh"] + ssh_opts + [target, "touch /data/force_sync 2>/dev/null || true"])
 
-    if args.reboot:
-        print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
-        reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
-        run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
-        print("[+] Deployment complete! Elite Remote is rebooting safely.")
-    else:
-        print("[*] Hot-restarting Elite runtime services (/data/init.sh start)...")
-        restart_cmd = "rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &)"
-        run_cmd(["ssh"] + ssh_opts + [target, restart_cmd])
-        print("[+] Deployment complete! elite_ui hot-restarted (no reboot).")
+    # A hot restart would leave the watchdog unfed from stopping elite_ui until the new one has
+    # started, which can take longer than the watchdog's 10 s
+    print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
+    reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
+    res = run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
+    if "CRITICAL" in res.stdout:
+        print(f"[-] Reboot aborted: {(res.stdout + res.stderr).strip()}")
+        sys.exit(1)
     print()
-    print("[+] Deployment complete!")
+    print("[+] Deployment complete! Elite Remote is rebooting safely.")
 
 
 if __name__ == "__main__":

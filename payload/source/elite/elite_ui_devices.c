@@ -2,6 +2,7 @@
 #include "elite_fb.h"
 #include "elite_config.h"
 #include "elite_rf.h"
+#include "elite_ui_scroll.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,31 +24,29 @@ void execute_active_dev_cmd(int filtered_idx) {
 }
 
 void render_devices_screen(void) {
-    int start_y = 38;
-    int card_h = 34;
-    int spacing = 5;
-    int page_size = 6;
+    int start_y = UI_CONTENT_Y;
+    int card_h = LIST_ROW_H;
     int total = get_active_dev_cmd_count();
 
     if (total <= 0) {
-        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
-        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
-        fb_draw_text_aa(24, start_y + 75, tr(STR_FOR_THIS_ACTIVITY), RGB_TEXT_MUTED, &g_font_main);
+        if (render_activity_hero()) return;
+        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, start_y + 45, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, start_y + 65, tr(STR_FOR_THIS_ACTIVITY), RGB_TEXT_MUTED, &g_font_main);
         return;
     }
 
-    int page_start = (g_selected_device_cmd / page_size) * page_size;
-    int cur_page = (g_selected_device_cmd / page_size) + 1;
-    int total_pages = (total + page_size - 1) / page_size;
-
-    for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-        int idx = page_start + i;
-        int y = start_y + i * (card_h + spacing);
+    list_geom_t g;
+    list_geometry(&g);
+    int scroll = list_scroll_offset();
+    int first = scroll > 0 ? scroll / LIST_ROW_PITCH : 0;
+    fb_clip_rows(g.y, g.y + g.rows * LIST_ROW_PITCH);
+    for (int idx = first; idx < total; idx++) {
+        int y = start_y + idx * LIST_ROW_PITCH - scroll;
+        if (y >= g.y + g.rows * LIST_ROW_PITCH) break;
         bool is_sel = (idx == g_selected_device_cmd);
         uint16_t bg = is_sel ? RGB_CARD_SEL : RGB_CARD;
-        uint16_t border = is_sel ? RGB_TEAL : 0x2945;
+        uint16_t border = is_sel ? RGB_TEAL : g_theme.pal.outline;
 
         char label[32] = {0};
         char icon_key[24] = {0};
@@ -70,14 +69,11 @@ void render_devices_screen(void) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", RGB_CYAN, &g_font_title);
         }
     }
-
-    if (total_pages > 1) {
-        char pstr[16];
-        snprintf(pstr, sizeof(pstr), "%d/%d", cur_page, total_pages);
-        fb_draw_text_aa(FB_WIDTH - 32, start_y + page_size * (card_h + spacing) - 2, pstr, RGB_TEXT_MUTED, &g_font_main);
-    }
+    fb_clip_reset();
+    render_list_scrollbar();
 }
 
+/* Inside a device the rows are its commands, below a heading with the device's name */
 int browser_item_count(void) {
     if (g_browse_dev < 0) return g_rf_device_count;
     int n = 0;
@@ -87,7 +83,7 @@ int browser_item_count(void) {
     return n;
 }
 
-/* The nth command of the browsed device, in the order the Hub sent them */
+/* The command on row n of the browsed device, in the order the Hub sent them */
 const rf_dev_cmd_t *browser_cmd(int n) {
     for (int i = 0; i < g_rf_dev_cmd_count; i++) {
         if (g_rf_dev_cmds[i].dev_idx == g_browse_dev && n-- == 0) return &g_rf_dev_cmds[i];
@@ -95,31 +91,52 @@ const rf_dev_cmd_t *browser_cmd(int n) {
     return NULL;
 }
 
+int browser_page_size(void) {
+    return g_browse_dev >= 0 ? LIST_PAGE_SIZE - 1 : LIST_PAGE_SIZE;
+}
+
+int browser_list_y(void) {
+    return g_browse_dev >= 0 ? SETTINGS_LIST_Y : UI_CONTENT_Y;
+}
+
+/* The screen showing the activity card a device was opened from, or -1 */
+static int s_card_view = -1;
+
 void open_device_browser(void) {
     g_current_view = VIEW_DEVICE_BROWSER;
     g_browse_dev = -1;
     g_browse_sel = 0;
+    s_card_view = -1;
 }
 
+void open_device_from_card(int dev) {
+    if (dev < 0 || dev >= g_rf_device_count) return;
+    s_card_view = (int)g_current_view;
+    g_current_view = VIEW_DEVICE_BROWSER;
+    g_browse_dev = dev;
+    g_browse_sel = 0;
+}
+
+/* From a device back to the card it was opened from, or to the device list; from the list to
+   the running activity, or home */
 void device_browser_back(void) {
-    if (g_browse_dev >= 0) {
+    if (g_browse_dev >= 0 && s_card_view >= 0) {
+        g_current_view = (ui_view_t)s_card_view;
+        g_browse_dev = -1;
+        s_card_view = -1;
+    } else if (g_browse_dev >= 0) {
         g_browse_sel = g_browse_dev;
         g_browse_dev = -1;
-    } else {
+    } else if (g_active_activity_id[0] && strcmp(g_active_activity_id, "-1") != 0) {
         g_current_view = VIEW_DEVICES;
+    } else {
+        g_current_view = VIEW_ACTIVITIES;
     }
 }
 
 void device_browser_move(int delta) {
     int n = browser_item_count();
     if (n > 0) g_browse_sel = ((g_browse_sel + delta) % n + n) % n;
-}
-
-void device_browser_page(int dir) {
-    int n = browser_item_count();
-    int page = g_browse_sel / 6;
-    if (dir > 0) g_browse_sel = ((page + 1) * 6 < n) ? (page + 1) * 6 : (n > 0 ? n - 1 : 0);
-    else g_browse_sel = (page > 0) ? (page - 1) * 6 : 0;
 }
 
 /* Open a device from the list, or send the chosen command to the Hub */
@@ -143,58 +160,80 @@ void device_browser_activate(int n) {
     printf("[*] RF TX DEVICE_CMD_INDEX: dev=%s idx=%d cmd=%s\n", g_rf_devices[g_browse_dev].id, c->cmd_idx, c->name);
 }
 
-/* Render the device list or the browsed device's commands (6 per page) */
+/* Render the device list, or the browsed device's heading and commands */
 void render_device_browser_view(void) {
-    int start_y = 38;
-    int card_h = 34;
-    int spacing = 5;
-    int page_size = 6;
     if (g_browse_dev >= g_rf_device_count) g_browse_dev = -1;
+    int start_y = browser_list_y();
+    int card_h = LIST_ROW_H;
     int total = browser_item_count();
     if (g_browse_sel >= total) g_browse_sel = 0;
 
+    if (g_browse_dev >= 0) {
+        char fit[RF_NAME_SIZE];
+        fb_draw_text_aa(14, SETTINGS_HEADING_Y, fb_fit_text_aa(fit, sizeof(fit), g_rf_devices[g_browse_dev].name, &g_font_title, FB_WIDTH - 28), RGB_CYAN, &g_font_title);
+        if (total <= 0) {
+            fb_draw_text_aa(14, start_y + 10, tr(STR_CONFIGURE_IN_WEBUI), RGB_TEXT_MUTED, &g_font_main);
+            return;
+        }
+    }
+
     if (total <= 0) {
-        fb_fill_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_CARD);
-        fb_draw_rect(12, start_y + 10, FB_WIDTH - 24, 120, RGB_DIVIDER);
-        fb_draw_text_aa(24, start_y + 30, g_browse_dev < 0 ? tr(STR_NO_DEVICES) : tr(STR_NO_COMMANDS), RGB_WHITE, &g_font_title);
-        fb_draw_text_aa(24, start_y + 55, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
+        fb_draw_text_aa(8, start_y + 20, tr(STR_NO_DEVICES), RGB_WHITE, &g_font_title);
+        fb_draw_text_aa(8, start_y + 45, tr(STR_CONFIGURE_IN_WEBUI), RGB_CYAN, &g_font_main);
         return;
     }
 
-    int page_start = (g_browse_sel / page_size) * page_size;
-    int total_pages = (total + page_size - 1) / page_size;
-    for (int i = 0; i < page_size && (page_start + i) < total; i++) {
-        int idx = page_start + i;
-        int y = start_y + i * (card_h + spacing);
+    list_geom_t g;
+    list_geometry(&g);
+    int scroll = list_scroll_offset();
+    int first = scroll > 0 ? scroll / LIST_ROW_PITCH : 0;
+    fb_clip_rows(g.y, g.y + g.rows * LIST_ROW_PITCH);
+    for (int idx = first; idx < total; idx++) {
+        int y = start_y + idx * LIST_ROW_PITCH - scroll;
+        if (y >= g.y + g.rows * LIST_ROW_PITCH) break;
         bool is_sel = (idx == g_browse_sel);
         const rf_dev_cmd_t *c = (g_browse_dev >= 0) ? browser_cmd(idx) : NULL;
         const char *label = (g_browse_dev < 0) ? g_rf_devices[idx].name : (c ? c->name : "");
 
         fb_fill_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_CARD_SEL : RGB_CARD);
-        fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : 0x2945);
+        fb_draw_rect(8, y, FB_WIDTH - 16, card_h, is_sel ? RGB_TEAL : g_theme.pal.outline);
 
+        /* Device images are 45 px line art, drawn at 28 px; command glyphs stay at 22 px */
+        int icon_size = g_browse_dev < 0 ? 28 : 22;
         char dev_icon_path[128] = {0};
         bool has_icon = false;
         if (g_browse_dev < 0) {
             if (resolve_device_icon(g_rf_devices[idx].icon_id, g_rf_devices[idx].icon, g_rf_devices[idx].name, g_rf_devices[idx].id, dev_icon_path, sizeof(dev_icon_path))) {
-                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+                has_icon = blit_png_file(14, y + (card_h - icon_size) / 2, icon_size, icon_size, dev_icon_path);
             }
         } else {
             if (resolve_button_icon(NULL, label, dev_icon_path, sizeof(dev_icon_path))) {
-                has_icon = blit_png_file(14, y + (card_h - 22) / 2, 22, 22, dev_icon_path);
+                has_icon = blit_png_file(14, y + (card_h - icon_size) / 2, icon_size, icon_size, dev_icon_path);
             }
         }
 
-        int text_x = has_icon ? 42 : 16;
-        fb_draw_text_aa(text_x, y + 9, label, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
+        int text_x = has_icon ? 14 + icon_size + 6 : 16;
+        char fit[RF_NAME_SIZE];
+        fb_fit_text_aa(fit, sizeof(fit), label, &g_font_main, FB_WIDTH - 30 - text_x);
+        fb_draw_text_aa(text_x, y + 9, fit, is_sel ? RGB_WHITE : RGB_CYAN, &g_font_main);
         if (g_browse_dev < 0) {
             fb_draw_text_aa(FB_WIDTH - 24, y + 8, ">", is_sel ? RGB_CYAN : RGB_TEXT_MUTED, &g_font_title);
         }
     }
+    fb_clip_reset();
+    render_list_scrollbar();
+}
 
-    if (total_pages > 1) {
-        char pstr[16];
-        snprintf(pstr, sizeof(pstr), "%d/%d", page_start / page_size + 1, total_pages);
-        fb_draw_text_aa(FB_WIDTH - 32, start_y + page_size * (card_h + spacing) - 2, pstr, RGB_TEXT_MUTED, &g_font_main);
-    }
+/* A thumb at the right edge of the list, sized to the share of rows on screen */
+void render_list_scrollbar(void) {
+    list_geom_t g;
+    if (!list_geometry(&g) || g.count <= g.rows) return;
+    int track = g.rows * LIST_ROW_PITCH - LIST_ROW_GAP;
+    int max = (g.count - g.rows) * LIST_ROW_PITCH;
+    int thumb = track * g.rows / g.count;
+    if (thumb < 16) thumb = 16;
+    int scroll = list_scroll_offset();
+    if (scroll < 0) scroll = 0;
+    if (scroll > max) scroll = max;
+    fb_fill_rect(FB_WIDTH - 5, g.y + (track - thumb) * scroll / max, 3, thumb, RGB_TEXT_MUTED);
 }

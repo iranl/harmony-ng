@@ -6,7 +6,9 @@
 
 typedef struct {
     const char *root;    /* directory laid out like the remote's filesystem */
-    const char *view;    /* activities|commands|devices|device (the device at select)|settings|pairing|not-paired|sync */
+    const char *view;    /* activities|menu|hint|link|commands|devices|device (the device at select)|settings|pairing|not-paired|sync|help-wait|help-question|help-done */
+    const char *theme;   /* theme name (a directory under /data/themes), or "classic" */
+    const char *layout;  /* home layout: list, grid or carousel; the theme's when unset or "theme" */
     const char *icons;   /* activity icon directory on the remote's filesystem, or "classic" */
     const char *active;  /* running activity ID */
     int select;
@@ -14,8 +16,13 @@ typedef struct {
     bool usb;
     bool charging;
     bool no_hub;
+    int link_loss;       /* percent of link reports and Hub replies lost; 0 shows four bars */
+    bool hub_silent;     /* the link is up but the Hub doesn't answer */
     int sync_done, sync_total;
     int minutes;         /* clock shown in the status bar, minutes after midnight */
+    int scroll;          /* home pages or a list dragged this many pixels (carousel: sideways); positive shows the previous page or rows */
+    int list_top;        /* with has_list_top: a list scrolled this many pixels down, within its ends */
+    bool has_list_top;
 } render_options_t;
 
 /* Loads config and assets from o->root and sets up the state o describes */

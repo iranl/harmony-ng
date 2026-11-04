@@ -37,6 +37,7 @@ void rf_send_sync_query(void) {
     payload[0] = 0x01; /* activity only */
     rf_build_frame(&f, g_remote_slot, RF_MSG_SYNC_REQUEST, ++g_tx_seq, 0, payload, 1);
     rf_send_frame(&f);
+    link_note_query(f.seq, get_monotonic_ms());
     printf("[*] RF TX SYNC_REQUEST seq=%d slot=%d (byte1=0x%02X)\n", f.seq, f.dev_slot & 0x0F, f.dev_slot);
     fflush(stdout);
 }
@@ -47,6 +48,9 @@ void rf_send_full_sync_request(void) {
     static uint64_t last_sync_req_ms = 0;
     if (now - last_sync_req_ms < 5000) return;
     last_sync_req_ms = now;
+
+    /* A Hub that restarted may not know this remote's capabilities; it builds the push from them */
+    send_version_report_rf();
 
     rf_frame_t f;
     uint8_t payload[25] = {0};
@@ -232,6 +236,27 @@ void rf_send_activity_start(const char *act_id) {
     printf("[*] RF TX ACTIVITY_REQUEST: %s\n", act_id);
 }
 
+void rf_send_help_request(const char *act_id) {
+    if (g_rf_fd < 0) return;
+    rf_frame_t f;
+    uint8_t payload[25] = {0};
+    strncpy((char *)payload, act_id, 12);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_REQUEST, ++g_tx_seq, 0, payload, 12);
+    rf_send_frame(&f);
+    printf("[*] RF TX HELP_REQUEST: %s\n", act_id);
+}
+
+void rf_send_help_answer(const char *dev_id, bool on) {
+    if (g_rf_fd < 0) return;
+    rf_frame_t f;
+    uint8_t payload[25] = {0};
+    payload[0] = on ? 1 : 0;
+    strncpy((char *)&payload[1], dev_id, 8);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_HELP_ANSWER, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 9);
+    rf_send_frame(&f);
+    printf("[*] RF TX HELP_ANSWER: %s is %s\n", dev_id, on ? "on" : "off");
+}
+
 void rf_send_device_command(const char *dev_id, const char *cmd) {
     if (g_rf_fd < 0) return;
 
@@ -350,9 +375,7 @@ void send_remote_config_backup_rf(void) {
     payload[0] = (uint8_t)g_brightness_val;
     payload[1] = (uint8_t)(g_timeout_seconds & 0xFF);
     payload[2] = (uint8_t)(g_touch_enabled ? 1 : 0);
-    payload[3] = (uint8_t)(g_nav_toggle_key & 0xFF);
-    payload[4] = (uint8_t)((g_nav_toggle_key >> 8) & 0xFF);
-    payload[5] = (uint8_t)(g_nav_toggle_mode & 0xFF);
+    /* payload[3..5]: the NAV toggle key and mode of older firmware, sent as 0 */
     payload[6] = (uint8_t)(g_usb_connected ? 1 : 0);
     payload[7] = (uint8_t)(g_confirm_activity ? 1 : 0);
     payload[8] = (uint8_t)g_config_version;
@@ -367,7 +390,9 @@ void send_remote_config_backup_rf(void) {
     payload[17] = (uint8_t)(g_cap_buttons_enabled ? 1 : 0);
     payload[18] = 0;
     payload[19] = (uint8_t)(g_language & 0xFF);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 20);
+    payload[20] = rf_theme_id(g_theme.name); /* 0 for a theme the Hub has no id for */
+    payload[21] = (uint8_t)(g_home_layout + 1); /* rf_layout_name() order */
+    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 22);
     rf_send_frame(&f);
     printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d lang=%d\n",
            g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds, (int)g_language);
@@ -383,7 +408,8 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 4);
+    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES;
+    rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);
 }

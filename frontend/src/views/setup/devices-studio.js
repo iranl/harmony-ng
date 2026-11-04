@@ -7,6 +7,7 @@ import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { renderDeviceIcon } from '../../icons/render.js';
 import { createModal } from '../../components/modal.js';
+import { openIconPicker } from '../../components/icon-picker.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-devices', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -74,6 +75,28 @@ export function createView() {
     const header = h('div', { className: 'card-header' }, [
       backBtn,
       h('h3', { className: 'card-title', text: `${dev.name} Studio` }),
+    ]);
+
+    // The icon the remote draws for the device; saving it queues a config push to the remote
+    const iconCard = h('div', { className: 'card' }, [
+      h('label', { className: 'form-label', text: t('icon', 'Icon') }),
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' } }, [
+        renderDeviceIcon(dev, 'device-icon'),
+        h('button', {
+          className: 'btn btn-secondary btn-sm',
+          text: t('change_icon', 'Change Icon...'),
+          onclick: () => {
+            openIconPicker(dev.icon, async (icon) => {
+              try {
+                await api.saveDeviceDetails({ id: dev.id, icon });
+                await refreshInventory();
+              } catch (e) {
+                toast.error(e.message);
+              }
+            }, { kind: 'device' });
+          },
+        }),
+      ]),
     ]);
 
     // IR Capture / Learn Card
@@ -253,6 +276,7 @@ export function createView() {
     ]);
 
     container.appendChild(header);
+    container.appendChild(iconCard);
     container.appendChild(learnCard);
     container.appendChild(prontoCard);
     container.appendChild(cmdsCard);

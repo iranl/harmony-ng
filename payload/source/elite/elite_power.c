@@ -1,4 +1,5 @@
 #include "elite_power.h"
+#include "elite_transition.h"
 #include "elite_fb.h"
 #include "elite_rf.h"
 #include "elite_config.h"
@@ -232,6 +233,7 @@ bool is_night_time(void) {
 }
 
 void fb_set_blank(bool blank) {
+    if (blank) transition_reset(); /* the frame before sleep isn't one to slide away from */
     int blank_res = -1;
     if (g_fb_fd >= 0) {
         blank_res = ioctl(g_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
@@ -652,7 +654,8 @@ void elite_wdt_init(void) {
     if (s_wdt_fd < 0) {
         s_wdt_fd = open("/dev/watchdog", O_WRONLY);
         if (s_wdt_fd >= 0) {
-            printf("[+] Hardware watchdog (/dev/watchdog) armed with 60s timeout\n");
+            /* The Elite's driver resets after 10 s without a write; elite_wdt_ping writes every 5 s */
+            printf("[+] Hardware watchdog (/dev/watchdog) armed with 10s timeout\n");
             elite_wdt_ping();
         }
     }

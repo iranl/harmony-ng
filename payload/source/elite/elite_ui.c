@@ -3,6 +3,9 @@
 #include "elite_power.h"
 #include "elite_rf.h"
 #include "elite_rf_ota.h"
+#include "elite_present.h"
+#include "elite_ui_scroll.h"
+#include "elite_transition.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,212 +26,142 @@ void show_notice(const char *msg, int duration_ms) {
     g_screen_dirty = true;
 }
 
+/* Right side of the status bar, laid out from the right edge: time, battery, USB, RF link,
+   NAV indicator, update badge. The gear sits alone at the left. */
+#define HDR_Y 9
+
+#define LINK_BARS_W 15  /* four 3 px bars, 1 px apart */
+#define BATT_W      21  /* 19 px body and a 2 px terminal */
+
+/* Bars, USB and battery stand on the clock's baseline and are no taller than its digits */
+#define HDR_GLYPH_H 9
+#define HDR_BASE    (HDR_Y + 11)  /* last row of the digits */
+
+static const char *link_badge(const link_quality_t *q) {
+    return q->state == LINK_NO_HUB ? tr(STR_NO_HUB) : q->state == LINK_HUB_SILENT ? tr(STR_HUB_SILENT) : NULL;
+}
+
+void header_layout(header_layout_t *l) {
+    int x = FB_WIDTH - 4 - fb_text_width_aa("00:00", &g_font_main); /* time */
+    x -= 4 + BATT_W + 4;                                             /* battery */
+    if (strcmp(g_battery_info.powersource, "usb") == 0) x -= 2 + 18; /* USB */
+    link_quality(get_monotonic_ms(), &l->link);
+    const char *badge = link_badge(&l->link);
+    l->link_w = badge ? 6 + 8 * (int)strlen(badge) : LINK_BARS_W;
+    l->link_x = x - l->link_w;
+    x -= 4 + l->link_w;
+    l->nav_x = -1;
+    l->nav_w = 22;
+    if (!g_touch_enabled) {
+        x -= 6 + l->nav_w;
+        l->nav_x = x;
+    }
+    bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+    l->update_x = -1;
+    l->update_w = 18;
+    if (g_update_config_available || ota_avail) {
+        x -= 6 + l->update_w;
+        l->update_x = x;
+    }
+}
+
 void render_header(void) {
     if (!blit_png_file(0, 0, FB_WIDTH, 34, "/opt/luadraws/appscommon/asset/footer/toolbarBG.png")) {
-        fb_fill_rect(0, 0, FB_WIDTH, 34, 0x0841);
+        fb_fill_rect(0, 0, FB_WIDTH, 34, g_theme.pal.status_bg);
     }
 
-    const char *title = (g_current_view == VIEW_ACTIVITIES) ? tr(STR_ACTIVITIES) :
-                        ((g_current_view == VIEW_DEVICES) ? tr(STR_COMMANDS) :
-                        ((g_current_view == VIEW_PAIRING) ? tr(STR_RF_PAIRING) :
-                        ((g_current_view == VIEW_NOT_PAIRED) ? tr(STR_NOT_PAIRED) : tr(STR_SETTINGS))));
-    char browser_title[32];
-    if (g_current_view == VIEW_DEVICE_BROWSER) {
-        bool in_dev = (g_browse_dev >= 0 && g_browse_dev < g_rf_device_count);
-        if (in_dev) {
-            snprintf(browser_title, sizeof(browser_title), "< %s", g_rf_devices[g_browse_dev].name);
-        } else {
-            snprintf(browser_title, sizeof(browser_title), "%s", tr(STR_DEVICES));
-        }
-        /* Keep the title clear of the RF badge at FB_WIDTH - 142 */
-        size_t len = strlen(browser_title);
-        while (len > 3 && fb_text_width_aa(browser_title, &g_font_title) > FB_WIDTH - 142 - 14) {
-            browser_title[--len] = '\0';
-        }
-        title = browser_title;
+    uint16_t gear_col = g_menu_open ? RGB_TEAL : RGB_WHITE;
+    if (g_menu_open) fb_fill_rect(2, 3, HDR_GEAR_W - 4, 28, RGB_CARD_SEL);
+    if (!blit_png_file(6, 6, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
+        fb_draw_cog(17, 17, gear_col);
     }
-    fb_draw_text_aa(10, 9, title, RGB_WHITE, &g_font_title);
 
-    bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
-    if (g_update_config_available || ota_avail) {
-        int notif_x = 76;
-        int notif_y = 9;
-        int notif_w = 18;
-        int notif_h = 16;
-        uint16_t n_bg = ota_avail ? RGB_YELLOW : RGB_TEAL;
+    header_layout_t l;
+    header_layout(&l);
+
+    if (l.update_x >= 0) {
+        bool ota_avail = g_update_ota_available && harmony_version_compare(g_hub_ota_version, HARMONY_ELITE_VERSION) > 0;
+        int nx = l.update_x, ny = HDR_Y;
         uint16_t n_fg = RGB_BLACK;
-
-        fb_fill_rect(notif_x, notif_y, notif_w, notif_h, n_bg);
-        fb_draw_rect(notif_x, notif_y, notif_w, notif_h, RGB_WHITE);
-
-        fb_fill_rect(notif_x + 8, notif_y + 3, 2, 5, n_fg);
-        fb_fill_rect(notif_x + 5, notif_y + 8, 8, 1, n_fg);
-        fb_fill_rect(notif_x + 6, notif_y + 9, 6, 1, n_fg);
-        fb_fill_rect(notif_x + 7, notif_y + 10, 4, 1, n_fg);
-        fb_fill_rect(notif_x + 8, notif_y + 11, 2, 1, n_fg);
-        fb_fill_rect(notif_x + 4, notif_y + 13, 10, 1, n_fg);
+        fb_fill_rect(nx, ny, l.update_w, 16, ota_avail ? RGB_YELLOW : RGB_TEAL);
+        fb_draw_rect(nx, ny, l.update_w, 16, RGB_WHITE);
+        fb_fill_rect(nx + 8, ny + 3, 2, 5, n_fg);
+        fb_fill_rect(nx + 5, ny + 8, 8, 1, n_fg);
+        fb_fill_rect(nx + 6, ny + 9, 6, 1, n_fg);
+        fb_fill_rect(nx + 7, ny + 10, 4, 1, n_fg);
+        fb_fill_rect(nx + 8, ny + 11, 2, 1, n_fg);
+        fb_fill_rect(nx + 4, ny + 13, 10, 1, n_fg);
     }
 
-    int nav_x = 112;
-    int nav_y = 9;
-    int nav_w = 22;
-    int nav_h = 16;
-    if (g_screen_nav_mode) {
-        fb_fill_rect(nav_x, nav_y, nav_w, nav_h, RGB_TEAL);
-        fb_draw_rect(nav_x, nav_y, nav_w, nav_h, RGB_WHITE);
-        int cx = nav_x + nav_w / 2;
-        int cy = nav_y + nav_h / 2;
+    if (l.nav_x >= 0) {
+        int cx = l.nav_x + l.nav_w / 2;
+        int cy = HDR_Y + 8;
+        fb_fill_rect(l.nav_x, HDR_Y, l.nav_w, 16, RGB_TEAL);
+        fb_draw_rect(l.nav_x, HDR_Y, l.nav_w, 16, RGB_WHITE);
         fb_fill_rect(cx - 1, cy - 5, 3, 11, RGB_BLACK);
         fb_fill_rect(cx - 5, cy - 1, 11, 3, RGB_BLACK);
         fb_fill_rect(cx, cy, 1, 1, RGB_TEAL);
-    } else {
-        fb_fill_rect(nav_x, nav_y, nav_w, nav_h, 0x1824);
-        fb_draw_rect(nav_x, nav_y, nav_w, nav_h, 0x2945);
-        int cx = nav_x + nav_w / 2;
-        int cy = nav_y + nav_h / 2;
-        fb_draw_rect(cx - 5, cy - 4, 11, 7, RGB_TEXT_MUTED);
-        fb_fill_rect(cx - 1, cy + 3, 3, 2, RGB_TEXT_MUTED);
-        fb_fill_rect(cx - 3, cy + 5, 7, 1, RGB_TEXT_MUTED);
     }
 
-    int badge_x = FB_WIDTH - 142;
-    int badge_w = 54;
-    int badge_h = 16;
-    int badge_y = 9;
-
-    if (!g_rf_link_connected) {
-        fb_fill_rect(badge_x, badge_y, badge_w, badge_h, RGB_RED);
-        fb_draw_rect(badge_x, badge_y, badge_w, badge_h, RGB_WHITE);
-        fb_draw_text(badge_x + 3, badge_y + 4, tr(STR_NO_HUB), RGB_WHITE, RGB_RED, 1);
+    int x = l.link_x;
+    const char *badge = link_badge(&l.link);
+    if (badge) {
+        fb_fill_rect(x, HDR_Y, l.link_w, 16, RGB_RED);
+        fb_draw_rect(x, HDR_Y, l.link_w, 16, RGB_WHITE);
+        fb_draw_text(x + 3, HDR_Y + 4, badge, RGB_WHITE, RGB_RED, 1);
     } else {
-        fb_fill_rect(FB_WIDTH - 98, badge_y + 4, 8, 8, RGB_TEAL);
-        fb_draw_rect(FB_WIDTH - 98, badge_y + 4, 8, 8, RGB_WHITE);
+        /* Signal bars, like Wi-Fi: one bar is amber */
+        uint16_t on = l.link.bars == 1 ? RGB_YELLOW : RGB_TEAL;
+        for (int b = 0; b < 4; b++) {
+            int h = 3 + 2 * b;
+            fb_fill_rect(x + 4 * b, HDR_BASE + 1 - h, 3, h, b < l.link.bars ? on : RGB_CARD_BORDER);
+        }
     }
-
-    time_t now = ui_wall_time();
-    struct tm *tm_info = localtime(&now);
-    char time_str[16];
-    if (tm_info) {
-        strftime(time_str, sizeof(time_str), "%H:%M", tm_info);
-    } else {
-        strncpy(time_str, "12:00", sizeof(time_str) - 1);
-        time_str[sizeof(time_str) - 1] = '\0';
-    }
-    fb_draw_text_aa(FB_WIDTH - 84, 9, time_str, RGB_WHITE, &g_font_main);
+    x += l.link_w;
 
     read_elite_battery();
     if (strcmp(g_battery_info.powersource, "usb") == 0) {
-        blit_png_file(FB_WIDTH - 48, 9, 18, 14, "/opt/luadraws/appscommon/asset/header/usb.png");
+        blit_png_file(x + 2, HDR_Y, 18, 14, "/opt/luadraws/appscommon/asset/header/usb.png");
+        x += 2 + 18;
     }
 
-    char batt_icon[96] = {0};
-    if (g_battery_info.charging) {
-        snprintf(batt_icon, sizeof(batt_icon), "/opt/luadraws/appscommon/asset/header/hopscharging.png");
-    } else {
-        int lvl = (g_battery_info.percent / 10) * 10;
-        if (lvl < 10) lvl = 10;
-        if (lvl > 100) lvl = 100;
-        snprintf(batt_icon, sizeof(batt_icon), "/opt/luadraws/appscommon/asset/header/hopslevel%d.png", lvl);
-    }
-    bool has_batt = blit_png_file(FB_WIDTH - 26, 9, 20, 16, batt_icon);
-    if (!has_batt) {
-        if (g_battery_info.charging) {
-            blit_png_file(FB_WIDTH - 26, 9, 20, 16, "/opt/luadraws/appscommon/asset/header/charging.png");
-        } else {
-            blit_png_file(FB_WIDTH - 26, 9, 20, 16, "/opt/luadraws/appscommon/asset/header/level100.png");
-        }
-    }
+    /* Battery outline with a fill for the level: teal while charging, red at 20 % or less */
+    int bx = x + 4, by = HDR_BASE + 1 - HDR_GLYPH_H, bw = BATT_W - 2;
+    int pct = g_battery_info.percent > 100 ? 100 : g_battery_info.percent;
+    uint16_t fill = g_battery_info.charging ? RGB_TEAL : pct <= 20 ? RGB_RED : RGB_WHITE;
+    fb_draw_rect(bx, by, bw, HDR_GLYPH_H, RGB_WHITE);
+    fb_fill_rect(bx + bw, by + 3, 2, HDR_GLYPH_H - 6, RGB_WHITE);
+    int fw = (bw - 4) * pct / 100;
+    if (fw < 1) fw = 1;
+    fb_fill_rect(bx + 2, by + 2, fw, HDR_GLYPH_H - 4, fill);
+
+    time_t now = ui_wall_time();
+    struct tm *tm_info = localtime(&now);
+    char time_str[16] = "12:00";
+    if (tm_info) strftime(time_str, sizeof(time_str), "%H:%M", tm_info);
+    fb_draw_text_aa(FB_WIDTH - 4 - fb_text_width_aa(time_str, &g_font_main), HDR_Y, time_str, RGB_WHITE, &g_font_main);
 
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 }
 
-void render_footer(void) {
-    int dock_y = FB_HEIGHT - 38;
-    int dock_h = 38;
+/* "page/pages" in the 8 px font at the bottom right, below the last list row */
+void render_page_indicator(int page, int pages) {
+    if (pages <= 1) return;
+    char pstr[16];
+    snprintf(pstr, sizeof(pstr), "%d/%d", page, pages);
+    fb_draw_text(FB_WIDTH - 6 - (int)strlen(pstr) * 8, FB_HEIGHT - 9, pstr, RGB_TEXT_MUTED, 0, 1);
+}
 
-    if (!blit_png_file(0, dock_y, FB_WIDTH, dock_h, "/opt/luadraws/appscommon/asset/footer/toolbarBG.png")) {
-        fb_fill_rect(0, dock_y, FB_WIDTH, dock_h, RGB_TAB_BG);
-    }
-    fb_fill_rect(0, dock_y - 1, FB_WIDTH, 1, RGB_DIVIDER);
-
-    bool has_acts = has_configured_activities();
-    int num_tabs = has_acts ? 4 : 2;
-    int tab_w = has_acts ? 56 : 114;
-    int tab_stride = has_acts ? 59 : 118;
-    int start_x = has_acts ? 3 : 4;
-
-    for (int t = 0; t < num_tabs; t++) {
-        int tx = start_x + t * tab_stride;
-        int ty = dock_y + 4;
-        int th = dock_h - 8;
-        bool paired = is_remote_paired();
-        bool is_disabled = false;
-        bool is_active_view = false;
-
-        if (has_acts) {
-            is_disabled = !paired && (t == 0 || t == 1 || t == 2);
-            if (t == 0 && g_current_view == VIEW_ACTIVITIES) is_active_view = true;
-            else if (t == 1 && g_current_view == VIEW_DEVICES) is_active_view = true;
-            else if (t == 2 && g_current_view == VIEW_DEVICE_BROWSER) is_active_view = true;
-            else if (t == 3 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) is_active_view = true;
-            if (!paired) {
-                is_active_view = (t == 3 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING));
-            }
-        } else {
-            is_disabled = !paired && (t == 0);
-            if (t == 0 && (g_current_view == VIEW_DEVICE_BROWSER || g_current_view == VIEW_DEVICES || g_current_view == VIEW_ACTIVITIES)) is_active_view = true;
-            else if (t == 1 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING)) is_active_view = true;
-            if (!paired) {
-                is_active_view = (t == 1 && (g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING));
-            }
-        }
-
-        uint16_t bg = is_active_view ? RGB_TAB_ACTIVE : RGB_TAB_BG;
-        uint16_t border = is_active_view ? RGB_TEAL : 0x1924;
-        uint16_t fg = is_disabled ? 0x4A69 : (is_active_view ? RGB_WHITE : RGB_TEXT_MUTED);
-
-        fb_fill_rect(tx, ty, tab_w, th, bg);
-        fb_draw_rect(tx, ty, tab_w, th, border);
-
-        if (is_active_view && !is_disabled) {
-            fb_fill_rect(tx + 2, ty + th - 2, tab_w - 4, 2, RGB_TEAL);
-        }
-
-        if (has_acts) {
-            if (t == 0) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/wiihome.png") &&
-                    !blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/activities.png")) {
-                    int tw = fb_text_width_aa(tr(STR_TAB_ACT), &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_ACT), fg, &g_font_main);
-                }
-            } else if (t == 1) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/menu.png")) {
-                    int tw = fb_text_width_aa(tr(STR_TAB_CMD), &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_CMD), fg, &g_font_main);
-                }
-            } else if (t == 2) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                    int tw = fb_text_width_aa(tr(STR_TAB_DEV), &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_TAB_DEV), fg, &g_font_main);
-                }
-            } else if (t == 3) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
-                    fb_draw_cog(tx + tab_w / 2, ty + th / 2, fg);
-                }
-            }
-        } else {
-            if (t == 0) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/devices.png")) {
-                    int tw = fb_text_width_aa(tr(STR_DEVICES), &g_font_main);
-                    fb_draw_text_aa(tx + (tab_w - tw) / 2, ty + 6, tr(STR_DEVICES), fg, &g_font_main);
-                }
-            } else if (t == 1) {
-                if (!blit_png_file(tx + (tab_w - 22) / 2, ty + (th - 22) / 2, 22, 22, "/opt/luadraws/appscommon/asset/footer/settings.png")) {
-                    fb_draw_cog(tx + tab_w / 2, ty + th / 2, fg);
-                }
-            }
-        }
-    }
+/* One-time page over the content after the dock was removed: navigation moved to the physical keys */
+void render_key_hint(void) {
+    int x = 8, y = UI_CONTENT_Y + 12;
+    fb_fill_rect(0, UI_CONTENT_Y - 4, FB_WIDTH, FB_HEIGHT - UI_CONTENT_Y + 4, RGB_CARD);
+    fb_draw_text_aa(x, y + 12, tr(STR_KEY_HINT_TITLE), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(x, y + 44, tr(STR_KEY_HINT_ACTIVITIES), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 66, tr(STR_KEY_HINT_DEVICES), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 88, tr(STR_KEY_HINT_OFF), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 110, tr(STR_KEY_HINT_MENU), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(x, y + 138, tr(STR_KEY_HINT_DISMISS), RGB_CYAN, &g_font_main);
 }
 
 void render_sync_overlay(void) {
@@ -237,17 +170,14 @@ void render_sync_overlay(void) {
     fb_fill_rect(0, 34, FB_WIDTH, 1, RGB_DIVIDER);
 
     int card_y = 52;
-    int card_h = 216;
-    fb_fill_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD);
-    fb_draw_rect(10, card_y, FB_WIDTH - 20, card_h, RGB_CARD_SEL);
 
-    fb_draw_text_aa(22, card_y + 20, tr(STR_UPDATING_FROM_HUB), RGB_WHITE, &g_font_title);
-    fb_draw_text_aa(22, card_y + 46, tr(STR_SYNCING_ACTS_MAPS), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 20, tr(STR_UPDATING_FROM_HUB), RGB_WHITE, &g_font_title);
+    fb_draw_text_aa(8, card_y + 46, tr(STR_SYNCING_ACTS_MAPS), RGB_TEXT_MUTED, &g_font_main);
 
     char items_str[48];
     snprintf(items_str, sizeof(items_str), "Acts: %d | Devs: %d | Btns: %d",
              g_rf_activity_count, g_rf_device_count, g_rf_button_count);
-    fb_draw_text_aa(22, card_y + 80, items_str, RGB_TEAL, &g_font_main);
+    fb_draw_text_aa(8, card_y + 80, items_str, RGB_TEAL, &g_font_main);
 
     char chunks_str[40];
     if (g_sync_total > 0) {
@@ -256,12 +186,12 @@ void render_sync_overlay(void) {
     } else {
         snprintf(chunks_str, sizeof(chunks_str), "Chunks received: %d", g_sync_chunk_count);
     }
-    fb_draw_text_aa(22, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 106, chunks_str, RGB_TEXT_MUTED, &g_font_main);
 
-    int bar_x = 22;
-    int max_w = FB_WIDTH - 44;
+    int bar_x = 8;
+    int max_w = FB_WIDTH - 16;
     fb_fill_rect(bar_x, card_y + 140, max_w, 8, RGB_BG);
-    fb_draw_rect(bar_x, card_y + 140, max_w, 8, 0x2945);
+    fb_draw_rect(bar_x, card_y + 140, max_w, 8, g_theme.pal.outline);
     if (g_sync_total > 0) {
         int done = g_sync_chunk_count < g_sync_total ? g_sync_chunk_count : g_sync_total;
         fb_fill_rect(bar_x, card_y + 140, max_w * done / g_sync_total, 8, RGB_CYAN);
@@ -271,7 +201,7 @@ void render_sync_overlay(void) {
         fb_fill_rect(bar_x + pulse_pos, card_y + 140, 30, 8, RGB_CYAN);
     }
 
-    fb_draw_text_aa(22, card_y + 168, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
+    fb_draw_text_aa(8, card_y + 168, tr(STR_PLEASE_WAIT), RGB_TEXT_MUTED, &g_font_main);
 
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
     fb_draw_text_aa(18, FB_HEIGHT - 22, tr(STR_SCREEN_LOCKED_SYNC), RGB_TEXT_MUTED, &g_font_main);
@@ -279,10 +209,11 @@ void render_sync_overlay(void) {
 
 /* Draws the current state into g_backbuffer. Shared by the remote and the host renderer. */
 void render_frame(void) {
+    fb_clip_reset();
     if (g_has_wallpaper) {
         memcpy(g_backbuffer, g_bg_wallpaper, sizeof(g_backbuffer));
     } else {
-        memset(g_backbuffer, 0x10, sizeof(g_backbuffer));
+        fb_fill_rect(0, 0, FB_WIDTH, FB_HEIGHT, RGB_BG);
     }
 
     if (g_is_ota_updating) {
@@ -306,7 +237,10 @@ void render_frame(void) {
             default: break;
         }
 
-        render_footer();
+        if (ui_help_active()) render_help();
+        if (g_menu_open) render_menu();
+        else if (g_key_hint_pending && is_remote_paired()) render_key_hint();
+        else if (g_link_panel_open) render_link_panel();
     }
 
     if (g_notice_until_ms > get_monotonic_ms() && g_notice_msg[0]) {
@@ -322,18 +256,41 @@ void render_frame(void) {
     }
 }
 
+/* What the frame shows, for the frame timing log */
+static const char *screen_name(void) {
+    static const char *views[VIEW_COUNT] = { "activities", "activity", "settings", "pairing", "not-paired", "devices" };
+    static char name[32];
+    if (g_is_ota_updating) return "ota";
+    if (g_is_syncing_config) return "sync";
+    if (g_is_switching_activity) return "switching";
+    if (g_menu_open) return "menu";
+    if (ui_help_active()) return "help";
+    if (g_current_view == VIEW_SETTINGS) {
+        snprintf(name, sizeof(name), "settings/%d", (int)g_settings_subview);
+        return name;
+    }
+    return (g_current_view >= 0 && g_current_view < VIEW_COUNT) ? views[g_current_view] : "?";
+}
+
 void render_screen(void) {
     if (!g_fb_mem || !g_screen_on) return;
     pthread_mutex_lock(&g_render_mutex);
 
+    int decodes, scales;
+    fb_png_work_take(&decodes, &scales);
+    transition_t transition = transition_prepare(screen_place());
+    uint64_t t0 = get_monotonic_us();
     render_frame();
-
-    memcpy((void *)g_fb_mem, g_backbuffer, FB_SIZE);
-    if (g_fb_size >= FB_SIZE * 2) {
-        memcpy((uint8_t *)g_fb_mem + FB_SIZE, g_backbuffer, FB_SIZE);
-    }
-    if (g_fb_size >= FB_SIZE * 3) {
-        memcpy((uint8_t *)g_fb_mem + (FB_SIZE * 2), g_backbuffer, FB_SIZE);
+    uint64_t t1 = get_monotonic_us();
+    bool flipped = false;
+    if (transition != TRANSITION_NONE) transition_play(transition);
+    else flipped = fb_present(g_backbuffer, ui_scroll_active());
+    uint64_t t2 = get_monotonic_us();
+    if (frame_timing_enabled()) {
+        frame_timing_t t = { screen_name(), g_theme.name, home_layout_name(),
+                             (uint32_t)(t1 - t0), (uint32_t)(t2 - t1), flipped, 0, 0 };
+        fb_png_work_take(&t.decodes, &t.scales);
+        frame_timing_record(&t);
     }
 
     g_screen_dirty = false;

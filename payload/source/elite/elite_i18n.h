@@ -27,15 +27,12 @@ typedef enum {
     STR_TAB_ACT,
     STR_TAB_CMD,
     STR_TAB_DEV,
-    STR_BACK,
-    STR_BACK_TO_SETTINGS,
 
     /* Activities screen */
     STR_NO_ACTIVITIES,
     STR_SYNCING_WITH_HUB,
     STR_CONFIRM_PRESS_OK,
     STR_ACTIVE,
-    STR_ACT_ALREADY_ACTIVE,
     STR_PRESS_OK_TO_CONFIRM,
 
     /* Switching overlay */
@@ -112,13 +109,14 @@ typedef enum {
     STR_DISPLAY_TIMEOUT,
     STR_BTN_BACKLIGHT,
     STR_NIGHT_SCHEDULE,
+    STR_DISPLAY_THEME,
+    STR_HOME_LAYOUT,
+    STR_ACTIVITY_ORDER,
 
     /* Settings TOUCH subview */
     STR_TOUCHSCREEN,
     STR_CAP_BUTTONS,
     STR_TOUCH_SENSITIVITY,
-    STR_NAV_TOGGLE_BTN,
-    STR_NAV_TOGGLE_MODE,
 
     /* Settings POWER subview */
     STR_TILT_WAKE,
@@ -151,13 +149,42 @@ typedef enum {
 
     /* Notices / toasts */
     STR_NOTICE_NAV_MOVED,
-    STR_NOTICE_NAV_LOCKED,
     STR_NOTICE_HUB_NOT_CONNECTED,
     STR_NOTICE_SYNCING,
     STR_NOTICE_REBOOTING,
     STR_NOTICE_RESTARTING,
     STR_NOTICE_RESTORING,
     STR_NOTICE_LANG_CHANGED,
+
+    /* One-time key hint after the dock was removed */
+    STR_KEY_HINT_TITLE,
+    STR_KEY_HINT_ACTIVITIES,
+    STR_KEY_HINT_DEVICES,
+    STR_KEY_HINT_OFF,
+    STR_KEY_HINT_MENU,
+    STR_KEY_HINT_DISMISS,
+
+    /* RF link indicator and its panel */
+    STR_HUB_SILENT,
+    STR_LINK_TITLE,
+    STR_LINK_UP,
+    STR_LINK_REPLIES,
+    STR_LINK_LAST_FRAME,
+    STR_LINK_LOST,
+    STR_LINK_HUB_SILENT,
+
+    /* Help (repair the running activity) */
+    STR_HELP,
+    STR_HELP_RESENDING,
+    STR_HELP_IS_IT_ON,
+    STR_HELP_DEVICE_N_OF,
+    STR_YES,
+    STR_NO,
+    STR_HELP_SWITCHED_ON,
+    STR_HELP_ALL_ON,
+    STR_HELP_BUSY,
+    STR_HELP_FAILED,
+    STR_HELP_BACK_CLOSES,
 
     STR_COUNT
 } elite_str_id_t;
