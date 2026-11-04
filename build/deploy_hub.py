@@ -245,7 +245,10 @@ class HubDeployer:
                 if not self.dry_skip(f"run backup_hub {self.hub_host}"):
                     try:
                         # Import and run backup_hub directly
-                        sys.path.insert(0, str(self.repo_root / "tools"))
+                        # Release bundle: tools/ next to this script; repository: <repo>/tools
+                        for tools_dir in (self.repo_root / "tools", self.script_dir / "tools"):
+                            if (tools_dir / "backup_hub.py").is_file():
+                                sys.path.insert(0, str(tools_dir))
                         import backup_hub as bkp_mod
                         bkp_mod.backup_hub(hub_host=self.hub_host, hub_user=self.hub_user, ssh_key=self.ssh_key)
                     except Exception as e:
