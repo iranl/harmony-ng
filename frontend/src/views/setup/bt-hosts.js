@@ -140,6 +140,12 @@ export function createView() {
   container.appendChild(hostsCard);
   loadStatus();
 
+  // The Hub pushes bt_status when the Bluetooth state changes (connection.js puts it in the store)
+  const off = store.on('btStatus', () => {
+    if (!container.isConnected) { off(); return; }
+    loadStatus();
+  });
+
   return container;
 }
 
