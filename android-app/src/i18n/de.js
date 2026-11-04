@@ -1,5 +1,9 @@
 export default {
     "account_auth": "Konto / Authentifizierung",
+    "dry_run_banner_title": "Dry-Run-Modus aktiv",
+    "dry_run_banner_desc": "IR- und MQTT-Befehle werden simuliert und verworfen. Physische Hardware reagiert nicht.",
+    "disable_dry_run_btn": "Dry-Run deaktivieren",
+    "dry_run_disabled": "Dry-Run deaktiviert. Physische Hardware-Befehle aktiv.",
     "act_editor_sub": "Aktivitätseinstellungen und Befehlssequenzen konfigurieren",
     "act_name_required": "Aktivitätsname ist erforderlich.",
     "act_start_stop_order_hint": "Start-/Stopp-Reihenfolge: Geräte schalten in Reihenfolge (#1..#N) EIN und umgekehrt AUS.",

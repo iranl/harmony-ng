@@ -12,7 +12,7 @@ FIRMWARE=(
     "$SRC/elite/elite_fb.c" "$SRC/elite/elite_state.c" "$SRC/elite/elite_config.c"
     "$SRC/elite/elite_ui.c" "$SRC/elite/elite_ui_activities.c" "$SRC/elite/elite_ui_devices.c"
     "$SRC/elite/elite_ui_settings.c" "$SRC/elite/elite_ui_settings_actions.c"
-    "$SRC/elite/elite_ui_pairing.c" "$SRC/elite/elite_rf_ota.c" "$SRC/elite/elite_i18n.c"
+    "$SRC/elite/elite_ui_pairing.c" "$SRC/elite/elite_ui_menu.c" "$SRC/elite/elite_ui_help.c" "$SRC/elite/elite_ui_activity.c" "$SRC/elite/elite_link.c" "$SRC/elite/elite_rf_ota.c" "$SRC/elite/elite_i18n.c" "$SRC/elite/elite_theme.c" "$SRC/elite/elite_ui_scroll.c" "$SRC/elite/elite_transition.c"
     "$SRC/elite_stock_icons.c" "$SRC/sha256.c" "$SRC/cJSON.c"
     "$HERE/host_platform.c" "$HERE/render_state.c"
 )
@@ -24,7 +24,7 @@ if [ "${1:-}" = "--wasm" ]; then
     [ -z "${2:-}" ] && cp "$HERE/web/index.html" "$OUT/"
     emcc "${FLAGS[@]}" -I"$HERE/wasm_compat" "$HERE/elite_render_wasm.c" "${FIRMWARE[@]}" \
         -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEliteRenderer -sENVIRONMENT=web \
-        -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_main,_er_render,_er_assets_changed,_er_icon_keyword,_er_stock_icon_id \
+        -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_FUNCTIONS=_main,_er_render,_er_assets_changed,_er_icon_keyword,_er_stock_icon_id,_er_activity_icon,_er_device_icon,_er_hit,_er_list_top,_er_home_page_size \
         -sEXPORTED_RUNTIME_METHODS=ccall,FS,HEAPU8 \
         -o "$OUT/elite_render.js"
     cp "$HERE/web/elite_preview.js" "$OUT/"

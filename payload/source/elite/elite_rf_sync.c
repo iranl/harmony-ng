@@ -47,6 +47,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
     switch (f->msg_type) {
         case RF_MSG_ACTIVITY_SYNC: {
+            if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
             char act_id[13] = {0};
             char act_name[24] = {0};
             if (f->payload[1] == '\0' || f->payload[2] == '\0' || f->payload[0] == '-') {
@@ -165,23 +166,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_has_hub_config = true;
                 g_update_config_available = false;
                 save_rf_config();
-                g_activity_count = 0;
-                for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
-                    strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
-                    strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-                    resolve_activity_icon(g_rf_activities[i].icon_id,
-                                          g_rf_activities[i].icon,
-                                          g_rf_activities[i].name,
-                                          g_activities[g_activity_count].icon_path,
-                                          sizeof(g_activities[0].icon_path));
-                    g_activity_count++;
-                }
-                if (g_activity_count < MAX_ACTIVITIES) {
-                    strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-                    strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-                    strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-                    g_activity_count++;
-                }
+                build_activity_list();
                 if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
                     open_device_browser();
                 }
@@ -236,6 +221,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 sanitize_ascii(g_rf_activities[idx].id, sizeof(g_rf_activities[idx].id));
                 sanitize_ascii(g_rf_activities[idx].name, sizeof(g_rf_activities[idx].name));
                 g_rf_activities[idx].icon_id = icon_id;
+                g_rf_activities[idx].dev_count = 0; /* RF_MSG_ACT_DEVICES_CHUNK follows on Hubs that send it */
                 map_icon_type_to_str(itype, g_rf_activities[idx].name, g_rf_activities[idx].icon, sizeof(g_rf_activities[idx].icon));
                 if (idx >= g_rf_activity_count) g_rf_activity_count = idx + 1;
                 printf("[*] Activity chunk %d: %s (%s, icon=%s, icon_id=0x%04X)\n", idx, g_rf_activities[idx].name, g_rf_activities[idx].id, g_rf_activities[idx].icon, icon_id);
@@ -275,6 +261,56 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 map_icon_type_to_str(itype, g_rf_devices[idx].name, g_rf_devices[idx].icon, sizeof(g_rf_devices[idx].icon));
                 if (idx >= g_rf_device_count) g_rf_device_count = idx + 1;
                 printf("[*] Device chunk %d: %s (%s, icon=%s, icon_id=0x%04X)\n", idx, g_rf_devices[idx].name, g_rf_devices[idx].id, g_rf_devices[idx].icon, icon_id);
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            g_screen_dirty = true;
+            break;
+        }
+
+        case RF_MSG_ACT_DEVICES_CHUNK: {
+            /* [0] activity index, [1] activity total, [2] device count, [3..24] device indexes */
+            sync_touch_chunk();
+            uint8_t idx = f->payload[0];
+            if (idx < MAX_RF_ACTIVITIES) {
+                int n = f->payload[2];
+                if (n > MAX_RF_DEVICES) n = MAX_RF_DEVICES;
+                if (n > 22) n = 22;
+                g_rf_activities[idx].dev_count = 0;
+                for (int i = 0; i < n; i++) {
+                    if (f->payload[3 + i] < MAX_RF_DEVICES) g_rf_activities[idx].devs[g_rf_activities[idx].dev_count++] = f->payload[3 + i];
+                }
+            }
+            rf_frame_t ack;
+            rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            break;
+        }
+
+        case RF_MSG_NAME_TAIL_CHUNK: {
+            /* [0] 0 = activity, 1 = device, [1] index, [2] offset in the name, [3..24] name bytes */
+            sync_touch_chunk();
+            char *name = NULL;
+            size_t size = 0;
+            if (f->payload[0] == 0 && f->payload[1] < MAX_RF_ACTIVITIES) {
+                name = g_rf_activities[f->payload[1]].name;
+                size = sizeof(g_rf_activities[0].name);
+            } else if (f->payload[0] == 1 && f->payload[1] < MAX_RF_DEVICES) {
+                name = g_rf_devices[f->payload[1]].name;
+                size = sizeof(g_rf_devices[0].name);
+            }
+            if (name) {
+                size_t off = f->payload[2];
+                size_t len = strlen(name);
+                if (off > len) off = len; /* never leave a gap if an earlier part was lost */
+                if (off < size - 1) {
+                    size_t n = size - 1 - off;
+                    if (n > 22) n = 22;
+                    memcpy(name + off, &f->payload[3], n);
+                    name[off + n] = '\0';
+                    sanitize_ascii(name, size);
+                }
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -371,9 +407,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             g_touch_enabled = (f->payload[1] != 0);
             g_gyro_enabled = (f->payload[2] != 0);
             g_timeout_seconds = ((int)f->payload[3] << 8) | f->payload[4];
-            int nkey = (int)f->payload[5] | ((int)f->payload[6] << 8);
-            if (nkey > 0) g_nav_toggle_key = nkey;
-            g_nav_toggle_mode = f->payload[7];
+            /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
@@ -395,6 +429,12 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[20] < ELITE_LANG_COUNT) {
                 g_language = (elite_lang_t)f->payload[20];
             }
+            if (rf_theme_name(f->payload[21])) apply_theme(rf_theme_name(f->payload[21]));
+            if (rf_layout_name(f->payload[22]) && f->payload[22] - 1 != g_home_layout) {
+                g_home_layout = f->payload[22] - 1; /* HOME_LAYOUT_* in rf_layout_name() order */
+                g_selected_activity = 0;
+                home_select_running();
+            }
 
             if (g_no_screen_mode) {
                 set_backlight_level(0);
@@ -404,9 +444,9 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 set_backlight_level(g_brightness_val);
             }
             save_settings_conf();
-            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d nav_key=%d nav_mode=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
+            printf("[*] Settings push: bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d confirm=%d sens=%d bl=%d night=%02d-%02d no_screen=%d pwrdbg=%d lang=%d\n",
                    g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds,
-                   g_nav_toggle_key, g_nav_toggle_mode, g_confirm_activity, g_touch_sensitivity,
+                   g_confirm_activity, g_touch_sensitivity,
                    g_btn_backlight_mode, g_night_start_hour, g_night_end_hour, g_no_screen_mode, g_power_debug, (int)g_language);
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -440,9 +480,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
             printf("[*] Remote RF TIME_SYNC received: epoch=%u tz=%s\n", epoch, tz_str);
             if (epoch > 1500000000U) {
-                struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
-                settimeofday(&tv, NULL);
-                set_msp430_rtc(epoch);
+                /* Only touch the clock and the RTC (an I2C write) when they are off */
+                long drift = (long)time(NULL) - (long)epoch;
+                if (drift > 1 || drift < -1) {
+                    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+                    settimeofday(&tv, NULL);
+                    set_msp430_rtc(epoch);
+                }
             }
             if (tz_str[0]) {
                 char full_tz[64] = {0};
@@ -453,10 +497,13 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                     g_timezone_str[sizeof(g_timezone_str) - 1] = '\0';
                     setenv("TZ", g_timezone_str, 1);
                     tzset();
-                    FILE *ftz = fopen("/etc/TZ", "w");
-                    if (ftz) {
-                        fprintf(ftz, "%s\n", full_tz);
-                        fclose(ftz);
+                    /* /etc is on flash: write it only when something changed */
+                    if (tz_changed || access("/etc/TZ", F_OK) != 0) {
+                        FILE *ftz = fopen("/etc/TZ", "w");
+                        if (ftz) {
+                            fprintf(ftz, "%s\n", full_tz);
+                            fclose(ftz);
+                        }
                     }
                     if (tz_changed) {
                         save_settings_conf();
@@ -559,6 +606,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             break;
         }
 
+        case RF_MSG_HELP_STATUS: {
+            ui_help_on_status(f);
+            if (f->flags & RF_FLAG_ACK_REQ) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+                rf_send_frame(&ack);
+            }
+            break;
+        }
+
         case RF_MSG_ACK:
             break;
 
@@ -591,6 +648,7 @@ void *rf_rx_worker(void *arg) {
 
         if (n == 7 && pkt[0] == 0x10 && pkt[2] == 0x41) {
             bool cc2544_lost = (pkt[4] & 0x40) != 0;
+            link_note_status(!cc2544_lost, get_monotonic_ms());
             static uint64_t s_last_link_ok_ms = 0;
             if (!cc2544_lost) {
                 s_last_link_ok_ms = get_monotonic_ms();

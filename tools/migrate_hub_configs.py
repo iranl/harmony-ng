@@ -89,6 +89,11 @@ def convert_hid_code(code: str) -> str:
     if m:
         page, usage = m.group(1).upper(), m.group(2).upper()
         return f"HID:{page}:{usage}"
+    # e.g. G:HID 16 Bit:()(07000027)():1 or (070027)
+    m = re.search(r"\(([0-9a-fA-F]{2})(?:[0-9a-fA-F]{2})?([0-9a-fA-F]{4})\)", code)
+    if m:
+        page, usage = m.group(1).upper(), m.group(2).upper()
+        return f"HID:{page}:{usage}"
     return code
 
 

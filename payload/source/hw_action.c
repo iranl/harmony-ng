@@ -540,6 +540,7 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     }
 
     if (strncmp(keycode_str, "HID:", 4) == 0 || strncmp(keycode_str, "hid:", 4) == 0 ||
+        strncasecmp(keycode_str, "G:HID", 5) == 0 ||
         strcasecmp(command, "Connect") == 0 || strcasecmp(command, "Disconnect") == 0 ||
         strcasecmp(command, "BT_CONNECT") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
         is_bt = 1;
@@ -614,41 +615,76 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
             snprintf(pipe_cmd, sizeof(pipe_cmd), "CONNECT %s\n", bdaddr);
         } else if (strcasecmp(command, "Disconnect") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
             snprintf(pipe_cmd, sizeof(pipe_cmd), "DISCONNECT\n");
-        } else if (sscanf(keycode_str, "HID:%x:%x", &page, &usage) == 2 ||
-                   sscanf(keycode_str, "hid:%x:%x", &page, &usage) == 2) {
-            if (page == 0x07) {
-                if (action == HW_BTN_ACTION_PRESS) {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000\n", (unsigned char)usage);
-                } else if (action == HW_BTN_ACTION_RELEASE) {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "RELEASE\n");
-                } else if (action == HW_BTN_ACTION_REPEAT) {
-                    pipe_cmd[0] = '\0';
-                    ret = 0;
-                } else {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000|A1010000000000000000\n", (unsigned char)usage);
-                }
-            } else if (page == 0x0C) {
-                if (action == HW_BTN_ACTION_PRESS) {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_DOWN %X\n", usage);
-                } else if (action == HW_BTN_ACTION_RELEASE) {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_UP\n");
-                } else if (action == HW_BTN_ACTION_REPEAT) {
-                    pipe_cmd[0] = '\0';
-                    ret = 0;
-                } else {
-                    snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER %X\n", usage);
+        } else {
+            int hid_parsed = 0;
+            if (sscanf(keycode_str, "HID:%x:%x", &page, &usage) == 2 ||
+                sscanf(keycode_str, "hid:%x:%x", &page, &usage) == 2) {
+                hid_parsed = 1;
+            } else if (strncasecmp(keycode_str, "G:HID", 5) == 0) {
+                const char *open_p = strchr(keycode_str, '(');
+                while (open_p) {
+                    const char *close_p = strchr(open_p, ')');
+                    if (close_p && close_p > open_p + 1) {
+                        char hex_buf[32] = {0};
+                        size_t hex_len = close_p - (open_p + 1);
+                        if (hex_len < sizeof(hex_buf)) {
+                            memcpy(hex_buf, open_p + 1, hex_len);
+                            unsigned long raw_val = 0;
+                            if (sscanf(hex_buf, "%lx", &raw_val) == 1 && hex_len >= 6) {
+                                page = (unsigned int)((raw_val >> 24) & 0xFF ? ((raw_val >> 24) & 0xFF) : ((raw_val >> 16) & 0xFF));
+                                usage = (unsigned int)(raw_val & 0xFFFF);
+                                hid_parsed = 1;
+                                break;
+                            }
+                        }
+                    }
+                    open_p = close_p ? strchr(close_p + 1, '(') : NULL;
                 }
             }
-        } else {
-            if (action == HW_BTN_ACTION_PRESS) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYDOWN %s\n", command);
-            } else if (action == HW_BTN_ACTION_RELEASE) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYUP %s\n", command);
-            } else if (action == HW_BTN_ACTION_REPEAT) {
-                pipe_cmd[0] = '\0';
-                ret = 0;
+            /* hub_btstack's descriptor has a keyboard (0x07) and a consumer (0x0C)
+             * page only; send anything else by name instead of dropping it. */
+            if (hid_parsed && !((page == 0x07 && usage > 0 && usage <= 0xFF) ||
+                                (page == 0x0C && usage > 0 && usage <= 0x3FF))) {
+                hid_parsed = 0;
+            }
+            if (hid_parsed) {
+                if (page == 0x07) {
+                    /* KBD_DOWN keeps the key pressed until RELEASE; a raw report
+                     * is released by hub_btstack after 30 ms, so a held key never
+                     * repeated on the host. */
+                    if (action == HW_BTN_ACTION_PRESS) {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "KBD_DOWN %X\n", usage);
+                    } else if (action == HW_BTN_ACTION_RELEASE) {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "RELEASE\n");
+                    } else if (action == HW_BTN_ACTION_REPEAT) {
+                        pipe_cmd[0] = '\0';
+                        ret = 0;
+                    } else {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "KBD %X\n", usage);
+                    }
+                } else if (page == 0x0C) {
+                    if (action == HW_BTN_ACTION_PRESS) {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_DOWN %X\n", usage);
+                    } else if (action == HW_BTN_ACTION_RELEASE) {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER_UP\n");
+                    } else if (action == HW_BTN_ACTION_REPEAT) {
+                        pipe_cmd[0] = '\0';
+                        ret = 0;
+                    } else {
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "CONSUMER %X\n", usage);
+                    }
+                }
             } else {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "KEY %s\n", command);
+                if (action == HW_BTN_ACTION_PRESS) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYDOWN %s\n", command);
+                } else if (action == HW_BTN_ACTION_RELEASE) {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "KEYUP %s\n", command);
+                } else if (action == HW_BTN_ACTION_REPEAT) {
+                    pipe_cmd[0] = '\0';
+                    ret = 0;
+                } else {
+                    snprintf(pipe_cmd, sizeof(pipe_cmd), "KEY %s\n", command);
+                }
             }
         }
 

@@ -20,9 +20,11 @@ import json
 import math
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 
@@ -75,6 +77,12 @@ DROPBEAR_PATH = find_candidate([
     SCRIPT_DIR / "dropbearmulti_musl",
 ])
 DEFAULT_KEY_PATH = None
+
+# Backup of the rooted remote, before the HarmonyNG runtime is installed
+BACKUP_DIR = REPO_DIR / "backups" / "elite"
+BACKUP_PATHS = ["data", "opt/luadraws", "etc"]
+# BusyBox binaries on the remote that may have a tar applet (stock /bin/busybox has none)
+REMOTE_BUSYBOX_CANDIDATES = ["/data/busybox", "/tmp/busybox", "/bin/busybox"]
 
 LUA_DECODER_ONELINE = (
     "local c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' "
@@ -245,6 +253,125 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = 22, timeout_s: int = 60) -> bo
 
 
 # ==============================================================================
+# Backup (stock BusyBox has no tar: stage the project's own BusyBox in RAM)
+# ==============================================================================
+
+def remote_ssh_cmd(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> list[str]:
+    return [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-o", "LogLevel=ERROR",
+        "-i", str(priv_path),
+        f"root@{ip}",
+    ]
+
+
+def find_local_arm_busybox() -> pathlib.Path | None:
+    """The project's static ARM BusyBox: build/build_busybox.sh arm, or bin/ of the Elite release bundle."""
+    for cand in (
+        REPO_DIR / "elite" / "bin" / "busybox",
+        REPO_DIR / "bin" / "busybox",
+        SCRIPT_DIR / "bin" / "busybox",
+    ):
+        try:
+            with open(cand, "rb") as f:
+                head = f.read(20)
+        except OSError:
+            continue
+        # 32-bit little-endian ELF for ARM (e_machine 0x28): never stage the Hub's MIPS build
+        if head[:4] == b"\x7fELF" and head[4] == 1 and head[5] == 1 and head[18:20] == b"\x28\x00":
+            return cand
+    return None
+
+
+def find_remote_tar_busybox(ssh: list[str], candidates: list[str] | None = None) -> str:
+    """Return the first BusyBox on the remote that has the tar applet, or ''."""
+    cands = " ".join(candidates or REMOTE_BUSYBOX_CANDIDATES)
+    probe = (
+        f"for b in {cands}; do "
+        # stock BusyBox grep has no -x
+        '[ -x "$b" ] && "$b" --list 2>/dev/null | grep -q "^tar$" && { echo "$b"; exit 0; }; '
+        "done; true"
+    )
+    res = subprocess.run(ssh + [probe], capture_output=True, text=True, timeout=30, check=False)
+    return res.stdout.strip()
+
+
+def stage_busybox(ssh: list[str], local_bb: pathlib.Path) -> str:
+    """Copy local_bb to /tmp/busybox (tmpfs, gone after a reboot); return its path or '' on failure."""
+    print(f"[*] Staging the project's BusyBox ({local_bb.stat().st_size:,} bytes) as /tmp/busybox (RAM)...")
+    with open(local_bb, "rb") as f:
+        res = subprocess.run(ssh + ["cat > /tmp/busybox && chmod 755 /tmp/busybox"], stdin=f,
+                             capture_output=True, timeout=120, check=False)
+    if res.returncode != 0 or find_remote_tar_busybox(ssh, ["/tmp/busybox"]) != "/tmp/busybox":
+        print("[-] Could not stage /tmp/busybox on the remote.")
+        subprocess.run(ssh + ["rm -f /tmp/busybox"], capture_output=True, timeout=30, check=False)
+        return ""
+    return "/tmp/busybox"
+
+
+def backup_remote(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> pathlib.Path | None:
+    """Stream /data, /opt/luadraws and /etc of the remote to backups/elite/ (plain tar)."""
+    print("\n" + "=" * 70)
+    print(" [*] BACKING UP THE REMOTE (/data, /opt/luadraws, /etc)")
+    print("=" * 70)
+    ssh = remote_ssh_cmd(priv_path, ip)
+    staged = False
+    try:
+        bb = find_remote_tar_busybox(ssh)
+        if not bb:
+            local_bb = find_local_arm_busybox()
+            if not local_bb:
+                print("[-] The remote's BusyBox has no tar, and no ARM BusyBox was found locally")
+                print("    (build it with ./build/build_busybox.sh arm). Backup skipped.")
+                return None
+            bb = stage_busybox(ssh, local_bb)
+            if not bb:
+                return None
+            staged = True
+        else:
+            print(f"[*] Using {bb} on the remote.")
+
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        out = BACKUP_DIR / f"elite_backup_{time.strftime('%Y%m%d_%H%M%S')}.tar"
+        tar_cmd = (
+            f"cd / && p=''; for d in {' '.join(BACKUP_PATHS)}; do [ -e \"$d\" ] && p=\"$p $d\"; done; "
+            f"{bb} tar -cf - $p 2>/dev/null"
+        )
+        t0 = time.time()
+        with open(out, "wb") as f:
+            res = subprocess.run(ssh + [tar_cmd], stdout=f, stderr=subprocess.PIPE, timeout=900, check=False)
+        try:
+            with tarfile.open(out, "r:") as t:
+                entries = len(t.getnames())
+        except (tarfile.TarError, OSError) as e:
+            print(f"[-] Backup is not a valid tar archive ({e}); removed.")
+            out.unlink(missing_ok=True)
+            return None
+        if entries == 0:
+            print("[-] Backup is empty; removed.")
+            out.unlink(missing_ok=True)
+            return None
+        size_mb = out.stat().st_size / (1024 * 1024)
+        note = "" if res.returncode == 0 else f", tar exit code {res.returncode}: some files could not be read"
+        print(f"[+] Backup saved: {out} ({size_mb:.1f} MB, {entries} entries, {time.time() - t0:.0f} s{note})")
+        golden = BACKUP_DIR / "golden_elite_backup.tar"
+        if not golden.exists():
+            shutil.copyfile(out, golden)
+            print(f"[+] First backup also kept as {golden.name}")
+        return out
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[-] Backup failed: {e}")
+        return None
+    finally:
+        if staged:
+            subprocess.run(ssh + ["rm -f /tmp/busybox"], capture_output=True, timeout=30, check=False)
+
+
+# ==============================================================================
 # STEP 1: Stage Dropbear & Enable Debug Mode over USB HID
 # ==============================================================================
 
@@ -370,17 +497,42 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         hid.close()
 
 
+def check_and_fix_windows_driver() -> bool:
+    """If running on Windows and RNDIS driver or IP is missing, launch setup_remote_driver.ps1 elevated."""
+    if sys.platform != "win32":
+        return False
+    usb_st = detect_remote_usb_state(check_firmware=False)
+    if usb_st.mode == UsbMode.DRIVER_ERROR or (usb_st.mode == UsbMode.USB_ETHERNET and not usb_st.ip_valid):
+        print(f"\n[!] Windows driver or network configuration needed ({usb_st.description or 'RNDIS Gadget'}).")
+        print("[*] Requesting Administrator elevation to install RNDIS driver & configure static IP...")
+        ps_script = REPO_DIR / "tools" / "setup_remote_driver.ps1"
+        if ps_script.is_file():
+            try:
+                subprocess.run([
+                    "powershell.exe", "-NoProfile", "-Command",
+                    f"Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{ps_script}\" -NonInteractive' -Wait"
+                ])
+                time.sleep(2)
+                return True
+            except Exception as e:
+                print(f"[-] Failed to launch setup_remote_driver.ps1: {e}")
+        else:
+            print(f"[-] Could not find {ps_script}")
+    return False
+
+
 def print_step1_instructions() -> None:
     print("\n" + "=" * 70)
     print(" CONFIGURE STATIC IP ON PC:")
     print("=" * 70)
     if sys.platform == "win32":
-        print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
-        print("   - Open Network Connections (Win+R -> ncpa.cpl).")
-        print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
+        print("   - Run the automated setup tool (elevated):")
+        print("        powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1")
+        print("   - Or manually configure Network Connections (Win+R -> ncpa.cpl):")
+        print("        Right-click 'Remote NDIS / Ethernet Gadget' -> Properties -> IPv4:")
         print("        IP Address:      192.168.2.2")
         print("        Subnet Mask:     255.255.255.0")
-        print("        Default Gateway: 192.168.2.1")
+        print("        Default Gateway: (leave blank)")
     elif sys.platform == "darwin":
         print("   - macOS adds a network service named 'RNDIS/Ethernet Gadget' (no driver needed).")
         print("   - Give it a static address (no router, so your internet route is unchanged):")
@@ -398,10 +550,14 @@ def print_step1_instructions() -> None:
 def wait_for_ethernet() -> bool:
     print(f"\n[*] Probing remote at http://{REMOTE_IP}:{REMOTE_PORT}/...")
     print("    (Waiting for USB Ethernet connection to become active. Press Ctrl+C to cancel)")
-    for _ in range(120):
+    driver_checked = False
+    for i in range(120):
         if probe_remote():
-            print(f"[+] Connected! Remote HTTP service detected at {REMOTE_IP}:{REMOTE_PORT}")
+            print(f"\n[+] Connected! Remote HTTP service detected at {REMOTE_IP}:{REMOTE_PORT}")
             return True
+        if sys.platform == "win32" and not driver_checked and i >= 5:
+            driver_checked = True
+            check_and_fix_windows_driver()
         time.sleep(1)
         print(".", end="", flush=True)
     print("\n[-] Timeout waiting for remote network interface.")
@@ -481,7 +637,7 @@ def update_ssh_config(key_path: pathlib.Path) -> None:
 # STEP 2: Install Dropbear & Persistence
 # ==============================================================================
 
-def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False) -> bool:
+def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False, no_backup: bool = False) -> bool:
     print("\n" + "=" * 70)
     print(" [STEP 2/2] INSTALLING PERSISTENT DROPBEAR SSH & USB ETHERNET")
     print("=" * 70)
@@ -603,6 +759,10 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False)
         print(f"[-] SSH verification error: {e.stderr.strip()}")
         return False
 
+    # Back up the remote before the HarmonyNG runtime changes /data
+    if not no_backup:
+        backup_remote(pub_path.with_suffix(""))
+
     # 10. Deploy Elite payload binaries & rcS.local (from deploy_elite.py)
     print("\n" + "=" * 70)
     print(" [*] DEPLOYING ELITE RUNTIME & RECOVERY RCS.LOCAL")
@@ -695,6 +855,8 @@ def main():
     parser.add_argument("--check-usb", "--status", dest="check_usb", action="store_true", help="Check and display USB HID / Ethernet / driver state and exit.")
     parser.add_argument("--factory-reset", action="store_true", help="Revert Harmony Elite to official stock firmware.")
     parser.add_argument("--no-screen", action="store_true", help="Install in no-screen mode (for remotes with broken screens).")
+    parser.add_argument("--backup", action="store_true", help="Only back up the rooted remote over SSH to backups/elite/ and exit.")
+    parser.add_argument("--no-backup", action="store_true", help="Do not back up the remote after SSH comes up.")
     args = parser.parse_args()
 
     # Pre-execution USB & Network State Detection
@@ -745,6 +907,12 @@ def main():
 
     pub_str = pub_path.read_text(encoding="utf-8").strip()
 
+    if args.backup:
+        if not probe_tcp(REMOTE_IP, 22, timeout_s=2.0):
+            print(f"[-] No SSH on {REMOTE_IP}:22. Root the remote first (setup_remote.py), then retry.")
+            sys.exit(1)
+        sys.exit(0 if backup_remote(priv_path) else 1)
+
     if args.step == 1:
         if pre_state.mode != UsbMode.USB_HID and pre_state.mode != UsbMode.DISCONNECTED:
             print(f"[!] Note: Device currently in {pre_state.mode} mode, Step 1 will attempt USB HID staging.")
@@ -753,6 +921,8 @@ def main():
         print(f"[*] Waiting for Dropbear SSH on {REMOTE_IP}:22...")
         if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
             print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+            if not args.no_backup:
+                backup_remote(priv_path)
             post_state = detect_remote_usb_state(check_firmware=False)
             print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
             print_success(priv_path)
@@ -767,7 +937,7 @@ def main():
             if pre_state.remediation_cmd:
                 print(f"    Remediation: {pre_state.remediation_cmd}")
             sys.exit(1)
-        if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
+        if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen, no_backup=args.no_backup):
             sys.exit(1)
         post_state = detect_remote_usb_state(check_firmware=False)
         print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
@@ -799,7 +969,7 @@ def main():
 
         if probe_remote():
             print(f"[+] Remote USB Ethernet active at {REMOTE_IP}:{REMOTE_PORT}. Running Step 2 directly...")
-            if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen):
+            if not step2_install_permanent_ssh(pub_path, no_screen=args.no_screen, no_backup=args.no_backup):
                 print("[-] Step 2 failed.")
                 sys.exit(1)
             post_state = detect_remote_usb_state(check_firmware=False)
@@ -818,6 +988,8 @@ def main():
         trans_state = detect_remote_usb_state(check_firmware=False)
         if trans_state.mode in (UsbMode.USB_ETHERNET, UsbMode.DRIVER_ERROR):
             print_usb_state_banner(trans_state, label="DEVICE TRANSITION DETECTED")
+            if sys.platform == "win32" and (trans_state.mode == UsbMode.DRIVER_ERROR or not trans_state.ip_valid):
+                check_and_fix_windows_driver()
             break
         time.sleep(2)
         print(".", end="", flush=True)
@@ -825,6 +997,8 @@ def main():
     print(f"\n[*] Waiting for Dropbear SSH on {REMOTE_IP}:22 (up to 60s)...")
     if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+        if not args.no_backup:
+            backup_remote(priv_path)
         post_state = detect_remote_usb_state(check_firmware=False)
         print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
@@ -835,6 +1009,8 @@ def main():
     print("[*] Re-checking for SSH connection (press Ctrl+C to cancel)...")
     if wait_for_ssh(REMOTE_IP, 22, timeout_s=60):
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
+        if not args.no_backup:
+            backup_remote(priv_path)
         post_state = detect_remote_usb_state(check_firmware=False)
         print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)

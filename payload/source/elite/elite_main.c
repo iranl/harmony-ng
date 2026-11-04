@@ -7,6 +7,8 @@
 #include "elite_rf_ota.h"
 #include "elite_ui.h"
 #include "elite_input.h"
+#include "elite_present.h"
+#include "elite_ui_scroll.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -91,6 +93,51 @@ static void sig_handler(int sig) {
     g_running = false;
 }
 
+/* Touch controllers that report their own coordinate range (the Clearpad TM2176
+ * on the Harmony Ultimate reports 0-782 x 0-1009) are scaled to the framebuffer.
+ * Controllers whose range is already close to screen pixels are left as they are. */
+static int s_touch_max_x = 0;
+static int s_touch_max_y = 0;
+
+static void touch_probe_range(int fd) {
+    struct input_absinfo ax, ay;
+    s_touch_max_x = 0;
+    s_touch_max_y = 0;
+    if (ioctl(fd, EVIOCGABS(ABS_X), &ax) != 0 || ioctl(fd, EVIOCGABS(ABS_Y), &ay) != 0) {
+        printf("[*] Touch range: EVIOCGABS not available, using raw coordinates\n");
+        return;
+    }
+    printf("[*] Touch range: x=%d..%d y=%d..%d\n", ax.minimum, ax.maximum, ay.minimum, ay.maximum);
+    if (ax.maximum >= 2 * FB_WIDTH && ay.maximum >= 2 * FB_HEIGHT) {
+        s_touch_max_x = ax.maximum;
+        s_touch_max_y = ay.maximum;
+        printf("[+] Touch range: scaling to %dx%d\n", FB_WIDTH, FB_HEIGHT);
+    }
+}
+
+/* Maps 0..max onto 0..out-1 so that every pixel gets an equal share of the raw range
+ * (for 0..782 onto 240 pixels, about 3.26 counts each, the last pixel included). */
+static int touch_scale(int v, int max, int out) {
+    if (max <= 0) return v;
+    if (v < 0) v = 0;
+    if (v > max) v = max;
+    int scaled = v * out / (max + 1);
+    if (scaled >= out) scaled = out - 1;
+    return scaled;
+}
+
+/* The end of a touch: a drag of the home pages or a list settles, anything else is a tap or swipe */
+static void touch_released(void) {
+    uint64_t ms = get_monotonic_ms();
+    if (home_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms) ||
+        list_scroll_touch_up(g_touch_cur_x, g_touch_cur_y, ms)) {
+        reset_idle_timer();
+        g_screen_dirty = true;
+        return;
+    }
+    handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
@@ -124,6 +171,7 @@ int main(int argc, char **argv) {
     printf("[+] Starting Harmony Elite Custom Interface (elite_ui v%s)...\n", HARMONY_ELITE_VERSION);
 
     load_settings_conf();
+    load_activity_usage();
 
     g_usb_connected = is_usb_hardware_connected();
     log_power_debug("[*] elite_ui INIT: usb_cable_connected=%d\n", g_usb_connected);
@@ -139,7 +187,6 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-touch") == 0) {
             g_touch_enabled = false;
-            g_screen_nav_mode = true;
         }
         if (strcmp(argv[i], "--no-gyro") == 0)   g_gyro_enabled = false;
         if (strcmp(argv[i], "--no-cap") == 0)    g_cap_buttons_enabled = false;
@@ -156,7 +203,6 @@ int main(int argc, char **argv) {
         int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
         if (bfd >= 0) { write(bfd, "0\n", 2); close(bfd); }
     } else if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
         show_notice("Screen nav moved to bottom buttons", 4000);
     }
 
@@ -180,16 +226,13 @@ int main(int argc, char **argv) {
                 g_fb_size = finfo.smem_len;
                 g_fb_mem = (uint16_t *)mmap(NULL, g_fb_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
                 if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
-
-                vinfo.xoffset = 0;
-                vinfo.yoffset = 0;
-                ioctl(g_fb_fd, FBIOPAN_DISPLAY, &vinfo);
             } else {
                 g_fb_mem = (uint16_t *)mmap(NULL, FB_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, g_fb_fd, 0);
                 if (g_fb_mem == MAP_FAILED) g_fb_mem = NULL;
             }
         }
 
+        fb_present_init();
         fb_set_blank(!g_screen_on);
         reset_idle_timer();
         load_wallpaper_asset();
@@ -200,6 +243,7 @@ int main(int argc, char **argv) {
             perror("[-] Failed to open touchscreen node");
         } else {
             printf("[+] Opened touchscreen fd=%d\n", g_touch_fd);
+            touch_probe_range(g_touch_fd);
         }
         if (g_touch_fd >= 0 && !g_touch_enabled) {
             set_backlight_level(g_brightness_val);
@@ -330,7 +374,10 @@ int main(int argc, char **argv) {
         }
 
         struct timeval tv;
-        if (g_screen_on) {
+        if (g_screen_on && (ui_scroll_settling() || g_screen_dirty)) {
+            tv.tv_sec = 0;
+            tv.tv_usec = 0; /* draw now; settle frames are paced by fb_present() */
+        } else if (g_screen_on) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
@@ -359,13 +406,11 @@ int main(int argc, char **argv) {
             last_reconnect_pulse_ms = now_ms;
         }
 
-        if (g_touch_enabled && g_nav_toggle_mode == 1 && g_toggle_key_down_ms > 0 && !g_toggle_key_triggered) {
-            if (now_ms - g_toggle_key_down_ms >= 500) {
-                g_screen_nav_mode = !g_screen_nav_mode;
-                g_toggle_key_triggered = true;
-                printf("[*] Mode toggled by LONG press hold (key %d): %s\n", g_nav_toggle_key, g_screen_nav_mode ? "NAV" : "DEV");
-                g_screen_dirty = true;
-            }
+
+        if (g_act_key_down_ms > 0 && !g_act_key_long_fired && now_ms - g_act_key_down_ms >= ACT_KEY_LONG_MS) {
+            g_act_key_long_fired = true;
+            printf("[*] Activities key held: opening the menu\n");
+            ui_menu_open();
         }
 
         static uint64_t last_progress_render_ms = 0;
@@ -408,7 +453,8 @@ int main(int argc, char **argv) {
         static uint64_t last_battery_report_ms = 0;
         static uint8_t last_charging_state = 0xFF;
         static uint8_t last_reported_percent = 0xFF;
-        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating) {
+        /* The battery read takes about 4 ms, so it waits until a drag or settle ends */
+        if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating && !ui_scroll_active()) {
             read_elite_battery();
             bool pct_changed = (last_reported_percent == 0xFF || abs((int)g_battery_info.percent - (int)last_reported_percent) >= 2);
             bool chg_changed = (g_battery_info.charging != last_charging_state);
@@ -429,6 +475,8 @@ int main(int argc, char **argv) {
             }
         }
 
+        ui_help_tick(now_ms);
+
         if (g_confirm_pending_idx >= 0 && now_ms >= g_confirm_pending_deadline_ms) {
             g_confirm_pending_idx = -1;
             g_screen_dirty = true;
@@ -437,6 +485,16 @@ int main(int argc, char **argv) {
             g_confirm_pending_rf_code = 0;
             g_confirm_pending_rf_deadline_ms = 0;
             g_screen_dirty = true;
+        }
+
+        static uint64_t last_link_check_ms = 0;
+        static link_quality_t last_link = { LINK_NO_HUB, 0, -1, -1 };
+        if (g_screen_on && now_ms - last_link_check_ms >= (g_link_panel_open ? 500 : 1000)) {
+            last_link_check_ms = now_ms;
+            link_quality_t q;
+            link_quality(now_ms, &q);
+            if (g_link_panel_open || q.state != last_link.state || q.bars != last_link.bars) g_screen_dirty = true;
+            last_link = q;
         }
 
         static int last_rendered_minute = -1;
@@ -511,7 +569,7 @@ int main(int argc, char **argv) {
                 g_suspend_countdown_start_ms = 0;
                 trigger_manual_suspend_to_ram();
                 g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 3;
+                g_selected_sub_item = 0;
                 g_screen_dirty = true;
             } else {
                 static uint64_t s_last_cd_render = 0;
@@ -522,10 +580,13 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (home_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
+        if (list_scroll_tick(get_monotonic_ms())) g_screen_dirty = true;
         if (g_screen_dirty && g_screen_on) {
             render_screen();
         }
 
+        frame_timing_poll();
         if (access("/tmp/trigger_rf_pair", F_OK) == 0) {
             unlink("/tmp/trigger_rf_pair");
             printf("[*] External trigger: starting RF pairing...\n");
@@ -553,32 +614,17 @@ int main(int argc, char **argv) {
 
                     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) continue;
 
-                    /* Long-press toggle key latching */
-                    if (g_touch_enabled && g_nav_toggle_mode == 1 && ev.code == g_nav_toggle_key) {
-                        if (ev.value == 1) {
-                            g_toggle_key_down_ms = get_monotonic_ms();
-                            g_toggle_key_triggered = false;
-                        } else if (ev.value == 0) {
-                            g_toggle_key_down_ms = 0;
-                            if (g_toggle_key_triggered) {
-                                g_toggle_key_triggered = false;
-                                continue;
-                            }
-                        }
-                    }
-
-                    /* Short-press toggle key */
-                    if (g_touch_enabled && g_nav_toggle_mode == 0 && ev.value == 1 && ev.code == g_nav_toggle_key) {
-                        g_screen_nav_mode = !g_screen_nav_mode;
-                        printf("[*] Mode toggled by SHORT press (key %d): %s\n", g_nav_toggle_key, g_screen_nav_mode ? "NAV" : "DEV");
-                        render_screen();
-                        continue;
-                    }
+                    if (ev.value == 1 && ui_key_hint_dismiss()) continue;
+                    if (ev.value == 1) ui_link_panel_dismiss(); /* the key still acts */
+                    /* The open menu takes the D-pad, OK and Back; releases pass through */
+                    if (g_menu_open && ev.value != 0 && ui_menu_handle_key(ev.code)) continue;
+                    /* Help takes the D-pad, OK and Back; other keys, such as volume, still act */
+                    if (!g_menu_open && ui_help_active() && ev.value != 0 && ui_help_handle_key(ev.code)) continue;
 
                     uint16_t rf_code = linux_to_harmony_rf_key(ev.code);
 
-                    /* If in Screen Navigation Mode, handle navigation buttons locally */
-                    if (g_screen_nav_mode || !g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
+                    /* Without touch, and in Settings and Pairing, the bottom keys and Back drive the screen */
+                    if (!g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
                             ev.code == 148 || ev.code == 202 || ev.code == 158 || ev.code == 102 || ev.code == 364) {
                             handle_navigation_key(ev.code, ev.value);
@@ -687,6 +733,7 @@ int main(int argc, char **argv) {
                         if (!g_cap_buttons_enabled) continue;
                         printf("[*] Capacitive key pressed (event2): code=%d val=%d\n", ev.code, ev.value);
                         reset_idle_timer();
+                        if (ev.value == 1) ui_link_panel_dismiss();
                         handle_navigation_key(ev.code, ev.value);
                         continue;
                     }
@@ -697,7 +744,7 @@ int main(int argc, char **argv) {
                             if (g_touch_is_down) {
                                 g_touch_is_down = false;
                                 g_touch_need_down_latch = false;
-                                handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
+                                touch_released();
                             }
                         } else {
                             reset_idle_timer();
@@ -708,9 +755,9 @@ int main(int argc, char **argv) {
                 } else if (ev.type == EV_ABS) {
                     if (!g_touch_enabled) continue;
                     if (ev.code == ABS_X || ev.code == ABS_MT_POSITION_X) {
-                        g_touch_cur_x = ev.value;
+                        g_touch_cur_x = touch_scale(ev.value, s_touch_max_x, FB_WIDTH);
                     } else if (ev.code == ABS_Y || ev.code == ABS_MT_POSITION_Y) {
-                        g_touch_cur_y = ev.value;
+                        g_touch_cur_y = touch_scale(ev.value, s_touch_max_y, FB_HEIGHT);
                     } else if (ev.code == ABS_PRESSURE) {
                         if (ev.value > 0) {
                             reset_idle_timer();
@@ -722,7 +769,7 @@ int main(int argc, char **argv) {
                             if (g_touch_is_down) {
                                 g_touch_is_down = false;
                                 g_touch_need_down_latch = false;
-                                handle_screen_touch_tap(g_touch_cur_x, g_touch_cur_y);
+                                touch_released();
                             }
                         }
                     }
@@ -733,6 +780,12 @@ int main(int argc, char **argv) {
                         g_touch_down_ms = get_monotonic_ms();
                         g_touch_need_down_latch = false;
                         printf("[*] Touch DOWN latched on SYN at (%d, %d)\n", g_touch_down_x, g_touch_down_y);
+                        home_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
+                        list_scroll_touch_down(g_touch_down_x, g_touch_down_y, g_touch_down_ms);
+                    } else if (g_touch_is_down) {
+                        uint64_t ms = get_monotonic_ms();
+                        if (home_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
+                        if (list_scroll_touch_move(g_touch_cur_x, g_touch_cur_y, ms)) g_screen_dirty = true;
                     }
                 }
             }

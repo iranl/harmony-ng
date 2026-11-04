@@ -2,6 +2,7 @@
 #include "elite_rf.h"
 #include "elite_power.h"
 #include "elite_stock_icons.h"
+#include "elite_fb.h"
 
 /* Icon files are checked where the renderer will load them (see elite_fs_path) */
 static bool fs_readable(const char *path) {
@@ -12,7 +13,7 @@ static bool fs_readable(const char *path) {
 void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_len) {
     if (!out || out_len == 0) return;
     out[0] = '\0';
-    if (type >= 1 && type <= 17) {
+    if (type >= 1 && type <= RF_ACTIVITY_ICON_COUNT) {
         strncpy(out, rf_activity_icon_keyword(type), out_len - 1);
     } else if (name && name[0]) {
         char low[64] = {0};
@@ -23,6 +24,24 @@ void map_icon_type_to_str(uint8_t type, const char *name, char *out, size_t out_
         strncpy(out, "watchtv", out_len - 1);
     }
     out[out_len - 1] = '\0';
+}
+
+/* The stock image of the same subject for a keyword added after the original 17 (NULL for
+   the others), which Classic draws for it */
+static const char *added_keyword_stock_icon(uint8_t type) {
+    static const char *const added[RF_ACTIVITY_ICON_COUNT - 17] = {
+        "1978f30f-e27f-4126-b622-fc230936ae2f_small", /* projector */
+        "29281b8d-fc8d-4c13-89c4-60705b8429f9_small", /* bluray */
+        "d22a587c-e45c-4b4a-9396-19396eb8e32b_small", /* satellite */
+        "cedd3f0f-932a-4135-8f2d-1670550f20ee_small", /* soundbar */
+        "311d40b5-6cf9-4da2-8820-e17012b852a1_small", /* hifi */
+        "a12ff2be-5c15-4e5d-8e51-1f328716ef3d_small", /* netflix */
+        "6d621a24-72d6-4ccd-8ed8-1114b52952ae_small", /* night */
+        "ab95c212-7b27-4118-8cd3-0e595ea061d5_small", /* fireplace */
+        "718b691b-df39-4787-989d-eab9d39d595e_small", /* sunrise */
+        "9ccf9a96-b984-4aeb-9227-9b565ff74e06_small", /* fan */
+    };
+    return type > 17 && type <= RF_ACTIVITY_ICON_COUNT ? get_stock_icon_path(lookup_stock_icon_id(added[type - 18])) : NULL;
 }
 
 void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *clean_name, char *out_path, size_t max_len) {
@@ -38,6 +57,12 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
             return;
         }
     } else if (icon_id > 0 && icon_id < 0x8000) {
+        /* The Hub also sends a keyword's own stock image as an index; a theme draws its icon
+           for the keyword instead, and only other stock images are drawn as they are */
+        if (image_key && lookup_stock_icon_id(image_key) == icon_id &&
+            theme_keyword_icon(rf_activity_icon_keyword(rf_activity_icon_match(image_key)), out_path, max_len)) {
+            return;
+        }
         const char *stock = get_stock_icon_path(icon_id);
         if (stock && stock[0]) {
             strncpy(out_path, stock, max_len - 1);
@@ -89,6 +114,17 @@ void resolve_activity_icon(uint16_t icon_id, const char *image_key, const char *
     char low[64] = {0};
     const char *src = base[0] ? base : (clean_name ? clean_name : "");
     for (int k = 0; src[k] && k < 63; k++) low[k] = tolower((unsigned char)src[k]);
+
+    /* A theme draws its own icon for the keyword; chosen stock and uploaded images (above) are
+       drawn as they are in every theme */
+    uint8_t type = rf_activity_icon_match(low);
+    if (theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return;
+
+    const char *stock = added_keyword_stock_icon(type);
+    if (stock) {
+        snprintf(out_path, max_len, "%s", stock);
+        return;
+    }
 
     if (strstr(low, "watchtv") || strstr(low, "tv") || strstr(low, "television")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperactivity/3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png");
@@ -142,6 +178,10 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
             return true;
         }
     } else if (icon_id > 0 && icon_id < 0x8000) {
+        /* As for activities, a theme draws its icon for the keyword in place of the keyword's
+           own stock image */
+        uint8_t type = icon_key && lookup_stock_icon_id(icon_key) == icon_id ? rf_activity_icon_match(icon_key) : 0;
+        if (type && theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return true;
         const char *stock = get_stock_icon_path(icon_id);
         if (stock && stock[0]) {
             strncpy(out_path, stock, max_len - 1);
@@ -189,6 +229,11 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
     const char *src = base[0] ? base : (dev_name ? dev_name : "");
     for (int k = 0; src[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)src[k]);
 
+    /* A theme draws its own icon for the keyword; Classic keeps the stock device images */
+    uint8_t type = rf_activity_icon_match(low);
+    if (type && theme_keyword_icon(rf_activity_icon_keyword(type), out_path, max_len)) return true;
+    const char *added_stock = added_keyword_stock_icon(type);
+
     if (strstr(low, "shield")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/shield.png");
     } else if (strstr(low, "xbox")) {
@@ -227,6 +272,8 @@ bool resolve_device_icon(uint16_t icon_id, const char *icon_key, const char *dev
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/plug_on.png");
     } else if (strstr(low, "blind") || strstr(low, "shade")) {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperHomeAutomation/blinds_on.png");
+    } else if (added_stock) {
+        snprintf(out_path, max_len, "%s", added_stock);
     } else {
         snprintf(out_path, max_len, "/opt/luadraws/appscommon/asset/juniperDevice/default.png");
     }
@@ -409,18 +456,6 @@ void load_activities(void) {
     }
     cJSON_Delete(root);
 
-    if (g_activity_count > 0) {
-        bool has_power_off = false;
-        for (int i = 0; i < g_activity_count; i++) {
-            if (strcmp(g_activities[i].id, "-1") == 0) { has_power_off = true; break; }
-        }
-        if (!has_power_off && g_activity_count < MAX_ACTIVITIES) {
-            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-            g_activity_count++;
-        }
-    }
 }
 
 void init_act_triggers(void) {
@@ -447,6 +482,12 @@ void save_rf_config(void) {
         }
         if (g_rf_activities[i].icon_id > 0) {
             cJSON_AddNumberToObject(a, "icon_id", g_rf_activities[i].icon_id);
+        }
+        if (g_rf_activities[i].dev_count > 0) {
+            cJSON *jd = cJSON_AddArrayToObject(a, "devs");
+            for (int d = 0; d < g_rf_activities[i].dev_count; d++) {
+                cJSON_AddItemToArray(jd, cJSON_CreateNumber(g_rf_activities[i].devs[d]));
+            }
         }
         cJSON_AddItemToArray(acts, a);
     }
@@ -567,6 +608,12 @@ void load_rf_config(void) {
                 }
                 cJSON *j_icon_id = cJSON_GetObjectItem(a, "icon_id");
                 g_rf_activities[g_rf_activity_count].icon_id = (j_icon_id && cJSON_IsNumber(j_icon_id)) ? (uint16_t)j_icon_id->valueint : 0;
+                rf_activity_t *ra = &g_rf_activities[g_rf_activity_count];
+                ra->dev_count = 0;
+                cJSON *jd = NULL;
+                cJSON_ArrayForEach(jd, cJSON_GetObjectItem(a, "devs")) {
+                    if (ra->dev_count < MAX_RF_DEVICES && cJSON_IsNumber(jd)) ra->devs[ra->dev_count++] = (uint8_t)jd->valueint;
+                }
                 g_rf_activity_count++;
             }
         }
@@ -681,34 +728,115 @@ void load_rf_config(void) {
 
     cJSON_Delete(root);
     g_has_hub_config = (g_rf_activity_count > 0);
-    if (g_has_hub_config) {
-        g_activity_count = 0;
-        for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
-            strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
-            char cpath[128];
-            snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
-            if (!fs_readable(cpath)) {
-                snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
-            }
-            if (fs_readable(cpath)) {
-                strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
-            } else {
-                resolve_activity_icon(g_rf_activities[i].icon_id,
-                                      g_rf_activities[i].icon,
-                                      g_rf_activities[i].name,
-                                      g_activities[g_activity_count].icon_path,
-                                      sizeof(g_activities[0].icon_path));
-            }
-            g_activity_count++;
+    if (g_has_hub_config) build_activity_list();
+}
+
+static void sort_activity_list(void);
+
+void build_activity_list(void) {
+    g_activity_count = 0;
+    for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
+        strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
+        strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
+        char cpath[128];
+        snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
+        if (!fs_readable(cpath)) {
+            snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
         }
-        if (g_activity_count < MAX_ACTIVITIES) {
-            strncpy(g_activities[g_activity_count].id, "-1", sizeof(g_activities[0].id) - 1);
-            strncpy(g_activities[g_activity_count].name, "Power Off", sizeof(g_activities[0].name) - 1);
-            strncpy(g_activities[g_activity_count].icon_path, "/opt/luadraws/appscommon/asset/commands/116.png", sizeof(g_activities[0].icon_path) - 1);
-            g_activity_count++;
+        if (fs_readable(cpath)) {
+            strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
+        } else {
+            resolve_activity_icon(g_rf_activities[i].icon_id,
+                                  g_rf_activities[i].icon,
+                                  g_rf_activities[i].name,
+                                  g_activities[g_activity_count].icon_path,
+                                  sizeof(g_activities[0].icon_path));
         }
+        g_activity_count++;
     }
+    sort_activity_list();
+}
+
+/* Activity starts on this remote, for the "most used first" order: id=count lines */
+#define ACTIVITY_USAGE_FILE "/data/elite_activity_usage.conf"
+static struct { char id[32]; unsigned count; } g_usage[MAX_ACTIVITIES * 2];
+static int g_usage_len;
+
+static unsigned activity_uses(const char *id) {
+    for (int i = 0; i < g_usage_len; i++) {
+        if (strcmp(g_usage[i].id, id) == 0) return g_usage[i].count;
+    }
+    return 0;
+}
+
+void load_activity_usage(void) {
+    FILE *f = fopen(ACTIVITY_USAGE_FILE, "r");
+    if (!f) return;
+    char line[64];
+    g_usage_len = 0;
+    while (g_usage_len < (int)(sizeof(g_usage) / sizeof(g_usage[0])) && fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "%31[^=]=%u", g_usage[g_usage_len].id, &g_usage[g_usage_len].count) == 2) g_usage_len++;
+    }
+    fclose(f);
+}
+
+/* Most used first when that order is chosen; equal counts keep the web UI's order */
+static void sort_activity_list(void) {
+    if (g_activity_order != ACTIVITY_ORDER_MOST_USED) return;
+    for (int i = 1; i < g_activity_count; i++) {
+        activity_item_t item = g_activities[i];
+        unsigned uses = activity_uses(item.id);
+        int j = i - 1;
+        while (j >= 0 && activity_uses(g_activities[j].id) < uses) {
+            g_activities[j + 1] = g_activities[j];
+            j--;
+        }
+        g_activities[j + 1] = item;
+    }
+}
+
+void record_activity_start(const char *id) {
+    if (!id || !id[0] || strcmp(id, "-1") == 0) return;
+    int i = 0;
+    while (i < g_usage_len && strcmp(g_usage[i].id, id) != 0) i++;
+    if (i == g_usage_len) {
+        if (g_usage_len == (int)(sizeof(g_usage) / sizeof(g_usage[0]))) return;
+        snprintf(g_usage[i].id, sizeof(g_usage[i].id), "%s", id);
+        g_usage[i].count = 0;
+        g_usage_len++;
+    }
+    g_usage[i].count++;
+
+    FILE *f = fopen(ACTIVITY_USAGE_FILE, "w");
+    if (f) {
+        for (int k = 0; k < g_usage_len; k++) fprintf(f, "%s=%u\n", g_usage[k].id, g_usage[k].count);
+        fclose(f);
+    }
+
+    /* Re-sort now, keeping the selection on the same activity */
+    if (g_activity_order != ACTIVITY_ORDER_MOST_USED) return;
+    pthread_mutex_lock(&g_render_mutex);
+    char sel[sizeof(g_activities[0].id)] = "";
+    if (g_selected_activity >= 0 && g_selected_activity < g_activity_count) {
+        snprintf(sel, sizeof(sel), "%s", g_activities[g_selected_activity].id);
+    }
+    sort_activity_list();
+    for (int k = 0; k < g_activity_count; k++) {
+        if (strcmp(g_activities[k].id, sel) == 0) g_selected_activity = k;
+    }
+    pthread_mutex_unlock(&g_render_mutex);
+}
+
+void apply_theme(const char *name) {
+    if (name && strcmp(name, g_theme.name) == 0) return;
+    pthread_mutex_lock(&g_render_mutex); /* the old theme's fonts are freed */
+    theme_load(name);
+    /* Re-resolve icons from memory: a settings push can arrive mid-sync, and the file still
+       holds the old config */
+    if (g_has_hub_config) build_activity_list();
+    load_wallpaper_asset();
+    pthread_mutex_unlock(&g_render_mutex);
+    g_screen_dirty = true;
 }
 
 void load_settings_conf(void) {
@@ -736,13 +864,21 @@ void load_settings_conf(void) {
             else if (strcmp(key, "timeout") == 0) g_timeout_seconds = val;
             else if (strcmp(key, "brightness") == 0) g_brightness_val = (val >= 1 && val <= 5) ? val : 2;
             else if (strcmp(key, "screen") == 0) g_screen_on = (val != 0);
-            else if (strcmp(key, "nav_key") == 0) g_nav_toggle_key = val;
-            else if (strcmp(key, "nav_mode") == 0) g_nav_toggle_mode = val;
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
             else if (strcmp(key, "log_level") == 0) g_log_level = val;
+            else if (strcmp(key, "key_hint") == 0) g_key_hint_pending = (val != 0);
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = elite_lang_from_code(sval);
+            }
+            else if (strcmp(key, "theme") == 0) theme_load(sval);
+            else if (strcmp(key, "layout") == 0) {
+                g_home_layout = strcmp(sval, "grid") == 0 ? HOME_LAYOUT_GRID
+                              : strcmp(sval, "list") == 0 ? HOME_LAYOUT_LIST
+                              : strcmp(sval, "carousel") == 0 ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_THEME;
+            }
+            else if (strcmp(key, "order") == 0) {
+                g_activity_order = strcmp(sval, "used") == 0 ? ACTIVITY_ORDER_MOST_USED : ACTIVITY_ORDER_YOURS;
             }
             else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
@@ -755,14 +891,6 @@ void load_settings_conf(void) {
     fclose(f);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
         g_log_level = LOG_LEVEL_DEBUG;
-    }
-    if (!g_touch_enabled) {
-        g_screen_nav_mode = true;
-    }
-    if (g_nav_toggle_key != 139 && g_nav_toggle_key != 358 &&
-        g_nav_toggle_key != 395 && g_nav_toggle_key != 389 &&
-        g_nav_toggle_key != 174) {
-        g_nav_toggle_key = 139;
     }
 }
 
@@ -783,11 +911,14 @@ void save_settings_conf(void) {
     fprintf(f, "screen=1\n");
     fprintf(f, "no_screen=%d\n", g_no_screen_mode ? 1 : 0);
     fprintf(f, "log_level=%d\n", g_log_level);
-    fprintf(f, "nav_key=%d\n", g_nav_toggle_key);
-    fprintf(f, "nav_mode=%d\n", g_nav_toggle_mode);
+    fprintf(f, "key_hint=%d\n", g_key_hint_pending ? 1 : 0);
     fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
     fprintf(f, "slot=%d\n", g_remote_slot);
     fprintf(f, "language=%s\n", elite_lang_code(g_language));
+    fprintf(f, "theme=%s\n", g_theme.name);
+    fprintf(f, "layout=%s\n", g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list"
+                             : g_home_layout == HOME_LAYOUT_CAROUSEL ? "carousel" : "theme");
+    fprintf(f, "order=%s\n", g_activity_order == ACTIVITY_ORDER_MOST_USED ? "used" : "yours");
     fprintf(f, "tz=%s\n", g_timezone_str);
     fclose(f);
     g_settings_dirty = true;

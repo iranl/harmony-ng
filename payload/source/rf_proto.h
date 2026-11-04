@@ -57,6 +57,29 @@
 #define RF_MSG_OTA_REQUEST         0x29  /* Remote -> Hub: request Hub to start binary OTA */
 #define RF_MSG_UPDATE_NOTIFY       0x2A  /* Hub -> Remote: notify remote of pending config or OTA update */
 
+/* Config push additions, sent only to remotes that report the matching capability */
+#define RF_MSG_ACT_DEVICES_CHUNK   0x2B  /* Hub -> Remote: devices one activity uses (ACK'd) */
+#define RF_MSG_NAME_TAIL_CHUNK     0x2C  /* Hub -> Remote: rest of an activity or device name (ACK'd) */
+
+/* Help; the Hub sends RF_MSG_HELP_STATUS only in reply to a remote's request */
+#define RF_MSG_HELP_REQUEST        0x2D  /* Remote -> Hub: repair the running activity */
+#define RF_MSG_HELP_STATUS         0x2E  /* Hub -> Remote: Help progress, or a device to ask about (ACK'd) */
+#define RF_MSG_HELP_ANSWER         0x2F  /* Remote -> Hub: whether a device is on (ACK'd) */
+
+/* RF_MSG_HELP_STATUS payload[0] */
+#define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */
+#define RF_HELP_STARTED            0x01  /* re-sending the activity's commands */
+#define RF_HELP_BUSY               0x02  /* another activity change is running */
+#define RF_HELP_FAILED             0x03  /* the activity is not running, or the Hub failed */
+#define RF_HELP_NO_QUESTIONS       0x04  /* commands re-sent; no device has only a power toggle */
+
+/* VERSION_REPORT payload[4]: what the remote's software understands (older remotes send 0) */
+#define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
+#define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
+
+/* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
+#define RF_NAME_SIZE               40
+
 /* Flags */
 #define RF_FLAG_ACK_REQ  0x01
 #define RF_FLAG_IS_ACK   0x02
@@ -96,7 +119,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -106,7 +129,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_UPDATE_NOTIFY) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -153,14 +176,47 @@ static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_s
     f->payload[1] = status;
 }
 
-/* Activity icons are stored as keywords and sent over RF as a one-byte type (1..17).
-   The remote turns the type back into the keyword and draws its themed icon for it. */
+/* Activity icons are stored as keywords and sent over RF as a one-byte type
+   (1..RF_ACTIVITY_ICON_COUNT). The remote turns the type back into the keyword and draws its
+   themed icon for it; a remote that doesn't know a type draws an icon from the name. New
+   keywords go at the end, so types keep their meaning. */
+#define RF_ACTIVITY_ICON_COUNT 27
 static inline const char *rf_activity_icon_keyword(uint8_t type) {
-    static const char *const names[] = {
+    static const char *const names[RF_ACTIVITY_ICON_COUNT] = {
         "watchtv", "movie", "music", "game", "ps", "xbox", "switch", "shield", "apple",
-        "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power"
+        "roku", "firetv", "pc", "smarttv", "sonos", "receiver", "light", "power",
+        "projector", "bluray", "satellite", "soundbar", "hifi", "netflix", "night", "fireplace",
+        "sunrise", "fan"
     };
-    return (type >= 1 && type <= 17) ? names[type - 1] : names[0];
+    return (type >= 1 && type <= RF_ACTIVITY_ICON_COUNT) ? names[type - 1] : names[0];
+}
+
+/* The built-in themes the Hub can choose in the settings push (payload[21], 1..4). 0 keeps the
+   remote's own choice; other theme packages are chosen on the remote. */
+static inline const char *rf_theme_name(uint8_t id) {
+    static const char *const names[] = { "classic", "dark", "light", "colourful" };
+    return (id >= 1 && id <= 4) ? names[id - 1] : NULL;
+}
+
+static inline uint8_t rf_theme_id(const char *name) {
+    for (uint8_t id = 1; name && rf_theme_name(id); id++) {
+        if (strcmp(name, rf_theme_name(id)) == 0) return id;
+    }
+    return 0;
+}
+
+/* The home layouts the Hub can choose in the settings push (payload[22], 1..4): the theme's,
+   list, grid or carousel. 0 keeps the remote's own choice. */
+static inline const char *rf_layout_name(uint8_t id) {
+    static const char *const names[] = { "theme", "list", "grid", "carousel" };
+    return (id >= 1 && id <= 4) ? names[id - 1] : NULL;
+}
+
+static inline uint8_t rf_layout_id(const char *name) {
+    for (uint8_t id = 1; name && rf_layout_name(id); id++) {
+        if (strcmp(name, rf_layout_name(id)) == 0) return id;
+    }
+    return 0;
 }
 
 /* True if word occurs in s with no letter directly before or after it, so "ps" matches
@@ -178,17 +234,25 @@ static inline uint8_t rf_activity_icon_match(const char *s) {
     char low[64] = {0};
     for (int k = 0; s && s[k] && k < 63; k++) low[k] = (char)tolower((unsigned char)s[k]);
     if (!low[0]) return 0;
-    /* Music before brands ("Apple Music"), brands before generic words ("Apple TV") */
+    /* Audio equipment before music ("Soundbar Audio"), music before brands ("Apple Music"),
+       brands and equipment before generic words ("Apple TV", "Projector TV") */
+    if (strstr(low, "soundbar") || strstr(low, "sound bar")) return 21;
+    if (strstr(low, "hifi") || strstr(low, "hi-fi") || strstr(low, "vinyl") || strstr(low, "turntable") ||
+        strstr(low, "record player")) return 22;
     if (strstr(low, "music") || strstr(low, "audio") || strstr(low, "radio") || strstr(low, "spotify")) return 3;
+    if (strstr(low, "netflix")) return 23;
     if (strstr(low, "apple")) return 9;
     if (strstr(low, "roku")) return 10;
+    if (strstr(low, "fireplace")) return 25;
     if (strstr(low, "firetv") || strstr(low, "amazon") || rf_has_word(low, "fire")) return 11;
     if (strstr(low, "shield")) return 8;
     if (strstr(low, "xbox")) return 6;
     if (strstr(low, "smarttv") || strstr(low, "smart tv")) return 13;
+    if (strstr(low, "projector") || strstr(low, "beamer")) return 18;
+    if (strstr(low, "satellite") || rf_has_word(low, "sat") || strstr(low, "freesat") || rf_has_word(low, "dvb")) return 20;
     if (strstr(low, "watchtv") || rf_has_word(low, "tv") || strstr(low, "television")) return 1;
-    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "netflix") ||
-        strstr(low, "plex") || strstr(low, "dvd") || strstr(low, "blu")) return 2;
+    if (strstr(low, "movie") || strstr(low, "cinema") || strstr(low, "stream") || strstr(low, "plex")) return 2;
+    if (strstr(low, "dvd") || strstr(low, "blu") || rf_has_word(low, "disc")) return 19;
     if (strstr(low, "game") || strstr(low, "console")) return 4;
     if (rf_has_word(low, "ps") || strstr(low, "playstation")) return 5;
     if (strstr(low, "switch") || strstr(low, "nintendo")) return 7;
@@ -198,6 +262,9 @@ static inline uint8_t rf_activity_icon_match(const char *s) {
         strstr(low, "heos") || strstr(low, "denon")) return 15;
     if (strstr(low, "light") || strstr(low, "lamp") || strstr(low, "bulb")) return 16;
     if (strstr(low, "power") || rf_has_word(low, "off")) return 17;
+    if (strstr(low, "night") || strstr(low, "sleep") || strstr(low, "bedtime") || strstr(low, "moon")) return 24;
+    if (strstr(low, "sunrise") || strstr(low, "morning") || rf_has_word(low, "wake")) return 26;
+    if (rf_has_word(low, "fan")) return 27;
     return 0;
 }
 

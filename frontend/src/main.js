@@ -39,6 +39,42 @@ async function initApp() {
     pillMount.appendChild(createStatusPill());
   }
 
+  // 3b. Dry-Run Active Banner
+  const dryRunBanner = document.getElementById('hub-dryrun-banner');
+  const btnDisableDryRun = document.getElementById('btn-disable-dryrun');
+
+  async function checkDryRunBanner() {
+    if (!dryRunBanner) return;
+    try {
+      const st = await api.getSettings().catch(() => null);
+      if (st && (st.dry_run === true || st.dry_run === 1)) {
+        dryRunBanner.style.display = 'flex';
+      } else {
+        dryRunBanner.style.display = 'none';
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (btnDisableDryRun) {
+    btnDisableDryRun.addEventListener('click', async () => {
+      btnDisableDryRun.disabled = true;
+      try {
+        await api.saveSettings({ dry_run: 0 });
+        if (dryRunBanner) dryRunBanner.style.display = 'none';
+      } catch (err) {
+        console.error('Failed to disable dry-run:', err);
+      } finally {
+        btnDisableDryRun.disabled = false;
+      }
+    });
+  }
+
+  checkDryRunBanner();
+  setInterval(checkDryRunBanner, 5000);
+  window.addEventListener('harmony-check-dryrun', checkDryRunBanner);
+
   // 4. View Mount & Tab Routing
   const mainMount = document.getElementById('app-main');
   router.setMountPoint(mainMount);

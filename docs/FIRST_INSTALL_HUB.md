@@ -32,6 +32,9 @@ cd harmony-ng
 cd android-app && npm install && npm run build && cd ..
 ```
 
+> [!NOTE]
+> The automatic stock backup in `tools/root_hub_usb.py` needs a MIPS BusyBox with `tar` (the stock one has none). The release bundle ships it as `bin/busybox`; a git checkout does not, so build it first with `./build/build_busybox.sh mips` (output: `payload/bin/busybox`), otherwise the root tool cannot take the backup.
+
 ---
 
 ## 2. Automated USB HID Rooting & Firmware Update
@@ -134,6 +137,8 @@ Run the deployment script to push `hub_daemon`, the WebUI, network manager, and 
 ./deploy_hub.sh <YOUR_HUB_IP>
 ```
 
+Add `--dry-run` (or `-n`) to see what a deployment would change without changing anything: it reads the Hub's checksums, lists the files it would upload or purge and the steps it would run (backup, service stop, restart or reboot), and leaves the Hub and the local tree as they are. It does not build the web UI; from the repository it compares the files already in `payload/www`.
+
 The installer automatically:
 1. Validates available flash memory before writing.
 2. Installs `hub_daemon` (Hub micro-daemon) to `/data/harmony/bin/`.
@@ -144,7 +149,7 @@ The installer automatically:
    [?] build/icons.tar.gz not found on host.
    Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)
    ```
-   If confirmed, it downloads the official Elite firmware (`elite_99_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
+   If confirmed, it downloads the official Elite firmware (`elite_111_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
 6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
 
 ### Stock configuration import

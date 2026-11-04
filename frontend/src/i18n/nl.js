@@ -1,5 +1,9 @@
 export default {
     "act_editor_sub": "Activiteitsinstellingen en opdrachtreeksen configureren",
+    "dry_run_banner_title": "Dry-Run-modus actief",
+    "dry_run_banner_desc": "IR- en MQTT-opdrachten worden gesimuleerd en genegeerd. Fysieke apparaten reageren niet.",
+    "disable_dry_run_btn": "Dry-Run uitschakelen",
+    "dry_run_disabled": "Dry-Run uitgeschakeld. Fysieke apparaatopdrachten actief.",
     "act_name_required": "Activiteitsnaam is vereist.",
     "action_type": "Actietype",
     "active_activity": "Actieve activiteit",

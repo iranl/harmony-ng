@@ -93,9 +93,11 @@ const char *get_remote_model_name(remote_model_t model) {
     }
 }
 
-void http_post_local(int port, const char *endpoint, const char *json_body) {
+int http_request_local(int port, const char *method, const char *endpoint, const char *json_body,
+                       char *resp, size_t resp_len, int timeout_ms) {
+    if (resp && resp_len) resp[0] = '\0';
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) return;
+    if (sock < 0) return -1;
 
     /* Non-blocking connect with 150ms timeout */
     int flags = fcntl(sock, F_GETFL, 0);
@@ -115,35 +117,53 @@ void http_post_local(int port, const char *endpoint, const char *json_body) {
         struct timeval ctv = { .tv_sec = 0, .tv_usec = 150000 };
         if (select(sock + 1, NULL, &wfds, NULL, &ctv) <= 0) {
             close(sock);
-            return;
+            return -1;
         }
         int err = 0;
         socklen_t elen = sizeof(err);
         getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &elen);
-        if (err) { close(sock); return; }
+        if (err) { close(sock); return -1; }
     } else if (rc < 0) {
         close(sock);
-        return;
+        return -1;
     }
 
     /* Restore blocking mode with timeouts */
     fcntl(sock, F_SETFL, flags);
-    struct timeval tv = { .tv_sec = 0, .tv_usec = 400000 };
+    struct timeval tv = { .tv_sec = timeout_ms / 1000, .tv_usec = (timeout_ms % 1000) * 1000 };
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     char req[1024];
     size_t blen = json_body ? strlen(json_body) : 0;
     int req_len = snprintf(req, sizeof(req),
-        "POST %s HTTP/1.1\r\n"
+        "%s %s HTTP/1.1\r\n"
         "Host: 127.0.0.1:%d\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n\r\n%s",
-        endpoint, port, blen, json_body ? json_body : "");
+        method, endpoint, port, blen, json_body ? json_body : "");
     write(sock, req, req_len);
     shutdown(sock, SHUT_WR);
-    char resp[256];
-    while (read(sock, resp, sizeof(resp)) > 0) {}
+
+    /* Keep the headers and as much of the body as fits; drain the rest */
+    char buf[4096], drain[512];
+    size_t got = 0;
+    for (;;) {
+        ssize_t r = got < sizeof(buf) - 1 ? read(sock, buf + got, sizeof(buf) - 1 - got) : read(sock, drain, sizeof(drain));
+        if (r <= 0) break;
+        if (got < sizeof(buf) - 1) got += (size_t)r;
+    }
     close(sock);
+    buf[got] = '\0';
+
+    int status = -1;
+    if (sscanf(buf, "HTTP/%*s %d", &status) != 1) return -1;
+    const char *body = strstr(buf, "\r\n\r\n");
+    if (resp && resp_len && body) snprintf(resp, resp_len, "%s", body + 4);
+    return status;
+}
+
+void http_post_local(int port, const char *endpoint, const char *json_body) {
+    http_request_local(port, "POST", endpoint, json_body, NULL, 0, 400);
 }

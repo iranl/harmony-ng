@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- A tall speaker with rounded ends, a status light and a grille: drawn for the themes in Phosphor regular's weight,
+       since the Sonos wordmark is unreadable at 40 px -->
+  <rect x="76" y="24" width="104" height="208" rx="44" fill="none" stroke="#000000" stroke-width="16"/>
+  <circle cx="128" cy="68" r="10" fill="#000000"/>
+  <g stroke="#000000" stroke-width="12" stroke-linecap="round">
+    <line x1="104" y1="128" x2="152" y2="128"/>
+    <line x1="104" y1="156" x2="152" y2="156"/>
+    <line x1="104" y1="184" x2="152" y2="184"/>
+  </g>
+</svg>

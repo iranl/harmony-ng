@@ -395,6 +395,7 @@ class TestOpenApiCompliance(unittest.TestCase):
         self.assertIn("timezone", current_settings)
         self.assertIn("led_mode", current_settings)
 
+        orig_dry_run = current_settings.get("dry_run", False)
         # Test POST /api/settings maintaining current name and timezone
         hub_name = current_settings.get("hub_name", "Harmony Hub")
         tz = current_settings.get("timezone", "UTC")
@@ -407,6 +408,13 @@ class TestOpenApiCompliance(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(resp_j.get("ok"))
         self.assertEqual(resp_j.get("hub_name"), hub_name)
+
+        # Restore original hub settings so live hub is never left in dry_run mode
+        self.driver.request("POST", "/api/settings", data={
+            "hub_name": hub_name,
+            "timezone": tz,
+            "dry_run": orig_dry_run
+        })
 
     def test_live_inventory_and_devices_alias(self):
         """Test /api/inventory and its /api/devices alias schema."""

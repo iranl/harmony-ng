@@ -518,6 +518,20 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         }
         timings[timing_count++] = 562;
         timings[timing_count++] = 40000; /* Trailing space: 40ms gap */
+    } else if (strstr(proto, "Saitek") || strcasecmp(proto, "Saitek 11 Bit") == 0) {
+        carrier_hz = 38150;
+        unsigned long val = strtoul(hex, NULL, 16);
+        timings_add(timings, &timing_count, 1, 1874);
+        timings_add(timings, &timing_count, 0, 520);
+        for (int b = 10; b >= 0; b--) {
+            int bit = (val >> b) & 1;
+            if (bit) {
+                timings_add(timings, &timing_count, 1, 460);
+            } else {
+                timings_add(timings, &timing_count, 0, 525);
+            }
+        }
+        timings_add(timings, &timing_count, 0, 809);
     } else if (strstr(proto, "Sony") || strcasecmp(proto, "Sony") == 0) {
         /* Sony SIRC: the protocol name gives the bit count ("Sony 15 Bit"); the
          * code's low bits are sent MSB first and each frame lasts 45 ms. Receivers
@@ -648,6 +662,10 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     } else {
         /* No encoder for this protocol: an NEC frame built from its digits would be
          * a different code, so report the error instead of sending it */
+        if (strstr(proto, "Roku IP")) {
+            fprintf(stderr, "[!] IR: 'Roku IP' is a network protocol, not IR (route via MQTT bridge to Home Assistant)\n");
+            return -5;
+        }
         fprintf(stderr, "[!] IR: no encoder for protocol '%s', keycode not sent\n", proto);
         return -4;
     }

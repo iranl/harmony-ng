@@ -115,6 +115,8 @@ int g_night_end_hour = 7;      /* 7 AM */
 int g_timeout_seconds = 10;
 int g_brightness_val = 2; /* 1..5 */
 bool g_confirm_activity = true;
+int g_home_layout = HOME_LAYOUT_THEME;
+int g_activity_order = ACTIVITY_ORDER_YOURS;
 int g_confirm_pending_idx = -1;
 uint64_t g_confirm_pending_deadline_ms = 0;
 int g_confirm_pending_rf_code = 0;
@@ -123,17 +125,18 @@ bool g_settings_dirty = false;
 
 elite_battery_info_t g_battery_info = { 100, 0, 4100, "battery" };
 bool g_screen_on = true;
-bool g_screen_nav_mode = true;  /* Default true: bottom buttons navigate screen UI on boot */
-int g_nav_toggle_key = 139;     /* Default: 139 (Menu), also 358 (Info), 395 (Guide), 389 (DVR), 174 (Exit) */
-int g_nav_toggle_mode = 1;      /* 0 = Short Press, 1 = Long Press (Hold >= 500ms) */
 bool g_usb_connected = false;   /* Dynamic physical USB cable detection */
 
 volatile bool g_screen_dirty = true;
 char g_notice_msg[64] = {0};
 uint64_t g_notice_until_ms = 0;
 
-uint64_t g_toggle_key_down_ms = 0;
-bool g_toggle_key_triggered = false;
+uint64_t g_act_key_down_ms = 0;
+bool g_act_key_long_fired = false;
+bool g_menu_open = false;
+int g_menu_sel = 0;
+bool g_key_hint_pending = true;
+bool g_link_panel_open = false;
 
 volatile bool g_running = true;
 int g_fb_fd = -1;
@@ -169,6 +172,12 @@ uint64_t get_monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+uint64_t get_monotonic_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
 }
 
 const char *g_fs_root = "";

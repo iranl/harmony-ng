@@ -7,6 +7,7 @@
 #include "rf_pairing.h"
 #include "rf_api.h"
 #include "rf_config_push.h"
+#include "rf_help.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,6 +132,14 @@ void handle_rf_frame(const rf_frame_t *f) {
             enqueue_browsed_device_cmd(f->payload);
             break;
 
+        case RF_MSG_HELP_REQUEST:
+            rf_help_request(f);
+            break;
+
+        case RF_MSG_HELP_ANSWER:
+            rf_help_answer(f);
+            break;
+
         case RF_MSG_DEVICE_CMD_REQUEST: {
             uint8_t slot = (f->dev_slot & 0x0F);
             if (slot < 1 || slot > 2) slot = 1;
@@ -195,13 +204,14 @@ void handle_rf_frame(const rf_frame_t *f) {
             rf_send_hub_activity_sync_slot(cur, f->seq, slot, 0x01);
 
             if (req_type == 0x02) {
+                rf_sync_cache_invalidate();
                 usleep(50000);
                 pthread_t push_th;
                 pthread_create(&push_th, NULL, config_push_worker, NULL);
                 pthread_detach(push_th);
             } else {
                 usleep(10000);
-                rf_send_hub_time_sync_slot(slot);
+                rf_send_hub_time_sync_slot_if_due(slot);
             }
             break;
         }
@@ -255,20 +265,22 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t min = f->payload[1];
             uint8_t pat = f->payload[2];
             uint8_t cfg_ver = f->payload[3];
+            uint8_t caps = f->payload[4];
             int idx = slot - 1;
             snprintf(g_remote_versions[idx].sw_version, sizeof(g_remote_versions[idx].sw_version), "%u.%u.%u", maj, min, pat);
             g_remote_versions[idx].config_version = cfg_ver;
+            g_remote_versions[idx].caps = caps;
             g_remote_versions[idx].last_report_ms = get_monotonic_ms();
 
             char vpath[64];
             snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", slot);
             FILE *vf = fopen(vpath, "w");
             if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
-                        slot, g_remote_versions[idx].sw_version, cfg_ver, (long)time(NULL));
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                        slot, g_remote_versions[idx].sw_version, cfg_ver, caps, (long)time(NULL));
                 fclose(vf);
             }
-            printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d\n", slot, g_remote_versions[idx].sw_version, cfg_ver);
+            printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d, caps 0x%02X\n", slot, g_remote_versions[idx].sw_version, cfg_ver, caps);
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
@@ -413,6 +425,8 @@ int main(int argc, char **argv) {
                 if (vroot) {
                     cJSON *jv = cJSON_GetObjectItem(vroot, "version");
                     cJSON *jcv = cJSON_GetObjectItem(vroot, "config_version");
+                    cJSON *jcaps = cJSON_GetObjectItem(vroot, "caps");
+                    if (cJSON_IsNumber(jcaps)) g_remote_versions[slot - 1].caps = (uint8_t)jcaps->valueint;
                     if (jv && jv->valuestring) {
                         snprintf(g_remote_versions[slot - 1].sw_version, sizeof(g_remote_versions[slot - 1].sw_version), "%s", jv->valuestring);
                     }

@@ -133,7 +133,7 @@ build_sync() {
 
 build_rf() {
     echo "[-] Building hub_rf..."
-    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_api.c payload/source/rf_main.c payload/source/elite_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c"
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/elite_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c"
     "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
 }
 
@@ -167,8 +167,20 @@ build_elite() {
     cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
     cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/init.sh" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
     sed -i 's/\r$//' "$REPO_ROOT/build/tmp/elite_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/elite_ota_pkg"/rcS.local 2>/dev/null || true
+    # Theme packages. Building them needs a host C compiler and the
+    # pinned downloads; without them, themes built earlier into build/tmp/elite-themes are used.
+    echo "[-] Building Elite themes..."
+    python3 "$REPO_ROOT/tools/elite_render/build_theme.py" >/dev/null \
+        || echo "[!] Theme build failed; packaging themes from an earlier build, if any." >&2
+    rm -rf "$REPO_ROOT/elite/bin/themes"
+    if [ -d "$REPO_ROOT/build/tmp/elite-themes" ]; then
+        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/elite/bin/themes"
+        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/build/tmp/elite_ota_pkg/themes"
+    fi
     tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
     cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
+    rm -rf "$REPO_ROOT/build/output/elite/themes"
+    [ -d "$REPO_ROOT/elite/bin/themes" ] && cp -R "$REPO_ROOT/elite/bin/themes" "$REPO_ROOT/build/output/elite/themes"
     rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
 }
 

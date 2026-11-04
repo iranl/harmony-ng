@@ -1,5 +1,9 @@
 export default {
     "act_editor_sub": "Configurar opciones de actividad y secuencias de comandos",
+    "dry_run_banner_title": "Modo Dry-Run activo",
+    "dry_run_banner_desc": "Los comandos IR y MQTT se simulan y descartan. El hardware físico no responderá.",
+    "disable_dry_run_btn": "Desactivar Dry-Run",
+    "dry_run_disabled": "Dry-Run desactivado. Comandos de hardware físicos activos.",
     "act_name_required": "El nombre de la actividad es obligatorio.",
     "action_type": "Tipo de acción",
     "active_activity": "Actividad activa",

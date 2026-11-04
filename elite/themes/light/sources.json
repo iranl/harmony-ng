@@ -1,0 +1,33 @@
+{
+  "fonts": {
+    "main": { "source": "inter-medium", "px": 12, "height": 15, "baseline": 12 },
+    "title": { "source": "inter-semibold", "px": 14, "height": 19, "baseline": 15 }
+  },
+  "keywords": {
+    "set": "phosphor-bold", "map": "phosphor", "color": "#1C1C1E",
+    "brands": { "sonos": ["custom", "sonos-bold"], "roku": ["custom", "roku-bold"] }
+  },
+  "glyphs": {
+    "color": "#1C1C1E",
+    "icons": {
+      "footer/settings.png": ["phosphor-bold", "gear-six", 22],
+      "footer/help.png": ["phosphor-bold", "question", 22],
+      "footer/close.png": ["phosphor-bold", "x", 20],
+      "footer/devices.png": ["phosphor-bold", "devices", 20],
+      "footer/flip.png": ["phosphor-bold", "lightning", 20],
+      "footer/footermenu_sleeptimer.png": ["phosphor-bold", "timer", 20],
+      "hue/brightness.png": ["phosphor-bold", "sun", 20],
+      "gesture/gesturehand.png": ["phosphor-bold", "hand-tap", 20],
+      "gesture/hint.png": ["phosphor-bold", "hand-pointing", 20],
+      "pairing/connectHub.png": ["phosphor-bold", "plugs-connected", 20],
+      "settings/checkmark.png": ["phosphor-bold", "check-circle", 20],
+      "juniperHomeAutomation/lamp_on.png": ["phosphor-bold", "lamp", 20],
+      "commands/145.png": ["phosphor-bold", "clock-countdown", 20],
+      "clock_small.png": ["phosphor-bold", "moon", 20],
+      "battery/level100.png": ["phosphor-bold", "battery-full", 20],
+      "home/power_icon.png": ["phosphor-bold", "power", 20],
+      "footer/menu.png": ["phosphor-bold", "squares-four", 20]
+    }
+  },
+  "solid": { "footer/toolbarBG.png": [240, 34, "#E9EAEF"] }
+}

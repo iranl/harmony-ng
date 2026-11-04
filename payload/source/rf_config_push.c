@@ -24,6 +24,22 @@ static bool send_as_custom_icon(const char *name) {
     return !rf_activity_icon_match(name) && custom_icon_registry_has_file(name);
 }
 
+/* Queue the part of an activity (kind 0) or device (kind 1) name that did not fit in its
+   list chunk, 22 bytes per frame, for remotes that report RF_CAP_LONG_NAMES */
+static void queue_name_tail(push_queue_t *q, uint8_t slot, uint8_t kind, int idx, const char *name, size_t sent) {
+    if (slot < 1 || slot > 2 || !(g_remote_versions[slot - 1].caps & RF_CAP_LONG_NAMES)) return;
+    for (size_t off = sent; off < strlen(name); off += 22) {
+        uint8_t payload[25] = {0};
+        rf_frame_t f;
+        payload[0] = kind;
+        payload[1] = (uint8_t)idx;
+        payload[2] = (uint8_t)off;
+        strncpy((char *)&payload[3], name + off, 22);
+        rf_build_frame(&f, slot, RF_MSG_NAME_TAIL_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
+        push_queue_add(q, &f);
+    }
+}
+
 void *config_push_worker(void *arg) {
     (void)arg;
     static pthread_mutex_t push_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -90,10 +106,12 @@ void *config_push_worker(void *arg) {
     /* 2. Activities */
     struct {
         char id[13];
-        char name[24];
+        char name[RF_NAME_SIZE];
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
+        char dev_ids[16][8];  /* deviceIds, matched to the device list in section 3a */
+        int dev_id_count;
     } acts[16];
     int act_count = 0;
 
@@ -160,6 +178,18 @@ void *config_push_worker(void *arg) {
                                     strncpy(acts[act_count].icon_name, custom_name, sizeof(acts[0].icon_name) - 1);
                                     acts[act_count].icon_name[sizeof(acts[0].icon_name) - 1] = '\0';
 
+                                    acts[act_count].dev_id_count = 0;
+                                    cJSON *j_devs = cJSON_GetObjectItem(act_obj, "deviceIds");
+                                    cJSON *j_dev = NULL;
+                                    cJSON_ArrayForEach(j_dev, j_devs) {
+                                        if (acts[act_count].dev_id_count >= 16) break;
+                                        char *d = acts[act_count].dev_ids[acts[act_count].dev_id_count];
+                                        if (cJSON_IsNumber(j_dev)) snprintf(d, 8, "%d", j_dev->valueint);
+                                        else if (cJSON_IsString(j_dev)) snprintf(d, 8, "%s", j_dev->valuestring);
+                                        else continue;
+                                        acts[act_count].dev_id_count++;
+                                    }
+
                                     act_count++;
                                 }
                             }
@@ -179,24 +209,28 @@ void *config_push_worker(void *arg) {
             payload[0] = (uint8_t)i;
             payload[1] = (uint8_t)act_count;
             payload[2] = acts[i].icon_type;
+            size_t name_room;
             if (strlen(acts[i].id) <= 2 || strcmp(acts[i].id, "-1") == 0) {
                 strncpy((char *)&payload[3], acts[i].id, 3);
-                strncpy((char *)&payload[6], acts[i].name, 17);
+                name_room = 17;
+                strncpy((char *)&payload[6], acts[i].name, name_room);
             } else {
                 strncpy((char *)&payload[3], acts[i].id, 8);
-                strncpy((char *)&payload[11], acts[i].name, 12);
+                name_room = 12;
+                strncpy((char *)&payload[11], acts[i].name, name_room);
             }
             payload[23] = (uint8_t)(acts[i].icon_id & 0xFF);
             payload[24] = (uint8_t)((acts[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_ACTIVITY_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
             push_queue_add(&queue[t], &f);
+            queue_name_tail(&queue[t], target_slot, 0, i, acts[i].name, name_room);
         }
     }
 
     /* 3. Devices */
     struct {
         char id[8];
-        char name[24];
+        char name[RF_NAME_SIZE];
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
@@ -239,8 +273,8 @@ void *config_push_worker(void *arg) {
                                 if (id_str[0]) {
                                     strncpy(devs[dev_count].id, id_str, 7);
                                     devs[dev_count].id[7] = '\0';
-                                    strncpy(devs[dev_count].name, jname->valuestring, 21);
-                                    devs[dev_count].name[21] = '\0';
+                                    strncpy(devs[dev_count].name, jname->valuestring, sizeof(devs[0].name) - 1);
+                                    devs[dev_count].name[sizeof(devs[0].name) - 1] = '\0';
                                     devs[dev_count].icon_type = rf_activity_icon_type(icon_str, jname->valuestring, type_str);
 
                                     uint16_t icon_id = 0;
@@ -294,6 +328,31 @@ void *config_push_worker(void *arg) {
             payload[23] = (uint8_t)(devs[i].icon_id & 0xFF);
             payload[24] = (uint8_t)((devs[i].icon_id >> 8) & 0xFF);
             rf_build_frame(&f, target_slot, RF_MSG_DEVICE_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
+            push_queue_add(&queue[t], &f);
+            queue_name_tail(&queue[t], target_slot, 1, i, devs[i].name, 16);
+        }
+    }
+
+    /* 3a. The devices each activity uses, as indexes into the device list, for the activity
+       screen; only remotes that report RF_CAP_ACT_DEVICES understand this frame */
+    for (int t = 0; t < num_targets; t++) {
+        uint8_t target_slot = target_slots[t];
+        if (target_slot < 1 || target_slot > 2 || !(g_remote_versions[target_slot - 1].caps & RF_CAP_ACT_DEVICES)) continue;
+        for (int i = 0; i < act_count; i++) {
+            uint8_t payload[25] = {0};
+            payload[0] = (uint8_t)i;
+            payload[1] = (uint8_t)act_count;
+            int n = 0;
+            for (int k = 0; k < acts[i].dev_id_count && n < 22; k++) {
+                for (int d = 0; d < dev_count; d++) {
+                    if (strcmp(acts[i].dev_ids[k], devs[d].id) == 0) {
+                        payload[3 + n++] = (uint8_t)d;
+                        break;
+                    }
+                }
+            }
+            payload[2] = (uint8_t)n;
+            rf_build_frame(&f, target_slot, RF_MSG_ACT_DEVICES_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
             push_queue_add(&queue[t], &f);
         }
     }
@@ -745,8 +804,12 @@ void *config_push_worker(void *arg) {
                     }
                 }
                 if (language < 0 || language > 5) language = 0;
+                cJSON *jtheme = cJSON_GetObjectItem(sroot, "theme");
+                int theme = cJSON_IsString(jtheme) ? rf_theme_id(jtheme->valuestring) : 0;
+                cJSON *jlayout = cJSON_GetObjectItem(sroot, "layout");
+                int layout = cJSON_IsString(jlayout) ? rf_layout_id(jlayout->valuestring) : 0;
                 cJSON_Delete(sroot);
-                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language);
+                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout);
                 push_queue_add(&queue[t], &f);
             }
         }
@@ -810,8 +873,8 @@ void *config_push_worker(void *arg) {
             snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", target_slot);
             FILE *vf = fopen(vpath, "w");
             if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"timestamp\":%ld}\n",
-                        target_slot, g_remote_versions[idx].sw_version, config_ver, (long)time(NULL));
+                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                        target_slot, g_remote_versions[idx].sw_version, config_ver, g_remote_versions[idx].caps, (long)time(NULL));
                 fclose(vf);
             }
         }

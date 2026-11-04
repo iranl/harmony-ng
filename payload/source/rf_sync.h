@@ -14,19 +14,21 @@ void rf_build_settings_push(rf_frame_t *f, uint8_t slot, int bright, int timeout
                             int nav_key, int nav_mode, int confirm_act, int touch_sens,
                             int remote_mode, int gyro_rate, int btn_backlight,
                             int night_start, int night_end, int usbeth, int no_screen,
-                            int cap_buttons, int power_debug, int language);
+                            int cap_buttons, int power_debug, int language, int theme, int layout);
 void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch, int gyro,
                                int nav_key, int nav_mode, int confirm_act, int touch_sens,
                                int remote_mode, int gyro_rate, int btn_backlight,
                                int night_start, int night_end, int usbeth, int no_screen,
-                               int cap_buttons, int power_debug, int language);
+                               int cap_buttons, int power_debug, int language, int theme, int layout);
 void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply);
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq);
 void rf_send_hub_activity_sync(const char *act_id);
 uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);
 void rf_send_hub_time_sync_slot(uint8_t slot);
+void rf_send_hub_time_sync_slot_if_due(uint8_t slot);
 void rf_send_hub_time_sync(void);
+void rf_sync_cache_invalidate(void);
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str);
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str);
 void *activity_sync_worker(void *arg);

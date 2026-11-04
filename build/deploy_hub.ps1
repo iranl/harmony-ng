@@ -137,7 +137,7 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
             Write-Host "[!] Python is not installed or not in PATH: devices and activities could not be migrated." -ForegroundColor Red
         }
         else {
-            & $pyCmd $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Null
+            & $pyCmd $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Host
             if (Test-Path "$tmpMig\out\config\devices.json") {
                 Get-ChildItem -Path "$tmpMig\out\config" -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
                     & scp @scpArgs $_.FullName "${Target}:/data/harmony/config/" | Out-Null
@@ -162,7 +162,7 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
 }
 
 Write-Host "[*] Querying remote checksums (md5sum)..." -ForegroundColor Yellow
-$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
+$remoteMd5Raw = & ssh @sshArgs $Target "md5sum /data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* /cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true"
 $remoteHashes = @{}
 if ($remoteMd5Raw) {
     foreach ($line in $remoteMd5Raw) {

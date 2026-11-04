@@ -214,16 +214,67 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate (target_type, size, md5) |
 | `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk (23 bytes payload) |
 | `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
+| `0x2B` | `RF_MSG_ACT_DEVICES_CHUNK` | Hub -> Remote | Devices one activity uses (ACK'd); sent only to remotes that report `RF_CAP_ACT_DEVICES` |
+| `0x2C` | `RF_MSG_NAME_TAIL_CHUNK` | Hub -> Remote | Rest of an activity or device name (ACK'd); sent only to remotes that report `RF_CAP_LONG_NAMES` |
+| `0x2D` | `RF_MSG_HELP_REQUEST` | Remote -> Hub | Help: repair the running activity |
+| `0x2E` | `RF_MSG_HELP_STATUS` | Hub -> Remote | Help progress, or a device to ask about (ACK'd except a repeated "started"); sent only in reply to `RF_MSG_HELP_REQUEST` |
+| `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
 
 ### 5.2 Key Payload Structures
+
+#### `RF_MSG_VERSION_REPORT` (`0x1A`)
+- `payload[0..2]`: Software version major, minor, patch
+- `payload[3]`: Config version the remote holds
+- `payload[4]`: Capabilities, a bit mask of `RF_CAP_*`. Older remotes send `0x00`.
+  - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
+  - `0x02` `RF_CAP_LONG_NAMES`: understands `RF_MSG_NAME_TAIL_CHUNK`
+
+The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/elite_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
+
+#### `RF_MSG_ACT_DEVICES_CHUNK` (`0x2B`)
+One frame per activity, after the device list in a config push:
+- `payload[0]`: Activity index, as in `RF_MSG_ACTIVITY_LIST_CHUNK`
+- `payload[1]`: Activity count
+- `payload[2]`: Device count `n` (at most 22)
+- `payload[3..3+n-1]`: Indexes into the device list of this push, from the activity's `deviceIds`
+
+#### `RF_MSG_NAME_TAIL_CHUNK` (`0x2C`)
+Follows an `RF_MSG_ACTIVITY_LIST_CHUNK` or `RF_MSG_DEVICE_LIST_CHUNK` whose name didn't fit, one frame per 22 bytes of the rest of the name. Names are up to 39 bytes (`RF_NAME_SIZE`); older remotes keep the part in the list chunk.
+- `payload[0]`: `0` activity, `1` device
+- `payload[1]`: Activity or device index
+- `payload[2]`: Offset of this part in the name
+- `payload[3..24]`: Name bytes, NUL-padded
+
+#### Help: `RF_MSG_HELP_REQUEST` (`0x2D`), `RF_MSG_HELP_STATUS` (`0x2E`), `RF_MSG_HELP_ANSWER` (`0x2F`)
+Help re-sends the running activity's commands except power toggles, then asks about each device whose only power command is a toggle. The Hub sends `RF_MSG_HELP_STATUS` only to a remote that asked, so no capability bit is needed.
+
+1. The remote sends `RF_MSG_HELP_REQUEST` and repeats it every 2 s, up to 3 times, until it gets "started".
+2. hub_rf calls `POST /api/activity/help` on the daemon and replies "started", or "busy" or "failed".
+3. When the daemon has sent the commands (`GET /api/activity` reports `busy` and `sending` false, at most 120 s), hub_rf sends one question per toggle device, or "no questions".
+4. For each question the remote sends `RF_MSG_HELP_ANSWER`; hub_rf calls `POST /api/activity/help/answer`, which sends the toggle when the answer is "off".
+
+`RF_MSG_HELP_REQUEST`:
+- `payload[0..11]`: Activity ID, NUL-padded
+
+`RF_MSG_HELP_STATUS`:
+- `payload[0]`: `0x00` question, `0x01` started (re-sending), `0x02` busy (another activity change is running), `0x03` failed (activity not running, or Hub error), `0x04` no questions (commands re-sent, no toggle devices)
+- For a question:
+  - `payload[1]`: Question index
+  - `payload[2]`: Question count
+  - `payload[3..10]`: Device ID, NUL-padded
+  - `payload[11..24]`: First 14 bytes of the device name; the remote shows the full name from its device list when it has the ID
+
+`RF_MSG_HELP_ANSWER`:
+- `payload[0]`: `1` the device is on, `0` it is off
+- `payload[1..8]`: Device ID, NUL-padded
 
 #### `RF_MSG_SETTINGS_PUSH` (`0x0E`) & `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
 Both frames use a 17-byte standardized configuration payload:
 - `payload[0]`: Display Brightness (1–5)
 - `payload[1]`: Screen Timeout low byte (seconds)
 - `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
-- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU)
-- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press)
+- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current Elite firmware has no NAV toggle: it ignores these bytes and sends `0`; older firmware reads them.
+- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press); ignored and sent as `0` like the key
 - `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
 - `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)
 - `payload[8]`: Config Version counter
@@ -238,6 +289,9 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[17]`: No-Screen Mode (`0x01` on, `0x00` off)
 - `payload[18]`: Capacitive Buttons (`1` Enabled, `2` Disabled in push; `1`/`0` in backup)
 - `payload[19]`: Power Debug Log (`1` Enabled, `2` Disabled in push; byte 18 `1`/`0` in backup)
+- `payload[20]`: Language (`0` en, `1` de, `2` fr, `3` nl, `4` es, `5` it); byte 19 in backup
+- `payload[21]`: Theme (`1` classic, `2` dark, `3` light, `4` colourful; `0` in a push keeps the Remote's choice); byte 20 in backup, where `0` means a theme with no id
+- `payload[22]`: Home layout (`1` the theme's, `2` list, `3` grid, `4` carousel; `0` in a push keeps the Remote's choice); byte 21 in backup
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:
@@ -260,7 +314,7 @@ Both frames use a 17-byte standardized configuration payload:
 #### `RF_MSG_ACTIVITY_LIST_CHUNK` (`0x0B`)
 - `payload[0]`: Activity index; `payload[1]`: activity count.
 - `payload[2]`: Legacy icon type, `1`..`17` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
-- `payload[3..22]`: Activity ID and name.
+- `payload[3..22]`: Activity ID and name: a 1–2 character ID leaves 17 bytes for the name, a longer ID 12. `RF_MSG_NAME_TAIL_CHUNK` carries the rest.
 - `payload[23..24]`: 16-bit Icon ID (little-endian):
   - `0x0001` .. `0x7FFF`: Stock icon index into canonical stock asset table (`/opt/luadraws/appscommon/asset/...`).
   - `0x8001` .. `0xFFFF`: Custom user icon index (`/data/assets/custom/{icon_id}.png`), wirelessly synced over RF.
@@ -272,7 +326,7 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[1]`: Total device count.
   - `payload[2]`: Legacy icon type, `1`..`17` (`< 0x20`), matching activity icon types or `0` for fallback (`payload[2] >= 0x20` starts legacy 4-byte ID).
   - `payload[3..6]`: Shortened device ID string (null-terminated, up to 4 bytes).
-  - `payload[7..22]`: Friendly device name string (null-terminated, up to 16 bytes).
+  - `payload[7..22]`: Friendly device name string (null-terminated, up to 16 bytes). `RF_MSG_NAME_TAIL_CHUNK` carries the rest.
   - `payload[23..24]`: 16-bit Icon ID (little-endian):
     - `0x0001` .. `0x7FFF`: Stock icon index into canonical stock asset table (`/opt/luadraws/appscommon/asset/...`).
     - `0x8001` .. `0xFFFF`: Custom user icon index (`/data/assets/custom/{icon_id}.png`), wirelessly synced over RF.

@@ -1,5 +1,9 @@
 export default {
     "account_auth": "Account / Authentication",
+    "dry_run_banner_title": "Dry-Run Simulation Active",
+    "dry_run_banner_desc": "IR and MQTT commands are simulated and dropped. Physical hardware will not respond.",
+    "disable_dry_run_btn": "Disable Dry-Run",
+    "dry_run_disabled": "Dry-Run disabled. Physical hardware commands active.",
     "act_editor_sub": "Configure activity settings and command sequences",
     "act_name_required": "Activity name is required.",
     "act_start_stop_order_hint": "Start/Stop Order: Devices power ON in order (#1..#N) and power OFF in reverse.",

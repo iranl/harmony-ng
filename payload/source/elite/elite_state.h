@@ -29,6 +29,7 @@
 #include "cJSON.h"
 #include "rf_proto.h"
 #include "font_aa.h"
+#include "elite_theme.h"
 #include "harmony_version.h"
 #include "elite_stock_icons.h"
 #include "elite_i18n.h"
@@ -58,24 +59,30 @@ extern "C" {
 #define FB_HEIGHT           320
 #define FB_SIZE             (FB_WIDTH * FB_HEIGHT * 2)
 
-/* Logitech Elite RGB565 Palette - High Contrast */
-#define RGB_BLACK           0x0000
-#define RGB_BG              0x0000  /* Pure deep black background for OLED/LCD contrast */
-#define RGB_CARD            0x10A2  /* Dark slate card body #10141A */
-#define RGB_CARD_SEL        0x1945  /* Highlighted card surface #182835 */
-#define RGB_CARD_BORDER     0x2965  /* Crisp card border #282C34 */
-#define RGB_WHITE           0xFFFF  /* Pure white for primary titles */
-#define RGB_TEXT_MUTED      0xD6DA  /* Crisp light gray for secondary info */
-#define RGB_CYAN            0x067A  /* Vibrant Logitech Teal #00CFB4 */
-#define RGB_TEAL            0x067A  /* Vibrant Logitech Teal #00CFB4 */
-#define RGB_GREEN           0x27E8  /* Crisp success green #20FA80 */
-#define RGB_RED             0xFA08  /* Vivid alert / power red #F84040 */
-#define RGB_YELLOW          0xFFE0  /* Crisp warning yellow */
-#define RGB_BLUE            0x2D7F  /* Clean highlight blue */
-#define RGB_HEADER          0x0861  /* Sleek top header bar */
-#define RGB_DIVIDER         0x2965  /* Crisp divider line */
-#define RGB_TAB_BG          0x0841  /* Bottom dock background */
-#define RGB_TAB_ACTIVE      0x1945  /* Active bottom tab surface */
+/* Colours come from the theme's palette (elite_theme.h); these names are the roles' older
+   names, kept so the drawing code reads as before */
+#define RGB_BLACK           (g_theme.pal.on_accent)
+#define RGB_BG              (g_theme.pal.bg)
+#define RGB_CARD            (g_theme.pal.card)
+#define RGB_CARD_SEL        (g_theme.pal.card_sel)
+#define RGB_CARD_BORDER     (g_theme.pal.card_border)
+#define RGB_WHITE           (g_theme.pal.text)
+#define RGB_TEXT_MUTED      (g_theme.pal.text_muted)
+#define RGB_CYAN            (g_theme.pal.accent)
+#define RGB_TEAL            (g_theme.pal.accent)
+#define RGB_GREEN           (g_theme.pal.success)
+#define RGB_RED             (g_theme.pal.danger)
+#define RGB_YELLOW          (g_theme.pal.warning)
+#define RGB_BLUE            (g_theme.pal.info)
+#define RGB_HEADER          (g_theme.pal.header)
+#define RGB_DIVIDER         (g_theme.pal.divider)
+
+/* Text is drawn with the theme's fonts */
+#define g_font_main         (*g_theme.font_main)
+#define g_font_title        (*g_theme.font_title)
+
+enum { HOME_LAYOUT_THEME = 0, HOME_LAYOUT_LIST, HOME_LAYOUT_GRID, HOME_LAYOUT_CAROUSEL, HOME_LAYOUT_COUNT };
+enum { ACTIVITY_ORDER_YOURS = 0, ACTIVITY_ORDER_MOST_USED };
 
 /* UI Views */
 typedef enum {
@@ -101,7 +108,6 @@ typedef enum {
     SETTINGS_VIEW_SUSPEND
 } settings_subview_t;
 
-#define PAIR_OPT_COUNT 2
 
 /* Activity item */
 typedef struct {
@@ -120,14 +126,16 @@ typedef struct {
 
 typedef struct {
     char id[13];
-    char name[24];
+    char name[RF_NAME_SIZE];
     char icon[24];
     uint16_t icon_id;
+    uint8_t dev_count;            /* devices the activity uses, from RF_MSG_ACT_DEVICES_CHUNK */
+    uint8_t devs[MAX_RF_DEVICES]; /* indexes into g_rf_devices */
 } rf_activity_t;
 
 typedef struct {
     char id[8];
-    char name[24];
+    char name[RF_NAME_SIZE];
     char icon[24];
     uint16_t icon_id;
 } rf_device_t;
@@ -281,6 +289,8 @@ extern int g_night_end_hour;
 extern int g_timeout_seconds;
 extern int g_brightness_val;
 extern bool g_confirm_activity;
+extern int g_home_layout;            /* HOME_LAYOUT_*: the theme's, or the user's choice */
+extern int g_activity_order;         /* ACTIVITY_ORDER_*: the web UI's order, or most used first */
 extern int g_confirm_pending_idx;
 extern uint64_t g_confirm_pending_deadline_ms;
 extern int g_confirm_pending_rf_code;
@@ -289,17 +299,18 @@ extern bool g_settings_dirty;
 
 extern elite_battery_info_t g_battery_info;
 extern bool g_screen_on;
-extern bool g_screen_nav_mode;
-extern int g_nav_toggle_key;
-extern int g_nav_toggle_mode;
 extern bool g_usb_connected;
 
 extern volatile bool g_screen_dirty;
 extern char g_notice_msg[64];
 extern uint64_t g_notice_until_ms;
 
-extern uint64_t g_toggle_key_down_ms;
-extern bool g_toggle_key_triggered;
+extern uint64_t g_act_key_down_ms;   /* Activities key press time, 0 when released */
+extern bool g_act_key_long_fired;    /* the current press already opened the menu */
+extern bool g_menu_open;
+extern int g_menu_sel;
+extern bool g_key_hint_pending;      /* show the one-time Activities/Devices/Off key hint */
+extern bool g_link_panel_open;       /* RF link details, opened from the status bar indicator */
 
 extern volatile bool g_running;
 extern int g_fb_fd;
@@ -328,6 +339,7 @@ extern uint64_t g_touch_down_ms;
 
 /* Utility / helper functions */
 uint64_t get_monotonic_ms(void);
+uint64_t get_monotonic_us(void);
 
 /* Files the renderer and config loader read are opened through elite_fs_path(). On the
    remote g_fs_root is empty; the host renderer points it at a directory laid out like the

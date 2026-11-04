@@ -2,6 +2,9 @@
 #include "render_state.h"
 #include "elite_fb.h"
 #include "elite_config.h"
+#include "elite_link.h"
+#include "elite_ui.h"
+#include "elite_ui_scroll.h"
 
 #define KEYWORD_COUNT 17
 
@@ -31,12 +34,23 @@ static void keyword_icon_path(const char *icons, const char *keyword, char *out,
 static void set_view(const render_options_t *o) {
     const char *v = o->view ? o->view : "activities";
     g_is_syncing_config = false;
-    if (strcmp(v, "commands") == 0) {
+    g_menu_open = false;
+    g_key_hint_pending = false;
+    g_link_panel_open = false;
+    ui_help_close();
+    if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
+        g_current_view = VIEW_ACTIVITIES;
+        g_selected_activity = o->select;
+        g_menu_open = (strcmp(v, "menu") == 0);
+        g_key_hint_pending = (strcmp(v, "hint") == 0);
+        g_link_panel_open = (strcmp(v, "link") == 0);
+    } else if (strcmp(v, "commands") == 0) {
         g_current_view = VIEW_DEVICES;
         g_selected_device_cmd = o->select;
     } else if (strcmp(v, "devices") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = -1;
+        g_browse_sel = o->select;
     } else if (strcmp(v, "device") == 0) {
         g_current_view = VIEW_DEVICE_BROWSER;
         g_browse_dev = o->select;
@@ -47,6 +61,28 @@ static void set_view(const render_options_t *o) {
         g_current_view = VIEW_PAIRING;
     } else if (strcmp(v, "not-paired") == 0) {
         g_current_view = VIEW_NOT_PAIRED;
+    } else if (strncmp(v, "help-", 5) == 0) {
+        /* Help over the activity screen, driven by the frames the Hub sends */
+        g_current_view = VIEW_DEVICES;
+        ui_help_close();
+        ui_help_start();
+        rf_frame_t f = {0};
+        f.payload[0] = RF_HELP_STARTED;
+        ui_help_on_status(&f);
+        if (strcmp(v, "help-wait") != 0) {
+            f.payload[0] = RF_HELP_QUESTION;
+            f.payload[2] = strcmp(v, "help-done") == 0 ? 1 : 2;
+            int d = 0;
+            for (int i = 0; i < g_rf_activity_count; i++) {
+                if (strcmp(g_rf_activities[i].id, g_active_activity_id) == 0 && g_rf_activities[i].dev_count) d = g_rf_activities[i].devs[0];
+            }
+            if (d < g_rf_device_count) snprintf((char *)&f.payload[3], 9, "%s", g_rf_devices[d].id);
+            ui_help_on_status(&f);
+        }
+        if (strcmp(v, "help-done") == 0) {
+            ui_help_handle_key(106); /* No */
+            ui_help_handle_key(28);
+        }
     } else if (strcmp(v, "sync") == 0) {
         g_is_syncing_config = true;
         g_sync_chunk_count = o->sync_done;
@@ -63,9 +99,26 @@ void render_load(const render_options_t *o) {
        (the browser build follows the browser's zone, whatever TZ says) */
     struct tm clock = { .tm_year = 126, .tm_mday = 1, .tm_hour = o->minutes / 60, .tm_min = o->minutes % 60, .tm_isdst = -1 };
     g_host_wall_time = mktime(&clock);
+    theme_load(o->theme);
+    g_home_layout = o->layout && strcmp(o->layout, "grid") == 0 ? HOME_LAYOUT_GRID
+                  : o->layout && strcmp(o->layout, "list") == 0 ? HOME_LAYOUT_LIST
+                  : o->layout && strcmp(o->layout, "carousel") == 0 ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_THEME;
     load_rf_config();
     load_wallpaper_asset();
     g_rf_link_connected = !o->no_hub;
+    /* Samples behind the link indicator, as the remote records them over the last 30 s */
+    link_reset();
+    uint64_t now = get_monotonic_ms();
+    g_last_hub_frame_ms = o->hub_silent ? now - 14000 : now - 400;
+    if ((o->link_loss > 0 || o->hub_silent) && now > 30000) {
+        for (int i = 0; i < 30; i++) { /* a query every 800 ms, as the remote sends them */
+            uint64_t t = now - 25000 + i * 800;
+            bool lost = i % 10 < o->link_loss / 10;
+            link_note_status(o->hub_silent || !lost, t);
+            link_note_query((uint8_t)i, t);
+            if (!o->hub_silent && !lost) link_note_reply((uint8_t)i, t + 100);
+        }
+    }
     g_pairing_state = 2;
     g_initial_sync_received = true;
     g_battery_info.percent = (uint8_t)o->battery;
@@ -87,6 +140,9 @@ void render_load(const render_options_t *o) {
         }
     }
     set_view(o);
+    home_scroll_set_offset(o->scroll);
+    if (o->has_list_top) list_scroll_to(o->list_top);
+    else list_scroll_set_drag(o->scroll);
 }
 
 void render_keyword_sheet(const char *title, const char *icons) {

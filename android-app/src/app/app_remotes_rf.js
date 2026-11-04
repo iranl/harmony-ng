@@ -733,10 +733,17 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
           otaBanner.style.display = 'none';
         }
       }
+
+      // 4. Dry-run simulation active banner
+      const dryRunBanner = document.getElementById('hubDryRunBanner');
+      if (dryRunBanner) {
+        const settings = await this.client.getSettings().catch(() => null);
+        if (settings && (settings.dry_run === true || settings.dry_run === 1)) {
+          dryRunBanner.style.display = 'flex';
+        } else {
+          dryRunBanner.style.display = 'none';
+        }
+      }
     } catch { }
   }
-
-  /* -------------------------------------------------------------
-   * 9. MQTT View
-   * ------------------------------------------------------------- */
 }

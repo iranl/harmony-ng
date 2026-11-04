@@ -1,5 +1,9 @@
 export default {
     "account_auth": "Account / Autenticazione",
+    "dry_run_banner_title": "Modalità Dry-Run attiva",
+    "dry_run_banner_desc": "I comandi IR e MQTT sono simulati e ignorati. L'hardware fisico non risponderà.",
+    "disable_dry_run_btn": "Disattiva Dry-Run",
+    "dry_run_disabled": "Dry-Run disattivato. Comandi hardware fisici attivi.",
     "act_editor_sub": "Configura impostazioni attività e sequenze di comandi",
     "act_name_required": "Il nome dell'attività è obbligatorio.",
     "act_start_stop_order_hint": "Ordine avvio/arresto: i dispositivi si accendono in ordine (#1..#N) e si spengono in ordine inverso.",

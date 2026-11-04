@@ -22,6 +22,8 @@ void send_version_report_rf(void);
 void send_remote_config_backup_rf(void);
 void rf_send_activity_start(const char *act_id);
 void rf_send_device_command(const char *dev_id, const char *cmd);
+void rf_send_help_request(const char *act_id);
+void rf_send_help_answer(const char *dev_id, bool on);
 void rf_send_screen_button_press(const char *act_id, uint8_t btn_idx, const char *label);
 int build_combined_activity_sequence(const char *from_id, const char *to_id, rf_act_step_t *out_steps, int max_steps, uint32_t *out_total_ms);
 
