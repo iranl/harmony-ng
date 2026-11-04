@@ -9,6 +9,7 @@
 
 #include "elite/elite_state.h"
 #include "elite/elite_rf_ota.h"
+#include "elite/elite_theme.h"
 #include "rf_proto.h"
 #include "sha256.h"
 
@@ -27,6 +28,7 @@ uint16_t g_ota_received_chunks = 0;
 time_t g_last_activity_time = 0;
 FILE *g_ota_file = NULL;
 int g_rf_fd = -1;
+theme_t g_theme; /* the OTA overlay draws in the theme's colours */
 
 /* Stubs for icon rx and activities referenced by handle_icon_frame in elite_rf_ota */
 FILE *g_icon_rx_file = NULL;
