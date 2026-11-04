@@ -80,6 +80,22 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     // Offline Banner Retry Button
     document.getElementById('btnRetryConn')?.addEventListener('click', () => this.recheckConnection(true));
 
+    // Dry-run Banner Disable Button
+    document.getElementById('btnDisableDryRun')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btnDisableDryRun');
+      if (btn) btn.disabled = true;
+      try {
+        await this.client.saveSettings({ dry_run: 0 });
+        const banner = document.getElementById('hubDryRunBanner');
+        if (banner) banner.style.display = 'none';
+        showToast(t('dry_run_disabled', 'Dry-Run disabled. Physical hardware commands active.'), 'success');
+      } catch (err) {
+        showToast(`Failed to disable Dry-Run: ${err.message}`, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+
     // Visibility / App Resume listener (Android WebView & browser background recovery)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && this.activeHub) {

@@ -1,5 +1,9 @@
 export default {
     "act_editor_sub": "Aktivitätseinstellungen und Befehlssequenzen konfigurieren",
+    "dry_run_banner_title": "Dry-Run-Modus aktiv",
+    "dry_run_banner_desc": "IR- und MQTT-Befehle werden simuliert und verworfen. Physische Hardware reagiert nicht.",
+    "disable_dry_run_btn": "Dry-Run deaktivieren",
+    "dry_run_disabled": "Dry-Run deaktiviert. Physische Hardware-Befehle aktiv.",
     "act_name_required": "Aktivitätsname ist erforderlich.",
     "action_type": "Aktionstyp",
     "active_activity": "Aktive Aktion",
