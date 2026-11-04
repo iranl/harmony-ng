@@ -196,6 +196,12 @@ class StockMigrationTest(unittest.TestCase):
         self.assertEqual((companion["VolumeMute"]["deviceId"], companion["VolumeMute"]["command"]), ("2", "Mute"))
         self.assertEqual((companion["Back"]["deviceId"], companion["Back"]["command"]), ("1", "Return"))
 
+    def test_convert_hid_code(self):
+        self.assertEqual(mig.convert_hid_code("HID:07:0027"), "HID:07:0027")
+        self.assertEqual(mig.convert_hid_code("G:HID(0x07, 0x0028)"), "HID:07:0028")
+        self.assertEqual(mig.convert_hid_code("G:HID 16 Bit:()(07000027)():1"), "HID:07:0027")
+        self.assertEqual(mig.convert_hid_code("G:HID 16 Bit:()(0C000041)():1"), "HID:0C:0041")
+
 
 if __name__ == "__main__":
     unittest.main()
