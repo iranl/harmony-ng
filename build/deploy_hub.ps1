@@ -137,7 +137,7 @@ if ($hasDev -and ($hasDev.Trim() -eq "0")) {
             Write-Host "[!] Python is not installed or not in PATH: devices and activities could not be migrated." -ForegroundColor Red
         }
         else {
-            & $pyCmd $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Null
+            & $pyCmd $migScript --src "$tmpMig\resources" --dest "$tmpMig\out" | Out-Host
             if (Test-Path "$tmpMig\out\config\devices.json") {
                 Get-ChildItem -Path "$tmpMig\out\config" -Filter *.json -ErrorAction SilentlyContinue | ForEach-Object {
                     & scp @scpArgs $_.FullName "${Target}:/data/harmony/config/" | Out-Null
