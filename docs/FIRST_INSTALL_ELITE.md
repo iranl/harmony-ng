@@ -116,10 +116,11 @@ python deploy_elite.py --ip 192.168.2.1
 ```
 
 The script:
-1. Copies `elite_ui` to `/data/elite_ui`.
-2. Installs safe startup persistence into `/etc/init.d/rcS.local`.
-3. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`.
-4. Starts `elite_ui` with immediate vector graphics rendering.
+1. Checks that the remote is ready (its commands, a BusyBox with `tar` for the themes, and space on `/data`), and stops with what to do if not. `python elite/deploy_elite.py --check` runs only this check.
+2. Copies `elite_ui` to `/data/elite_ui`.
+3. Installs safe startup persistence into `/etc/init.d/rcS.local`.
+4. Disables the stock `luadraws` runtime to free `/dev/fb0` and `/dev/rfspi`.
+5. Starts `elite_ui` with immediate vector graphics rendering.
 
 ---
 

@@ -57,6 +57,14 @@ python3 elite/deploy_elite.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed2551
 # Windows PowerShell
 .\elite\deploy_elite.ps1 -Ip 192.168.2.1 -KeyPath ~/.ssh/harmony_owner_ed25519
 ```
+Before it changes anything on the remote, `deploy_elite.py` runs a ready-to-go check and stops, with what to do, if any of these fails:
+- `elite/bin/elite_ui` and `elite/bin/elite_sync` are built.
+- The remote is an ARM Elite with the commands the deployment runs, including `scp`.
+- A BusyBox with `tar` can unpack the themes. Stock BusyBox 1.13.4 has no `tar`, so `/data/busybox` must already have one, or `elite/bin/busybox` (from `./build/build_busybox.sh arm`) must be there to install first. The check runs a new `elite/bin/busybox` from `/tmp`.
+- `/data` has room for the changed files and the themes, each written beside its old copy.
+
+`--check` runs only the check. The deployment installs `busybox` before any other file and unpacks the themes with `/data/busybox tar`.
+
 This script uploads:
 - `elite_ui` (custom framebuffer UI & CC2544 RF engine)
 - `elite_sync` (ARM sync helper, symlinked to `/data/sync` and `/usr/bin/sync`)
