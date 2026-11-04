@@ -70,7 +70,7 @@ bool get_reconnect_target(bd_addr_t out) {
 
 /* Names that only stand in until the host's device name is known */
 static bool is_placeholder_host_name(const char *name) {
-    return !name[0] || strcmp(name, "Harmony Keyboard") == 0 || strncmp(name, "Host ", 5) == 0;
+    return !name || !name[0] || strcmp(name, "Harmony Keyboard") == 0 || strncmp(name, "Host ", 5) == 0;
 }
 
 host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
@@ -79,6 +79,7 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
         if (memcmp(g_hosts[i].addr, addr, 6) == 0) {
             if (name && name[0] && is_placeholder_host_name(g_hosts[i].name)) {
                 strncpy(g_hosts[i].name, name, sizeof(g_hosts[i].name) - 1);
+                g_hosts[i].name[sizeof(g_hosts[i].name) - 1] = '\0';
             }
             return &g_hosts[i];
         }
@@ -88,6 +89,7 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
             memcpy(g_hosts[i].addr, addr, 6);
             if (name && name[0]) {
                 strncpy(g_hosts[i].name, name, sizeof(g_hosts[i].name) - 1);
+                g_hosts[i].name[sizeof(g_hosts[i].name) - 1] = '\0';
             } else {
                 snprintf(g_hosts[i].name, sizeof(g_hosts[i].name), "Host %s", bd_addr_to_str(addr));
             }
@@ -234,7 +236,9 @@ int get_pinned_host_target(bd_addr_t addr) {
 
 /* Name of the device with this id in config/devices.json; out is "" when not found */
 static void device_name_for_id(const char *dev_id, char *out, size_t out_len) {
+    if (!out || out_len == 0) return;
     out[0] = '\0';
+    if (!dev_id) return;
     FILE *f = fopen("/data/harmony/config/devices.json", "r");
     if (!f) return;
     fseek(f, 0, SEEK_END);
