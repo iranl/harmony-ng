@@ -316,7 +316,7 @@ void execute_btstack_cmd(const char *cmd_in) {
         read_current_activity(cur_act, sizeof(cur_act));
         bd_addr_t tgt;
         if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0 &&
-            !is_any_host_connected() && get_pinned_host_target(tgt)) {
+            get_reconnect_target(tgt) && !is_host_connected(tgt)) {
             start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
         }
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {

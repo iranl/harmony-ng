@@ -23,6 +23,8 @@ extern time_t g_user_scan_end;
 uint16_t get_target_host_hid_cid(void);
 bool is_any_host_connected(void);
 bool is_host_connected(const bd_addr_t addr);
+/* Host to reconnect after a drop: the current target host, else the pinned one */
+bool get_reconnect_target(bd_addr_t out);
 host_conn_t * register_host_target(const bd_addr_t addr, const char *name);
 void update_bthid_status(void);
 void update_status(const char *state_str);

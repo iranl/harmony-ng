@@ -6,10 +6,14 @@ bool g_user_scan_active = false;
 time_t g_user_scan_end = 0;
 
 uint16_t get_target_host_hid_cid(void) {
+    /* Once a target host is chosen (TARGET line), its keys go to it or nowhere: falling back to
+     * another connected host sent e.g. Shield keys to a TV. Without a target (g_active_host_idx
+     * -1, e.g. the web UI's "Auto") any connected host is used, as before. */
     if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) {
         if (g_hosts[g_active_host_idx].connected && g_hosts[g_active_host_idx].hid_cid) {
             return g_hosts[g_active_host_idx].hid_cid;
         }
+        return 0;
     }
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (g_hosts[i].connected && g_hosts[i].hid_cid) {
@@ -31,6 +35,20 @@ bool is_host_connected(const bd_addr_t addr) {
         if (memcmp(g_hosts[i].addr, addr, 6) == 0 && g_hosts[i].connected && g_hosts[i].hid_cid) return true;
     }
     return false;
+}
+
+/* True when the requested host is connected; for a null address, when any host is */
+static bool host_target_connected(const bd_addr_t target) {
+    return is_null_bd_addr(target) ? is_any_host_connected() : is_host_connected(target);
+}
+
+bool get_reconnect_target(bd_addr_t out) {
+    /* The host of the current activity (last TARGET) first, then the pinned one */
+    if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
+        memcpy(out, g_hosts[g_active_host_idx].addr, 6);
+        return true;
+    }
+    return get_pinned_host_target(out) != 0;
 }
 
 host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
@@ -67,7 +85,15 @@ void update_bthid_status(void) {
     bool any_conn = is_any_host_connected();
     cJSON_AddStringToObject(root, "state", any_conn ? "listening" : (g_host_pairing ? "pairing" : "waiting_host"));
     host_conn_t *ah = (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) ? &g_hosts[g_active_host_idx] : NULL;
-    cJSON_AddStringToObject(root, "target", ah ? bd_addr_to_str(ah->addr) : (any_conn ? bd_addr_to_str(g_host_addr) : ""));
+    /* hub_daemon and bt_reconnect.sh read "listening" plus a matching "target" as "this host is
+     * connected", so name the chosen host only while it really is */
+    const char *target = "";
+    if (ah && ah->connected && ah->hid_cid) {
+        target = bd_addr_to_str(ah->addr);
+    } else if (!ah && any_conn) {
+        target = bd_addr_to_str(g_host_addr);
+    }
+    cJSON_AddStringToObject(root, "target", target);
     cJSON_AddNumberToObject(root, "sent", (double)g_keys_sent);
     cJSON_AddNumberToObject(root, "skipped", 0);
     cJSON_AddStringToObject(root, "error", "");
@@ -486,7 +512,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     if (!g_host_reconnect_active) return;
 
-    if (is_any_host_connected()) {
+    if (host_target_connected(g_host_reconnect_target)) {
         log_msg("Host reconnect: Host connected, stopping retry loop");
         g_host_reconnect_active = false;
         g_host_connecting = false;
@@ -526,7 +552,8 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
 void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     (void)max_attempts;
-    if (is_any_host_connected()) {
+    /* Another connected host must not block this one (several HID hosts are supported) */
+    if (host_target_connected(target)) {
         log_msg("Host reconnect: Host already connected");
         return;
     }

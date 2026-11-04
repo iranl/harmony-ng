@@ -247,7 +247,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 log_msg(msg);
                 bool host_cleared = false;
                 for (int i = 0; i < MAX_HOST_CONNS; i++) {
-                    if (g_hosts[i].acl_handle == disconn_handle || (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].connected)) {
+                    if (disconn_handle != HCI_CON_HANDLE_INVALID && g_hosts[i].acl_handle == disconn_handle) {
                         g_hosts[i].connected = false;
                         g_hosts[i].hid_cid = 0;
                         g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
@@ -266,7 +266,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                      * clears g_host_pairing) and take the pending device link. pair_host_off reconnects. */
                     if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_pinned_host_target(tgt)) {
+                        if (get_reconnect_target(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host idle disconnect during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
@@ -499,7 +499,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     read_current_activity(cur_act, sizeof(cur_act));
                     if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_pinned_host_target(tgt)) {
+                        if (get_reconnect_target(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host HID closed during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
