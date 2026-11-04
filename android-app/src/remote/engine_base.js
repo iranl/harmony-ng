@@ -85,6 +85,16 @@ export class RemoteEngineBase {
     let hasMoved = false;
     let inFlight = false;
     let lastTapMs = 0;
+    /* A short click is sent as one 'tap' when the pointer goes up, so the device presses and
+       releases the key itself and network latency cannot stretch it. Only a pointer held
+       past HOLD_MS sends 'press', then 'hold' repeats (repeatable buttons), then 'release':
+       a Bluetooth device keeps a pressed key down, and repeats it, until the release. */
+    const HOLD_MS = 400;
+    let pendingTap = false;
+    let pressActive = false;
+    /* Press and release are sent in order and never dropped; only hold repeats are skipped
+       while one is still in flight. */
+    let sendChain = Promise.resolve();
 
     const clearTimers = () => {
       if (holdTimer) {
@@ -98,13 +108,22 @@ export class RemoteEngineBase {
       el.classList.remove('active-press', 'is-holding');
     };
 
+    const send = (action) => {
+      sendChain = sendChain
+        .then(() => onTrigger(action))
+        .catch((err) => console.warn('Hold-repeat send error:', err));
+      return sendChain;
+    };
+
     const fire = async (action = 'press') => {
+      if (action !== 'hold') {
+        await send(action);
+        return;
+      }
       if (inFlight) return;
       inFlight = true;
       try {
-        await onTrigger(action);
-      } catch (err) {
-        console.warn('Hold-repeat send error:', err);
+        await send(action);
       } finally {
         inFlight = false;
       }
@@ -128,33 +147,42 @@ export class RemoteEngineBase {
 
       clearTimers();
       el.classList.add('active-press');
-      await this.triggerHaptic();
-      fire('press');
-
-      if (isRepeatable) {
-        holdTimer = setTimeout(() => {
-          el.classList.add('is-holding');
+      pendingTap = true;
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        if (!pendingTap) return;
+        pendingTap = false;
+        pressActive = true;
+        el.classList.add('is-holding');
+        fire('press');
+        if (isRepeatable) {
           repeatInterval = setInterval(async () => {
             await this.triggerHaptic();
             fire('hold');
           }, 180);
-        }, 400);
-      }
+        }
+      }, HOLD_MS);
+      await this.triggerHaptic();
     });
 
     el.addEventListener('pointermove', (e) => {
       if (!holdTimer && !repeatInterval) return;
       const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
       if (dist > 10) {
+        /* A drag (e.g. scrolling) before the hold threshold sends nothing */
         hasMoved = true;
+        pendingTap = false;
         clearTimers();
       }
     });
 
     const onPointerEnd = () => {
-      const wasHolding = Boolean(repeatInterval);
       clearTimers();
-      if (wasHolding && isRepeatable) {
+      if (pendingTap) {
+        pendingTap = false;
+        fire('tap');
+      } else if (pressActive) {
+        pressActive = false;
         fire('release');
       }
     };

@@ -75,7 +75,10 @@ export function createDevicesApi(client) {
       }
     },
 
-    async sendCommand(deviceId, command, action = 'press') {
+    /* action: 'tap' (default, a full keystroke), or 'press' / 'hold' / 'release' for a key
+       that is held down. A 'press' must be followed by a 'release': a Bluetooth device keeps
+       the key down until then. */
+    async sendCommand(deviceId, command, action = 'tap') {
       if (client.isWsConnected()) {
         try {
           await client.sendWsCommand('send_command', {
