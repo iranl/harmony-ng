@@ -73,6 +73,20 @@ void poll_bthid_fifo(void) {
             }
             if (strncmp(line, "TEXT ", 5) == 0) {
                 send_host_text(line + 5);
+            } else if (strncmp(line, "KBD_DOWN ", 9) == 0) {
+                /* Keyboard usage (hex), held until RELEASE */
+                unsigned int kcode = 0;
+                if (sscanf(line + 9, "%x", &kcode) == 1 && kcode > 0 && kcode <= 0xFF) {
+                    g_host_send_hold_mode = 1;
+                    send_host_keyboard_report(0, (uint8_t)kcode);
+                    g_host_send_hold_mode = 0;
+                }
+            } else if (strncmp(line, "KBD ", 4) == 0) {
+                /* Keyboard usage (hex), press and release */
+                unsigned int kcode = 0;
+                if (sscanf(line + 4, "%x", &kcode) == 1 && kcode > 0 && kcode <= 0xFF) {
+                    send_host_keyboard_report(0, (uint8_t)kcode);
+                }
             } else if (strncmp(line, "KEYDOWN ", 8) == 0) {
                 send_host_named_key_ex(line + 8, 1);
             } else if (strncmp(line, "KEYUP ", 6) == 0) {
