@@ -124,8 +124,8 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       iconSvg: getActivityIconSvg(curAct.icon, curAct.type, 18),
       availableDevices: this.inventory.devices || [],
       commandsMap: this.deviceCommandsMap,
-      onSendCommand: async (devId, cmd) => {
-        await this.client.sendCommand(devId, cmd);
+      onSendCommand: async (devId, cmd, action) => {
+        await this.client.sendCommand(devId, cmd, action);
       }
     });
   }

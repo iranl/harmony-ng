@@ -233,8 +233,9 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
 
       const holdCtrl = this.attachHoldToRepeat(
         btn,
-        async () => {
-          if (code) {
+        async (action = 'press') => {
+          /* sendKey taps the key (press and release), so the pointer release sends nothing */
+          if (code && action !== 'release') {
             await sendKey(code, fallback);
           }
         },

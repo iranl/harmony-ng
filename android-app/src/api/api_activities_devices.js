@@ -181,7 +181,10 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     }
   }
 
-  async sendCommand(deviceId, command, action = 'press') {
+  /* action: 'tap' (default, a full keystroke), or 'press' / 'hold' / 'release' from a button
+     that is held down. A 'press' must be followed by a 'release': a Bluetooth device keeps
+     the key down until then. */
+  async sendCommand(deviceId, command, action = 'tap') {
     if (this.isWsConnected()) {
       try {
         const res = await this.sendWsCommand('send_command', {
