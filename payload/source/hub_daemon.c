@@ -83,10 +83,20 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
-    FILE *vf = fopen("/data/harmony/VERSION", "w");
-    if (vf) {
-        fprintf(vf, "%s\n", HARMONY_VERSION);
-        fclose(vf);
+    /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */
+    char cur_ver[64] = {0};
+    FILE *cvf = fopen("/data/harmony/VERSION", "r");
+    if (cvf) {
+        if (!fgets(cur_ver, sizeof(cur_ver), cvf)) cur_ver[0] = '\0';
+        fclose(cvf);
+        cur_ver[strcspn(cur_ver, "\r\n")] = '\0';
+    }
+    if (strcmp(cur_ver, HARMONY_VERSION) != 0) {
+        FILE *vf = fopen("/data/harmony/VERSION", "w");
+        if (vf) {
+            fprintf(vf, "%s\n", HARMONY_VERSION);
+            fclose(vf);
+        }
     }
     struct hub_settings settings;
     config_store_get_settings(&settings);

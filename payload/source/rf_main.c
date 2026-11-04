@@ -22,14 +22,6 @@
 #include <time.h>
 #include "cJSON.h"
 
-/* Battery state last written to /data/harmony/elite_slot<N>_battery.json (read back at start).
- * The remote reports its battery every few minutes, more often while in use, and the voltage
- * based percentage swings by up to 10 points under load, so the file was rewritten on flash
- * hundreds of times a day. It only serves to show a value after a restart: write it when the
- * charging state changes, otherwise at most every BATTERY_PERSIST_MIN_S. */
-#define BATTERY_PERSIST_MIN_S (30 * 60)
-static struct { int percent; int charging; time_t written; } g_battery_persisted[MAX_PAIRED_REMOTES] = { { -1, -1, 0 }, { -1, -1, 0 } };
-
 /* RF_MSG_DEVICE_CMD_INDEX payload: [0..9] device id, [10] command index, [11..24] name prefix.
    The index comes from the last config push; the name prefix guards against devices.json
    having changed since then. */
@@ -234,25 +226,8 @@ void handle_rf_frame(const rf_frame_t *f) {
             g_remote_batteries[idx].last_update_ms = get_monotonic_ms();
             printf("[*] BATTERY_STATUS: Slot %d: %d%% (chg=%d, %umV)\n",
                    slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
-            time_t now_s = time(NULL);
-            int chg = g_remote_batteries[idx].charging ? 1 : 0;
-            if (g_battery_persisted[idx].charging != chg ||
-                (g_battery_persisted[idx].percent != g_remote_batteries[idx].percent &&
-                 (now_s - g_battery_persisted[idx].written) >= BATTERY_PERSIST_MIN_S)) {
-                char bpath[64];
-                snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
-                FILE *bf = fopen(bpath, "w");
-                if (bf) {
-                    fprintf(bf, "{\"slot\":%d,\"percent\":%d,\"charging\":%s,\"voltage_mv\":%u,\"timestamp\":%ld}\n",
-                            slot, g_remote_batteries[idx].percent,
-                            g_remote_batteries[idx].charging ? "true" : "false",
-                            g_remote_batteries[idx].voltage_mv, (long)time(NULL));
-                    fclose(bf);
-                    g_battery_persisted[idx].percent = g_remote_batteries[idx].percent;
-                    g_battery_persisted[idx].charging = chg;
-                    g_battery_persisted[idx].written = now_s;
-                }
-            }
+            /* Kept in memory only: the remote reports every few minutes and MQTT retains the
+             * last value; writing it to flash cost hundreds of writes a day */
             publish_remote_battery_mqtt(slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
             if (!is_ota_busy()) {
                 rf_frame_t ack;
@@ -284,18 +259,27 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t cfg_ver = f->payload[3];
             uint8_t caps = f->payload[4];
             int idx = slot - 1;
-            snprintf(g_remote_versions[idx].sw_version, sizeof(g_remote_versions[idx].sw_version), "%u.%u.%u", maj, min, pat);
+            char new_ver[sizeof(g_remote_versions[idx].sw_version)];
+            snprintf(new_ver, sizeof(new_ver), "%u.%u.%u", maj, min, pat);
+            /* The file is read back at start; the remote reports every 24 h and on every link,
+             * so rewrite it only when something in it changed */
+            bool ver_changed = strcmp(g_remote_versions[idx].sw_version, new_ver) != 0 ||
+                               g_remote_versions[idx].config_version != cfg_ver ||
+                               g_remote_versions[idx].caps != caps;
+            snprintf(g_remote_versions[idx].sw_version, sizeof(g_remote_versions[idx].sw_version), "%s", new_ver);
             g_remote_versions[idx].config_version = cfg_ver;
             g_remote_versions[idx].caps = caps;
             g_remote_versions[idx].last_report_ms = get_monotonic_ms();
 
             char vpath[64];
             snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", slot);
-            FILE *vf = fopen(vpath, "w");
-            if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
-                        slot, g_remote_versions[idx].sw_version, cfg_ver, caps, (long)time(NULL));
-                fclose(vf);
+            if (ver_changed || access(vpath, F_OK) != 0) {
+                FILE *vf = fopen(vpath, "w");
+                if (vf) {
+                    fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                            slot, g_remote_versions[idx].sw_version, cfg_ver, caps, (long)time(NULL));
+                    fclose(vf);
+                }
             }
             printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d, caps 0x%02X\n", slot, g_remote_versions[idx].sw_version, cfg_ver, caps);
             rf_frame_t ack;
@@ -456,29 +440,10 @@ int main(int argc, char **argv) {
             fclose(fv);
         }
 
-        /* Load last known remote battery status from disk */
+        /* The battery state is no longer kept on flash: remove a file left by older builds */
         char bpath[64];
         snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
-        FILE *fb = fopen(bpath, "r");
-        if (fb) {
-            char bbuf[256] = {0};
-            if (fread(bbuf, 1, sizeof(bbuf) - 1, fb) > 0) {
-                cJSON *broot = cJSON_Parse(bbuf);
-                if (broot) {
-                    cJSON *jp = cJSON_GetObjectItem(broot, "percent");
-                    cJSON *jc = cJSON_GetObjectItem(broot, "charging");
-                    cJSON *jv = cJSON_GetObjectItem(broot, "voltage_mv");
-                    if (jp && cJSON_IsNumber(jp)) g_remote_batteries[slot - 1].percent = (uint8_t)jp->valueint;
-                    if (jc) g_remote_batteries[slot - 1].charging = (cJSON_IsTrue(jc) || (cJSON_IsNumber(jc) && jc->valueint));
-                    if (jv && cJSON_IsNumber(jv)) g_remote_batteries[slot - 1].voltage_mv = (uint16_t)jv->valueint;
-                    g_battery_persisted[slot - 1].percent = g_remote_batteries[slot - 1].percent;
-                    g_battery_persisted[slot - 1].charging = g_remote_batteries[slot - 1].charging ? 1 : 0;
-                    g_battery_persisted[slot - 1].written = time(NULL);
-                    cJSON_Delete(broot);
-                }
-            }
-            fclose(fb);
-        }
+        unlink(bpath);
     }
 
     /* 1. Initialize CC2544 message engine */
