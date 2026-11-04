@@ -33,7 +33,8 @@ def get_file_md5(path: pathlib.Path) -> str:
     return h.hexdigest().lower()
 
 
-def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp_opts: list[str], ssh_opts: list[str], remote_hashes: dict[str, str], perm: str = "755") -> bool:
+def stage_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp_opts: list[str], remote_hashes: dict[str, str], staged: list[tuple[str, str, str]], perm: str = "755") -> bool:
+    """Uploads src as <remote_path>.new when its MD5 differs; the swap step moves it into place."""
     if not src.is_file():
         return False
     local_md5 = get_file_md5(src)
@@ -47,7 +48,7 @@ def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp
     if res.returncode != 0:
         print(f"[-] Failed uploading {src.name}: {res.stderr.strip()}")
         return False
-    run_cmd(["ssh"] + ssh_opts + [target, f"chmod {perm} {tmp_path} 2>/dev/null; mv -f {tmp_path} {remote_path} 2>/dev/null || true"])
+    staged.append((tmp_path, remote_path, perm))
     return True
 
 
@@ -126,14 +127,16 @@ def main() -> None:
     # Preserve stock rcS.local backup before installing (ensure not corrupted/custom)
     run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
 
-    # 1. Stop existing runtime using /data/init.sh stop if present, else fallback
-    print("[*] Stopping existing runtime services (/data/init.sh stop)...")
+    # The remote's hardware watchdog (DaVinci, 10 s heartbeat) is fed by the running elite_ui (or,
+    # on stock firmware, by /usr/bin/watchdog). Stopping the runtime first and then uploading for
+    # longer than the timeout resets the board in the middle of the flash writes. So the runtime
+    # keeps running while every file is uploaded as <path>.new, and stop, swap, flush and restart
+    # run afterwards in one short command.
     stop_cmd = (
         "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
         "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
         "sleep 1"
     )
-    run_cmd(["ssh"] + ssh_opts + [target, stop_cmd])
 
     # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
@@ -142,9 +145,8 @@ def main() -> None:
         "if [ -f /data/elite_ui.conf ] && [ ! -f /data/elite_settings.conf ]; then mv /data/elite_ui.conf /data/elite_settings.conf 2>/dev/null || true; fi; "
         "rm -f /data/codex_elite /data/codex_elite.new /data/codex_sync /data/codex_watchdog.sh /data/codex_elite.conf /data/codex_elite_config.json /data/elite_ui.conf /data/resources/ActivityList.json /tmp/codex_elite.log /data/codex_crash.log 2>/dev/null || true"
     )
-    run_cmd(["ssh"] + ssh_opts + [target, migration_cmd])
 
-    # 2. Query remote MD5 hashes
+    # 1. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
     md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
@@ -154,42 +156,31 @@ def main() -> None:
             if len(parts) >= 2:
                 remote_hashes[parts[1].strip()] = parts[0].strip().lower()
 
-    # 3. Upload binaries (only when MD5 differs)
+    # 2. Upload changed files as <path>.new while the runtime keeps feeding the watchdog
     scp_opts = ["-O"] + ssh_opts
-    print("[*] Syncing core ARM binaries to /data/ (MD5 check)...")
+    staged: list[tuple[str, str, str]] = []
+    print("[*] Uploading core ARM binaries to /data/ (MD5 check)...")
     binaries = ["elite_ui", "elite_sync", "dropbear", "dropbearkey", "scp", "busybox"]
     for b in binaries:
         src = BIN_DIR / b
         if src.is_file():
-            deploy_file_if_changed(src, f"/data/{b}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+            stage_file_if_changed(src, f"/data/{b}", target, scp_opts, remote_hashes, staged, perm="755")
 
-    init_script = SCRIPT_DIR / "init.sh"
-    if init_script.is_file():
-        print(f"[*] Syncing /data/{init_script.name} (MD5 check)...")
-        deploy_file_if_changed(init_script, f"/data/{init_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+    for script in ("init.sh", "elite_watchdog.sh", "safe_reboot.sh", "factory_reset.sh"):
+        src = SCRIPT_DIR / script
+        if src.is_file():
+            print(f"[*] Uploading /data/{script} (MD5 check)...")
+            stage_file_if_changed(src, f"/data/{script}", target, scp_opts, remote_hashes, staged, perm="755")
 
-    watchdog_script = SCRIPT_DIR / "elite_watchdog.sh"
-    if watchdog_script.is_file():
-        print(f"[*] Syncing /data/{watchdog_script.name} (MD5 check)...")
-        deploy_file_if_changed(watchdog_script, f"/data/{watchdog_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    safe_reboot_script = SCRIPT_DIR / "safe_reboot.sh"
-    if safe_reboot_script.is_file():
-        print(f"[*] Syncing /data/{safe_reboot_script.name} (MD5 check)...")
-        deploy_file_if_changed(safe_reboot_script, f"/data/{safe_reboot_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    factory_reset_script = SCRIPT_DIR / "factory_reset.sh"
-    if factory_reset_script.is_file():
-        print(f"[*] Syncing /data/{factory_reset_script.name} (MD5 check)...")
-        deploy_file_if_changed(factory_reset_script, f"/data/{factory_reset_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
-
-    # 4. Upload recovery boot script (only when MD5 differs)
+    # Recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
-        print("[*] Syncing /etc/init.d/rcS.local (MD5 check)...")
-        deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        print("[*] Uploading /etc/init.d/rcS.local (MD5 check)...")
+        stage_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, remote_hashes, staged, perm="755")
 
-    # 5. Set permissions and finalize
-    print("[*] Verifying permissions and flushing NAND flash buffers...")
+    # 3. Stop the runtime, move the uploaded files into place, flush and restart in one command,
+    #    so the watchdog goes unfed for a few seconds only
+    print(f"[*] Stopping the runtime, installing {len(staged)} uploaded file(s) and flushing NAND flash buffers...")
+    swap = "".join(f"chmod {perm} {tmp} 2>/dev/null; mv -f {tmp} {dst} 2>/dev/null || true; " for tmp, dst, perm in staged)
     post = (
         "sed -i 's/\r$//' /etc/init.d/rcS.local /data/*.sh 2>/dev/null || true; "
         "chmod 755 /data/elite_* /data/init.sh /data/safe_reboot.sh /data/dropbear* /data/scp /etc/init.d/rcS.local 2>/dev/null || true; "
@@ -198,26 +189,38 @@ def main() -> None:
         "[ -e /usr/bin/sync ] || ln -sf /data/elite_sync /usr/bin/sync 2>/dev/null || true; "
         "[ -L /usr/sbin/dropbear ] || ln -sf /data/dropbear /usr/sbin/dropbear 2>/dev/null || true; "
         "rm -f /cache/crashlog-*.json 2>/dev/null || true; "
-        "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true"
     )
-    final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
-    if final_res.stdout.strip():
-        print(f"    {final_res.stdout.strip()}")
-
     if not args.no_sync:
         print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")
-        run_cmd(["ssh"] + ssh_opts + [target, "touch /data/force_sync 2>/dev/null || true"])
-
-    if args.reboot:
-        print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
-        reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
-        run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
-        print("[+] Deployment complete! Elite Remote is rebooting safely.")
-    else:
-        print("[*] Hot-restarting Elite runtime services (/data/init.sh start)...")
-        restart_cmd = "rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &)"
-        run_cmd(["ssh"] + ssh_opts + [target, restart_cmd])
+        post += "touch /data/force_sync 2>/dev/null || true; "
+    post += "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true; "
+    # An older elite_ui let dropbear inherit /dev/watchdog. If anything still holds it after the
+    # stop, a restarted elite_ui cannot open it and the board would reset a few seconds later:
+    # reboot cleanly instead.
+    restart = (
+        "WDT_HELD=0; for p in /proc/[0-9]*; do ls -l $p/fd 2>/dev/null | grep -q watchdog && WDT_HELD=1; done; "
+        + ("REBOOT=1; " if args.reboot else "REBOOT=$WDT_HELD; ")
+        + "if [ $REBOOT = 1 ]; then echo REBOOTING; "
+        "if /bin/sh -c true 2>/dev/null; then (/data/safe_reboot.sh >/dev/null 2>&1 &); else echo '[-] CRITICAL: /bin/sh verification failed. Not rebooting!'; fi; "
+        "else echo RESTARTING; rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &); fi"
+    )
+    # Flush the uploaded files while the runtime still feeds the watchdog, so the sync after the
+    # stop only has the renames left to write
+    pre_sync = "/data/elite_sync 2>/dev/null || sync 2>/dev/null || true; "
+    final_res = run_cmd(["ssh"] + ssh_opts + [target, pre_sync + stop_cmd + "; " + migration_cmd + "; " + swap + post + restart])
+    out = final_res.stdout.strip()
+    for line in out.splitlines():
+        if line not in ("REBOOTING", "RESTARTING"):
+            print(f"    {line}")
+    if "REBOOTING" in out:
+        if args.reboot:
+            print("[+] Deployment complete! Elite Remote is rebooting safely.")
+        else:
+            print("[+] Deployment complete! The watchdog was still held by an old process, so the Elite Remote is rebooting safely instead of hot-restarting.")
+    elif "RESTARTING" in out:
         print("[+] Deployment complete! elite_ui hot-restarted (no reboot).")
+    else:
+        print(f"[-] Final install step did not report back (exit {final_res.returncode}): {final_res.stderr.strip()}")
     print()
     print("[+] Deployment complete!")
 

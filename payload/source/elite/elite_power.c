@@ -5,6 +5,11 @@
 #include "elite_ui.h"
 #include "timezone_db.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/watchdog.h>
+
 volatile sig_atomic_t g_wake_requested = 0;
 char g_timezone_str[64] = TZ_DEFAULT_POSIX;
 
@@ -648,12 +653,29 @@ void init_gyro_interrupt(void) {
 static int s_wdt_fd = -1;
 static uint64_t s_last_wdt_ping_ms = 0;
 
+#define ELITE_WDT_TIMEOUT_S 60
+
 void elite_wdt_init(void) {
     if (s_wdt_fd < 0) {
-        s_wdt_fd = open("/dev/watchdog", O_WRONLY);
+        /* O_CLOEXEC: dropbear and the other helpers started with system() must not inherit the
+         * watchdog. A child holding it keeps the device open after elite_ui stops, so nothing
+         * else can open it to feed it and the board resets when the timeout runs out. */
+        s_wdt_fd = open("/dev/watchdog", O_WRONLY | O_CLOEXEC);
         if (s_wdt_fd >= 0) {
-            printf("[+] Hardware watchdog (/dev/watchdog) armed with 60s timeout\n");
+            /* The DaVinci driver defaults to a 10 s heartbeat; ask for more, report what we got */
+            int timeout = ELITE_WDT_TIMEOUT_S;
+            if (ioctl(s_wdt_fd, WDIOC_SETTIMEOUT, &timeout) != 0) {
+                timeout = 0;
+                if (ioctl(s_wdt_fd, WDIOC_GETTIMEOUT, &timeout) != 0) timeout = 0;
+            }
+            if (timeout > 0) {
+                printf("[+] Hardware watchdog (/dev/watchdog) armed with %ds timeout\n", timeout);
+            } else {
+                printf("[+] Hardware watchdog (/dev/watchdog) armed (driver default timeout)\n");
+            }
             elite_wdt_ping();
+        } else {
+            printf("[!] Hardware watchdog not armed: open(/dev/watchdog) failed: %s\n", strerror(errno));
         }
     }
 }
