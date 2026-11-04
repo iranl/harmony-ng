@@ -31,7 +31,6 @@ void update_status(const char *state_str);
 int get_pinned_target(bd_addr_t addr);
 int get_pinned_host_target(bd_addr_t addr);
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str);
-const char *get_default_host_name(void);
 void init_known_hosts(void);
 void try_connect_host_addr(const bd_addr_t addr);
 void try_connect_host(void);
