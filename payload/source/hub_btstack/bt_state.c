@@ -16,11 +16,13 @@ btstack_packet_callback_registration_t sm_event_callback_registration;
 gatt_client_notification_t gatt_notification_listener;
 
 host_conn_t g_hosts[MAX_HOST_CONNS];
-int g_active_host_idx = 0;
+int g_active_host_idx = -1;  /* no target host chosen yet */
 uint16_t g_host_hid_cid = 0;
 bd_addr_t g_host_addr;
 bool g_host_connected = false;
 bool g_host_pairing = false;
+bool g_pairing_new_key_valid = false;
+bd_addr_t g_pairing_new_key_addr;
 char g_host_name[64] = "Harmony Keyboard";
 uint8_t hid_service_buffer[1024];
 uint8_t device_id_sdp_service_buffer[512];

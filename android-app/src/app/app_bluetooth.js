@@ -173,7 +173,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           <div class="queue-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; flex-wrap:wrap; gap:8px;">
             <div style="min-width: 180px;">
               <strong>${resolveHostDeviceName(h)}</strong>
-              <div class="muted mini">${h.addr} • <span style="color:${h.connected ? 'var(--success)' : 'var(--text-dim)'}">${h.connected ? 'Connected' : 'Paired'}</span></div>
+              <div class="muted mini">${h.addr} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
               <select class="form-control form-control-sm host-assign-sel" data-addr="${h.addr}" style="font-size:11px; max-width:180px;">
