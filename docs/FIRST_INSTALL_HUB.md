@@ -32,6 +32,9 @@ cd harmony-ng
 cd android-app && npm install && npm run build && cd ..
 ```
 
+> [!NOTE]
+> The automatic stock backup in `tools/root_hub_usb.py` needs a MIPS BusyBox with `tar` (the stock one has none). The release bundle ships it as `bin/busybox`; a git checkout does not, so build it first with `./build/build_busybox.sh mips` (output: `payload/bin/busybox`), otherwise the root tool cannot take the backup.
+
 ---
 
 ## 2. Automated USB HID Rooting & Firmware Update

@@ -7,13 +7,15 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 > Reverse engineering confirms the **Harmony Pro 2400 Remote** (Skin 116, firmware 10.0.215) belongs to the exact same hardware family (`hops`) as the Elite 950, sharing the same TI DaVinci ARM SoC, 240x320 RGB565 LCD (`/dev/fb0`), Synaptics ClearPad touch digitizer, keypad matrix, and CC2544 RF transceiver (Report `0x20`).
 >
 > On firmware 10.0.215, Dropbear SSH is **already enabled by default** in `/etc/init.d/rcS`. The Pro 2400 Remote, Harmony Ultimate (Home), and Harmony Touch are all supported by our tooling and custom firmware (untested on physical Pro 2400 hardware, try at own risk).
+>
+> Tested end to end on a **Harmony Ultimate (2013, skin 100, firmware 4.15.330)**: rooting, stock backup (see the warning in section 3), `elite_ui`, touch and RF pairing. Its differences from the Elite are listed under [Harmony Ultimate (2013)](#harmony-ultimate-2013).
 
 ---
 
 ## 1. Prerequisites & Getting the Files
 
 ### Hardware & Driver Requirements
-- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), Harmony Pro 2400 Remote (Skin 116), or Harmony Ultimate (Home) / Touch (*untested, try at own risk*).
+- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), Harmony Pro 2400 Remote (Skin 116), Harmony Ultimate (2013, skin 100, tested), or Harmony Ultimate Home / Touch (*untested, try at own risk*).
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
@@ -49,10 +51,14 @@ cd harmony-ng
    ```bash
    python elite/setup_remote.py --check-usb
    ```
-3. Run the automated all-in-one setup tool:
+3. Root the remote without installing anything yet, so you can take the stock backup in section 3 first:
    ```bash
-   python elite/setup_remote.py
+   python elite/setup_remote.py --step 1
    ```
+   Running `python elite/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `elite_ui` and stops the stock UI before you have a backup.
+
+> [!NOTE]
+> **Windows 11**: after the reboot the remote can show up as `USB Serial Device (COMx)` under Ports instead of a network adapter, and the RNDIS driver cannot be selected by hand. Use the WSL2 workaround in [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md#windows-11-device-stuck-as-usb-serial-device-comx) and run the SSH based steps from WSL.
 
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
@@ -205,3 +211,24 @@ The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
 
 - `elite_ui` binary: **~718 KB**
 - Total HarmonyNG footprint on `/data`: **< 3 MB** out of 32 MB free space.
+
+### Harmony Ultimate (2013)
+
+Observed on a Harmony Ultimate (hostname `juniper`, skin 100, firmware 4.15.330, kernel 2.6.37, armv5tejl). There are no separate `/data` and `/opt` partitions: the root filesystem is a unionfs with a writable UBIFS layer over a read-only SquashFS image, plus a separate `/cache` UBIFS volume.
+
+```text
+rootfs / rootfs rw
+ubi0:cache /cache ubifs rw
+/dev/mtdblock6 /mnt/root squashfs ro
+ubi0:data /mnt/data ubifs rw
+none / unionfs rw,dirs=/mnt/data=rw:/mnt/root=ro
+```
+
+`/data`, `/opt` and `/etc` are directories in that union, and everything written to them lands in the `ubi0:data` layer. The hardware factory reset (Menu + Off) wipes that layer: after a reset `/data/resources` and `/etc/tdeenable` are gone and the remote boots the stock firmware again.
+
+Other differences from the Elite 950:
+
+- **Skin 100.** Logitech's update service has no firmware entry for it; `setup_remote.py` looks up the remote firmware under skin 111 (the 4.15.330 remote bundle lists skin 100 among its intended devices).
+- **Touch controller.** The Synaptics ClearPad TM2176-003 reports `ABS_X` 0-782 and `ABS_Y` 0-1009 instead of screen pixels; `elite_ui` scales these to the 240x320 screen.
+- **Capacitive keys.** The star and home touch keys send `KEY_FAVORITES` (364) and `KEY_HOME` (102), like the Elite's capacitive buttons, and open **ACTIVITIES** and **DEVICES**. One touch can register as 2 or 3 presses.
+- **No `tar`, `find` or `dd`** in the stock BusyBox (the same as on a stock Elite); `setup_remote.py` stages the project's own BusyBox in RAM for its backup, see section 3.
