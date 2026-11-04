@@ -41,8 +41,26 @@ elif ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "test -x /data/harmony/bin/b
 fi
 
 if ! ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "$TAR_CMD --help >/dev/null 2>&1"; then
-    echo "[!] Notice: tar applet not found on Hub BusyBox. Skipping pre-deployment backup."
-    exit 0
+    # Stock BusyBox has no tar (first deploy, before the extended BusyBox is installed):
+    # stage the bundled MIPS BusyBox in RAM (/tmp) for this backup and remove it afterwards
+    LOCAL_BB=""
+    for cand in "$SCRIPT_DIR/bin/busybox" "$REPO_ROOT/payload/bin/busybox"; do
+        if [ -z "$LOCAL_BB" ] && [ -f "$cand" ]; then
+            LOCAL_BB="$cand"
+        fi
+    done
+    if [ -n "$LOCAL_BB" ] \
+        && ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "cat > /tmp/busybox && chmod 755 /tmp/busybox" < "$LOCAL_BB" \
+        && ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "/tmp/busybox tar --help >/dev/null 2>&1"; then
+        trap 'ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f /tmp/busybox" </dev/null 2>/dev/null || true' EXIT
+        TAR_CMD="/tmp/busybox tar"
+        echo "[*] Hub BusyBox has no tar: staged $LOCAL_BB as /tmp/busybox (RAM) for the backup"
+    else
+        ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "rm -f /tmp/busybox" </dev/null 2>/dev/null || true
+        echo "[!] Notice: tar applet not found on Hub BusyBox and no local MIPS BusyBox to stage"
+        echo "    (bin/busybox of the release bundle, or ./build/build_busybox.sh mips). Skipping pre-deployment backup."
+        exit 0
+    fi
 fi
 
 # 1. Golden backup: First ever backup kept permanently for pristine restore (plain tar, no gzip)
