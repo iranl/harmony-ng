@@ -118,6 +118,9 @@ extern bool g_host_connected;
 extern bool g_host_pairing;
 /* Set by disconnect_host: no auto-reconnect until something asks for a connection again */
 extern bool g_host_manual_disconnect;
+/* Host that received a new link key while pairing mode was on (the host being paired) */
+extern bool g_pairing_new_key_valid;
+extern bd_addr_t g_pairing_new_key_addr;
 extern char g_host_name[64];
 extern uint8_t hid_service_buffer[1024];
 extern uint8_t device_id_sdp_service_buffer[512];

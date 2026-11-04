@@ -323,6 +323,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t lk_addr;
             reverse_bd_addr(&packet[2], lk_addr);
             memcpy(g_host_addr, lk_addr, sizeof(bd_addr_t));
+            if (g_host_pairing) {
+                memcpy(g_pairing_new_key_addr, lk_addr, sizeof(bd_addr_t));
+                g_pairing_new_key_valid = true;
+            }
             if (tlv_impl) {
                 tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)lk_addr, sizeof(bd_addr_t));
             }
@@ -396,9 +400,18 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     g_host_connecting = false;
                     stop_host_reconnect();
                     g_host_connected = true;
-                    g_host_pairing = false;
+                    /* Only the host that got a new link key during pairing mode is the new
+                     * pairing. A known host that connects on its own while pairing mode is on
+                     * used to end pairing mode and take the pending device link. */
+                    bool new_pairing = g_host_pairing && g_pairing_new_key_valid &&
+                                       memcmp(g_pairing_new_key_addr, conn_addr, 6) == 0;
+                    if (new_pairing) {
+                        pairing_timeout_cancel();
+                        g_host_pairing = false;
+                        g_pairing_new_key_valid = false;
+                        gap_discoverable_control(0);
+                    }
                     g_host_manual_disconnect = false;
-                    gap_discoverable_control(0);
                     g_host_hid_cid = cid;
                     memcpy(g_host_addr, conn_addr, 6);
 
@@ -413,7 +426,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                              bd_addr_to_str(conn_addr), cid);
                     log_msg(msg);
 
-                    FILE *pf = fopen("/tmp/bt_pending_pair_device", "r");
+                    FILE *pf = new_pairing ? fopen("/tmp/bt_pending_pair_device", "r") : NULL;
                     if (pf) {
                         char link_dev_id[64] = {0};
                         if (fgets(link_dev_id, sizeof(link_dev_id), pf)) {
@@ -430,15 +443,22 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     if (tlv_impl) {
                         tlv_impl->store_tag(&tlv_context, TLV_TAG_HIDR, (const uint8_t *)conn_addr, sizeof(bd_addr_t));
                     }
-                    FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
-                    if (hf) {
-                        fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
-                        fclose(hf);
+                    /* The pinned host (fallback target for BT devices without an address) is the
+                     * last host paired; every connection used to rewrite it, so whichever host
+                     * connected last became the default for all devices */
+                    if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
+                        FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
+                        if (hf) {
+                            fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
+                            fclose(hf);
+                        }
                     }
-                    FILE *btf = fopen("/data/harmony/bthid_target", "w");
-                    if (btf) {
-                        fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
-                        fclose(btf);
+                    if (new_pairing || access("/data/harmony/bthid_target", F_OK) != 0) {
+                        FILE *btf = fopen("/data/harmony/bthid_target", "w");
+                        if (btf) {
+                            fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
+                            fclose(btf);
+                        }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");
                     update_bthid_status();
