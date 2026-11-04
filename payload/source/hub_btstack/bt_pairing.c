@@ -165,8 +165,8 @@ void update_status(const char *state_str) {
             if (is_null_bd_addr(g_hosts[i].addr)) continue;
             if (!first) fprintf(f, ",\n");
             first = false;
-            /* paired = BTstack has a link key for it; hosts known only from devices.json or
-             * bt-devices.json (e.g. after a reset, or migrated from the stock config) have none */
+            /* paired = BTstack has a link key for it; hosts known only from devices.json
+             * (e.g. after a reset, or migrated from the stock config) have none */
             link_key_t lk;
             link_key_type_t lkt;
             bd_addr_t ha;
@@ -214,7 +214,7 @@ int get_pinned_target(bd_addr_t addr) {
 }
 
 int get_pinned_host_target(bd_addr_t addr) {
-    const char *files[] = {"/data/harmony/bthid_host_target", "/data/harmony/bt-devices.json", "/data/harmony/config/devices.json", NULL};
+    const char *files[] = {"/data/harmony/bthid_host_target", "/data/harmony/config/devices.json", NULL};
     for (int fi = 0; files[fi]; fi++) {
         FILE *f = fopen(files[fi], "r");
         if (!f) continue;
@@ -279,76 +279,9 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     char dev_name[64];
     device_name_for_id(dev_id, dev_name, sizeof(dev_name));
 
-    FILE *bf = fopen("/data/harmony/bt-devices.json", "r");
-    cJSON *root = NULL;
-    if (bf) {
-        fseek(bf, 0, SEEK_END);
-        long sz = ftell(bf);
-        fseek(bf, 0, SEEK_SET);
-        if (sz > 0 && sz < 65536) {
-            char *buf = (char *)malloc(sz + 1);
-            if (buf) {
-                size_t r = fread(buf, 1, sz, bf);
-                buf[r] = 0;
-                root = cJSON_Parse(buf);
-                free(buf);
-            }
-        }
-        fclose(bf);
-    }
-    if (!root) {
-        root = cJSON_CreateObject();
-        cJSON_AddNumberToObject(root, "version", 1);
-        cJSON_AddItemToObject(root, "devices", cJSON_CreateArray());
-    }
-    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-    if (!devs || !cJSON_IsArray(devs)) {
-        cJSON_DeleteItemFromObject(root, "devices");
-        devs = cJSON_CreateArray();
-        cJSON_AddItemToObject(root, "devices", devs);
-    }
-
-    cJSON *found = NULL;
-    cJSON *item = NULL;
-    cJSON_ArrayForEach(item, devs) {
-        cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
-        if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, dev_id) == 0) {
-            found = item;
-            break;
-        }
-    }
-    if (found) {
-        cJSON_ReplaceItemInObject(found, "bdaddr", cJSON_CreateString(addr_str));
-        cJSON *jn = cJSON_GetObjectItemCaseSensitive(found, "name");
-        if (dev_name[0] && (!jn || !cJSON_IsString(jn) || strcmp(jn->valuestring, dev_id) == 0)) {
-            cJSON_DeleteItemFromObjectCaseSensitive(found, "name");
-            cJSON_AddStringToObject(found, "name", dev_name);
-        }
-    } else {
-        cJSON *new_d = cJSON_CreateObject();
-        cJSON_AddStringToObject(new_d, "id", dev_id);
-        /* the device's name, not its id: hub_btstack shows it as the host name after a restart */
-        cJSON_AddStringToObject(new_d, "name", dev_name[0] ? dev_name : dev_id);
-        cJSON_AddStringToObject(new_d, "type", "btkeyboard");
-        cJSON_AddStringToObject(new_d, "bdaddr", addr_str);
-        cJSON_AddItemToObject(new_d, "commands", cJSON_CreateArray());
-        cJSON_AddItemToArray(devs, new_d);
-    }
-
-    char *out = cJSON_Print(root);
-    cJSON_Delete(root);
-    if (out) {
-        FILE *wf = fopen("/data/harmony/bt-devices.json.tmp", "w");
-        if (wf) {
-            fputs(out, wf);
-            fputc('\n', wf);
-            fclose(wf);
-            rename("/data/harmony/bt-devices.json.tmp", "/data/harmony/bt-devices.json");
-        }
-        free(out);
-    }
-
-    /* Also persist to canonical config/devices.json */
+    /* config/devices.json is the only device-to-host mapping; bt-devices.json, which used to
+     * hold a second copy, is no longer written (hub_daemon folds old copies in, bt_migrate.c) */
+    bool linked = false;
     const char *dpath = "/data/harmony/config/devices.json";
     FILE *df = fopen(dpath, "r");
     if (df) {
@@ -384,7 +317,7 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
                                         fputs(dout, dwf);
                                         fputc('\n', dwf);
                                         fclose(dwf);
-                                        rename(tmp_dpath, dpath);
+                                        linked = (rename(tmp_dpath, dpath) == 0);
                                     }
                                     free(dout);
                                 }
@@ -397,6 +330,10 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
             }
         }
         fclose(df);
+    }
+    if (!linked) {
+        snprintf(msg, sizeof(msg), "Device %s not saved in devices.json: host %s not linked", dev_id, addr_str);
+        log_msg(msg);
     }
 
     /* Show the linked device's name for the host right away; until hub_btstack restarted, a
@@ -414,48 +351,10 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
 
 void init_known_hosts(void) {
     bd_addr_t def_target;
-    /* Register the pinned host without a name: the device lists below name it by address.
+    /* Register the pinned host without a name: the devices below name it by address.
      * It used to get the first BT device's name in devices.json, whichever host that was. */
     if (get_pinned_host_target(def_target)) {
         register_host_target(def_target, NULL);
-    }
-
-    FILE *bf = fopen("/data/harmony/bt-devices.json", "r");
-    if (bf) {
-        fseek(bf, 0, SEEK_END);
-        long sz = ftell(bf);
-        fseek(bf, 0, SEEK_SET);
-        if (sz > 0 && sz < 65536) {
-            char *buf = (char *)malloc(sz + 1);
-            if (buf) {
-                size_t r = fread(buf, 1, sz, bf);
-                buf[r] = 0;
-                cJSON *root = cJSON_Parse(buf);
-                free(buf);
-                if (root) {
-                    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
-                    if (devs && cJSON_IsArray(devs)) {
-                        cJSON *item = NULL;
-                        cJSON_ArrayForEach(item, devs) {
-                            cJSON *ja = cJSON_GetObjectItemCaseSensitive(item, "bdaddr");
-                            cJSON *jn = cJSON_GetObjectItemCaseSensitive(item, "name");
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
-                            if (ja && cJSON_IsString(ja) && ja->valuestring[0]) {
-                                bd_addr_t ba;
-                                if (parse_bd_addr(ja->valuestring, ba)) {
-                                    const char *nm = (jn && cJSON_IsString(jn)) ? jn->valuestring : NULL;
-                                    /* older entries carry the device id as name */
-                                    if (nm && jid && cJSON_IsString(jid) && strcmp(nm, jid->valuestring) == 0) nm = NULL;
-                                    register_host_target(ba, nm);
-                                }
-                            }
-                        }
-                    }
-                    cJSON_Delete(root);
-                }
-            }
-        }
-        fclose(bf);
     }
 
     const char *dpath = "/data/harmony/config/devices.json";
@@ -476,7 +375,9 @@ void init_known_hosts(void) {
                     if (devs && cJSON_IsArray(devs)) {
                         cJSON *item = NULL;
                         cJSON_ArrayForEach(item, devs) {
+                            /* Host names come only from the device mapped to the host here */
                             cJSON *ja = cJSON_GetObjectItemCaseSensitive(item, "bdaddr");
+                            if (!ja) ja = cJSON_GetObjectItemCaseSensitive(item, "btHost");
                             cJSON *jn = cJSON_GetObjectItemCaseSensitive(item, "name");
                             if (ja && cJSON_IsString(ja) && ja->valuestring[0]) {
                                 bd_addr_t ba;

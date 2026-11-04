@@ -12,6 +12,46 @@
 #include <time.h>
 #include <sys/socket.h>
 
+/* The Bluetooth devices that have a host, in the shape of the retired bt-devices.json:
+ * config/devices.json is the only device-to-host mapping now, so the "bluetooth" export is
+ * built from it. Importing such a file writes bt-devices.json, which config_store_init(),
+ * called right after the restore, folds into devices.json (bt_migrate.c). */
+static char *bt_links_export_json(size_t *out_len) {
+    cJSON *out = cJSON_CreateObject();
+    if (!out) return NULL;
+    cJSON_AddNumberToObject(out, "version", 1);
+    cJSON *list = cJSON_AddArrayToObject(out, "devices");
+
+    size_t dlen = 0;
+    char *raw = read_file_text_alloc(config_store_path("config/devices.json"), 4000000, &dlen);
+    cJSON *root = raw ? cJSON_Parse(raw) : NULL;
+    free(raw);
+    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    if (list && devs && cJSON_IsArray(devs)) {
+        const cJSON *d = NULL;
+        cJSON_ArrayForEach(d, devs) {
+            const cJSON *ja = cJSON_GetObjectItemCaseSensitive(d, "bdaddr");
+            if (!ja) ja = cJSON_GetObjectItemCaseSensitive(d, "btHost");
+            if (!ja || !cJSON_IsString(ja) || !ja->valuestring || !ja->valuestring[0]) continue;
+            cJSON *e = cJSON_CreateObject();
+            if (!e) break;
+            const char *keys[] = {"id", "name", "type", NULL};
+            for (int k = 0; keys[k]; k++) {
+                const cJSON *v = cJSON_GetObjectItemCaseSensitive(d, keys[k]);
+                if (v) cJSON_AddItemToObject(e, keys[k], cJSON_Duplicate(v, 1));
+            }
+            cJSON_AddStringToObject(e, "bdaddr", ja->valuestring);
+            cJSON_AddItemToArray(list, e);
+        }
+    }
+    cJSON_Delete(root);
+
+    char *txt = cJSON_Print(out);
+    cJSON_Delete(out);
+    if (txt && out_len) *out_len = strlen(txt);
+    return txt;
+}
+
 int http_api_backup_handle(int client_fd, const char *method, const char *clean_path,
                            const char *query, const char *body, const char *req) {
     (void)query;
@@ -32,6 +72,8 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 { "mqtt", "/data/harmony/mqtt.json" },
                 { "network", "/data/harmony/ethernet.conf" },
                 { "wifi", "/etc/wpa_supplicant.conf" },
+                /* Legacy file, only there until hub_daemon has migrated it into devices.json
+                 * (which the bundle carries anyway); skipped when absent like any other file */
                 { "bluetooth", "/data/harmony/bt-devices.json" },
                 { "bt_remote_map", "/data/harmony/bt_remote_map.json" },
                 { "remote_slot1_map", "/data/harmony/remote_slot1_map.json" },
@@ -112,6 +154,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
         const char *download_name = "backup.json";
         const char *ctype = "application/json; charset=utf-8";
         const char *fallback_content = NULL;
+        int bt_export = 0;
 
         if (strcmp(tgt, "devices") == 0) {
             file_to_send = config_store_path("config/devices.json");
@@ -140,7 +183,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             ctype = "text/plain; charset=utf-8";
             fallback_content = "# No custom Wi-Fi configured\n";
         } else if (strcmp(tgt, "bluetooth") == 0) {
-            file_to_send = config_store_path("bt-devices.json");
+            bt_export = 1;
             download_name = "bt-devices.json";
             fallback_content = "{\"devices\":[]}\n";
         } else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
@@ -170,9 +213,9 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             fallback_content = "{\"users\":[]}\n";
         }
 
-        if (file_to_send) {
+        if (file_to_send || bt_export) {
             size_t flen = 0;
-            char *buf = read_file_text_alloc(file_to_send, 2000000, &flen);
+            char *buf = bt_export ? bt_links_export_json(&flen) : read_file_text_alloc(file_to_send, 2000000, &flen);
             const char *content_ptr = buf;
             if (!content_ptr && fallback_content) {
                 content_ptr = fallback_content;
@@ -226,6 +269,8 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                         { "mqtt", "/data/harmony/mqtt.json", 0 },
                         { "network", "/data/harmony/ethernet.conf", 1 },
                         { "wifi", "/etc/wpa_supplicant.conf", 1 },
+                        /* An old backup's bt-devices.json: config_store_init() below folds it
+                         * into devices.json (only devices without a host) */
                         { "bluetooth", "/data/harmony/bt-devices.json", 0 },
                         { "bt_remote_map", "/data/harmony/bt_remote_map.json", 0 },
                         { "remote_slot1_map", "/data/harmony/remote_slot1_map.json", 0 },
@@ -297,6 +342,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 else if (strcmp(tgt, "mqtt") == 0) { file_to_write = "/data/harmony/mqtt.json"; }
                 else if (strcmp(tgt, "network") == 0 || strcmp(tgt, "ethernet") == 0) { file_to_write = "/data/harmony/ethernet.conf"; }
                 else if (strcmp(tgt, "wifi") == 0) { file_to_write = "/etc/wpa_supplicant.conf"; }
+                /* Folded into devices.json by config_store_init() below (bt_migrate.c) */
                 else if (strcmp(tgt, "bluetooth") == 0) { file_to_write = "/data/harmony/bt-devices.json"; }
                 else if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) { file_to_write = "/data/harmony/bt_remote_map.json"; }
                 else if (strcmp(tgt, "remote_slot1_map") == 0) { file_to_write = "/data/harmony/remote_slot1_map.json"; }

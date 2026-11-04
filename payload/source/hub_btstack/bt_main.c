@@ -447,19 +447,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
                     /* The pinned host (fallback target for BT devices without an address) is the
                      * last host paired; every connection used to rewrite it, so whichever host
-                     * connected last became the default for all devices */
+                     * connected last became the default for all devices. It is the only default
+                     * host file: bthid_target, a second copy, is no longer written. */
                     if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
                         FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
                         if (hf) {
                             fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
                             fclose(hf);
-                        }
-                    }
-                    if (new_pairing || access("/data/harmony/bthid_target", F_OK) != 0) {
-                        FILE *btf = fopen("/data/harmony/bthid_target", "w");
-                        if (btf) {
-                            fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
-                            fclose(btf);
                         }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");

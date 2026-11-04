@@ -14,7 +14,9 @@ Produces 100% canonical v2.0 schema files:
 - /data/harmony/remote_slot1_map.json
 - /data/harmony/remote_slot2_map.json
 - /data/harmony/bt_remote_map.json
-- /data/harmony/bt-devices.json
+
+A legacy bt-devices.json (Bluetooth device -> host address) is folded into devices.json,
+the only device-to-host mapping; it is not written any more.
 """
 
 from __future__ import annotations
@@ -812,6 +814,39 @@ def sanitize_devices_json(devices_obj: Dict[str, Any]) -> Dict[str, Any]:
     return {"devices": clean_devs}
 
 
+BDADDR_RE = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+
+
+def merge_bt_device_hosts(devices_obj: Optional[Dict[str, Any]], bt_obj: Any) -> int:
+    """Copy host addresses from a legacy bt-devices.json into devices.json.
+
+    The Hub no longer reads bt-devices.json: devices.json "bdaddr" is the only
+    device-to-host mapping. As in hub_daemon's start-up migration (bt_migrate.c), only devices
+    without a host get one. Returns the number of devices changed.
+    """
+    if not devices_obj:
+        return 0
+    entries = bt_obj if isinstance(bt_obj, list) else (bt_obj.get("devices") if isinstance(bt_obj, dict) else None)
+    if not isinstance(entries, list):
+        return 0
+    by_id = {str(d.get("id")): d for d in devices_obj.get("devices", []) if isinstance(d, dict) and d.get("id") is not None}
+    changed = 0
+    for e in entries:
+        if not isinstance(e, dict) or e.get("id") is None:
+            continue
+        addr = e.get("bdaddr") or e.get("btHost") or ""
+        dev = by_id.get(str(e.get("id")))
+        if dev is None or not isinstance(addr, str) or not BDADDR_RE.match(addr) or addr == "00:00:00:00:00:00":
+            continue
+        if dev.get("bdaddr") or dev.get("btHost"):
+            continue
+        # sanitize_devices_json() writes both keys with the same value
+        dev["bdaddr"] = addr
+        dev["btHost"] = addr
+        changed += 1
+    return changed
+
+
 def sanitize_activities_json(activities_obj: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """Ensure activity IDs are short (1, 2, 3...) and sequence steps use canonical delay."""
     acts = activities_obj.get("activities") or (activities_obj if isinstance(activities_obj, list) else [])
@@ -980,6 +1015,17 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         if os.path.isfile(map_list):
             stock_maps = generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings)
 
+    # Legacy bt-devices.json: its host addresses go into devices.json
+    if cfg_dir and devices_obj:
+        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
+            if os.path.isfile(cand_b):
+                try:
+                    with open(cand_b, "r", encoding="utf-8") as f:
+                        merge_bt_device_hosts(devices_obj, json.load(f))
+                except (OSError, ValueError) as e:
+                    warnings.append(f"{os.path.basename(cand_b)} not merged: {e}")
+                break
+
     # Write devices.json and activities.json
     if devices_obj:
         out_path = os.path.join(dest_harmony, "config", "devices.json")
@@ -1081,13 +1127,6 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
                 stats["mqtt"] = True
                 break
 
-    # 6. BT devices
-    if cfg_dir:
-        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
-            if os.path.isfile(cand_b):
-                shutil.copyfile(cand_b, os.path.join(dest_harmony, "bt-devices.json"))
-                break
-
     # 7. Network & BT stack keys
     if cfg_dir:
         for cand_net in [os.path.join(cfg_dir, "ethernet.conf"), os.path.join(cfg_dir, "hub_id")]:
@@ -1112,6 +1151,8 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
     dev_data = bundle.get("devices")
     if dev_data:
         dev_obj = sanitize_devices_json(dev_data)
+        # An old bundle's "bluetooth" section (bt-devices.json): its hosts go into devices.json
+        merge_bt_device_hosts(dev_obj, bundle.get("bluetooth"))
         with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:
             json.dump(dev_obj, f, indent=2)
         stats["devices"] = len(dev_obj.get("devices", []))
@@ -1162,11 +1203,6 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
         with open(os.path.join(dest_harmony, "bt_remote_map.json"), "w", encoding="utf-8") as f:
             json.dump(bt_map_data, f, indent=2)
         stats["bt_remote_map"] = True
-
-    bt_devs = bundle.get("bluetooth")
-    if bt_devs:
-        with open(os.path.join(dest_harmony, "bt-devices.json"), "w", encoding="utf-8") as f:
-            json.dump(bt_devs, f, indent=2)
 
     net_data = bundle.get("network")
     if net_data:
