@@ -37,6 +37,23 @@ bool is_host_connected(const bd_addr_t addr) {
     return false;
 }
 
+bool host_manual_disconnect(const bd_addr_t addr) {
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (!is_null_bd_addr(g_hosts[i].addr) && memcmp(g_hosts[i].addr, addr, 6) == 0) {
+            return g_hosts[i].manual_disconnect;
+        }
+    }
+    return false;
+}
+
+void set_host_manual_disconnect(const bd_addr_t addr, bool on) {
+    bool all = is_null_bd_addr(addr);
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (is_null_bd_addr(g_hosts[i].addr)) continue;
+        if (all || memcmp(g_hosts[i].addr, addr, 6) == 0) g_hosts[i].manual_disconnect = on;
+    }
+}
+
 /* True when the requested host is connected; for a null address, when any host is */
 static bool host_target_connected(const bd_addr_t target) {
     return is_null_bd_addr(target) ? is_any_host_connected() : is_host_connected(target);
@@ -476,7 +493,7 @@ void init_known_hosts(void) {
 
 void try_connect_host_addr(const bd_addr_t addr) {
     if (is_null_bd_addr(addr)) return;
-    g_host_manual_disconnect = false;
+    set_host_manual_disconnect(addr, false);
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (g_hosts[i].connected && g_hosts[i].hid_cid != 0 && memcmp(g_hosts[i].addr, addr, 6) == 0) {
             return;
@@ -580,7 +597,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
 void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     (void)max_attempts;
-    g_host_manual_disconnect = false;
+    set_host_manual_disconnect(target, false);
     /* Another connected host must not block this one (several HID hosts are supported) */
     if (host_target_connected(target)) {
         log_msg("Host reconnect: Host already connected");

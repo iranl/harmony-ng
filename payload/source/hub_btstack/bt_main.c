@@ -264,9 +264,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     read_current_activity(cur_act, sizeof(cur_act));
                     /* No auto-reconnect in pairing mode: the reconnecting host would end it (any HID open
                      * clears g_host_pairing) and take the pending device link. pair_host_off reconnects. */
-                    if (!g_host_pairing && !g_host_manual_disconnect && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_reconnect_target(tgt)) {
+                        if (get_reconnect_target(tgt) && !host_manual_disconnect(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host idle disconnect during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));
@@ -387,8 +387,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         update_bthid_status();
                         char cur_act[64] = "-1";
                         read_current_activity(cur_act, sizeof(cur_act));
-                        if (!g_host_pairing && !g_host_manual_disconnect && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
-                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr)) {
+                        if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr) && !host_manual_disconnect(conn_addr)) {
                                 start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
                             }
                         } else {
@@ -411,15 +411,18 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         g_pairing_new_key_valid = false;
                         gap_discoverable_control(0);
                     }
-                    g_host_manual_disconnect = false;
-                    g_host_hid_cid = cid;
+
                     memcpy(g_host_addr, conn_addr, 6);
 
                     host_conn_t *h = register_host_target(conn_addr, NULL);
                     if (h) {
                         h->connected = true;
                         h->hid_cid = cid;
+                        h->manual_disconnect = false;
                     }
+                    /* Keep the active link on the chosen target, as everywhere else: a second host
+                     * connecting must not take over keys meant for the activity's host */
+                    g_host_hid_cid = get_target_host_hid_cid();
 
                     char msg[128];
                     snprintf(msg, sizeof(msg), "Classic HID Host CONNECTED: %s (cid=0x%04x)",
@@ -518,9 +521,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                     char cur_act[64] = "-1";
                     read_current_activity(cur_act, sizeof(cur_act));
-                    if (!g_host_pairing && !g_host_manual_disconnect && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
-                        if (get_reconnect_target(tgt)) {
+                        if (get_reconnect_target(tgt) && !host_manual_disconnect(tgt)) {
                             if (!g_host_reconnect_active) {
                                 char bmsg[128];
                                 snprintf(bmsg, sizeof(bmsg), "Host HID closed during active activity (%s), auto-reconnecting to %s", cur_act, bd_addr_to_str(tgt));

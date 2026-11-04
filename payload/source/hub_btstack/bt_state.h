@@ -89,6 +89,9 @@ typedef struct {
     hci_con_handle_t acl_handle;
     bd_addr_t addr;
     bool connected;
+    /* Disconnect requested by the user (web UI / API): no auto-reconnect to this host until a key
+     * for it, connect_host, an activity start, or the host connecting by itself */
+    bool manual_disconnect;
     char name[64];
 } host_conn_t;
 
@@ -117,7 +120,6 @@ extern bd_addr_t g_host_addr;
 extern bool g_host_connected;
 extern bool g_host_pairing;
 /* Set by disconnect_host: no auto-reconnect until something asks for a connection again */
-extern bool g_host_manual_disconnect;
 /* Host that received a new link key while pairing mode was on (the host being paired) */
 extern bool g_pairing_new_key_valid;
 extern bd_addr_t g_pairing_new_key_addr;
