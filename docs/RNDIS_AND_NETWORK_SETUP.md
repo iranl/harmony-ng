@@ -39,7 +39,15 @@ usbipd attach --wsl --busid <BUSID>
 ip -br link
 sudo ip addr add 192.168.2.2/24 dev <interface>
 sudo ip link set <interface> up
-ssh root@192.168.2.1
+```
+
+If you rooted the remote with `setup_remote.py` on Windows, its SSH key is in `%USERPROFILE%\.ssh` on the Windows side. Copy it into WSL first: WSL shows files under `/mnt/c` with open permissions, and ssh refuses a private key that others can read.
+
+```bash
+mkdir -p ~/.ssh
+cp /mnt/c/Users/<you>/.ssh/harmony_owner_ed25519* ~/.ssh/
+chmod 600 ~/.ssh/harmony_owner_ed25519
+ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1
 ```
 
 `usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_elite.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.

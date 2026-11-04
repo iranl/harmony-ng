@@ -55,6 +55,9 @@ cd harmony-ng
    ```
    Running `python elite/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `elite_ui` and stops the stock UI before you have a backup.
 
+> [!NOTE]
+> **Windows 11**: after the reboot the remote can show up as `USB Serial Device (COMx)` under Ports instead of a network adapter, and the RNDIS driver cannot be selected by hand. Use the WSL2 workaround in [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md#windows-11-device-stuck-as-usb-serial-device-comx) and run the SSH based steps from WSL.
+
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
 2. **Validates Windows Driver & Host Static IP**: Confirms the host network adapter has IP `192.168.2.2/24` assigned, giving exact PowerShell commands if unconfigured.
