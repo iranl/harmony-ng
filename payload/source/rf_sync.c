@@ -320,12 +320,17 @@ void rf_notify_update_available(uint8_t target_slot) {
     rf_send_frame(&f);
 }
 
-void rf_send_hub_time_sync_slot(uint8_t slot) {
-    if (g_rf_fd < 0 || !g_has_paired_device) return;
-    if (is_companion_slot(slot)) return;
+#define TIME_SYNC_PAYLOAD_LEN 25
+/* A remote with its screen on sends SYNC_REQUEST every 800 ms. The time itself only needs
+ * a refresh every few minutes (the remote keeps time with its RTC), but the timezone,
+ * update flags, config version and Hub address in the same frame must reach it as soon as
+ * they change. */
+#define TIME_SYNC_REFRESH_S 300
 
-    rf_frame_t f;
-    uint8_t payload[26] = {0};
+static uint32_t s_time_sync_last_epoch[3];
+static uint8_t s_time_sync_last_payload[3][TIME_SYNC_PAYLOAD_LEN];
+
+static void build_time_sync_payload(uint8_t slot, uint8_t *payload) {
     uint32_t now_epoch = (uint32_t)time(NULL);
 
     /* 4 bytes epoch seconds (little-endian) */
@@ -365,9 +370,41 @@ void rf_send_hub_time_sync_slot(uint8_t slot) {
     } else if (g_paired_addr[0] || g_paired_addr[1] || g_paired_addr[2] || g_paired_addr[3]) {
         memcpy(&payload[21], g_paired_addr, 4);
     }
+}
 
-    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, 25);
+static void send_time_sync_payload(uint8_t slot, const uint8_t *payload) {
+    rf_frame_t f;
+    rf_build_frame(&f, slot ? slot : 0x01, RF_MSG_TIME_SYNC, ++g_tx_seq, 0, payload, TIME_SYNC_PAYLOAD_LEN);
     rf_send_frame(&f);
+    printf("[*] TIME_SYNC -> slot %d (cfg=%d flags=0x%02X)\n", slot ? slot : 1, payload[20], payload[19]);
+    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    s_time_sync_last_epoch[idx] = (uint32_t)time(NULL);
+    memcpy(s_time_sync_last_payload[idx], payload, TIME_SYNC_PAYLOAD_LEN);
+}
+
+void rf_send_hub_time_sync_slot(uint8_t slot) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
+
+    uint8_t payload[26] = {0};
+    build_time_sync_payload(slot, payload);
+    send_time_sync_payload(slot, payload);
+}
+
+void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
+    if (g_rf_fd < 0 || !g_has_paired_device) return;
+    if (is_companion_slot(slot)) return;
+
+    uint8_t payload[26] = {0};
+    build_time_sync_payload(slot, payload);
+    int idx = (slot >= 1 && slot <= 2) ? slot : 0;
+    uint32_t now = (uint32_t)time(NULL);
+    bool due = s_time_sync_last_epoch[idx] == 0 ||
+               now < s_time_sync_last_epoch[idx] ||
+               now - s_time_sync_last_epoch[idx] >= TIME_SYNC_REFRESH_S ||
+               /* bytes 4.. (timezone, flags, config version, Hub address); 0..3 is the time */
+               memcmp(&payload[4], &s_time_sync_last_payload[idx][4], TIME_SYNC_PAYLOAD_LEN - 4) != 0;
+    if (due) send_time_sync_payload(slot, payload);
 }
 
 void rf_send_hub_time_sync(void) {

@@ -26,6 +26,8 @@ void rf_send_hub_activity_sync(const char *act_id);
 uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);
 void rf_send_hub_time_sync_slot(uint8_t slot);
+/* Sends TIME_SYNC only if its content changed or TIME_SYNC_REFRESH_S passed since the last one */
+void rf_send_hub_time_sync_slot_if_due(uint8_t slot);
 void rf_send_hub_time_sync(void);
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str);
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str);
