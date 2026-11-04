@@ -137,7 +137,33 @@ class TestUsbState(unittest.TestCase):
             self.assertFalse(state.ip_valid)
             self.assertIn("192.168.2.2", state.remediation_cmd)
             self.assertIn("Ethernet 3", state.remediation_cmd)
+            self.assertNotIn("DefaultGateway", state.remediation_cmd)
 
+    @patch("tools.harmony_hid.HarmonyHid.open", return_value=False)
+    @patch("tools.usb_state._query_windows_state")
+    @patch("tools.usb_state.probe_tcp")
+    def test_windows_serial_port_trap_detection(self, mock_tcp, mock_win, mock_hid_open):
+        mock_tcp.return_value = False
+        mock_win.return_value = (
+            None,
+            {
+                "FriendlyName": "USB Serial Device (COM12)",
+                "InstanceId": "USB\\VID_0525&PID_A4A2\\6&3878EF1F&0&4",
+                "Status": "OK",
+                "Class": "Ports",
+                "Problem": "CM_PROB_NONE",
+            },
+            [],
+            [],
+        )
+
+        with patch("sys.platform", "win32"):
+            state = detect_remote_usb_state(check_firmware=False)
+            self.assertEqual(state.mode, UsbMode.DRIVER_ERROR)
+            self.assertFalse(state.driver_ok)
+            self.assertEqual(state.error_code, 28)
+            self.assertIn("setup_remote_driver.ps1", state.remediation_cmd)
+            self.assertIn("USB Serial", state.error_details)
 
 
 if __name__ == "__main__":

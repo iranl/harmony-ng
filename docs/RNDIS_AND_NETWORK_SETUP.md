@@ -6,28 +6,50 @@ Both the **Logitech Harmony Hub** and **Harmony Elite 950** handheld remote comm
 
 ## 1. Windows RNDIS Driver Installation (Windows 10 & 11)
 
-Windows 10/11 frequently fails to automatically bind the correct driver, showing the plugged-in Hub or Elite as `Unknown Device`, `USB Serial Device`, or an exclamation mark in Device Manager.
+Windows 10/11 frequently fails to automatically bind the correct driver, either showing the plugged-in Hub/Elite as `Unknown Device` or mistakenly binding it to `usbser.inf` as a `USB Serial Device (COMx)` under **Ports (COM & LPT)**. Additionally, Windows 11 sets `ExcludeFromSelect=*` on its in-box RNDIS driver templates, preventing manual selection in Device Manager.
 
-### Step-by-Step Driver Installation:
-1. Connect the Hub or Elite cradle to your PC using a known **data-capable** Micro-USB cable.
+### Option A: Automated PowerShell Setup (Recommended)
+
+HarmonyNG includes a Microsoft WHQL-signed RNDIS template driver package (`drivers/windows/rndis/`) and an automated, self-elevating setup script.
+
+Run from an elevated or standard PowerShell console (it will prompt for UAC elevation automatically):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
+```
+
+The script will automatically:
+1. Install the signed RNDIS driver package into the Windows DriverStore via `pnputil`.
+2. Re-bind `USB\VID_0525&PID_A4A2` (unbinds `usbser.sys` and binds `rndismp.sys`).
+3. Locate the new `USB Ethernet/RNDIS Gadget` network adapter.
+4. Assign static IP `192.168.2.2/24` (leaving the default gateway empty so internet routing is not affected).
+5. Verify connectivity to `192.168.2.1`.
+
+> [!TIP]
+> If you run `python elite/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
+
+---
+
+### Option B: Manual Device Manager Driver Selection
+
+If your Windows build allows manual selection:
+1. Connect the Hub or Elite to your PC using a known **data-capable** Micro-USB cable.
 2. Press `Win + X` and select **Device Manager**.
-3. Locate the device under **Other devices** (usually named `RNDIS`, `CDC Composite Gadget`, or `Unknown device`).
+3. Locate the device under **Other devices** (or under **Ports (COM & LPT)** if bound as serial).
 4. Right-click the device and select **Update driver**.
-5. Choose **Browse my computer for drivers**.
-6. Click **Let me pick from a list of available drivers on my computer**.
-7. In the hardware category list, select **Network adapters** and click **Next**.
-8. In the manufacturer column on the left:
-   - Select **Microsoft** (or **Acer Incorporated** if Microsoft is not listed).
-9. In the model column on the right:
-   - Select **Remote NDIS Compatible Device** (or **USB Ethernet/RNDIS Gadget**).
-10. Click **Next** and click **Yes** on the Update Driver Warning dialog.
-11. Device Manager will now show a new network adapter under Network Adapters.
+5. Choose **Browse my computer for drivers** -> **Let me pick from a list of available drivers on my computer**.
+6. Select **Network adapters** and click **Next**.
+7. In the manufacturer column on the left:
+   - Select **Acer Incorporated** (or **Microsoft**).
+8. In the model column on the right:
+   - Select **USB Ethernet/RNDIS Gadget** (or **Remote NDIS Compatible Device**).
+9. Click **Next** and click **Yes** on the Update Driver Warning dialog.
 
-### Windows 11: device stuck as "USB Serial Device (COMx)"
+---
 
-On current Windows 11 builds the remote can enumerate as `USB\VID_0525&PID_A4A2` and bind to the in-box serial driver (it shows up under **Ports (COM & LPT)** as `USB Serial Device (COMx)`). The steps above then do not work: the in-box RNDIS driver packages (`rndiscmp.inf`, `netrndis.inf`, `wceisvista.inf`) all declare `ExcludeFromSelect=*` in `[ControlFlags]`, so no RNDIS model appears in the driver list, not even through **Have Disk...**
+### Option C: WSL2 & usbipd-win (Alternative Fallback)
 
-A working alternative is to pass the device to WSL2 with [usbipd-win](https://github.com/dorssel/usbipd-win), where the Linux kernel binds it with `cdc_ether`/`cdc_subset`:
+If you prefer to route the USB device directly into a Linux environment via WSL2:
 
 ```powershell
 usbipd list

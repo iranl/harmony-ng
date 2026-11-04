@@ -57,8 +57,11 @@ cd harmony-ng
    ```
    Running `python elite/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `elite_ui` and stops the stock UI before you have a backup.
 
-> [!NOTE]
-> **Windows 11**: after the reboot the remote can show up as `USB Serial Device (COMx)` under Ports instead of a network adapter, and the RNDIS driver cannot be selected by hand. Use the WSL2 workaround in [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md#windows-11-device-stuck-as-usb-serial-device-comx) and run the SSH based steps from WSL.
+> [!TIP]
+> **Windows 10 & 11 Automated Setup**: If Windows binds the remote as a serial COM port or fails to bind RNDIS after reboot, `setup_remote.py` automatically prompts for Administrator elevation to install the included WHQL-signed RNDIS driver and configure `192.168.2.2/24` (no manual Device Manager or WSL2 needed). You can also run the standalone installer at any time:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
+> ```
 
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
@@ -68,7 +71,7 @@ The tool automatically:
    [!] Elite Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
    [?] Download and install latest official firmware (4.15.330) first? (y/N):
    ```
-   If confirmed, it downloads `elite_99_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
+   If confirmed, it downloads `elite_111_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
 4. **Dynamic Execution**: If already in USB Ethernet mode with HTTP/SSH active, it skips HID staging and proceeds directly to permanent installation. Otherwise, it stages the self-extracting Dropbear payload to `/sys/dropbear`, arms `/tde/enable`, and reboots into multi-user mode.
 5. **Post-Step Status**: Prints verified connection state upon completion.
 

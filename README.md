@@ -219,7 +219,7 @@ npm run build
 The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing an Elite remote connected over USB or transferring files over SSH.
 
 ### Automated Extraction During Hub Deployment
-When running `./build/deploy_hub.ps1` or `./build/deploy_hub.sh`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_99_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
+When running `./build/deploy_hub.ps1` or `./build/deploy_hub.sh`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
 
 ### Standalone Extraction Using Python
 You can also extract icons or build the WebUI archive manually at any time on any platform (Windows, macOS, Linux):
@@ -233,7 +233,7 @@ python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icon
 ```
 
 ### How It Works
-1. Downloads official Elite firmware bundle (`elite_99_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
+1. Downloads official Elite firmware bundle (`elite_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem using Python.
 3. Indexes and extracts all 1,347+ PNG assets across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
 4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon dynamically unpacks icons into `/tmp/www/assets/icons` on first request.

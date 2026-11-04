@@ -497,17 +497,42 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
         hid.close()
 
 
+def check_and_fix_windows_driver() -> bool:
+    """If running on Windows and RNDIS driver or IP is missing, launch setup_remote_driver.ps1 elevated."""
+    if sys.platform != "win32":
+        return False
+    usb_st = detect_remote_usb_state(check_firmware=False)
+    if usb_st.mode == UsbMode.DRIVER_ERROR or (usb_st.mode == UsbMode.USB_ETHERNET and not usb_st.ip_valid):
+        print(f"\n[!] Windows driver or network configuration needed ({usb_st.description or 'RNDIS Gadget'}).")
+        print("[*] Requesting Administrator elevation to install RNDIS driver & configure static IP...")
+        ps_script = REPO_DIR / "tools" / "setup_remote_driver.ps1"
+        if ps_script.is_file():
+            try:
+                subprocess.run([
+                    "powershell.exe", "-NoProfile", "-Command",
+                    f"Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{ps_script}\" -NonInteractive' -Wait"
+                ])
+                time.sleep(2)
+                return True
+            except Exception as e:
+                print(f"[-] Failed to launch setup_remote_driver.ps1: {e}")
+        else:
+            print(f"[-] Could not find {ps_script}")
+    return False
+
+
 def print_step1_instructions() -> None:
     print("\n" + "=" * 70)
     print(" CONFIGURE STATIC IP ON PC:")
     print("=" * 70)
     if sys.platform == "win32":
-        print("   - A 'Remote NDIS / Ethernet Gadget' network adapter will appear on PC.")
-        print("   - Open Network Connections (Win+R -> ncpa.cpl).")
-        print("   - Right-click adapter -> Properties -> IPv4 -> Properties:")
+        print("   - Run the automated setup tool (elevated):")
+        print("        powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1")
+        print("   - Or manually configure Network Connections (Win+R -> ncpa.cpl):")
+        print("        Right-click 'Remote NDIS / Ethernet Gadget' -> Properties -> IPv4:")
         print("        IP Address:      192.168.2.2")
         print("        Subnet Mask:     255.255.255.0")
-        print("        Default Gateway: 192.168.2.1")
+        print("        Default Gateway: (leave blank)")
     elif sys.platform == "darwin":
         print("   - macOS adds a network service named 'RNDIS/Ethernet Gadget' (no driver needed).")
         print("   - Give it a static address (no router, so your internet route is unchanged):")
@@ -525,10 +550,14 @@ def print_step1_instructions() -> None:
 def wait_for_ethernet() -> bool:
     print(f"\n[*] Probing remote at http://{REMOTE_IP}:{REMOTE_PORT}/...")
     print("    (Waiting for USB Ethernet connection to become active. Press Ctrl+C to cancel)")
-    for _ in range(120):
+    driver_checked = False
+    for i in range(120):
         if probe_remote():
-            print(f"[+] Connected! Remote HTTP service detected at {REMOTE_IP}:{REMOTE_PORT}")
+            print(f"\n[+] Connected! Remote HTTP service detected at {REMOTE_IP}:{REMOTE_PORT}")
             return True
+        if sys.platform == "win32" and not driver_checked and i >= 5:
+            driver_checked = True
+            check_and_fix_windows_driver()
         time.sleep(1)
         print(".", end="", flush=True)
     print("\n[-] Timeout waiting for remote network interface.")
@@ -959,6 +988,8 @@ def main():
         trans_state = detect_remote_usb_state(check_firmware=False)
         if trans_state.mode in (UsbMode.USB_ETHERNET, UsbMode.DRIVER_ERROR):
             print_usb_state_banner(trans_state, label="DEVICE TRANSITION DETECTED")
+            if sys.platform == "win32" and (trans_state.mode == UsbMode.DRIVER_ERROR or not trans_state.ip_valid):
+                check_and_fix_windows_driver()
             break
         time.sleep(2)
         print(".", end="", flush=True)
