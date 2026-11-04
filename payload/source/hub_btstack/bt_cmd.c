@@ -1,6 +1,7 @@
 #include "bt_cmd.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+#include "bt_remote.h"
 
 btstack_timer_source_t cmd_poll_timer;
 static int g_cmd_sock_fd = -1;
@@ -305,9 +306,19 @@ void execute_btstack_cmd(const char *cmd_in) {
     } else if (strncasecmp(cmd, "pair_host_off", 13) == 0) {
         g_host_pairing = false;
         gap_discoverable_control(0);
+        /* A pairing that never happened must not link its device to the next host that connects */
+        unlink("/tmp/bt_pending_pair_device");
         log_msg("Classic HID Host pairing disabled");
         update_status(app_state == APP_READY ? "ready" : "standby");
         update_bthid_status();
+        /* Reconnect the host that pairing mode disconnected, if an activity is running */
+        char cur_act[64] = "-1";
+        read_current_activity(cur_act, sizeof(cur_act));
+        bd_addr_t tgt;
+        if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0 &&
+            !is_any_host_connected() && get_pinned_host_target(tgt)) {
+            start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+        }
     } else if (strncasecmp(cmd, "connect_host", 12) == 0) {
         if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) return;
         char *addr_str = cmd + 12;

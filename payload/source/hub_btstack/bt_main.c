@@ -262,7 +262,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                     char cur_act[64] = "-1";
                     read_current_activity(cur_act, sizeof(cur_act));
-                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    /* No auto-reconnect in pairing mode: the reconnecting host would end it (any HID open
+                     * clears g_host_pairing) and take the pending device link. pair_host_off reconnects. */
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
                         if (get_pinned_host_target(tgt)) {
                             if (!g_host_reconnect_active) {
@@ -381,7 +383,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         update_bthid_status();
                         char cur_act[64] = "-1";
                         read_current_activity(cur_act, sizeof(cur_act));
-                        if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                        if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                             if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr)) {
                                 start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
                             }
@@ -495,7 +497,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
                     char cur_act[64] = "-1";
                     read_current_activity(cur_act, sizeof(cur_act));
-                    if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+                    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                         bd_addr_t tgt;
                         if (get_pinned_host_target(tgt)) {
                             if (!g_host_reconnect_active) {
