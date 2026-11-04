@@ -6,6 +6,7 @@ Synchronizes version number across:
   - VERSION (root file)
   - payload/source/http_server.c (HARMONY_VERSION)
   - android-app/src/app.js (APP_VERSION)
+  - docs/openapi.yaml (info.version)
   - android-app/package.json ("version")
   - android-app/android/app/build.gradle (versionName, versionCode)
 """
@@ -19,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 VERSION_FILE = REPO_ROOT / "VERSION"
 HARMONY_VERSION_H = REPO_ROOT / "payload" / "source" / "harmony_version.h"
+OPENAPI_YAML = REPO_ROOT / "docs" / "openapi.yaml"
 APP_JS = REPO_ROOT / "android-app" / "src" / "app" / "app_icons_ui.js"
 PACKAGE_JSON = REPO_ROOT / "android-app" / "package.json"
 BUILD_GRADLE = REPO_ROOT / "android-app" / "android" / "app" / "build.gradle"
@@ -85,7 +87,14 @@ def sync_all(new_version, increment_vc=False):
         f'"version": "{new_version}"'
     )
 
-    # 5. build.gradle (versionName & optional versionCode increment)
+    # 5. OpenAPI spec (info.version; tests/test_openapi.py checks it against the firmware version)
+    update_file(
+        OPENAPI_YAML,
+        r'(?m)^(  version: )\S+$',
+        rf'\g<1>{new_version}'
+    )
+
+    # 6. build.gradle (versionName & optional versionCode increment)
     if BUILD_GRADLE.exists():
         content = BUILD_GRADLE.read_text(encoding="utf-8")
         vc_match = re.search(r'versionCode\s+(\d+)', content)
