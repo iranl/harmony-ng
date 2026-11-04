@@ -204,6 +204,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             rf_send_hub_activity_sync_slot(cur, f->seq, slot, 0x01);
 
             if (req_type == 0x02) {
+                rf_sync_cache_invalidate();
                 usleep(50000);
                 pthread_t push_th;
                 pthread_create(&push_th, NULL, config_push_worker, NULL);

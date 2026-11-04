@@ -220,6 +220,7 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
+                    rf_sync_cache_invalidate();
                     g_config_version++;
                     if (g_config_version == 0) g_config_version = 1;
                     FILE *vf = fopen("/data/harmony/config_version", "w");
@@ -237,6 +238,7 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"ota_in_progress\",\"ok\":true}";
                     write(cli, res, strlen(res));
                 } else {
+                    rf_sync_cache_invalidate();
                     char cur[32] = "-1";
                     get_current_activity(cur, sizeof(cur));
                     rf_send_hub_activity_sync(cur);
