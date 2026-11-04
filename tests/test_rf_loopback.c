@@ -44,6 +44,7 @@ void rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch
 void rf_notify_update_available(int slot) { (void)slot; }
 void rf_push_custom_icon(const char *id, const char *type) { (void)id; (void)type; }
 void record_config_diff(void) {}
+void rf_sync_cache_invalidate(void) {}
 void *config_push_worker(void *arg) { (void)arg; return NULL; }
 void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
 
