@@ -77,6 +77,12 @@ static cJSON *fetch_rf_status(void) {
     while (len < cap && (n = recv(s, buf + len, cap - len, 0)) > 0) len += (size_t)n;
     close(s);
     buf[len] = '\0';
+    /* Only a 200 carries the status object; an error reply (e.g. while hub_rf restarts) must not
+     * be pushed to the web UIs as remote status */
+    if (strncmp(buf, "HTTP/1.1 200", 12) != 0 && strncmp(buf, "HTTP/1.0 200", 12) != 0) {
+        free(buf);
+        return NULL;
+    }
     char *body = strstr(buf, "\r\n\r\n");
     cJSON *root = body ? cJSON_Parse(body + 4) : NULL;
     free(buf);

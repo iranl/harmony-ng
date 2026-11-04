@@ -148,16 +148,44 @@ int ws_is_upgrade_req(const char *http_req) {
             strcasestr(http_req, "Upgrade: WebSocket") != NULL);
 }
 
-static void add_client(int fd) {
+/* Returns 0, or -1 when all WS_MAX_CLIENTS slots are taken */
+static int add_client(int fd) {
+    int rc = -1;
     pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i] < 0) {
             g_clients[i] = fd;
             g_client_count++;
+            rc = 0;
             break;
         }
     }
     pthread_mutex_unlock(&g_clients_lock);
+    return rc;
+}
+
+/* Unregister without closing (the caller still owns the socket) */
+static void drop_client(int fd) {
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == fd) {
+            g_clients[i] = -1;
+            if (g_client_count > 0) g_client_count--;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+}
+
+/* send() until every byte is out: a partial send would leave a truncated frame on the stream */
+static int send_all(int fd, const void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n = send(fd, (const char *)buf + total, len - total, MSG_NOSIGNAL);
+        if (n <= 0) return -1;
+        total += (size_t)n;
+    }
+    return 0;
 }
 
 void ws_remove_client(int client_fd) {
@@ -220,11 +248,17 @@ int ws_handle_upgrade(int client_fd, const char *http_req) {
                        "Sec-WebSocket-Accept: %s\r\n\r\n",
                        accept_key);
 
-    if (send(client_fd, resp, (size_t)len, 0) <= 0) {
+    /* Take a slot before accepting the upgrade: a client accepted without one would never get
+     * broadcasts or be closed on shutdown */
+    if (add_client(client_fd) != 0) {
+        static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        send_all(client_fd, busy, sizeof(busy) - 1);
         return -1;
     }
-
-    add_client(client_fd);
+    if (send_all(client_fd, resp, (size_t)len) != 0) {
+        drop_client(client_fd);
+        return -1;
+    }
     return 0;
 }
 
@@ -250,8 +284,7 @@ int ws_send_text(int client_fd, const char *text) {
 
     int rc = 0;
     pthread_mutex_lock(&g_send_lock);
-    if (send(client_fd, header, hlen, MSG_NOSIGNAL) <= 0 ||
-        send(client_fd, text, payload_len, MSG_NOSIGNAL) <= 0) {
+    if (send_all(client_fd, header, hlen) != 0 || send_all(client_fd, text, payload_len) != 0) {
         rc = -1;
     }
     pthread_mutex_unlock(&g_send_lock);
@@ -329,7 +362,7 @@ int ws_send_pong(int client_fd) {
     if (client_fd < 0) return -1;
     uint8_t frame[2] = {0x8A, 0x00};
     pthread_mutex_lock(&g_send_lock);
-    int rc = send(client_fd, frame, 2, MSG_NOSIGNAL) > 0 ? 0 : -1;
+    int rc = send_all(client_fd, frame, 2);
     pthread_mutex_unlock(&g_send_lock);
     return rc;
 }
