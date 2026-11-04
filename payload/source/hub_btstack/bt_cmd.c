@@ -281,17 +281,13 @@ void execute_btstack_cmd(const char *cmd_in) {
                 gap_disconnect(g_hosts[i].acl_handle);
                 g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
             }
-            if (!is_null_bd_addr(g_hosts[i].addr)) {
-                gap_drop_link_key_for_bd_addr(g_hosts[i].addr);
-            }
+            /* Keep the link keys: pairing a new host must not unpair the others. A host that
+             * forgot its key starts Secure Simple Pairing again, which pairing mode accepts. */
             g_hosts[i].connected = false;
         }
         if (g_host_hid_cid) {
             hid_device_disconnect(g_host_hid_cid);
             g_host_hid_cid = 0;
-        }
-        if (!is_null_bd_addr(g_host_addr)) {
-            gap_drop_link_key_for_bd_addr(g_host_addr);
         }
         g_host_connected = false;
         char *name = cmd + 12;
