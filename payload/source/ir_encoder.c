@@ -543,6 +543,43 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
             }
             timings_pad_to(timings, &timing_count, frame_start, 45000);
         }
+    } else if (strstr(proto, "Samsung 16 and 20 Bit")) {
+        /* Samsung soundbars ("0x<16 bits>_1x<20 bits>"): a 16-bit segment with a header,
+         * then a 20-bit segment, both MSB first with a long space for 1 */
+        carrier_hz = 38000;
+        char *sep = NULL;
+        unsigned long first = strtoul(hex, &sep, 16);
+        if (*sep != '_' || !(sep = strchr(sep, 'x'))) return -3;
+        unsigned long second = strtoul(sep + 1, NULL, 16);
+        timings_add(timings, &timing_count, 1, 4500);
+        timings_add(timings, &timing_count, 0, 4480);
+        for (int b = 15; b >= 0; b--) {
+            timings_add(timings, &timing_count, 1, 495);
+            timings_add(timings, &timing_count, 0, ((first >> b) & 1) ? 1495 : 500);
+        }
+        timings_add(timings, &timing_count, 1, 495);
+        timings_add(timings, &timing_count, 0, 4495);
+        for (int b = 19; b >= 0; b--) {
+            timings_add(timings, &timing_count, 1, 495);
+            timings_add(timings, &timing_count, 0, ((second >> b) & 1) ? 1495 : 500);
+        }
+        timings_add(timings, &timing_count, 1, 495);
+        timings_add(timings, &timing_count, 0, 57500);
+    } else if (strstr(proto, "Toshiba 32 Bit")) {
+        /* NEC framing, with the keycode's bits in send order (MSB first): one frame
+         * padded to 107.87 ms, then the short repeat code while the key is held */
+        carrier_hz = 38000;
+        unsigned long val = strtoul(hex, NULL, 16);
+        timings_add(timings, &timing_count, 1, 8990);
+        timings_add(timings, &timing_count, 0, 4490);
+        for (int b = 31; b >= 0; b--) {
+            timings_add(timings, &timing_count, 1, 568);
+            timings_add(timings, &timing_count, 0, ((val >> b) & 1) ? 1662 : 552);
+        }
+        timings_add(timings, &timing_count, 1, 568);
+        timings_pad_to(timings, &timing_count, 0, 107870);
+        const uint32_t repeat[] = { 8990, 2230, 568, 96077 };
+        return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, 4, parsed_repeats, out_buf, out_len);
     } else if (strstr(proto, "Cambridge 32 Bit Dual")) {
         /* Two 32-bit frames ("0x<first>_0x<second>") sent once per press, MSB first
          * with a long space for 0, then a short repeat code while the key is held */

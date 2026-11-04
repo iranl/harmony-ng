@@ -147,7 +147,7 @@ def main() -> None:
     # 2. Query remote MD5 hashes
     print("[*] Querying remote checksums (md5sum)...")
     remote_hashes = {}
-    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
+    md5_res = run_cmd(["ssh"] + ssh_opts + [target, "md5sum /data/elite_ui /data/elite_sync /data/init.sh /data/elite_watchdog.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear /data/dropbearkey /data/scp /data/mknod /data/busybox /etc/init.d/rcS.local 2>/dev/null || true"])
     if md5_res.returncode == 0 and md5_res.stdout:
         for line in md5_res.stdout.strip().splitlines():
             parts = line.strip().split()
@@ -177,6 +177,11 @@ def main() -> None:
     if safe_reboot_script.is_file():
         print(f"[*] Syncing /data/{safe_reboot_script.name} (MD5 check)...")
         deploy_file_if_changed(safe_reboot_script, f"/data/{safe_reboot_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+
+    factory_reset_script = SCRIPT_DIR / "factory_reset.sh"
+    if factory_reset_script.is_file():
+        print(f"[*] Syncing /data/{factory_reset_script.name} (MD5 check)...")
+        deploy_file_if_changed(factory_reset_script, f"/data/{factory_reset_script.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
 
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():

@@ -25,6 +25,10 @@ static const segment_t RC5EX = { { 900 }, 7, { 900, -900 }, { -900, 900 }, { -35
 static const segment_t RC5EX_1 = { { 0 }, 12, { 900, -900 }, { -900, 900 }, { 0 }, 95700 };
 static const segment_t SONY = { { 2400 }, 0, { -600, 600 }, { -600, 1200 }, { 0 }, 45000 };
 static const segment_t CAMBRIDGE = { { 9025, -4750 }, 32, { 525, -1740 }, { 525, -610 }, { 525, -41360 }, 0 };
+static const segment_t SAMSUNG16 = { { 4500, -4480 }, 16, { 495, -500 }, { 495, -1495 }, { 495, -4495 }, 0 };
+static const segment_t SAMSUNG20 = { { 0 }, 20, { 495, -500 }, { 495, -1495 }, { 495, -57500 }, 0 };
+static const segment_t TOSHIBA = { { 8990, -4490 }, 32, { 568, -552 }, { 568, -1662 }, { 568 }, 107870 };
+static const segment_t TOSHIBA_REPEAT = { { 8990, -2230 }, 0, { 0 }, { 0 }, { 568, -96077 }, 0 };
 static const segment_t CAMBRIDGE_REPEAT = { { 9025, -2283 }, 0, { 0 }, { 0 }, { 525, -95419 }, 0 };
 
 typedef struct {
@@ -150,6 +154,23 @@ int main(void) {
     buf = NULL;
     assert(ir_encode_harmony_keycode("G:HID 16 Bit:()(07000027)():1", 1, &buf, &len) != 0);
     assert(ir_encode_harmony_keycode("G:Unknown 24 Bit:()(0x123456)():3", 3, &buf, &len) != 0);
+
+    /* Samsung HW-Q90R soundbar: PowerToggle and Source, a 16-bit and a 20-bit segment
+     * per frame; the HAL repeat count sends the frame again */
+    wave_t sb = { { 0 }, 0 };
+    wave_add_segment(&sb, &SAMSUNG16, 16, 0x0CF0);
+    wave_add_segment(&sb, &SAMSUNG20, 20, 0x00EF1);
+    check("G:Samsung 16 and 20 Bit:()(0x0CF0_1x00EF1)():3", 38000, &sb, NULL);
+    wave_t sb2 = { { 0 }, 0 };
+    wave_add_segment(&sb2, &SAMSUNG16, 16, 0x0CF0);
+    wave_add_segment(&sb2, &SAMSUNG20, 20, 0x0AE51);
+    check("G:Samsung 16 and 20 Bit:()(0x0CF0_1x0AE51)():3", 38000, &sb2, NULL);
+
+    /* Xbox Series X PowerOff: one NEC-style frame, then the repeat code */
+    wave_t xs = { { 0 }, 0 }, xr = { { 0 }, 0 };
+    wave_add_segment(&xs, &TOSHIBA, 32, 0x011B946B);
+    wave_add_segment(&xr, &TOSHIBA_REPEAT, 0, 0);
+    check("G:Toshiba 32 Bit:(0x011B946B)(Repeat)():3", 38000, &xs, &xr);
 
     printf("ALL IR ENCODER TESTS PASSED!\n");
     return 0;

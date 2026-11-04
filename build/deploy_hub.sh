@@ -165,25 +165,45 @@ ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" \
 HAS_DEV=$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0" 2>/dev/null || echo 0)
 if [ "$HAS_DEV" = "0" ]; then
     HAS_STOCK=$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0" 2>/dev/null || echo 0)
-    if [ "$HAS_STOCK" = "1" ] && [ -f "$REPO_ROOT/tools/migrate_hub_configs.py" ]; then
+    # Release bundle: tools/ next to this script. Repository: tools/ next to build/.
+    MIG_SCRIPT=""
+    for _c in "$SCRIPT_DIR/tools/migrate_hub_configs.py" "$REPO_ROOT/tools/migrate_hub_configs.py"; do
+        if [ -f "$_c" ]; then MIG_SCRIPT="$_c"; break; fi
+    done
+    if [ "$HAS_STOCK" = "1" ] && [ -z "$MIG_SCRIPT" ]; then
+        echo "[!] Stock configuration found but migrate_hub_configs.py is missing: devices and activities were NOT migrated."
+    fi
+    if [ "$HAS_STOCK" = "1" ] && [ -n "$MIG_SCRIPT" ]; then
         echo "[*] Migrating stock Logitech configurations to canonical v2.0 format..."
         TMP_MIG=$(mktemp -d 2>/dev/null || mktemp -d -t 'harmig')
         scp -O -r "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}:/data/resources" "$TMP_MIG/" 2>/dev/null || true
-        PY_BIN="python3"
-        command -v python3 >/dev/null 2>&1 || PY_BIN="python"
-        $PY_BIN "$REPO_ROOT/tools/migrate_hub_configs.py" --src "$TMP_MIG/resources" --dest "$TMP_MIG/out" 2>/dev/null || true
-        if [ -f "$TMP_MIG/out/config/devices.json" ]; then
-            scp -O "${SSH_OPTS[@]}" "$TMP_MIG/out/config/"* "${HUB_USER}@${HUB_HOST}:/data/harmony/config/" 2>/dev/null || true
-            for _mf in "$TMP_MIG/out/"*.json; do
-                [ -f "$_mf" ] && scp -O "${SSH_OPTS[@]}" "$_mf" "${HUB_USER}@${HUB_HOST}:/data/harmony/" 2>/dev/null || true
-            done
-            echo "[+] Stock configurations converted and uploaded successfully."
+        PY_BIN=""
+        for _py in python3 python; do
+            if command -v "$_py" >/dev/null 2>&1; then PY_BIN="$_py"; break; fi
+        done
+        if [ -z "$PY_BIN" ]; then
+            echo "[!] Python is not installed or not in PATH: devices and activities could not be migrated."
+        else
+            $PY_BIN "$MIG_SCRIPT" --src "$TMP_MIG/resources" --dest "$TMP_MIG/out" || true
+            if [ -f "$TMP_MIG/out/config/devices.json" ]; then
+                scp -O "${SSH_OPTS[@]}" "$TMP_MIG/out/config/"* "${HUB_USER}@${HUB_HOST}:/data/harmony/config/" 2>/dev/null || true
+                for _mf in "$TMP_MIG/out/"*.json; do
+                    [ -f "$_mf" ] && scp -O "${SSH_OPTS[@]}" "$_mf" "${HUB_USER}@${HUB_HOST}:/data/harmony/" 2>/dev/null || true
+                done
+                if [ "$(ssh -n "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "[ -f /data/harmony/config/devices.json ] && echo 1 || echo 0" 2>/dev/null)" = "1" ]; then
+                    echo "[+] Stock configurations converted and uploaded successfully."
+                else
+                    echo "[!] Migrated configuration upload failed: /data/harmony/config/devices.json is missing on the Hub."
+                fi
+            else
+                echo "[!] Stock configuration conversion failed: devices.json was not generated."
+            fi
         fi
         rm -rf "$TMP_MIG" 2>/dev/null || true
     fi
 fi
 
-REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
+REMOTE_MD5_LIST=$(ssh "${SSH_OPTS[@]}" "${HUB_USER}@${HUB_HOST}" "md5sum /data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* /cache/www/assets/* /cache/modules/* /cache/bin/busybox /data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local 2>/dev/null || true")
 
 for bin in hub_daemon hub_rf hub_sntp hub_btstack hub_sync hub_dhcpd hub_portal mknod register_ehci eth_fix; do
     if [ -f "$BIN_DIR/$bin" ]; then
