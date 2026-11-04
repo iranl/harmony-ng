@@ -339,7 +339,7 @@ void *config_push_worker(void *arg) {
         uint8_t target_slot = target_slots[t];
         if (target_slot < 1 || target_slot > 2 || !(g_remote_versions[target_slot - 1].caps & RF_CAP_ACT_DEVICES)) continue;
         for (int i = 0; i < act_count; i++) {
-            uint8_t payload[26] = {0};
+            uint8_t payload[25] = {0};
             payload[0] = (uint8_t)i;
             payload[1] = (uint8_t)act_count;
             int n = 0;
@@ -352,7 +352,7 @@ void *config_push_worker(void *arg) {
                 }
             }
             payload[2] = (uint8_t)n;
-            rf_build_frame(&f, target_slot, RF_MSG_ACT_DEVICES_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 26);
+            rf_build_frame(&f, target_slot, RF_MSG_ACT_DEVICES_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
             push_queue_add(&queue[t], &f);
         }
     }
