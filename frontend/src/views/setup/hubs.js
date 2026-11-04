@@ -99,7 +99,7 @@ export function createView() {
     const hostInput = h('input', {
       type: 'text',
       className: 'form-input',
-      placeholder: 'e.g. 10.234.234.98 or harmony-hub.local',
+      placeholder: 'e.g. 192.168.1.1 or harmony-hub.local',
     });
 
     const portInput = h('input', {

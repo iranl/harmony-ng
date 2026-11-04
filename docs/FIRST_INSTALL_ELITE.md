@@ -112,17 +112,8 @@ Pass `--no-backup` to skip the automatic backup during setup.
 
 Run the deployment script to push `elite_ui` (touch UI & framebuffer engine) to the remote:
 
-### On Windows (PowerShell):
-```powershell
-# From repo root:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1
-
-# Or from extracted release zip:
-.\deploy_elite.ps1 -Ip 192.168.2.1
-```
-
-### On Linux / macOS / Windows (Python):
 ```bash
+# Cross-platform (Windows, Linux, macOS):
 # From repo root:
 python elite/deploy_elite.py --ip 192.168.2.1
 
@@ -191,9 +182,6 @@ python tools/factory_reset.py --target elite --elite-ip 192.168.2.1
 
 # Or using deployment script:
 python elite/deploy_elite.py --ip 192.168.2.1 --factory-reset
-
-# Or using PowerShell:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -FactoryReset
 ```
 
 ---

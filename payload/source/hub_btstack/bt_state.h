@@ -119,8 +119,6 @@ extern uint16_t g_host_hid_cid;
 extern bd_addr_t g_host_addr;
 extern bool g_host_connected;
 extern bool g_host_pairing;
-/* Set by disconnect_host: no auto-reconnect until something asks for a connection again */
-/* Host that received a new link key while pairing mode was on (the host being paired) */
 extern bool g_pairing_new_key_valid;
 extern bd_addr_t g_pairing_new_key_addr;
 extern char g_host_name[64];

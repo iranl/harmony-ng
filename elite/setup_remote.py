@@ -1033,12 +1033,7 @@ def print_success(priv_path: pathlib.Path):
     print(f"    ssh root@{REMOTE_IP}")
     print()
     print(" Next Step: Install HarmonyNG Custom Firmware & UI:")
-    if sys.platform == "win32":
-        print(f"    powershell .\\elite\\deploy_elite.ps1 -KeyPath {priv_path}")
-        print(" or via Python:")
-        print(f"    python elite/deploy_elite.py --key {priv_path}")
-    else:
-        print(f"    python elite/deploy_elite.py --key {priv_path}")
+    print(f"    python elite/deploy_elite.py --key {priv_path}")
     print("=" * 70 + "\n")
 
 

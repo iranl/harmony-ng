@@ -148,12 +148,11 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 ├── build/                  # Cross-compilation toolchains, build, and deploy scripts
 │   ├── cc2544/             # GPLv2 kernel driver for CC2544 RF transceiver
 │   ├── patches/            # BTstack patches
-│   ├── build_apk.ps1       # Android APK build and package script
+│   ├── build_apk.py        # Android APK build and package script
 │   ├── build_btstack.sh    # MIPS32 BTstack cross-compilation script
-│   ├── build_webui.ps1     # Frontend Vite builder and gzip compressor
+│   ├── build_webui.py      # Frontend Vite builder and gzip compressor
 │   ├── compile_all.sh      # Master Hub userspace binary build script
-│   ├── deploy_hub.ps1      # Hub deployment script (PowerShell)
-│   └── deploy_hub.sh       # Hub deployment script (Bash)
+│   └── deploy_hub.py       # Hub deployment script (cross-platform Python)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
@@ -165,8 +164,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
 ├── elite/                  # Elite 950 remote userspace binaries and deployment tools
 │   ├── bootstrap_serial.py # Hardware serial bootstrap
-│   ├── deploy_elite.ps1    # Remote deployment script (PowerShell)
-│   ├── deploy_elite.py     # Remote deployment script (Python)
+│   ├── deploy_elite.py     # Remote deployment script (cross-platform Python)
 │   ├── setup_remote.py     # Multi-step remote provisioning tool
 │   └── rcS.local           # Elite safe-boot script with panic recovery
 ├── payload/
@@ -219,7 +217,7 @@ npm run build
 The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing an Elite remote connected over USB or transferring files over SSH.
 
 ### Automated Extraction During Hub Deployment
-When running `./build/deploy_hub.ps1` or `./build/deploy_hub.sh`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
+When running `python build/deploy_hub.py <HUB_IP>`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
 
 ### Standalone Extraction Using Python
 You can also extract icons or build the WebUI archive manually at any time on any platform (Windows, macOS, Linux):
@@ -242,7 +240,7 @@ python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icon
 
 ## Backup & Restoration Safety (No Gzip)
 
-All Hub partition backups and stock configuration restores (`tools/root_hub_usb.py`, `tools/restore_stock.py`, `build/backup_hub.sh`) use **plain uncompressed tar archives** (`.tar`, not `.tar.gz`).
+All Hub partition backups and stock configuration restores (`tools/root_hub_usb.py`, `tools/restore_stock.py`, `tools/backup_hub.py`) use **plain uncompressed tar archives** (`.tar`, not `.tar.gz`).
 
 - **Why no gzip?** Embedded MIPS BusyBox has limited RAM and flash bandwidth. Streaming uncompressed tar avoids CPU exhaustion, reduces write cycles, and prevents out-of-memory kernel panics during recovery.
 - **Stock Backup Location**: `backups/stock_hub_backup_<timestamp>.tar` (and `backups/stock_hub_backup_latest.tar`).

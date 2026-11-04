@@ -104,11 +104,8 @@ backups/stock_hub_backup_latest.tar
 
 You can also run manual backups at any time:
 ```bash
-# Windows (PowerShell):
-bash build/backup_hub.sh <YOUR_HUB_IP>
-
-# Linux / macOS:
-./build/backup_hub.sh <YOUR_HUB_IP>
+# Cross-platform (Windows, Linux, macOS):
+python tools/backup_hub.py <YOUR_HUB_IP>
 ```
 
 This archive preserves your stock Logitech pairings, Wi-Fi configuration, device profiles, and certificates. You can restore from it at any time using `python tools/restore_stock.py`.
@@ -119,22 +116,13 @@ This archive preserves your stock Logitech pairings, Wi-Fi configuration, device
 
 Run the deployment script to push `hub_daemon`, the WebUI, network manager, and kernel modules to the Hub:
 
-### On Windows (PowerShell):
-```powershell
-# From repo root:
-.\build\deploy_hub.ps1 -HubIp <YOUR_HUB_IP>
-
-# Or from extracted release zip:
-.\deploy_hub.ps1 -HubIp <YOUR_HUB_IP>
-```
-
-### On Linux / macOS (Bash):
 ```bash
+# Cross-platform (Windows, Linux, macOS):
 # From repo root:
-./build/deploy_hub.sh <YOUR_HUB_IP>
+python build/deploy_hub.py <YOUR_HUB_IP>
 
 # Or from extracted release zip:
-./deploy_hub.sh <YOUR_HUB_IP>
+python deploy_hub.py <YOUR_HUB_IP>
 ```
 
 Add `--dry-run` (or `-n`) to see what a deployment would change without changing anything: it reads the Hub's checksums, lists the files it would upload or purge and the steps it would run (backup, service stop, restart or reboot), and leaves the Hub and the local tree as they are. It does not build the web UI; from the repository it compares the files already in `payload/www`.
