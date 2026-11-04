@@ -5,6 +5,7 @@
 #include "elite_fb.h"
 #include "elite_rf.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -34,6 +35,9 @@ static struct {
     bool failed;
 } s_help;
 
+/* ui_help_on_status runs on the RF thread, everything else on the UI thread */
+static pthread_mutex_t s_help_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static void set_state(help_state_t st, uint64_t now) {
     s_help.state = st;
     s_help.since_ms = now;
@@ -47,24 +51,35 @@ static void finish(elite_str_id_t result, bool failed, uint64_t now) {
 }
 
 bool ui_help_active(void) {
-    return s_help.state != HELP_OFF;
+    pthread_mutex_lock(&s_help_lock);
+    bool active = s_help.state != HELP_OFF;
+    pthread_mutex_unlock(&s_help_lock);
+    return active;
 }
 
 void ui_help_start(void) {
     if (strcmp(g_active_activity_id, "-1") == 0 || !g_active_activity_id[0]) return;
+    pthread_mutex_lock(&s_help_lock);
     memset(&s_help, 0, sizeof(s_help));
     snprintf(s_help.act_id, sizeof(s_help.act_id), "%s", g_active_activity_id);
     s_help.tries = 1;
     set_state(HELP_REQUESTING, get_monotonic_ms());
     rf_send_help_request(s_help.act_id);
+    pthread_mutex_unlock(&s_help_lock);
 }
 
-/* Closes Help and shows the activity screen */
-void ui_help_close(void) {
+static void close_locked(void) {
     if (s_help.state == HELP_OFF) return;
     s_help.state = HELP_OFF;
     g_current_view = VIEW_DEVICES;
     g_screen_dirty = true;
+}
+
+/* Closes Help and shows the activity screen */
+void ui_help_close(void) {
+    pthread_mutex_lock(&s_help_lock);
+    close_locked();
+    pthread_mutex_unlock(&s_help_lock);
 }
 
 static void show_question(int idx, uint64_t now) {
@@ -77,7 +92,11 @@ static void show_question(int idx, uint64_t now) {
 void ui_help_on_status(const rf_frame_t *f) {
     uint64_t now = get_monotonic_ms();
     const uint8_t *p = f->payload;
-    if (s_help.state == HELP_OFF || s_help.state == HELP_DONE) return;
+    pthread_mutex_lock(&s_help_lock);
+    if (s_help.state == HELP_OFF || s_help.state == HELP_DONE) {
+        pthread_mutex_unlock(&s_help_lock);
+        return;
+    }
     switch (p[0]) {
         case RF_HELP_STARTED:
             if (s_help.state == HELP_REQUESTING) set_state(HELP_RESENDING, now);
@@ -106,11 +125,13 @@ void ui_help_on_status(const rf_frame_t *f) {
             break;
         }
     }
+    pthread_mutex_unlock(&s_help_lock);
 }
 
 /* Main loop: request retries and timeouts */
 void ui_help_tick(uint64_t now) {
     static uint64_t last_frame_ms;
+    pthread_mutex_lock(&s_help_lock);
     uint64_t age = now - s_help.since_ms;
     if ((s_help.state == HELP_REQUESTING || s_help.state == HELP_RESENDING) && now - last_frame_ms >= 250) {
         last_frame_ms = now;
@@ -134,11 +155,12 @@ void ui_help_tick(uint64_t now) {
             if (s_help.cur >= s_help.received && age >= HELP_NEXT_MS) finish(STR_LINK_HUB_SILENT, true, now);
             break;
         case HELP_DONE:
-            if (age >= HELP_DONE_MS) ui_help_close();
+            if (age >= HELP_DONE_MS) close_locked();
             break;
         default:
             break;
     }
+    pthread_mutex_unlock(&s_help_lock);
 }
 
 static void answer(bool on) {
@@ -163,6 +185,7 @@ static void draw_button(int x, const char *label, bool sel) {
 }
 
 void render_help(void) {
+    pthread_mutex_lock(&s_help_lock);
     int y = UI_CONTENT_Y;
     fb_fill_rect(0, y - 3, FB_WIDTH, FB_HEIGHT - y + 3, RGB_BG);
     fb_draw_text_aa(12, y + 8, tr(STR_HELP), RGB_WHITE, &g_font_title);
@@ -202,36 +225,43 @@ void render_help(void) {
         default:
             break;
     }
+    pthread_mutex_unlock(&s_help_lock);
 }
 
 /* Keys while Help shows; returns false for keys Help leaves alone, such as volume */
 bool ui_help_handle_key(int code) {
+    bool handled = true;
+    pthread_mutex_lock(&s_help_lock);
     switch (code) {
         case 105: case 106: case 103: case 108: case 78: case 74:  /* D-pad, rocker */
-            if (s_help.state != HELP_QUESTION) return false;
-            s_help.sel = !s_help.sel;
+            if (s_help.state != HELP_QUESTION) handled = false;
+            else s_help.sel = !s_help.sel;
             break;
         case 28: case 148:  /* OK, KEY_PROG1 */
             if (s_help.state == HELP_QUESTION) answer(s_help.sel == 0);
-            else if (s_help.state == HELP_DONE) ui_help_close();
+            else if (s_help.state == HELP_DONE) close_locked();
             break;
         case 158: case 202: case 174:  /* Back, KEY_PROG3, Exit */
-            ui_help_close();
+            close_locked();
             break;
         default:
-            return false;
+            handled = false;
     }
+    pthread_mutex_unlock(&s_help_lock);
+    if (!handled) return false;
     g_screen_dirty = true;
     render_screen();
     return true;
 }
 
 void ui_help_handle_tap(int x, int y) {
+    pthread_mutex_lock(&s_help_lock);
     if (s_help.state == HELP_DONE) {
-        ui_help_close();
+        close_locked();
     } else if (s_help.state == HELP_QUESTION && y >= HELP_BTN_Y && y < HELP_BTN_Y + HELP_BTN_H) {
         if (x >= 8 && x < 8 + HELP_BTN_W) answer(true);
         else if (x >= FB_WIDTH - 8 - HELP_BTN_W && x < FB_WIDTH - 8) answer(false);
     }
+    pthread_mutex_unlock(&s_help_lock);
     render_screen();
 }
