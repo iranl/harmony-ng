@@ -303,6 +303,55 @@ def migrate_stock_activities(activity_list_path: str) -> Tuple[Dict[str, Any], D
     return {"activities": clean_activities}, id_map
 
 
+def _remap_device_refs(obj: Any, dev_map: Dict[str, str]) -> Any:
+    """Recursively rewrite device id references (deviceId / DeviceId / DeviceId- keys)."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k in ("deviceId", "DeviceId", "DeviceId-", "btTriggerDeviceId") and str(v) in dev_map:
+                out[k] = dev_map[str(v)]
+            else:
+                out[k] = _remap_device_refs(v, dev_map)
+        return out
+    if isinstance(obj, list):
+        return [_remap_device_refs(v, dev_map) for v in obj]
+    return obj
+
+
+def shorten_stock_device_ids(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Replace stock Logitech device ids ("75563901") with short ids ("1", "2", ...), like activities.
+
+    The RF protocol only carries the first 4 characters of a device id, so long ids never
+    match on the Hub. Rewrites the devices and every reference in the activities in place
+    and returns the old -> new id map.
+    """
+    dev_map: Dict[str, str] = {}
+    next_id = 1
+    for d in devices_obj.get("devices", []):
+        old_id = str(d.get("id", ""))
+        if not old_id:
+            continue
+        dev_map[old_id] = str(next_id)
+        next_id += 1
+    if not dev_map:
+        return dev_map
+
+    devices_obj["devices"] = [_remap_device_refs(d, dev_map) for d in devices_obj.get("devices", [])]
+    for d in devices_obj["devices"]:
+        old_id = str(d.get("id", ""))
+        if old_id in dev_map:
+            d["id"] = dev_map[old_id]
+
+    if activities_obj:
+        acts = []
+        for a in activities_obj.get("activities", []):
+            a = _remap_device_refs(a, dev_map)
+            a["deviceIds"] = [dev_map.get(str(did), str(did)) for did in a.get("deviceIds", [])]
+            acts.append(a)
+        activities_obj["activities"] = acts
+    return dev_map
+
+
 def generate_default_remote_map(activities_obj: Dict[str, Any], devices_obj: Dict[str, Any], remote_name: str) -> Dict[str, Any]:
     """Generate canonical remote button map for Slot 1 (Elite) or Slot 2 (Companion)."""
     acts = activities_obj.get("activities", [])
@@ -573,14 +622,20 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
                 activities_obj, id_map = sanitize_activities_json(json.load(f))
 
     # If devices or activities not found in codex, try stock resources
+    devices_from_stock = False
     if (not devices_obj or not devices_obj.get("devices")) and res_dir:
         dev_list = os.path.join(res_dir, "DeviceList.json")
         fn_list = os.path.join(res_dir, "FunctionList.json")
         devices_obj = migrate_stock_devices(dev_list, fn_list)
+        devices_from_stock = True
 
     if (not activities_obj or not activities_obj.get("activities")) and res_dir:
         act_list = os.path.join(res_dir, "ActivityList.json")
         activities_obj, id_map = migrate_stock_activities(act_list)
+
+    # Stock device ids are 8+ digits; give them short ids like the activities
+    if devices_from_stock and devices_obj:
+        shorten_stock_device_ids(devices_obj, activities_obj)
 
     # Write devices.json and activities.json
     if devices_obj:
