@@ -98,10 +98,7 @@ If you wish to reinstall HarmonyNG after a clean reset:
 python tools/root_hub_usb.py --wifi-ssid "YourNetwork" --wifi-pass "YourPassword"
 
 # 2. Deploy HarmonyNG firmware:
-# Windows (PowerShell):
-.\build\deploy_hub.ps1 -HubIp <HUB_IP>
-# Linux / macOS (Bash):
-./build/deploy_hub.sh <HUB_IP>
+python build/deploy_hub.py <HUB_IP>
 ```
 
 ---

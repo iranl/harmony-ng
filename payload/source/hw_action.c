@@ -641,17 +641,26 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
                     open_p = close_p ? strchr(close_p + 1, '(') : NULL;
                 }
             }
+            /* hub_btstack's descriptor has a keyboard (0x07) and a consumer (0x0C)
+             * page only; send anything else by name instead of dropping it. */
+            if (hid_parsed && !((page == 0x07 && usage > 0 && usage <= 0xFF) ||
+                                (page == 0x0C && usage > 0 && usage <= 0x3FF))) {
+                hid_parsed = 0;
+            }
             if (hid_parsed) {
                 if (page == 0x07) {
+                    /* KBD_DOWN keeps the key pressed until RELEASE; a raw report
+                     * is released by hub_btstack after 30 ms, so a held key never
+                     * repeated on the host. */
                     if (action == HW_BTN_ACTION_PRESS) {
-                        snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000\n", (unsigned char)usage);
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "KBD_DOWN %X\n", usage);
                     } else if (action == HW_BTN_ACTION_RELEASE) {
                         snprintf(pipe_cmd, sizeof(pipe_cmd), "RELEASE\n");
                     } else if (action == HW_BTN_ACTION_REPEAT) {
                         pipe_cmd[0] = '\0';
                         ret = 0;
                     } else {
-                        snprintf(pipe_cmd, sizeof(pipe_cmd), "A1010000%02X0000000000|A1010000000000000000\n", (unsigned char)usage);
+                        snprintf(pipe_cmd, sizeof(pipe_cmd), "KBD %X\n", usage);
                     }
                 } else if (page == 0x0C) {
                     if (action == HW_BTN_ACTION_PRESS) {

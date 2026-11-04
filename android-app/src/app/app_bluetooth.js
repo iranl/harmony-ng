@@ -174,14 +174,14 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           <div class="queue-row" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:6px; flex-wrap:wrap; gap:8px;">
             <div style="min-width: 180px;">
               <strong>${resolveHostDeviceName(h)}</strong>
-              <div class="muted mini">${h.addr} • <span style="color:${h.connected ? 'var(--success)' : 'var(--text-dim)'}">${h.connected ? 'Connected' : 'Paired'}</span></div>
+              <div class="muted mini">${h.addr} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
               <select class="form-control form-control-sm host-assign-sel" data-addr="${h.addr}" style="font-size:11px; max-width:180px;">
                 <option value="">-- Assign Device --</option>
                 ${devs.map(d => `<option value="${d.id}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${d.name || d.id}</option>`).join('')}
               </select>
-              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${h.addr}">${h.connected ? 'Disconnect' : 'Connect'}</button>
+              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${h.addr}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
             </div>
           </div>
         `;
@@ -205,7 +205,13 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
 
         list.querySelectorAll('.btn-bt-disconn').forEach(b => {
           b.addEventListener('click', async () => {
-            await this.client.disconnectBt(b.getAttribute('data-addr'));
+            /* The button reads Connect or Disconnect; it used to disconnect in both cases */
+            const addr = b.getAttribute('data-addr');
+            if (b.getAttribute('data-connected')) {
+              await this.client.disconnectBt(addr);
+            } else {
+              await this.client.connectBt(addr);
+            }
             this.loadBtView();
           });
         });

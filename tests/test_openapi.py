@@ -7,7 +7,7 @@ tests against a live or emulated Hub driven directly by docs/openapi.yaml.
 Requirements: Python 3.8+ (Zero external dependencies, pure stdlib)
 Usage:
   python tests/test_openapi.py
-  python tests/test_openapi.py --host 10.234.234.98 --port 8089
+  python tests/test_openapi.py --host 192.168.1.1 --port 8089
   python tests/test_openapi.py --spec docs/openapi.yaml --strict
   python -m unittest tests/test_openapi.py
 """
@@ -32,7 +32,7 @@ C_RESET = "\033[0m"
 
 # Default target settings
 DEFAULT_SPEC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "openapi.yaml")
-DEFAULT_HOST = "10.234.234.98"
+DEFAULT_HOST = "192.168.1.1"
 DEFAULT_PORT = 8089
 DEFAULT_TIMEOUT = 3.5
 

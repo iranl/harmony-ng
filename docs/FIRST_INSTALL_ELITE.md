@@ -7,13 +7,15 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 > Reverse engineering confirms the **Harmony Pro 2400 Remote** (Skin 116, firmware 10.0.215) belongs to the exact same hardware family (`hops`) as the Elite 950, sharing the same TI DaVinci ARM SoC, 240x320 RGB565 LCD (`/dev/fb0`), Synaptics ClearPad touch digitizer, keypad matrix, and CC2544 RF transceiver (Report `0x20`).
 >
 > On firmware 10.0.215, Dropbear SSH is **already enabled by default** in `/etc/init.d/rcS`. The Pro 2400 Remote, Harmony Ultimate (Home), and Harmony Touch are all supported by our tooling and custom firmware (untested on physical Pro 2400 hardware, try at own risk).
+>
+> Tested end to end on a **Harmony Ultimate (2013, skin 100, firmware 4.15.330)**: rooting, stock backup (see the warning in section 3), `elite_ui`, touch and RF pairing. Its differences from the Elite are listed under [Harmony Ultimate (2013)](#harmony-ultimate-2013).
 
 ---
 
 ## 1. Prerequisites & Getting the Files
 
 ### Hardware & Driver Requirements
-- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), Harmony Pro 2400 Remote (Skin 116), or Harmony Ultimate (Home) / Touch (*untested, try at own risk*).
+- **Remote**: Logitech Harmony Elite 950 (Model N-R0007 / N-R0010), Harmony Pro 2400 Remote (Skin 116), Harmony Ultimate (2013, skin 100, tested), or Harmony Ultimate Home / Touch (*untested, try at own risk*).
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
@@ -33,6 +35,8 @@ cd harmony-ng
 
 # Compile ARM userspace binaries
 ./build/compile_all.sh elite
+# BusyBox with tar, used for the remote backup (the release bundle ships it in bin/)
+./build/build_busybox.sh arm
 ```
 
 ---
@@ -47,10 +51,17 @@ cd harmony-ng
    ```bash
    python elite/setup_remote.py --check-usb
    ```
-3. Run the automated all-in-one setup tool:
+3. Root the remote without installing anything yet, so you can take the stock backup in section 3 first:
    ```bash
-   python elite/setup_remote.py
+   python elite/setup_remote.py --step 1
    ```
+   Running `python elite/setup_remote.py` without `--step` also works, but when the remote is already in USB Ethernet mode it goes straight on to step 2, which installs `elite_ui` and stops the stock UI before you have a backup.
+
+> [!TIP]
+> **Windows 10 & 11 Automated Setup**: If Windows binds the remote as a serial COM port or fails to bind RNDIS after reboot, `setup_remote.py` automatically prompts for Administrator elevation to install the included WHQL-signed RNDIS driver and configure `192.168.2.2/24` (no manual Device Manager or WSL2 needed). You can also run the standalone installer at any time:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
+> ```
 
 The tool automatically:
 1. **Detects USB & Network State**: Checks whether the remote is connected in USB HID mode, USB Ethernet mode, missing Windows RNDIS driver (Code 28), or disconnected.
@@ -60,7 +71,7 @@ The tool automatically:
    [!] Elite Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
    [?] Download and install latest official firmware (4.15.330) first? (y/N):
    ```
-   If confirmed, it downloads `elite_99_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
+   If confirmed, it downloads `elite_111_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
 4. **Dynamic Execution**: If already in USB Ethernet mode with HTTP/SSH active, it skips HID staging and proceeds directly to permanent installation. Otherwise, it stages the self-extracting Dropbear payload to `/sys/dropbear`, arms `/tde/enable`, and reboots into multi-user mode.
 5. **Post-Step Status**: Prints verified connection state upon completion.
 
@@ -78,15 +89,19 @@ The tool automatically:
 
 ---
 
-## 3. Create Stock Remote Backup (Recommended)
+## 3. Stock Remote Backup (Automatic)
 
-Before modifying flash contents, save a complete backup of stock Lua scripts and configuration:
+As soon as SSH is up, `setup_remote.py` saves `/data`, `/opt/luadraws` and `/etc` of the remote to `backups/elite/elite_backup_<timestamp>.tar`, before the HarmonyNG runtime is installed. The first backup is also kept as `backups/elite/golden_elite_backup.tar`, which later runs never overwrite.
+
+The stock BusyBox on the Elite, 950, Touch and Ultimate has no `tar`. The tool copies the project's own ARM BusyBox to `/tmp/busybox` (RAM) for the backup and removes it afterwards; nothing is written to flash. It looks for that BusyBox in `bin/` of the release bundle or in `elite/bin/` after `./build/build_busybox.sh arm`.
+
+To make another backup of a rooted remote at any time:
 
 ```bash
-# On host PC (plain uncompressed tar, no gzip):
-mkdir -p backups/elite
-ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/elite/golden_elite_backup.tar
+python elite/setup_remote.py --backup
 ```
+
+Pass `--no-backup` to skip the automatic backup during setup.
 
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
@@ -97,17 +112,8 @@ ssh root@192.168.2.1 "tar -cf - /data /opt/luadraws /etc 2>/dev/null" > backups/
 
 Run the deployment script to push `elite_ui` (touch UI & framebuffer engine) to the remote:
 
-### On Windows (PowerShell):
-```powershell
-# From repo root:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1
-
-# Or from extracted release zip:
-.\deploy_elite.ps1 -Ip 192.168.2.1
-```
-
-### On Linux / macOS / Windows (Python):
 ```bash
+# Cross-platform (Windows, Linux, macOS):
 # From repo root:
 python elite/deploy_elite.py --ip 192.168.2.1
 
@@ -176,9 +182,6 @@ python tools/factory_reset.py --target elite --elite-ip 192.168.2.1
 
 # Or using deployment script:
 python elite/deploy_elite.py --ip 192.168.2.1 --factory-reset
-
-# Or using PowerShell:
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -FactoryReset
 ```
 
 ---
@@ -199,3 +202,24 @@ The Harmony Elite features a **128 MB NAND Flash** with 64 MB mobile DDR RAM:
 
 - `elite_ui` binary: **~718 KB**
 - Total HarmonyNG footprint on `/data`: **< 3 MB** out of 32 MB free space.
+
+### Harmony Ultimate (2013)
+
+Observed on a Harmony Ultimate (hostname `juniper`, skin 100, firmware 4.15.330, kernel 2.6.37, armv5tejl). There are no separate `/data` and `/opt` partitions: the root filesystem is a unionfs with a writable UBIFS layer over a read-only SquashFS image, plus a separate `/cache` UBIFS volume.
+
+```text
+rootfs / rootfs rw
+ubi0:cache /cache ubifs rw
+/dev/mtdblock6 /mnt/root squashfs ro
+ubi0:data /mnt/data ubifs rw
+none / unionfs rw,dirs=/mnt/data=rw:/mnt/root=ro
+```
+
+`/data`, `/opt` and `/etc` are directories in that union, and everything written to them lands in the `ubi0:data` layer. The hardware factory reset (Menu + Off) wipes that layer: after a reset `/data/resources` and `/etc/tdeenable` are gone and the remote boots the stock firmware again.
+
+Other differences from the Elite 950:
+
+- **Skin 100.** Logitech's update service has no firmware entry for it; `setup_remote.py` looks up the remote firmware under skin 111 (the 4.15.330 remote bundle lists skin 100 among its intended devices).
+- **Touch controller.** The Synaptics ClearPad TM2176-003 reports `ABS_X` 0-782 and `ABS_Y` 0-1009 instead of screen pixels; `elite_ui` scales these to the 240x320 screen.
+- **Capacitive keys.** The star and home touch keys send `KEY_FAVORITES` (364) and `KEY_HOME` (102), like the Elite's capacitive buttons, and open **ACTIVITIES** and **DEVICES**. One touch can register as 2 or 3 presses.
+- **No `tar`, `find` or `dd`** in the stock BusyBox (the same as on a stock Elite); `setup_remote.py` stages the project's own BusyBox in RAM for its backup, see section 3.

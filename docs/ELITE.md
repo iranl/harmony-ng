@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > **Hardware Family Compatibility**:
-> The **Harmony Pro 2400 Remote** (Skin 116), Harmony Ultimate (Home), and Harmony Touch share the same underlying architecture (TI DaVinci ARM, CC2544 RF, ClearPad touch, 240x320 RGB565 LCD). Pro 2400 remote runs Dropbear SSH out of the box in stock firmware 10.0.215. All are supported using the same tooling and `elite_ui` binary (*untested on physical Pro 2400 remote hardware*).
+> The **Harmony Pro 2400 Remote** (Skin 116), Harmony Ultimate (Home), and Harmony Touch share the same underlying architecture (TI DaVinci ARM, CC2544 RF, ClearPad touch, 240x320 RGB565 LCD). Pro 2400 remote runs Dropbear SSH out of the box in stock firmware 10.0.215. All are supported using the same tooling and `elite_ui` binary (*untested on physical Pro 2400 remote hardware*). Tested on a Harmony Ultimate (2013, skin 100, firmware 4.15.330); its differences are listed in [FIRST_INSTALL_ELITE.md](FIRST_INSTALL_ELITE.md#harmony-ultimate-2013).
 
 ## Serial Console & U-Boot (UART)
 Baud rate: `115200 8N1` on serial pad.
@@ -48,14 +48,11 @@ Architecture: ARMv5TE little-endian (`armv5tejl`, uClibc-0.9.30.1).
 
 ---
 
-## SSH Deployment Script (`elite/deploy_elite.py` / `deploy_elite.ps1`)
+## SSH Deployment Script (`elite/deploy_elite.py`)
 Once SSH is operational, deploy updated custom firmware (`elite_ui`), tools, and boot scripts:
 ```sh
-# Linux/macOS
-python3 elite/deploy_elite.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed25519
-
-# Windows PowerShell
-.\elite\deploy_elite.ps1 -Ip 192.168.2.1 -KeyPath ~/.ssh/harmony_owner_ed25519
+# Cross-platform (Linux/macOS/Windows)
+python elite/deploy_elite.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed25519
 ```
 Before it changes anything on the remote, `deploy_elite.py` runs a ready-to-go check and stops, with what to do, if any of these fails:
 - `elite/bin/elite_ui` and `elite/bin/elite_sync` are built.
@@ -434,4 +431,4 @@ The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activit
 ```bash
 python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 ```
-The resulting `build/icons.tar.gz` (1.55 MB compressed) is automatically staged to `/cache/icons.tar.gz` during `deploy_hub.ps1` or `deploy_hub.sh`.
+The resulting `build/icons.tar.gz` (1.55 MB compressed) is automatically staged to `/cache/icons.tar.gz` during `deploy_hub.py`.

@@ -6,22 +6,73 @@ Both the **Logitech Harmony Hub** and **Harmony Elite 950** handheld remote comm
 
 ## 1. Windows RNDIS Driver Installation (Windows 10 & 11)
 
-Windows 10/11 frequently fails to automatically bind the correct driver, showing the plugged-in Hub or Elite as `Unknown Device`, `USB Serial Device`, or an exclamation mark in Device Manager.
+Windows 10/11 frequently fails to automatically bind the correct driver, either showing the plugged-in Hub/Elite as `Unknown Device` or mistakenly binding it to `usbser.inf` as a `USB Serial Device (COMx)` under **Ports (COM & LPT)**. Additionally, Windows 11 sets `ExcludeFromSelect=*` on its in-box RNDIS driver templates, preventing manual selection in Device Manager.
 
-### Step-by-Step Driver Installation:
-1. Connect the Hub or Elite cradle to your PC using a known **data-capable** Micro-USB cable.
+### Option A: Automated PowerShell Setup (Recommended)
+
+HarmonyNG includes a Microsoft WHQL-signed RNDIS template driver package (`drivers/windows/rndis/`) and an automated, self-elevating setup script.
+
+Run from an elevated or standard PowerShell console (it will prompt for UAC elevation automatically):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/setup_remote_driver.ps1
+```
+
+The script will automatically:
+1. Install the signed RNDIS driver package into the Windows DriverStore via `pnputil`.
+2. Re-bind `USB\VID_0525&PID_A4A2` (unbinds `usbser.sys` and binds `rndismp.sys`).
+3. Locate the new `USB Ethernet/RNDIS Gadget` network adapter.
+4. Assign static IP `192.168.2.2/24` (leaving the default gateway empty so internet routing is not affected).
+5. Verify connectivity to `192.168.2.1`.
+
+> [!TIP]
+> If you run `python elite/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
+
+---
+
+### Option B: Manual Device Manager Driver Selection
+
+If your Windows build allows manual selection:
+1. Connect the Hub or Elite to your PC using a known **data-capable** Micro-USB cable.
 2. Press `Win + X` and select **Device Manager**.
-3. Locate the device under **Other devices** (usually named `RNDIS`, `CDC Composite Gadget`, or `Unknown device`).
+3. Locate the device under **Other devices** (or under **Ports (COM & LPT)** if bound as serial).
 4. Right-click the device and select **Update driver**.
-5. Choose **Browse my computer for drivers**.
-6. Click **Let me pick from a list of available drivers on my computer**.
-7. In the hardware category list, select **Network adapters** and click **Next**.
-8. In the manufacturer column on the left:
-   - Select **Microsoft** (or **Acer Incorporated** if Microsoft is not listed).
-9. In the model column on the right:
-   - Select **Remote NDIS Compatible Device** (or **USB Ethernet/RNDIS Gadget**).
-10. Click **Next** and click **Yes** on the Update Driver Warning dialog.
-11. Device Manager will now show a new network adapter under Network Adapters.
+5. Choose **Browse my computer for drivers** -> **Let me pick from a list of available drivers on my computer**.
+6. Select **Network adapters** and click **Next**.
+7. In the manufacturer column on the left:
+   - Select **Acer Incorporated** (or **Microsoft**).
+8. In the model column on the right:
+   - Select **USB Ethernet/RNDIS Gadget** (or **Remote NDIS Compatible Device**).
+9. Click **Next** and click **Yes** on the Update Driver Warning dialog.
+
+---
+
+### Option C: WSL2 & usbipd-win (Alternative Fallback)
+
+If you prefer to route the USB device directly into a Linux environment via WSL2:
+
+```powershell
+usbipd list
+usbipd bind --busid <BUSID>
+usbipd attach --wsl --busid <BUSID>
+```
+
+```bash
+ip -br link
+sudo ip addr add 192.168.2.2/24 dev <interface>
+sudo ip link set <interface> up
+```
+
+If you rooted the remote with `setup_remote.py` on Windows, its SSH key is in `%USERPROFILE%\.ssh` on the Windows side. Copy it into WSL first: WSL shows files under `/mnt/c` with open permissions, and ssh refuses a private key that others can read.
+
+```bash
+mkdir -p ~/.ssh
+cp /mnt/c/Users/<you>/.ssh/harmony_owner_ed25519* ~/.ssh/
+chmod 600 ~/.ssh/harmony_owner_ed25519
+ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1
+```
+
+`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_elite.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
 
 ---
 
@@ -29,13 +80,15 @@ Windows 10/11 frequently fails to automatically bind the correct driver, showing
 
 The USB Ethernet gadget uses fixed IP subnets on each device:
 
-| Device | Device USB IP | Recommended Host PC IP | Subnet Mask | Gateway |
-| :--- | :--- | :--- | :--- | :--- |
-| **Harmony Hub** (Stock / Recovery) | `192.168.1.1` | `192.168.1.2` | `255.255.255.0` | `192.168.1.1` |
-| **Harmony Elite 950 / Ultimate / Touch** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` | `192.168.2.1` |
+| Device | Device USB IP | Recommended Host PC IP | Subnet Mask |
+| :--- | :--- | :--- | :--- |
+| **Harmony Hub** (Stock / Recovery) | `192.168.1.1` | `192.168.1.2` | `255.255.255.0` |
+| **Harmony Elite 950 / Ultimate / Touch** | `192.168.2.1` | `192.168.2.2` | `255.255.255.0` |
+
+Do not set a default gateway on the USB adapter: the device is only reachable on its own subnet, and a gateway there can take over the PC's default route.
 
 > [!NOTE]
-> Harmony Ultimate (Home) and Harmony Touch **SHOULD** also be supported using the same tooling and network setup as Elite, but are currently untested, try at your own risk.
+> Tested on a Harmony Ultimate (2013, skin 100) with the same tooling and network setup as the Elite. Harmony Ultimate Home and Harmony Touch **SHOULD** also work, but are untested, try at your own risk.
 
 ### Setting Host Static IP in Windows:
 1. Press `Win + R`, type `ncpa.cpl`, and press **Enter** to open Network Connections.
@@ -44,7 +97,7 @@ The USB Ethernet gadget uses fixed IP subnets on each device:
 4. Select **Use the following IP address**:
    - **IP address**: `192.168.2.2` (for Elite) or `192.168.1.2` (for Hub)
    - **Subnet mask**: `255.255.255.0`
-   - **Default gateway**: `192.168.2.1` (for Elite) or `192.168.1.1` (for Hub)
+   - **Default gateway**: leave empty
 5. Leave DNS blank and click **OK**.
 
 ### Setting Host Static IP in Linux / WSL2:

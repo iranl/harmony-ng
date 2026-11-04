@@ -185,7 +185,7 @@ def main() -> None:
     parser.add_argument("--factory-reset", action="store_true",
                         help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
-                        help="Accepted for older command lines; the deployment always reboots the remote")
+                        help="Reboot the remote instead of hot-restarting elite_ui (it also reboots when an old process still holds the watchdog)")
     parser.add_argument("--no-sync", action="store_true",
                         help="Skip forcing full configuration sync from Hub after deployment (default: False)")
     parser.add_argument("--check", action="store_true",
@@ -336,16 +336,44 @@ def main() -> None:
         print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")
         run_cmd(["ssh"] + ssh_opts + [target, "touch /data/force_sync 2>/dev/null || true"])
 
-    # A hot restart would leave the watchdog unfed from stopping elite_ui until the new one has
-    # started, which can take longer than the watchdog's 10 s
-    print("[*] Pre-reboot verification and safe reboot (flush flash buffers)...")
-    reboot_cmd = 'if ! /bin/sh -c "true" 2>/dev/null; then echo "[-] CRITICAL: /bin/sh verification failed. Aborting reboot!"; exit 1; fi; (/data/safe_reboot.sh >/dev/null 2>&1 &)'
-    res = run_cmd(["ssh"] + ssh_opts + [target, reboot_cmd])
-    if "CRITICAL" in res.stdout:
+    # The new files are in place and flushed while elite_ui still feeds the hardware watchdog
+    # (DaVinci, 10 s, cannot be stopped once armed). Stop the runtime and start the new one in one
+    # short command, so the watchdog goes unfed for a few seconds only. An elite_ui that opened
+    # /dev/watchdog without O_CLOEXEC let dropbear inherit it: if anything still holds it after
+    # the stop, a restarted elite_ui cannot open it and the board would reset a few seconds
+    # later, so reboot cleanly instead.
+    stop_cmd = (
+        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
+        "else killall -9 elite_watchdog.sh codex_watchdog.sh elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
+        "sleep 1; "
+    )
+    restart = (
+        "WDT_HELD=0; for p in /proc/[0-9]*; do ls -l $p/fd 2>/dev/null | grep -q watchdog && WDT_HELD=1; done; "
+        + ("REBOOT=1; " if args.reboot else "REBOOT=$WDT_HELD; ")
+        + "if [ $REBOOT = 1 ]; then echo REBOOTING; "
+        "if /bin/sh -c true 2>/dev/null; then (/data/safe_reboot.sh >/dev/null 2>&1 &); else echo '[-] CRITICAL: /bin/sh verification failed. Not rebooting!'; fi; "
+        "else echo RESTARTING; rm -f /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &); fi"
+    )
+    print("[*] Restarting the Elite runtime (watchdog-aware)...")
+    res = run_cmd(["ssh"] + ssh_opts + [target, stop_cmd + restart])
+    out = res.stdout.strip()
+    for line in out.splitlines():
+        if line not in ("REBOOTING", "RESTARTING"):
+            print(f"    {line}")
+    print()
+    if "CRITICAL" in out:
         print(f"[-] Reboot aborted: {(res.stdout + res.stderr).strip()}")
         sys.exit(1)
-    print()
-    print("[+] Deployment complete! Elite Remote is rebooting safely.")
+    if "REBOOTING" in out:
+        if args.reboot:
+            print("[+] Deployment complete! Elite Remote is rebooting safely.")
+        else:
+            print("[+] Deployment complete! The watchdog was still held by an old process, so the Elite Remote is rebooting safely instead of hot-restarting.")
+    elif "RESTARTING" in out:
+        print("[+] Deployment complete! elite_ui hot-restarted (no reboot).")
+    else:
+        print(f"[-] Restart step did not report back (exit {res.returncode}): {res.stderr.strip()}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
