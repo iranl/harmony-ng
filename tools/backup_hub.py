@@ -65,8 +65,9 @@ def backup_hub(
     dry_run: bool = False,
 ) -> bool:
     """Run golden and rolling backup on Hub."""
+    script_dir = pathlib.Path(__file__).resolve().parent
     if repo_root is None:
-        repo_root = pathlib.Path(__file__).resolve().parent.parent
+        repo_root = script_dir.parent
 
     if backup_dir is None:
         if (repo_root / "payload").is_dir():
