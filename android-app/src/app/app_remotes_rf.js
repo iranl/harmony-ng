@@ -54,9 +54,10 @@ import {
 import { HarmonyAppRemotesElite } from './app_remotes_elite.js';
 
 export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
-  async refreshRfStatus() {
+  /* pushed: an rf_status object from the WebSocket (state watcher); fetched when absent */
+  async refreshRfStatus(pushed = null) {
     try {
-      const st = await this.client.getRfStatus();
+      const st = pushed || await this.client.getRfStatus();
       const fw = document.getElementById('rfFwVer');
       const hubAddr = document.getElementById('rfHubAddr');
       const state = document.getElementById('rfPairState');
