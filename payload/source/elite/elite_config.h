@@ -15,6 +15,7 @@ void build_activity_list(void);
 /* Activity starts on this remote, which order the home screen when "most used first" is chosen */
 void load_activity_usage(void);
 void record_activity_start(const char *id);
+void flush_activity_usage(void);
 void save_rf_config(void);
 void load_activities(void);
 void init_act_triggers(void);
