@@ -210,7 +210,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 pthread_detach(push_th);
             } else {
                 usleep(10000);
-                rf_send_hub_time_sync_slot(slot);
+                rf_send_hub_time_sync_slot_if_due(slot);
             }
             break;
         }
