@@ -180,7 +180,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
                 <option value="">-- Assign Device --</option>
                 ${devs.map(d => `<option value="${d.id}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${d.name || d.id}</option>`).join('')}
               </select>
-              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${h.addr}">${h.connected ? 'Disconnect' : 'Connect'}</button>
+              <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${h.addr}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
             </div>
           </div>
         `;
@@ -204,7 +204,13 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
 
         list.querySelectorAll('.btn-bt-disconn').forEach(b => {
           b.addEventListener('click', async () => {
-            await this.client.disconnectBt(b.getAttribute('data-addr'));
+            /* The button reads Connect or Disconnect; it used to disconnect in both cases */
+            const addr = b.getAttribute('data-addr');
+            if (b.getAttribute('data-connected')) {
+              await this.client.disconnectBt(addr);
+            } else {
+              await this.client.connectBt(addr);
+            }
             this.loadBtView();
           });
         });
