@@ -272,24 +272,21 @@ void execute_btstack_cmd(const char *cmd_in) {
         start_user_pair(addr_str);
     } else if (strncasecmp(cmd, "pair_host_on", 12) == 0) {
         stop_host_reconnect();
+        /* Disconnect the hosts the way disconnect_host does: close the HID channels and let the
+         * close events update g_hosts[]. Tearing the ACL link down at once (gap_disconnect) and
+         * clearing hid_cid by hand left BTstack's HID instance with a stale channel, so every
+         * later hid_device_connect() to that host returned the old cid and did nothing until
+         * hub_btstack restarted. Keep the link keys: pairing a new host must not unpair the
+         * others; a host that forgot its key starts Secure Simple Pairing, which pairing mode
+         * accepts. */
         for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].hid_cid) {
+            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
                 hid_device_disconnect(g_hosts[i].hid_cid);
-                g_hosts[i].hid_cid = 0;
             }
-            if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
-                gap_disconnect(g_hosts[i].acl_handle);
-                g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
-            }
-            /* Keep the link keys: pairing a new host must not unpair the others. A host that
-             * forgot its key starts Secure Simple Pairing again, which pairing mode accepts. */
-            g_hosts[i].connected = false;
         }
-        if (g_host_hid_cid) {
+        if (g_host_connected && g_host_hid_cid) {
             hid_device_disconnect(g_host_hid_cid);
-            g_host_hid_cid = 0;
         }
-        g_host_connected = false;
         char *name = cmd + 12;
         while (*name == ' ') name++;
         if (name[0]) {
