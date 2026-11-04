@@ -5,6 +5,7 @@
 #include "hw_action.h"
 #include "http_server.h"
 #include "ws_server.h"
+#include "state_watch.h"
 #include "hub_ws.h"
 #include "hub_mqtt.h"
 #include "hub_ntp.h"
@@ -105,6 +106,9 @@ int main(int argc, char **argv) {
 
     /* 2. Web & WebSocket Server */
     ws_server_init();
+    if (state_watch_start() != 0) {
+        fprintf(stderr, "[-] Could not start the state watcher: web UIs will not update live\n");
+    }
     int srv_fd = http_server_init(port);
     if (srv_fd < 0) {
         fprintf(stderr, "[-] Could not bind HTTP server on port %d: %s\n", port, strerror(errno));
