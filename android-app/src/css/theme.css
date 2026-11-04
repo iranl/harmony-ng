@@ -217,6 +217,93 @@ body.is-webui .hub-status-pill:hover {
   background: var(--danger);
 }
 
+/* Dry-Run Active Banner */
+.hub-dryrun-banner {
+  background: linear-gradient(135deg, #78350f, #b45309);
+  border-bottom: 2px solid #f59e0b;
+  color: #ffffff;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: sticky;
+  top: 98px;
+  z-index: 96;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  animation: slideDown 0.25s ease;
+}
+
+.dryrun-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dryrun-indicator-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.25);
+  border: 1px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fde68a;
+}
+
+.dryrun-banner-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dryrun-banner-text strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.dryrun-subtext {
+  font-size: 11px;
+  color: #fde68a;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+.dryrun-banner-actions {
+  flex-shrink: 0;
+}
+
+.btn-disable-dryrun {
+  background: #ffffff !important;
+  color: #92400e !important;
+  border: none !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+  border-radius: var(--radius-sm) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease, opacity 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-disable-dryrun:active {
+  transform: scale(0.95);
+}
+
+.btn-disable-dryrun:disabled {
+  opacity: 0.6;
+}
+
 /* Offline Alert Banner */
 .hub-offline-banner {
   background: linear-gradient(135deg, #7f1d1d, #991b1b);

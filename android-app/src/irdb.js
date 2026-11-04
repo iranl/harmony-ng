@@ -62,11 +62,11 @@ export async function fetchHarmonyModels(mfg) {
 
 export function searchHarmonyModels(models, q, limit = 50) {
   if (!models || !models.length) return [];
-  if (!q) return models.slice(0, limit);
+  if (!q) return models.filter(item => typeof item?.m === 'string' && item.m.trim()).slice(0, limit);
   const clean = String(q).trim().toLowerCase();
   const tokens = clean.split(/\s+/).filter(Boolean);
   return models.filter(item => {
-    const m = (item.m || '').toLowerCase();
+    const m = (typeof item?.m === 'string' ? item.m : '').toLowerCase();
     return tokens.every(t => m.includes(t));
   }).slice(0, limit);
 }

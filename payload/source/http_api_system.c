@@ -680,7 +680,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
-        cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
+        cJSON_AddBoolToObject(resp, "dry_run", g_dry_run ? 1 : 0);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : "always_on");
@@ -698,9 +698,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         if (p) {
             cJSON *item = cJSON_GetObjectItemCaseSensitive(p, "dry_run");
             if (item) {
-                if (cJSON_IsBool(item)) s.dry_run = cJSON_IsTrue(item) ? 1 : 0;
-                else if (cJSON_IsNumber(item)) s.dry_run = (int)item->valuedouble;
-                g_dry_run = s.dry_run;
+                if (cJSON_IsBool(item)) g_dry_run = cJSON_IsTrue(item) ? 1 : 0;
+                else if (cJSON_IsNumber(item)) g_dry_run = (int)item->valuedouble ? 1 : 0;
+                s.dry_run = 0;
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "hub_name");
             if (item && cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
@@ -729,7 +729,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "hub_name", s.hub_name[0] ? s.hub_name : "Harmony Hub");
-        cJSON_AddBoolToObject(resp, "dry_run", s.dry_run || g_dry_run);
+        cJSON_AddBoolToObject(resp, "dry_run", g_dry_run ? 1 : 0);
         cJSON_AddStringToObject(resp, "ntp_server", s.ntp_server);
         cJSON_AddStringToObject(resp, "timezone", s.timezone[0] ? s.timezone : "UTC");
         cJSON_AddStringToObject(resp, "led_mode", s.led_mode[0] ? s.led_mode : "always_on");

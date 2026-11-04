@@ -1,5 +1,9 @@
 export default {
     "account_auth": "Account / Authenticatie",
+    "dry_run_banner_title": "Dry-Run-modus actief",
+    "dry_run_banner_desc": "IR- en MQTT-opdrachten worden gesimuleerd en genegeerd. Fysieke apparaten reageren niet.",
+    "disable_dry_run_btn": "Dry-Run uitschakelen",
+    "dry_run_disabled": "Dry-Run uitgeschakeld. Fysieke apparaatopdrachten actief.",
     "act_editor_sub": "Activiteitsinstellingen en opdrachtreeksen configureren",
     "act_name_required": "Activiteitsnaam is vereist.",
     "act_start_stop_order_hint": "Start/Stop-volgorde: Apparaten schakelen in volgorde (#1..#N) IN en omgekeerd UIT.",

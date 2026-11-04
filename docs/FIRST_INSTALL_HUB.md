@@ -149,6 +149,35 @@ The installer automatically:
    If confirmed, it downloads the official Elite firmware (`elite_99_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
 6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
 
+### Stock configuration import
+
+On the first deploy (no `/data/harmony/config/devices.json` on the Hub yet), the deploy script copies the stock Logitech files from `/data/resources` and converts them with `tools/migrate_hub_configs.py`:
+
+| Stock | HarmonyNG |
+| :--- | :--- |
+| Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...) |
+| Power settings (`PowerFeature`): power-on delay, discrete on/off actions | Each device's `powerOnDelay`, `powerOnSequence` and `powerOffSequence`. Toggle-only devices keep empty sequences and use their `PowerToggle` command |
+| Activities, their devices and the input each device is set to (`ActivityList.json` roles) | `activities.json`, with the input commands at the start of each activity's start sequence |
+| Remote button maps (`MapList.json`) | `remote_slot1_map.json`: the keys of each activity, the keys of each device (device browser) and each activity's screen buttons |
+
+Not imported; the migration prints a warning for each:
+- Long presses, double presses and touch gestures (HarmonyNG has no equivalent yet).
+- Inputs that the stock config selects by stepping through a Source key (common on soundbars). Add the steps to the activity by hand.
+- Commands of a second transport on the same device, e.g. the Bluetooth keyboard commands of an IR TV.
+- Screen buttons beyond the config push limit of 48 per remote, which is shared out between the activities.
+
+**Bluetooth devices** (e.g. an NVIDIA Shield) have to be paired again: HarmonyNG uses its own Bluetooth stack, so the stock pairings are not carried over.
+
+The deploy only imports when the Hub has no configuration yet. To run the import again, for example to read its warnings, on a machine with this repository:
+
+```bash
+mkdir -p stock
+scp -O -r root@<YOUR_HUB_IP>:/data/resources stock/
+python3 tools/migrate_hub_configs.py --src stock/resources --dest migrated
+```
+
+To use the result, back up `/data/harmony` on the Hub first, copy `migrated/config/*` to `/data/harmony/config/` and `migrated/*.json` to `/data/harmony/`, then reboot the Hub.
+
 ---
 
 ## 5. Accessing the Web Console & Android App

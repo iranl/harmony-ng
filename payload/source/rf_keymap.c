@@ -135,6 +135,29 @@ cJSON *get_elite_direct_map(int slot) {
     return root;
 }
 
+/* Remote button names that stock Logitech device configs call differently. Used only when
+ * the device has no command with the button's own name. */
+static const char *const k_button_aliases[][3] = {
+    { "VolumeMute", "Mute", NULL },
+    { "Back", "Return", NULL },
+};
+
+static const char *rf_alias_command(cJSON *cmds, const char *button_name) {
+    for (size_t a = 0; a < sizeof(k_button_aliases) / sizeof(k_button_aliases[0]); a++) {
+        if (strcasecmp(k_button_aliases[a][0], button_name) != 0) continue;
+        for (int i = 1; i < 3 && k_button_aliases[a][i]; i++) {
+            cJSON *c = NULL;
+            cJSON_ArrayForEach(c, cmds) {
+                cJSON *jn = cJSON_IsString(c) ? c : cJSON_GetObjectItem(c, "name");
+                if (jn && cJSON_IsString(jn) && strcasecmp(jn->valuestring, k_button_aliases[a][i]) == 0) {
+                    return jn->valuestring;
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
 void dispatch_elite_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
     int is_press = (strcmp(action_state, "release") != 0);
 
@@ -213,6 +236,7 @@ void dispatch_elite_button(uint8_t slot, const char *button_name, const char *ac
                                     break;
                                 }
                             }
+                            if (!matched_cmd) matched_cmd = rf_alias_command(cmds, button_name);
                             break;
                         }
                     }

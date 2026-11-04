@@ -587,11 +587,10 @@ int config_store_get_settings(struct hub_settings *settings) {
     free(raw);
     if (!root) return 0;
 
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "dry_run");
-    if (item && cJSON_IsBool(item)) settings->dry_run = cJSON_IsTrue(item) ? 1 : 0;
-    else if (item && cJSON_IsNumber(item)) settings->dry_run = (int)item->valuedouble;
+    /* dry_run is runtime-only; never loaded from disk so it always reverts on reboot */
+    settings->dry_run = 0;
 
-    item = cJSON_GetObjectItemCaseSensitive(root, "hub_name");
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "hub_name");
     if (item && cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
         strncpy(settings->hub_name, item->valuestring, sizeof(settings->hub_name) - 1);
         settings->hub_name[sizeof(settings->hub_name) - 1] = '\0';
@@ -624,7 +623,8 @@ int config_store_save_settings(const struct hub_settings *settings) {
     cJSON *root = cJSON_CreateObject();
     if (!root) return -1;
 
-    cJSON_AddBoolToObject(root, "dry_run", settings->dry_run ? 1 : 0);
+    /* dry_run is runtime-only; never persist dry_run=true to disk so it always reverts on reboot */
+    cJSON_AddBoolToObject(root, "dry_run", 0);
     cJSON_AddStringToObject(root, "hub_name", settings->hub_name[0] ? settings->hub_name : "Harmony Hub");
     cJSON_AddStringToObject(root, "ntp_server", settings->ntp_server);
     cJSON_AddStringToObject(root, "timezone", settings->timezone[0] ? settings->timezone : "UTC");

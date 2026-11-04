@@ -32,6 +32,28 @@
       </div>
     </header>
 
+    <!-- Dry-Run Simulation Active Banner -->
+    <div id="hub-dryrun-banner" class="hub-dryrun-banner" style="display: none;">
+      <div class="dryrun-banner-content">
+        <div class="dryrun-indicator-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <div class="dryrun-banner-text">
+          <strong data-i18n="dry_run_banner_title">Dry-Run Simulation Active</strong>
+          <span class="dryrun-subtext" data-i18n="dry_run_banner_desc">IR and MQTT commands are simulated and dropped. Physical hardware will not respond.</span>
+        </div>
+      </div>
+      <div class="dryrun-banner-actions">
+        <button type="button" class="btn btn-sm btn-disable-dryrun" id="btn-disable-dryrun" data-i18n="disable_dry_run_btn">
+          Disable Dry-Run
+        </button>
+      </div>
+    </div>
+
     <main id="app-main" class="app-main"></main>
 
     <nav class="tab-bar">

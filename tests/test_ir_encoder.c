@@ -30,6 +30,7 @@ static const segment_t SAMSUNG20 = { { 0 }, 20, { 495, -500 }, { 495, -1495 }, {
 static const segment_t TOSHIBA = { { 8990, -4490 }, 32, { 568, -552 }, { 568, -1662 }, { 568 }, 107870 };
 static const segment_t TOSHIBA_REPEAT = { { 8990, -2230 }, 0, { 0 }, { 0 }, { 568, -96077 }, 0 };
 static const segment_t CAMBRIDGE_REPEAT = { { 9025, -2283 }, 0, { 0 }, { 0 }, { 525, -95419 }, 0 };
+static const segment_t SAITEK = { { 1874, -520 }, 11, { -525, 0 }, { 460, 0 }, { -809, 0 }, 0 };
 
 typedef struct {
     int d[256];
@@ -139,6 +140,27 @@ int main(void) {
     wave_add_segment(&start, &CAMBRIDGE, 32, 0x881E5F7F);
     wave_add_segment(&repeat, &CAMBRIDGE_REPEAT, 0, 0);
     check("G:Cambridge 32 Bit Dual:(0x881E057F_0x881E5F7F)(Repeat)():3", 38000, &start, &repeat);
+
+    /* NEC family still encodes; a protocol without an encoder is an error, not an NEC frame */
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    assert(ir_encode_harmony_keycode("G:Toshiba 32 Bit:(0x011B54AB)(Repeat)():3", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("G:NEC1:()(0x20DF10EF)():3", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("20DF10EF", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    assert(ir_encode_harmony_keycode("G:HID 16 Bit:()(07000027)():1", 1, &buf, &len) != 0);
+    assert(ir_encode_harmony_keycode("G:Unknown 24 Bit:()(0x123456)():3", 3, &buf, &len) != 0);
+    assert(ir_encode_harmony_keycode("G:Roku IP:()(Home)():1", 1, &buf, &len) == -5);
+
+    /* Saitek 11 Bit: 38150 Hz carrier, 1874us mark / 520us space header, 460us mark (1) / 525us space (0), 809us space trailer */
+    check_frames("G:Saitek 11 Bit:()(0x5A5)():3", 38150, &SAITEK, 11, 0x5A5, 1);
+    check_frames("G:Saitek 11 Bit:()(0x000)():3", 38150, &SAITEK, 11, 0x000, 1);
+    check_frames("G:Saitek 11 Bit:()(0x7FF)():3", 38150, &SAITEK, 11, 0x7FF, 1);
 
     /* Samsung HW-Q90R soundbar: PowerToggle and Source, a 16-bit and a 20-bit segment
      * per frame; the HAL repeat count sends the frame again */

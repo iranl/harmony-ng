@@ -169,7 +169,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       try {
         currentModels = await fetchHarmonyModels(mfg);
         if (modelDatalist) {
-          modelDatalist.innerHTML = currentModels.slice(0, 300).map(item => `<option value="${item.m}"></option>`).join('');
+          modelDatalist.innerHTML = currentModels.filter(item => typeof item?.m === 'string' && item.m.trim()).slice(0, 300).map(item => `<option value="${item.m}"></option>`).join('');
         }
         if (statusEl) statusEl.textContent = `Found ${currentModels.length} models for ${mfg}. Enter or pick model:`;
       } catch (err) {
@@ -186,7 +186,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       const q = modelInput.value.trim();
       const filtered = searchHarmonyModels(currentModels, q, 100);
       if (modelDatalist) {
-        modelDatalist.innerHTML = filtered.map(item => `<option value="${item.m}"></option>`).join('');
+        modelDatalist.innerHTML = filtered.map(item => `<option value="${item.m || ''}"></option>`).join('');
       }
     });
 
@@ -204,9 +204,10 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         if (!currentModels.length) {
           currentModels = await fetchHarmonyModels(mfg);
         }
-        const match = currentModels.find(item => item.m.toLowerCase() === modelName.toLowerCase()) ||
-          currentModels.find(item => item.m.toLowerCase().includes(modelName.toLowerCase()));
-        if (!match) {
+        const targetModel = modelName.toLowerCase();
+        const match = currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase() === targetModel) ||
+          currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase().includes(targetModel));
+        if (!match || !match.f) {
           if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Model "${modelName}" not found under ${mfg}.</span>`;
           return;
         }
