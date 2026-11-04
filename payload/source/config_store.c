@@ -590,7 +590,7 @@ int config_store_get_settings(struct hub_settings *settings) {
     /* dry_run is runtime-only; never loaded from disk so it always reverts on reboot */
     settings->dry_run = 0;
 
-    item = cJSON_GetObjectItemCaseSensitive(root, "hub_name");
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "hub_name");
     if (item && cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
         strncpy(settings->hub_name, item->valuestring, sizeof(settings->hub_name) - 1);
         settings->hub_name[sizeof(settings->hub_name) - 1] = '\0';
