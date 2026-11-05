@@ -13,6 +13,7 @@ int flash_cc2544(void);
 int rf_write_cmd(const uint8_t *cmd, size_t len);
 int rf_send_frame(rf_frame_t *frame);
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms);
+int rf_wake_remote(uint8_t slot, int attempts);
 void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload);
 void query_paired_devices(void);
 void *rx_worker(void *arg);

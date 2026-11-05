@@ -137,6 +137,13 @@ void *rf_ota_sender_worker(void *arg) {
     start_payload[8] = (uint8_t)((file_crc >> 16) & 0xFF);
     start_payload[9] = (uint8_t)((file_crc >> 24) & 0xFF);
 
+    /* A remote with its screen off would only notice the update when someone wakes it */
+    int woke = rf_wake_remote(target_slot, 10);
+    if (woke)
+        printf("[*] Remote in slot %d acknowledged the wake request (attempt %d)\n", target_slot, woke);
+    else
+        printf("[*] Remote in slot %d did not acknowledge a wake request (older remote or asleep)\n", target_slot);
+
     int ack_res = -1;
     for (int attempt = 1; attempt <= 10 && g_running; attempt++) {
         rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 10);

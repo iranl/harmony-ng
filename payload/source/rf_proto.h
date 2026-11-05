@@ -66,6 +66,10 @@
 #define RF_MSG_HELP_STATUS         0x2E  /* Hub -> Remote: Help progress, or a device to ask about (ACK'd) */
 #define RF_MSG_HELP_ANSWER         0x2F  /* Remote -> Hub: whether a device is on (ACK'd) */
 
+/* Hub -> Remote: turn the screen on (ACK'd). A remote in light standby still receives frames;
+ * one without this message drops it as unknown and sends no ACK. */
+#define RF_MSG_WAKE                0x30
+
 /* RF_MSG_HELP_STATUS payload[0] */
 #define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */
 #define RF_HELP_STARTED            0x01  /* re-sending the activity's commands */
@@ -119,7 +123,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[5];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_WAKE) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;
@@ -129,7 +133,7 @@ static inline int rf_is_valid_frame(const uint8_t *raw, size_t len) {
             uint8_t t = raw[3];
             return (t >= RF_MSG_ACTIVITY_SYNC && t <= RF_MSG_DEVICE_CMD_INDEX) ||
                    (t >= RF_MSG_BUTTON_PRESS && t <= RF_MSG_SLEEP_REQ) ||
-                   (t >= RF_MSG_OTA_START && t <= RF_MSG_HELP_ANSWER) ||
+                   (t >= RF_MSG_OTA_START && t <= RF_MSG_WAKE) ||
                    (t == RF_MSG_ACK || t == RF_MSG_PING);
         }
         return 0;

@@ -593,6 +593,11 @@ int main(int argc, char **argv) {
             rf_start_pairing();
             g_screen_dirty = true;
         }
+        if (access("/tmp/trigger_wake", F_OK) == 0) {
+            unlink("/tmp/trigger_wake");
+            printf("[*] External trigger: waking the screen\n");
+            reset_idle_timer();
+        }
         if (access("/tmp/trigger_rf_unpair", F_OK) == 0) {
             unlink("/tmp/trigger_rf_unpair");
             printf("[*] External trigger: unpairing Remote & wiping bonding...\n");
