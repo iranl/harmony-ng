@@ -368,11 +368,15 @@ void execute_btstack_cmd(const char *cmd_in) {
             register_host_target(tgt, NULL);
             start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
         } else {
-            if (is_any_host_connected()) return;
+            /* No address: the host keys go to (the activity's target, else the pinned host).
+             * "Any host connected" used to count as done, which with two hosts left the one
+             * that matters disconnected. */
             bd_addr_t def_tgt;
-            if (get_pinned_host_target(def_tgt)) {
+            if (get_reconnect_target(def_tgt)) {
+                if (is_host_connected(def_tgt)) return;
                 start_host_reconnect(def_tgt, MAX_HOST_RECONNECT_ATTEMPTS);
             } else if (!is_null_bd_addr(g_host_addr)) {
+                if (is_host_connected(g_host_addr)) return;
                 start_host_reconnect(g_host_addr, MAX_HOST_RECONNECT_ATTEMPTS);
             } else {
                 try_connect_host();

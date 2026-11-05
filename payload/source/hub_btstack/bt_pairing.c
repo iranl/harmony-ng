@@ -422,6 +422,67 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     }
 }
 
+static cJSON *load_json_file(const char *path, long max_size) {
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    cJSON *root = NULL;
+    if (sz > 0 && sz < max_size) {
+        char *buf = (char *)malloc(sz + 1);
+        if (buf) {
+            size_t r = fread(buf, 1, sz, f);
+            buf[r] = 0;
+            root = cJSON_Parse(buf);
+            free(buf);
+        }
+    }
+    fclose(f);
+    return root;
+}
+
+/* The host of an activity: the first of its devices (config/activities.json deviceIds) that is a
+ * Bluetooth device with an address in config/devices.json. With two hosts paired, the pinned host
+ * (the last one paired) is not necessarily the one the running activity uses. */
+bool get_activity_host_target(const char *act_id, bd_addr_t out) {
+    if (!act_id || !act_id[0]) return false;
+    bool found = false;
+    cJSON *acts = load_json_file("/data/harmony/config/activities.json", 1000000);
+    cJSON *devs = load_json_file("/data/harmony/config/devices.json", 1000000);
+    cJSON *alist = acts ? cJSON_GetObjectItemCaseSensitive(acts, "activities") : NULL;
+    cJSON *dlist = devs ? cJSON_GetObjectItemCaseSensitive(devs, "devices") : NULL;
+    cJSON *act = NULL;
+    if (alist && dlist && cJSON_IsArray(alist) && cJSON_IsArray(dlist)) {
+        cJSON_ArrayForEach(act, alist) {
+            cJSON *jid = cJSON_GetObjectItemCaseSensitive(act, "id");
+            if (!jid || !cJSON_IsString(jid) || strcmp(jid->valuestring, act_id) != 0) continue;
+            cJSON *ids = cJSON_GetObjectItemCaseSensitive(act, "deviceIds");
+            cJSON *did = NULL;
+            if (ids && cJSON_IsArray(ids)) {
+                cJSON_ArrayForEach(did, ids) {
+                    if (!cJSON_IsString(did)) continue;
+                    cJSON *dev = NULL;
+                    cJSON_ArrayForEach(dev, dlist) {
+                        cJSON *jdid = cJSON_GetObjectItemCaseSensitive(dev, "id");
+                        cJSON *jtype = cJSON_GetObjectItemCaseSensitive(dev, "type");
+                        cJSON *jaddr = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+                        if (!jdid || !cJSON_IsString(jdid) || strcmp(jdid->valuestring, did->valuestring) != 0) continue;
+                        if (!jtype || !cJSON_IsString(jtype) || strcasecmp(jtype->valuestring, "BT") != 0) continue;
+                        if (jaddr && cJSON_IsString(jaddr) && parse_bd_addr(jaddr->valuestring, out) && !is_null_bd_addr(out)) found = true;
+                        break;
+                    }
+                    if (found) break;
+                }
+            }
+            break;
+        }
+    }
+    if (acts) cJSON_Delete(acts);
+    if (devs) cJSON_Delete(devs);
+    return found;
+}
+
 void init_known_hosts(void) {
     bd_addr_t def_target;
     /* Register the pinned host without a name: the device lists below name it by address.
