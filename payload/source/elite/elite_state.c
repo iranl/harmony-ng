@@ -150,6 +150,7 @@ time_t g_last_activity_time = 0;
 uint64_t s_last_blank_time_ms = 0;
 pthread_mutex_t g_render_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t g_rf_write_mutex = PTHREAD_MUTEX_INITIALIZER;
+uint8_t g_rf_pm = RF_PM_ACTIVE;
 
 int g_touch_cur_x = 0;
 int g_touch_cur_y = 0;

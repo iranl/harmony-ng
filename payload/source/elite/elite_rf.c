@@ -9,7 +9,7 @@ int rf_send_frame(rf_frame_t *frame) {
     memset(out, 0, sizeof(out));
     uint8_t slot = (g_remote_slot >= 1 && g_remote_slot <= 15) ? g_remote_slot : 0x01;
     out[0] = 0x20; /* Remote CC2544 uplink Report 0x20 (Device mode) */
-    out[1] = 0x20 | (slot & 0x0F); /* 0x20 | pipe (Hub connection) */
+    out[1] = g_rf_pm | (slot & 0x0F); /* power mode | pipe (Hub connection) */
     out[2] = 0x12; /* Sub-ID 0x12 */
     out[3] = (slot & 0x0F); /* Host sequence/pipe */
     out[4] = frame->hdr_flag ? frame->hdr_flag : (0x50 | (frame->seq & 0x0F));

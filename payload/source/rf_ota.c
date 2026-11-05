@@ -9,12 +9,13 @@
 #include <unistd.h>
 #include <pthread.h>
 
-/* Windowed transfer (remotes that put RF_OTA_WINDOWED in their OTA_START ACK): the Hub streams
- * chunks without waiting, asks for an ACK every OTA_WIN_ACK_EVERY chunks, and the ACKs carry the
+/* Windowed transfer (remotes that put RF_OTA_WINDOWED in their OTA_START ACK): the Hub puts the
+ * CC2544 in RF_PM_TRANSFER as Logitech's firmware does for its HOT transfers (the remote's radio
+ * then fetches the queued frames by itself), streams RF_OTA_DATA frames (26 data bytes each)
+ * without waiting, asks for an ACK every OTA_WIN_ACK_EVERY chunks, and the ACKs carry the
  * remote's contiguous chunk count. It stays at most OTA_WIN_IN_FLIGHT chunks ahead of that count
- * and resends from it when it stops advancing for OTA_WIN_REWIND_MS (go-back-N). On a Harmony
- * Ultimate this moved 248 chunks/s (5.4 KB/s) against 20 for the stop-and-wait transfer; a gap
- * below about 1 ms overflows the Hub's CC2544 and frames are lost. */
+ * and resends from it when it stops advancing for OTA_WIN_REWIND_MS (go-back-N). The Hub's
+ * CC2544 queues 8 frames: more than about one frame per 2 ms overflows it and frames are lost. */
 #define OTA_WIN_ACK_EVERY   16
 #define OTA_WIN_GAP_US      2000
 #define OTA_WIN_IN_FLIGHT   64
@@ -30,8 +31,7 @@ void ota_note_chunk_ack(const uint8_t *payload) {
 }
 
 /* Returns true when the remote has every chunk; otherwise the status is set (resumable) */
-static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint16_t start, uint16_t tot_chunks, uint32_t tot_bytes) {
-    rf_frame_t frame;
+static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint32_t start, uint32_t tot_chunks, uint32_t tot_bytes) {
     s_win_contig = start;
     uint32_t next = start, last_contig = start, last_logged = start;
     uint64_t last_progress = get_monotonic_ms(), t0 = last_progress;
@@ -57,7 +57,8 @@ static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint16_t start, uint
             last_progress = now; /* give the resend a full period */
         }
         if (next < contig) next = contig;
-        ota_set_progress(contig * 22 > tot_bytes ? tot_bytes : contig * 22, (uint16_t)contig);
+        uint64_t done = (uint64_t)contig * RF_OTA_DATA_BYTES;
+        ota_set_progress(done > tot_bytes ? tot_bytes : (uint32_t)done, (uint16_t)contig);
         if (contig / 1000 != last_logged / 1000) {
             last_logged = contig;
             printf("[*] Hub RF OTA to Slot %d: %u%% (%u/%u chunks, windowed)\n", target_slot,
@@ -65,22 +66,15 @@ static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint16_t start, uint
         }
 
         if (next < tot_chunks && next - contig < OTA_WIN_IN_FLIGHT) {
-            uint8_t chunk_data[22];
-            fseek(f, (long)next * 22, SEEK_SET);
+            uint8_t chunk_data[RF_OTA_DATA_BYTES];
+            fseek(f, (long)next * RF_OTA_DATA_BYTES, SEEK_SET);
             size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
             if (rd == 0) {
                 ota_set_status(-1, false, "OTA image read error");
                 return false;
             }
-            uint8_t chunk_payload[25] = {0};
-            chunk_payload[0] = (uint8_t)(next & 0xFF);
-            chunk_payload[1] = (uint8_t)((next >> 8) & 0xFF);
-            chunk_payload[2] = (uint8_t)rd;
-            memcpy(&chunk_payload[3], chunk_data, rd);
             bool want_ack = (next + 1 == tot_chunks) || (next % OTA_WIN_ACK_EVERY == 0);
-            rf_build_frame(&frame, target_slot, RF_MSG_OTA_CHUNK, ++g_tx_seq, want_ack ? RF_FLAG_ACK_REQ : 0,
-                           chunk_payload, (uint8_t)(3 + rd));
-            rf_send_frame(&frame);
+            rf_send_ota_data(target_slot, next, want_ack, chunk_data, rd);
             next++;
             usleep(OTA_WIN_GAP_US);
         } else {
@@ -120,6 +114,7 @@ void ota_set_status(int status, bool in_prog, const char *err) {
     pthread_mutex_unlock(&g_ota_lock);
     set_hub_led(in_prog ? 2 : 1);
     if (!in_prog) {
+        rf_set_power_mode(RF_PM_ACTIVE);
         if (status == 2) {
             printf("[+] Hub RF OTA finished: SUCCESS\n");
         } else if (status < 0) {
@@ -175,7 +170,8 @@ void *rf_ota_sender_worker(void *arg) {
     }
 
     uint32_t tot_bytes = (uint32_t)file_size;
-    uint16_t tot_chunks = (uint16_t)((tot_bytes + 21) / 22);
+    /* OTA_START carries the stop-and-wait chunk count; a windowed remote derives its own */
+    uint16_t tot_chunks = (uint16_t)((tot_bytes + RF_OTA_CHUNK_BYTES - 1) / RF_OTA_CHUNK_BYTES);
 
     pthread_mutex_lock(&g_ota_lock);
     g_rf_ota.total_bytes = tot_bytes;
@@ -222,6 +218,9 @@ void *rf_ota_sender_worker(void *arg) {
     start_payload[8] = (uint8_t)((file_crc >> 16) & 0xFF);
     start_payload[9] = (uint8_t)((file_crc >> 24) & 0xFF);
 
+    /* Transfer power mode for the whole update, as Logitech's firmware does (restored by ota_set_status) */
+    rf_set_power_mode(RF_PM_TRANSFER);
+
     int ack_res = -1;
     for (int attempt = 1; attempt <= 10 && g_running; attempt++) {
         rf_build_frame(&frame, target_slot, RF_MSG_OTA_START, ++g_tx_seq, RF_FLAG_ACK_REQ, start_payload, 10);
@@ -251,31 +250,43 @@ void *rf_ota_sender_worker(void *arg) {
         return NULL;
     }
 
-    /* Check if remote requested to resume from existing progress */
+    /* 2. Windowed transfer (RF_OTA_DATA frames) if the remote supports it, else stop-and-wait
+     * RF_MSG_OTA_CHUNK frames. Each has its own chunk size and resume count in the OTA_START ACK. */
     uint16_t c_idx = 0;
     uint32_t sent_bytes = 0;
-    uint16_t resume_chunk = (uint16_t)g_ack_payload[2] | ((uint16_t)g_ack_payload[3] << 8);
-    if (resume_chunk > 0 && resume_chunk < tot_chunks) {
-        c_idx = resume_chunk;
-        sent_bytes = (uint32_t)resume_chunk * 22;
-        fseek(f, (long)sent_bytes, SEEK_SET);
-        ota_set_progress(sent_bytes, c_idx);
-        printf("[+] Remote requested resume from chunk %u (%u / %u bytes, %u%%)\n",
-               c_idx, sent_bytes, tot_bytes, (uint32_t)((sent_bytes * 100ULL) / tot_bytes));
-    }
-
-    /* 2. Stream RF_MSG_OTA_CHUNK frames: windowed if the remote supports it, else stop-and-wait */
     bool windowed = (g_ack_payload[4] == RF_OTA_WINDOWED);
     if (windowed) {
-        printf("[*] Remote supports the windowed OTA transfer\n");
-        if (!ota_send_windowed(f, target_slot, c_idx, tot_chunks, tot_bytes)) {
+        uint32_t tot_data = (tot_bytes + RF_OTA_DATA_BYTES - 1) / RF_OTA_DATA_BYTES;
+        uint32_t resume = (uint32_t)g_ack_payload[6] | ((uint32_t)g_ack_payload[7] << 8);
+        if (resume >= tot_data) resume = 0;
+        pthread_mutex_lock(&g_ota_lock);
+        g_rf_ota.total_chunks = (uint16_t)tot_data;
+        pthread_mutex_unlock(&g_ota_lock);
+        printf("[*] Remote supports the windowed OTA transfer: %u chunks of %d bytes%s\n", tot_data,
+               RF_OTA_DATA_BYTES, resume ? ", resuming" : "");
+        if (resume) {
+            ota_set_progress(resume * RF_OTA_DATA_BYTES, (uint16_t)resume);
+            printf("[+] Remote requested resume from chunk %u (%u / %u bytes, %u%%)\n", resume,
+                   resume * RF_OTA_DATA_BYTES, tot_bytes, (uint32_t)((resume * RF_OTA_DATA_BYTES * 100ULL) / tot_bytes));
+        }
+        if (!ota_send_windowed(f, target_slot, resume, tot_data, tot_bytes)) {
             fclose(f);
             return NULL;
         }
         c_idx = tot_chunks;
+    } else {
+        uint16_t resume_chunk = (uint16_t)g_ack_payload[2] | ((uint16_t)g_ack_payload[3] << 8);
+        if (resume_chunk > 0 && resume_chunk < tot_chunks) {
+            c_idx = resume_chunk;
+            sent_bytes = (uint32_t)resume_chunk * RF_OTA_CHUNK_BYTES;
+            fseek(f, (long)sent_bytes, SEEK_SET);
+            ota_set_progress(sent_bytes, c_idx);
+            printf("[+] Remote requested resume from chunk %u (%u / %u bytes, %u%%)\n",
+                   c_idx, sent_bytes, tot_bytes, (uint32_t)((sent_bytes * 100ULL) / tot_bytes));
+        }
     }
     while (c_idx < tot_chunks && g_running) {
-        uint8_t chunk_data[22];
+        uint8_t chunk_data[RF_OTA_CHUNK_BYTES];
         size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
         if (rd == 0) break;
 

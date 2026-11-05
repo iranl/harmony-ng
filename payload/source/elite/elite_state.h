@@ -328,6 +328,7 @@ extern volatile uint64_t g_last_hub_frame_ms;
 extern bool g_power_debug;
 extern pthread_mutex_t g_render_mutex;
 extern pthread_mutex_t g_rf_write_mutex;
+extern uint8_t g_rf_pm; /* CC2544 power mode, in byte 1 of every frame sent (RF_PM_ACTIVE / RF_PM_TRANSFER) */
 
 extern int g_touch_cur_x;
 extern int g_touch_cur_y;

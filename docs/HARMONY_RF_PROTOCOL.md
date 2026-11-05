@@ -129,9 +129,11 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 - **Firmware Version Query** (`10 FF 81 F1 01 00 00`): Returns firmware version. Reply: `10 FF 81 F1 01 <ver> 00` (e.g. `0x27` = v39.00).
 
 ### 4.2 Power Mode Management
-- **Set Active Power Mode** (`20 20 00 00 00 00 00`):
-  - In `libhal/rf/hot.c` (`hot_set_powermode(0x20)`), switches CC2544 receiver into continuous listening mode.
-  - Used on Hub initialization and Remote wake.
+- **Set Power Mode** (`20 <mode> 00 00 00 00 00`, `hot_set_powermode()` in `libhal/rf/hot.c`, same on Hub and remote):
+  - `0x20` (`RF_PM_ACTIVE`): normal operation. Stock sets it when its HOT state machine enters Idle; harmony-ng at start.
+  - `0x30` (`RF_PM_TRANSFER`): for the whole of a transfer. Stock sets it when the state machine leaves Idle (`hot_Idle.exit`) and goes back to `0x20` 500 ms after the last object (`hot_CoolDown`). In this mode the remote's CC2544 fetches the Hub's queued frames by itself, about one every 4 ms on a Harmony Ultimate; in `0x20` it gets one only in the acknowledgement of a frame it transmits. harmony-ng uses it for the windowed RF OTA (measured: 250 frames/s with no remote transmission, against 7/s in `0x20`).
+  - `0x40`: not used by stock; on a Harmony Ultimate the remote stops answering until `0x20` is set again.
+  - A remote in device mode puts the current mode in byte 1 of every frame it sends (`mode | pipe`, section 3.2).
 
 ### 4.3 Pipe & Paired Device Table
 Query command: `10 FF 83 B5 <pipe> 00 00`:
@@ -207,7 +209,6 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x1A` | `RF_MSG_VERSION_REPORT` | Remote -> Hub | Remote software and config version report |
 | `0x1E` | `RF_MSG_ACK` | Both | Application-level acknowledgment (by SEQ) |
 | `0x1F` | `RF_MSG_PING` | Both | Keepalive / ping query |
-| `0x21` | `RF_MSG_OTA_POLL` | Remote -> Hub | Sent every 2 ms during an OTA so the Hub has a delivery slot for each chunk (see below); outside the accepted types, so Hubs drop it unread |
 | `0x22` | `RF_MSG_OTA_START` | Hub -> Remote | Start OTA binary update (size, chunks) |
 | `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | 24-byte binary payload chunk |
 | `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | OTA block completion ACK |
@@ -374,14 +375,11 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[1]`: Charging flag (`0x01` charging, `0x00` discharging).
   - `payload[2..3]`: Voltage in millivolts (16-bit unsigned little-endian).
 
-#### RF OTA transfer (`0x21`..`0x25`)
-- The link follows Logitech's dongle model: the Hub's CC2544 listens, and a frame for the remote travels in the acknowledgement of something the remote transmitted. Without remote traffic the Hub can deliver only at the radio's keep-alive rate, about 20 frames/s on a Harmony Ultimate.
-- `RF_MSG_OTA_START` payload: `[0..3]` image size, `[4..5]` chunk count, `[6..9]` CRC32 of the image (identifies it for resume). Each `RF_MSG_OTA_CHUNK` carries `[0..1]` chunk index, `[2]` data length (22), `[3..24]` data; the remote writes it at index x 22, so a resent chunk is harmless. `RF_MSG_OTA_END` carries the SHA-256 (20-byte prefix); the remote rejects it with status `0x05` while chunks are missing and `0x06` on a digest mismatch.
-- The ACK of `RF_MSG_OTA_START` carries the resume point in `payload[2..3]` (chunks the remote already has for this CRC32). A remote that supports the windowed transfer also sets `payload[4]` = `0xF1`, and then every chunk ACK carries its contiguous chunk count in `payload[2..3]` with `payload[4]` = `0xF1`.
-- Stop-and-wait transfer (remotes without `0xF1`): the Hub asks for an ACK every 4th chunk and waits for it (1.2 s timeout, up to 15 tries), with 15 ms between chunks. About 20 chunks/s (440 B/s).
-- Windowed transfer (`0xF1`): the remote sends `RF_MSG_OTA_POLL` every 2 ms while in OTA mode. The Hub streams with 2 ms between chunks, asks for an ACK every 16th chunk without waiting, stays at most 64 chunks ahead of the remote's contiguous count, and resends from that count when it has not advanced for 300 ms. It gives up (resumable) after 20 s without progress. About 248 chunks/s (5.4 KB/s) on a Harmony Ultimate; with less than about 1 ms between chunks the Hub's CC2544 drops frames.
-
----
+#### RF OTA transfer (`0x22`..`0x25` and the `0x60` data frame)
+- `RF_MSG_OTA_START` (`0x22`, ACK'd): `payload[0..3]` image size, `payload[4..5]` chunk count for the stop-and-wait transfer (22-byte chunks), `payload[6..9]` CRC32 of the image (identifies a checkpoint). The remote's ACK: `payload[1]` status (`0x02` low battery, `0x03` cannot write), `payload[2..3]` the 22-byte chunk to resume from (checkpoint made by a stop-and-wait transfer), `payload[4]` = `0xF1` (`RF_OTA_WINDOWED`) if the remote supports the windowed transfer, `payload[6..7]` the 26-byte chunk to resume from (checkpoint made by a windowed transfer). A remote cannot continue a checkpoint with the other kind of frames; it starts over.
+- Stop-and-wait transfer (`RF_MSG_OTA_CHUNK` `0x23`): `payload[0..1]` chunk index, `payload[2]` length, `payload[3..24]` up to 22 data bytes. The Hub asks for an ACK on every 4th chunk and waits for it (15 retries with backoff and CC2544 wake pulses), 15 ms between chunks. About 20 chunks/s (440 B/s) on a Harmony Ultimate. Used for remotes that do not announce `0xF1`.
+- Windowed transfer (remote announced `0xF1`): the Hub sets CC2544 power mode `0x30` on both ends (section 4.2) and streams **OTA data frames**, which have no message type: like Logitech's own HOT continuation packets they use the header byte `0x60`: `12 <slot> <0x60 | idx[3:0] | ack> <idx[11:4]> <data[26]>` (30-byte Hub frame; the remote reads it as `20 <pipe> 12 <slot> <hdr> <idx[11:4]> <data[26]>`). `ack` = `0x10` asks for an ACK; the chunk index is 12 bits and the remote completes it from the chunk it expects next; the last chunk is shorter (the remote knows the image size). Every ACK carries the remote's contiguous chunk count in `payload[2..3]` and `0xF1` in `payload[4]`. The Hub streams with 2 ms between frames (the Hub's CC2544 queues 8 and drops frames beyond that), asks for an ACK every 16th chunk without waiting, stays at most 64 chunks ahead of the contiguous count, and resends from that count when it has not advanced for 300 ms (go-back-N). It gives up (resumable) after 20 s without progress. A remote accepts these frames only while in OTA mode. Measured on a Harmony Ultimate: about 250 frames/s, 6.5 KB/s, the 667 KB image in about 100 s.
+- `RF_MSG_OTA_END` (`0x25`, ACK'd): `payload[0]` = `0x01`, `payload[1..20]` first 20 bytes of the image's SHA-256. The remote checks it has every chunk (`0x05` otherwise), verifies the digest (`0x06` on mismatch), installs and reboots.
 
 ## 6. Reverse Engineering Reference Mapping
 

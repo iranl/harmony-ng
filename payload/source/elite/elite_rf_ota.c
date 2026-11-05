@@ -24,7 +24,15 @@ typedef struct {
     uint16_t total_chunks;
     uint32_t file_crc;
     uint16_t highest_contiguous_chunk;
+    uint16_t chunk_bytes; /* RF_OTA_DATA_BYTES (windowed) or RF_OTA_CHUNK_BYTES (stop-and-wait) */
 } ota_meta_t;
+
+/* Chunk size of the transfer in progress (0 until the first data frame tells which kind) */
+static uint16_t s_chunk_bytes;
+
+static inline uint16_t ota_chunks_for(uint32_t tot_b, uint16_t chunk_bytes) {
+    return (uint16_t)((tot_b + chunk_bytes - 1) / chunk_bytes);
+}
 
 static inline bool ota_is_chunk_received(uint16_t c_idx) {
     if (c_idx >= OTA_MAX_CHUNKS) return false;
@@ -53,7 +61,7 @@ static uint16_t ota_get_highest_contiguous_chunk(uint16_t total_chunks) {
 static void ota_save_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t contig_chunk) {
     FILE *fm = fopen("/tmp/elite_ui.ota.meta", "wb");
     if (!fm) return;
-    ota_meta_t m = { tot_b, tot_c, crc, contig_chunk };
+    ota_meta_t m = { tot_b, tot_c, crc, contig_chunk, s_chunk_bytes };
     fwrite(&m, sizeof(m), 1, fm);
     size_t bm_len = (tot_c + 7) / 8;
     if (bm_len > OTA_BITMAP_SIZE) bm_len = OTA_BITMAP_SIZE;
@@ -61,7 +69,9 @@ static void ota_save_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t
     fclose(fm);
 }
 
-static bool ota_load_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t *out_contig) {
+/* Loads a checkpoint of the same image; on success s_chunk_bytes is the checkpoint's chunk size
+ * and *out_contig the first chunk missing, in those units */
+static bool ota_load_meta(uint32_t tot_b, uint32_t crc, uint16_t *out_contig) {
     FILE *fm = fopen("/tmp/elite_ui.ota.meta", "rb");
     if (!fm) return false;
     ota_meta_t m;
@@ -69,6 +79,11 @@ static bool ota_load_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t
         fclose(fm);
         return false;
     }
+    if (m.chunk_bytes != RF_OTA_DATA_BYTES && m.chunk_bytes != RF_OTA_CHUNK_BYTES) {
+        fclose(fm);
+        return false;
+    }
+    uint16_t tot_c = ota_chunks_for(tot_b, m.chunk_bytes);
     if (m.total_bytes != tot_b || m.total_chunks != tot_c || (crc != 0 && m.file_crc != crc)) {
         fclose(fm);
         return false;
@@ -79,6 +94,7 @@ static bool ota_load_meta(uint32_t tot_b, uint16_t tot_c, uint32_t crc, uint16_t
         return false;
     }
     fclose(fm);
+    s_chunk_bytes = m.chunk_bytes;
     if (out_contig) *out_contig = ota_get_highest_contiguous_chunk(tot_c);
     return true;
 }
@@ -131,24 +147,100 @@ void render_ota_overlay(void) {
     }
 }
 
-/* While in OTA mode, transmit every 2 ms. The Hub's CC2544 can hand a frame to the remote only in
- * the acknowledgement of something the remote sent, so without this the transfer is limited to
- * the radio's own keep-alive rate (about 20 chunks/s on a Harmony Ultimate). Hubs drop the poll
- * frame unread (RF_MSG_OTA_POLL is outside the accepted message types). */
-void *ota_poll_worker(void *arg) {
-    (void)arg;
-    while (g_running) {
-        if (g_is_ota_updating && g_rf_fd >= 0) {
-            rf_frame_t p;
-            uint8_t pl[1] = {0};
-            rf_build_frame(&p, g_remote_slot, RF_MSG_OTA_POLL, 0, 0, pl, 1);
-            rf_send_frame(&p);
-            usleep(2000);
-        } else {
-            usleep(100000);
-        }
+static void ota_write_power_mode(uint8_t mode) {
+    if (g_rf_fd < 0) return;
+    uint8_t cmd[7] = {0x20, mode, 0x00, 0x00, 0x00, 0x00, 0x00};
+    pthread_mutex_lock(&g_rf_write_mutex);
+    if (write(g_rf_fd, cmd, sizeof(cmd)) < 0) {}
+    pthread_mutex_unlock(&g_rf_write_mutex);
+    g_rf_pm = mode;
+    printf("[*] CC2544 power mode 0x%02X\n", mode);
+}
+
+/* Logitech's firmware keeps the radio in RF_PM_TRANSFER for a whole HOT transfer: in that mode the
+ * remote's CC2544 fetches the Hub's queued frames by itself (about 250 a second on a Harmony
+ * Ultimate), while in RF_PM_ACTIVE it gets one only in the acknowledgement of a frame it sent. */
+void ota_set_updating(bool on) {
+    g_is_ota_updating = on;
+    ota_write_power_mode(on ? RF_PM_TRANSFER : RF_PM_ACTIVE);
+}
+
+/* First data frame of a transfer: settle the chunk size. A checkpoint made with the other kind of
+ * frames cannot be continued, so the image is restarted from chunk 0. */
+static bool ota_begin_chunks(uint16_t chunk_bytes) {
+    if (s_chunk_bytes == chunk_bytes) return true;
+    if (s_chunk_bytes != 0) {
+        printf("[*] RF OTA: %u-byte chunks after a checkpoint of %u-byte chunks, starting over\n", chunk_bytes, s_chunk_bytes);
+        if (g_ota_file) fclose(g_ota_file);
+        g_ota_file = fopen("/tmp/elite_ui.ota.gz", "wb");
+        if (!g_ota_file) return false;
+        unlink("/tmp/elite_ui.ota.meta");
+        memset(s_ota_bitmap, 0, sizeof(s_ota_bitmap));
+        g_ota_received_chunks = 0;
+        g_ota_received_bytes = 0;
     }
-    return NULL;
+    s_chunk_bytes = chunk_bytes;
+    s_contig_hint = 0;
+    g_ota_total_chunks = ota_chunks_for(g_ota_total_bytes, chunk_bytes);
+    return true;
+}
+
+static void ota_send_chunk_ack(uint8_t seq) {
+    /* The contiguous count lets a windowed Hub resend from the first missing chunk */
+    uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
+    rf_frame_t ack;
+    rf_build_ack(&ack, g_remote_slot, seq, 0x00);
+    ack.payload[2] = (uint8_t)(contig & 0xFF);
+    ack.payload[3] = (uint8_t)((contig >> 8) & 0xFF);
+    ack.payload[4] = RF_OTA_WINDOWED;
+    rf_send_frame(&ack);
+
+    /* Resume checkpoint, at most twice a second (a windowed Hub asks for an ACK about 15 times
+     * a second) and once complete */
+    static uint64_t s_last_meta_ms = 0;
+    uint64_t t_meta = get_monotonic_ms();
+    if (ms_since(t_meta, s_last_meta_ms) >= 500 || contig == g_ota_total_chunks) {
+        s_last_meta_ms = t_meta;
+        ota_save_meta(g_ota_total_bytes, g_ota_total_chunks, s_current_file_crc, contig);
+    }
+}
+
+static void ota_mark_progress_render(void) {
+    static uint64_t last_ota_render_ms = 0;
+    uint64_t now_ms = get_monotonic_ms();
+    if (now_ms - last_ota_render_ms >= 500) {
+        last_ota_render_ms = now_ms;
+        g_screen_dirty = true;
+    }
+}
+
+/* RF_OTA_DATA frame as read from /dev/rfspi: 20 <pipe> 12 <slot> <0x60|idx[3:0]|ack> <idx[11:4]> <data[26]> */
+void handle_ota_data_frame(const uint8_t *pkt) {
+    if (!g_is_ota_updating || !g_ota_file) return;
+    if (!ota_begin_chunks(RF_OTA_DATA_BYTES)) return;
+    g_ota_last_packet_ms = get_monotonic_ms();
+    g_last_activity_time = time(NULL);
+
+    /* 12-bit index, completed from the chunk expected next (at most 64 in flight either way) */
+    uint32_t idx12 = (uint32_t)(pkt[4] & 0x0F) | ((uint32_t)pkt[5] << 4);
+    uint32_t expect = s_contig_hint;
+    uint32_t idx = (expect & ~0xFFFu) | idx12;
+    if (idx + 2048 < expect) idx += 0x1000;
+    else if (idx > expect + 2048 && idx >= 0x1000) idx -= 0x1000;
+    if (idx >= g_ota_total_chunks) return;
+
+    uint32_t off = idx * RF_OTA_DATA_BYTES;
+    uint32_t d_len = g_ota_total_bytes - off;
+    if (d_len > RF_OTA_DATA_BYTES) d_len = RF_OTA_DATA_BYTES;
+    fseek(g_ota_file, (long)off, SEEK_SET);
+    fwrite(&pkt[6], 1, d_len, g_ota_file);
+    if (!ota_is_chunk_received((uint16_t)idx)) {
+        ota_mark_chunk_received((uint16_t)idx);
+        g_ota_received_bytes += d_len;
+        g_ota_received_chunks++;
+    }
+    if (pkt[4] & RF_OTA_HDR_ACK) ota_send_chunk_ack(pkt[4] & 0x0F);
+    ota_mark_progress_render();
 }
 
 bool handle_ota_frame(const rf_frame_t *f) {
@@ -162,6 +254,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                                 ((uint32_t)f->payload[8] << 16) | ((uint32_t)f->payload[9] << 24);
             s_current_file_crc = file_crc;
             s_contig_hint = 0;
+            s_chunk_bytes = 0;
 
             printf("[*] RF OTA START: %u bytes, %u chunks, CRC32=0x%08X, batt=%d%% chg=%d\n",
                    tot_b, tot_c, file_crc, g_battery_info.percent, g_battery_info.charging);
@@ -183,13 +276,15 @@ bool handle_ota_frame(const rf_frame_t *f) {
             bool can_resume = false;
             struct stat st;
             if (stat("/tmp/elite_ui.ota.gz", &st) == 0 && st.st_size > 0) {
-                if (ota_load_meta(tot_b, tot_c, file_crc, &resume_chunk)) {
-                    if (resume_chunk > 0 && resume_chunk < tot_c) {
+                if (ota_load_meta(tot_b, file_crc, &resume_chunk)) {
+                    uint16_t have_c = ota_chunks_for(tot_b, s_chunk_bytes);
+                    if (resume_chunk > 0 && resume_chunk < have_c) {
                         g_ota_file = fopen("/tmp/elite_ui.ota.gz", "r+b");
                         if (g_ota_file) {
                             can_resume = true;
-                            printf("[+] RF OTA resuming from chunk %u / %u (%u bytes)\n",
-                                   resume_chunk, tot_c, (uint32_t)resume_chunk * 22);
+                            tot_c = have_c;
+                            printf("[+] RF OTA resuming from chunk %u / %u (%u bytes, %u-byte chunks)\n",
+                                   resume_chunk, tot_c, (uint32_t)resume_chunk * s_chunk_bytes, s_chunk_bytes);
                         }
                     }
                 }
@@ -197,6 +292,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
             if (!can_resume) {
                 resume_chunk = 0;
+                s_chunk_bytes = 0;
                 memset(s_ota_bitmap, 0, sizeof(s_ota_bitmap));
                 unlink("/tmp/elite_ui.ota.meta");
                 g_ota_file = fopen("/tmp/elite_ui.ota.gz", "wb");
@@ -209,7 +305,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 }
             }
 
-            g_is_ota_updating = true;
+            ota_set_updating(true);
             g_last_activity_time = time(NULL);
             if (!g_screen_on) {
                 fb_set_blank(false);
@@ -219,13 +315,20 @@ bool handle_ota_frame(const rf_frame_t *f) {
             g_ota_total_bytes = tot_b;
             g_ota_total_chunks = tot_c;
             g_ota_received_chunks = resume_chunk;
-            g_ota_received_bytes = (uint32_t)resume_chunk * 22;
+            g_ota_received_bytes = (uint32_t)resume_chunk * (can_resume ? s_chunk_bytes : 0);
             g_screen_dirty = true;
 
+            /* The resume chunk goes in the field of its kind: payload[2..3] for a stop-and-wait
+             * Hub (22-byte chunks), payload[6..7] for a windowed one (26-byte chunks) */
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
-            ack.payload[2] = (uint8_t)(resume_chunk & 0xFF);
-            ack.payload[3] = (uint8_t)((resume_chunk >> 8) & 0xFF);
+            if (can_resume && s_chunk_bytes == RF_OTA_CHUNK_BYTES) {
+                ack.payload[2] = (uint8_t)(resume_chunk & 0xFF);
+                ack.payload[3] = (uint8_t)((resume_chunk >> 8) & 0xFF);
+            } else if (can_resume && s_chunk_bytes == RF_OTA_DATA_BYTES) {
+                ack.payload[6] = (uint8_t)(resume_chunk & 0xFF);
+                ack.payload[7] = (uint8_t)((resume_chunk >> 8) & 0xFF);
+            }
             ack.payload[4] = RF_OTA_WINDOWED;
             rf_send_frame(&ack);
             return true;
@@ -233,16 +336,17 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
         case RF_MSG_OTA_CHUNK: {
             if (!g_is_ota_updating || !g_ota_file) return true;
+            if (!ota_begin_chunks(RF_OTA_CHUNK_BYTES)) return true;
             g_ota_last_packet_ms = get_monotonic_ms();
             g_last_activity_time = time(NULL);
 
             uint16_t c_idx = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
             uint8_t d_len = f->payload[2];
-            if (d_len > 22) d_len = 22;
+            if (d_len > RF_OTA_CHUNK_BYTES) d_len = RF_OTA_CHUNK_BYTES;
 
             if (d_len > 0) {
                 /* Seek to precise chunk offset for idempotency against retransmissions */
-                fseek(g_ota_file, (long)c_idx * 22, SEEK_SET);
+                fseek(g_ota_file, (long)c_idx * RF_OTA_CHUNK_BYTES, SEEK_SET);
                 fwrite(&f->payload[3], 1, d_len, g_ota_file);
 
                 bool already_had = ota_is_chunk_received(c_idx);
@@ -253,31 +357,8 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 }
             }
 
-            if (f->flags & RF_FLAG_ACK_REQ) {
-                /* The contiguous count lets a windowed Hub resend from the first missing chunk */
-                uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
-                rf_frame_t ack;
-                rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
-                ack.payload[2] = (uint8_t)(contig & 0xFF);
-                ack.payload[3] = (uint8_t)((contig >> 8) & 0xFF);
-                ack.payload[4] = RF_OTA_WINDOWED;
-                rf_send_frame(&ack);
-
-                /* Resume checkpoint, at most twice a second (a windowed Hub asks for an ACK
-                 * about 15 times a second) and once complete */
-                static uint64_t s_last_meta_ms = 0;
-                uint64_t t_meta = get_monotonic_ms();
-                if (ms_since(t_meta, s_last_meta_ms) >= 500 || contig == g_ota_total_chunks) {
-                    s_last_meta_ms = t_meta;
-                    ota_save_meta(g_ota_total_bytes, g_ota_total_chunks, s_current_file_crc, contig);
-                }
-            }
-            static uint64_t last_ota_render_ms = 0;
-            uint64_t now_ms = get_monotonic_ms();
-            if (now_ms - last_ota_render_ms >= 500) {
-                last_ota_render_ms = now_ms;
-                g_screen_dirty = true;
-            }
+            if (f->flags & RF_FLAG_ACK_REQ) ota_send_chunk_ack(f->seq);
+            ota_mark_progress_render();
             return true;
         }
 
@@ -323,7 +404,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     rf_frame_t ack;
                     rf_build_ack(&ack, g_remote_slot, f->seq, 0x06);
                     rf_send_frame(&ack);
-                    g_is_ota_updating = false;
+                    ota_set_updating(false);
                     g_screen_dirty = true;
                     return true;
                 }
@@ -399,7 +480,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
                 rf_send_frame(&ack);
 
-                g_is_ota_updating = false;
+                ota_set_updating(false);
                 render_screen();
                 if (g_rf_fd >= 0) {
                     close(g_rf_fd);
@@ -421,7 +502,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 system("rm -rf /tmp/elite_ota_pkg /data/elite_ui.new /tmp/elite_ui.ota.gz 2>/dev/null || true");
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x05);
                 rf_send_frame(&ack);
-                g_is_ota_updating = false;
+                ota_set_updating(false);
                 g_screen_dirty = true;
             }
             return true;
