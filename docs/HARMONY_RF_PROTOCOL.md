@@ -125,7 +125,7 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 
 ### 4.1 Subsystem Initialization
 - **Init Command** (`10 FF 80 00 00 01 00`): Wakes and initializes CC2544 messaging engine.
-- **Register `0xFD` write** (`10 FF 80 FD 01 00 00`): reply `10 FF 80 FD 01 <n> 00`, where `<n>` is not a slot but a counter that every write raises (`00` for the first write after boot) and only a reboot clears. On the remote, from the fifth write since boot the link stays lost (`10 01 41 04 47`) until the next reboot. Only `01` is accepted (`00` is rejected with `10 FF 8F 80 FD 03 00`), and `elite_ui` sends it once per boot. Its purpose is not known.
+- **Factory RF test step** (`10 FF 80 FD 01 00 00`): steps the CC2544 to its next factory test mode; reply `10 FF 80 FD 01 <mode> 00`. Logitech's firmware sends it only from the hidden factory test menu (`rf.test`), which names the modes: `0` RX sweep, `1`-`3` TX unmodulated at 2405/2444/2474 MHz, `4`-`6` TX modulated at the same channels, `7`-`9` RX at those channels, `10` TX sweep unmodulated, `11` ready. A reboot clears it. Not for normal operation: on the remote, from the fifth write since boot the link stays lost (`10 01 41 04 47`). Only `01` is accepted (`00` is rejected with `10 FF 8F 80 FD 03 00`). `elite_ui` does not send it.
 - **Firmware Version Query** (`10 FF 81 F1 01 00 00`): Returns firmware version. Reply: `10 FF 81 F1 01 <ver> 00` (e.g. `0x27` = v39.00).
 
 ### 4.2 Power Mode Management
