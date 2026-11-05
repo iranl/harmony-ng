@@ -125,7 +125,7 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 
 ### 4.1 Subsystem Initialization
 - **Init Command** (`10 FF 80 00 00 01 00`): Wakes and initializes CC2544 messaging engine.
-- **Extended Test Query** (`10 FF 80 FD 01 00 00`): Queries device role and assigned slot. Reply: `10 FF 80 FD 01 <slot> 00`.
+- **Register `0xFD` write** (`10 FF 80 FD 01 00 00`): reply `10 FF 80 FD 01 <n> 00`, where `<n>` is not a slot but a counter that every write raises (`00` for the first write after boot) and only a reboot clears. On the remote, from the fifth write since boot the link stays lost (`10 01 41 04 47`) until the next reboot. Only `01` is accepted (`00` is rejected with `10 FF 8F 80 FD 03 00`), and `elite_ui` sends it once per boot. Its purpose is not known.
 - **Firmware Version Query** (`10 FF 81 F1 01 00 00`): Returns firmware version. Reply: `10 FF 81 F1 01 <ver> 00` (e.g. `0x27` = v39.00).
 
 ### 4.2 Power Mode Management

@@ -28,6 +28,9 @@
 #include <linux/fb.h>
 #include <linux/input.h>
 
+/* Marks that register 0xFD was set since boot (see the RF init in main) */
+#define CC2544_FD_DONE "/tmp/.cc2544_fd_set"
+
 static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     (void)ucontext;
     int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
@@ -270,9 +273,18 @@ int main(int argc, char **argv) {
         if (write(g_rf_fd, pkt_init, sizeof(pkt_init)) < 0) {}
         usleep(30000);
 
-        uint8_t pkt_ext[7] = {0x10, 0xFF, 0x80, 0xFD, 0x01, 0x00, 0x00};
-        if (write(g_rf_fd, pkt_ext, sizeof(pkt_ext)) < 0) {}
-        usleep(30000);
+        /* Register 0xFD: every write of 01 raises a counter in the CC2544 (the reply's byte 5:
+         * 00, 01, 02, ...) that only a reboot clears, and from the fifth write since boot the
+         * link stays lost (status 0x47) until the next reboot, so an elite_ui restarted a few
+         * times (deploys, OTA tests) left the remote at "No Hub". The reply is not used and
+         * restarts link fine without the write, so it is sent once per boot (/tmp is tmpfs). */
+        if (access(CC2544_FD_DONE, F_OK) != 0) {
+            uint8_t pkt_ext[7] = {0x10, 0xFF, 0x80, 0xFD, 0x01, 0x00, 0x00};
+            if (write(g_rf_fd, pkt_ext, sizeof(pkt_ext)) < 0) {}
+            usleep(30000);
+            int mark = open(CC2544_FD_DONE, O_WRONLY | O_CREAT, 0644);
+            if (mark >= 0) close(mark);
+        }
 
         uint8_t pkt_pipe[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
         if (write(g_rf_fd, pkt_pipe, sizeof(pkt_pipe)) < 0) {}
