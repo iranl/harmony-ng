@@ -804,6 +804,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
     printf("[+] Cleaning up hardware resources...\n");
     elite_wdt_close();
     if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
