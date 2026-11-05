@@ -397,7 +397,14 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
 
                     g_host_connecting = false;
-                    stop_host_reconnect();
+                    /* The reconnect loop may be for another host (at start every known host is
+                     * connected in turn): stop it only when its own target is connected */
+                    if (g_host_reconnect_active) {
+                        bool loop_done = is_null_bd_addr(g_host_reconnect_target)
+                                             ? all_known_hosts_connected()
+                                             : memcmp(g_host_reconnect_target, conn_addr, 6) == 0;
+                        if (loop_done) stop_host_reconnect();
+                    }
                     g_host_connected = true;
                     /* Only the host that got a new link key during pairing mode is the new
                      * pairing. A known host that connects on its own while pairing mode is on

@@ -30,6 +30,15 @@ bool is_any_host_connected(void) {
     return false;
 }
 
+/* Every host with an address is connected (a null-target reconnect loop connects them all) */
+bool all_known_hosts_connected(void) {
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (is_null_bd_addr(g_hosts[i].addr)) continue;
+        if (!g_hosts[i].connected || !g_hosts[i].hid_cid) return false;
+    }
+    return true;
+}
+
 bool is_host_connected(const bd_addr_t addr) {
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (memcmp(g_hosts[i].addr, addr, 6) == 0 && g_hosts[i].connected && g_hosts[i].hid_cid) return true;
@@ -54,9 +63,10 @@ void set_host_manual_disconnect(const bd_addr_t addr, bool on) {
     }
 }
 
-/* True when the requested host is connected; for a null address, when any host is */
+/* True when the requested host is connected; for a null address (a loop over every known host),
+ * when all of them are: with two hosts the first to connect used to end the loop for the other */
 static bool host_target_connected(const bd_addr_t target) {
-    return is_null_bd_addr(target) ? is_any_host_connected() : is_host_connected(target);
+    return is_null_bd_addr(target) ? all_known_hosts_connected() : is_host_connected(target);
 }
 
 bool get_reconnect_target(bd_addr_t out) {
