@@ -176,6 +176,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── config_store.c  # Atomic JSON device/activity configuration store
 │       ├── http_server.c   # Lightweight REST JSON API server
 │       ├── ws_server.c     # RFC 6455 WebSocket server
+│       ├── state_watch.c   # Pushes Bluetooth, remote and config changes to the web UIs
 │       ├── ir_i2s.c        # Direct AR9344 I2S hardware pulse transmitter
 │       ├── ir_encoder.c    # Protocol bit encoders (NEC, RC5, RC6, Sony, Pronto)
 │       ├── hub_rf.c      # CC2544 RF protocol engine

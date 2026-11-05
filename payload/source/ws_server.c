@@ -8,11 +8,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define WS_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 static int g_clients[WS_MAX_CLIENTS];
 static size_t g_client_count = 0;
+/* Clients are added from HTTP worker threads, polled and removed by the main loop, and sent to
+ * from the orchestrator, HTTP and state watcher threads: guard the list, and serialize frame
+ * writes so that two threads never interleave frames on one socket. */
+static pthread_mutex_t g_clients_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_send_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* --- Standalone SHA-1 Engine (FIPS 180-1) --- */
 typedef struct {
@@ -129,8 +135,10 @@ static void base64_encode(const uint8_t *src, size_t len, char *out) {
 }
 
 int ws_server_init(void) {
+    pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) g_clients[i] = -1;
     g_client_count = 0;
+    pthread_mutex_unlock(&g_clients_lock);
     return 0;
 }
 
@@ -140,28 +148,65 @@ int ws_is_upgrade_req(const char *http_req) {
             strcasestr(http_req, "Upgrade: WebSocket") != NULL);
 }
 
-static void add_client(int fd) {
+/* Returns 0, or -1 when all WS_MAX_CLIENTS slots are taken */
+static int add_client(int fd) {
+    int rc = -1;
+    pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i] < 0) {
             g_clients[i] = fd;
             g_client_count++;
-            return;
+            rc = 0;
+            break;
         }
     }
+    pthread_mutex_unlock(&g_clients_lock);
+    return rc;
 }
 
-void ws_remove_client(int client_fd) {
+/* Unregister without closing (the caller still owns the socket) */
+static void drop_client(int fd) {
+    pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] == client_fd) {
+        if (g_clients[i] == fd) {
             g_clients[i] = -1;
             if (g_client_count > 0) g_client_count--;
             break;
         }
     }
-    close(client_fd);
+    pthread_mutex_unlock(&g_clients_lock);
+}
+
+/* send() until every byte is out: a partial send would leave a truncated frame on the stream */
+static int send_all(int fd, const void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n = send(fd, (const char *)buf + total, len - total, MSG_NOSIGNAL);
+        if (n <= 0) return -1;
+        total += (size_t)n;
+    }
+    return 0;
+}
+
+void ws_remove_client(int client_fd) {
+    int found = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            g_clients[i] = -1;
+            if (g_client_count > 0) g_client_count--;
+            found = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    /* Close only a registered client: a broadcast and the main loop can both see a dead
+     * socket, and the second close would hit an fd that may already be reused */
+    if (found) close(client_fd);
 }
 
 void ws_close_all(void) {
+    pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i] >= 0) {
             close(g_clients[i]);
@@ -169,6 +214,7 @@ void ws_close_all(void) {
         }
     }
     g_client_count = 0;
+    pthread_mutex_unlock(&g_clients_lock);
 }
 
 int ws_handle_upgrade(int client_fd, const char *http_req) {
@@ -202,11 +248,17 @@ int ws_handle_upgrade(int client_fd, const char *http_req) {
                        "Sec-WebSocket-Accept: %s\r\n\r\n",
                        accept_key);
 
-    if (send(client_fd, resp, (size_t)len, 0) <= 0) {
+    /* Take a slot before accepting the upgrade: a client accepted without one would never get
+     * broadcasts or be closed on shutdown */
+    if (add_client(client_fd) != 0) {
+        static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        send_all(client_fd, busy, sizeof(busy) - 1);
         return -1;
     }
-
-    add_client(client_fd);
+    if (send_all(client_fd, resp, (size_t)len) != 0) {
+        drop_client(client_fd);
+        return -1;
+    }
     return 0;
 }
 
@@ -230,22 +282,22 @@ int ws_send_text(int client_fd, const char *text) {
         return -1;
     }
 
-    if (send(client_fd, header, hlen, MSG_NOSIGNAL) <= 0) return -1;
-    if (send(client_fd, text, payload_len, MSG_NOSIGNAL) <= 0) return -1;
-
-    return 0;
+    int rc = 0;
+    pthread_mutex_lock(&g_send_lock);
+    if (send_all(client_fd, header, hlen) != 0 || send_all(client_fd, text, payload_len) != 0) {
+        rc = -1;
+    }
+    pthread_mutex_unlock(&g_send_lock);
+    return rc;
 }
 
 void ws_broadcast_text(const char *text) {
-    if (!text || g_client_count == 0) return;
-
-    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] >= 0) {
-            if (ws_send_text(g_clients[i], text) != 0) {
-                close(g_clients[i]);
-                g_clients[i] = -1;
-                if (g_client_count > 0) g_client_count--;
-            }
+    if (!text) return;
+    int fds[WS_MAX_CLIENTS];
+    int n = ws_get_clients(fds, WS_MAX_CLIENTS);
+    for (int i = 0; i < n; i++) {
+        if (ws_send_text(fds[i], text) != 0) {
+            ws_remove_client(fds[i]);
         }
     }
 }
@@ -296,16 +348,21 @@ int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode)
 int ws_get_clients(int *out_fds, size_t max_count) {
     if (!out_fds || max_count == 0) return 0;
     size_t count = 0;
+    pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS && count < max_count; i++) {
         if (g_clients[i] >= 0) {
             out_fds[count++] = g_clients[i];
         }
     }
+    pthread_mutex_unlock(&g_clients_lock);
     return (int)count;
 }
 
 int ws_send_pong(int client_fd) {
     if (client_fd < 0) return -1;
     uint8_t frame[2] = {0x8A, 0x00};
-    return send(client_fd, frame, 2, MSG_NOSIGNAL) > 0 ? 0 : -1;
+    pthread_mutex_lock(&g_send_lock);
+    int rc = send_all(client_fd, frame, 2);
+    pthread_mutex_unlock(&g_send_lock);
+    return rc;
 }

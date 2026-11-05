@@ -348,12 +348,17 @@ export class HarmonyAppCore {
         this.activitiesData.currentName = curAct ? (curAct.name || curAct.label) : (actId === '-1' ? 'PowerOff' : actId);
         this.wsProgress = null;
         this.updateActivityBanner();
-        if (changed || this.currentTab === 'activity-remote') {
+        /* Only on its own tab: the activity remote and the Control page share one RemoteEngine,
+         * so rendering it from another tab took the engine away from the Control page.
+         * Switching to the activity remote tab renders it anyway. */
+        if (this.currentTab === 'activity-remote') {
           this.renderActivityRemote();
         }
         if (changed && this.currentTab === 'overview') this.loadDashboard();
         if (changed && this.currentTab === 'activities') this.loadActivitiesView();
         this.refreshActivityState();
+      } else if (data.type === 'bt_status' || data.type === 'rf_status' || data.type === 'config_changed') {
+        this.onLiveState(data);
       }
     };
     this.client.onWsStatus = (online) => {
@@ -367,6 +372,39 @@ export class HarmonyAppCore {
         this.pollHubHealth(true);
       }
     };
+  }
+
+  /* True while a form field inside that view has focus: a live redraw would reset what the
+   * user is typing or choosing */
+  isEditingIn(viewId) {
+    const el = document.activeElement;
+    const view = document.getElementById(viewId);
+    return Boolean(el && view && view.contains(el) && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+  }
+
+  /* Coalesce bursts of pushed changes into one refresh per key */
+  scheduleLiveRefresh(key, fn, delayMs = 800) {
+    this.liveTimers = this.liveTimers || {};
+    clearTimeout(this.liveTimers[key]);
+    this.liveTimers[key] = setTimeout(() => {
+      this.liveTimers[key] = null;
+      fn();
+    }, delayMs);
+  }
+
+  /* bt_status, rf_status and config_changed are pushed by hub_daemon's state watcher when that
+   * state changes on the Hub; redraw only what is on screen */
+  onLiveState(data) {
+    if (data.type === 'bt_status') {
+      if (this.currentTab === 'bluetooth' && !this.isEditingIn('view-bluetooth')) this.loadBtView(data);
+      if (this.currentTab === 'overview') this.scheduleLiveRefresh('dashboard', () => this.loadDashboard());
+    } else if (data.type === 'rf_status') {
+      if (this.currentTab === 'rf-remote') this.refreshRfStatus(data);
+      this.scheduleLiveRefresh('banners', () => this.checkBanners());
+      if (this.currentTab === 'overview') this.scheduleLiveRefresh('dashboard', () => this.loadDashboard());
+    } else if (data.type === 'config_changed') {
+      this.scheduleLiveRefresh('config', () => this.refreshData());
+    }
   }
 
   async init() {
