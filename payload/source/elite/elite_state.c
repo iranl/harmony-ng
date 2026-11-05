@@ -77,7 +77,7 @@ pthread_mutex_t g_sync_lock = PTHREAD_MUTEX_INITIALIZER;
 
 volatile bool g_is_ota_updating = false;
 uint64_t g_ota_start_ms = 0;
-uint64_t g_ota_last_packet_ms = 0;
+volatile uint64_t g_ota_last_packet_ms = 0;
 uint32_t g_ota_total_bytes = 0;
 uint32_t g_ota_received_bytes = 0;
 uint16_t g_ota_total_chunks = 0;

@@ -44,7 +44,7 @@ void link_note_reply(uint8_t seq, uint64_t now_ms) {
     pthread_mutex_lock(&s_lock);
     for (int i = 0; i < s_query_n; i++) {
         int k = (s_query_head - 1 - i + RING) % RING;
-        if (now_ms - s_query[k].t > REPLY_TIMEOUT_MS) break;
+        if (ms_since(now_ms, s_query[k].t) > REPLY_TIMEOUT_MS) break;
         if ((s_query[k].seq & 0x0F) == (seq & 0x0F)) {
             s_query[k].answered = true;
             break;
@@ -67,12 +67,12 @@ void link_quality(uint64_t now_ms, link_quality_t *q) {
     int st_ok = 0, st_n = 0, qr_ok = 0, qr_n = 0, recent_n = 0, recent_ok = 0;
     pthread_mutex_lock(&s_lock);
     for (int i = 0; i < s_status_n; i++) {
-        if (now_ms - s_status[i].t > LINK_WINDOW_MS) continue;
+        if (ms_since(now_ms, s_status[i].t) > LINK_WINDOW_MS) continue;
         st_n++;
         if (s_status[i].ok) st_ok++;
     }
     for (int i = 0; i < s_query_n; i++) {
-        uint64_t age = now_ms - s_query[i].t;
+        uint64_t age = ms_since(now_ms, s_query[i].t);
         /* A query counts once its reply is due, or earlier if the reply already came */
         if (age > LINK_WINDOW_MS || (age < REPLY_TIMEOUT_MS && !s_query[i].answered)) continue;
         qr_n++;

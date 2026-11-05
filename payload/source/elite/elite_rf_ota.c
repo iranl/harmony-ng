@@ -116,7 +116,7 @@ void render_ota_overlay(void) {
 
     /* Lock banner / stall indication */
     fb_fill_rect(0, FB_HEIGHT - 30, FB_WIDTH, 30, RGB_HEADER);
-    uint64_t quiet_ms = (g_ota_last_packet_ms > 0) ? (get_monotonic_ms() - g_ota_last_packet_ms) : 0;
+    uint64_t quiet_ms = (g_ota_last_packet_ms > 0) ? ms_since(get_monotonic_ms(), g_ota_last_packet_ms) : 0;
     if (quiet_ms > 4000) {
         fb_draw_text_aa(18, FB_HEIGHT - 22, "Waiting for Hub...", RGB_YELLOW, &g_font_main);
     } else {
