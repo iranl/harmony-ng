@@ -785,8 +785,11 @@ void *rf_rx_worker(void *arg) {
                     memcpy(f.payload, &pkt[4], sizeof(f.payload));
                 }
             }
-            printf("[*] RF RX -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
-            fflush(stdout);
+            /* Not for every chunk: a windowed OTA brings about 250 a second */
+            if (!(g_is_ota_updating && f.msg_type == RF_MSG_OTA_CHUNK)) {
+                printf("[*] RF RX -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
+                fflush(stdout);
+            }
             handle_hub_frame_remote(&f);
         } else {
             /* Not a standard frame — check if it's a 0x42 container with embedded data */

@@ -287,6 +287,8 @@ int main(int argc, char **argv) {
 
         pthread_t th_rf_rx;
         pthread_create(&th_rf_rx, NULL, rf_rx_worker, NULL);
+        pthread_t th_ota_poll;
+        if (pthread_create(&th_ota_poll, NULL, ota_poll_worker, NULL) == 0) pthread_detach(th_ota_poll);
         usleep(30000);
 
         if (do_pairing) {

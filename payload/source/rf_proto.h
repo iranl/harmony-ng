@@ -41,10 +41,19 @@
 #define RF_MSG_PING                0x1F  /* Keepalive */
 
 /* OTA Binary Update */
+/* Remote -> Hub during OTA: carries nothing. The link delivers Hub -> remote frames only in the
+ * acknowledgement of a remote transmission, so polling gives the Hub a slot for each chunk.
+ * Must stay outside the ranges rf_is_valid_frame() accepts, so every Hub drops it unread. */
+#define RF_MSG_OTA_POLL            0x21
+
 #define RF_MSG_OTA_START           0x22  /* Hub -> Remote: start binary OTA */
 #define RF_MSG_OTA_CHUNK           0x23  /* Hub -> Remote: 24-byte binary chunk */
 #define RF_MSG_OTA_BLOCK_ACK       0x24  /* Remote -> Hub: ACK per block */
 #define RF_MSG_OTA_END             0x25  /* Hub -> Remote: complete / verify checksum */
+/* payload[4] of the OTA_START ACK and of every OTA chunk ACK from a remote that supports the
+ * windowed transfer; its chunk ACKs then carry the number of contiguous chunks it has in
+ * payload[2..3] (16-bit LE). A Hub that sees it streams without waiting for ACKs. */
+#define RF_OTA_WINDOWED            0xF1
 
 /* Custom Icon Push (Hub -> Remote) */
 #define RF_MSG_ICON_START          0x26  /* Hub -> Remote: start custom icon transfer */

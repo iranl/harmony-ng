@@ -36,10 +36,17 @@ static inline void ota_mark_chunk_received(uint16_t c_idx) {
     s_ota_bitmap[c_idx / 8] |= (1 << (c_idx % 8));
 }
 
+/* Every chunk below s_contig_hint is received (reset at OTA_START): each chunk ACK asks for the
+ * contiguous count, so the scan continues from there instead of from chunk 0 */
+static uint16_t s_contig_hint;
 static uint16_t ota_get_highest_contiguous_chunk(uint16_t total_chunks) {
-    for (uint16_t i = 0; i < total_chunks && i < OTA_MAX_CHUNKS; i++) {
-        if (!ota_is_chunk_received(i)) return i;
+    for (uint16_t i = s_contig_hint; i < total_chunks && i < OTA_MAX_CHUNKS; i++) {
+        if (!ota_is_chunk_received(i)) {
+            s_contig_hint = i;
+            return i;
+        }
     }
+    s_contig_hint = total_chunks;
     return total_chunks;
 }
 
@@ -124,6 +131,26 @@ void render_ota_overlay(void) {
     }
 }
 
+/* While in OTA mode, transmit every 2 ms. The Hub's CC2544 can hand a frame to the remote only in
+ * the acknowledgement of something the remote sent, so without this the transfer is limited to
+ * the radio's own keep-alive rate (about 20 chunks/s on a Harmony Ultimate). Hubs drop the poll
+ * frame unread (RF_MSG_OTA_POLL is outside the accepted message types). */
+void *ota_poll_worker(void *arg) {
+    (void)arg;
+    while (g_running) {
+        if (g_is_ota_updating && g_rf_fd >= 0) {
+            rf_frame_t p;
+            uint8_t pl[1] = {0};
+            rf_build_frame(&p, g_remote_slot, RF_MSG_OTA_POLL, 0, 0, pl, 1);
+            rf_send_frame(&p);
+            usleep(2000);
+        } else {
+            usleep(100000);
+        }
+    }
+    return NULL;
+}
+
 bool handle_ota_frame(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_OTA_START: {
@@ -134,6 +161,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
             uint32_t file_crc = (uint32_t)f->payload[6] | ((uint32_t)f->payload[7] << 8) |
                                 ((uint32_t)f->payload[8] << 16) | ((uint32_t)f->payload[9] << 24);
             s_current_file_crc = file_crc;
+            s_contig_hint = 0;
 
             printf("[*] RF OTA START: %u bytes, %u chunks, CRC32=0x%08X, batt=%d%% chg=%d\n",
                    tot_b, tot_c, file_crc, g_battery_info.percent, g_battery_info.charging);
@@ -198,6 +226,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             ack.payload[2] = (uint8_t)(resume_chunk & 0xFF);
             ack.payload[3] = (uint8_t)((resume_chunk >> 8) & 0xFF);
+            ack.payload[4] = RF_OTA_WINDOWED;
             rf_send_frame(&ack);
             return true;
         }
@@ -225,13 +254,23 @@ bool handle_ota_frame(const rf_frame_t *f) {
             }
 
             if (f->flags & RF_FLAG_ACK_REQ) {
+                /* The contiguous count lets a windowed Hub resend from the first missing chunk */
+                uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
                 rf_frame_t ack;
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
+                ack.payload[2] = (uint8_t)(contig & 0xFF);
+                ack.payload[3] = (uint8_t)((contig >> 8) & 0xFF);
+                ack.payload[4] = RF_OTA_WINDOWED;
                 rf_send_frame(&ack);
 
-                /* Persist checkpoint on ACK boundaries */
-                uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
-                ota_save_meta(g_ota_total_bytes, g_ota_total_chunks, s_current_file_crc, contig);
+                /* Resume checkpoint, at most twice a second (a windowed Hub asks for an ACK
+                 * about 15 times a second) and once complete */
+                static uint64_t s_last_meta_ms = 0;
+                uint64_t t_meta = get_monotonic_ms();
+                if (ms_since(t_meta, s_last_meta_ms) >= 500 || contig == g_ota_total_chunks) {
+                    s_last_meta_ms = t_meta;
+                    ota_save_meta(g_ota_total_bytes, g_ota_total_chunks, s_current_file_crc, contig);
+                }
             }
             static uint64_t last_ota_render_ms = 0;
             uint64_t now_ms = get_monotonic_ms();

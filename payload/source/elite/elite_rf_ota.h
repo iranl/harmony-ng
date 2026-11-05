@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 bool handle_ota_frame(const rf_frame_t *f);
+void *ota_poll_worker(void *arg);
 bool handle_icon_frame(const rf_frame_t *f);
 void render_ota_overlay(void);
 
