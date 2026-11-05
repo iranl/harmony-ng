@@ -109,6 +109,14 @@ void sanitize_devices_json(cJSON *root) {
                    (cJSON_IsString(jpao) && (strcmp(jpao->valuestring, "1") == 0 || strcasecmp(jpao->valuestring, "true") == 0))));
         cJSON_AddBoolToObject(cdev, "isPowerAlwaysOn", pao ? 1 : 0);
 
+        /* A device of another transport can still be linked to a Bluetooth host (a TV driven by
+         * IR that pairs as a keyboard host): keep its address, it names the host and is the
+         * only place the link lives (POST /api/bt-link-device). Keys still go by type. */
+        if (!is_bt) {
+            cJSON *jbd = cJSON_GetObjectItemCaseSensitive(src_d, "bdaddr");
+            if (jbd && cJSON_IsString(jbd) && jbd->valuestring[0]) cJSON_AddStringToObject(cdev, "bdaddr", jbd->valuestring);
+        }
+
         /* BT Reconnect */
         if (is_bt) {
             cJSON *jbd = cJSON_GetObjectItemCaseSensitive(src_d, "bdaddr");
