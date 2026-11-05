@@ -270,10 +270,10 @@ int main(int argc, char **argv) {
         if (write(g_rf_fd, pkt_init, sizeof(pkt_init)) < 0) {}
         usleep(30000);
 
-        uint8_t pkt_ext[7] = {0x10, 0xFF, 0x80, 0xFD, 0x01, 0x00, 0x00};
-        if (write(g_rf_fd, pkt_ext, sizeof(pkt_ext)) < 0) {}
-        usleep(30000);
-
+        /* No 10 FF 80 FD 01 here: in Logitech's firmware that write only comes from the factory RF
+         * test menu, and each one steps the CC2544 to its next test mode (reply byte = mode:
+         * RX sweep, unmodulated carriers, modulated carriers, ...). Sent at every start, it left
+         * the remote at "No Hub" from the fifth start since boot until a reboot. */
         uint8_t pkt_pipe[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
         if (write(g_rf_fd, pkt_pipe, sizeof(pkt_pipe)) < 0) {}
         usleep(20000);
