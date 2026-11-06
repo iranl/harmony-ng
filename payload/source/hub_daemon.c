@@ -5,6 +5,7 @@
 #include "hw_action.h"
 #include "http_server.h"
 #include "ws_server.h"
+#include "state_watch.h"
 #include "hub_ws.h"
 #include "hub_mqtt.h"
 #include "hub_ntp.h"
@@ -83,10 +84,20 @@ int main(int argc, char **argv) {
 
     /* 1. Hardware, Config Store & Orchestrator Core */
     config_store_init();
-    FILE *vf = fopen("/data/harmony/VERSION", "w");
-    if (vf) {
-        fprintf(vf, "%s\n", HARMONY_VERSION);
-        fclose(vf);
+    /* Rewrite VERSION only when it differs: every daemon start wrote it to flash */
+    char cur_ver[64] = {0};
+    FILE *cvf = fopen("/data/harmony/VERSION", "r");
+    if (cvf) {
+        if (!fgets(cur_ver, sizeof(cur_ver), cvf)) cur_ver[0] = '\0';
+        fclose(cvf);
+        cur_ver[strcspn(cur_ver, "\r\n")] = '\0';
+    }
+    if (strcmp(cur_ver, HARMONY_VERSION) != 0) {
+        FILE *vf = fopen("/data/harmony/VERSION", "w");
+        if (vf) {
+            fprintf(vf, "%s\n", HARMONY_VERSION);
+            fclose(vf);
+        }
     }
     struct hub_settings settings;
     config_store_get_settings(&settings);
@@ -105,6 +116,9 @@ int main(int argc, char **argv) {
 
     /* 2. Web & WebSocket Server */
     ws_server_init();
+    if (state_watch_start() != 0) {
+        fprintf(stderr, "[-] Could not start the state watcher: web UIs will not update live\n");
+    }
     int srv_fd = http_server_init(port);
     if (srv_fd < 0) {
         fprintf(stderr, "[-] Could not bind HTTP server on port %d: %s\n", port, strerror(errno));

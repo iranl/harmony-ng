@@ -7,7 +7,7 @@ release/
 data/
 background/
 backups/
-build/toolchains/
+build/toolchains
 build/output/
 build/remote_tools/
 build/tmp/

@@ -48,6 +48,7 @@ if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
         "$REPO_ROOT/payload/source/ir_i2s.c" \
         "$REPO_ROOT/payload/source/hw_action.c" \
         "$REPO_ROOT/payload/source/ws_server.c" \
+        "$REPO_ROOT/payload/source/state_watch.c" \
         "$REPO_ROOT/payload/source/mqtt_client.c" \
         "$REPO_ROOT/payload/source/sha256.c" \
         "$REPO_ROOT/payload/source/timezone_db.c" \

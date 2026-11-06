@@ -441,6 +441,7 @@ void start_usbeth_and_dropbear(void) {
 }
 
 void enter_kernel_suspend(void) {
+    flush_activity_usage();
     read_elite_battery();
     if (strcmp(g_battery_info.powersource, "battery") != 0) {
         return;
@@ -614,6 +615,7 @@ void *power_manager(void *arg) {
                 } else {
                     printf("[*] Idle timeout reached (%ds), blanking display\n", g_timeout_seconds);
                     fb_set_blank(true);
+                    flush_activity_usage();
                 }
             }
         }

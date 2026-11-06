@@ -514,7 +514,9 @@ void http_handle_client(int client_fd) {
 
         /* Check for WebSocket upgrade */
         if (ws_is_upgrade_req(init_buf)) {
-            ws_handle_upgrade(client_fd, init_buf);
+            /* A failed upgrade (bad request, no free client slot, send error) leaves the socket
+             * unregistered: close it here, nobody else will */
+            if (ws_handle_upgrade(client_fd, init_buf) != 0) close(client_fd);
             free(init_buf);
             return;
         }
