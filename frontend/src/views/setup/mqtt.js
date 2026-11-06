@@ -1,5 +1,5 @@
 // MQTT & Home Assistant Configuration View
-import { h } from '../../utils/dom.js';
+import { h, copyText } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
@@ -383,7 +383,7 @@ export function createView() {
     const statusEl = container.querySelector('#ha-helper-status');
     if (!yamlEl?.textContent) return;
     try {
-      await navigator.clipboard.writeText(yamlEl.textContent);
+      if (!(await copyText(yamlEl.textContent))) throw new Error('clipboard unavailable');
       if (copyBtn) copyBtn.textContent = '✓ Copied!';
       if (statusEl) statusEl.textContent = 'Copied to clipboard';
       setTimeout(() => {

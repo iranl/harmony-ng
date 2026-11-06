@@ -1,5 +1,5 @@
 // Users, Auth & API Tokens View
-import { h } from '../../utils/dom.js';
+import { h, copyText } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
@@ -278,9 +278,9 @@ export function createView() {
         {
           label: 'Copy & Close',
           variant: 'primary',
-          onClick: () => {
-            navigator.clipboard?.writeText(tokenStr);
-            toast.success('Token copied to clipboard');
+          onClick: async () => {
+            if (await copyText(tokenStr)) toast.success('Token copied to clipboard');
+            else toast.error('Clipboard not available on plain HTTP: select the token and copy it by hand');
           },
         },
       ],

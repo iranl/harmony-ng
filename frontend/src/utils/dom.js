@@ -70,3 +70,40 @@ export function clearChildren(el) {
     el.removeChild(el.firstChild);
   }
 }
+
+/*
+ * Copy text to the clipboard. navigator.clipboard exists only in a secure context (HTTPS or
+ * localhost); the Hub serves the UI over plain HTTP, so fall back to a selection and
+ * execCommand('copy'), still allowed from a click handler. Resolves to true when copied.
+ */
+export async function copyText(text) {
+  if (!text) return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      /* permission denied: try the fallback */
+    }
+  }
+  if (typeof document === 'undefined' || !document.body) return false;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch (err) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
