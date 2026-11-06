@@ -30,6 +30,18 @@ bool is_any_host_connected(void) {
     return false;
 }
 
+/* Every host with an address is connected (a null-target reconnect loop connects them all);
+ * false with no known host, so such a loop still tries the fallbacks in try_connect_host() */
+bool all_known_hosts_connected(void) {
+    bool any = false;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (is_null_bd_addr(g_hosts[i].addr)) continue;
+        any = true;
+        if (!g_hosts[i].connected || !g_hosts[i].hid_cid) return false;
+    }
+    return any;
+}
+
 bool is_host_connected(const bd_addr_t addr) {
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (memcmp(g_hosts[i].addr, addr, 6) == 0 && g_hosts[i].connected && g_hosts[i].hid_cid) return true;
@@ -54,9 +66,10 @@ void set_host_manual_disconnect(const bd_addr_t addr, bool on) {
     }
 }
 
-/* True when the requested host is connected; for a null address, when any host is */
+/* True when the requested host is connected; for a null address (a loop over every known host),
+ * when all of them are: with two hosts the first to connect used to end the loop for the other */
 static bool host_target_connected(const bd_addr_t target) {
-    return is_null_bd_addr(target) ? is_any_host_connected() : is_host_connected(target);
+    return is_null_bd_addr(target) ? all_known_hosts_connected() : is_host_connected(target);
 }
 
 bool get_reconnect_target(bd_addr_t out) {
@@ -410,6 +423,85 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
         }
         update_status(app_state == APP_READY ? "ready" : "standby");
     }
+}
+
+static cJSON *load_json_file(const char *path, long max_size) {
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    cJSON *root = NULL;
+    if (sz > 0 && sz < max_size) {
+        char *buf = (char *)malloc(sz + 1);
+        if (buf) {
+            size_t r = fread(buf, 1, sz, f);
+            buf[r] = 0;
+            root = cJSON_Parse(buf);
+            free(buf);
+        }
+    }
+    fclose(f);
+    return root;
+}
+
+/* The host of an activity: the first of its devices (config/activities.json deviceIds) that is a
+ * Bluetooth device with an address in config/devices.json. With two hosts paired, the pinned host
+ * (the last one paired) is not necessarily the one the running activity uses. */
+/* An "id" as text: string ids as they are, numeric ids (older or hand-written files) printed */
+static bool json_id_str(const cJSON *j, char *out, size_t out_len) {
+    if (!j || !out || out_len == 0) return false;
+    if (cJSON_IsString(j) && j->valuestring && j->valuestring[0]) {
+        snprintf(out, out_len, "%s", j->valuestring);
+        return true;
+    }
+    if (cJSON_IsNumber(j)) {
+        snprintf(out, out_len, "%ld", (long)j->valuedouble);
+        return true;
+    }
+    return false;
+}
+
+bool get_activity_host_target(const char *act_id, bd_addr_t out) {
+    if (!act_id || !act_id[0]) return false;
+    bool found = false;
+    cJSON *acts = load_json_file("/data/harmony/config/activities.json", 1000000);
+    cJSON *devs = load_json_file("/data/harmony/config/devices.json", 1000000);
+    cJSON *alist = acts ? cJSON_GetObjectItemCaseSensitive(acts, "activities") : NULL;
+    cJSON *dlist = devs ? cJSON_GetObjectItemCaseSensitive(devs, "devices") : NULL;
+    cJSON *act = NULL;
+    if (alist && dlist && cJSON_IsArray(alist) && cJSON_IsArray(dlist)) {
+        cJSON_ArrayForEach(act, alist) {
+            char aid[64];
+            if (!json_id_str(cJSON_GetObjectItemCaseSensitive(act, "id"), aid, sizeof(aid)) || strcmp(aid, act_id) != 0) continue;
+            cJSON *ids = cJSON_GetObjectItemCaseSensitive(act, "deviceIds");
+            cJSON *did = NULL;
+            if (ids && cJSON_IsArray(ids)) {
+                cJSON_ArrayForEach(did, ids) {
+                    char want[64];
+                    if (!json_id_str(did, want, sizeof(want))) continue;
+                    cJSON *dev = NULL;
+                    cJSON_ArrayForEach(dev, dlist) {
+                        char have[64];
+                        if (!json_id_str(cJSON_GetObjectItemCaseSensitive(dev, "id"), have, sizeof(have)) || strcmp(have, want) != 0) continue;
+                        /* ids are unique: this is the device, BT or not */
+                        cJSON *jtype = cJSON_GetObjectItemCaseSensitive(dev, "type");
+                        cJSON *jaddr = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+                        if (jtype && cJSON_IsString(jtype) && strcasecmp(jtype->valuestring, "BT") == 0 &&
+                            jaddr && cJSON_IsString(jaddr) && parse_bd_addr(jaddr->valuestring, out) && !is_null_bd_addr(out)) {
+                            found = true;
+                        }
+                        break;
+                    }
+                    if (found) break;
+                }
+            }
+            break;
+        }
+    }
+    if (acts) cJSON_Delete(acts);
+    if (devs) cJSON_Delete(devs);
+    return found;
 }
 
 void init_known_hosts(void) {

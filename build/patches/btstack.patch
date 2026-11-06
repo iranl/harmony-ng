@@ -1,5 +1,5 @@
 diff --git a/src/btstack_run_loop.c b/src/btstack_run_loop.c
-index caba7f4..225e803 100644
+index 83a713b..342370d 100644
 --- a/src/btstack_run_loop.c
 +++ b/src/btstack_run_loop.c
 @@ -91,6 +91,7 @@ bool btstack_run_loop_base_remove_timer(btstack_timer_source_t * timer){
@@ -11,7 +11,7 @@ index caba7f4..225e803 100644
      for (it = (btstack_linked_item_t *) &btstack_run_loop_base_timers; it->next ; it = it->next){
          btstack_timer_source_t * next = (btstack_timer_source_t *) it->next;
 diff --git a/src/classic/hid_device.c b/src/classic/hid_device.c
-index aa0052f..ac51747 100644
+index aa0052f..aa3e2f2 100644
 --- a/src/classic/hid_device.c
 +++ b/src/classic/hid_device.c
 @@ -91,7 +91,10 @@ static int  (*hci_device_get_report)   (uint16_t hid_cid, hid_report_type_t repo
@@ -65,14 +65,14 @@ index aa0052f..ac51747 100644
 +        if (hid_devices[i].cid && (memcmp(hid_devices[i].bd_addr, bd_addr, 6) == 0)) {
 +            return &hid_devices[i];
 +        }
-+    }
+     }
+-    return &hid_device_singleton;
 +    for (i = 0; i < MAX_NR_HID_DEVICES; i++) {
 +        if (!hid_devices[i].cid) {
 +            hid_device_setup_instance(&hid_devices[i], bd_addr);
 +            return &hid_devices[i];
 +        }
-     }
--    return &hid_device_singleton;
++    }
 +    return NULL;
  }
  
@@ -117,7 +117,19 @@ index aa0052f..ac51747 100644
                          break;
                      }
  
-@@ -864,7 +900,7 @@ void hid_device_deinit(void){
+@@ -745,8 +781,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t * pack
+                     if (!device->interrupt_cid && !device->control_cid){
+                         device->connected = 0;
+                         device->con_handle = HCI_CON_HANDLE_INVALID;
+-                        device->cid = 0;
++                        // harmony-ng: emit with the hid_cid still set, so a host application with
++                        // several HID device instances can tell which one closed
+                         hid_device_emit_event(device, HID_SUBEVENT_CONNECTION_CLOSED);
++                        device->cid = 0;
+                     }
+                     break;
+ 
+@@ -864,7 +902,7 @@ void hid_device_deinit(void){
      hci_device_set_report = NULL;
      hci_device_report_data = NULL;
  
@@ -126,7 +138,7 @@ index aa0052f..ac51747 100644
  
      hid_device_boot_protocol_mode_supported = false;
      hid_device_descriptor = NULL;
-@@ -949,19 +985,32 @@ void hid_device_send_control_message(uint16_t hid_cid, const uint8_t * message,
+@@ -949,19 +987,32 @@ void hid_device_send_control_message(uint16_t hid_cid, const uint8_t * message,
   * @result status
   */
  uint8_t hid_device_connect(bd_addr_t addr, uint16_t * hid_cid){
@@ -162,7 +174,7 @@ index aa0052f..ac51747 100644
  }
  
 diff --git a/src/hci.c b/src/hci.c
-index 5bf52b0..f2716a8 100644
+index 33e3214..ebf47ea 100644
 --- a/src/hci.c
 +++ b/src/hci.c
 @@ -59,6 +59,7 @@
@@ -173,7 +185,7 @@ index 5bf52b0..f2716a8 100644
  #include <string.h>
  #include <inttypes.h>
  
-@@ -2455,16 +2456,8 @@ static void hci_initializing_run(void){
+@@ -2456,16 +2457,8 @@ static void hci_initializing_run(void){
          case HCI_INIT_LE_SET_EVENT_MASK:
              if (hci_le_supported()){
                  hci_stack->substate = HCI_INIT_W4_LE_SET_EVENT_MASK;
@@ -192,7 +204,7 @@ index 5bf52b0..f2716a8 100644
                  break;
              }
  #endif
-@@ -8249,6 +8242,7 @@ static bool hci_run_general_pending_commands(void){
+@@ -8265,6 +8258,7 @@ static bool hci_run_general_pending_commands(void){
          }
  
          if ((connection->bonding_flags & (BONDING_DISCONNECT_DEDICATED_DONE | BONDING_DEDICATED_DEFER_DISCONNECT)) == BONDING_DISCONNECT_DEDICATED_DONE){
@@ -201,7 +213,7 @@ index 5bf52b0..f2716a8 100644
              connection->bonding_flags |= BONDING_EMIT_COMPLETE_ON_DISCONNECT;
              connection->state = SENT_DISCONNECT;
 diff --git a/src/l2cap.c b/src/l2cap.c
-index eb6aa39..3565e34 100644
+index 3f9b6a1..daac792 100644
 --- a/src/l2cap.c
 +++ b/src/l2cap.c
 @@ -58,6 +58,7 @@
@@ -212,7 +224,7 @@ index eb6aa39..3565e34 100644
  #include <stdarg.h>
  #include <string.h>
  
-@@ -2574,10 +2575,13 @@ static void l2cap_handle_remote_supported_features_received(l2cap_channel_t * ch
+@@ -2594,10 +2595,13 @@ static void l2cap_handle_remote_supported_features_received(l2cap_channel_t * ch
          //   disconnect the ACL link with error code 0x05 - Authentication Failure.
  
          // => Disconnect if l2cap request received in mode 4 and ssp supported, non-sdp psm, not encrypted, no link key available
@@ -227,7 +239,7 @@ index eb6aa39..3565e34 100644
              hci_disconnect_security_block(channel->con_handle);
              return;
          }
-@@ -3006,6 +3010,7 @@ static void l2cap_check_classic_timeout(hci_con_handle_t handle){
+@@ -3047,6 +3051,7 @@ static void l2cap_check_classic_timeout(hci_con_handle_t handle){
      if (!hci_can_send_command_packet_now()) {
          return;
      }

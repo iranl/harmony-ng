@@ -23,6 +23,9 @@ extern time_t g_user_scan_end;
 uint16_t get_target_host_hid_cid(void);
 bool is_any_host_connected(void);
 bool is_host_connected(const bd_addr_t addr);
+bool all_known_hosts_connected(void);
+/* The Bluetooth host of the activity with this id (its first BT device with a bdaddr) */
+bool get_activity_host_target(const char *act_id, bd_addr_t out);
 /* Per-host "disconnect requested" flag; a null address applies to every known host */
 bool host_manual_disconnect(const bd_addr_t addr);
 void set_host_manual_disconnect(const bd_addr_t addr, bool on);
