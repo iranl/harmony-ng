@@ -462,7 +462,8 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
 
     // System Actions
     document.getElementById('btnSaveDebug')?.addEventListener('click', () => this.saveDebugLogging());
-    document.getElementById('authEnabledCheck')?.addEventListener('change', () => this.saveWebUiAuth());
+    /* The checkbox does not save by itself: ticking it before the admin fields are filled used to
+     * enable authentication with a default account. Save Admin Account applies both. */
     document.getElementById('btnSaveAuth')?.addEventListener('click', () => this.saveWebUiAuth());
     document.getElementById('btnAddNonAdminUser')?.addEventListener('click', () => this.addNonAdminUser());
     document.getElementById('btnSaveHubName')?.addEventListener('click', async () => {

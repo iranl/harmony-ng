@@ -343,7 +343,6 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       port: Number(document.getElementById('mqttPort')?.value) || 1883,
       username: document.getElementById('mqttUsername')?.value.trim(),
       password: document.getElementById('mqttPassword')?.value,
-      keep_password: document.getElementById('mqttKeepPass')?.checked ? 1 : 0,
       baseTopic: document.getElementById('mqttBaseTopic')?.value.trim(),
       discoveryPrefix: document.getElementById('mqttDiscoveryPrefix')?.value.trim(),
       clientId: document.getElementById('mqttClientId')?.value.trim(),

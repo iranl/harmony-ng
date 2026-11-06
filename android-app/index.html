@@ -3500,10 +3500,6 @@
               <label for="mqttPassword" data-i18n="password">Password</label>
               <input id="mqttPassword" name="password" type="password" class="form-control"
                 placeholder="Leave blank to keep current" data-i18n-placeholder="placeholder_leave_blank">
-              <label
-                style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px; cursor: pointer;">
-                <input type="checkbox" id="mqttKeepPass" name="keep_password" value="1" checked> Keep current password
-              </label>
             </div>
           </div>
 
@@ -4261,6 +4257,8 @@ harmony_send_command:
             <span style="font-weight: 600;" data-i18n="require_auth">Require authentication (Digest / Bearer Tokens /
               Basic)</span>
           </label>
+          <div class="help mini" style="margin: -6px 0 10px 0;">Takes effect with Save Admin Account. Set the admin
+            password first: the Hub refuses to require authentication without one.</div>
 
           <!-- Admin Credentials -->
           <div
