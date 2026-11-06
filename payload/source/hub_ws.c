@@ -52,8 +52,7 @@ void handle_ws_client_message(int cfd) {
     int opcode = 0;
     int len = ws_read_frame(cfd, buf, sizeof(buf), &opcode);
     if (len <= 0 || opcode == WS_OP_CLOSE) {
-        close(cfd);
-        ws_remove_client(cfd);
+        ws_remove_client(cfd);  /* closes the socket (it used to be closed twice here) */
         return;
     }
 

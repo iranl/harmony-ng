@@ -117,6 +117,7 @@ class CoSimulationRunner:
                 f"{REPO_ROOT}/payload/source/ir_i2s.c",
                 f"{REPO_ROOT}/payload/source/hw_action.c",
                 f"{REPO_ROOT}/payload/source/ws_server.c",
+                f"{REPO_ROOT}/payload/source/state_watch.c",
                 f"{REPO_ROOT}/payload/source/mqtt_client.c",
                 f"{REPO_ROOT}/payload/source/sha256.c",
                 f"{REPO_ROOT}/payload/source/timezone_db.c",
