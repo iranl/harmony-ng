@@ -332,4 +332,21 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
+# 9. Log cap: $LOG lives in tmpfs, which is RAM on a 32 MB Hub. Unbounded, it starved the
+# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press). Every
+# writer appends (>>), so truncating in place is safe; the last 64 KB are kept in $LOG.1.
+(
+  while true; do
+    sleep 300
+    [ -f /tmp/harmony_stop ] && exit 0
+    _sz=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    if [ "$_sz" -gt 1048576 ]; then
+      dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null
+      : > "$LOG"
+      echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $LOG.1" >> "$LOG"
+    fi
+  done
+) &
+echo "$!" >> /tmp/harmony_supervisors.pid
+
 echo "$(date) harmony init done" >> "$LOG"
