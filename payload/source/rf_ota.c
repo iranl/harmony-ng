@@ -138,7 +138,9 @@ void *rf_ota_sender_worker(void *arg) {
     start_payload[9] = (uint8_t)((file_crc >> 24) & 0xFF);
 
     /* A remote with its screen off would only notice the update when someone wakes it */
-    int woke = rf_wake_remote(target_slot, 10);
+    /* 4 attempts (about 3 s) cover a light-standby remote; a remote without RF_MSG_WAKE never
+     * answers, so more attempts only delay its update */
+    int woke = rf_wake_remote(target_slot, 4);
     if (woke)
         printf("[*] Remote in slot %d acknowledged the wake request (attempt %d)\n", target_slot, woke);
     else

@@ -630,10 +630,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
-            if (!g_screen_on) {
-                printf("[*] Wake request from the Hub: turning the screen on\n");
-                g_wake_requested = 1; /* the power manager wakes the screen, as for a cradle change */
-            }
+            if (!g_screen_on) printf("[*] Wake request from the Hub: turning the screen on\n");
+            /* the power manager wakes the screen, as for a cradle change; with the screen already
+             * on it restarts the idle timeout, so the screen does not go off right after */
+            g_wake_requested = 1;
             break;
         }
 
