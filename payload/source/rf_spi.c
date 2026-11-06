@@ -117,6 +117,18 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     return ok ? 0 : -1;
 }
 
+/* Ask a remote to turn its screen on; returns the attempt that was ACKed, or 0 if none was */
+int rf_wake_remote(uint8_t slot, int attempts) {
+    for (int i = 1; i <= attempts && g_running; i++) {
+        rf_frame_t f;
+        uint8_t pl[1] = {0};
+        rf_build_frame(&f, slot, RF_MSG_WAKE, ++g_tx_seq, RF_FLAG_ACK_REQ, pl, 1);
+        if (rf_send_frame_acked(&f, 600) == 0) return i;
+        usleep(100000);
+    }
+    return 0;
+}
+
 void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
     pthread_mutex_lock(&g_ack_mutex);
     if ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq) {

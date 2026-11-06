@@ -756,6 +756,9 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
 Initiates RF pairing beacon on slot 1 or slot 2 for Harmony Elite, Harmony Companion, or Harmony Smart Control remotes.
 - **Response `200 OK`**: `{"status": "pairing_started"}`
 
+#### `POST /api/rf/wake?slot={1|2}`
+Turns the remote's screen on over RF (`RF_MSG_WAKE`), as a key press would; with the screen already on it restarts the idle timeout. Returns `202` `{"status":"waking","slot":1,"ok":true}` at once and tries for about 10 s in the background; `hub_rf` logs whether the remote acknowledged it. One wake runs at a time (`202` `already_waking` while one runs); `409` during an RF OTA, `400` for a Companion slot. Remotes without this message do not answer. A remote in deep standby (suspended to RAM on battery) does not receive it either: it reports again at its next hourly alarm or key press. An RF OTA start (`/api/rf/ota-start`) sends the same request first (4 attempts). Over USB/SSH the same is `touch /tmp/trigger_wake` on the remote.
+
 #### `GET /api/rf/stop-pair`
 Stops active pairing mode.
 - **Response `200 OK`**: `{"status": "pairing_stopped"}`

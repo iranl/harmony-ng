@@ -2011,6 +2011,37 @@ paths:
         '409':
           description: RF OTA update in progress
 
+  /api/rf/wake:
+    post:
+      tags:
+        - RF & Elite Remote
+      summary: Turn a paired Elite remote's screen on over RF
+      description: Sends RF_MSG_WAKE (0x30, ACK'd) to the remote, which turns its screen on (or restarts its idle timeout when the screen is on) as a key press would. Tries for about 10 s in the background and logs whether the remote acknowledged it. A remote in deep standby (suspended to RAM on battery) does not receive it; it reports again at its next hourly alarm or key press.
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+          description: Remote slot
+      responses:
+        '202':
+          description: Wake request accepted (status waking), or a wake for a remote is already running (status already_waking)
+          content:
+            application/json:
+              example:
+                status: waking
+                slot: 1
+                ok: true
+        '400':
+          description: The remote in this slot is a Companion (no screen)
+        '409':
+          description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
+
   /api/rf/push-icon:
     get:
       tags:
