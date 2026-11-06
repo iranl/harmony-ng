@@ -18,6 +18,7 @@ import sys
 import time
 import subprocess
 import urllib.request
+import urllib.error
 import json
 import signal
 
@@ -65,6 +66,8 @@ class CoSimulationRunner:
         try:
             with urllib.request.urlopen(req, timeout=3.0) as resp:
                 return resp.status, json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode(errors="replace")
         except Exception as e:
             return 0, str(e)
 
@@ -185,6 +188,51 @@ class CoSimulationRunner:
         with open(vbat_path, "r") as f:
             read_vbat = int(f.read().strip())
         self.record("Battery Voltage Update", read_vbat == 3820, f"3820 mV -> Discharging")
+
+        # 8. Settings: MQTT password and enabling authentication
+        print("[-] Step 7: Testing the MQTT password save and the authentication guard...")
+        data_dir = os.path.join(MOCK_BASE, "data", "harmony")
+        users_path = os.path.join(data_dir, "config", "users.json")
+        mqtt_path = os.path.join(data_dir, "mqtt.json")
+        os.makedirs(os.path.dirname(users_path), exist_ok=True)  # mkdir() is not virtualized by the mock
+        for pth in (users_path,):
+            if os.path.exists(pth):
+                os.remove(pth)
+        st, _ = self.http_post("/api/mqtt-save", {"enabled": False, "host": "127.0.0.1", "username": "u",
+                                                  "password": "typed-secret", "keep_password": 1})
+        saved = {}
+        try:
+            with open(mqtt_path) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            pass
+        self.record("MQTT save stores a typed password even with keep_password", st == 200 and saved.get("password") == "typed-secret",
+                    f"HTTP {st}, password stored: {'password' in saved}")
+        st, _ = self.http_post("/api/mqtt-save", {"enabled": False, "password": ""})
+        try:
+            with open(mqtt_path) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = {}
+        self.record("MQTT save with an empty password keeps the stored one", st == 200 and saved.get("password") == "typed-secret", f"HTTP {st}")
+        st, res = self.http_post("/system", {"action": "auth", "authEnabled": 1, "authUsername": "owner", "authPassword": ""})
+        self.record("Enabling auth without an admin password is refused", st == 400 and not os.path.exists(users_path),
+                    f"HTTP {st}, users.json created: {os.path.exists(users_path)}")
+        st, res = self.http_post("/system", {"action": "auth", "authEnabled": 1, "authUsername": "owner", "authPassword": "pw-1"})
+        users = {}
+        try:
+            with open(users_path) as f:
+                users = json.load(f)
+        except (OSError, ValueError):
+            pass
+        names = [u.get("username") for u in users.get("users", [])]
+        self.record("Enabling auth with a password creates that admin only", st == 200 and names == ["owner"] and users.get("auth_enabled") is True,
+                    f"HTTP {st}, users {names}")
+        st, _ = self.http_post("/system", {"action": "auth", "authEnabled": 0})
+        self.record("Auth can be turned off again (loopback is admin)", st == 200, f"HTTP {st}")
+        for pth in (users_path, mqtt_path):
+            if os.path.exists(pth):
+                os.remove(pth)
 
         print("\n=======================================================")
         if self.failed == 0:
