@@ -61,6 +61,8 @@
 #define RF_OTA_DATA_BYTES          26
 /* Chunk size of the stop-and-wait transfer (RF_MSG_OTA_CHUNK: index, length, 22 data bytes) */
 #define RF_OTA_CHUNK_BYTES         22
+/* Largest OTA image: chunk counts are 16-bit and the stop-and-wait chunks are the smallest */
+#define RF_OTA_MAX_BYTES           (65535u * RF_OTA_CHUNK_BYTES)
 /* CC2544 power modes (command 20 <mode> 00 00 00 00 00): Logitech's firmware runs the radio in
  * RF_PM_TRANSFER for the whole of a HOT transfer and in RF_PM_ACTIVE otherwise. In RF_PM_TRANSFER
  * the remote's radio fetches the Hub's queued frames by itself (about 250 a second on a Harmony

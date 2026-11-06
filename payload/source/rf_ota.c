@@ -23,9 +23,11 @@
 #define OTA_WIN_STALL_MS    20000
 
 static volatile uint32_t s_win_contig;
+static volatile uint8_t s_win_slot; /* slot of the windowed transfer in progress, 0 = none */
 
-void ota_note_chunk_ack(const uint8_t *payload) {
+void ota_note_chunk_ack(uint8_t slot, const uint8_t *payload) {
     if (!payload || payload[4] != RF_OTA_WINDOWED) return;
+    if (!s_win_slot || (slot & 0x0F) != s_win_slot) return; /* another remote's ACK */
     uint32_t c = (uint32_t)payload[2] | ((uint32_t)payload[3] << 8);
     if (c > s_win_contig) s_win_contig = c; /* ACKs can arrive out of order */
 }
@@ -33,8 +35,11 @@ void ota_note_chunk_ack(const uint8_t *payload) {
 /* Returns true when the remote has every chunk; otherwise the status is set (resumable) */
 static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint32_t start, uint32_t tot_chunks, uint32_t tot_bytes) {
     s_win_contig = start;
+    s_win_slot = target_slot & 0x0F;
     uint32_t next = start, last_contig = start, last_logged = start;
-    uint64_t last_progress = get_monotonic_ms(), t0 = last_progress;
+    /* last_progress moves only when the remote's count grows (stall abort); last_rewind paces
+     * the resends, which must not count as progress or a remote that is gone is retried forever */
+    uint64_t last_progress = get_monotonic_ms(), last_rewind = last_progress, t0 = last_progress;
     unsigned rewinds = 0;
 
     while (g_running) {
@@ -48,13 +53,14 @@ static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint32_t start, uint
         if (now - last_progress > OTA_WIN_STALL_MS) {
             char err[128];
             snprintf(err, sizeof(err), "Chunk %u: no progress for %d s (can resume)", contig, OTA_WIN_STALL_MS / 1000);
+            s_win_slot = 0;
             ota_set_status(-1, false, err);
             return false;
         }
-        if (now - last_progress > OTA_WIN_REWIND_MS && next > contig) {
+        if (now - last_progress > OTA_WIN_REWIND_MS && now - last_rewind > OTA_WIN_REWIND_MS && next > contig) {
             next = contig; /* go back to the first chunk the remote is missing */
             rewinds++;
-            last_progress = now; /* give the resend a full period */
+            last_rewind = now; /* give the resend a full period */
         }
         if (next < contig) next = contig;
         uint64_t done = (uint64_t)contig * RF_OTA_DATA_BYTES;
@@ -70,6 +76,7 @@ static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint32_t start, uint
             fseek(f, (long)next * RF_OTA_DATA_BYTES, SEEK_SET);
             size_t rd = fread(chunk_data, 1, sizeof(chunk_data), f);
             if (rd == 0) {
+                s_win_slot = 0;
                 ota_set_status(-1, false, "OTA image read error");
                 return false;
             }
@@ -81,6 +88,7 @@ static bool ota_send_windowed(FILE *f, uint8_t target_slot, uint32_t start, uint
             usleep(1000); /* window full or everything sent: wait for ACKs */
         }
     }
+    s_win_slot = 0;
     if (!g_running) return false;
     uint64_t el = get_monotonic_ms() - t0;
     printf("[+] Hub RF OTA to Slot %d: all %u chunks received by the remote in %llu s (windowed, %u resends from a gap)\n",
@@ -161,7 +169,7 @@ void *rf_ota_sender_worker(void *arg) {
     long file_size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (file_size <= 0 || file_size > 10000000) {
+    if (file_size <= 0 || file_size > (long)RF_OTA_MAX_BYTES) {
         fclose(f);
         char err[128];
         snprintf(err, sizeof(err), "Invalid OTA file size: %ld", file_size);

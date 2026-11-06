@@ -14,7 +14,7 @@
 #include <time.h>
 #include <errno.h>
 
-#define OTA_MAX_CHUNKS 32768
+#define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
 static uint8_t s_ota_bitmap[OTA_BITMAP_SIZE];
 static uint32_t s_current_file_crc = 0;
@@ -34,12 +34,12 @@ static inline uint16_t ota_chunks_for(uint32_t tot_b, uint16_t chunk_bytes) {
     return (uint16_t)((tot_b + chunk_bytes - 1) / chunk_bytes);
 }
 
-static inline bool ota_is_chunk_received(uint16_t c_idx) {
+static inline bool ota_is_chunk_received(uint32_t c_idx) {
     if (c_idx >= OTA_MAX_CHUNKS) return false;
     return (s_ota_bitmap[c_idx / 8] & (1 << (c_idx % 8))) != 0;
 }
 
-static inline void ota_mark_chunk_received(uint16_t c_idx) {
+static inline void ota_mark_chunk_received(uint32_t c_idx) {
     if (c_idx >= OTA_MAX_CHUNKS) return;
     s_ota_bitmap[c_idx / 8] |= (1 << (c_idx % 8));
 }
@@ -48,7 +48,7 @@ static inline void ota_mark_chunk_received(uint16_t c_idx) {
  * contiguous count, so the scan continues from there instead of from chunk 0 */
 static uint16_t s_contig_hint;
 static uint16_t ota_get_highest_contiguous_chunk(uint16_t total_chunks) {
-    for (uint16_t i = s_contig_hint; i < total_chunks && i < OTA_MAX_CHUNKS; i++) {
+    for (uint32_t i = s_contig_hint; i < total_chunks && i < OTA_MAX_CHUNKS; i++) {
         if (!ota_is_chunk_received(i)) {
             s_contig_hint = i;
             return i;
@@ -259,6 +259,14 @@ bool handle_ota_frame(const rf_frame_t *f) {
             printf("[*] RF OTA START: %u bytes, %u chunks, CRC32=0x%08X, batt=%d%% chg=%d\n",
                    tot_b, tot_c, file_crc, g_battery_info.percent, g_battery_info.charging);
 
+            if (tot_b == 0 || tot_b > RF_OTA_MAX_BYTES) {
+                printf("[-] RF OTA REJECTED: image size %u outside 1..%u bytes\n", tot_b, (unsigned)RF_OTA_MAX_BYTES);
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x03);
+                rf_send_frame(&ack);
+                return true;
+            }
+
             if (g_battery_info.percent < 40 && !g_battery_info.charging) {
                 printf("[-] RF OTA REJECTED: Low battery (%d%%) and not charging!\n", g_battery_info.percent);
                 rf_frame_t ack;
@@ -375,6 +383,10 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 rf_frame_t ack;
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x05);
                 rf_send_frame(&ack);
+                /* The file is closed: leave OTA mode (and the transfer power mode) now instead of
+                 * after the 60 s timeout; the checkpoint stays, so the Hub can resume */
+                ota_set_updating(false);
+                g_screen_dirty = true;
                 return true;
             }
 
