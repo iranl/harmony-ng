@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Harmony Hub Control API
-  version: 2.2.0
+  version: 2.3.0
   description: |
     REST and WebSocket API for the open-source **Harmony Hub** firmware and **Elite Remote** RF daemon.
     
