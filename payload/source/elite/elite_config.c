@@ -761,6 +761,10 @@ void build_activity_list(void) {
 #define ACTIVITY_USAGE_FILE "/data/elite_activity_usage.conf"
 static struct { char id[32]; unsigned count; } g_usage[MAX_ACTIVITIES * 2];
 static int g_usage_len;
+/* The counts change on every activity start; they are written to flash by
+ * flush_activity_usage() when the screen blanks, before a suspend and on a clean exit */
+static bool g_usage_dirty;
+static pthread_mutex_t g_usage_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static unsigned activity_uses(const char *id) {
     for (int i = 0; i < g_usage_len; i++) {
@@ -795,23 +799,38 @@ static void sort_activity_list(void) {
     }
 }
 
+void flush_activity_usage(void) {
+    pthread_mutex_lock(&g_usage_mutex);
+    if (g_usage_dirty) {
+        FILE *f = fopen(ACTIVITY_USAGE_FILE, "w");
+        if (f) {
+            for (int k = 0; k < g_usage_len; k++) fprintf(f, "%s=%u\n", g_usage[k].id, g_usage[k].count);
+            fclose(f);
+            g_usage_dirty = false;
+        }
+    }
+    pthread_mutex_unlock(&g_usage_mutex);
+}
+
 void record_activity_start(const char *id) {
     if (!id || !id[0] || strcmp(id, "-1") == 0) return;
+    pthread_mutex_lock(&g_usage_mutex);
     int i = 0;
     while (i < g_usage_len && strcmp(g_usage[i].id, id) != 0) i++;
     if (i == g_usage_len) {
-        if (g_usage_len == (int)(sizeof(g_usage) / sizeof(g_usage[0]))) return;
+        if (g_usage_len == (int)(sizeof(g_usage) / sizeof(g_usage[0]))) {
+            pthread_mutex_unlock(&g_usage_mutex);
+            return;
+        }
         snprintf(g_usage[i].id, sizeof(g_usage[i].id), "%s", id);
         g_usage[i].count = 0;
         g_usage_len++;
     }
     g_usage[i].count++;
-
-    FILE *f = fopen(ACTIVITY_USAGE_FILE, "w");
-    if (f) {
-        for (int k = 0; k < g_usage_len; k++) fprintf(f, "%s=%u\n", g_usage[k].id, g_usage[k].count);
-        fclose(f);
-    }
+    /* Written later (flush_activity_usage), not on every start: that rewrote the file on NAND
+     * each time an activity was started */
+    g_usage_dirty = true;
+    pthread_mutex_unlock(&g_usage_mutex);
 
     /* Re-sort now, keeping the selection on the same activity */
     if (g_activity_order != ACTIVITY_ORDER_MOST_USED) return;

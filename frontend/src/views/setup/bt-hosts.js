@@ -62,13 +62,14 @@ export function createView() {
     h('div', { id: 'bt-hosts-mount', className: 'text-dim', text: 'Loading hosts...' }),
   ]);
 
-  async function loadStatus() {
+  // pushed: a bt_status object from the Hub (WebSocket); fetched when absent
+  async function loadStatus(pushed = null) {
     const statusMount = container.querySelector('#bt-status-content');
     const hostsMount = container.querySelector('#bt-hosts-mount');
     if (!statusMount || !hostsMount) return;
 
     try {
-      const data = await api.getBtStatus();
+      const data = pushed || await api.getBtStatus();
       statusMount.innerHTML = '';
 
       // hub_btstack reports pairing and the active link under "host"
@@ -142,6 +143,12 @@ export function createView() {
   container.appendChild(pairCard);
   container.appendChild(hostsCard);
   loadStatus();
+
+  // The Hub pushes bt_status when the Bluetooth state changes (connection.js puts it in the store)
+  const off = store.on('btStatus', (data) => {
+    if (!container.isConnected) { off(); return; }
+    loadStatus(data);
+  });
 
   return container;
 }

@@ -107,6 +107,31 @@ class ConnectionMonitor {
         'activities.transitioning': true,
         'activities.progress': data,
       });
+    } else if (data.type === 'activity_progress') {
+      // hub_daemon sends activity progress with "type", not "event": state "running"/2 or
+      // "idle"/0 means the switch finished
+      const actId = String(data.activityId || data.activity || '-1');
+      const finished = data.state === 'running' || data.state === 'idle' || data.stateCode === 2 || data.stateCode === 0;
+      if (finished) {
+        const curId = (data.state === 'idle' || data.stateCode === 0) ? '-1' : actId;
+        const acts = store.get('activities.list') || [];
+        const act = acts.find(a => String(a.id) === curId);
+        store.update({
+          'activities.currentId': curId,
+          'activities.currentName': act ? act.name : (curId === '-1' ? 'PowerOff' : curId),
+          'activities.transitioning': false,
+          'activities.progress': null,
+        });
+      } else {
+        store.update({
+          'activities.transitioning': true,
+          'activities.progress': data,
+        });
+      }
+    } else if (data.type === 'config_changed') {
+      // devices, activities, settings or remote maps changed on the Hub
+      clearTimeout(this.configRefreshTimer);
+      this.configRefreshTimer = setTimeout(() => this.refreshData(), 800);
     } else if (data.event === 'rf_status' || data.type === 'rf_status') {
       store.set('rfStatus', data);
     } else if (data.event === 'bt_status' || data.type === 'bt_status') {
