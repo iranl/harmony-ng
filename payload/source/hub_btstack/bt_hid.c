@@ -13,7 +13,12 @@ static btstack_timer_source_t g_host_crelease_timer;
 static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     uint16_t cid = get_target_host_hid_cid();
-    if (cid == 0) return;
+    if (cid == 0) {
+        /* The target lost its channel meanwhile: release on every connected host instead of
+         * leaving the key pressed until the link drops */
+        send_host_release_all();
+        return;
+    }
     if (g_host_pending_release_type == 1) {
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
         hid_device_send_interrupt_message(cid, release, sizeof(release));
