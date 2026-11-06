@@ -225,8 +225,14 @@ fi
     if [ -n "$_daemon" ]; then
       if ! pidof hub_daemon >/dev/null 2>&1; then
         echo "$(date) Starting hub_daemon..." >> "$LOG"
+        _started=$(date +%s)
         "$_daemon" 8089 >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
         echo "$(date) hub_daemon exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -267,8 +273,14 @@ killall -9 bluetoothd 2>/dev/null || true
     if [ -n "$_bt_bin" ]; then
       if ! pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) Starting BTstack backend..." >> "$LOG"
+        _started=$(date +%s)
         "$_bt_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
         echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -300,8 +312,14 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     if [ -n "$_rf_bin" ]; then
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        _started=$(date +%s)
         "$_rf_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
         echo "$(date) hub_rf exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
