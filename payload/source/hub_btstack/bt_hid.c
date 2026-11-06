@@ -33,6 +33,7 @@ static uint16_t release_cid(void) {
 static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     uint16_t cid = release_cid();
+    g_host_pending_cid = 0; /* consumed: a later release must not resolve to this host */
     if (cid != 0) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
         hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
@@ -42,6 +43,7 @@ static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
 static void host_mrelease_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     uint16_t cid = release_cid();
+    g_host_pending_cid = 0;
     if (cid != 0) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
         hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));

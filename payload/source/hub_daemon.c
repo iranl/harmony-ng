@@ -134,8 +134,8 @@ int main(int argc, char **argv) {
     /* A key held when the previous hub_daemon died (a deploy, the OOM killer) stays pressed on
      * the Bluetooth host: release everything once hub_btstack takes the pipe (it may start
      * after this daemon), trying once a second for a minute */
-    time_t bt_release_t0 = time(NULL);
     time_t bt_release_last = 0;
+    int bt_release_tries = 0; /* a counter, not the clock: SNTP may step it by years right after start */
     int bt_release_done = 0;
 
     /* Initial SNTP network time sync attempt */
@@ -236,7 +236,7 @@ int main(int argc, char **argv) {
             if (hw_bt_release_all() == 0) {
                 bt_release_done = 1;
                 printf("[*] BT: release-all sent to hub_btstack after start\n");
-            } else if (bt_release_last - bt_release_t0 > 60) {
+            } else if (++bt_release_tries >= 60) {
                 bt_release_done = 1;
             }
         }

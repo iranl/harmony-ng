@@ -232,7 +232,8 @@ fi
         # crash-looping: come back after the base delay. The delay used to double on
         # every exit and reset only while the daemon was found running, so after a
         # few restarts every restart took 80 s.
-        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) hub_daemon exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -280,7 +281,8 @@ killall -9 bluetoothd 2>/dev/null || true
         # crash-looping: come back after the base delay. The delay used to double on
         # every exit and reset only while the daemon was found running, so after a
         # few restarts every restart took 80 s.
-        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -319,7 +321,8 @@ echo "$!" >> /tmp/harmony_supervisors.pid
         # crash-looping: come back after the base delay. The delay used to double on
         # every exit and reset only while the daemon was found running, so after a
         # few restarts every restart took 80 s.
-        [ "$(expr "$(date +%s)" - "$_started")" -ge 60 ] && _delay=5
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) hub_rf exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -339,9 +342,16 @@ echo "$!" >> /tmp/harmony_supervisors.pid
   while true; do
     sleep 300
     [ -f /tmp/harmony_stop ] && exit 0
-    _sz=$(wc -c < "$LOG" 2>/dev/null || echo 0)
-    if [ "$_sz" -gt 1048576 ]; then
-      dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null
+    # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
+    _sz=$(ls -l "$LOG" 2>/dev/null | awk '{print $5}')
+    [ -n "$_sz" ] || _sz=0
+    if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
+      # keep the last 64 KB in $LOG.1 (whole file if dd is missing), then truncate in place
+      if command -v dd >/dev/null 2>&1; then
+        dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$LOG" "$LOG.1" 2>/dev/null
+      else
+        cp "$LOG" "$LOG.1" 2>/dev/null
+      fi
       : > "$LOG"
       echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $LOG.1" >> "$LOG"
     fi
