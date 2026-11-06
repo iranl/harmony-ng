@@ -9,7 +9,6 @@
 #define MAX_IR_COMMANDS 512
 #define MAX_ACTIVITIES 24
 #define MAX_ACTIVITY_STEPS 64
-#define MAX_BT_SCRIPT_LEN 2048
 
 #define BT_TEXT_FIFO "/tmp/bthid_input"
 
@@ -98,26 +97,6 @@ struct activity_inventory {
     char current_name[128];
 };
 
-struct bt_saved_command {
-    char name[128];
-    char script[MAX_BT_SCRIPT_LEN];
-    int delay_ms;
-};
-
-struct bt_saved_device {
-    char id[40];
-    char name[128];
-    char type[40];
-    char bdaddr[32];
-    int command_count;
-    struct bt_saved_command commands[32];
-};
-
-struct bt_inventory {
-    int device_count;
-    struct bt_saved_device devices[12];
-};
-
 struct hub_settings {
     int dry_run;                    /* 1 = simulate IR/BT/MQTT without sending (default: 0) */
     char hub_name[64];              /* Custom hub name (default: "Harmony Hub") */
@@ -138,9 +117,6 @@ int load_ir_inventory(struct ir_inventory *inv);
 void free_ir_inventory(struct ir_inventory *inv);
 
 int load_activity_inventory(struct activity_inventory *inv);
-
-int load_bt_inventory(struct bt_inventory *inv);
-int save_bthid_target(const char *type, const char *bdaddr);
 
 int run_bt_saved_script(const char *type, const char *bdaddr, const char *script,
                         int gap_ms, char *out, size_t outlen);

@@ -109,10 +109,27 @@ void sanitize_devices_json(cJSON *root) {
                    (cJSON_IsString(jpao) && (strcmp(jpao->valuestring, "1") == 0 || strcasecmp(jpao->valuestring, "true") == 0))));
         cJSON_AddBoolToObject(cdev, "isPowerAlwaysOn", pao ? 1 : 0);
 
+        /* The device's Bluetooth host: bdaddr, else the older btHost key. The rebuilt object
+         * keeps only bdaddr, so a btHost-only device would otherwise lose its host on save. */
+        const char *host_addr = NULL;
+        {
+            const char *keys[] = {"bdaddr", "btHost", NULL};
+            for (int k = 0; keys[k] && !host_addr; k++) {
+                cJSON *jh = cJSON_GetObjectItemCaseSensitive(src_d, keys[k]);
+                if (jh && cJSON_IsString(jh) && jh->valuestring && jh->valuestring[0]) host_addr = jh->valuestring;
+            }
+        }
+
+        /* A device of another transport can still be linked to a Bluetooth host (a TV driven by
+         * IR that pairs as a keyboard host): keep its address, it names the host and is the
+         * only place the link lives (POST /api/bt-link-device). Keys still go by type. */
+        if (!is_bt && host_addr) {
+            cJSON_AddStringToObject(cdev, "bdaddr", host_addr);
+        }
+
         /* BT Reconnect */
         if (is_bt) {
-            cJSON *jbd = cJSON_GetObjectItemCaseSensitive(src_d, "bdaddr");
-            cJSON_AddStringToObject(cdev, "bdaddr", (jbd && jbd->valuestring) ? jbd->valuestring : "");
+            cJSON_AddStringToObject(cdev, "bdaddr", host_addr ? host_addr : "");
 
             cJSON *jrec = cJSON_GetObjectItemCaseSensitive(src_d, "btAutoReconnect");
             int rec = (jrec && cJSON_IsNumber(jrec)) ? jrec->valueint : (jrec && cJSON_IsBool(jrec) ? (cJSON_IsTrue(jrec) ? 1 : 0) : 1);

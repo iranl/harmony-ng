@@ -4,8 +4,10 @@ PID_FILE="/tmp/hub_bt_reconnect.pid"
 LOG="/tmp/harmony-bt-reconnect.log"
 STATUS_FILE="/tmp/bthid_status"
 CMD_FILE="/tmp/hub_btstack_cmd"
-TARGET_FILE="/data/harmony/bthid_target"
+# Default host (pinned by hub_btstack at the last pairing); config/devices.json "bdaddr" is the
+# only device-to-host mapping
 HOST_TARGET_FILE="/data/harmony/bthid_host_target"
+DEVICES_FILE="/data/harmony/config/devices.json"
 
 # Log rotation (tail not available on hub busybox)
 if [ -f "$LOG" ] && [ "$(wc -l < "$LOG" 2>/dev/null || echo 0)" -gt 300 ]; then
@@ -45,19 +47,11 @@ if [ -z "$TARGET" ]; then
     if [ -f "$HOST_TARGET_FILE" ]; then
         TARGET=$(sed -n 's/.*bdaddr=//p' "$HOST_TARGET_FILE" 2>/dev/null | sed -e 's/[[:space:]]//g' | awk '{print; exit}')
     fi
-    if [ -z "$TARGET" ] && [ -f "$TARGET_FILE" ]; then
-        TARGET=$(sed -n 's/.*bdaddr=//p' "$TARGET_FILE" 2>/dev/null | sed -e 's/[[:space:]]//g')
-    fi
     if [ -z "$TARGET" ] && [ -f "$HOST_TARGET_FILE" ]; then
         TARGET=$(awk 'match($0, /([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}/) {print substr($0, RSTART, RLENGTH); exit}' "$HOST_TARGET_FILE" 2>/dev/null)
     fi
-    if [ -z "$TARGET" ]; then
-        for cfg in /data/harmony/bt-devices.json /data/harmony/config/devices.json; do
-            if [ -f "$cfg" ]; then
-                TARGET=$(sed -n 's/.*"bdaddr"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\1/p' "$cfg" 2>/dev/null | awk '{print; exit}')
-                [ -n "$TARGET" ] && break
-            fi
-        done
+    if [ -z "$TARGET" ] && [ -f "$DEVICES_FILE" ]; then
+        TARGET=$(sed -n 's/.*"bdaddr"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f:]\{17\}\)".*/\1/p' "$DEVICES_FILE" 2>/dev/null | awk '{print; exit}')
     fi
 fi
 

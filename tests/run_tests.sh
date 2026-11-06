@@ -35,6 +35,7 @@ if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
         "$REPO_ROOT/payload/source/http_api_backup.c" \
         "$REPO_ROOT/payload/source/http_api_system.c" \
         "$REPO_ROOT/payload/source/config_store.c" \
+        "$REPO_ROOT/payload/source/bt_migrate.c" \
         "$REPO_ROOT/payload/source/config_sanitize.c" \
         "$REPO_ROOT/payload/source/orchestrator.c" \
         "$REPO_ROOT/payload/source/orchestrator_queue.c" \

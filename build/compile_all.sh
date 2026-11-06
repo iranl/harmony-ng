@@ -85,6 +85,7 @@ build_daemon() {
         payload/source/http_api_backup.c \
         payload/source/http_api_system.c \
         payload/source/config_store.c \
+        payload/source/bt_migrate.c \
         payload/source/config_sanitize.c \
         payload/source/orchestrator.c \
         payload/source/orchestrator_queue.c \

@@ -104,6 +104,7 @@ class CoSimulationRunner:
                 f"{REPO_ROOT}/payload/source/http_api_backup.c",
                 f"{REPO_ROOT}/payload/source/http_api_system.c",
                 f"{REPO_ROOT}/payload/source/config_store.c",
+                f"{REPO_ROOT}/payload/source/bt_migrate.c",
                 f"{REPO_ROOT}/payload/source/config_sanitize.c",
                 f"{REPO_ROOT}/payload/source/orchestrator.c",
                 f"{REPO_ROOT}/payload/source/orchestrator_queue.c",
