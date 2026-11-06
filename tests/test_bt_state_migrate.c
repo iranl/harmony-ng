@@ -119,6 +119,7 @@ int main(void) {
     after = get("config/devices.json");
     assert(strstr(after, "\"keep\"") && strstr(after, "\"PowerOn\"") && strstr(after, "\"btAutoReconnect\""));
     assert(!strstr(after, "\"btHost\":\t\"\""));             /* the empty btHost of device 2 is gone */
+    assert(!strstr(after, "\"btHost\""));                    /* device 4's btHost moved to bdaddr */
     assert(!exists("bt-devices.json") && exists("bt-devices.json.migrated"));
 
     printf("[*] case 2: re-run is a no-op\n");

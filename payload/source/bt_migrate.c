@@ -203,7 +203,19 @@ static void migrate_bt_devices(const char *dir, bt_migrate_log_fn log_fn) {
             }
             const char *cur = device_host(dev);
             if (cur) {
-                mlog(log_fn, "BT migration: device %s keeps its host %s from devices.json", lid, cur);
+                /* A host kept only in the older btHost key moves to bdaddr */
+                const cJSON *jb = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+                if (!jb || !cJSON_IsString(jb) || !jb->valuestring || !jb->valuestring[0]) {
+                    char host[18];
+                    snprintf(host, sizeof(host), "%s", cur);
+                    cJSON_DeleteItemFromObjectCaseSensitive(dev, "btHost");
+                    cJSON_DeleteItemFromObjectCaseSensitive(dev, "bdaddr");
+                    cJSON_AddStringToObject(dev, "bdaddr", host);
+                    mlog(log_fn, "BT migration: device %s keeps its host %s, moved from btHost to bdaddr", lid, host);
+                    changed++;
+                } else {
+                    mlog(log_fn, "BT migration: device %s keeps its host %s from devices.json", lid, cur);
+                }
                 continue;
             }
             /* Same shape as link_bt_device_to_addr(): bdaddr only, no empty btHost left over to
@@ -258,7 +270,8 @@ static void migrate_bthid_target(const char *dir, bt_migrate_log_fn log_fn) {
     /* "type=btkeyboard\nbdaddr=..." from hub_btstack, or "btkeyboard <addr>" from the old
      * save_bthid_target(): take the first address in the file */
     char addr[18] = "";
-    for (const char *p = raw; *p; p++) {
+    size_t left = strlen(raw);
+    for (const char *p = raw; left >= 17; p++, left--) {
         if (bdaddr_at(p)) {
             memcpy(addr, p, 17);
             addr[17] = '\0';

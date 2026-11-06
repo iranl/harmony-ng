@@ -283,7 +283,7 @@ static bool link_via_daemon(const char *dev_id, const char *addr_str) {
     struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(8089);
+    sin.sin_port = htons(DAEMON_PORT);
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     bool ok = false;
     if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
