@@ -24,7 +24,8 @@ int ws_is_upgrade_req(const char *http_req);
 /*
  * Complete RFC 6455 handshake: computes Sec-WebSocket-Accept and sends 101 Switching Protocols.
  * Registers client_fd for broadcasts.
- * Returns 0 on success, negative on error.
+ * Returns 0 on success, negative on error (bad request, all WS_MAX_CLIENTS slots taken: a 503 is
+ * sent, or send failure); the socket is then not registered and the caller closes it.
  */
 int ws_handle_upgrade(int client_fd, const char *http_req);
 

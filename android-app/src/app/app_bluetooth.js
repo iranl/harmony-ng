@@ -54,7 +54,8 @@ import {
 import { HarmonyAppLab } from './app_lab.js';
 
 export class HarmonyAppBluetooth extends HarmonyAppLab {
-  async loadBtView() {
+  /* pushed: a bt_status object from the WebSocket (state watcher); fetched when absent */
+  async loadBtView(pushed = null) {
     const badge = document.getElementById('btStatusBadge');
     const desc = document.getElementById('btHostDesc');
     const list = document.getElementById('btDevicesList');
@@ -84,7 +85,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
     }
 
     try {
-      const st = await this.client.getBtStatus();
+      const st = pushed || await this.client.getBtStatus();
       const isRunning = Boolean(st && (st.pid || st.running || st.backend === 'btstack'));
 
       if (badge) {
