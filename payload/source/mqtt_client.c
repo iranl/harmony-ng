@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -72,12 +73,19 @@ static size_t decode_remaining_len(const uint8_t *buf, size_t buf_len, size_t *o
     return idx;
 }
 
+/* Why the last connection attempt failed, logged once per distinct reason (the caller retries
+ * with a backoff, a log line per attempt would only repeat itself) */
+static char g_last_fail[128];
+
 int mqtt_init(const char *host, int port, const char *client_id, const char *user, const char *pass) {
-    if (host && host[0]) strncpy(g_host, host, sizeof(g_host) - 1);
+    /* Every call replaces all four: a cleared user or password must not survive from the last
+     * configuration (the settings page reconnects through here after each save) */
+    snprintf(g_host, sizeof(g_host), "%s", host ? host : "");
     g_port = port > 0 ? port : 1883;
-    if (client_id && client_id[0]) strncpy(g_client_id, client_id, sizeof(g_client_id) - 1);
-    if (user && user[0]) strncpy(g_user, user, sizeof(g_user) - 1);
-    if (pass && pass[0]) strncpy(g_pass, pass, sizeof(g_pass) - 1);
+    if (client_id && client_id[0]) snprintf(g_client_id, sizeof(g_client_id), "%s", client_id);
+    snprintf(g_user, sizeof(g_user), "%s", user ? user : "");
+    snprintf(g_pass, sizeof(g_pass), "%s", pass ? pass : "");
+    g_last_fail[0] = '\0';
 
     g_sub_count = 0;
     g_connected = 0;
@@ -132,6 +140,32 @@ int mqtt_is_connecting(void) {
     return s_connecting;
 }
 
+static int connect_failed(int sock, const char *fmt, ...) {
+    char why[128];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(why, sizeof(why), fmt, ap);
+    va_end(ap);
+    if (strcmp(why, g_last_fail) != 0) {
+        snprintf(g_last_fail, sizeof(g_last_fail), "%s", why);
+        fprintf(stderr, "[-] MQTT: cannot connect to %s:%d: %s\n", g_host, g_port, why);
+    }
+    if (sock >= 0) close(sock);
+    return -1;
+}
+
+/* CONNACK return codes of MQTT 3.1.1 (section 3.2.2.3) */
+static const char *connack_reason(uint8_t rc) {
+    switch (rc) {
+        case 1: return "refused: unacceptable protocol version";
+        case 2: return "refused: client id rejected";
+        case 3: return "refused: server unavailable";
+        case 4: return "refused: bad user name or password";
+        case 5: return "refused: not authorized";
+        default: return "refused: unknown reason";
+    }
+}
+
 int mqtt_connect(void) {
     mqtt_disconnect();
 
@@ -142,12 +176,12 @@ int mqtt_connect(void) {
 
     if (inet_aton(g_host, &saddr.sin_addr) == 0) {
         struct hostent *he = gethostbyname(g_host);
-        if (!he || !he->h_addr_list || !he->h_addr_list[0]) return -1;
+        if (!he || !he->h_addr_list || !he->h_addr_list[0]) return connect_failed(-1, "host name not resolved");
         memcpy(&saddr.sin_addr, he->h_addr_list[0], sizeof(saddr.sin_addr));
     }
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) return -1;
+    if (sock < 0) return connect_failed(-1, "socket: %s", strerror(errno));
 
     /* Set 64KB send buffer to absorb burst discovery publishes without drop */
     int sndbuf = 65536;
@@ -162,24 +196,17 @@ int mqtt_connect(void) {
 
     int rc = connect(sock, (struct sockaddr *)&saddr, sizeof(saddr));
     if (rc < 0) {
-        if (errno != EINPROGRESS) {
-            close(sock);
-            return -1;
-        }
+        if (errno != EINPROGRESS) return connect_failed(sock, "%s", strerror(errno));
         fd_set wfds;
         FD_ZERO(&wfds);
         FD_SET(sock, &wfds);
         struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
         int sel = select(sock + 1, NULL, &wfds, NULL, &tv);
-        if (sel <= 0) {
-            close(sock);
-            return -1;
-        }
+        if (sel <= 0) return connect_failed(sock, "no answer within 2 s");
         int err = 0;
         socklen_t len = sizeof(err);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
-            close(sock);
-            return -1;
+            return connect_failed(sock, "%s", strerror(err ? err : errno));
         }
     }
 
@@ -265,16 +292,20 @@ int mqtt_connect(void) {
 
     size_t total_len = (size_t)(p - pkt);
     if (send(sock, pkt, total_len, 0) != (ssize_t)total_len) {
-        close(sock);
-        return -1;
+        return connect_failed(sock, "CONNECT not sent: %s", strerror(errno));
     }
 
     /* Read CONNACK */
     uint8_t ack[4];
-    if (recv(sock, ack, 4, 0) != 4 || ack[0] != 0x20 || ack[3] != 0x00) {
-        close(sock);
-        return -1;
+    ssize_t got = recv(sock, ack, 4, 0);
+    if (got != 4 || ack[0] != 0x20) {
+        return connect_failed(sock, got <= 0 ? "connection closed or no CONNACK within 2 s" : "unexpected reply to CONNECT");
     }
+    if (ack[3] != 0x00) {
+        return connect_failed(sock, "%s (code %u)%s", connack_reason(ack[3]), (unsigned)ack[3],
+                              (ack[3] == 4 || ack[3] == 5) && !g_pass[0] ? ", no password stored" : "");
+    }
+    g_last_fail[0] = '\0';
 
     /* Switch to non-blocking */
     int f = fcntl(sock, F_GETFL, 0);
