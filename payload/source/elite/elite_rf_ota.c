@@ -498,6 +498,19 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     close(g_rf_fd);
                     g_rf_fd = -1;
                 }
+                read_elite_battery();
+                if (!is_elite_docked()) {
+                    /* On battery a reboot switches the remote off (the SoC reset makes the PMIC
+                     * cut power; only the Off key turns it back on), as Settings > Reboot already
+                     * knows: start the new binary in place instead. Scripts and themes are
+                     * installed already; a changed rcS.local applies at the next boot. */
+                    printf("[*] RF OTA installed on battery: restarting elite_ui instead of rebooting\n");
+                    fflush(stdout);
+                    system("/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true");
+                    char *const args[] = { "/data/elite_ui", NULL };
+                    execv("/data/elite_ui", args);
+                    exit(143); /* execv failed: the supervisor in init.sh starts it again */
+                }
                 system("touch /tmp/elite_stop 2>/dev/null || true; "
                        "if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
                        "else killall -9 init.sh elite_watchdog.sh 2>/dev/null || true; "
