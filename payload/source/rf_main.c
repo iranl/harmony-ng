@@ -87,6 +87,7 @@ void handle_rf_frame(const rf_frame_t *f) {
     }
     switch (f->msg_type) {
         case RF_MSG_ACK: {
+            ota_note_chunk_ack(f->dev_slot, f->payload);
             rf_signal_ack(f->payload[0], f->payload[1], f->payload);
             break;
         }

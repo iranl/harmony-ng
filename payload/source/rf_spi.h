@@ -11,6 +11,10 @@ int rf_spi_open(void);
 void rf_spi_close(void);
 int flash_cc2544(void);
 int rf_write_cmd(const uint8_t *cmd, size_t len);
+/* One RF_OTA_DATA frame (windowed OTA): 26-byte chunk idx, ack_req sets the ACK request bit */
+int rf_send_ota_data(uint8_t slot, uint32_t idx, bool ack_req, const uint8_t *data, size_t len);
+/* CC2544 power mode (RF_PM_ACTIVE / RF_PM_TRANSFER); writes only on change */
+int rf_set_power_mode(uint8_t mode);
 int rf_send_frame(rf_frame_t *frame);
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms);
 int rf_wake_remote(uint8_t slot, int attempts);

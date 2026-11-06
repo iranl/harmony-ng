@@ -252,7 +252,7 @@ static inline bool sync_backoff_active(uint64_t now_ms) {
 
 extern volatile bool g_is_ota_updating;
 extern uint64_t g_ota_start_ms;
-extern uint64_t g_ota_last_packet_ms;
+extern volatile uint64_t g_ota_last_packet_ms;
 extern uint32_t g_ota_total_bytes;
 extern uint32_t g_ota_received_bytes;
 extern uint16_t g_ota_total_chunks;
@@ -328,6 +328,7 @@ extern volatile uint64_t g_last_hub_frame_ms;
 extern bool g_power_debug;
 extern pthread_mutex_t g_render_mutex;
 extern pthread_mutex_t g_rf_write_mutex;
+extern uint8_t g_rf_pm; /* CC2544 power mode, in byte 1 of every frame sent (RF_PM_ACTIVE / RF_PM_TRANSFER) */
 
 extern int g_touch_cur_x;
 extern int g_touch_cur_y;
@@ -340,6 +341,13 @@ extern uint64_t g_touch_down_ms;
 /* Utility / helper functions */
 uint64_t get_monotonic_ms(void);
 uint64_t get_monotonic_us(void);
+
+/* Milliseconds from then to now, 0 if then is later. Timestamps written by another thread (the RF
+ * receiver stamps each frame) can be a few ms newer than a now_ms read earlier, and the unsigned
+ * difference would wrap to a huge age. */
+static inline uint64_t ms_since(uint64_t now_ms, uint64_t then_ms) {
+    return now_ms > then_ms ? now_ms - then_ms : 0;
+}
 
 /* Files the renderer and config loader read are opened through elite_fs_path(). On the
    remote g_fs_root is empty; the host renderer points it at a directory laid out like the

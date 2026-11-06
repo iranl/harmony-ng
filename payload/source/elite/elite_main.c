@@ -536,13 +536,17 @@ int main(int argc, char **argv) {
 
         static uint64_t last_ota_stall_sync_ms = 0;
         if (g_is_ota_updating) {
-            if (now_ms - g_ota_last_packet_ms >= 5000 && now_ms - last_ota_stall_sync_ms >= 10000) {
+            /* The receiver thread stamps each chunk; a chunk that arrived after now_ms was read
+             * is newer than now_ms, and an unsigned now_ms - stamp wrapped to a "timeout" that
+             * dropped the remote out of OTA mode mid-transfer */
+            uint64_t ota_quiet_ms = ms_since(now_ms, g_ota_last_packet_ms);
+            if (ota_quiet_ms >= 5000 && now_ms - last_ota_stall_sync_ms >= 10000) {
                 last_ota_stall_sync_ms = now_ms;
                 rf_wake_and_reconnect();
             }
-            if (now_ms - g_ota_last_packet_ms >= 60000) {
+            if (ota_quiet_ms >= 60000) {
                 printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
-                g_is_ota_updating = false;
+                ota_set_updating(false);
                 if (g_ota_file) {
                     fflush(g_ota_file);
                     fclose(g_ota_file);

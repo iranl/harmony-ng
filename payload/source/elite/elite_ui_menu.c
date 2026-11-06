@@ -147,10 +147,11 @@ void render_link_panel(void) {
     char pct_up[8], pct_rep[8], age[16];
     snprintf(pct_up, sizeof(pct_up), q.status_pct < 0 ? "-" : "%d%%", q.status_pct);
     snprintf(pct_rep, sizeof(pct_rep), q.reply_pct < 0 ? "-" : "%d%%", q.reply_pct);
+    uint64_t frame_age = ms_since(now, g_last_hub_frame_ms);
     if (g_last_hub_frame_ms == 0) snprintf(age, sizeof(age), "-");
-    else if (now - g_last_hub_frame_ms < 10000) snprintf(age, sizeof(age), "%.1f s", (now - g_last_hub_frame_ms) / 1000.0);
-    else if (now - g_last_hub_frame_ms < 120000) snprintf(age, sizeof(age), "%d s", (int)((now - g_last_hub_frame_ms) / 1000));
-    else snprintf(age, sizeof(age), "%d min", (int)((now - g_last_hub_frame_ms) / 60000));
+    else if (frame_age < 10000) snprintf(age, sizeof(age), "%.1f s", frame_age / 1000.0);
+    else if (frame_age < 120000) snprintf(age, sizeof(age), "%d s", (int)(frame_age / 1000));
+    else snprintf(age, sizeof(age), "%d min", (int)(frame_age / 60000));
 
     const char *labels[3] = { tr(STR_LINK_UP), tr(STR_LINK_REPLIES), tr(STR_LINK_LAST_FRAME) };
     const char *values[3] = { pct_up, pct_rep, age };
