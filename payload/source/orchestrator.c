@@ -120,7 +120,11 @@ orch_state_t orch_get_state(void) {
 void orch_cancel(void) {
     hw_ir_cancel(IR_PORT_ALL);
     pthread_mutex_lock(&g_act_lock);
-    if (g_state == ORCH_STATE_STOPPING || strcmp(g_target_act, ORCH_POWEROFF_ID) == 0) {
+    /* Only a power off in progress ends as PowerOff. g_target_act is "-1" by default and stays so
+     * when the activity was restored from flash and never switched in this run: a clean stop of
+     * the daemon (SIGTERM at a reboot) used to take that for a power off and saved "-1", so every
+     * reboot forgot the running activity. */
+    if (g_state == ORCH_STATE_STOPPING) {
         strncpy(g_current_act, ORCH_POWEROFF_ID, sizeof(g_current_act) - 1);
         save_current_activity(g_current_act);
         g_state = ORCH_STATE_IDLE;
