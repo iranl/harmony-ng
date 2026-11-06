@@ -407,6 +407,18 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
 
                     g_host_connecting = false;
+                    if (cid == 0) {
+                        /* A link the stack cannot address: seen when the instance was freed after
+                         * the reconnect started inside the CLOSED callback had set it up. Drop it so
+                         * the next attempt opens a clean one. */
+                        char emsg[128];
+                        snprintf(emsg, sizeof(emsg), "Classic HID Host %s opened with cid 0, dropping the link to reconnect",
+                                 bd_addr_to_str(conn_addr));
+                        log_msg(emsg);
+                        hci_con_handle_t ch = hid_subevent_connection_opened_get_con_handle(packet);
+                        if (ch != HCI_CON_HANDLE_INVALID) gap_disconnect(ch);
+                        break;
+                    }
                     g_host_connected = true;
                     /* Only the host that got a new link key during pairing mode is the new
                      * pairing. A known host that connects on its own while pairing mode is on
