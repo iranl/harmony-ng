@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "config_store.h"
+#include "bt_migrate.h"
 #include "config_sanitize.h"
 #include "bt_common.h"
 #include "cJSON.h"
@@ -55,9 +56,19 @@ const char *config_store_path(const char *rel_path) {
     return s_buf;
 }
 
+static void config_store_migrate_log(const char *msg) {
+    printf("[*] %s\n", msg);
+}
+
 int config_store_init(void) {
     mkdir(HARMONY_DIR, 0755);
     mkdir(HARMONY_CONFIG_DIR, 0755);
+
+    /* Fold the legacy Bluetooth host files (bt-devices.json, bthid_target) into devices.json
+     * before it is loaded: hub_daemon caches devices.json and writes the cache back on every
+     * edit, so a change made behind its back would be lost. A restored backup that carries
+     * bt-devices.json is folded in here too, since the restore calls config_store_init(). */
+    bt_migrate_legacy_state(HARMONY_DIR, config_store_migrate_log);
 
     pthread_mutex_lock(&g_cfg_lock);
     if (g_devices_json_cache) { cJSON_Delete(g_devices_json_cache); g_devices_json_cache = NULL; }
@@ -518,56 +529,6 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
 
     if (gap_ms > 0) usleep((useconds_t)gap_ms * 1000);
     if (out && outlen) snprintf(out, outlen, "Sent key %s", script);
-    return 0;
-}
-
-int save_bthid_target(const char *type, const char *bdaddr) {
-    if (!bdaddr || !bdaddr[0]) return -1;
-    const char *target_path = "/data/harmony/bthid_target";
-    FILE *f = fopen(target_path, "w");
-    if (!f) return -1;
-    fprintf(f, "%s %s\n", (type && type[0]) ? type : "btkeyboard", bdaddr);
-    fclose(f);
-    return 0;
-}
-
-int load_bt_inventory(struct bt_inventory *inv) {
-    if (!inv) return -1;
-    memset(inv, 0, sizeof(*inv));
-    const char *bt_path = "/data/harmony/bt-devices.json";
-    char *raw = read_file_text(bt_path, 1024 * 1024);
-    if (!raw) return 0;
-    cJSON *root = cJSON_Parse(raw);
-    free(raw);
-    if (!root) return 0;
-
-    cJSON *devs = cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "devices");
-    if (devs && cJSON_IsArray(devs)) {
-        const cJSON *d = NULL;
-        cJSON_ArrayForEach(d, devs) {
-            if (inv->device_count >= 12) break;
-            struct bt_saved_device *bdev = &inv->devices[inv->device_count];
-            const cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-            if (jid && cJSON_IsString(jid) && jid->valuestring) {
-                strncpy(bdev->id, jid->valuestring, sizeof(bdev->id) - 1);
-            }
-            const cJSON *jname = cJSON_GetObjectItemCaseSensitive(d, "name");
-            if (jname && cJSON_IsString(jname) && jname->valuestring) {
-                strncpy(bdev->name, jname->valuestring, sizeof(bdev->name) - 1);
-            }
-            const cJSON *jaddr = cJSON_GetObjectItemCaseSensitive(d, "bdaddr");
-            if (!jaddr) jaddr = cJSON_GetObjectItemCaseSensitive(d, "address");
-            if (jaddr && cJSON_IsString(jaddr) && jaddr->valuestring) {
-                strncpy(bdev->bdaddr, jaddr->valuestring, sizeof(bdev->bdaddr) - 1);
-            }
-            const cJSON *jtype = cJSON_GetObjectItemCaseSensitive(d, "type");
-            if (jtype && cJSON_IsString(jtype) && jtype->valuestring) {
-                strncpy(bdev->type, jtype->valuestring, sizeof(bdev->type) - 1);
-            }
-            inv->device_count++;
-        }
-    }
-    cJSON_Delete(root);
     return 0;
 }
 

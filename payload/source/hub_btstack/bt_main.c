@@ -54,7 +54,17 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 read_current_activity(cur_act, sizeof(cur_act));
                 if (cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
                     bd_addr_t tgt;
-                    if (get_pinned_host_target(tgt)) {
+                    if (get_activity_host_target(cur_act, tgt)) {
+                        /* The running activity's own host, which is also where keys go until the
+                         * next TARGET; the pinned host is the last one paired, not necessarily this */
+                        host_conn_t *h = register_host_target(tgt, NULL);
+                        if (h) g_active_host_idx = (int)(h - g_hosts);
+                        char bmsg[128];
+                        snprintf(bmsg, sizeof(bmsg), "Boot reconnect: reconnecting to the host of activity %s: %s",
+                                 cur_act, bd_addr_to_str(tgt));
+                        log_msg(bmsg);
+                        start_host_reconnect(tgt, MAX_HOST_RECONNECT_ATTEMPTS);
+                    } else if (get_pinned_host_target(tgt)) {
                         char bmsg[128];
                         snprintf(bmsg, sizeof(bmsg), "Boot reconnect: reconnecting to host %s (activity=%s)",
                                  bd_addr_to_str(tgt), cur_act);
@@ -397,7 +407,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
 
                     g_host_connecting = false;
-                    stop_host_reconnect();
                     g_host_connected = true;
                     /* Only the host that got a new link key during pairing mode is the new
                      * pairing. A known host that connects on its own while pairing mode is on
@@ -423,6 +432,16 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                      * connecting must not take over keys meant for the activity's host */
                     g_host_hid_cid = get_target_host_hid_cid();
 
+                    /* The reconnect loop may be for another host (at start every known host is
+                     * connected in turn): stop it only when its own target is connected. After
+                     * the host state above, so the all-hosts loop sees this host connected. */
+                    if (g_host_reconnect_active) {
+                        bool loop_done = is_null_bd_addr(g_host_reconnect_target)
+                                             ? all_known_hosts_connected()
+                                             : memcmp(g_host_reconnect_target, conn_addr, 6) == 0;
+                        if (loop_done) stop_host_reconnect();
+                    }
+
                     char msg[128];
                     snprintf(msg, sizeof(msg), "Classic HID Host CONNECTED: %s (cid=0x%04x)",
                              bd_addr_to_str(conn_addr), cid);
@@ -447,19 +466,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
                     /* The pinned host (fallback target for BT devices without an address) is the
                      * last host paired; every connection used to rewrite it, so whichever host
-                     * connected last became the default for all devices */
+                     * connected last became the default for all devices. It is the only default
+                     * host file: bthid_target, a second copy, is no longer written. */
                     if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
                         FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
                         if (hf) {
                             fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
                             fclose(hf);
-                        }
-                    }
-                    if (new_pairing || access("/data/harmony/bthid_target", F_OK) != 0) {
-                        FILE *btf = fopen("/data/harmony/bthid_target", "w");
-                        if (btf) {
-                            fprintf(btf, "type=btkeyboard\nbdaddr=%s\n", bd_addr_to_str(conn_addr));
-                            fclose(btf);
                         }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");

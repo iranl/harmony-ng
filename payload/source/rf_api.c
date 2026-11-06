@@ -17,6 +17,22 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <stdint.h>
+
+/* One wake worker at a time: rf_send_frame_acked() waits on a single pending ACK */
+static volatile int s_wake_in_progress = 0;
+
+static void *rf_wake_worker(void *arg) {
+    uint8_t slot = (uint8_t)(uintptr_t)arg;
+    int woke = rf_wake_remote(slot, 15);
+    if (woke)
+        printf("[+] Remote in slot %d acknowledged the wake request (attempt %d)\n", slot, woke);
+    else
+        printf("[-] Remote in slot %d did not acknowledge the wake request\n", slot);
+    s_wake_in_progress = 0;
+    return NULL;
+}
 
 void *api_server_worker(void *arg) {
     (void)arg;
@@ -500,6 +516,32 @@ void *api_server_worker(void *arg) {
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", (int)strlen(res_body));
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
+            } else if (strstr(buf, "POST /api/rf/wake") == buf) {
+                /* Turn a remote's screen on; tries for about 10 s in the background */
+                int slot = strstr(buf, "slot=2") ? 2 : 1;
+                char res[192];
+                int rlen;
+                if (is_ota_busy()) {
+                    /* the OTA start wakes the remote itself; a wake now would take the OTA's ACKs */
+                    rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"slot\":%d,\"ok\":false}", slot);
+                } else if (is_companion_slot((uint8_t)slot)) {
+                    rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remote has no screen\",\"slot\":%d,\"ok\":false}", slot);
+                } else if (s_wake_in_progress) {
+                    rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"already_waking\",\"slot\":%d,\"ok\":true}", slot);
+                } else {
+                    s_wake_in_progress = 1;
+                    pthread_t wth;
+                    int ok = (pthread_create(&wth, NULL, rf_wake_worker, (void *)(uintptr_t)slot) == 0);
+                    if (ok) pthread_detach(wth);
+                    else s_wake_in_progress = 0;
+                    rlen = snprintf(res, sizeof(res),
+                        "HTTP/1.1 %s\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"%s\",\"slot\":%d,\"ok\":%s}",
+                        ok ? "202 Accepted" : "500 Internal Server Error", ok ? "waking" : "error", slot, ok ? "true" : "false");
+                }
+                write(cli, res, rlen);
             } else if (strstr(buf, "POST /api/rf/ota-start") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
                 if (is_companion_slot((uint8_t)slot)) {

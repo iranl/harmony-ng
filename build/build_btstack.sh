@@ -62,6 +62,9 @@ if [ -f "$BTSTACK_PATCH" ]; then
         echo "btstack.patch already applied"
     elif (cd "$BTSTACK_DIR" && git apply --whitespace=nowarn "$BTSTACK_PATCH"); then
         echo "Applied btstack.patch"
+    elif (cd "$BTSTACK_DIR" && git checkout -q -- . && git clean -fdq && git apply --whitespace=nowarn "$BTSTACK_PATCH"); then
+        # A clone left by an earlier build carries the previous version of the patch
+        echo "Applied btstack.patch to a reset clone"
     else
         echo "[!] $BTSTACK_PATCH does not apply to BTstack $BTSTACK_COMMIT" >&2
         exit 1
