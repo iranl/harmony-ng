@@ -89,49 +89,11 @@ class CoSimulationRunner:
                           if f.endswith((".c", ".h"))), default=0)
         if not os.path.exists(hub_bin) or os.path.getmtime(hub_bin) < newest_src:
             print(f"[-] Compiling host test daemon at {hub_bin}...")
-            os.makedirs(os.path.dirname(hub_bin), exist_ok=True)
-            compile_cmd = [
-                "gcc", "-Wall", "-O2", "-g", "-DTEST_HARNESS=1",
-                f"-I{REPO_ROOT}/payload/source",
-                f"{REPO_ROOT}/payload/source/hub_daemon.c",
-                f"{REPO_ROOT}/payload/source/http_server.c",
-                f"{REPO_ROOT}/payload/source/http_util.c",
-                f"{REPO_ROOT}/payload/source/http_auth.c",
-                f"{REPO_ROOT}/payload/source/http_api_auth.c",
-                f"{REPO_ROOT}/payload/source/http_api_activities.c",
-                f"{REPO_ROOT}/payload/source/http_api_devices.c",
-                f"{REPO_ROOT}/payload/source/http_api_commands.c",
-                f"{REPO_ROOT}/payload/source/http_api_custom_icons.c",
-                f"{REPO_ROOT}/payload/source/http_api_network.c",
-                f"{REPO_ROOT}/payload/source/hub_network_util.c",
-                f"{REPO_ROOT}/payload/source/http_api_remotes.c",
-                f"{REPO_ROOT}/payload/source/http_api_ota.c",
-                f"{REPO_ROOT}/payload/source/http_api_backup.c",
-                f"{REPO_ROOT}/payload/source/http_api_system.c",
-                f"{REPO_ROOT}/payload/source/config_store.c",
-                f"{REPO_ROOT}/payload/source/bt_migrate.c",
-                f"{REPO_ROOT}/payload/source/config_sanitize.c",
-                f"{REPO_ROOT}/payload/source/orchestrator.c",
-                f"{REPO_ROOT}/payload/source/orchestrator_queue.c",
-                f"{REPO_ROOT}/payload/source/hub_mqtt.c",
-                f"{REPO_ROOT}/payload/source/hub_mqtt_ha.c",
-                f"{REPO_ROOT}/payload/source/hub_ws.c",
-                f"{REPO_ROOT}/payload/source/hub_ntp.c",
-                f"{REPO_ROOT}/payload/source/resource_cache.c",
-                f"{REPO_ROOT}/payload/source/cJSON.c",
-                f"{REPO_ROOT}/payload/source/ir_encoder.c",
-                f"{REPO_ROOT}/payload/source/ir_i2s.c",
-                f"{REPO_ROOT}/payload/source/hw_action.c",
-                f"{REPO_ROOT}/payload/source/ws_server.c",
-                f"{REPO_ROOT}/payload/source/state_watch.c",
-                f"{REPO_ROOT}/payload/source/mqtt_client.c",
-                f"{REPO_ROOT}/payload/source/sha256.c",
-                f"{REPO_ROOT}/payload/source/timezone_db.c",
-                "-lpthread", "-lm", "-o", hub_bin
-            ]
-            res = subprocess.run(compile_cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                print(f"Compilation failed: {res.stderr}")
+            from hub_harness import build_hub_daemon_test
+            try:
+                build_hub_daemon_test()
+            except RuntimeError as e:
+                print(f"Compilation failed: {e}")
                 sys.exit(1)
 
         print(f"[-] Launching Hub Daemon on port {TEST_PORT}...")

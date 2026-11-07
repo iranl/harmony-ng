@@ -222,6 +222,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x2E` | `RF_MSG_HELP_STATUS` | Hub -> Remote | Help progress, or a device to ask about (ACK'd except a repeated "started"); sent only in reply to `RF_MSG_HELP_REQUEST` |
 | `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
 | `0x30` | `RF_MSG_WAKE` | Hub -> Remote | Turn the screen on (ACK'd); a remote in light standby still receives frames. Remotes without it drop it as unknown and send no ACK |
+| `0x31` | `RF_MSG_UNIT_ID` | Remote -> Hub | The remote's factory unit id (ACK'd); sent right after every `RF_MSG_VERSION_REPORT` by remotes that report `RF_CAP_UNIT_ID`. A Hub without it drops the frame as unknown |
 
 ### 5.2 Key Payload Structures
 
@@ -231,8 +232,20 @@ All application messages are encapsulated in the payload section of Report `0x12
 - `payload[4]`: Capabilities, a bit mask of `RF_CAP_*`. Older remotes send `0x00`.
   - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
   - `0x02` `RF_CAP_LONG_NAMES`: understands `RF_MSG_NAME_TAIL_CHUNK`
+  - `0x04` `RF_CAP_UNIT_ID`: sends `RF_MSG_UNIT_ID` after every version report
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
+
+#### `RF_MSG_UNIT_ID` (`0x31`)
+- `payload[0]`: Length `n` of the id, at most 24 (`RF_UNIT_ID_MAX`)
+- `payload[1..n]`: The remote's factory unit id as ASCII, read from the `unitid` record of its
+  `mfg` partition (21 characters on current hardware, for example `20141001120000-000002`)
+
+Sent right after every `RF_MSG_VERSION_REPORT` (link up, every 24 hours, before a full config
+request) by remotes that report `RF_CAP_UNIT_ID`; a remote whose partition has no id sends
+nothing. The Hub ACKs it, keeps the id in memory and in `/data/harmony/remote_slot<N>_version.json`
+(`remote_id`, rewritten only when it changed), reports it as `slots[].remote_id` in
+`GET /api/rf/status`, and clears it when the slot is unpaired.
 
 #### `RF_MSG_ACT_DEVICES_CHUNK` (`0x2B`)
 One frame per activity, after the device list in a config push:

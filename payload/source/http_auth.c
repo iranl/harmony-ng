@@ -322,6 +322,9 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
                     cJSON *jr = cJSON_GetObjectItemCaseSensitive(it, "role");
                     if (ju && cJSON_IsString(ju)) {
                         if (users && count < max_users) {
+                            /* The caller's array is not initialized: a 64-character ha1 copied
+                             * with strncpy would have no terminator */
+                            memset(&users[count], 0, sizeof(users[count]));
                             strncpy(users[count].username, ju->valuestring, sizeof(users[count].username) - 1);
                             users[count].password[0] = '\0';
                             if (jha && cJSON_IsString(jha) && (strlen(jha->valuestring) == 64 || strlen(jha->valuestring) == 32)) {
@@ -629,6 +632,35 @@ enum http_role http_auth_check_request(const char *req, const char *client_ip,
     return ROLE_NONE;
 }
 
+enum http_role http_auth_check_ws_upgrade(const char *req, const char *client_ip,
+                                          char *out_user, size_t out_user_len) {
+    if (!req) return ROLE_NONE;
+    if (strcasestr(req, "Authorization:")) {
+        return http_auth_check_request(req, client_ip, "GET", out_user, out_user_len);
+    }
+    /* token in the query string of the request line only (never read it from a body) */
+    const char *line_end = strpbrk(req, "\r\n");
+    size_t line_len = line_end ? (size_t)(line_end - req) : strlen(req);
+    const char *q = NULL;
+    for (const char *p = req; p + 6 <= req + line_len; p++) {
+        if ((p == req || *(p - 1) == '?' || *(p - 1) == '&') && strncmp(p, "token=", 6) == 0) {
+            q = p + 6;
+            break;
+        }
+    }
+    char token[128] = {0};
+    if (q) {
+        size_t ti = 0;
+        while (q < req + line_len && *q != '&' && *q != ' ' && ti < sizeof(token) - 1) token[ti++] = *q++;
+        token[ti] = '\0';
+    }
+    /* Reuse the header path: a synthetic request with the token as a Bearer header keeps the
+     * loopback, auth-disabled, PAT and session rules in one place */
+    char synth[256];
+    snprintf(synth, sizeof(synth), "GET /ws HTTP/1.1\r\nAuthorization: Bearer %s\r\n\r\n", token);
+    return http_auth_check_request(token[0] ? synth : "GET /ws HTTP/1.1\r\n\r\n", client_ip, "GET", out_user, out_user_len);
+}
+
 int http_auth_is_user_role_permitted(const char *method, const char *clean_path) {
     if (strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) {
         if (strcmp(clean_path, "/api/status") == 0 ||
@@ -659,6 +691,7 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             strcmp(clean_path, "/api/activity-cancel") == 0 ||
             strcmp(clean_path, "/api/activity-progress") == 0 ||
             strcmp(clean_path, "/api/ir-send") == 0 ||
+            strcmp(clean_path, "/api/ir-raw") == 0 ||
             strcmp(clean_path, "/ir/send") == 0 ||
             strcmp(clean_path, "/api/button-press") == 0 ||
             strcmp(clean_path, "/api/bt-saved-command") == 0 ||

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 static int s_push_count = 0;
 static char s_last_pushed_id[32] = {0};

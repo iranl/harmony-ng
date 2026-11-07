@@ -73,16 +73,77 @@ paths:
       description: |
         WebSocket connection for real-time activity transitions, IR/RF events, and hub telemetry.
         Requires upgrade headers `Connection: Upgrade` and `Upgrade: websocket`.
+        With authentication enabled the upgrade needs a PAT or session token, as
+        `Authorization: Bearer <token>` or `?token=<token>` in the request line (401 otherwise;
+        loopback callers are exempt). The token's role applies to the actions sent on the socket.
+        Pushed messages (type, seq, ts): activity_state, activity_progress, config_changed,
+        bt_status, rf_status, button; see docs/API.md section 10.
+      parameters:
+        - name: token
+          in: query
+          required: false
+          schema: {type: string}
+          description: PAT (pat_...) or session token (hht_...) when authentication is enabled
       responses:
         '101':
           description: Switching protocols to WebSocket
+        '401':
+          description: Authentication enabled and no valid token
+      x-websocket-messages:
+        description: |
+          Messages on the socket after the upgrade (docs/API.md section 10). Client messages are
+          JSON objects with "action" and an optional "msgId" echoed in the reply. Pushed messages
+          carry "type", "seq" (sequence number, from 1 per daemon run) and "ts" (Unix seconds);
+          nothing is replayed to a client that connects later, the snapshot is its first frame.
+        client:
+          ping: {reply: pong}
+          get_state: {reply: activity_state}
+          get_snapshot: {reply: snapshot}
+          send_command: {reply: ack, fields: [deviceId, command, cmdAction]}
+          start_activity: {reply: ack, fields: [id]}
+          stop_activity: {reply: ack}
+          cancel_activity: {reply: ack}
+          bt_key: {reply: ack}
+          bt_text: {reply: ack}
+          bt_mouse: {reply: ack}
+        pushed:
+          activity_state:
+            example: {type: activity_state, seq: 17, ts: 1762387200, activity: "123456", state: 2, stateName: running, busy: false, sending: true}
+          activity_progress:
+            example: {type: activity_progress, seq: 18, ts: 1762387200, activity: "123456", activityId: "123456", state: starting, stateCode: 1, step: 2, currentStep: 2, total: 6, totalSteps: 6, desc: TV PowerOn, stepDesc: TV PowerOn}
+          config_changed:
+            example: {type: config_changed, seq: 19, ts: 1762387200, files: [devices]}
+          bt_status:
+            description: The GET /api/bt-status object when it changed
+            example: {type: bt_status, seq: 20, ts: 1762387200, ok: true, running: true, connected: true, pairing: false, hosts: [{addr: "AA:BB:CC:DD:EE:FF", name: Media Player, connected: true, paired: true, cid: 6}]}
+          rf_status:
+            description: The GET /api/rf/status object when it changed (link counters and battery.voltage_mv are not changes)
+            example: {type: rf_status, seq: 21, ts: 1762387200, ok: true, slots: []}
+          button:
+            description: First press and release of a physical key on an RF remote, with the mapped device command when any
+            example: {type: button, seq: 22, ts: 1762387200, slot: 1, button: VolumeUp, action: press, source: remote_rf, deviceId: "70321456", command: VolumeUp}
+          snapshot:
+            description: First frame after the upgrade and the reply to get_snapshot
+            example:
+              type: snapshot
+              hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake], auth_enabled: false, uptime_sec: 34821, legacy_enabled: false, mdns_enabled: false}
+              activity_state: {type: activity_state, activity: "-1", state: 0, stateName: idle, busy: false, sending: false, seq: 3, ts: 1762387100}
+              bt_status: null
+              rf_status: null
+              config: {files: {devices: 1762387000, activities: 1762387000, settings: 1762380000, remote_map: 1762387000}}
+              seq: 42
+              ts: 1762387200
 
   /api/status:
     get:
       tags:
         - System & Status
       summary: High-level hub status
-      description: Returns active activity, state machine status, uptime, and MQTT connection.
+      description: |
+        Returns active activity, state machine status, uptime, MQTT connection and the Hub's
+        identity: hub_id (factory unit id from the mfg partition), version and commit of this
+        firmware, api_version (2; changes only on a breaking change) and the capability flags of
+        the compiled-in features (events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake, ...).
       responses:
         '200':
           description: Status retrieved
@@ -92,6 +153,13 @@ paths:
                 ok: true
                 hub_name: Living Room Hub
                 firmware: 4.15.600
+                hub_id: "20140101120000-000001"
+                version: 2.2.0
+                commit: abc1234
+                api_version: 2
+                capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake]
+                legacy_enabled: false
+                mdns_enabled: false
                 activity: "-1"
                 state: 0
                 busy: false
@@ -1206,7 +1274,9 @@ paths:
       tags:
         - Activities
       summary: Answer help power toggle prompt
-      description: Answers the question for one device of the last Help. "on": false sends that device's power toggle; "on": true sends nothing. Each device takes one answer.
+      description: |
+        Answers the question for one device of the last Help. "on": false sends that device's
+        power toggle; "on": true sends nothing. Each device takes one answer.
       requestBody:
         required: true
         content:
@@ -1455,6 +1525,54 @@ paths:
               example:
                 ok: true
 
+  /api/ir-raw:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Send a raw infrared frame (carrier + microsecond timings)
+      description: |
+        Timings are either signed (positive mark, negative space, alternating) or all positive
+        alternating mark/space starting with a mark. Capability flag ir_raw.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timings]
+              properties:
+                frequency: {type: integer, default: 38000, description: "Carrier in Hz: 0 (unmodulated) or 20000 to 60000"}
+                timings:
+                  type: array
+                  minItems: 2
+                  maxItems: 2048
+                  items: {type: integer, minimum: -65535, maximum: 65535}
+                port: {type: integer, minimum: 1, maximum: 7, default: 7}
+                repeats: {type: integer, minimum: 1, maximum: 10, default: 1}
+            example:
+              frequency: 38000
+              timings: [9000, -4500, 560, -560, 560, -1690]
+              port: 1
+              repeats: 1
+      responses:
+        '200':
+          description: Frame sent
+          content:
+            application/json:
+              example:
+                ok: true
+                count: 6
+                duration_ms: 17
+        '400':
+          description: Validation error, the error names the field
+        '409':
+          description: Another IR transmission is in progress
+          content:
+            application/json:
+              example:
+                ok: false
+                error: busy
+
   /api/pronto-blast:
     post:
       tags:
@@ -1498,13 +1616,13 @@ paths:
               properties:
                 deviceId: {type: string}
                 device: {type: string}
+                button: {type: string, description: "Physical key name (hub_rf). When present, command is the device command the key was mapped to."}
                 command: {type: string}
                 source: {type: string}
-                action: {type: string}
+                action: {type: string, enum: [press, hold, release], description: "press and release give a button event on the WebSocket; hold repeats do not"}
                 topic: {type: string}
                 pulseMs: {type: integer, default: 100}
                 slot: {type: integer, enum: [1, 2], default: 1}
-              required: [command]
             example:
               deviceId: "70321456"
               command: VolumeUp
@@ -1619,17 +1737,23 @@ paths:
       summary: Bluetooth stack and pairing status
       responses:
         '200':
-          description: BT connection state
+          description: hub_btstack's status plus ok, running, connected and pairing (docs/API.md 6.1)
           content:
             application/json:
               example:
+                backend: btstack
+                pid: 1234
+                state: connecting
+                target: "11:22:33:44:55:66"
+                remote: {connected: true, addr: "11:22:33:44:55:66"}
+                host: {connected: true, addr: "AA:BB:CC:DD:EE:FF", name: Media Player, pairing: false}
+                hosts:
+                  - {addr: "AA:BB:CC:DD:EE:01", name: Television, connected: false, paired: true, cid: 2}
+                  - {addr: "AA:BB:CC:DD:EE:FF", name: Media Player, connected: true, paired: true, cid: 6}
                 ok: true
                 running: true
                 connected: true
-                target: "AA:BB:CC:DD:EE:FF"
-                devices:
-                  - bdaddr: "AA:BB:CC:DD:EE:FF"
-                    name: Apple TV
+                pairing: false
 
   /api/bt-pairing:
     post:
@@ -1926,6 +2050,7 @@ paths:
                     has_screen: true
                     supports_ota: true
                     sw_version: "v2.0.2"
+                    remote_id: "20141001120000-000002"
                     config_version: 3
                     battery:
                       percent: 78
@@ -1938,6 +2063,34 @@ paths:
                       retries: 3
                       naks: 1
                       last_seen_s: 14
+
+  /api/rf/status-changed:
+    post:
+      tags:
+        - RF & Remote
+      summary: Internal. hub_rf pushes its status object when it changed
+      description: |
+        Loopback only. hub_rf posts the GET /api/rf/status object whenever it changed (at most
+        once a second); the daemon emits an rf_status WebSocket event when the object differs from
+        the last one (link counters and battery.voltage_mv ignored).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              example:
+                ok: true
+                changed: true
+        '400':
+          description: Body is not a JSON object
+        '403':
+          description: Not from loopback
 
   /api/rf/pair:
     get:

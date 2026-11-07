@@ -1,4 +1,5 @@
 #include "http_api_system.h"
+#include "hub_info.h"
 #include "http_util.h"
 #include "http_auth.h"
 #include "http_api_custom_icons.h"
@@ -87,6 +88,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         config_store_get_settings(&cs);
         cJSON_AddStringToObject(st, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
         cJSON_AddStringToObject(st, "firmware", "4.15.600");
+        hub_info_add_status_fields(st);
         cJSON_AddStringToObject(st, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(st, "state", (int)orch_get_state());
         cJSON_AddBoolToObject(st, "busy", orch_is_busy() ? 1 : 0);

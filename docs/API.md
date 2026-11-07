@@ -19,13 +19,20 @@ Returns service status.
 
 ### 1.2 Full Hub Status
 #### `GET /api/status`
-Returns high-level hub status, firmware, active activity, memory, uptime, and MQTT connection status.
+Returns high-level hub status, firmware, identity, active activity, memory, uptime, and MQTT connection status.
 - **Response `200 OK`**:
   ```json
   {
     "ok": true,
     "hub_name": "Living Room Hub",
     "firmware": "4.15.600",
+    "hub_id": "20140101120000-000001",
+    "version": "2.2.0",
+    "commit": "abc1234",
+    "api_version": 2,
+    "capabilities": ["events", "snapshot", "ws_auth", "ws_keepalive", "ir_raw", "rf_wake"],
+    "legacy_enabled": false,
+    "mdns_enabled": false,
     "activity": "123456",
     "state": 2,
     "busy": false,
@@ -41,6 +48,17 @@ Returns high-level hub status, firmware, active activity, memory, uptime, and MQ
     }
   }
   ```
+  - `firmware`: the Logitech base firmware. `version` and `commit`: this firmware, as in `/api/system-info`.
+  - `hub_id`: the factory unit id from the `mfg` partition (unique per unit, survives reflashes); the
+    identifier for device registries and unique ids. Falls back to the Wi-Fi MAC (12 lowercase hex
+    characters, logged as a warning) only when the partition has no unit id.
+  - `api_version`: `2` from milestone 1 of the integration work on; it changes only on a breaking
+    change to an existing endpoint or message. Additions are announced through `capabilities`.
+  - `capabilities`: flags of the features compiled into this firmware, independent of settings:
+    `events` (event bus, pushed WebSocket messages 10.8 to 10.13), `snapshot` (10.14), `ws_auth`
+    (11.4), `ws_keepalive` (10.15), `ir_raw` (5.4), `rf_wake` (`POST /api/rf/wake`).
+  - `legacy_enabled`, `mdns_enabled`: mirror the settings of the Logitech protocol shim and the mDNS
+    responder; `false` while those features do not exist.
 
 ### 1.3 System Info
 #### `GET /api/system-info`
@@ -609,7 +627,11 @@ Dedicated blaster endpoint for raw Pronto hex code streams.
 
 ### 5.3 Button Press & MQTT Dispatch
 #### `POST /api/button-press` or `POST /api/mqtt-publish`
-Dispatches a button press pulse to local MQTT broker and hardware handlers.
+Dispatches a button press pulse to local MQTT broker and hardware handlers. Every call also
+gives a `button` event on the WebSocket (10.13) for `action` `press` (the default) and `release`;
+`hold` repeats only reach MQTT. `hub_rf` posts physical keys as `{"button": <key name>,
+"action", "source": "remote_rf", "slot"}` plus `deviceId` and `command` when the key was mapped to
+a device command; other callers may keep posting the key as `command`.
 - **Request Body**:
   ```json
   {
@@ -630,23 +652,58 @@ Dispatches a button press pulse to local MQTT broker and hardware handlers.
 
 ---
 
+### 5.4 Raw Infrared
+#### `POST /api/ir-raw`
+Sends a raw infrared frame given as carrier and microsecond timings (what an IR receiver or
+Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
+- **Request Body** (`Content-Type: application/json`, up to 2048 timings):
+  ```json
+  {"frequency": 38000, "timings": [9000, -4500, 560, -560, 560, -1690], "port": 1, "repeats": 1}
+  ```
+  - `frequency`: carrier in Hz, `0` for unmodulated, otherwise 20000 to 60000. Default 38000.
+  - `timings`: microseconds, 2 to 2048 values, each 1 to 65535 in absolute value. Either signed
+    (positive mark, negative space, alternating) or all positive alternating mark/space starting
+    with a mark.
+  - `port`: bitmask as `/api/ir-send` (`1` front blaster, `2` jack 1, `4` jack 2, `7` all). Default 7.
+  - `repeats`: 1 to 10, default 1.
+- **Response `200 OK`**: `{"ok": true, "count": 6, "duration_ms": 17}` (`duration_ms` = sum of the
+  timings times `repeats`).
+- **Error `400`**: `{"ok": false, "error": "<field>: ..."}` naming the offending field.
+- **Error `409`**: `{"ok": false, "error": "busy"}` while another IR transmission holds the I2S
+  blaster (the same lock the orchestrator and `/api/ir-send` take).
+- Nothing of the frame is logged.
+
 ## 6. Bluetooth Stack & HID
 
 ### 6.1 Bluetooth Status
 #### `GET /api/bt-status`
-Returns connection status, BTstack daemon state, paired hosts, and active target.
+Returns `hub_btstack`'s status (`/tmp/hub_btstack_status.json`) with four fields `hub_daemon` adds:
+`ok`, `running` (the `hub_btstack` process is alive), `connected` (any host connected) and
+`pairing` (pairing mode on). `hosts` lists every paired host with its address (`addr`), name,
+`connected`, `paired` and `cid`; `host` is the host keys go to. `target` and `remote` are the
+Bluetooth LE remote, not a host; `state` is that link's state.
 - **Response `200 OK`**:
   ```json
   {
+    "backend": "btstack",
+    "pid": 1234,
+    "state": "connecting",
+    "target": "11:22:33:44:55:66",
+    "last_button": "",
+    "last_seen": 0,
+    "remote": {"connected": true, "addr": "11:22:33:44:55:66"},
+    "host": {"connected": true, "addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "pairing": false},
+    "hosts": [
+      {"addr": "AA:BB:CC:DD:EE:01", "name": "Television", "connected": false, "paired": true, "cid": 2},
+      {"addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "connected": true, "paired": true, "cid": 6}
+    ],
     "ok": true,
     "running": true,
     "connected": true,
-    "target": "AA:BB:CC:DD:EE:FF",
-    "devices": [
-      {"bdaddr": "AA:BB:CC:DD:EE:FF", "name": "Apple TV"}
-    ]
+    "pairing": false
   }
   ```
+  Without a status file (`hub_btstack` not started): `{"ok": true, "running": false, "state": "stopped", "connected": false, "pairing": false, "hosts": []}`.
 
 ### 6.2 Host Pairing Mode
 #### `POST /api/bt-pairing`
@@ -761,6 +818,16 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   }
   ```
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
+
+- `slots[].remote_id`: the remote's factory unit id (its `mfg` partition, `RF_MSG_UNIT_ID`),
+  present once the remote reported it since pairing. The identifier for the remote's device in
+  integrations; the slot number is only an attribute. Cleared on unpair.
+
+#### `POST /api/rf/status-changed` (internal)
+`hub_rf` posts the object above to this endpoint whenever it changed (once a second at most; the
+`link` counters and `battery.voltage_mv` are not changes). The daemon turns it into an `rf_status`
+WebSocket event (10.12). Accepted from loopback only (`403` otherwise); the body must be the status
+object (`400` otherwise). Reply: `{"ok": true, "changed": true|false}`.
 
 ### 7.2 RF Pairing
 #### `GET /api/rf/pair?slot={1|2}` or `POST /api/rf/pair`
@@ -1055,6 +1122,16 @@ Connect via WebSocket to `ws://<hub_ip>:8089/ws` or `ws://<hub_ip>/ws`.
 }
 ```
 
+#### 10.8a Full State Snapshot
+```json
+{
+  "action": "get_snapshot",
+  "msgId": 8
+}
+```
+**Response**: a `snapshot` message (10.14) with the same `msgId`. One is also sent, without
+`msgId`, as the first frame after the upgrade.
+
 #### 10.3 Send Device Command
 ```json
 {
@@ -1147,6 +1224,123 @@ Connect via WebSocket to `ws://<hub_ip>:8089/ws` or `ws://<hub_ip>/ws`.
 }
 ```
 
+### Server-to-Client Messages (pushed events)
+
+Every state change the Hub knows about goes through its event bus and is pushed to every
+WebSocket client as one text frame. Each pushed message carries `type`, `seq` (sequence number,
+from 1 per daemon run, increasing across all types) and `ts` (Unix seconds). Nothing is replayed to
+a client that connects later: it fetches the current state over REST (or the `snapshot`, see
+10.10). A client that fails a send is dropped.
+
+#### 10.8 Activity State
+Sent on every change of the orchestrator state or of the current activity, including cancel and
+dry runs, and once at daemon start. Same shape as the `get_state` reply and `GET /api/activity`.
+```json
+{
+  "type": "activity_state",
+  "seq": 17,
+  "ts": 1762387200,
+  "activity": "123456",
+  "state": 2,
+  "stateName": "running",
+  "busy": false,
+  "sending": true
+}
+```
+- `state`: `0` idle, `1` starting, `2` running, `3` stopping; `stateName` is the same as a word.
+- `activity` is `"-1"` when idle; while starting it is still the previous activity.
+
+#### 10.9 Activity Progress
+One frame per executed step of an activity switch (unchanged shape, now carrying `seq` and `ts`).
+```json
+{
+  "type": "activity_progress",
+  "seq": 18,
+  "ts": 1762387200,
+  "activity": "123456",
+  "activityId": "123456",
+  "state": "starting",
+  "stateCode": 1,
+  "step": 2,
+  "currentStep": 2,
+  "total": 6,
+  "totalSteps": 6,
+  "desc": "TV PowerOn",
+  "stepDesc": "TV PowerOn"
+}
+```
+
+#### 10.10 Configuration Changed
+Sent when a configuration file changed on disk (checked once a second by mtime and size):
+`devices`, `activities`, `settings` or `remote_map` (either slot's button map). Reload the
+affected inventory over REST.
+```json
+{"type": "config_changed", "seq": 19, "ts": 1762387200, "files": ["devices"]}
+```
+
+#### 10.11 Bluetooth Status
+The `GET /api/bt-status` object (section 6.1), sent when it changes (`last_button`, `last_seen` and
+`updated` do not count as a change; `running` turning false when `hub_btstack` dies does).
+```json
+{"type": "bt_status", "seq": 20, "ts": 1762387200, "ok": true, "running": true, "connected": true, "pairing": false, "host": {...}, "hosts": [{"addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "connected": true, "paired": true, "cid": 6}], "...": "..."}
+```
+
+#### 10.12 RF Remote Status
+The `GET /api/rf/status` object (section 7.1), sent when it changes (the `link` counters and
+`battery.voltage_mv` do not count as a change, but are included).
+```json
+{"type": "rf_status", "seq": 21, "ts": 1762387200, "ok": true, "slots": [ ... ]}
+```
+
+#### 10.13 Remote Button
+One event for the first press and one for the release of a physical key on an RF remote (held
+keys repeat on the Hub but give no further events). `button` is the key name as the remote's
+keymap knows it; `deviceId` and `command` are the device command the key was mapped to in the
+current activity, absent when the key was not mapped to a device command. Calls of
+`POST /api/button-press` from other sources give the same event with `source` `"api"`.
+```json
+{
+  "type": "button",
+  "seq": 22,
+  "ts": 1762387200,
+  "slot": 1,
+  "button": "VolumeUp",
+  "action": "press",
+  "source": "remote_rf",
+  "deviceId": "70321456",
+  "command": "VolumeUp"
+}
+```
+
+#### 10.14 Snapshot
+The first frame a client receives after the upgrade, and the reply to `get_snapshot` (10.8a).
+`activity_state`, `bt_status` and `rf_status` are the last payloads pushed for those types
+(`null` before the first one; `activity_state` is built from the orchestrator if needed).
+`config.files` holds the mtimes (Unix seconds) the watcher tracks, so a client can tell whether its
+cached inventory is stale. `seq` is the bus sequence at the time of the snapshot: a client that
+stored the last `seq` it processed can tell whether it missed events while disconnected and
+refetch over REST. The frame can exceed 4 KB (outbound frames may be up to 64 KB).
+```json
+{
+  "type": "snapshot",
+  "msgId": 8,
+  "hub": {"hub_id": "20140101120000-000001", "hub_name": "Living Room Hub", "version": "2.2.0",
+          "api_version": 2, "capabilities": ["events", "snapshot", "ws_auth", "ws_keepalive", "ir_raw", "rf_wake"],
+          "auth_enabled": false, "uptime_sec": 34821, "legacy_enabled": false, "mdns_enabled": false},
+  "activity_state": {"type": "activity_state", "activity": "-1", "state": 0, "stateName": "idle", "busy": false, "sending": false, "seq": 3, "ts": 1762387100},
+  "bt_status": {"type": "bt_status", "seq": 20, "ts": 1762387200, "...": "..."},
+  "rf_status": {"type": "rf_status", "seq": 21, "ts": 1762387200, "...": "..."},
+  "config": {"files": {"devices": 1762387000, "activities": 1762387000, "settings": 1762380000, "remote_map": 1762387000}},
+  "seq": 42,
+  "ts": 1762387200
+}
+```
+
+#### 10.15 Keepalive
+The server sends a WebSocket ping to a client that has sent nothing for 30 s; a client that
+answers nothing (pong or any other frame) within 10 s of the ping is closed. Client pings are
+still answered with pongs. Capability flag: `ws_keepalive`.
+
 ---
 
 ## 11. Authentication & Security Architecture
@@ -1204,6 +1398,22 @@ curl -X DELETE -H "Authorization: Bearer hht_..." "http://192.168.1.1:8089/api/a
 ```
 
 ### 11.4 WebSocket Token Authentication
-Connect with token in query string:
-`ws://192.168.1.1:8089/?token=pat_3f8a9b...`
+When authentication is enabled, the WebSocket upgrade (`GET /ws`) must carry a token: either
+`Authorization: Bearer <token>` or, since browsers cannot set headers on a WebSocket, `?token=<token>`
+in the request line:
+`ws://192.168.1.1:8089/ws?token=pat_3f8a9b...`
+
+- Personal access tokens (`pat_...`, 11.3) and session tokens (`hht_...`, 11.2) are both accepted.
+  Digest and Basic credentials are not supported on the upgrade.
+- Missing, unknown or revoked token: `401 Unauthorized` with the usual challenge; the connection is
+  closed, never upgraded. Callers on the Hub itself (`127.0.0.1`, `::1`: `hub_rf`, `hub_btstack`)
+  need no token, as for every request. With authentication disabled nothing changes.
+- The role of the token is kept for the connection. A `user` role receives every pushed message
+  and may send `ping`, `get_state` and `get_snapshot`; its command actions follow the same
+  permission table as the REST equivalents (`send_command` = `/api/ir-send`, `start_activity` =
+  `/api/activity`, `stop_activity` = `/api/poweroff`, `cancel_activity` = `/api/activity-cancel`,
+  `bt_key`, `bt_text`, `bt_mouse` = their endpoints). A refused action is answered with
+  `{"type": "ack", "action": ..., "ok": false, "error": "Forbidden: Admin access required"}`.
+- Both web UIs pass their session token as `?token=` when they open the WebSocket.
+- Capability flag: `ws_auth`.
 

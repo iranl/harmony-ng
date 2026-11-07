@@ -34,6 +34,162 @@ static void *rf_wake_worker(void *arg) {
     return NULL;
 }
 
+/* The GET /api/rf/status object. RF_STATUS_QUERY_RADIO asks the CC2544 for the Hub address when
+ * it is not known yet (API thread only); RF_STATUS_STABLE_ONLY leaves the link counters and the
+ * battery voltage out, giving a string that changes only when the status changed. */
+int rf_build_status_json(char *body, size_t len, unsigned flags) {
+    char addr1_str[16] = "None";
+    char addr2_str[16] = "None";
+    if (g_paired_remotes[0].rf_addr[0] || g_paired_remotes[0].rf_addr[1] || g_paired_remotes[0].rf_addr[2] || g_paired_remotes[0].rf_addr[3]) {
+        snprintf(addr1_str, sizeof(addr1_str), "%02X%02X%02X%02X",
+                 g_paired_remotes[0].rf_addr[0], g_paired_remotes[0].rf_addr[1], g_paired_remotes[0].rf_addr[2], g_paired_remotes[0].rf_addr[3]);
+    }
+    if (g_paired_remotes[1].rf_addr[0] || g_paired_remotes[1].rf_addr[1] || g_paired_remotes[1].rf_addr[2] || g_paired_remotes[1].rf_addr[3]) {
+        snprintf(addr2_str, sizeof(addr2_str), "%02X%02X%02X%02X",
+                 g_paired_remotes[1].rf_addr[0], g_paired_remotes[1].rf_addr[1], g_paired_remotes[1].rf_addr[2], g_paired_remotes[1].rf_addr[3]);
+    }
+
+    bool is_comp1 = is_companion_slot(1);
+    bool is_comp2 = is_companion_slot(2);
+    const char *model1 = get_remote_model_name(g_paired_remotes[0].model);
+    const char *model2 = get_remote_model_name(g_paired_remotes[1].model);
+    if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].active) {
+        model1 = is_comp1 ? "smart_control" : "elite";
+    }
+    if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].active) {
+        model2 = is_comp2 ? "smart_control" : "elite";
+    }
+
+    char name1[48] = "Harmony Remote (Slot 1)";
+    char name2[48] = "Harmony Remote (Slot 2)";
+    if (strcmp(model1, "smart_control") == 0) {
+        snprintf(name1, sizeof(name1), "Harmony Smart Control (Slot 1)");
+    } else if (strcmp(model1, "companion") == 0) {
+        snprintf(name1, sizeof(name1), "Harmony Companion (Slot 1)");
+    } else if (g_paired_remotes[0].name[0]) {
+        snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
+    }
+
+    if (strcmp(model2, "smart_control") == 0) {
+        snprintf(name2, sizeof(name2), "Harmony Smart Control (Slot 2)");
+    } else if (strcmp(model2, "companion") == 0) {
+        snprintf(name2, sizeof(name2), "Harmony Companion (Slot 2)");
+    } else if (g_paired_remotes[1].name[0]) {
+        snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
+    }
+
+    if ((flags & RF_STATUS_QUERY_RADIO) &&
+        (g_hub_rf_addr[0] | g_hub_rf_addr[1] | g_hub_rf_addr[2] | g_hub_rf_addr[3]) == 0) {
+        uint8_t q[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
+        rf_write_cmd(q, sizeof(q));
+        usleep(30000);
+    }
+
+    char hub_rf_str[16] = "None";
+    if (g_hub_rf_addr[0] || g_hub_rf_addr[1] || g_hub_rf_addr[2] || g_hub_rf_addr[3]) {
+        snprintf(hub_rf_str, sizeof(hub_rf_str), "%02X%02X%02X%02X",
+                 g_hub_rf_addr[0], g_hub_rf_addr[1], g_hub_rf_addr[2], g_hub_rf_addr[3]);
+    }
+
+    bool sync_pending = (access("/data/harmony/rf_sync_pending.flag", F_OK) == 0);
+    int pending_slot = 0;
+    char pending_diff[256] = "Hub configuration changed. Push settings to sync.";
+    FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
+    if (pdf) {
+        char dline[512] = {0};
+        if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+            cJSON *pj = cJSON_Parse(dline);
+            if (pj) {
+                cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+                cJSON *pd = cJSON_GetObjectItem(pj, "diff");
+                if (ps) pending_slot = ps->valueint;
+                if (pd && pd->valuestring) snprintf(pending_diff, sizeof(pending_diff), "%s", pd->valuestring);
+                cJSON_Delete(pj);
+            }
+        }
+        fclose(pdf);
+    }
+
+    if (sync_pending) {
+        if ((pending_slot == 1 && is_comp1) || (pending_slot == 2 && is_comp2)) {
+            sync_pending = false;
+        }
+        if ((!g_paired_remotes[0].active || is_comp1) && (!g_paired_remotes[1].active || is_comp2)) {
+            sync_pending = false;
+        }
+    }
+
+    bool slot1_in_sync = is_comp1 ? true : (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
+    bool slot2_in_sync = is_comp2 ? true : (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
+
+    /* remote_id is present only once the remote reported it since pairing */
+    char rid_json[MAX_PAIRED_REMOTES][48];
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        if (g_remote_versions[i].remote_id[0]) {
+            snprintf(rid_json[i], sizeof(rid_json[i]), ",\"remote_id\":\"%s\"", g_remote_versions[i].remote_id);
+        } else {
+            rid_json[i][0] = '\0';
+        }
+    }
+    const char *ver1_str = (is_comp1 && strcmp(g_remote_versions[0].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[0].sw_version;
+    const char *ver2_str = (is_comp2 && strcmp(g_remote_versions[1].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[1].sw_version;
+
+    pthread_mutex_lock(&g_ota_lock);
+    bool ota_in_prog = g_rf_ota.in_progress;
+    int ota_slot = g_rf_ota.target_slot;
+    int ota_status = g_rf_ota.status_code;
+    uint32_t ota_sent_b = g_rf_ota.sent_bytes;
+    uint32_t ota_tot_b = g_rf_ota.total_bytes;
+    uint16_t ota_sent_c = g_rf_ota.sent_chunks;
+    uint16_t ota_tot_c = g_rf_ota.total_chunks;
+    char ota_err[64];
+    snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
+    pthread_mutex_unlock(&g_ota_lock);
+
+    /* Link counters per slot; last_seen_s is -1 before the first frame. Left out of the
+     * change-detection form, like the battery voltage: they change on every frame. */
+    char link_json[MAX_PAIRED_REMOTES][192];
+    uint64_t now_ms = get_monotonic_ms();
+    int stable = (flags & RF_STATUS_STABLE_ONLY) != 0;
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        const remote_link_stats_t *ls = &g_remote_link[i];
+        long seen = g_paired_remotes[i].last_seen_ms ? (long)((now_ms - g_paired_remotes[i].last_seen_ms) / 1000) : -1;
+        if (stable) {
+            snprintf(link_json[i], sizeof(link_json[i]), "{}");
+        } else {
+            snprintf(link_json[i], sizeof(link_json[i]),
+                     "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,\"last_seen_s\":%ld}",
+                     ls->frames_rx, ls->acked_sent, ls->acked_ok, ls->retries, ls->naks, seen);
+        }
+    }
+
+    int blen = snprintf(body, len,
+        "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
+        "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
+        "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
+        "\"slots\":["
+        "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s},"
+        "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s}"
+        "]}",
+        g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
+        hub_rf_str, hub_rf_str,
+        g_pairing_mode ? "true" : "false",
+        sync_pending ? "true" : "false",
+        pending_slot, pending_diff, g_config_version,
+        ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
+        name1, model1, is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
+        g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
+        ver1_str, rid_json[0], is_comp1 ? 0 : g_remote_versions[0].config_version,
+        g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", stable ? 0 : g_remote_batteries[0].voltage_mv, link_json[0],
+        name2, model2, is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
+        g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
+        ver2_str, rid_json[1], is_comp2 ? 0 : g_remote_versions[1].config_version,
+        g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", stable ? 0 : g_remote_batteries[1].voltage_mv, link_json[1]);
+    if (blen < 0) return -1;
+    if ((size_t)blen >= len) return -1;
+    return blen;
+}
+
 void *api_server_worker(void *arg) {
     (void)arg;
     int srv = socket(AF_INET, SOCK_STREAM, 0);
@@ -584,139 +740,9 @@ void *api_server_worker(void *arg) {
                 }
             } else {
                 /* Status endpoint */
-                char addr1_str[16] = "None";
-                char addr2_str[16] = "None";
-                if (g_paired_remotes[0].rf_addr[0] || g_paired_remotes[0].rf_addr[1] || g_paired_remotes[0].rf_addr[2] || g_paired_remotes[0].rf_addr[3]) {
-                    snprintf(addr1_str, sizeof(addr1_str), "%02X%02X%02X%02X",
-                             g_paired_remotes[0].rf_addr[0], g_paired_remotes[0].rf_addr[1], g_paired_remotes[0].rf_addr[2], g_paired_remotes[0].rf_addr[3]);
-                }
-                if (g_paired_remotes[1].rf_addr[0] || g_paired_remotes[1].rf_addr[1] || g_paired_remotes[1].rf_addr[2] || g_paired_remotes[1].rf_addr[3]) {
-                    snprintf(addr2_str, sizeof(addr2_str), "%02X%02X%02X%02X",
-                             g_paired_remotes[1].rf_addr[0], g_paired_remotes[1].rf_addr[1], g_paired_remotes[1].rf_addr[2], g_paired_remotes[1].rf_addr[3]);
-                }
-
-                bool is_comp1 = is_companion_slot(1);
-                bool is_comp2 = is_companion_slot(2);
-                const char *model1 = get_remote_model_name(g_paired_remotes[0].model);
-                const char *model2 = get_remote_model_name(g_paired_remotes[1].model);
-                if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].active) {
-                    model1 = is_comp1 ? "smart_control" : "elite";
-                }
-                if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].active) {
-                    model2 = is_comp2 ? "smart_control" : "elite";
-                }
-
-                char name1[48] = "Harmony Remote (Slot 1)";
-                char name2[48] = "Harmony Remote (Slot 2)";
-                if (strcmp(model1, "smart_control") == 0) {
-                    snprintf(name1, sizeof(name1), "Harmony Smart Control (Slot 1)");
-                } else if (strcmp(model1, "companion") == 0) {
-                    snprintf(name1, sizeof(name1), "Harmony Companion (Slot 1)");
-                } else if (g_paired_remotes[0].name[0]) {
-                    snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
-                }
-
-                if (strcmp(model2, "smart_control") == 0) {
-                    snprintf(name2, sizeof(name2), "Harmony Smart Control (Slot 2)");
-                } else if (strcmp(model2, "companion") == 0) {
-                    snprintf(name2, sizeof(name2), "Harmony Companion (Slot 2)");
-                } else if (g_paired_remotes[1].name[0]) {
-                    snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
-                }
-
-                if ((g_hub_rf_addr[0] | g_hub_rf_addr[1] | g_hub_rf_addr[2] | g_hub_rf_addr[3]) == 0) {
-                    uint8_t q[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
-                    rf_write_cmd(q, sizeof(q));
-                    usleep(30000);
-                }
-
-                char hub_rf_str[16] = "None";
-                if (g_hub_rf_addr[0] || g_hub_rf_addr[1] || g_hub_rf_addr[2] || g_hub_rf_addr[3]) {
-                    snprintf(hub_rf_str, sizeof(hub_rf_str), "%02X%02X%02X%02X",
-                             g_hub_rf_addr[0], g_hub_rf_addr[1], g_hub_rf_addr[2], g_hub_rf_addr[3]);
-                }
-
-                bool sync_pending = (access("/data/harmony/rf_sync_pending.flag", F_OK) == 0);
-                int pending_slot = 0;
-                char pending_diff[256] = "Hub configuration changed. Push settings to sync.";
-                FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
-                if (pdf) {
-                    char dline[512] = {0};
-                    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
-                        cJSON *pj = cJSON_Parse(dline);
-                        if (pj) {
-                            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
-                            cJSON *pd = cJSON_GetObjectItem(pj, "diff");
-                            if (ps) pending_slot = ps->valueint;
-                            if (pd && pd->valuestring) snprintf(pending_diff, sizeof(pending_diff), "%s", pd->valuestring);
-                            cJSON_Delete(pj);
-                        }
-                    }
-                    fclose(pdf);
-                }
-
-                if (sync_pending) {
-                    if ((pending_slot == 1 && is_comp1) || (pending_slot == 2 && is_comp2)) {
-                        sync_pending = false;
-                    }
-                    if ((!g_paired_remotes[0].active || is_comp1) && (!g_paired_remotes[1].active || is_comp2)) {
-                        sync_pending = false;
-                    }
-                }
-
-                bool slot1_in_sync = is_comp1 ? true : (g_remote_versions[0].config_version == g_config_version && g_paired_remotes[0].active);
-                bool slot2_in_sync = is_comp2 ? true : (g_remote_versions[1].config_version == g_config_version && g_paired_remotes[1].active);
-
-                const char *ver1_str = (is_comp1 && strcmp(g_remote_versions[0].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[0].sw_version;
-                const char *ver2_str = (is_comp2 && strcmp(g_remote_versions[1].sw_version, "unknown") == 0) ? "N/A" : g_remote_versions[1].sw_version;
-
-                pthread_mutex_lock(&g_ota_lock);
-                bool ota_in_prog = g_rf_ota.in_progress;
-                int ota_slot = g_rf_ota.target_slot;
-                int ota_status = g_rf_ota.status_code;
-                uint32_t ota_sent_b = g_rf_ota.sent_bytes;
-                uint32_t ota_tot_b = g_rf_ota.total_bytes;
-                uint16_t ota_sent_c = g_rf_ota.sent_chunks;
-                uint16_t ota_tot_c = g_rf_ota.total_chunks;
-                char ota_err[64];
-                snprintf(ota_err, sizeof(ota_err), "%s", g_rf_ota.error_msg);
-                pthread_mutex_unlock(&g_ota_lock);
-
-                /* Link counters per slot; last_seen_s is -1 before the first frame */
-                char link_json[MAX_PAIRED_REMOTES][192];
-                uint64_t now_ms = get_monotonic_ms();
-                for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-                    const remote_link_stats_t *ls = &g_remote_link[i];
-                    long seen = g_paired_remotes[i].last_seen_ms ? (long)((now_ms - g_paired_remotes[i].last_seen_ms) / 1000) : -1;
-                    snprintf(link_json[i], sizeof(link_json[i]),
-                             "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,\"last_seen_s\":%ld}",
-                             ls->frames_rx, ls->acked_sent, ls->acked_ok, ls->retries, ls->naks, seen);
-                }
-
                 char body[3584];
-                int blen = snprintf(body, sizeof(body),
-                    "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
-                    "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
-                    "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
-                    "\"slots\":["
-                    "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s},"
-                    "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\",\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s}"
-                    "]}",
-                    g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
-                    hub_rf_str, hub_rf_str,
-                    g_pairing_mode ? "true" : "false",
-                    sync_pending ? "true" : "false",
-                    pending_slot, pending_diff, g_config_version,
-                    ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
-                    name1, model1, is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
-                    g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
-                    ver1_str, is_comp1 ? 0 : g_remote_versions[0].config_version,
-                    g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", g_remote_batteries[0].voltage_mv, link_json[0],
-                    name2, model2, is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
-                    g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
-                    ver2_str, is_comp2 ? 0 : g_remote_versions[1].config_version,
-                    g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", g_remote_batteries[1].voltage_mv, link_json[1]);
-
+                int blen = rf_build_status_json(body, sizeof(body), RF_STATUS_QUERY_RADIO);
+                if (blen < 0) blen = snprintf(body, sizeof(body), "{\"ok\":false,\"error\":\"status too large\"}");
                 char header[256];
                 int hlen = snprintf(header, sizeof(header),
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", blen);

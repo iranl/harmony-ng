@@ -1,0 +1,78 @@
+{
+  "running": true,
+  "ok": true,
+  "fw_version": "v72.00",
+  "paired": true,
+  "rf_address": "A1B2C3D4",
+  "hub_rf_address": "A1B2C3D4",
+  "pairing_active": false,
+  "sync_pending": false,
+  "sync_pending_slot": 0,
+  "sync_pending_diff": "Hub configuration changed. Push settings to sync.",
+  "hub_config_version": 7,
+  "ota": {
+    "in_progress": false,
+    "slot": 0,
+    "status": 0,
+    "sent_bytes": 0,
+    "total_bytes": 0,
+    "sent_chunks": 0,
+    "total_chunks": 0,
+    "error": ""
+  },
+  "slots": [
+    {
+      "slot": 1,
+      "name": "Harmony Remote (Slot 1)",
+      "model": "elite",
+      "has_screen": true,
+      "supports_ota": true,
+      "active": true,
+      "in_sync": true,
+      "address": "E5F60718",
+      "rf_address": "E5F60718",
+      "sw_version": "2.2.0",
+      "remote_id": "20141001120000-000002",
+      "config_version": 7,
+      "battery": {
+        "percent": 87,
+        "charging": false,
+        "voltage_mv": 3980
+      },
+      "link": {
+        "frames_rx": 120,
+        "acked_sent": 12,
+        "acked_ok": 12,
+        "retries": 0,
+        "naks": 0,
+        "last_seen_s": 2
+      }
+    },
+    {
+      "slot": 2,
+      "name": "Harmony Elite (Slot 2)",
+      "model": "unknown",
+      "has_screen": true,
+      "supports_ota": true,
+      "active": false,
+      "in_sync": false,
+      "address": "None",
+      "rf_address": "None",
+      "sw_version": "unknown",
+      "config_version": 0,
+      "battery": {
+        "percent": 0,
+        "charging": false,
+        "voltage_mv": 0
+      },
+      "link": {
+        "frames_rx": 0,
+        "acked_sent": 0,
+        "acked_ok": 0,
+        "retries": 0,
+        "naks": 0,
+        "last_seen_s": -1
+      }
+    }
+  ]
+}

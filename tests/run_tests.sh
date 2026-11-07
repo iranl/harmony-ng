@@ -50,6 +50,9 @@ if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
         "$REPO_ROOT/payload/source/hw_action.c" \
         "$REPO_ROOT/payload/source/ws_server.c" \
         "$REPO_ROOT/payload/source/state_watch.c" \
+        "$REPO_ROOT/payload/source/hub_events.c" \
+        "$REPO_ROOT/payload/source/hub_info.c" \
+        "$REPO_ROOT/payload/source/mfg_id.c" \
         "$REPO_ROOT/payload/source/mqtt_client.c" \
         "$REPO_ROOT/payload/source/sha256.c" \
         "$REPO_ROOT/payload/source/timezone_db.c" \
@@ -209,6 +212,12 @@ fi
 
 if [ -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
     run_api_tests "$HOST_BUILD_DIR/hub_daemon_test"
+    echo "[-] Running WebSocket event tests..."
+    python3 "$SCRIPT_DIR/test_ws_events.py"
+    python3 "$SCRIPT_DIR/test_status.py"
+    python3 "$SCRIPT_DIR/test_ws_auth.py"
+    python3 "$SCRIPT_DIR/test_ws_keepalive.py"
+    python3 "$SCRIPT_DIR/test_ir_raw.py"
 else
     echo "[-] Validating cross-compiled binary headers and integrity..."
     file "$DAEMON_BIN" || true

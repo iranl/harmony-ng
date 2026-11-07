@@ -1,0 +1,38 @@
+{
+  "backend": "btstack",
+  "pid": 161116,
+  "state": "connecting",
+  "target": "11:22:33:44:55:66",
+  "last_button": "",
+  "last_seen": 0,
+  "remote": {
+    "connected": true,
+    "addr": "11:22:33:44:55:66"
+  },
+  "host": {
+    "connected": true,
+    "addr": "AA:BB:CC:DD:EE:FF",
+    "name": "Media Player",
+    "pairing": false
+  },
+  "hosts": [
+    {
+      "addr": "AA:BB:CC:DD:EE:01",
+      "name": "Television",
+      "connected": false,
+      "paired": true,
+      "cid": 2
+    },
+    {
+      "addr": "AA:BB:CC:DD:EE:FF",
+      "name": "Media Player",
+      "connected": true,
+      "paired": true,
+      "cid": 6
+    }
+  ],
+  "ok": true,
+  "running": true,
+  "connected": true,
+  "pairing": false
+}
