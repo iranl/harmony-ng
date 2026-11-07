@@ -316,7 +316,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     modal.style.display = 'flex';
 
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`);
+      /* the client's headers carry the login token: with authentication on, a bare fetch got 401 */
+      const resp = await fetch(this.client.buildUrl(`/api/rf/remote-config?slot=${slot}`), { headers: this.client.getHeaders() });
       if (resp.ok) {
         const cfg = await resp.json();
         let langCode = cfg.language || 'en';
@@ -463,9 +464,9 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     const saveBtn = document.getElementById('rfConfigSaveBtn');
     if (saveBtn) saveBtn.textContent = 'Pushing to remote...';
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`, {
+      const resp = await fetch(this.client.buildUrl(`/api/rf/remote-config?slot=${slot}`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.client.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
       if (resp.ok) {
