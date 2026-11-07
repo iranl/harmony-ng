@@ -463,7 +463,9 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddStringToObject(cfg, "btRemoteTopic", p_btrt->valuestring);
             }
 
+            /* eliteRemote*: the names before the elite -> remote rename, accepted and dropped */
             cJSON *p_el = cJSON_GetObjectItemCaseSensitive(params, "remoteEvents");
+            if (!p_el) p_el = cJSON_GetObjectItemCaseSensitive(params, "eliteRemoteEvents");
             if (p_el) {
                 int el_val = cJSON_IsTrue(p_el) || (cJSON_IsNumber(p_el) && p_el->valueint > 0) || (cJSON_IsString(p_el) && (strcmp(p_el->valuestring, "1") == 0 || strcasecmp(p_el->valuestring, "true") == 0));
                 cJSON_DeleteItemFromObject(cfg, "remoteEvents");
@@ -471,9 +473,23 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             }
 
             cJSON *p_elt = cJSON_GetObjectItemCaseSensitive(params, "remoteTopic");
+            if (!p_elt) p_elt = cJSON_GetObjectItemCaseSensitive(params, "eliteRemoteTopic");
             if (p_elt && cJSON_IsString(p_elt)) {
                 cJSON_DeleteItemFromObject(cfg, "remoteTopic");
                 cJSON_AddStringToObject(cfg, "remoteTopic", p_elt->valuestring);
+            }
+            /* a file saved by an older build: its old keys go, the new ones carry the values */
+            if (cJSON_GetObjectItemCaseSensitive(cfg, "eliteRemoteEvents")) {
+                if (!cJSON_GetObjectItemCaseSensitive(cfg, "remoteEvents")) {
+                    cJSON_AddItemToObject(cfg, "remoteEvents", cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(cfg, "eliteRemoteEvents"), 1));
+                }
+                cJSON_DeleteItemFromObject(cfg, "eliteRemoteEvents");
+            }
+            if (cJSON_GetObjectItemCaseSensitive(cfg, "eliteRemoteTopic")) {
+                if (!cJSON_GetObjectItemCaseSensitive(cfg, "remoteTopic")) {
+                    cJSON_AddItemToObject(cfg, "remoteTopic", cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(cfg, "eliteRemoteTopic"), 1));
+                }
+                cJSON_DeleteItemFromObject(cfg, "eliteRemoteTopic");
             }
 
             cJSON *p_s1e = cJSON_GetObjectItemCaseSensitive(params, "slot1RemoteEvents");

@@ -415,6 +415,10 @@ int main(int argc, char **argv) {
     }
     printf("[+] Hub RF config version: %d\n", g_config_version);
 
+    /* Files of builds before the elite -> remote rename: per-slot version and config, and an
+     * update image staged under the old names (an older deploy tool or update.sh) */
+    rf_migrate_legacy_names();
+
     /* Load last known remote software and config versions from disk */
     for (int slot = 1; slot <= 2; slot++) {
         char vpath[64];
@@ -443,7 +447,7 @@ int main(int argc, char **argv) {
 
         /* The battery state is no longer kept on flash: remove a file left by older builds */
         char bpath[64];
-        snprintf(bpath, sizeof(bpath), "/data/harmony/remote_slot%d_battery.json", slot);
+        snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
         unlink(bpath);
     }
 

@@ -338,10 +338,12 @@ do_apply() {
 
   # 4. Update Elite Remote OTA image (store on /data/harmony)
   echo "[*] Checking Elite remote OTA package..."
-  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3; then
+  # elite_ui.ota.gz: the name before the elite -> remote rename, on an OTA branch not yet republished
+  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3 ||
+     download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3; then
     cp -f "$TMPDIR/remote_ui.ota.gz" /data/harmony/remote_ui.ota.gz 2>/dev/null || true
     echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
-    rm -f /cache/remote_ui.ota.gz 2>/dev/null || true
+    rm -f /cache/remote_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
     rm -f "$TMPDIR/remote_ui.ota.gz"
     echo "[+] Elite remote OTA package cached (/data/harmony/remote_ui.ota.gz)."
   fi
@@ -386,7 +388,8 @@ do_remote_ota() {
   
   if [ ! -f /cache/remote_ui.ota.gz ] && [ ! -f /data/harmony/remote_ui.ota.gz ] && [ ! -f /tmp/remote_ui.ota.gz ]; then
     echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
-    download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3
+    download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3 ||
+      download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3
     ln -sf /cache/remote_ui.ota.gz /data/harmony/remote_ui.ota.gz 2>/dev/null || true
   fi
 

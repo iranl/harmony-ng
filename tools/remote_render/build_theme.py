@@ -31,7 +31,7 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
-THEMES = os.path.join(REPO, "elite", "themes")
+THEMES = os.path.join(REPO, "remote", "themes")
 
 LIST_ICON, HERO_ICON = 40, 70  # remote_ui_activities.c, HERO_ICON in remote_ui_activity.c
 

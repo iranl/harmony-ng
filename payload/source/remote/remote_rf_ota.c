@@ -434,12 +434,16 @@ bool handle_ota_frame(const rf_frame_t *f) {
             char bin_path[128] = {0};
 
             if (tar_rc == 0) {
-                if (access("/tmp/remote_ota_pkg/remote_ui", F_OK) == 0) {
-                    strcpy(bin_path, "/tmp/remote_ota_pkg/remote_ui");
-                    is_pkg = true;
-                } else if (access("/tmp/remote_ota_pkg/bin/remote_ui", F_OK) == 0) {
-                    strcpy(bin_path, "/tmp/remote_ota_pkg/bin/remote_ui");
-                    is_pkg = true;
+                /* remote_ui; elite_ui in packages built before the elite -> remote rename */
+                static const char *const k_pkg_bins[] = {
+                    "/tmp/remote_ota_pkg/remote_ui", "/tmp/remote_ota_pkg/bin/remote_ui",
+                    "/tmp/remote_ota_pkg/elite_ui", "/tmp/remote_ota_pkg/bin/elite_ui", NULL };
+                for (int bi = 0; k_pkg_bins[bi]; bi++) {
+                    if (access(k_pkg_bins[bi], F_OK) == 0) {
+                        snprintf(bin_path, sizeof(bin_path), "%s", k_pkg_bins[bi]);
+                        is_pkg = true;
+                        break;
+                    }
                 }
             }
 
@@ -480,6 +484,9 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     system("for s in /tmp/remote_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/$(basename \"$s\")\"; done 2>/dev/null || true");
                     /* Built-in themes replace their older versions; other themes stay */
                     system("mkdir -p /data/themes && for t in /tmp/remote_ota_pkg/themes/*; do [ -d \"$t\" ] && rm -rf \"/data/themes/$(basename \"$t\")\" && cp -r \"$t\" /data/themes/; done 2>/dev/null || true");
+                    if (access("/tmp/remote_ota_pkg/remote_sync", F_OK) == 0) {
+                        system("cp -f /tmp/remote_ota_pkg/remote_sync /data/remote_sync && chmod 755 /data/remote_sync");
+                    }
                     char cp_cmd[384];
                     snprintf(cp_cmd, sizeof(cp_cmd), "mv -f %s /data/remote_ui && chmod 755 /data/remote_ui", bin_path);
                     system(cp_cmd);
@@ -488,6 +495,8 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 }
 
                 system("rm -rf /tmp/remote_ota_pkg /tmp/remote_ui.ota.gz /data/remote_ui.new 2>/dev/null || true");
+                /* /data/elite_ui stays a link to the new binary for supervisors of older builds */
+                system("[ -L /data/elite_ui ] || rm -f /data/elite_ui; ln -sf remote_ui /data/elite_ui 2>/dev/null || true");
 
                 rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
                 rf_send_frame(&ack);

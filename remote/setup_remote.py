@@ -64,22 +64,22 @@ def find_dir_candidate(candidates: list[pathlib.Path]) -> pathlib.Path:
 
 TINY_PATH = find_candidate([
     REPO_DIR / "bin" / "b64dec_tiny",
-    REPO_DIR / "elite" / "bin" / "b64dec_tiny",
-    REPO_DIR / "elite" / "b64dec_tiny",
+    REPO_DIR / "remote" / "bin" / "b64dec_tiny",
+    REPO_DIR / "remote" / "b64dec_tiny",
     SCRIPT_DIR / "bin" / "b64dec_tiny",
     SCRIPT_DIR / "b64dec_tiny",
 ])
 
 DROPBEAR_PATH = find_candidate([
     REPO_DIR / "bin" / "dropbearmulti_musl",
-    REPO_DIR / "elite" / "bin" / "dropbearmulti_musl",
+    REPO_DIR / "remote" / "bin" / "dropbearmulti_musl",
     SCRIPT_DIR / "bin" / "dropbearmulti_musl",
     SCRIPT_DIR / "dropbearmulti_musl",
 ])
 DEFAULT_KEY_PATH = None
 
 # Backup of the rooted remote, before the HarmonyNG runtime is installed
-BACKUP_DIR = REPO_DIR / "backups" / "elite"
+BACKUP_DIR = REPO_DIR / "backups" / "remote"
 BACKUP_PATHS = ["data", "opt/luadraws", "etc"]
 # BusyBox binaries on the remote that may have a tar applet (stock /bin/busybox has none)
 REMOTE_BUSYBOX_CANDIDATES = ["/data/busybox", "/tmp/busybox", "/bin/busybox"]
@@ -211,7 +211,7 @@ exit 0
 def build_payload(pubkey_str: str) -> bytes:
     dropbear_path = find_candidate([
         REPO_DIR / "bin" / "dropbearmulti_musl",
-        REPO_DIR / "elite" / "bin" / "dropbearmulti_musl",
+        REPO_DIR / "remote" / "bin" / "dropbearmulti_musl",
         SCRIPT_DIR / "bin" / "dropbearmulti_musl",
         SCRIPT_DIR / "dropbearmulti_musl",
     ])
@@ -272,7 +272,7 @@ def remote_ssh_cmd(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> list[str]:
 def find_local_arm_busybox() -> pathlib.Path | None:
     """The project's static ARM BusyBox: build/build_busybox.sh arm, or bin/ of the Elite release bundle."""
     for cand in (
-        REPO_DIR / "elite" / "bin" / "busybox",
+        REPO_DIR / "remote" / "bin" / "busybox",
         REPO_DIR / "bin" / "busybox",
         SCRIPT_DIR / "bin" / "busybox",
     ):
@@ -445,7 +445,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                             bundle = parse_hfw2_bundle(fw_file)
                             print("[*] Installing latest firmware over USB HID...")
                             hid.close()
-                            if flash_firmware(bundle, target_device="elite", skip_confirm=True):
+                            if flash_firmware(bundle, target_device="remote", skip_confirm=True):
                                 print("[*] Waiting 30s for Remote to complete reboot and flash...")
                                 time.sleep(15)
                                 t_reconnect = time.time() + 60
@@ -780,7 +780,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     # Upload ARM binaries to /data/
     bin_dir = find_dir_candidate([
         REPO_DIR / "bin",
-        REPO_DIR / "elite" / "bin",
+        REPO_DIR / "remote" / "bin",
         SCRIPT_DIR / "bin",
     ])
     binaries = ["remote_ui", "remote_sync", "scp", "dropbearkey"]
@@ -793,7 +793,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
 
     # Upload remote_watchdog.sh supervisor script
     watchdog_src = find_candidate([
-        REPO_DIR / "elite" / "remote_watchdog.sh",
+        REPO_DIR / "remote" / "remote_watchdog.sh",
         SCRIPT_DIR / "remote_watchdog.sh",
     ])
     if watchdog_src.is_file():
@@ -801,7 +801,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/{watchdog_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     init_src = find_candidate([
-        REPO_DIR / "elite" / "init.sh",
+        REPO_DIR / "remote" / "init.sh",
         SCRIPT_DIR / "init.sh",
     ])
     if init_src.is_file():
@@ -811,7 +811,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
         REPO_DIR / "rcS.local",
-        REPO_DIR / "elite" / "rcS.local",
+        REPO_DIR / "remote" / "rcS.local",
         SCRIPT_DIR / "rcS.local",
     ])
     if rcs_file.is_file():

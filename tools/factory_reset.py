@@ -132,7 +132,7 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
 
     commands = [
         # 1. Stop elite runtime & supervisors
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui remote_watchdog.sh 2>/dev/null || true",
+        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui elite_ui remote_watchdog.sh elite_watchdog.sh 2>/dev/null || true",
         # 2. Restore stock rcS.local
         (
             "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
@@ -192,7 +192,7 @@ def confirm_prompt(device_label: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or Elite Remote to factory stock")
-    parser.add_argument("--target", choices=["hub", "elite", "all"], default="all",
+    parser.add_argument("--target", choices=["hub", "remote", "elite", "all"], default="all",
                         help="Target device to factory reset (default: all)")
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
     parser.add_argument("--remote-ip", default=DEFAULT_REMOTE_IP, help=f"Elite IP address (default: {DEFAULT_REMOTE_IP})")
@@ -229,7 +229,7 @@ def main() -> None:
         print(f"\n>>> PROCESSING HUB ({args.hub_ip}) <<<")
         reset_hub(args.hub_ip, ssh_opts)
 
-    if args.target in ("elite", "all"):
+    if args.target in ("remote", "elite", "all"):  # elite: the name before the rename
         print(f"\n>>> PROCESSING ELITE REMOTE ({args.remote_ip}) <<<")
         reset_remote(args.remote_ip, ssh_opts)
 

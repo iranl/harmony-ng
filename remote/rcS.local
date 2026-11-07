@@ -16,7 +16,7 @@ fi
 killall -9 watchdog usbhid hal luaworks luadraws lua luajit luajit-2.0.0-beta10 2>/dev/null || true
 
 # 1. Ensure clean boot state
-rm -f /tmp/remote_stop /data/reboot_counter 2>/dev/null || true
+rm -f /tmp/remote_stop /tmp/elite_stop /data/reboot_counter 2>/dev/null || true
 
 # 2. Ensure /dev/i2c-1 exists for Clearpad touchscreen & MSP430 RTC
 if [ ! -e /dev/i2c-1 ] && [ -x /data/mknod ]; then
@@ -25,7 +25,7 @@ fi
 
 # 3. Ensure sync binary and extended BusyBox applets are symlinked
 SYNC_BIN=""
-for b in /data/remote_sync; do
+for b in /data/remote_sync /data/elite_sync; do
     if [ -x "$b" ]; then SYNC_BIN="$b"; break; fi
 done
 if [ -n "$SYNC_BIN" ]; then
@@ -64,4 +64,6 @@ elif [ -x /data/remote_watchdog.sh ]; then
     /data/remote_watchdog.sh &
 elif [ -x /data/remote_ui ]; then
     /data/remote_ui > /tmp/remote_ui.log 2>&1 &
+elif [ -x /data/elite_ui ]; then
+    /data/elite_ui > /tmp/remote_ui.log 2>&1 &
 fi

@@ -10,6 +10,7 @@
 #include "remote_present.h"
 #include "remote_ui_scroll.h"
 #include "harmony_version.h"
+#include "remote_migrate.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +156,10 @@ static void touch_released(void) {
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
+
+    /* Builds before the elite -> remote rename kept /data/elite_* files, and an older installer
+     * may have started this binary as /data/elite_ui: rename them before any config is read */
+    remote_migrate_legacy("/data");
 
     int lock_fd = open("/var/run/remote_ui.lock", O_CREAT | O_RDWR, 0644);
     if (lock_fd >= 0) {

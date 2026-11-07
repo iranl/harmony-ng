@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import hashlib
+import shutil
 import tarfile
 import argparse
 import subprocess
@@ -27,9 +28,9 @@ MIPS_SEARCH_PATHS = [
 ]
 ARM_SEARCH_PATHS = [
     REPO_ROOT / "artifacts" / "remote-binaries",
-    REPO_ROOT / "build" / "output" / "elite",
+    REPO_ROOT / "build" / "output" / "remote",
     REPO_ROOT / "build" / "output",
-    REPO_ROOT / "elite" / "bin",
+    REPO_ROOT / "remote" / "bin",
 ]
 WWW_SEARCH_PATHS = [
     REPO_ROOT / "artifacts" / "webui-assets",
@@ -128,8 +129,11 @@ def package_ota(output_dir: Path, version: str):
                 print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
                 with tarfile.open(ota_tar, "w:gz") as tar:
                     tar.add(remote_bin, arcname="remote_ui")
-                    for sf in ["rcS.local", "remote_watchdog.sh", "factory_reset.sh"]:
-                        sp = REPO_ROOT / "elite" / sf
+                    # Transition: a remote on a build from before the elite -> remote rename looks
+                    # for "elite_ui" in the package; the new binary migrates its files at start
+                    tar.add(remote_bin, arcname="elite_ui")
+                    for sf in ["rcS.local", "init.sh", "remote_watchdog.sh", "safe_reboot.sh", "factory_reset.sh"]:
+                        sp = REPO_ROOT / "remote" / sf
                         if sp.is_file():
                             tar.add(sp, arcname=sf)
                 md5, sha = get_file_hashes(ota_tar)
@@ -138,6 +142,10 @@ def package_ota(output_dir: Path, version: str):
                     "md5": md5,
                     "sha256": sha
                 }
+                # Hubs on a build from before the rename download bin/arm/elite_ui.ota.gz
+                legacy = arm_target / "elite_ui.ota.gz"
+                shutil.copyfile(ota_tar, legacy)
+                manifest_files["bin/arm/elite_ui.ota.gz"] = dict(manifest_files[f"bin/arm/{bname}"])
                 continue
 
         src = find_candidate_file(bname, ARM_SEARCH_PATHS)

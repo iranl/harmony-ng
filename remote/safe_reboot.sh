@@ -4,9 +4,9 @@ PATH=/data:/bin:/sbin:/usr/bin:/usr/sbin
 export PATH
 
 # 1. Signal supervisor to stop and terminate all processes to avoid restart loop
-touch /tmp/remote_stop 2>/dev/null || true
+touch /tmp/remote_stop /tmp/elite_stop 2>/dev/null || true
 rm -f /data/reboot_counter 2>/dev/null || true
-killall -9 init.sh remote_watchdog.sh codex_watchdog.sh remote_ui codex_elite hal luaworks luadraws lua luajit 2>/dev/null || true
+killall -9 init.sh remote_watchdog.sh elite_watchdog.sh codex_watchdog.sh remote_ui elite_ui codex_elite hal luaworks luadraws lua luajit 2>/dev/null || true
 
 # 2. Wait for pending I2C / SPI transactions to finish and driver buffers to drain
 sleep 1

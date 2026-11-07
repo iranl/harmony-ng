@@ -29,6 +29,22 @@ THEMES_DIR = BIN_DIR / "themes"
 DEPLOY_FILES = [BIN_DIR / b for b in ("busybox", "remote_ui", "remote_sync", "dropbear", "dropbearkey", "scp")] + \
                [SCRIPT_DIR / s for s in ("init.sh", "remote_watchdog.sh", "safe_reboot.sh", "factory_reset.sh")]
 REQUIRED_FILES = [BIN_DIR / "remote_ui", BIN_DIR / "remote_sync"]
+
+# Builds before the elite -> remote rename kept /data/elite_* (same steps as "init.sh migrate" and
+# remote_migrate.c). Run before the upload: the running binary is then moved to remote_ui, and the
+# upload replaces it with the new one. The old names stay as links for an older supervisor that is
+# still running until the restart.
+MIGRATE_LEGACY_SH = (
+    "for p in elite_ui:remote_ui elite_sync:remote_sync; do o=/data/${p%%:*}; n=/data/${p##*:}; "
+    "[ -f $o ] && [ ! -L $o ] && mv -f $o $n; done; "
+    "for p in elite_watchdog.sh:remote_watchdog.sh elite_settings.conf:remote_settings.conf elite_ui.conf:remote_ui.conf "
+    "elite_rf_config.json:remote_rf_config.json elite_activity_usage.conf:remote_activity_usage.conf elite_ui.bak:remote_ui.bak; do "
+    "o=/data/${p%%:*}; n=/data/${p##*:}; [ -f $o ] && [ ! -L $o ] && [ ! -f $n ] && mv -f $o $n; done; "
+    "[ -d /data/elite_conf_p ] && [ ! -d /data/remote_conf_p ] && mv -f /data/elite_conf_p /data/remote_conf_p; "
+    "for p in elite_ui:remote_ui elite_sync:remote_sync elite_watchdog.sh:remote_watchdog.sh elite_settings.conf:remote_settings.conf "
+    "elite_rf_config.json:remote_rf_config.json elite_activity_usage.conf:remote_activity_usage.conf; do "
+    "o=/data/${p%%:*}; n=${p##*:}; [ -e /data/$n ] && [ ! -e $o ] && ln -s $n $o; done; true"
+)
 # Commands the deployment runs on the remote, other than through /data/busybox
 REMOTE_COMMANDS = ("md5sum", "mkdir", "rm", "mv", "cp", "chmod", "ln", "grep", "touch", "scp")
 CHECK_BUSYBOX = "/tmp/.deploy_check_busybox"  # the local busybox, run from RAM by the check
@@ -91,7 +107,7 @@ def ready_to_go(target: str, ssh_opts: list[str], scp_opts: list[str], remote_ha
 
     for f in REQUIRED_FILES:
         if not f.is_file():
-            problems.append((f"{f} is missing", "Build it with ./build/compile_all.sh elite"))
+            problems.append((f"{f} is missing", "Build it with ./build/compile_all.sh remote"))
     if themes and not shutil.which("tar"):
         problems.append(("tar is not installed on this computer; it packs the themes", "Install tar"))
 
@@ -230,7 +246,7 @@ def main() -> None:
         print("[*] Performing stock revert...")
         revert_cmd = (
             "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
-            "killall -9 init.sh remote_ui codex_elite remote_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
+            "killall -9 init.sh remote_ui elite_ui codex_elite remote_watchdog.sh elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
             "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
             "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
             "  chmod 755 /etc/init.d/rcS.local; "
@@ -239,11 +255,11 @@ def main() -> None:
             "  chmod 755 /etc/init.d/rcS.local; "
             "fi; "
             "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/codex_elite.conf /data/remote_ui.conf /tmp/codex_elite.log /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true; "
+            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/codex_elite.conf /data/remote_ui.conf /tmp/codex_elite.log /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
             "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/remote_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
+            "rm -f /data/remote_* /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
             "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
             "reboot -f 2>/dev/null &"
         )
@@ -268,7 +284,7 @@ def main() -> None:
         sys.exit(0)
 
     # Preserve stock rcS.local backup before installing (ensure not corrupted/custom)
-    run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
+    run_cmd(["ssh"] + ssh_opts + [target, "mkdir -p /data/stock_backup; if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then if ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'remote_' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'usbeth' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'dropbear' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'exit 0' /etc/init.d/rcS.local 2>/dev/null; then cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; fi; fi"])
 
     # 1. remote_ui keeps running while files are uploaded. It feeds the hardware watchdog, whose
     # heartbeat is 10 s and which cannot be stopped once armed, so stopping remote_ui for longer
@@ -278,6 +294,7 @@ def main() -> None:
 
     # One-way migration: move old configs (Hub config, then settings such as usbeth) and remove old codex binaries
     migration_cmd = (
+        MIGRATE_LEGACY_SH + "; "
         "if [ -f /data/codex_elite_config.json ] && [ ! -f /data/remote_rf_config.json ]; then mv /data/codex_elite_config.json /data/remote_rf_config.json 2>/dev/null || true; fi; "
         "if [ -f /data/codex_elite.conf ] && [ ! -f /data/remote_settings.conf ]; then mv /data/codex_elite.conf /data/remote_settings.conf 2>/dev/null || true; fi; "
         "if [ -f /data/remote_ui.conf ] && [ ! -f /data/remote_settings.conf ]; then mv /data/remote_ui.conf /data/remote_settings.conf 2>/dev/null || true; fi; "
@@ -344,7 +361,7 @@ def main() -> None:
     # later, so reboot cleanly instead.
     stop_cmd = (
         "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; "
-        "else killall -9 remote_watchdog.sh codex_watchdog.sh remote_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
+        "else killall -9 remote_watchdog.sh elite_watchdog.sh codex_watchdog.sh remote_ui elite_ui codex_elite hal luaworks luadraws lua luajit luajit-2.0.0-beta10 watchdog usbhid 2>/dev/null || true; fi; "
         "sleep 1; "
     )
     restart = (
@@ -352,7 +369,7 @@ def main() -> None:
         + ("REBOOT=1; " if args.reboot else "REBOOT=$WDT_HELD; ")
         + "if [ $REBOOT = 1 ]; then echo REBOOTING; "
         "if /bin/sh -c true 2>/dev/null; then (/data/safe_reboot.sh >/dev/null 2>&1 &); else echo '[-] CRITICAL: /bin/sh verification failed. Not rebooting!'; fi; "
-        "else echo RESTARTING; rm -f /tmp/remote_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &); fi"
+        "else echo RESTARTING; rm -f /tmp/remote_stop /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &); fi"
     )
     print("[*] Restarting the Elite runtime (watchdog-aware)...")
     res = run_cmd(["ssh"] + ssh_opts + [target, stop_cmd + restart])

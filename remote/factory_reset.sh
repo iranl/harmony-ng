@@ -21,7 +21,7 @@ echo "[*] Stopping Elite runtime..."
 if [ -x /data/init.sh ]; then
     /data/init.sh stop 2>/dev/null || true
 fi
-killall -9 init.sh remote_ui remote_watchdog.sh 2>/dev/null || true
+killall -9 init.sh remote_ui elite_ui remote_watchdog.sh elite_watchdog.sh 2>/dev/null || true
 
 echo "[*] Restoring startup configuration..."
 if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then
@@ -56,7 +56,7 @@ cp -f /data/remote_settings.conf /data/remote_conf_p/ 2>/dev/null || true
 cp -f /data/remote_ui.conf /data/remote_conf_p/ 2>/dev/null || true
 
 echo "[*] Removing custom triggers, logs, and symlinks..."
-rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true
+rm -f /etc/tdeenable /etc/nowatchdog /data/reboot_counter /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true
 rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true
 rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true
 
@@ -65,7 +65,7 @@ echo "[*] Syncing filesystems before binary removal..."
 sleep 1
 
 echo "[*] Removing custom binaries and supervisor scripts..."
-rm -f /data/remote_ui /data/remote_ui.new /data/remote_sync /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true
+rm -f /data/remote_ui /data/remote_ui.new /data/remote_sync /data/elite_ui /data/elite_ui.new /data/elite_sync /data/elite_watchdog.sh /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true
 rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true
 
 echo "[*] Restoring preserved configuration for future re-install..."

@@ -1,11 +1,48 @@
 #!/bin/sh
-# Harmony Elite Service Supervisor (/data/init.sh)
-# Follows the same pattern as Harmony Hub /data/harmony/init.sh with start/stop/restart/status
+# Harmony remote service supervisor (/data/init.sh)
+# Follows the same pattern as Harmony Hub /data/harmony/init.sh with start/stop/restart/status,
+# plus "migrate" (also run at every start, and by remote_ui itself before it reads its config).
 PATH=/data:/bin:/sbin:/usr/bin:/usr/sbin
 LOG=/tmp/remote-init.log
 
 sync_fs() {
     /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
+}
+
+# Builds before the elite -> remote rename used /data/elite_* names. Idempotent; a regular file
+# /data/elite_ui is a binary an older installer has just put there (it looks for that name) and
+# replaces /data/remote_ui. The old names stay as symlinks for supervisors and installers of
+# older builds that may still be running during the transition.
+migrate_legacy_names() {
+    _moved=0
+    if [ -f /data/elite_ui ] && [ ! -L /data/elite_ui ]; then
+        mv -f /data/elite_ui /data/remote_ui && chmod 755 /data/remote_ui && _moved=1
+    fi
+    if [ -f /data/elite_sync ] && [ ! -L /data/elite_sync ]; then
+        mv -f /data/elite_sync /data/remote_sync && chmod 755 /data/remote_sync && _moved=1
+    fi
+    if [ -f /data/elite_watchdog.sh ] && [ ! -L /data/elite_watchdog.sh ] && [ ! -f /data/remote_watchdog.sh ]; then
+        mv -f /data/elite_watchdog.sh /data/remote_watchdog.sh && _moved=1
+    fi
+    for _p in elite_settings.conf:remote_settings.conf elite_ui.conf:remote_ui.conf \
+              elite_rf_config.json:remote_rf_config.json elite_activity_usage.conf:remote_activity_usage.conf \
+              elite_ui.bak:remote_ui.bak; do
+        _o="/data/${_p%%:*}"; _n="/data/${_p##*:}"
+        if [ -f "$_o" ] && [ ! -L "$_o" ] && [ ! -f "$_n" ]; then mv -f "$_o" "$_n" && _moved=1; fi
+        # the old name points at the new file: a rollback to an older build keeps its settings
+        [ -f "$_n" ] && [ ! -e "$_o" ] && ln -s "${_p##*:}" "$_o" 2>/dev/null
+    done
+    if [ -d /data/elite_conf_p ] && [ ! -d /data/remote_conf_p ]; then
+        mv -f /data/elite_conf_p /data/remote_conf_p && _moved=1
+    fi
+    [ -e /data/remote_ui ] && [ ! -e /data/elite_ui ] && ln -s remote_ui /data/elite_ui 2>/dev/null
+    [ -e /data/remote_sync ] && [ ! -e /data/elite_sync ] && ln -s remote_sync /data/elite_sync 2>/dev/null
+    [ -e /data/remote_watchdog.sh ] && [ ! -e /data/elite_watchdog.sh ] && ln -s remote_watchdog.sh /data/elite_watchdog.sh 2>/dev/null
+    if [ "$_moved" = "1" ]; then
+        echo "$(date) Migrated /data/elite_* to /data/remote_*" >> "$LOG"
+        sync_fs
+    fi
+    return 0
 }
 
 turn_off_lights() {
@@ -14,18 +51,25 @@ turn_off_lights() {
 }
 
 case "$1" in
+    migrate)
+        migrate_legacy_names
+        exit 0
+        ;;
     stop)
-        echo "$(date) Stopping elite services..." >> "$LOG"
-        touch /tmp/remote_stop
-        killall -15 remote_ui 2>/dev/null || true
+        echo "$(date) Stopping remote services..." >> "$LOG"
+        # elite_*: a supervisor of a build from before the rename may still run
+        touch /tmp/remote_stop /tmp/elite_stop
+        killall -15 remote_ui elite_ui 2>/dev/null || true
         sleep 1
-        killall -9 remote_ui 2>/dev/null || true
-        if [ -f /tmp/remote_supervisors.pid ]; then
-            for spid in $(cat /tmp/remote_supervisors.pid 2>/dev/null); do
-                [ -n "$spid" ] && kill -9 "$spid" 2>/dev/null || true
-            done
-            rm -f /tmp/remote_supervisors.pid 2>/dev/null || true
-        fi
+        killall -9 remote_ui elite_ui 2>/dev/null || true
+        for _pf in /tmp/remote_supervisors.pid /tmp/elite_supervisors.pid; do
+            if [ -f "$_pf" ]; then
+                for spid in $(cat "$_pf" 2>/dev/null); do
+                    [ -n "$spid" ] && kill -9 "$spid" 2>/dev/null || true
+                done
+                rm -f "$_pf" 2>/dev/null || true
+            fi
+        done
         # Not the caller: a shell that runs "init.sh stop" has init.sh in its command line
         for p in $(ps | grep 'init\.sh' | grep -v 'grep' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
             [ -n "$p" ] && [ "$p" != "$$" ] && [ "$p" != "$PPID" ] && kill -9 "$p" 2>/dev/null || true
@@ -41,8 +85,8 @@ case "$1" in
         exit 0
         ;;
     status)
-        if pidof remote_ui >/dev/null 2>&1; then
-            echo "remote_ui is RUNNING (PID $(pidof remote_ui))"
+        if pidof remote_ui elite_ui >/dev/null 2>&1; then
+            echo "remote_ui is RUNNING (PID $(pidof remote_ui elite_ui))"
             exit 0
         else
             echo "remote_ui is STOPPED"
@@ -57,7 +101,8 @@ case "$1" in
         ;;
 esac
 
-rm -f /tmp/remote_stop 2>/dev/null || true
+migrate_legacy_names
+rm -f /tmp/remote_stop /tmp/elite_stop 2>/dev/null || true
 
 # Avoid duplicate supervisor spawns
 if [ -f /tmp/remote_supervisors.pid ]; then
@@ -69,7 +114,7 @@ if [ -f /tmp/remote_supervisors.pid ]; then
         fi
     done
     if [ "$_any_alive" = "1" ]; then
-        echo "$(date) elite supervisor already running" >> "$LOG"
+        echo "$(date) remote supervisor already running" >> "$LOG"
         exit 0
     fi
 fi

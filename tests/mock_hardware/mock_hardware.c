@@ -86,7 +86,7 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
     if (strcmp(pathname, "/dev/rfspi") == 0) {
         *out_special_type = 1; /* Special RF handling */
         const char *role = getenv("HARMONY_MOCK_ROLE");
-        if (role && strcmp(role, "elite") == 0) {
+        if (role && (strcmp(role, "remote") == 0 || strcmp(role, "elite") == 0)) {
             snprintf(resolved, max_len, "%s/remote_rf.sock", md);
         } else {
             snprintf(resolved, max_len, "%s/hub_rf.sock", md);

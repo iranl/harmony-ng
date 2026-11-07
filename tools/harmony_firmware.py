@@ -434,7 +434,7 @@ def flash_firmware(
     # 1. Determine target PID
     if target_device.lower() == "hub":
         target_pids = [HUB_PID, HUB_PRO_PID]
-    elif target_device.lower() == "elite":
+    elif target_device.lower() in ("remote", "elite"):  # elite: the name before the rename
         target_pids = [REMOTE_PID]
     else:
         target_pids = [REMOTE_PID, HUB_PID, HUB_PRO_PID]
@@ -564,7 +564,8 @@ def main():
 
     # 2. download
     sub_dl = subparsers.add_parser("download", help="Download official firmware bundle from Logitech servers")
-    sub_dl.add_argument("--target", choices=["hub", "elite"], default="elite", help="Target device (default: elite)")
+    sub_dl.add_argument("--target", choices=["hub", "remote", "elite"], default="remote",
+                        help="Target device (default: remote; elite is accepted as before)")
     sub_dl.add_argument("--skin", type=int, help="Explicit skin ID to download")
     sub_dl.add_argument("--out-dir", default=str(REPO_DIR / "firmware"), help="Directory to save downloaded bundle")
     sub_dl.add_argument("--extract-ezhex", action="store_true", help="Extract inner ota-update.EzHex after download")
@@ -589,7 +590,8 @@ def main():
 
     # 4. flash / install
     sub_flash = subparsers.add_parser("flash", aliases=["install"], help="Flash firmware bundle directly over USB HID")
-    sub_flash.add_argument("--target", choices=["auto", "hub", "elite"], default="auto", help="Target device (default: auto)")
+    sub_flash.add_argument("--target", choices=["auto", "hub", "remote", "elite"], default="auto",
+                           help="Target device (default: auto; elite = remote)")
     sub_flash.add_argument("--firmware", help="Path to .hfw2 bundle (auto-downloads latest if omitted)")
     sub_flash.add_argument("--dry-run", action="store_true", help="Validate bundle and intended skins without writing")
     sub_flash.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
@@ -616,7 +618,7 @@ def main():
 
     # ACTION: download
     elif args.action == "download":
-        if args.target == "elite" and not args.skin:
+        if args.target in ("remote", "elite") and not args.skin:
             res, skin = query_latest_remote_firmware()
         else:
             skin = args.skin or (DEFAULT_HUB_SKIN if args.target == "hub" else DEFAULT_ELITE_SKIN)
@@ -653,7 +655,8 @@ def main():
         else:
             # Check local firmware folder first
             firmware_dir = REPO_DIR / "firmware"
-            candidates = sorted(firmware_dir.glob("*elite*.hfw2"), key=lambda p: p.stat().st_mtime, reverse=True)
+            candidates = sorted(list(firmware_dir.glob("*remote*.hfw2")) + list(firmware_dir.glob("*elite*.hfw2")),
+                                key=lambda p: p.stat().st_mtime, reverse=True)
             if candidates:
                 fw_path = candidates[0]
                 print(f"[*] Using local Elite firmware bundle: {fw_path}")
@@ -694,7 +697,7 @@ def main():
                 sys.exit(1)
 
             if connected_pid == REMOTE_PID:
-                target = "elite"
+                target = "remote"
                 res, skin = query_latest_remote_firmware()
             elif connected_pid == HUB_PRO_PID:
                 target = "hub"

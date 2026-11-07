@@ -13,12 +13,14 @@ turn_off_lights() {
     echo 0 > /sys/class/leds/tps6507x:white/brightness 2>/dev/null || true
 }
 
-trap 'killall -9 remote_ui 2>/dev/null; turn_off_lights; exit 0' INT TERM
+trap 'killall -9 remote_ui elite_ui 2>/dev/null; turn_off_lights; exit 0' INT TERM
 
 while true; do
     PROG=""
     if [ -x /data/remote_ui ]; then
         PROG="/data/remote_ui"
+    elif [ -x /data/elite_ui ]; then
+        PROG="/data/elite_ui" # not migrated yet: the binary runs init.sh migrate itself
     else
         sleep 5
         continue

@@ -259,7 +259,7 @@ class HubDeployer:
                 self.run_ssh(
                     "mkdir -p /data/stock_backup; "
                     "if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then "
-                    "  if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then "
+                    "  if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'remote_' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then "
                     "    cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; "
                     "    echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; "
                     "  fi; "
@@ -403,15 +403,22 @@ class HubDeployer:
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
 
-            # Deploy Elite RF OTA image
-            remote_ota = self.repo_root / "elite" / "bin" / "remote_ui.ota.gz"
-            if not remote_ota.is_file():
-                remote_ota = self.repo_root / "build" / "output" / "elite" / "remote_ui.ota.gz"
-            if remote_ota.is_file():
-                print("[*] Syncing Elite RF OTA image (/data/harmony/remote_ui.ota.gz)...")
+            # Deploy the remote's RF OTA image. elite/bin/elite_ui.ota.gz: a release bundle or a
+            # tree from before the elite -> remote rename.
+            remote_ota = None
+            for cand in (self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
+                         self.repo_root / "build" / "output" / "remote" / "remote_ui.ota.gz",
+                         self.repo_root / "elite" / "bin" / "elite_ui.ota.gz",
+                         self.repo_root / "build" / "output" / "elite" / "elite_ui.ota.gz"):
+                if cand.is_file():
+                    remote_ota = cand
+                    break
+            if remote_ota:
+                print("[*] Syncing the remote's RF OTA image (/data/harmony/remote_ui.ota.gz)...")
                 self.deploy_file_if_changed(remote_ota, "/data/harmony/remote_ui.ota.gz", "644")
                 if not self.dry_skip("copy /data/harmony/VERSION to /data/harmony/remote_ui.version"):
-                    self.run_ssh("rm -f /cache/remote_ui.ota.gz 2>/dev/null || true; cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
+                    self.run_ssh("rm -f /cache/remote_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
+                                 "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
 
             # Deploy configs
             if self.config_dir.is_dir():

@@ -46,6 +46,44 @@ paired_remote_t g_paired_remotes[MAX_PAIRED_REMOTES] = {
 rf_ota_state_t g_rf_ota = { false, 0, 0, 0, 0, 0, 0, "" };
 pthread_mutex_t g_ota_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Rename <old> to <new> unless <new> exists; 1 when it moved */
+static int rf_migrate_one(const char *old_path, const char *new_path) {
+    if (access(old_path, F_OK) != 0 || access(new_path, F_OK) == 0) return 0;
+    if (rename(old_path, new_path) != 0) return 0;
+    printf("[*] Migrated %s -> %s\n", old_path, new_path);
+    return 1;
+}
+
+int rf_migrate_legacy_names_in(const char *harmony_dir, const char *cache_dir) {
+    char o[160], n[160];
+    int moved = 0;
+    for (int slot = 1; slot <= MAX_PAIRED_REMOTES; slot++) {
+        static const char *const kinds[] = { "version", "config", NULL };
+        for (int k = 0; kinds[k]; k++) {
+            snprintf(o, sizeof(o), "%s/elite_slot%d_%s.json", harmony_dir, slot, kinds[k]);
+            snprintf(n, sizeof(n), "%s/remote_slot%d_%s.json", harmony_dir, slot, kinds[k]);
+            moved += rf_migrate_one(o, n);
+        }
+    }
+    static const char *const staged[] = { "elite_ui.ota.gz", "elite_ui.version", NULL };
+    for (int k = 0; staged[k]; k++) {
+        snprintf(o, sizeof(o), "%s/%s", harmony_dir, staged[k]);
+        snprintf(n, sizeof(n), "%s/remote_%s", harmony_dir, staged[k] + strlen("elite_"));
+        moved += rf_migrate_one(o, n);
+    }
+    if (cache_dir) {
+        snprintf(o, sizeof(o), "%s/elite_ui.ota.gz", cache_dir);
+        snprintf(n, sizeof(n), "%s/remote_ui.ota.gz", cache_dir);
+        moved += rf_migrate_one(o, n);
+    }
+    if (moved) sync();
+    return moved;
+}
+
+void rf_migrate_legacy_names(void) {
+    rf_migrate_legacy_names_in("/data/harmony", "/cache");
+}
+
 uint64_t get_monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
