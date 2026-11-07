@@ -187,11 +187,14 @@ class CoSimulationRunner:
             self.record("Remote unpair: FORGET sent to hub_btstack",
                         st == 200 and res.get("ok") is True and res.get("state") == "standby" and cmd == "FORGET",
                         f"HTTP {st} {res} cmd={cmd!r}")
-            if res.get("map_cleared"):
+            m = {}
+            if os.path.exists(map_path):
                 with open(map_path) as f:
                     m = json.load(f)
-                self.record("Remote unpair: map keeps its mapping, loses the address",
-                            "bdaddr" not in m.get("remote", {}) and m.get("mapping", {}).get("KEY_UP") == "DirectionUp", str(m))
+            self.record("Remote unpair: map keeps its mapping, loses the address",
+                        res.get("map_cleared") is True and "bdaddr" not in m.get("remote", {})
+                        and m.get("mapping", {}).get("KEY_UP") == "DirectionUp",
+                        f"map_cleared={res.get('map_cleared')} {m}")
         finally:
             for p in (cmd_file, map_path):
                 if os.path.exists(p):

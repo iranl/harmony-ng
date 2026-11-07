@@ -85,6 +85,11 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.request('/api/remote-pair-status');
   }
 
+  /* Forget the pinned BLE remote: hub_btstack drops its address, bond and target */
+  async unpairBtRemote() {
+    return this.request('/api/remote-unpair', { method: 'POST' });
+  }
+
   /* IR Setup & Learning */
   async captureIr() {
     return this.request('/api/capture', { method: 'POST' });

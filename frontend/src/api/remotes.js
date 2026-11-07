@@ -74,6 +74,11 @@ export function createRemotesApi(client) {
 
     async getBtRemotePairStatus() {
       return client.request('/api/remote-pair-status');
+    },
+
+    /* Forget the pinned BLE remote: hub_btstack drops its address, bond and target */
+    async unpairBtRemote() {
+      return client.request('/api/remote-unpair', { method: 'POST' });
     }
   };
 }
