@@ -313,12 +313,14 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     if (!modal) return;
     if (slotInput) slotInput.value = slot;
     if (title) title.textContent = `Remote Settings (Slot ${slot})`;
-    modal.style.display = 'flex';
 
+    /* Load first, show the dialog only with the remote's own values: a failed load used to leave
+     * the fields as they were (silently), and saving them pushed those values to the remote.
+     * client.request() sends the login token, asks for a login on 401 and reports the Hub's error. */
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`);
-      if (resp.ok) {
-        const cfg = await resp.json();
+      const cfg = await this.client.request(`/api/rf/remote-config?slot=${slot}`);
+      if (!cfg || typeof cfg !== 'object') throw new Error('no settings in the reply');
+      {
         let langCode = cfg.language || 'en';
         if (typeof cfg.language_id !== 'undefined') {
           const map = ['en', 'de', 'fr', 'nl', 'es', 'it'];
@@ -379,7 +381,10 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       }
     } catch (e) {
       console.warn('Could not fetch existing remote config:', e);
+      alert(t('rf_config_load_failed', 'Could not load the remote settings from the Hub (nothing was changed): ') + e.message);
+      return;
     }
+    modal.style.display = 'flex';
   }
 
   closeRfConfigModal() {
@@ -462,23 +467,28 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
 
     const saveBtn = document.getElementById('rfConfigSaveBtn');
     if (saveBtn) saveBtn.textContent = 'Pushing to remote...';
+    let saved = false;
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`, {
+      /* client.request(): login token, login prompt on 401, the Hub's own error text on failure */
+      await this.client.request(`/api/rf/remote-config?slot=${slot}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        timeout: 20000
       });
-      if (resp.ok) {
-        alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
-        this.closeRfConfigModal();
-        await this.loadEliteView();
-      } else {
-        alert(t('rf_config_failed', 'Failed to save settings to Hub.'));
-      }
+      saved = true;
     } catch (err) {
-      alert(t('rf_config_error', 'Error pushing settings: ') + err.message);
+      alert(t('rf_config_failed', 'Failed to save settings to Hub.') + ' ' + err.message);
     } finally {
       if (saveBtn) saveBtn.textContent = 'Save & Push to Remote';
+    }
+    if (!saved) return;
+    alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
+    this.closeRfConfigModal();
+    try {
+      await this.loadEliteView();
+    } catch (err) {
+      console.warn('Remote view refresh after saving failed:', err);
     }
   }
 

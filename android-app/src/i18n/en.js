@@ -920,6 +920,7 @@ export default {
     "rf_address_lbl": "RF Address:",
     "rf_config_error": "Error pushing settings: ",
     "rf_config_failed": "Failed to save settings to Hub.",
+    "rf_config_load_failed": "Could not load the remote settings from the Hub (nothing was changed): ",
     "rf_config_saved": "Settings saved and pushed over RF to remote!",
     "rf_disabled_hub_desc": "Hardware RF daemon (hub_rf) is disabled to prevent SPI flash arbitration lockups. Harmony remote pairing and RF input are inactive.",
     "rf_disabled_warn_desc": "Hardware RF daemon (hub_rf) is disabled to prevent SPI flash corruption. Enable it only if you actively use a paired physical Harmony remote.",

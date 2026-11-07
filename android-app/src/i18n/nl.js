@@ -920,6 +920,7 @@ export default {
     "rf_address_lbl": "RF-adres:",
     "rf_config_error": "Fout bij verzenden van instellingen: ",
     "rf_config_failed": "Opslaan van instellingen op Hub mislukt.",
+    "rf_config_load_failed": "Kon de instellingen van de afstandsbediening niet van de Hub laden (niets gewijzigd): ",
     "rf_config_saved": "Instellingen opgeslagen en via RF naar afstandsbediening verzonden!",
     "rf_disabled_hub_desc": "Hardware RF-daemon (hub_rf) is uitgeschakeld om SPI-flash blokkades te voorkomen. Harmony afstandsbediening koppelen en RF-invoer zijn inactief.",
     "rf_disabled_warn_desc": "Hardware RF-daemon (hub_rf) is uitgeschakeld om SPI-flashcorruptie te voorkomen. Schakel deze alleen in als u actief een fysieke Harmony-afstandsbediening gebruikt.",
