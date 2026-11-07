@@ -817,7 +817,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         }
         if (!blob) {
           const proxyUrl = `${this.client.baseUrl}/api/custom-icons/proxy-fetch?url=${encodeURIComponent(url)}`;
-          const pRes = await fetch(proxyUrl);
+          const pRes = await fetch(proxyUrl, { headers: this.client.getHeaders() }); /* login token */
           if (!pRes.ok) throw new Error(`HTTP ${pRes.status} from proxy`);
           blob = await pRes.blob();
         }

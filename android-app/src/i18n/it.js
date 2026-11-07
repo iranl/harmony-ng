@@ -920,6 +920,7 @@ export default {
     "rf_address_lbl": "Indirizzo RF:",
     "rf_config_error": "Errore durante l'invio delle impostazioni: ",
     "rf_config_failed": "Impossibile salvare le impostazioni sull'Hub.",
+    "rf_config_load_failed": "Impossibile caricare le impostazioni del telecomando dall'Hub (nessuna modifica): ",
     "rf_config_saved": "Impostazioni salvate e inviate via RF al telecomando!",
     "rf_disabled_hub_desc": "Il demone hardware RF (hub_rf) è disattivato per prevenire blocchi del bus SPI. L'associazione del telecomando Harmony e la ricezione RF sono inattive.",
     "rf_disabled_warn_desc": "Il demone hardware RF (hub_rf) è disabilitato per prevenire la corruzione della memoria flash SPI. Abilitalo solo se usi un telecomando fisico Harmony associato.",
