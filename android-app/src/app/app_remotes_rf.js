@@ -468,31 +468,30 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       saveBtn.textContent = 'Pushing to remote...';
       saveBtn.disabled = true; /* one RF push at a time */
     }
-    let saved = false;
     try {
-      /* client.request(): login token, login prompt on 401, the Hub's own error text on failure */
-      await this.client.request(`/api/rf/remote-config?slot=${slot}`, {
+      /* client.request(): login token, login prompt on 401, the Hub's own error text on failure.
+       * A failed save becomes { ok: false }, so the catch below only sees a failed view refresh. */
+      const resp = await this.client.request(`/api/rf/remote-config?slot=${slot}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         timeout: 20000
-      });
-      saved = true;
+      }).then(() => ({ ok: true }), (error) => ({ ok: false, error }));
+      if (resp.ok) {
+        alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
+        this.closeRfConfigModal();
+        await this.loadEliteView();
+      } else {
+        alert(t('rf_config_failed', 'Failed to save settings to Hub.') + ' ' + resp.error.message);
+      }
     } catch (err) {
-      alert(t('rf_config_failed', 'Failed to save settings to Hub.') + ' ' + err.message);
+      /* saved and pushed; only the refresh of the remote view failed */
+      console.warn('Remote view refresh after saving failed:', err);
     } finally {
       if (saveBtn) {
         saveBtn.textContent = 'Save & Push to Remote';
         saveBtn.disabled = false;
       }
-    }
-    if (!saved) return;
-    alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
-    this.closeRfConfigModal();
-    try {
-      await this.loadEliteView();
-    } catch (err) {
-      console.warn('Remote view refresh after saving failed:', err);
     }
   }
 
