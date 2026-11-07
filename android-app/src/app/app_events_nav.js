@@ -202,7 +202,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       });
     }
 
-    // 3. Harmony Elite Button Mapping Modal Listeners
+    // 3. Harmony Remote Button Mapping Modal Listeners
     document.getElementById('remoteCancelBtn')?.addEventListener('click', () => {
       const m = document.getElementById('remoteBtnModal');
       if (m) m.style.display = 'none';

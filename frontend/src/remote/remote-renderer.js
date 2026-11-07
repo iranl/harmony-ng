@@ -1,4 +1,4 @@
-// The Elite remote's own drawing code (tools/remote_render, built into public/assets), with the
+// The remote's own drawing code (tools/remote_render, built into public/assets), with the
 // Hub's stock assets loaded. Resolves to { preview, module, theme }, or null in builds without
 // it. theme is the remote's theme as the Hub last set it (slot 1), loaded into the module.
 import { api } from '../api/index.js';
@@ -15,7 +15,7 @@ export function loadRemoteRenderer() {
       await setRendererTheme(r, cfg?.theme);
       return r;
     })().catch((e) => {
-      console.warn('Elite renderer: not in this build', e);
+      console.warn('Remote renderer: not in this build', e);
       return null;
     });
   }

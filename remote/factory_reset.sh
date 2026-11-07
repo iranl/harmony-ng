@@ -1,14 +1,14 @@
 #!/bin/sh
-# Harmony Elite Remote Factory Reset & Stock Revert Script
+# Harmony Remote Factory Reset & Stock Revert Script
 # Restores stock scripts, permissions, and wipes custom files.
 
 set -e
 
 if [ "$1" != "--confirm" ]; then
     echo "================================================================="
-    echo " WARNING: REVERT HARMONY ELITE REMOTE TO FACTORY STOCK"
+    echo " WARNING: REVERT HARMONY REMOTE TO FACTORY STOCK"
     echo "================================================================="
-    echo " This will remove custom Elite software and restore official Logitech firmware."
+    echo " This will remove the custom remote software and restore official Logitech firmware."
     printf " Type 'RESET' to confirm: "
     read -r CONFIRM
     if [ "$CONFIRM" != "RESET" ]; then
@@ -17,7 +17,7 @@ if [ "$1" != "--confirm" ]; then
     fi
 fi
 
-echo "[*] Stopping Elite runtime..."
+echo "[*] Stopping remote runtime..."
 if [ -x /data/init.sh ]; then
     /data/init.sh stop 2>/dev/null || true
 fi

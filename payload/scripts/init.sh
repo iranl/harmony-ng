@@ -295,7 +295,7 @@ killall -9 bluetoothd 2>/dev/null || true
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
-# 8. CC2544 RF Daemon (Logitech HAL replacement for Elite Remote RF)
+# 8. CC2544 RF Daemon (Logitech HAL replacement for the remote RF link)
 (
   _delay=5
   while true; do

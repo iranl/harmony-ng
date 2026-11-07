@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Full User-Space Co-Simulation Test Suite for Harmony Hub & Elite Remote.
+Full User-Space Co-Simulation Test Suite for Harmony Hub & Remote.
 Runs:
   1. Virtual CC2544 RF Router (translates Report 0x12 <-> Report 0x20)
   2. Mock Hardware Layer (Framebuffer, Touchscreen, Buttons, Gyro, Sysfs)
@@ -70,7 +70,7 @@ class CoSimulationRunner:
 
     def run(self):
         print("\n=======================================================")
-        print("  Harmony Hub & Elite Remote Co-Simulation Suite")
+        print("  Harmony Hub & Remote Co-Simulation Suite")
         print("=======================================================\n")
 
         # 1. Setup Mock Hardware Environment

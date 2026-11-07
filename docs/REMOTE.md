@@ -1,4 +1,4 @@
-# Logitech Harmony Elite Remote Hacking & Support
+# Logitech Harmony Remote Hacking & Support
 
 > [!NOTE]
 > **Hardware Family Compatibility**:
@@ -43,7 +43,7 @@ Architecture: ARMv5TE little-endian (`armv5tejl`, uClibc-0.9.30.1).
   ```
 - **SCP File Transfer** (requires legacy `-O` flag):
   ```sh
-  scp -O file.bin elite:/data/
+  scp -O file.bin remote:/data/
   ```
 
 ---
@@ -56,7 +56,7 @@ python remote/deploy_remote.py --ip 192.168.2.1 --key ~/.ssh/harmony_owner_ed255
 ```
 Before it changes anything on the remote, `deploy_remote.py` runs a ready-to-go check and stops, with what to do, if any of these fails:
 - `remote/bin/remote_ui` and `remote/bin/remote_sync` are built.
-- The remote is an ARM Elite with the commands the deployment runs, including `scp`.
+- The remote is an ARM touchscreen remote with the commands the deployment runs, including `scp`.
 - A BusyBox with `tar` can unpack the themes. Stock BusyBox 1.13.4 has no `tar`, so `/data/busybox` must already have one, or `remote/bin/busybox` (from `./build/build_busybox.sh arm`) must be there to install first. The check runs a new `remote/bin/busybox` from `/tmp`.
 - `/data` has room for the changed files and the themes, each written beside its old copy.
 
@@ -70,8 +70,19 @@ This script uploads:
 
 ---
 
+## Files Named `elite_*` (Older Builds)
+Builds before the elite -> remote rename used `elite_*` names. Nothing has to be done by hand:
+
+- On the remote, `remote_ui` renames them at start (`init.sh start` and `init.sh migrate` do the same): `/data/elite_ui`, `elite_sync`, `elite_watchdog.sh`, `elite_settings.conf`, `elite_ui.conf`, `elite_rf_config.json`, `elite_activity_usage.conf`, `elite_ui.bak` and `elite_conf_p/` become `remote_*`. A file that already exists under the new name is kept. The old binary, sync and watchdog names stay as symlinks, so an older supervisor or a rollback still finds them.
+- An RF update from a remote on an older build works: the package also carries the binary as `elite_ui`, the name older installers look for.
+- `deploy_remote.py` renames the files before it uploads.
+- On the Hub, `hub_rf` renames `elite_slot<N>_version.json`, `elite_slot<N>_config.json` and a staged `elite_ui.ota.gz` / `elite_ui.version`. MQTT settings saved with `eliteRemoteTopic` / `eliteRemoteEvents` keep working (now `remoteTopic` / `remoteEvents`), and the button event source `elite_rf` is still accepted next to `remote_rf`.
+- The tools still accept `--target elite` and `compile_all.sh elite` as aliases of `remote`.
+
+---
+
 ## Emergency Recovery (Panic Loop Protection)
-Elite `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/reboot_counter`:
+The remote's `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/reboot_counter`:
 - On boot, counter increments and writes to `/data/reboot_counter`.
 - If uptime reaches **5 minutes (300 seconds)** without crashing, counter resets to `0`.
 - **Safe Mode**: If the device reboots more than **5 consecutive times** before reaching 5-minute stability (`COUNT > 5`), it enters Emergency Recovery Mode:
@@ -83,7 +94,7 @@ Elite `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/re
 ---
 
 ## Note on Busybox `sync`
-BusyBox v1.13.4 on both the Hub and Elite remote lacks the `sync` applet. Never run raw `sync` in scripts. Always use:
+BusyBox v1.13.4 on both the Hub and the remote lacks the `sync` applet. Never run raw `sync` in scripts. Always use:
 ```sh
 sync 2>/dev/null || /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || true
 ```
@@ -155,7 +166,7 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 
 ## Physical Button Navigation
 
-The Harmony Elite remote can be operated **100% via physical buttons**, allowing full control without touching the screen (e.g. if the touchscreen is disabled, broken, or when navigating blindly).
+The remote can be operated **100% via physical buttons**, allowing full control without touching the screen (e.g. if the touchscreen is disabled, broken, or when navigating blindly).
 
 ### Capacitive Fixed Buttons (Directly Below LCD)
 - **Left Button (`KEY_FAVORITES`, code 364)**: Jumps immediately to the **ACTIVITIES** view.
@@ -203,7 +214,7 @@ Every device configured on the Hub can be controlled directly, without starting 
 
 ## Complete Remote Settings Menu Reference
 
-The Elite settings menu is structured into 5 categories plus an RF sync push action:
+The remote's settings menu is structured into 5 categories plus an RF sync push action:
 
 ```
 [SETTINGS]
@@ -267,7 +278,7 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 
 ## Hub-to-Remote Settings Configuration & Sync
 
-Settings on the Elite remote can be inspected and updated remotely from the Harmony Hub via REST API and over-the-air RF frames.
+Settings on the remote can be inspected and updated remotely from the Harmony Hub via REST API and over-the-air RF frames.
 
 ### Hub REST API Endpoints
 
@@ -330,14 +341,14 @@ Content-Type: application/json
 ```
 
 ### Bidirectional RF Protocol Synchronization
-The Hub and Elite keep configuration synchronized using 17-byte binary payload structures:
+The Hub and the remote keep configuration synchronized using 17-byte binary payload structures:
 
 1. **Hub -> Remote Push (`RF_MSG_SETTINGS_PUSH`, `0x0E`)**:
    - Sent when settings are POSTed to the Hub API, or during full config sync (`RF_MSG_CONFIG_END`).
    - Requires ACK from Remote (`RF_FLAG_ACK_REQ`).
    - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/remote_settings.conf`, and repaints the screen.
 2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`)**:
-   - Sent whenever settings are modified in the Elite on-screen menu, or when the user selects `PUSH TO HUB`.
+   - Sent whenever settings are modified in the remote's on-screen menu, or when the user selects `PUSH TO HUB`.
    - The Hub receives the frame and persists the configuration to `/data/harmony/remote_slot<slot>_config.json`.
 3. **17-Byte Payload Format**:
    - `Byte 0`: Display Brightness (1–5)
@@ -366,19 +377,19 @@ HarmonyNG provides complete, native support for Logitech's button-only screenles
 
 ### Hardware Comparison
 
-| Feature | Harmony Elite 950 | Harmony Companion | Harmony Smart Control |
+| Feature | Touchscreen remotes (Elite, Ultimate) | Harmony Companion | Harmony Smart Control |
 | :--- | :--- | :--- | :--- |
 | **Model ID / eQuad ID** | `0x4021` (`"Juniper"`) | `0x4026` / `0x4027` (`"Companion"`, `"Home Control"`) | `0x401E` (`"20+"`) |
 | **Display** | 240x320 RGB565 LCD + ClearPad Touch | None (Button-only) | None (Button-only) |
 | **Operating System** | Embedded Linux (TI DaVinci ARM9) | Ultra-low-power RF micro-controller | Ultra-low-power RF micro-controller |
-| **Power Source** | 1300 mAh Li-ion Rechargeable | 1x CR2032 Coin Cell | 1x CR2032 Coin Cell |
+| **Power Source** | Li-ion Rechargeable (1300 mAh on the Elite) | 1x CR2032 Coin Cell | 1x CR2032 Coin Cell |
 | **Rooting / USB Setup** | Required (USB rooting, `remote_ui`) | **None** (Zero-touch, native RF) | **None** (Zero-touch, native RF) |
 | **Home Automation Keys** | Touchscreen devices & smart home | Dedicated physical buttons (Lights 1/2, Plugs 1/2, Dimmer +/-) | Standard media/nav buttons only |
-| **Web UI Visual Skin** | Elite touchscreen shell | Companion shell with smart home keys | Smart Control layout |
+| **Web UI Visual Skin** | Touchscreen remote shell | Companion shell with smart home keys | Smart Control layout |
 
 ### Zero-Touch Pairing (No Rooting Needed)
 
-Unlike the Elite 950, Companion and Smart Control remotes do not run Linux and have no USB interface. They communicate directly with the Hub via the Texas Instruments CC2544 2.4 GHz RF link:
+Unlike the touchscreen remotes, Companion and Smart Control remotes do not run Linux and have no USB interface. They communicate directly with the Hub via the Texas Instruments CC2544 2.4 GHz RF link:
 
 1. **Start Pairing on Hub**:
    - In the HarmonyNG Web UI, navigate to the **Remotes** tab and click **Pair Remote** under Slot 1 or Slot 2.
@@ -417,17 +428,17 @@ When a button is pressed or released on a Companion or Smart Control remote, it 
 
 The custom firmware environment includes a clean-room HID flashing tool (`tools/harmony_firmware.py`) that queries official Logitech SUS update servers, downloads official signed firmware bundles (`.hfw2`), flashes devices over USB HID without Logitech software, and extracts all remote UI assets.
 
-### 1. Check & Flash Official Elite Firmware
+### 1. Check & Flash Official Remote Firmware
 ```bash
 # Query latest version from Logitech update servers:
 python tools/harmony_firmware.py check
 
 # Download and flash directly over USB HID:
-python tools/harmony_firmware.py flash --target elite
+python tools/harmony_firmware.py flash --target remote
 ```
 
 ### 2. Extract Official Remote UI Icons for Hub Web UI
-The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python, without requiring an Elite remote connected over USB or SSH:
+The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python, without requiring a remote connected over USB or SSH:
 
 ```bash
 python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz

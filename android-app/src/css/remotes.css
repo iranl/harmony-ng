@@ -255,7 +255,7 @@
   border-radius: 4px;
 }
 
-/* Harmony Elite RF Remote Visual */
+/* Harmony Touchscreen RF Remote Visual */
 .remote-layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
@@ -330,7 +330,7 @@
   border-radius: 6px;
 }
 
-/* Color Hotspots (Physical Bluetooth Remote & Harmony Elite) */
+/* Color Hotspots (Physical Bluetooth Remote & Harmony Touchscreen Remote) */
 .btn-color-red, .remote-color-red, [data-btn="red"], [data-btn="Red"] {
   background: #e53935 !important;
   border-color: #ff5252 !important;
@@ -364,7 +364,7 @@
   box-shadow: 0 0 12px rgba(30, 136, 229, 0.8) !important;
 }
 
-/* Elite Screen Frame & Preview */
+/* Remote Screen Frame & Preview */
 .remote-screen-frame {
   position: absolute;
   background: #000000;

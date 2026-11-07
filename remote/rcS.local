@@ -1,5 +1,5 @@
 #!/bin/sh
-# Harmony Elite Boot Script (/etc/init.d/rcS.local)
+# Harmony Remote Boot Script (/etc/init.d/rcS.local)
 # Automatic reboot recovery + USB Ethernet + Dropbear SSH
 PATH=/data:/bin:/sbin:/usr/bin:/usr/sbin
 export PATH
@@ -57,7 +57,7 @@ if [ "$POWERSOURCE" = "usb" ] || [ -z "$POWERSOURCE" ]; then
     fi
 fi
 
-# 5. Launch custom Elite runtime supervisor in background
+# 5. Launch custom remote runtime supervisor in background
 if [ -x /data/init.sh ]; then
     /data/init.sh start &
 elif [ -x /data/remote_watchdog.sh ]; then

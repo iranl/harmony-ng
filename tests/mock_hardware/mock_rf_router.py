@@ -54,7 +54,7 @@ class CC2544VirtualRouter:
         self.running = True
         log.info(f"CC2544 Virtual RF Router online.")
         log.info(f"  Hub socket:   {self.hub_sock_path}")
-        log.info(f"  Elite socket: {self.remote_sock_path}")
+        log.info(f"  Remote socket: {self.remote_sock_path}")
 
         self.worker_thread = threading.Thread(target=self._run_loop, daemon=True)
         self.worker_thread.start()
@@ -156,7 +156,7 @@ class CC2544VirtualRouter:
                 try:
                     self.remote_client.sendall(remote_frame)
                 except Exception as e:
-                    log.warning(f"Failed delivering to Elite: {e}")
+                    log.warning(f"Failed delivering to remote: {e}")
 
     def _handle_remote_traffic(self):
         try:

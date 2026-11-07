@@ -671,7 +671,7 @@ void remote_wdt_init(void) {
          * else can open it to feed it and the board resets when the timeout runs out. */
         s_wdt_fd = open("/dev/watchdog", O_WRONLY | O_CLOEXEC);
         if (s_wdt_fd >= 0) {
-            /* The Elite's DaVinci driver resets after 10 s without a write and ignores
+            /* The remote's DaVinci driver resets after 10 s without a write and ignores
              * WDIOC_SETTIMEOUT; remote_wdt_ping writes every 5 s. Ask for more anyway and log the
              * timeout the driver reports. */
             int timeout = REMOTE_WDT_TIMEOUT_S;

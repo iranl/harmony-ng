@@ -22,7 +22,7 @@ static void tap(int x, int y) {
 }
 
 int main(void) {
-    printf("[*] Running Headless Elite UI Engine Mock Test...\n");
+    printf("[*] Running Headless Remote UI Engine Mock Test...\n");
 
     /* 1. Allocate virtual framebuffer memory */
     g_fb_size = FB_SIZE;
@@ -604,6 +604,6 @@ int main(void) {
     }
 
     free(g_fb_mem);
-    printf("\n[+] ALL HEADLESS ELITE UI CHECKS PASSED!\n");
+    printf("\n[+] ALL HEADLESS REMOTE UI CHECKS PASSED!\n");
     return 0;
 }

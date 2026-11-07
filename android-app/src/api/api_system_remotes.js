@@ -18,7 +18,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postJson('/api/ui-remote-layout', layouts);
   }
 
-  /* Harmony Elite / Companion RF Remote & Mapping */
+  /* Harmony Touchscreen / Companion RF Remote & Mapping */
   async getRFMapping(slot = 1) {
     return this.request(`/api/rf-mapping?slot=${slot}`);
   }

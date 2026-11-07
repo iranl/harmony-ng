@@ -30,7 +30,7 @@ void timezone_to_posix(const char *in, char *out, size_t out_sz);
 void timezone_get_rf_prefix(const char *posix, char *out_prefix, size_t out_sz);
 
 /**
- * Reconstructs a full POSIX TZ string from a received RF prefix on the Elite remote.
+ * Reconstructs a full POSIX TZ string from a received RF prefix on the remote.
  * Expands short prefixes like "CET-1CEST" -> "CET-1CEST,M3.5.0,M10.5.0/3",
  * "EST5EDT" -> "EST5EDT,M3.2.0,M11.1.0", "IST-2IDT" -> "IST-2IDT,M3.4.4/26,M10.5.0".
  */

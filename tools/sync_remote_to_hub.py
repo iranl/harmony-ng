@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Streaming tar sync utility: Extract activities, devices, and icons from Harmony Elite
+Streaming tar sync utility: Extract activities, devices, and icons from the Harmony remote
 and stream directly to Harmony Hub using extended BusyBox tar & gzip.
 
 Key principles:
 1. Old icons removed from Hub /data to free flash space.
 2. Icons stored in /cache/www/assets/icons and symlinked from /data/harmony/www/assets/icons.
-3. NEVER touch or delete stock /data/resources/ or *List.json files on Hub or Elite.
+3. NEVER touch or delete stock /data/resources/ or *List.json files on Hub or remote.
 4. Checks /data/harmony/config/.imported touch file to avoid duplicate reimports.
 """
 
@@ -42,8 +42,8 @@ def get_hub_space(hub_ip):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Stream sync Elite assets and configs to Hub via tar.")
-    parser.add_argument("--remote", default=DEFAULT_REMOTE_IP, help=f"Elite remote IP (default: {DEFAULT_REMOTE_IP})")
+    parser = argparse.ArgumentParser(description="Stream sync remote assets and configs to Hub via tar.")
+    parser.add_argument("--remote", default=DEFAULT_REMOTE_IP, help=f"Remote IP (default: {DEFAULT_REMOTE_IP})")
     parser.add_argument("--hub", default=DEFAULT_HUB_IP, help=f"Harmony Hub IP (default: {DEFAULT_HUB_IP})")
     parser.add_argument("--force", action="store_true", help="Force reimport even if .imported flag exists")
     parser.add_argument("--skip-icons", action="store_true", help="Skip icon sync")
@@ -51,19 +51,19 @@ def main():
     args = parser.parse_args()
 
     print("==================================================")
-    print("  Elite -> Hub Streaming Tar Sync Utility         ")
+    print("  Remote -> Hub Streaming Tar Sync Utility        ")
     print("==================================================")
-    print(f"Source (Elite): {args.remote}")
+    print(f"Source (remote): {args.remote}")
     print(f"Target (Hub):   {args.hub}")
     print("--------------------------------------------------")
 
     # 1. Test connectivity
-    print("[*] Probing Elite remote SSH...")
+    print("[*] Probing remote SSH...")
     ok_remote, remote_uname, err_remote = run_ssh(args.remote, "uname -s")
     if not ok_remote:
-        print(f"[!] Error: Cannot connect to Elite at {args.remote}. Ensure USB is connected.")
+        print(f"[!] Error: Cannot connect to the remote at {args.remote}. Ensure USB is connected.")
         sys.exit(1)
-    print(f"[+] Elite reachable ({remote_uname.strip()})")
+    print(f"[+] Remote reachable ({remote_uname.strip()})")
 
     print("[*] Probing Hub SSH...")
     ok_hub, hub_uname, err_hub = run_ssh(args.hub, "uname -s")
@@ -95,10 +95,10 @@ def main():
     already_imported = "imported" in flag_out.strip()
     print(f"[*] Hub import flag status: {'ALREADY IMPORTED' if already_imported else 'NOT YET IMPORTED'}")
 
-    # 5. Stream icons from Elite to Hub via tar pipe
+    # 5. Stream icons from the remote to Hub via tar pipe
     if not args.skip_icons:
-        print("\n[*] Streaming icons from Elite -> Hub via tar & gzip pipeline...")
-        # Check available icon directories on Elite
+        print("\n[*] Streaming icons from remote -> Hub via tar & gzip pipeline...")
+        # Check available icon directories on the remote
         subdirs = "commands footer header home hopsactivity juniperactivity hopsDevice juniperDevice hopsHomeAutomation juniperHomeAutomation notification settings"
         remote_tar_cmd = (
             f"if [ -x /data/busybox ]; then "
@@ -153,13 +153,13 @@ def main():
         else:
             print(f"[!] Error streaming icons: {err2.decode('utf-8', errors='replace')}")
 
-    # 6. Stream activities & devices from Elite to Hub
+    # 6. Stream activities & devices from the remote to Hub
     if not args.skip_config:
-        print("\n[*] Checking activities and devices on Elite...")
-        # Check if Elite has remote_ui.conf
+        print("\n[*] Checking activities and devices on the remote...")
+        # Check if the remote has remote_ui.conf
         ok_cfg, cfg_content, _ = run_ssh(args.remote, "cat /data/remote_ui.conf 2>/dev/null || true")
         if ok_cfg and cfg_content.strip().startswith("{"):
-            print("[+] Found active Elite config on remote!")
+            print("[+] Found active config on the remote!")
             # Save to /cache/remote_transfer/ on Hub
             remote_save_cmd = (
                 "mkdir -p /cache/remote_transfer; "
@@ -170,14 +170,14 @@ def main():
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             p_save.communicate(cfg_content.encode("utf-8"))
-            print("[+] Saved Elite config to Hub: /cache/remote_transfer/remote_ui.conf")
+            print("[+] Saved remote config to Hub: /cache/remote_transfer/remote_ui.conf")
 
-        # Stream stock resources from Elite if non-empty
-        print("[*] Checking stock resources on Elite...")
+        # Stream stock resources from the remote if non-empty
+        print("[*] Checking stock resources on the remote...")
         chk_res = "[ -s /data/resources/ActivityList.json ] && echo 'has_resources' || echo 'empty'"
         _, res_status, _ = run_ssh(args.remote, chk_res)
         if "has_resources" in res_status:
-            print("[+] Found non-empty stock resources on Elite. Streaming to /cache/stock_import on Hub...")
+            print("[+] Found non-empty stock resources on the remote. Streaming to /cache/stock_import on Hub...")
             tar_res_cmd = "/data/busybox tar -cf - -C / data/resources 2>/dev/null | /data/busybox gzip -c"
             hub_untar_res = "mkdir -p /cache/stock_import && /cache/bin/busybox tar -xzf - -C /cache/stock_import"
             p1 = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"root@{args.remote}", tar_res_cmd], stdout=subprocess.PIPE)
@@ -186,7 +186,7 @@ def main():
             p2.communicate()
             print("[+] Extracted stock resources to Hub: /cache/stock_import/data/resources/")
         else:
-            print("[*] Stock resources on Elite are empty or already migrated.")
+            print("[*] Stock resources on the remote are empty or already migrated.")
 
     # 7. Check / set import flag on Hub
     print("\n[*] Verifying /data/harmony/config/ on Hub...")
@@ -214,7 +214,7 @@ def main():
     # 8. Check final Hub flash space
     print("\n[*] Final Hub filesystem usage:")
     print(get_hub_space(args.hub))
-    print("\n[+] Elite -> Hub sync complete!")
+    print("\n[+] Remote -> Hub sync complete!")
 
 
 if __name__ == "__main__":

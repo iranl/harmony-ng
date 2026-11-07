@@ -529,7 +529,7 @@ class HubDeployer:
         elif not self.icons_tar.is_file() and self.fw_tool.is_file():
             print(f"\n[?] {self.icons_tar.name} not found on host.")
             try:
-                reply = input(f"Download official Elite firmware, extract 1,350 icons, and build {self.icons_tar.name} now? [Y/n] ")
+                reply = input(f"Download official remote firmware, extract 1,350 icons, and build {self.icons_tar.name} now? [Y/n] ")
             except EOFError:
                 reply = "y"
             if not reply.strip() or reply.strip().lower().startswith("y"):

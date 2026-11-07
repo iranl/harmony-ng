@@ -2,13 +2,13 @@
 
 ## 1. Overview & Architecture
 
-Logitech Harmony Hub communicates locally with paired physical remotes—including the **Harmony Elite 950**, **Harmony Pro 2400**, **Harmony Companion**, and **Harmony Smart Control**—using a proprietary 2.4 GHz RF protocol implemented on **Texas Instruments CC2544** 2.4 GHz RF SoCs. The host processors communicate with the CC2544 over synchronous SPI via the `/dev/rfspi` character device.
+Logitech Harmony Hub communicates locally with paired physical remotes, including the touchscreen remotes (**Harmony Elite 950**, **Harmony Ultimate**, **Harmony Pro 2400**), **Harmony Companion**, and **Harmony Smart Control**, using a proprietary 2.4 GHz RF protocol implemented on **Texas Instruments CC2544** 2.4 GHz RF SoCs. The host processors communicate with the CC2544 over synchronous SPI via the `/dev/rfspi` character device.
 
 ```
 +------------------------------------+              2.4 GHz eQuad RF Link             +------------------------------------+
 |       Harmony Hub (Host Mode)      |                                                |   Harmony Remotes (Device Mode)    |
 |                                    |                                                |                                    |
-| Atheros AR9344 SoC (MIPS 24Kc)    |                                                | • Elite/Pro: TI DaVinci DM365 ARM  |
+| Atheros AR9344 SoC (MIPS 24Kc)    |                                                | • Touchscreen: DaVinci DM365 ARM   |
 |   |                                |                                                | • Companion/Smart: CC2544/MCU      |
 |   | /dev/rfspi (SPI Master)        |                                                |   |                                |
 |   v                                |                                                |   v                                |
@@ -63,7 +63,7 @@ In stock `hal_hub` (`libhal/rf/hot.c`, host mode `DAT_00466f70 == 0`), all bidir
 - **Byte 4 (`Flags`)**: Protocol control flags (e.g. `0x00` normal, `0x01` ACK_REQ, `0x02` IS_ACK).
 - **Bytes 5..29**: 25-byte application payload.
 
-### 3.2 Elite Remote Device Framing (32-byte Report `0x20`, Sub-ID `0x12`)
+### 3.2 Touchscreen Remote Device Framing (32-byte Report `0x20`, Sub-ID `0x12`)
 In stock `hal_remote` (`libhal/rf/hot.c`, device mode `DAT_0003b530 == 1`), the CC2544 on screened remotes operates in device mode. All application data frames over `/dev/rfspi` use **Report `0x20`** with Sub-ID `0x12`:
 
 ```
@@ -140,7 +140,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Hub Responses (`11 FF 83 B5 <pipe> ...`)**:
   - `pipe 0x03`: Hub's own 4-byte RF address (`11 FF 83 B5 03 <addr:4> ...`).
   - `pipe 0x20..0x25`: Slot identification / EquadID (`11 FF 83 B5 20 <EquadID:2> ...`):
-    - `0x4021`: Harmony Elite 950 / Pro 2400 (`"Juniper"`)
+    - `0x4021`: Harmony Elite 950 / Ultimate / Pro 2400 (`"Juniper"`)
     - `0x401E`: Harmony Smart Control (`"20+"`)
     - `0x4026`, `0x4027`: Harmony Companion (`"Companion"`, `"Home Control"`)
   - `pipe 0x30..0x35`: Remote 4-byte RF address for slot (`11 FF 83 B5 30 <addr:4> ...`).
@@ -159,7 +159,7 @@ Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Link Status Event** (`10 <slot> 41 04 <status> <wpid_lo> <wpid_hi>`):
   - `status & 0x40 != 0`: Link **LOST** (`0x47`, `0x40`).
   - `status & 0x40 == 0`: Link **ESTABLISHED** (Remote: `0x07`, `0x0B`; Hub: `0x87`).
-  - `<wpid_lo> <wpid_hi>`: wireless product ID of the peer, little-endian, as in the HID++ 1.0 device connection notification. The Remote reports `0B 88` (the Hub, `0x880B`); the Hub reports `21 40` (the Elite, `0x4021`). The bytes stay the same whether the link is lost or established, so they carry no signal level.
+  - `<wpid_lo> <wpid_hi>`: wireless product ID of the peer, little-endian, as in the HID++ 1.0 device connection notification. The Remote reports `0B 88` (the Hub, `0x880B`); the Hub reports `21 40` (the touchscreen remote, `0x4021`). The bytes stay the same whether the link is lost or established, so they carry no signal level.
 - **Hardware TX Status Report** (`20 <slot> 42 <status>`):
   - `status == 0x00`: The remote's radio received the packet. The remote application can still drop it, so this does not count as delivery; only `RF_MSG_ACK` does.
   - `status != 0x00`: TX failure / drop (`0x01` while the link is lost).
@@ -276,7 +276,7 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[0]`: Display Brightness (1–5)
 - `payload[1]`: Screen Timeout low byte (seconds)
 - `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
-- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current Elite firmware has no NAV toggle: it ignores these bytes and sends `0`; older firmware reads them.
+- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current remote firmware has no NAV toggle: it ignores these bytes and sends `0`; older firmware reads them.
 - `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press); ignored and sent as `0` like the key
 - `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
 - `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)

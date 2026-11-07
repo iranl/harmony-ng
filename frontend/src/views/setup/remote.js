@@ -76,7 +76,7 @@ export function createView() {
       ]),
     ]),
     linkStatus,
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('rf_pairing_note', 'Note: On custom Elite firmware, enable pairing via Settings > Pair Remote. On Companion remotes, use the physical pairing button combination.') }),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '12px' }, text: t('rf_pairing_note', 'Note: On touchscreen remotes with custom firmware, enable pairing via Settings > Pair Remote. On Companion remotes, use the physical pairing button combination.') }),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       h('button', {
         className: 'btn btn-primary',
@@ -85,7 +85,7 @@ export function createView() {
           try {
             await api.pairRfRemote(currentSlot);
             isPairing = true;
-            toast.info(t('rf_pairing_active_note', 'Hub pairing active! On Elite remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.'));
+            toast.info(t('rf_pairing_active_note', 'Hub pairing active! On touchscreen remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.'));
           } catch (e) {
             toast.error(e.message);
           }
@@ -143,7 +143,7 @@ export function createView() {
         },
       }),
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '8px' }, text: 'Flash custom firmware to physical Elite/950 remote wirelessly over CC2544 RF channel.' }),
+    h('p', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '8px' }, text: 'Flash custom firmware to physical touchscreen remote wirelessly over CC2544 RF channel.' }),
     h('button', {
       className: 'btn btn-primary btn-sm',
       text: 'Start RF OTA Flash',

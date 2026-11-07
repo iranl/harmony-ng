@@ -1,4 +1,4 @@
-/* WebAssembly build of the Harmony Elite screen renderer, for previews in a browser.
+/* WebAssembly build of the Harmony remote screen renderer, for previews in a browser.
  *
  * The page writes the remote's files into the module's filesystem under a root directory
  * (config at <root>/data/remote_rf_config.json, stock assets under

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Elite's theme packages from remote/themes/<name>/.
+"""Build the remote's theme packages from remote/themes/<name>/.
 
     python3 tools/remote_render/build_theme.py [NAME ...] [-o OUT] [--tar DIR]
 

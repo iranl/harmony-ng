@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Deploy Harmony Elite Custom Runtime over SSH.
+"""Deploy the Harmony remote custom runtime over SSH.
 
 Deploys binaries, recovery boot script, and custom UI runtime to Logitech
-Harmony Elite at 192.168.2.1 (USB Ethernet).
+Harmony remote at 192.168.2.1 (USB Ethernet).
 
 Usage:
     python deploy_remote.py [--ip 192.168.2.1] [--key ~/.ssh/id_rsa]
@@ -147,8 +147,8 @@ def ready_to_go(target: str, ssh_opts: list[str], scp_opts: list[str], remote_ha
         problems.append((f"The check could not run on the remote: {res.stderr.decode(errors='replace').strip()}",
                          "Check the USB connection and SSH key, then run the deployment again"))
     elif not arch.startswith("arm"):
-        problems.append((f"{target} is not a Harmony Elite (uname -m: {arch or 'unknown'})",
-                         "Pass the remote's address with --ip (the Elite is 192.168.2.1 over USB)"))
+        problems.append((f"{target} is not a Harmony remote (uname -m: {arch or 'unknown'})",
+                         "Pass the remote's address with --ip (the remote is 192.168.2.1 over USB)"))
     for c in facts.get("missing", []):
         hint = ("Install dropbear and its scp with remote/setup_remote.py" if c == "scp" else
                 "The remote's firmware lacks a command the deployment uses; report this with the remote's model")
@@ -192,14 +192,14 @@ def ready_to_go(target: str, ssh_opts: list[str], scp_opts: list[str], remote_ha
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Deploy remote_ui and recovery scripts to Harmony Elite")
-    parser.add_argument("--ip", default="192.168.2.1", help="Elite IP address (default 192.168.2.1)")
+    parser = argparse.ArgumentParser(description="Deploy remote_ui and recovery scripts to a Harmony remote")
+    parser.add_argument("--ip", default="192.168.2.1", help="Remote IP address (default 192.168.2.1)")
     parser.add_argument("--user", default="root", help="SSH username (default root)")
     parser.add_argument("--key", type=pathlib.Path, help="SSH private key path")
     parser.add_argument("--debug-busybox", "--dev-mode", dest="debug_busybox", action="store_true",
                         help="Install modified extended BusyBox build to /data/busybox (default: False)")
     parser.add_argument("--factory-reset", action="store_true",
-                        help="Revert Harmony Elite to stock firmware (restores stock scripts & permissions)")
+                        help="Revert the Harmony remote to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
                         help="Reboot the remote instead of hot-restarting remote_ui (it also reboots when an old process still holds the watchdog)")
     parser.add_argument("--no-sync", action="store_true",
@@ -216,7 +216,7 @@ def main() -> None:
         ssh_opts.extend(["-i", str(args.key)])
 
     print("=" * 60)
-    print("  Harmony Elite Custom Runtime Deployment")
+    print("  Harmony Remote Custom Runtime Deployment")
     print(f"  Target: {target}")
     if args.factory_reset:
         print("  Mode: FACTORY RESET & STOCK RESTORATION")
@@ -237,9 +237,9 @@ def main() -> None:
 
     if args.factory_reset:
         print("\n" + "!" * 60)
-        print("  WARNING: REVERTING ELITE REMOTE TO FACTORY STOCK")
+        print("  WARNING: REVERTING REMOTE TO FACTORY STOCK")
         print("!" * 60)
-        conf = input("Type 'RESET' to confirm reverting Elite to stock: ").strip()
+        conf = input("Type 'RESET' to confirm reverting the remote to stock: ").strip()
         if conf != "RESET":
             print("[-] Confirmation mismatch. Aborting reset.")
             sys.exit(1)
@@ -264,7 +264,7 @@ def main() -> None:
             "reboot -f 2>/dev/null &"
         )
         run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
-        print("[+] Elite Remote is rebooting into official Logitech firmware.")
+        print("[+] The remote is rebooting into official Logitech firmware.")
         sys.exit(0)
 
     # Query remote MD5 hashes, then check that the deployment can finish before changing anything
@@ -371,7 +371,7 @@ def main() -> None:
         "if /bin/sh -c true 2>/dev/null; then (/data/safe_reboot.sh >/dev/null 2>&1 &); else echo '[-] CRITICAL: /bin/sh verification failed. Not rebooting!'; fi; "
         "else echo RESTARTING; rm -f /tmp/remote_stop /tmp/elite_stop 2>/dev/null || true; (/data/init.sh start >/dev/null 2>&1 &); fi"
     )
-    print("[*] Restarting the Elite runtime (watchdog-aware)...")
+    print("[*] Restarting the remote runtime (watchdog-aware)...")
     res = run_cmd(["ssh"] + ssh_opts + [target, stop_cmd + restart])
     out = res.stdout.strip()
     for line in out.splitlines():
@@ -383,9 +383,9 @@ def main() -> None:
         sys.exit(1)
     if "REBOOTING" in out:
         if args.reboot:
-            print("[+] Deployment complete! Elite Remote is rebooting safely.")
+            print("[+] Deployment complete! The remote is rebooting safely.")
         else:
-            print("[+] Deployment complete! The watchdog was still held by an old process, so the Elite Remote is rebooting safely instead of hot-restarting.")
+            print("[+] Deployment complete! The watchdog was still held by an old process, so the remote is rebooting safely instead of hot-restarting.")
     elif "RESTARTING" in out:
         print("[+] Deployment complete! remote_ui hot-restarted (no reboot).")
     else:

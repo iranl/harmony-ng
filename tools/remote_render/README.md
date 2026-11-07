@@ -1,6 +1,6 @@
-# Elite screen renderer (host)
+# Remote screen renderer (host)
 
-Draws the Harmony Elite's screens on a computer with the firmware's own drawing code (`payload/source/remote`), and writes PNGs.
+Draws the Harmony remote's screens on a computer with the firmware's own drawing code (`payload/source/remote`), and writes PNGs.
 
 ## Build
 
@@ -16,7 +16,7 @@ tools/remote_render/build.sh --wasm android-app/public/assets  # the legacy web 
 tools/remote_render/build.sh --wasm frontend/public/assets     # the new web UI's copy (build/deploy_hub.py does this when emcc is installed)
 ```
 
-The WebAssembly build is the same code with `remote_render_wasm.c` as its entry point: about 86 KB of WebAssembly and 18 KB of JavaScript, gzipped. It writes `remote_render.js`, `remote_render.wasm` and `web/remote_preview.js`, which loads files into the module, writes the config the way the remote stores the Hub's push, and draws into a canvas. Both web UIs import `remote_preview.js` from their assets on the Elite page: the legacy UI (`android-app/src/app/app_remotes_screen.js`) keeps its HTML mock-up when the files are missing, and the new one (`frontend/src/views/setup/remote.js`) leaves its Remote Screen card hidden. `web/index.html` is a development page, copied only into the default directory. To try it, put an uncompressed tar of a filesystem root next to the page and serve the directory:
+The WebAssembly build is the same code with `remote_render_wasm.c` as its entry point: about 86 KB of WebAssembly and 18 KB of JavaScript, gzipped. It writes `remote_render.js`, `remote_render.wasm` and `web/remote_preview.js`, which loads files into the module, writes the config the way the remote stores the Hub's push, and draws into a canvas. Both web UIs import `remote_preview.js` from their assets on the remote page: the legacy UI (`android-app/src/app/app_remotes_screen.js`) keeps its HTML mock-up when the files are missing, and the new one (`frontend/src/views/setup/remote.js`) leaves its Remote Screen card hidden. `web/index.html` is a development page, copied only into the default directory. To try it, put an uncompressed tar of a filesystem root next to the page and serve the directory:
 
 ```sh
 (cd ROOT && tar --format ustar -cf ../build/tmp/remote-render/web/root.tar .)
@@ -59,7 +59,7 @@ python3 tools/remote_render/build_theme.py                 # every theme in remo
 python3 tools/remote_render/build_theme.py dark --tar frontend/public/assets/themes   # also the web UI's copies
 ```
 
-Builds the theme packages the remote reads from `/data/themes/<name>/` from `remote/themes/<name>/theme.json` and `sources.json`. The sources name icons and fonts in `icon_sets.json`; the script downloads them at pinned versions (cached under `build/tmp/remote-render/svg`), rasterises the icons, converts the fonts and adds their licences. `build/compile_all.sh elite` builds the themes into the Elite package and OTA package; `--tar` writes the copies the web UI's screen preview loads.
+Builds the theme packages the remote reads from `/data/themes/<name>/` from `remote/themes/<name>/theme.json` and `sources.json`. The sources name icons and fonts in `icon_sets.json`; the script downloads them at pinned versions (cached under `build/tmp/remote-render/svg`), rasterises the icons, converts the fonts and adds their licences. `build/compile_all.sh remote` builds the themes into the remote package and OTA package; `--tar` writes the copies the web UI's screen preview loads.
 
 The icon sets and fonts the themes use:
 

@@ -8,7 +8,7 @@ Tests:
   4. Device Inventory, Command Storage & Blaster Routing
   5. Direct Pronto / IR Blast API
   6. MQTT Config, Button Execution & Delays
-  7. RF Multi-Slot Status & Independent Unpair (Slot 1 Elite, Slot 2 Companion)
+  7. RF Multi-Slot Status & Independent Unpair (Slot 1 touchscreen remote, Slot 2 Companion)
   8. Bluetooth & RF Hardware Service Toggles
   9. Configuration Backup & Schema Validation
   10. Restore to Stock Safety Check
@@ -167,10 +167,10 @@ class FullSuiteTester:
         st, rf, raw, ms = self.http("/api/rf/status")
         if st == 200 and isinstance(rf, dict):
             has_slots = "slots" in rf and isinstance(rf["slots"], list) and len(rf["slots"]) >= 2
-            self.record("Dual RF Slot Status (Elite + Companion)", has_slots, f"{len(rf.get('slots', []))} slots present")
+            self.record("Dual RF Slot Status (touchscreen + Companion)", has_slots, f"{len(rf.get('slots', []))} slots present")
             slot1 = rf["slots"][0] if has_slots else {}
             slot2 = rf["slots"][1] if has_slots else {}
-            self.record("Slot 1 Tracking (Elite)", slot1.get("slot") == 1, f"Active: {slot1.get('active')}")
+            self.record("Slot 1 Tracking (touchscreen)", slot1.get("slot") == 1, f"Active: {slot1.get('active')}")
             self.record("Slot 2 Tracking (Companion)", slot2.get("slot") == 2, f"Active: {slot2.get('active')}")
         else:
             self.record("Dual RF Slot Status", False, f"HTTP {st}")

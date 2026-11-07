@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Harmony Hub & Elite Remote - Factory Reset & Stock Revert Utility.
+"""Harmony Hub & Remote - Factory Reset & Stock Revert Utility.
 
 Safely wipes all custom runtime files, removes persistence scripts,
 restores original stock configuration files and permissions, and reboots
@@ -13,7 +13,7 @@ Hardware Factory Reset Alternative (No SSH Required):
         4. Release when the front LED flashes red rapidly.
         5. Restore stock configuration using: python tools/restore_stock.py
 
-    Harmony Elite Remote:
+    Harmony Remote:
         1. Press and hold 'Menu' (above CH+) and 'Off' (top power button) simultaneously.
         2. Keep holding both buttons for ~20 seconds.
         3. The remote graphic with circular arrow will flash briefly first.
@@ -22,7 +22,7 @@ Hardware Factory Reset Alternative (No SSH Required):
 
 Usage:
     python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
-    python tools/factory_reset.py --target elite [--remote-ip 192.168.2.1]
+    python tools/factory_reset.py --target remote [--remote-ip 192.168.2.1]
     python tools/factory_reset.py --target all
     python tools/factory_reset.py --restore-backup
 """
@@ -120,18 +120,18 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
 
 def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
     target = f"root@{remote_ip}"
-    print(f"\n[*] Probing Harmony Elite Remote at {target}...")
+    print(f"\n[*] Probing Harmony remote at {target}...")
     probe = run_ssh_cmd(target, "uname -a", ssh_opts)
     if probe.returncode != 0:
-        print(f"[-] Cannot reach Elite over SSH at {target}: {probe.stderr.strip()}")
+        print(f"[-] Cannot reach the remote over SSH at {target}: {probe.stderr.strip()}")
         print("    Ensure remote is connected via USB and PC adapter is set to 192.168.2.2.")
         return False
 
-    print(f"[+] Connected to Elite: {probe.stdout.strip()}")
-    print("[*] Performing Elite Remote factory reset sequence:")
+    print(f"[+] Connected to remote: {probe.stdout.strip()}")
+    print("[*] Performing remote factory reset sequence:")
 
     commands = [
-        # 1. Stop elite runtime & supervisors
+        # 1. Stop remote runtime & supervisors
         "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui elite_ui remote_watchdog.sh elite_watchdog.sh 2>/dev/null || true",
         # 2. Restore stock rcS.local
         (
@@ -169,9 +169,9 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
         if res.stdout.strip():
             print(res.stdout.strip())
 
-    print("[*] Rebooting Harmony Elite into stock firmware...")
+    print("[*] Rebooting the Harmony remote into stock firmware...")
     run_ssh_cmd(target, "reboot -f 2>/dev/null &", ssh_opts)
-    print("[+] Elite reboot signal delivered. Remote will boot into stock Logitech UI.")
+    print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
     return True
 
 
@@ -191,11 +191,11 @@ def confirm_prompt(device_label: str) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or Elite Remote to factory stock")
+    parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or remote to factory stock")
     parser.add_argument("--target", choices=["hub", "remote", "elite", "all"], default="all",
                         help="Target device to factory reset (default: all)")
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
-    parser.add_argument("--remote-ip", default=DEFAULT_REMOTE_IP, help=f"Elite IP address (default: {DEFAULT_REMOTE_IP})")
+    parser.add_argument("--remote-ip", default=DEFAULT_REMOTE_IP, help=f"Remote IP address (default: {DEFAULT_REMOTE_IP})")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
@@ -230,7 +230,7 @@ def main() -> None:
         reset_hub(args.hub_ip, ssh_opts)
 
     if args.target in ("remote", "elite", "all"):  # elite: the name before the rename
-        print(f"\n>>> PROCESSING ELITE REMOTE ({args.remote_ip}) <<<")
+        print(f"\n>>> PROCESSING REMOTE ({args.remote_ip}) <<<")
         reset_remote(args.remote_ip, ssh_opts)
 
     print("\n" + "=" * 70)

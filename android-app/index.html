@@ -448,7 +448,7 @@
             </div>
           </div>
 
-          <!-- 3. Harmony Elite Remote Shortcut -->
+          <!-- 3. Harmony Remote Shortcut -->
           <div class="card settings-nav-card" data-view-target="rf-remote"
             style="cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -712,7 +712,7 @@
                 <div style="grid-column: 1 / -1; margin-top: 6px;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <label for="actEditIcon" data-i18n="activity_icon" style="margin-bottom: 0;">Activity Screen Icon
-                      (Elite / App)</label>
+                      (Remote / App)</label>
                     <button type="button" id="btnBrowseActIcons" class="btn btn-xs btn-outline"
                       style="font-size: 11px; padding: 2px 8px;" data-i18n="browse_all_icons_btn">🖼 Browse All Icons</button>
                   </div>
@@ -1071,7 +1071,7 @@
               <div style="margin-top: 6px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <label class="mini muted" for="editDevIcon" style="margin-bottom: 0;" data-i18n="device_icon">Device
-                    Icon (Elite / App)</label>
+                    Icon (Remote / App)</label>
                   <button type="button" id="btnBrowseDevIcons" class="btn btn-xs btn-outline"
                     style="font-size: 10px; padding: 1px 6px;">🖼 Browse All</button>
                 </div>
@@ -2546,7 +2546,7 @@
       </div>
     </section>
 
-    <!-- 8b. Harmony Elite RF Remote View -->
+    <!-- 8b. Harmony RF Remote View -->
     <section id="view-rf-remote" class="view-panel">
       <button type="button" class="btn btn-sm btn-ghost btn-back-settings"
         style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px;">
@@ -2558,7 +2558,7 @@
       <div class="section-head">
         <div>
           <h2 data-i18n="harmony_rf_remote_title">Harmony RF Remote</h2>
-          <div class="section-lead" data-i18n="harmony_rf_mapping_lead">Harmony RF remote (Elite / Smart Control / Companion) button mapping per activity.
+          <div class="section-lead" data-i18n="harmony_rf_mapping_lead">Harmony RF remote (Elite / Ultimate / Smart Control / Companion) button mapping per activity.
           </div>
         </div>
       </div>
@@ -2609,13 +2609,13 @@
 
         <!-- 2 Remote Slots Grid -->
         <div class="rf-slots-grid">
-          <!-- Slot 1: Elite / Smart Control / Companion -->
+          <!-- Slot 1: touchscreen remote / Smart Control / Companion -->
           <div
             style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <strong id="rfSlot1Title" style="font-size: 14px;" data-i18n="rf_slot1_title">Slot 1: Remote 1 (Elite /
-                  Companion)</strong>
+                  Ultimate / Companion)</strong>
                 <span id="rfSlot1Badge" class="badge">EMPTY</span>
               </div>
               <div id="rfSlot1FwRow" class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot1Ver"
@@ -2653,7 +2653,7 @@
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <strong id="rfSlot2Title" style="font-size: 14px;" data-i18n="rf_slot2_title">Slot 2: Remote 2 (Elite /
-                  Companion)</strong>
+                  Ultimate / Companion)</strong>
                 <span id="rfSlot2Badge" class="badge">EMPTY</span>
               </div>
               <div id="rfSlot2FwRow" class="muted mini" style="margin-bottom: 4px;">Firmware: <strong id="rfSlot2Ver"
@@ -2697,7 +2697,7 @@
         <div id="rfPairMsg" class="help"
           style="margin-top: 8px; display: none; color: var(--accent); font-weight: 500;"></div>
         <div class="help" style="margin-top: 10px; font-size: 12px; opacity: 0.85;" data-i18n="rf_pairing_note">Note:
-          With custom Elite firmware, there is no physical button combination. Enable pairing from the Settings menu on
+          With the custom firmware on touchscreen remotes, there is no physical button combination. Enable pairing from the Settings menu on
           the remote (Settings > Pair Remote).</div>
       </div>
 
@@ -2901,7 +2901,7 @@
       <div id="rfNoRemotesPairedMsg" class="callout" style="display: none; margin-bottom: 14px;">
         <strong style="font-size: 14px; display: block; margin-bottom: 2px;" data-i18n="no_physical_remotes_title">No Physical Remotes Paired</strong>
         <span style="font-size: 12px; opacity: 0.95;" data-i18n="no_remotes_paired_lead">No physical remotes are currently paired to this Hub. Use the
-          pairing buttons above to pair an Elite, Smart Control, or Companion remote.</span>
+          pairing buttons above to pair an Elite, Ultimate, Smart Control, or Companion remote.</span>
       </div>
 
       <!-- RF Remote Mapping Container (Shown only when at least one remote is paired) -->
@@ -2973,7 +2973,7 @@
           </div>
         </div>
 
-        <!-- Elite Layout & Hotspots -->
+        <!-- Remote Layout & Hotspots -->
         <div class="remote-layout">
           <!-- Left: Remote Skin Graphic with Hotspots -->
           <div id="remoteColVisual" class="card" style="display: flex; flex-direction: column; align-items: center;">
@@ -3347,7 +3347,7 @@
                 <div>
                   <h3 id="remoteScreenSectionTitle" style="font-size: 15px; margin: 0;">On-Screen "DEVICES" Touch Buttons
                   </h3>
-                  <div id="remoteScreenSectionHelp" class="help" style="margin-top: 2px;">Buttons shown on the Elite
+                  <div id="remoteScreenSectionHelp" class="help" style="margin-top: 2px;">Buttons shown on the remote's
                     touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).</div>
                 </div>
                 <button id="btnRemoteAddScreenBtn" type="button" class="btn btn-xs btn-primary"
@@ -3373,7 +3373,7 @@
         </div>
       </div> <!-- /rfRemoteMappingContainer -->
 
-      <!-- Elite Button Mapping Modal (Popup on button click) -->
+      <!-- Remote Button Mapping Modal (Popup on button click) -->
       <div id="remoteBtnModal" class="modal-sheet-backdrop" style="display: none;">
         <div class="modal-sheet-dialog">
           <div class="modal-sheet-header">
@@ -4161,7 +4161,7 @@ harmony_send_command:
             style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: var(--radius-sm); flex-wrap: wrap; gap: 10px;">
             <div>
               <div style="display: flex; align-items: center; gap: 8px;">
-                <strong style="font-size: 14px;" data-i18n="rf_receiver_service_lbl">RF Receiver Service (Harmony Elite / 950)</strong>
+                <strong style="font-size: 14px;" data-i18n="rf_receiver_service_lbl">RF Receiver Service (Harmony Elite / Ultimate / 950)</strong>
                 <span id="svcRfBadge" class="badge" data-i18n="checking">Checking...</span>
               </div>
               <div class="muted mini" style="margin-top: 4px;">Controls <code>hub_rf</code> daemon and CC2544
@@ -4402,9 +4402,9 @@ harmony_send_command:
 
       <!-- Icon Pack & Cache Management (Native Android Only) -->
       <div id="cardIconCache" class="card" style="margin-bottom: 14px;" data-native-only="true">
-        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="official_icon_pack">Official Elite Icon Pack & Cache
+        <h3 style="font-size: 15px; margin-bottom: 6px;" data-i18n="official_icon_pack">Official Harmony Remote Icon Pack & Cache
         </h3>
-        <div class="help" data-i18n="remote_icon_set_desc">Logitech Harmony Elite remote icon set (~828 device, activity and button glyphs). Can load
+        <div class="help" data-i18n="remote_icon_set_desc">Logitech Harmony remote icon set (~828 device, activity and button glyphs). Can load
           dynamically from Hub or download for complete offline availability.</div>
         <div
           style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">

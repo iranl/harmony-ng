@@ -1,5 +1,5 @@
 #!/bin/sh
-# Safe reboot script for Harmony Elite (Texas Instruments DaVinci ARM9)
+# Safe reboot script for the Harmony remote (Texas Instruments DaVinci ARM9)
 PATH=/data:/bin:/sbin:/usr/bin:/usr/sbin
 export PATH
 

@@ -93,7 +93,7 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 6.0.13
-      - name: Build Elite screen renderer (WebAssembly)
+      - name: Build remote screen renderer (WebAssembly)
         run: tools/remote_render/build.sh --wasm android-app/public/assets
       - name: Build Web Bundle
         working-directory: android-app
@@ -112,7 +112,7 @@ jobs:
           path: payload/www/
 
   build-remote:
-    name: Build Elite ARM Binaries
+    name: Build Remote ARM Binaries
     needs: prepare-version
     runs-on: ubuntu-latest
     steps:
@@ -134,7 +134,7 @@ jobs:
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
-      - name: Compile Elite Binaries & Extended BusyBox
+      - name: Compile Remote Binaries & Extended BusyBox
         run: |
           chmod +x build/*.sh
           ./build/compile_all.sh remote
@@ -153,7 +153,7 @@ jobs:
           fi
           (cd build/output/remote && gzip -c -9 remote_ui > remote_ui.gz)
           ls -lh build/output/remote
-      - name: Archive Elite Binaries
+      - name: Archive Remote Binaries
         uses: actions/upload-artifact@v7
         with:
           name: remote-binaries
@@ -302,7 +302,7 @@ jobs:
             cp -f artifacts/hub-binaries/hub_daemon.gz "${RELEASE_DIR}/hub_daemon_v${VERSION}.gz"
           fi
 
-          # 2. Package Complete Elite Release Bundle
+          # 2. Package Complete Remote Release Bundle
           if [ -d artifacts/remote-binaries ]; then
             mkdir -p staging_remote/bin staging_remote/tools staging_remote/drivers/windows/rndis
             cp -rf artifacts/remote-binaries/* staging_remote/bin/

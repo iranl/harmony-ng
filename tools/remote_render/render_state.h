@@ -1,4 +1,4 @@
-/* Screen state for the host and WebAssembly builds of the Elite renderer. */
+/* Screen state for the host and WebAssembly builds of the remote renderer. */
 #ifndef REMOTE_RENDER_STATE_H
 #define REMOTE_RENDER_STATE_H
 

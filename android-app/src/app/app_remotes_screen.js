@@ -138,7 +138,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const curModel = curSlotInfo?.model || 'unknown';
     const isScreenless = curModel === 'smart_control' || curModel === 'companion' || curSlotInfo?.has_screen === false;
 
-    // Toggle skin visual: Elite vs Screenless (Companion / Smart Control)
+    // Toggle skin visual: touchscreen remote vs Screenless (Companion / Smart Control)
     const remoteShell = document.getElementById('remoteShell');
     const compShell = document.getElementById('companionRemoteShell');
     if (remoteShell) remoteShell.style.display = isScreenless ? 'none' : 'flex';
@@ -159,7 +159,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const screenSec = document.getElementById('remoteSectionScreen');
     if (screenSec) screenSec.style.display = isScreenless ? 'none' : 'block';
 
-    // Hide/show push to remote button (Elite only)
+    // Hide/show push to remote button (touchscreen remotes only)
     const pushBtn = document.getElementById('remotePushRemoteBtn');
     if (pushBtn) pushBtn.style.display = isScreenless ? 'none' : 'inline-block';
 
@@ -607,8 +607,8 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     }
     if (helpEl) {
       helpEl.textContent = isDevScope
-        ? 'Buttons shown on the Elite touchscreen when browsing this device (commands can be reordered, renamed, or deleted).'
-        : 'Buttons shown on the Elite touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
+        ? 'Buttons shown on the remote\'s touchscreen when browsing this device (commands can be reordered, renamed, or deleted).'
+        : 'Buttons shown on the remote\'s touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
     }
 
     let sbtns = [];
@@ -791,7 +791,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     });
   }
 
-  // Draws the Elite screen with the firmware's renderer from the page's unsaved state. The
+  // Draws the remote screen with the firmware's renderer from the page's unsaved state. The
   // view follows the editing context until the user picks one in the view bar.
   async updateRemoteScreenCanvas() {
     const canvas = document.getElementById('remoteScreenCanvas');

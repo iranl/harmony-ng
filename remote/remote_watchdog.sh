@@ -1,5 +1,5 @@
 #!/bin/sh
-# Harmony Elite Supervisor Watchdog
+# Harmony Remote Supervisor Watchdog
 # Ensures remote_ui is kept running, turns off hardware LEDs on crash,
 # and logs unexpected restarts.
 

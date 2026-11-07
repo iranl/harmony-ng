@@ -3,7 +3,7 @@
 publish_ota.py - Package and publish binaries & WebUI assets to OTA repository / branch
 
 Features:
-  1. Packages native MIPS binaries (Hub), ARM binary (Elite), and WebUI bundle (www.tar.gz)
+  1. Packages native MIPS binaries (Hub), ARM binary (remote), and WebUI bundle (www.tar.gz)
   2. Generates manifest.json with SHA256 and MD5 checksums
   3. Prepares or pushes to dedicated orphan branch 'ota' (or remote repository) with a single squashed commit
 """
@@ -118,7 +118,7 @@ def package_ota(output_dir: Path, version: str):
         else:
             print(f"[-] Warning: Hub binary {bname} not found in search paths")
 
-    # 3. ARM binaries (Elite)
+    # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)
     for bname in REMOTE_BINARIES:
@@ -126,7 +126,7 @@ def package_ota(output_dir: Path, version: str):
             remote_bin = find_candidate_file("remote_ui", ARM_SEARCH_PATHS)
             if remote_bin and remote_bin.is_file():
                 ota_tar = arm_target / bname
-                print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
+                print(f"[*] Packaging remote OTA bundle (binary + scripts) into {ota_tar.name}...")
                 with tarfile.open(ota_tar, "w:gz") as tar:
                     tar.add(remote_bin, arcname="remote_ui")
                     # Transition: a remote on a build from before the elite -> remote rename looks
@@ -160,7 +160,7 @@ def package_ota(output_dir: Path, version: str):
                 "sha256": sha
             }
         else:
-            print(f"[-] Warning: Elite binary {bname} not found in search paths")
+            print(f"[-] Warning: remote binary {bname} not found in search paths")
 
     # 4. WebUI bundle (tar.gz)
     www_src = None

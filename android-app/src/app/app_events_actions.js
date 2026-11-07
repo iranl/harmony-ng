@@ -315,7 +315,7 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('b25RefreshBtn')?.addEventListener('click', () => this.loadRemotesView());
     document.getElementById('btMqttSaveBtn')?.addEventListener('click', () => this.saveBtRemoteMqttSettings());
 
-    // Harmony Elite Remote Buttons
+    // Harmony Remote Buttons
     document.querySelectorAll('.remote-hotspot').forEach(btn => {
       btn.addEventListener('click', () => {
         const btnId = btn.getAttribute('data-btn');

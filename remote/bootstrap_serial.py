@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Harmony Elite Serial Bootstrap Utility.
+"""Harmony Remote Serial Bootstrap Utility.
 
 Bootstraps USB Ethernet, Dropbear SSH, and safe boot scripts on Logitech
-Harmony Elite over UART (Serial console at 115200 8N1).
+the Harmony remote over UART (Serial console at 115200 8N1).
 
 Usage:
     python bootstrap_serial.py --port COM3 [--ssh-pubkey ~/.ssh/id_rsa.pub]
@@ -83,14 +83,14 @@ def transfer_binary(ser: serial.Serial, local_file: pathlib.Path, remote_path: s
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Bootstrap Dropbear SSH on Harmony Elite via Serial")
+    parser = argparse.ArgumentParser(description="Bootstrap Dropbear SSH on a Harmony remote via Serial")
     parser.add_argument("--port", required=True, help="Serial port (e.g. COM3 or /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default 115200)")
     parser.add_argument("--ssh-pubkey", type=pathlib.Path, help="Path to SSH public key to authorize")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  Harmony Elite Serial Bootstrap Utility")
+    print("  Harmony Remote Serial Bootstrap Utility")
     print(f"  Port: {args.port} @ {args.baud} 8N1")
     print("=" * 60)
 
@@ -155,8 +155,8 @@ def main() -> None:
 
         print()
         print("=" * 60)
-        print("  [+] Elite Serial Bootstrap Complete!")
-        print("  Connect PC USB to Elite remote cradle/port.")
+        print("  [+] Remote Serial Bootstrap Complete!")
+        print("  Connect PC USB to the remote cradle/port.")
         print("  Configure PC adapter: IP 192.168.2.2 / Subnet 255.255.255.0")
         print("  Connect via SSH:")
         print("      ssh root@192.168.2.1")

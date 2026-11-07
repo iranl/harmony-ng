@@ -253,7 +253,7 @@ static void render_settings_update(void) {
     fb_draw_rect(8, start_y, FB_WIDTH - 16, card_h, RGB_CARD_BORDER);
 
     char sw_str[48];
-    snprintf(sw_str, sizeof(sw_str), "Elite SW: v%s", HARMONY_REMOTE_VERSION);
+    snprintf(sw_str, sizeof(sw_str), "Remote SW: v%s", HARMONY_REMOTE_VERSION);
     fb_draw_text_aa(16, start_y + 10, sw_str, RGB_WHITE, &g_font_title);
 
     char hub_ota_str[48];

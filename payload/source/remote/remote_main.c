@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
     sigaction(SIGFPE, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
 
-    printf("[+] Starting Harmony Elite Custom Interface (remote_ui v%s)...\n", HARMONY_REMOTE_VERSION);
+    printf("[+] Starting Harmony remote custom interface (remote_ui v%s)...\n", HARMONY_REMOTE_VERSION);
 
     load_settings_conf();
     load_activity_usage();

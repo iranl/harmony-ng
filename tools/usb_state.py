@@ -30,7 +30,7 @@ HARMONY_VID = 0x046D
 RNDIS_VID_PIDS = [
     (0x0525, 0xA4A2),  # Linux USB Ethernet/RNDIS Gadget
     (0x050D, 0x010D),  # Belkin USB Ethernet Gadget
-    (0x046D, 0xC12B),  # Logitech Elite in composite/gadget mode
+    (0x046D, 0xC12B),  # Logitech touchscreen remote in composite/gadget mode
     (0x046D, 0xC132),  # Logitech Pro in composite/gadget mode
 ]
 
@@ -207,7 +207,7 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                     state.mode = UsbMode.USB_HID
                     state.pid = candidate_pid
                     state.description = (
-                        "Logitech Harmony Elite 950 (USB HID)"
+                        "Logitech Harmony touchscreen remote (USB HID)"
                         if candidate_pid == REMOTE_PID
                         else "Logitech Harmony Pro 2400 (USB HID)"
                     )

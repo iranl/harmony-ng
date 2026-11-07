@@ -96,7 +96,7 @@ void *config_push_worker(void *arg) {
     }
 
     if (num_targets == 0) {
-        printf("[*] Config push skipped: no active Elite remotes\n");
+        printf("[*] Config push skipped: no active touchscreen remotes\n");
         unlink("/data/harmony/rf_sync_pending.flag");
         unlink("/data/harmony/rf_sync_pending_details.json");
         pthread_mutex_unlock(&push_lock);

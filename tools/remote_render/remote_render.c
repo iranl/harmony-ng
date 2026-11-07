@@ -1,4 +1,4 @@
-/* Host build of the Harmony Elite screen renderer.
+/* Host build of the Harmony remote screen renderer.
  *
  * Draws the firmware's screens with the firmware's own drawing code (payload/source/remote)
  * from a directory laid out like the remote's filesystem, and writes PNGs.

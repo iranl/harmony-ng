@@ -1,6 +1,6 @@
-# Harmony Elite 950 - Battery Life Optimization Guide
+# Harmony Remote - Battery Life Optimization Guide
 
-The Logitech Harmony Elite 950 remote contains a 1300 mAh rechargeable lithium-ion battery. Because the remote features a color LCD touchscreen, backlit buttons, a 3-axis accelerometer for lift-to-wake, an ARM9 SoC, and a 2.4 GHz CC2544 RF transceiver, optimizing hardware power states can dramatically extend standby and operational battery life.
+The Logitech Harmony touchscreen remotes contain a rechargeable lithium-ion battery (1300 mAh on the Elite 950). Because the remote features a color LCD touchscreen, backlit buttons, a 3-axis accelerometer for lift-to-wake, an ARM9 SoC, and a 2.4 GHz CC2544 RF transceiver, optimizing hardware power states can dramatically extend standby and operational battery life.
 
 Expected standby battery life on a fully charged battery is **~3 days**. This is achieved through a combination of hardware and software optimizations that reduce power consumption while the remote is not in use.
 

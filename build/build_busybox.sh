@@ -68,7 +68,7 @@ build_mips() {
 }
 
 build_arm() {
-    echo "=== Building BusyBox ${BB_VER} for Elite Remote (ARM little-endian) ==="
+    echo "=== Building BusyBox ${BB_VER} for the remote (ARM little-endian) ==="
     ARM_BUILD="$TMP_DIR/busybox-${BB_VER}-arm"
     rm -rf "$ARM_BUILD"
     mkdir -p "$ARM_BUILD"
@@ -90,7 +90,7 @@ build_arm() {
     sed -i 's/CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
     sed -i 's/CONFIG_SEEDRNG=y/# CONFIG_SEEDRNG is not set/' .config
 
-    # The Elite runs Linux 2.6.37. A static glibc BusyBox breaks there (tar -c,
+    # The remote runs Linux 2.6.37. A static glibc BusyBox breaks there (tar -c,
     # find and du fail), so only the uClibc toolchain is accepted.
     CROSS="arm-buildroot-linux-uclibcgnueabi-"
     if ! command -v "${CROSS}gcc" >/dev/null 2>&1; then

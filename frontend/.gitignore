@@ -9,5 +9,5 @@ android/local.properties
 public/assets/remote_render.js
 public/assets/remote_render.wasm
 public/assets/remote_preview.js
-# Elite theme packages for the screen preview, built by tools/remote_render/build_theme.py --tar public/assets/themes
+# Remote theme packages for the screen preview, built by tools/remote_render/build_theme.py --tar public/assets/themes
 public/assets/themes/

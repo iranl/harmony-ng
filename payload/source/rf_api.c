@@ -607,7 +607,7 @@ void *api_server_worker(void *arg) {
                 }
 
                 char name1[48] = "Harmony Remote (Slot 1)";
-                char name2[48] = "Harmony Elite (Slot 2)";
+                char name2[48] = "Harmony Remote (Slot 2)";
                 if (strcmp(model1, "smart_control") == 0) {
                     snprintf(name1, sizeof(name1), "Harmony Smart Control (Slot 1)");
                 } else if (strcmp(model1, "companion") == 0) {

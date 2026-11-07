@@ -115,7 +115,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           } else if (isNonLinux1) {
             t1.textContent = 'Slot 1: Harmony Companion';
           } else {
-            t1.textContent = 'Slot 1: Harmony Elite';
+            t1.textContent = 'Slot 1: Harmony Remote';
           }
         }
         if (b1) {
@@ -193,7 +193,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
           } else if (isNonLinux2) {
             t2.textContent = 'Slot 2: Harmony Companion';
           } else {
-            t2.textContent = 'Slot 2: Harmony Elite';
+            t2.textContent = 'Slot 2: Harmony Remote';
           }
         }
         if (b2) {
@@ -239,7 +239,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         if (msg) {
           if (st.pairing_active) {
             msg.style.display = 'block';
-            msg.textContent = t('rf_pairing_active_note', 'Hub pairing active! On Elite remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.');
+            msg.textContent = t('rf_pairing_active_note', 'Hub pairing active! On touchscreen remotes: Settings > Pair Remote. On Companion: press & hold pairing buttons.');
           } else {
             msg.style.display = 'none';
           }

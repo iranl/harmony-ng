@@ -175,7 +175,7 @@ build_remote() {
     sed -i 's/\r$//' "$REPO_ROOT/build/tmp/remote_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/remote_ota_pkg"/rcS.local 2>/dev/null || true
     # Theme packages. Building them needs a host C compiler and the
     # pinned downloads; without them, themes built earlier into build/tmp/remote-themes are used.
-    echo "[-] Building Elite themes..."
+    echo "[-] Building remote themes..."
     python3 "$REPO_ROOT/tools/remote_render/build_theme.py" >/dev/null \
         || echo "[!] Theme build failed; packaging themes from an earlier build, if any." >&2
     rm -rf "$REPO_ROOT/remote/bin/themes"

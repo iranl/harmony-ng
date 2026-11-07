@@ -1,4 +1,4 @@
-// Harmony Elite key bindings: a drawing of the remote whose keys are hotspots, with the
+// Harmony remote key bindings: a drawing of the remote whose keys are hotspots, with the
 // remote's screen in it, and an editor for what each key does per activity and per device.
 // The Hub resolves a key press against remote_slotN_map.json (rf_keymap.c
 // dispatch_remote_button); resolveBinding() below follows the same order.
@@ -218,7 +218,7 @@ export function createButtonEditor() {
     viewBox: `${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`,
     class: 'eb-svg',
     role: 'group',
-    'aria-label': 'Harmony Elite keys',
+    'aria-label': 'Harmony remote keys',
   }, [
     svg('rect', { x: 40, y: 10, width: 560, height: 1880, rx: 130, class: 'eb-body' }),
     svg('rect', { x: SCREEN.x - 4, y: SCREEN.y - 4, width: SCREEN.w + 8, height: SCREEN.h + 8, rx: 6, class: 'eb-screen' }),

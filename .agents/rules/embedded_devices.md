@@ -1,6 +1,6 @@
-# Embedded Device Rules: Harmony Hub & Elite Remote
+# Embedded Device Rules: Harmony Hub & Harmony Remote
 
-## MANDATORY RULES FOR ALL HUB & ELITE OPERATIONS
+## MANDATORY RULES FOR ALL HUB & REMOTE OPERATIONS
 
 1. **KILL -9 ONLY & ALWAYS CLEAN UP PROCESSES**:
    - `kill` without `-9` FAILS on these embedded pthreads devices.
@@ -14,6 +14,6 @@
    - Always verify and kill background instances before starting a test process.
 
 3. **MINIMAL BUSYBOX ENVIRONMENT**:
-   - Neither Hub nor Elite has `head`, `tail`, or `grep -E`.
+   - Neither the Hub nor the remote has `head`, `tail`, or `grep -E`.
    - Never run `head`, `tail`, or `grep -E` in SSH commands.
    - Use standard `cat`, `sed`, `grep`, or `awk`.

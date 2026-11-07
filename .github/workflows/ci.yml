@@ -38,7 +38,7 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 6.0.13
-      - name: Build Elite screen renderer (WebAssembly)
+      - name: Build remote screen renderer (WebAssembly)
         run: tools/remote_render/build.sh --wasm android-app/public/assets
       - name: Install dependencies
         working-directory: android-app
@@ -53,7 +53,7 @@ jobs:
           test -f android-app/dist/assets/remote_render.wasm
 
   build-remote:
-    name: Compile Elite ARM Binaries
+    name: Compile Remote ARM Binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

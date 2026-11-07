@@ -7,7 +7,7 @@
 #include "remote/remote_i18n.h"
 
 int main(void) {
-    printf("[*] Running Elite i18n tests...\n");
+    printf("[*] Running remote i18n tests...\n");
 
     /* 1. Verify language code mapping */
     assert(strcmp(remote_lang_code(REMOTE_LANG_EN), "en") == 0);
@@ -88,6 +88,6 @@ int main(void) {
     assert(strcmp(tr(STR_ACTIVITIES), "ATTIVITA") == 0);
     assert(strcmp(tr(STR_LANGUAGE), "Lingua") == 0);
 
-    printf("[+] All Elite i18n tests passed successfully!\n");
+    printf("[+] All remote i18n tests passed successfully!\n");
     return 0;
 }

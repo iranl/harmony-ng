@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
-// The Elite screen renderer and its themes sit unhashed in public/assets, which the Hub serves as immutable;
+// The remote screen renderer and its themes sit unhashed in public/assets, which the Hub serves as immutable;
 // the app imports it with this content hash so each new renderer reaches the browser
 const rendererHash = createHash('sha256');
 const themeFiles = existsSync('public/assets/themes') ? readdirSync('public/assets/themes').sort().map(f => `themes/${f}`) : [];

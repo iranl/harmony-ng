@@ -1,6 +1,6 @@
-# Harmony Elite 950 & Pro 2400 Remote - First Time Installation & Rooting Guide
+# Harmony Touchscreen Remote - First Time Installation & Rooting Guide
 
-This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`remote_ui`) on the Logitech Harmony Elite 950 handheld remote (Models N-R0007 / N-R0010) and Harmony Pro 2400 Remote (Skin 116).
+This guide covers initial USB rooting and installation of the **HarmonyNG** custom firmware (`remote_ui`) on the Logitech Harmony touchscreen remotes, such as the Harmony Elite 950 (Models N-R0007 / N-R0010), the Harmony Ultimate and the Harmony Pro 2400 Remote (Skin 116).
 
 > [!NOTE]
 > **Harmony Pro 2400 Remote, Ultimate (Home) & Touch Compatibility**:
@@ -34,7 +34,7 @@ git clone https://github.com/iranl/harmony-ng.git
 cd harmony-ng
 
 # Compile ARM userspace binaries
-./build/compile_all.sh elite
+./build/compile_all.sh remote
 # BusyBox with tar, used for the remote backup (the release bundle ships it in bin/)
 ./build/build_busybox.sh arm
 ```
@@ -44,7 +44,7 @@ cd harmony-ng
 ## 2. Automated USB HID Rooting & Firmware Update
 
 > [!IMPORTANT]
-> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.330** for Elite / 950). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
+> **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.330** for Elite / Ultimate / 950). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
 
 1. Connect the remote directly to your host PC via Micro-USB (bottom port).
 2. Check USB connection and driver status at any time:
@@ -68,7 +68,7 @@ The tool automatically:
 2. **Validates Windows Driver & Host Static IP**: Confirms the host network adapter has IP `192.168.2.2/24` assigned, giving exact PowerShell commands if unconfigured.
 3. **Validates & Displays Firmware Version**: Queries `/sys/sysinfo` over USB HID and checks against official Logitech SUS servers. *(Failure to read firmware mode over USB HID safely halts execution).* If the remote is not on latest v4.15.330, it prompts:
    ```text
-   [!] Elite Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
+   [!] Remote firmware is 4.15.260, but latest official firmware is 4.15.330.
    [?] Download and install latest official firmware (4.15.330) first? (y/N):
    ```
    If confirmed, it downloads `remote_111_4.15.330.hfw2`, flashes it cleanly via USB HID, waits for the reboot, and resumes rooting automatically. *(Pass `--skip-fw-check` to bypass).*
@@ -77,11 +77,11 @@ The tool automatically:
 
 
 > [!TIP]
-> You can also check, download, or flash Elite firmware and extract UI icons at any time with the standalone tool:
+> You can also check, download, or flash remote firmware and extract UI icons at any time with the standalone tool:
 > ```bash
 > # Check or flash firmware directly:
 > python tools/harmony_firmware.py check
-> python tools/harmony_firmware.py flash --target elite
+> python tools/harmony_firmware.py flash --target remote
 >
 > # Extract all 1,350 official icons directly from firmware bundle (no remote connection needed):
 > python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
@@ -132,9 +132,9 @@ The script:
 
 ## 5. RF Pairing with Harmony Hub
 
-1. On the Elite remote touch screen, tap the **Settings** dock icon.
+1. On the remote's touch screen, tap the **Settings** dock icon.
 2. Select **RF Pairing Menu** -> **Start Pairing to Hub**.
-3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), navigate to **Harmony Elite Remote** and click **Start Hub Pairing Mode**.
+3. In the Hub Web console (`http://<YOUR_HUB_IP>:8089`), navigate to **Harmony RF Remote** and click **Start Hub Pairing Mode**.
 4. Within 5 seconds, the Hub and remote exchange RF security tokens, the status badge turns green, and activities and button maps synchronize automatically over 2.4 GHz RF.
 
 ---
@@ -178,7 +178,7 @@ To cleanly remove HarmonyNG software and restore stock Logitech binaries over SS
 
 ```bash
 # Using Python:
-python tools/factory_reset.py --target elite --remote-ip 192.168.2.1
+python tools/factory_reset.py --target remote --remote-ip 192.168.2.1
 
 # Or using deployment script:
 python remote/deploy_remote.py --ip 192.168.2.1 --factory-reset

@@ -709,7 +709,7 @@ Saves BLE remote button mapping JSON.
 
 ---
 
-## 7. RF Subsystem & Physical Remotes (`/api/rf/*`, Elite, Companion, Smart Control)
+## 7. RF Subsystem & Physical Remotes (`/api/rf/*`, touchscreen remotes, Companion, Smart Control)
 
 Requests starting with `/api/rf/*` are proxied to the native RF daemon `hub_rf` running on port 8092.
 
@@ -754,7 +754,7 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
 
 ### 7.2 RF Pairing
 #### `GET /api/rf/pair?slot={1|2}` or `POST /api/rf/pair`
-Initiates RF pairing beacon on slot 1 or slot 2 for Harmony Elite, Harmony Companion, or Harmony Smart Control remotes.
+Initiates RF pairing beacon on slot 1 or slot 2 for Harmony touchscreen remotes (Elite, Ultimate), Harmony Companion, or Harmony Smart Control remotes.
 - **Response `200 OK`**: `{"status": "pairing_started"}`
 
 #### `POST /api/rf/wake?slot={1|2}`
@@ -775,10 +775,10 @@ Transmits raw RF bytes through CC2544 SPI driver.
 
 ### 7.4 RF Remote Configuration & OTA Push
 #### `GET /api/rf/remote-config?slot={1|2}`
-Returns brightness, display timeout, tilt gyro, touch sensitivity, night mode, and nav button configuration for Elite remote.
+Returns brightness, display timeout, tilt gyro, touch sensitivity, night mode, and nav button configuration for the touchscreen remote.
 
 #### `POST /api/rf/remote-config?slot={1|2}`
-Saves remote preferences and transmits push packet to Elite over RF.
+Saves remote preferences and transmits push packet to the remote over RF.
 - **Request Body**:
   ```json
   {
@@ -810,15 +810,15 @@ Forces remote activity display synchronization with hub current state.
 - **Response `200 OK`**: `{"status": "synced"}`
 
 #### `GET /api/rf/sleep?slot={0|1|2}` or `POST /api/rf/sleep?slot={0|1|2}`
-Puts paired Elite remotes to sleep (immediate Suspend-to-RAM on battery).
+Puts paired touchscreen remotes to sleep (immediate Suspend-to-RAM on battery).
 - **Query Parameter**: `slot` (optional: `1` for remote 1, `2` for remote 2, `0` or omitted for all active remotes).
 - **Response `200 OK`**: `{"status": "sleep_dispatched", "slot": 1, "sent": 1, "ok": true}`
 - **MQTT equivalent**: Publish to `harmony/hub/remote/1/sleep` or `harmony/hub/remote/sleep`.
 - **Home Assistant**: Auto-discovered as `button.<hub>_remote_1_sleep`.
 
-### 7.5 Direct Buttons & Firmware OTA (Elite Remotes)
+### 7.5 Direct Buttons & Firmware OTA (Touchscreen Remotes)
 #### `GET /api/rf/remote-direct-buttons?slot={1|2}`
-Returns touch screen direct command button grid for Elite remotes.
+Returns touch screen direct command button grid for touchscreen remotes.
 
 #### `POST /api/rf/remote-direct-buttons?slot={1|2}`
 Saves direct touch buttons configuration.
@@ -840,14 +840,14 @@ Returns remote firmware chunk update progress.
   ```
 
 #### `POST /api/rf/ota-start?slot={1|2}`
-Starts background remote firmware flash update (Elite remotes only).
+Starts background remote firmware flash update (touchscreen remotes only).
 
-### 7.6 Physical Remote Key Mappings (Elite, Companion, Smart Control)
+### 7.6 Physical Remote Key Mappings (Touchscreen Remotes, Companion, Smart Control)
 #### `GET /api/rf-mapping?slot={1|2}`
 Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 - **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json` (fallback `/data/harmony/elite_remote_map.json`); Slot 2 uses `/data/harmony/remote_slot2_map.json`.
-- **Remote Model Awareness**: Mappings apply to any paired remote in that slot—Harmony Elite, Harmony Companion, or Harmony Smart Control.
+- **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 
 #### `POST /api/rf-mapping-save?slot={1|2}`
 Saves button assignments for the specified slot.

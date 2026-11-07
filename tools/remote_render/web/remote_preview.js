@@ -1,4 +1,4 @@
-// Browser side of the WebAssembly Elite renderer: loads files into the module's filesystem
+// Browser side of the WebAssembly remote renderer: loads files into the module's filesystem
 // and draws screens into a 240x320 canvas. The Hub's web UIs import it from their assets
 // with loadHubRenderer(), writeRemoteConfig() and render().
 const ROOT = '/r';
@@ -23,7 +23,7 @@ export function loadHubRenderer(hubBaseUrl = '') {
       try {
         writeTar(module, await fetchTar(`${hubBaseUrl}/api/icons/archive`), STOCK_ASSET_DIR, 1); // drop "icons/"
       } catch (e) {
-        console.warn('Elite preview: no stock assets from the Hub', e);
+        console.warn('Remote preview: no stock assets from the Hub', e);
       }
       return module;
     })();
@@ -187,7 +187,7 @@ export function loadTheme(module, name) {
   if (!themes.has(name)) {
     themes.set(name, fetchTar(new URL(`themes/${name}.tar${VERSION}`, import.meta.url).href)
       .then((tar) => { writeTar(module, tar, `/data/themes/${name}`); return true; })
-      .catch((e) => { console.warn(`Elite preview: no theme ${name}`, e); return false; }));
+      .catch((e) => { console.warn(`Remote preview: no theme ${name}`, e); return false; }));
   }
   return themes.get(name);
 }
