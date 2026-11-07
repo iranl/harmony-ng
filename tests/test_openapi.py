@@ -334,6 +334,7 @@ class TestOpenApiCompliance(unittest.TestCase):
             "/api/remote-status",
             "/api/remote-scan",
             "/api/remote-scan-stop",
+            "/api/remote-unpair",
             "/api/update-status",
             "/api/update-check",
             "/api/custom-icons"

@@ -90,7 +90,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             int8_t rssi = gap_event_advertising_report_get_rssi(packet);
 
             char dev_name[64] = "";
-            uint8_t flags = 0;
             uint16_t appearance = 0;
             bool has_hid = ad_data_contains_uuid16(ad_len, ad_data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
 
@@ -100,9 +99,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 uint8_t data_type = ad_iterator_get_data_type(&context);
                 uint8_t data_len  = ad_iterator_get_data_len(&context);
                 const uint8_t *data = ad_iterator_get_data(&context);
-                if (data_type == 0x01 && data_len >= 1) {
-                    flags = data[0];
-                } else if (data_type == 0x08 || data_type == 0x09) {
+                if (data_type == 0x08 || data_type == 0x09) {
                     int copy_len = data_len < (uint8_t)(sizeof(dev_name) - 1) ? data_len : (uint8_t)(sizeof(dev_name) - 1);
                     memcpy(dev_name, data, copy_len);
                     dev_name[copy_len] = 0;
@@ -122,7 +119,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     is_hid = true;
                 }
             }
-            bool in_pairing_mode = ((flags & 0x03) != 0);
 
             if (g_user_scan_active) {
                 // In active user scan: discover all nearby BLE devices/remotes
@@ -158,11 +154,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 break;
             }
 
+            /* Only the pinned remote (chosen in the web UI: scan, then pair) is connected.
+             * Matching any HID device that advertised the LE discoverable flags (0x01/0x02,
+             * which most HID devices always set) or a name made the Hub bond with whatever
+             * was in range when nothing was pinned, and act on its keys. */
             bool match = false;
             bd_addr_t target_mac;
             if (get_pinned_target(target_mac) && memcmp(adv_addr, target_mac, 6) == 0) {
-                match = true;
-            } else if (is_hid && (in_pairing_mode || dev_name[0])) {
                 match = true;
             }
 

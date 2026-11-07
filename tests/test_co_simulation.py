@@ -161,6 +161,31 @@ class CoSimulationRunner:
         st, res = self.http_post("/api/activity-stop", {"dry_run": 1})
         self.record("Activity Stop Sequence", st == 200, f"HTTP {st}")
 
+        # 3b. Forget the BLE remote: the command reaches hub_btstack, the map loses its address
+        print("[-] Step 2b: Forgetting the pinned BLE remote...")
+        cmd_file = "/tmp/hub_btstack_cmd"
+        map_path = os.path.join(MOCK_BASE, "data", "harmony", "bt_remote_map.json")
+        try:
+            os.makedirs(os.path.dirname(map_path), exist_ok=True)
+            with open(map_path, "w") as f:
+                json.dump({"remote": {"bdaddr": "11:22:33:44:55:66"}, "mapping": {"KEY_UP": "DirectionUp"}}, f)
+            if os.path.exists(cmd_file):
+                os.remove(cmd_file)
+            st, res = self.http_post("/api/remote-unpair", {})
+            cmd = open(cmd_file).read().strip() if os.path.exists(cmd_file) else ""
+            self.record("Remote unpair: FORGET sent to hub_btstack",
+                        st == 200 and res.get("ok") is True and res.get("state") == "standby" and cmd == "FORGET",
+                        f"HTTP {st} {res} cmd={cmd!r}")
+            if res.get("map_cleared"):
+                with open(map_path) as f:
+                    m = json.load(f)
+                self.record("Remote unpair: map keeps its mapping, loses the address",
+                            "bdaddr" not in m.get("remote", {}) and m.get("mapping", {}).get("KEY_UP") == "DirectionUp", str(m))
+        finally:
+            for p in (cmd_file, map_path):
+                if os.path.exists(p):
+                    os.remove(p)
+
         # 4. Test Direct Pronto Hex Blast & Verify Waveform in Mock Blaster
         print("[-] Step 3: Testing IR Blast & Mock IR Receiver...")
         pronto = "0000 0067 0000 000d 0060 0018 0030 0018 0018 0018 0030 0018 0018 0018 0030 0018 0018 0018 0018 0018 0030 0018 0018 0018 0018 0018 0018 0018 0018 03a0"

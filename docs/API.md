@@ -700,6 +700,16 @@ Initiates Bluetooth scan for nearby BLE remotes.
 Pairs with target BLE remote MAC address.
 - **Request Body**: `{"bdaddr": "11:22:33:44:55:66"}`
 
+The Hub connects only to the remote paired this way (the scan lists the remotes in range, the pair
+request pins one). With no remote pinned it does not scan and does not connect to any BLE device on
+its own; older builds bonded with any discoverable BLE HID device in range.
+
+#### `POST /api/remote-unpair`
+Forgets the pinned BLE remote: removes its address from `bt_remote_map.json`, and `hub_btstack`
+disconnects it, deletes its target file, its LE bond and its stored HOGD record, then stays idle.
+The Classic Bluetooth hosts (link keys, `devices.json`) are not touched.
+- **Response `200 OK`**: `{"ok": true, "state": "standby", "map_cleared": true, "message": "Bluetooth remote forgotten"}` (`map_cleared` false when the map named no remote)
+
 ### 6.7 Remote Key Mappings
 #### `GET /api/remote-mapping`
 Returns physical key bindings for BLE remote.

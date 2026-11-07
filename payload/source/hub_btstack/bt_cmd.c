@@ -315,6 +315,8 @@ void execute_btstack_cmd(const char *cmd_in) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
+    } else if (strncasecmp(cmd, "forget", 6) == 0) {
+        forget_ble_remote();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {
         char *addr_str = cmd + 5;
         while (*addr_str == ' ') addr_str++;
