@@ -164,6 +164,65 @@ void render_key_hint(void) {
     fb_draw_text_aa(x, y + 138, tr(STR_KEY_HINT_DISMISS), RGB_CYAN, &g_font_main);
 }
 
+/* Most edges one row of a polygon passed to fill_polygon() may cross; further crossings are dropped */
+#define POLY_MAX_INTERSECTIONS 8
+
+/* Fills the polygon pts (x, y pairs, n points) with the even-odd rule, sampling each row at its centre */
+static void fill_polygon(int ox, int oy, const int *pts, int n, uint16_t color) {
+    int y0 = pts[1], y1 = pts[1];
+    for (int i = 1; i < n; i++) {
+        if (pts[2 * i + 1] < y0) y0 = pts[2 * i + 1];
+        if (pts[2 * i + 1] > y1) y1 = pts[2 * i + 1];
+    }
+    for (int y = y0; y < y1; y++) {
+        int xs[POLY_MAX_INTERSECTIONS], nx = 0;
+        for (int i = 0, j = n - 1; i < n && nx < POLY_MAX_INTERSECTIONS; j = i++) {
+            int xa = pts[2 * j], ya = pts[2 * j + 1], xb = pts[2 * i], yb = pts[2 * i + 1];
+            if ((ya <= y) == (yb <= y)) continue;
+            xs[nx++] = xa + (2 * (y - ya) + 1) * (xb - xa) / (2 * (yb - ya));
+        }
+        for (int a = 1; a < nx; a++)
+            for (int b = a; b > 0 && xs[b - 1] > xs[b]; b--) { int t = xs[b]; xs[b] = xs[b - 1]; xs[b - 1] = t; }
+        for (int k = 0; k + 1 < nx; k += 2) fb_fill_rect(ox + xs[k], oy + y, xs[k + 1] - xs[k], 1, color);
+    }
+}
+
+/* Full-screen page for a few seconds after the remote is docked or plugged in: a large battery
+   with a bolt, its level and "Charging" */
+void render_charging_page(void) {
+    fb_fill_rect(0, 0, FB_WIDTH, FB_HEIGHT, RGB_BG);
+
+    const int bw = 120, bh = 60, tw = 8, th = 24;
+    int bx = (FB_WIDTH - bw - tw) / 2, by = FB_HEIGHT / 2 - 70;
+    for (int i = 0; i < 3; i++) fb_draw_rect(bx + i, by + i, bw - 2 * i, bh - 2 * i, RGB_WHITE);
+    fb_fill_rect(bx + bw, by + (bh - th) / 2, tw, th, RGB_WHITE);
+    int pct = g_battery_info.percent > 100 ? 100 : g_battery_info.percent;
+    int fw = (bw - 12) * pct / 100;
+    if (fw > 0) fb_fill_rect(bx + 6, by + 6, fw, bh - 12, RGB_TEAL);
+
+    static const int bolt[] = { 14, 0, 30, 0, 22, 18, 32, 18, 10, 48, 16, 26, 6, 26 };
+    fill_polygon(bx + bw / 2 - 19, by + (bh - 48) / 2, bolt, 7, RGB_WHITE);
+
+    const char *title = tr(STR_CHARGING);
+    fb_draw_text_aa((FB_WIDTH - fb_text_width_aa(title, &g_font_title)) / 2, by + bh + 28, title, RGB_WHITE, &g_font_title);
+    char pstr[8];
+    snprintf(pstr, sizeof(pstr), "%d%%", pct);
+    fb_draw_text_aa((FB_WIDTH - fb_text_width_aa(pstr, &g_font_main)) / 2, by + bh + 58, pstr, RGB_TEXT_MUTED, &g_font_main);
+}
+
+bool ui_charging_page_active(void) {
+    uint32_t until = g_charging_page_until_ms;
+    return until != 0 && (int32_t)(until - (uint32_t)get_monotonic_ms()) > 0;
+}
+
+/* Closes the charging page if it is showing; returns true when the input was used for that */
+bool ui_charging_page_dismiss(void) {
+    if (!ui_charging_page_active()) return false;
+    g_charging_page_until_ms = 0;
+    render_screen();
+    return true;
+}
+
 void render_sync_overlay(void) {
     fb_fill_rect(0, 0, FB_WIDTH, 34, RGB_HEADER);
     fb_draw_text_aa(14, 9, tr(STR_SYNC_CONFIG_TITLE), RGB_CYAN, &g_font_title);
@@ -222,6 +281,8 @@ void render_frame(void) {
         render_sync_overlay();
     } else if (g_is_switching_activity) {
         render_switching_view();
+    } else if (ui_charging_page_active()) {
+        render_charging_page(); /* full screen: nothing under it is drawn */
     } else {
         render_header();
 
@@ -263,6 +324,7 @@ static const char *screen_name(void) {
     if (g_is_ota_updating) return "ota";
     if (g_is_syncing_config) return "sync";
     if (g_is_switching_activity) return "switching";
+    if (ui_charging_page_active()) return "charging";
     if (g_menu_open) return "menu";
     if (ui_help_active()) return "help";
     if (g_current_view == VIEW_SETTINGS) {

@@ -22,7 +22,7 @@ static bool s_hint_back = false;
 screen_place_t screen_place(void) {
     screen_place_t p = { SECTION_OTHER, 0, (int)g_current_view, false };
     p.overlay = g_is_switching_activity || g_is_syncing_config || g_is_ota_updating || ui_help_active() ||
-                g_key_hint_pending || g_link_panel_open;
+                g_key_hint_pending || g_link_panel_open || ui_charging_page_active();
     switch (g_current_view) {
         case VIEW_ACTIVITIES: p.section = SECTION_HOME; p.depth = 0; break;
         case VIEW_DEVICES:    p.section = SECTION_HOME; p.depth = 1; break;

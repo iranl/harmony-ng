@@ -37,8 +37,12 @@ static void set_view(const render_options_t *o) {
     g_menu_open = false;
     g_key_hint_pending = false;
     g_link_panel_open = false;
+    g_charging_page_until_ms = 0;
     ui_help_close();
-    if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
+    if (strcmp(v, "charging") == 0) {
+        g_current_view = VIEW_ACTIVITIES;
+        g_charging_page_until_ms = (uint32_t)(get_monotonic_ms() + 60000) | 1;
+    } else if (strcmp(v, "menu") == 0 || strcmp(v, "hint") == 0 || strcmp(v, "link") == 0) {
         g_current_view = VIEW_ACTIVITIES;
         g_selected_activity = o->select;
         g_menu_open = (strcmp(v, "menu") == 0);

@@ -38,6 +38,7 @@ void render_screen(void);
 void render_header(void);
 void header_layout(header_layout_t *l);
 void render_key_hint(void);
+void render_charging_page(void);
 void render_link_panel(void);
 bool ui_link_panel_dismiss(void);
 void render_page_indicator(int page, int pages);
@@ -106,6 +107,8 @@ void render_menu(void);
 bool ui_menu_handle_key(int code);
 void ui_menu_handle_tap(int x, int y);
 bool ui_key_hint_dismiss(void);
+bool ui_charging_page_active(void);
+bool ui_charging_page_dismiss(void);
 
 /* Help (elite_ui_help.c): repairs the running activity, started from the menu */
 void ui_help_start(void);
