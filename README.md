@@ -146,7 +146,6 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 .
 ├── android-app/            # Modern client SPA & Android Capacitor project
 ├── build/                  # Cross-compilation toolchains, build, and deploy scripts
-│   ├── cc2544/             # GPLv2 kernel driver for CC2544 RF transceiver
 │   ├── patches/            # BTstack patches
 │   ├── build_apk.py        # Android APK build and package script
 │   ├── build_btstack.sh    # MIPS32 BTstack cross-compilation script
@@ -263,7 +262,7 @@ HarmonyNG exposes an extensive local REST and WebSocket API running on port `808
 
 ## License & Legal Information
 
-This project is licensed under the **MIT License** for all userspace code and the **GNU General Public License v2 (GPL-2.0)** for the Linux kernel transceiver driver (`build/cc2544/`). See [`LICENSE`](LICENSE) for complete terms.
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE) for complete terms.
 
 ### Attribution & Acknowledgments
 This project was originally inspired by and based on the foundational research and repository created by [Ripthulhu](https://github.com/Ripthulhu) (`harmony-hub-control` and `harmony-hub-root`). We express our sincere gratitude and credit to **Ripthulhu** for the original idea, pioneering hardware investigations, and proof-of-concept groundwork before this complete architectural reimplementation and expanded feature suite was undertaken.
