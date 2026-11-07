@@ -697,7 +697,7 @@ paths:
                 dry_run: false
                 ntp_server: pool.ntp.org
                 timezone: Europe/Amsterdam
-                led_mode: always_on
+                led_mode: green
     post:
       tags:
         - System & Status
@@ -716,13 +716,16 @@ paths:
                 dry_run: {type: boolean}
                 ntp_server: {type: string}
                 timezone: {type: string, description: "IANA timezone name or POSIX TZ string"}
-                led_mode: {type: string}
+                led_mode:
+                  type: string
+                  enum: [green, amber, red, "off"]
+                  description: Front light colour while the Hub runs normally. The older values always_on (green) and always_off (off) are still accepted.
             example:
               hub_name: Living Room Hub
               dry_run: false
               ntp_server: pool.ntp.org
               timezone: Europe/Amsterdam
-              led_mode: always_on
+              led_mode: green
       responses:
         '200':
           description: Settings saved

@@ -2,6 +2,7 @@
 #include "rf_ota.h"
 #include "rf_spi.h"
 #include "rf_pairing.h"
+#include "hub_led.h"
 #include "sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,7 +121,9 @@ void ota_set_status(int status, bool in_prog, const char *err) {
         g_rf_ota.error_msg[0] = '\0';
     }
     pthread_mutex_unlock(&g_ota_lock);
-    set_hub_led(in_prog ? 2 : 1);
+    if (in_prog) hub_led_show(HUB_LED_ALT_SLOW);
+    else if (status < 0) hub_led_show_failure();
+    else hub_led_restore();
     if (!in_prog) {
         rf_set_power_mode(RF_PM_ACTIVE);
         if (status == 2) {
