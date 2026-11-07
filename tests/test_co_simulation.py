@@ -82,7 +82,12 @@ class CoSimulationRunner:
 
         # 2. Start Hub Daemon in Host Test Mode
         hub_bin = os.path.join(REPO_ROOT, "build/tmp/test_host/hub_daemon_test")
-        if not os.path.exists(hub_bin):
+        # Rebuild when any daemon source is newer than the binary: building only when it was
+        # missing kept testing an old daemon after a source change
+        src_dir = os.path.join(REPO_ROOT, "payload/source")
+        newest_src = max((os.path.getmtime(os.path.join(src_dir, f)) for f in os.listdir(src_dir)
+                          if f.endswith((".c", ".h"))), default=0)
+        if not os.path.exists(hub_bin) or os.path.getmtime(hub_bin) < newest_src:
             print(f"[-] Compiling host test daemon at {hub_bin}...")
             os.makedirs(os.path.dirname(hub_bin), exist_ok=True)
             compile_cmd = [
@@ -172,6 +177,7 @@ class CoSimulationRunner:
             if os.path.exists(cmd_file):
                 os.remove(cmd_file)
             st, res = self.http_post("/api/remote-unpair", {})
+            res = res if isinstance(res, dict) else {"error": res}
             cmd = open(cmd_file).read().strip() if os.path.exists(cmd_file) else ""
             self.record("Remote unpair: FORGET sent to hub_btstack",
                         st == 200 and res.get("ok") is True and res.get("state") == "standby" and cmd == "FORGET",
