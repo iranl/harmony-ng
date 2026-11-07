@@ -113,8 +113,8 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - name: Install PyYAML (docs/openapi.yaml validation)
-        run: python -m pip install pyyaml
+      - name: Install PyYAML (docs/openapi.yaml validation) and aioharmony (Logitech shim test)
+        run: python -m pip install pyyaml aioharmony==1.0.8
       - name: Run Full Automated Mock Test Suite
         run: |
           chmod +x tests/run_mock_suite.sh

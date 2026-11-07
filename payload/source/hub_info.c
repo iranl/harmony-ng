@@ -19,6 +19,7 @@ static const char *const k_capabilities[] = {
     "ws_keepalive",
     "ir_raw",
     "mdns",
+    "legacy",
     "mqtt_v2",
     "rf_wake",
     NULL
@@ -76,7 +77,6 @@ void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings)
     cJSON_AddNumberToObject(obj, "api_version", HUB_API_VERSION);
     cJSON *caps = hub_info_capabilities();
     if (caps) cJSON_AddItemToObject(obj, "capabilities", caps);
-    /* legacy_enabled: milestone 4, false until it exists */
-    cJSON_AddBoolToObject(obj, "legacy_enabled", 0);
+    cJSON_AddBoolToObject(obj, "legacy_enabled", settings ? (settings->legacy_enabled ? 1 : 0) : 0);
     cJSON_AddBoolToObject(obj, "mdns_enabled", settings ? (settings->mdns_enabled ? 1 : 0) : 1);
 }

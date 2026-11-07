@@ -23,6 +23,10 @@ void daemon_sync_mqtt(void);    /* settings changed: reload and reconnect */
 void daemon_get_mqtt_info(char *host, size_t hlen, int *port, char *base, size_t blen, int *connected);
 /* Plain publish helper for the system-action "mqtt_publish" (QoS 0, not retained) */
 int hub_mqtt_publish_plain(const char *topic, const char *payload);
+/* Publishes a command reply on <base>/cmd/response for the request req (nothing when req has no
+ * "id"); used for replies that come later than the request (hub_cmd_poll) */
+struct cJSON;
+void hub_mqtt_deliver_reply(const struct cJSON *req, const struct cJSON *reply);
 /* MQTT-type devices: publish "1" on the device's topic template (placeholders {base_topic},
  * {device}, {command}; topic_in overrides the device's), then "0" after the pulse. Returns 0
  * when published, -1 when MQTT is off or disconnected; the resolved topic and pulse are

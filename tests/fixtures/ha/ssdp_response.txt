@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+CACHE-CONTROL: max-age=1800
+EXT:
+LOCATION: http://192.0.2.10:8088/description
+SERVER: Linux/2.6 UPnP/1.0 HarmonyNG/2.3.0
+ST: urn:myharmony-com:device:harmony:1
+USN: uuid:1c0dba38-c7c7-5277-a219-cd10fd0382c2::urn:myharmony-com:device:harmony:1
+

@@ -201,6 +201,9 @@ export function createView() {
         ]);
       };
 
+      const settings = await api.getSettings().catch(() => ({}));
+      srvMount.appendChild(createSrvRow('mDNS discovery (_harmony-ng._tcp)', 'mdns', (en) => api.saveSettings({ mdns_enabled: en ? 1 : 0 }), settings.mdns_enabled !== false));
+      srvMount.appendChild(createSrvRow('Logitech protocol compatibility (port 8088, no authentication)', 'legacy', (en) => api.saveSettings({ legacy_enabled: en ? 1 : 0 }), Boolean(settings.legacy_enabled)));
       srvMount.appendChild(createSrvRow('Harmony RF Transceiver (CC2544)', 'rf', (en) => api.toggleRfService(en), srv.rf !== false));
       srvMount.appendChild(createSrvRow('Bluetooth Stack (BT HID/UART)', 'bt', (en) => api.toggleBtService(en), srv.bt !== false));
     } catch (e) {

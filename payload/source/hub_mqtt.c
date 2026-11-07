@@ -424,39 +424,47 @@ static void on_cmd(const char *topic, const char *payload, size_t len, void *ud)
         cJSON_DeleteItemFromObjectCaseSensitive(req, "action");
         cJSON_AddStringToObject(req, "action", "ir_raw");
     }
-    const cJSON *jid = cJSON_GetObjectItemCaseSensitive(req, "id");
-    int has_id = jid && cJSON_IsString(jid) && jid->valuestring[0];
-    cJSON *reply = hub_cmd_execute(req, 2 /* ROLE_ADMIN: the broker is trusted */);
-    if (reply && has_id) {
-        const char *rtype = obj_str(reply, "type");
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "type", "cmd_response");
-        cJSON_AddStringToObject(resp, "id", jid->valuestring);
-        cJSON_AddStringToObject(resp, "action", obj_str(req, "action"));
-        if (strcmp(rtype, "ack") == 0) {
-            const cJSON *ok = cJSON_GetObjectItemCaseSensitive(reply, "ok");
-            int okv = ok && cJSON_IsTrue(ok);
-            cJSON_AddBoolToObject(resp, "ok", okv);
-            if (!okv) {
-                const cJSON *code = cJSON_GetObjectItemCaseSensitive(reply, "code");
-                cJSON_AddNumberToObject(resp, "code", code && cJSON_IsNumber(code) ? code->valueint : 500);
-                cJSON_AddStringToObject(resp, "error", obj_str(reply, "error"));
-            }
-            const cJSON *c = cJSON_GetObjectItemCaseSensitive(reply, "count");
-            const cJSON *dm = cJSON_GetObjectItemCaseSensitive(reply, "duration_ms");
-            if (c) cJSON_AddNumberToObject(resp, "count", c->valuedouble);
-            if (dm) cJSON_AddNumberToObject(resp, "duration_ms", dm->valuedouble);
-        } else {
-            /* pong, activity_state, snapshot: the object itself under its type name */
-            cJSON_AddBoolToObject(resp, "ok", 1);
-            cJSON_DeleteItemFromObjectCaseSensitive(reply, "id");
-            cJSON_AddItemToObject(resp, strcmp(rtype, "pong") == 0 ? "pong" : rtype, cJSON_Duplicate(reply, 1));
-        }
-        publish_cmd_response(resp);
-        cJSON_Delete(resp);
-    }
+    /* NULL: the reply comes later (update_check), through hub_mqtt_deliver_reply */
+    cJSON *reply = hub_cmd_execute_from(req, 2 /* ROLE_ADMIN: the broker is trusted */, HUB_CMD_ORIGIN_MQTT);
+    if (reply) hub_mqtt_deliver_reply(req, reply);
     cJSON_Delete(reply);
     cJSON_Delete(req);
+}
+
+void hub_mqtt_deliver_reply(const cJSON *req, const cJSON *reply) {
+    const cJSON *jid = req ? cJSON_GetObjectItemCaseSensitive(req, "id") : NULL;
+    if (!reply || !jid || !cJSON_IsString(jid) || !jid->valuestring[0]) return; /* no id: no answer */
+    const char *rtype = obj_str(reply, "type");
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "type", "cmd_response");
+    cJSON_AddStringToObject(resp, "id", jid->valuestring);
+    cJSON_AddStringToObject(resp, "action", obj_str(req, "action"));
+    if (strcmp(rtype, "ack") == 0) {
+        const cJSON *ok = cJSON_GetObjectItemCaseSensitive(reply, "ok");
+        int okv = ok && cJSON_IsTrue(ok);
+        cJSON_AddBoolToObject(resp, "ok", okv);
+        if (!okv) {
+            const cJSON *code = cJSON_GetObjectItemCaseSensitive(reply, "code");
+            cJSON_AddNumberToObject(resp, "code", code && cJSON_IsNumber(code) ? code->valueint : 500);
+            cJSON_AddStringToObject(resp, "error", obj_str(reply, "error"));
+        }
+        /* every other field of the ack (count, duration_ms, the update and Help fields) */
+        static const char *const own[] = { "type", "action", "id", "msgId", "ok", "code", "error", NULL };
+        const cJSON *it;
+        cJSON_ArrayForEach(it, reply) {
+            int skip = 0;
+            for (int i = 0; own[i]; i++) if (it->string && strcmp(it->string, own[i]) == 0) skip = 1;
+            if (!skip && it->string) cJSON_AddItemToObject(resp, it->string, cJSON_Duplicate(it, 1));
+        }
+    } else {
+        /* pong, activity_state, snapshot: the object itself under its type name */
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON *copy = cJSON_Duplicate(reply, 1);
+        cJSON_DeleteItemFromObjectCaseSensitive(copy, "id");
+        cJSON_AddItemToObject(resp, strcmp(rtype, "pong") == 0 ? "pong" : rtype, copy);
+    }
+    publish_cmd_response(resp);
+    cJSON_Delete(resp);
 }
 
 /* ------------------------------------------------------------------------------------------ */

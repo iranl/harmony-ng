@@ -43,6 +43,9 @@ gcc -Wall -O2 -g -DTEST_HARNESS=1 \
     "$REPO_ROOT/payload/source/hub_events.c" \
     "$REPO_ROOT/payload/source/hub_info.c" \
     "$REPO_ROOT/payload/source/hub_mdns.c" \
+    "$REPO_ROOT/payload/source/hub_ssdp.c" \
+    "$REPO_ROOT/payload/source/hbus_config.c" \
+    "$REPO_ROOT/payload/source/hbus_server.c" \
     "$REPO_ROOT/payload/source/hub_cmd.c" \
     "$REPO_ROOT/payload/source/mfg_id.c" \
     "$REPO_ROOT/payload/source/mqtt_client.c" \

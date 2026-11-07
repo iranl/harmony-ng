@@ -542,6 +542,7 @@ int config_store_get_settings(struct hub_settings *settings) {
     strncpy(settings->timezone, "UTC", sizeof(settings->timezone) - 1);
     strncpy(settings->led_mode, HUB_LED_DEFAULT_MODE, sizeof(settings->led_mode) - 1);
     settings->mdns_enabled = 1;
+    settings->legacy_enabled = 0;
 
     const char *settings_path = HARMONY_SETTINGS_FILE;
     char *raw = read_file_text(settings_path, 64 * 1024);
@@ -581,6 +582,11 @@ int config_store_get_settings(struct hub_settings *settings) {
         if (cJSON_IsBool(item)) settings->mdns_enabled = cJSON_IsTrue(item) ? 1 : 0;
         else if (cJSON_IsNumber(item)) settings->mdns_enabled = item->valueint ? 1 : 0;
     }
+    item = cJSON_GetObjectItemCaseSensitive(root, "legacy_enabled");
+    if (item) {
+        if (cJSON_IsBool(item)) settings->legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
+        else if (cJSON_IsNumber(item)) settings->legacy_enabled = item->valueint ? 1 : 0;
+    }
 
     cJSON_Delete(root);
     return 0;
@@ -598,6 +604,7 @@ int config_store_save_settings(const struct hub_settings *settings) {
     cJSON_AddStringToObject(root, "timezone", settings->timezone[0] ? settings->timezone : "UTC");
     cJSON_AddStringToObject(root, "led_mode", settings->led_mode[0] ? settings->led_mode : HUB_LED_DEFAULT_MODE);
     cJSON_AddBoolToObject(root, "mdns_enabled", settings->mdns_enabled ? 1 : 0);
+    cJSON_AddBoolToObject(root, "legacy_enabled", settings->legacy_enabled ? 1 : 0);
 
     char *out = cJSON_Print(root);
     cJSON_Delete(root);

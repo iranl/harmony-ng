@@ -1,0 +1,269 @@
+{
+  "cmd": "vnd.logitech.harmony/vnd.logitech.harmony.engine?config",
+  "id": "e9ad6c80-8304-43bd-a551-b32357709174",
+  "code": 200,
+  "msg": "OK",
+  "data": {
+    "activity": [
+      {
+        "id": "10",
+        "label": "Watch TV",
+        "type": "WatchTV",
+        "activityOrder": 1,
+        "isTuningDefault": false,
+        "controlGroup": [
+          {
+            "name": "Power",
+            "function": [
+              {
+                "name": "PowerOn",
+                "label": "PowerOn",
+                "action": "{\"command\":\"PowerOn\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "PowerOff",
+                "label": "PowerOff",
+                "action": "{\"command\":\"PowerOff\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "Miscellaneous",
+            "function": [
+              {
+                "name": "InputHdmi1",
+                "label": "InputHdmi1",
+                "action": "{\"command\":\"InputHdmi1\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "Volume",
+            "function": [
+              {
+                "name": "VolumeUp",
+                "label": "VolumeUp",
+                "action": "{\"command\":\"VolumeUp\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "VolumeDown",
+                "label": "VolumeDown",
+                "action": "{\"command\":\"VolumeDown\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          }
+        ],
+        "fixit": {
+          "1": {
+            "id": "1",
+            "Power": "On",
+            "Input": "",
+            "isRelativePower": false,
+            "isManualPower": "false"
+          }
+        },
+        "sequences": [],
+        "rules": []
+      },
+      {
+        "id": "11",
+        "label": "Media Player",
+        "type": "Custom",
+        "activityOrder": 2,
+        "isTuningDefault": false,
+        "controlGroup": [
+          {
+            "name": "Power",
+            "function": [
+              {
+                "name": "PowerOn",
+                "label": "PowerOn",
+                "action": "{\"command\":\"PowerOn\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "PowerOff",
+                "label": "PowerOff",
+                "action": "{\"command\":\"PowerOff\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "PowerToggle",
+                "label": "PowerToggle",
+                "action": "{\"command\":\"PowerToggle\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              }
+            ]
+          },
+          {
+            "name": "Miscellaneous",
+            "function": [
+              {
+                "name": "InputHdmi1",
+                "label": "InputHdmi1",
+                "action": "{\"command\":\"InputHdmi1\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "Volume",
+            "function": [
+              {
+                "name": "VolumeUp",
+                "label": "VolumeUp",
+                "action": "{\"command\":\"VolumeUp\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "VolumeDown",
+                "label": "VolumeDown",
+                "action": "{\"command\":\"VolumeDown\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "NavigationBasic",
+            "function": [
+              {
+                "name": "Home",
+                "label": "Home",
+                "action": "{\"command\":\"Home\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              },
+              {
+                "name": "Select",
+                "label": "Select",
+                "action": "{\"command\":\"Select\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              }
+            ]
+          }
+        ],
+        "fixit": {
+          "1": {
+            "id": "1",
+            "Power": "On",
+            "Input": "",
+            "isRelativePower": false,
+            "isManualPower": "false"
+          },
+          "2": {
+            "id": "2",
+            "Power": "On",
+            "Input": "",
+            "isRelativePower": false,
+            "isManualPower": "false"
+          }
+        },
+        "sequences": [],
+        "rules": []
+      },
+      {
+        "id": "-1",
+        "label": "PowerOff",
+        "type": "PowerOff",
+        "activityOrder": 0,
+        "isTuningDefault": false,
+        "controlGroup": [],
+        "fixit": {},
+        "sequences": [],
+        "rules": []
+      }
+    ],
+    "device": [
+      {
+        "id": "1",
+        "label": "Living Room TV",
+        "type": "Television",
+        "manufacturer": "Example",
+        "model": "TV-1000",
+        "deviceTypeDisplayName": "Television",
+        "controlGroup": [
+          {
+            "name": "Power",
+            "function": [
+              {
+                "name": "PowerOn",
+                "label": "PowerOn",
+                "action": "{\"command\":\"PowerOn\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "PowerOff",
+                "label": "PowerOff",
+                "action": "{\"command\":\"PowerOff\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "Miscellaneous",
+            "function": [
+              {
+                "name": "InputHdmi1",
+                "label": "InputHdmi1",
+                "action": "{\"command\":\"InputHdmi1\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          },
+          {
+            "name": "Volume",
+            "function": [
+              {
+                "name": "VolumeUp",
+                "label": "VolumeUp",
+                "action": "{\"command\":\"VolumeUp\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              },
+              {
+                "name": "VolumeDown",
+                "label": "VolumeDown",
+                "action": "{\"command\":\"VolumeDown\",\"type\":\"IRCommand\",\"deviceId\":\"1\"}"
+              }
+            ]
+          }
+        ],
+        "isManualPower": "false",
+        "IsKeyboardAssociated": false,
+        "Capabilities": [],
+        "DongleRFID": 0
+      },
+      {
+        "id": "2",
+        "label": "Media Player",
+        "type": "MediaPlayer",
+        "manufacturer": "Example",
+        "model": "Box-200",
+        "deviceTypeDisplayName": "MediaPlayer",
+        "controlGroup": [
+          {
+            "name": "Power",
+            "function": [
+              {
+                "name": "PowerToggle",
+                "label": "PowerToggle",
+                "action": "{\"command\":\"PowerToggle\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              }
+            ]
+          },
+          {
+            "name": "NavigationBasic",
+            "function": [
+              {
+                "name": "Home",
+                "label": "Home",
+                "action": "{\"command\":\"Home\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              },
+              {
+                "name": "Select",
+                "label": "Select",
+                "action": "{\"command\":\"Select\",\"type\":\"IRCommand\",\"deviceId\":\"2\"}"
+              }
+            ]
+          }
+        ],
+        "isManualPower": "false",
+        "IsKeyboardAssociated": false,
+        "Capabilities": [],
+        "DongleRFID": 0
+      }
+    ],
+    "global": {
+      "timeStampHash": "504af5ca;1234567",
+      "locale": "en-US"
+    },
+    "content": {},
+    "sequence": []
+  }
+}

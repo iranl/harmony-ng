@@ -487,10 +487,12 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const ntp_server = document.getElementById('hubNtpServerInput')?.value.trim();
       const timezone = (document.getElementById('hubTimezoneSelect') || document.getElementById('hubTimezoneInput'))?.value.trim();
       const led_mode = document.getElementById('hubLedModeSelect')?.value;
+      const mdns_enabled = document.getElementById('hubMdnsEnabled')?.checked ? 1 : 0;
+      const legacy_enabled = document.getElementById('hubLegacyEnabled')?.checked ? 1 : 0;
       const stat = document.getElementById('hubSettingsStatus');
       if (stat) stat.textContent = 'Saving...';
       try {
-        await this.client.saveSettings({ ntp_server, timezone, led_mode });
+        await this.client.saveSettings({ ntp_server, timezone, led_mode, mdns_enabled, legacy_enabled });
         if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved and applied!</span>';
         setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
       } catch (err) {
