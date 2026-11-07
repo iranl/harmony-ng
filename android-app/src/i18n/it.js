@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Revoca token",
     "revoke_token_confirm": "Revocare il token di accesso personale \"{name}\"? Le integrazioni di terze parti che utilizzano questo token smetteranno di funzionare.",
     "rf_address_lbl": "Indirizzo RF:",
-    "rf_config_error": "Errore durante l'invio delle impostazioni: ",
     "rf_config_failed": "Impossibile salvare le impostazioni sull'Hub.",
     "rf_config_load_failed": "Impossibile caricare le impostazioni del telecomando dall'Hub (nessuna modifica): ",
     "rf_config_saved": "Impostazioni salvate e inviate via RF al telecomando!",

@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Revoke Token",
     "revoke_token_confirm": "Revoke Personal Access Token \"{name}\"? Third-party integrations using this token will stop working.",
     "rf_address_lbl": "RF Address:",
-    "rf_config_error": "Error pushing settings: ",
     "rf_config_failed": "Failed to save settings to Hub.",
     "rf_config_load_failed": "Could not load the remote settings from the Hub (nothing was changed): ",
     "rf_config_saved": "Settings saved and pushed over RF to remote!",

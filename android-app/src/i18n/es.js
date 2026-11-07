@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Revocar token",
     "revoke_token_confirm": "¿Revocar token de acceso personal \"{name}\"? Las integraciones de terceros que usen este token dejarán de funcionar.",
     "rf_address_lbl": "Dirección RF:",
-    "rf_config_error": "Error al enviar los ajustes: ",
     "rf_config_failed": "Error al guardar los ajustes en el Hub.",
     "rf_config_load_failed": "No se pudieron cargar los ajustes del mando desde el Hub (no se cambió nada): ",
     "rf_config_saved": "¡Ajustes guardados y enviados por RF al mando!",

@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Révoquer le jeton",
     "revoke_token_confirm": "Révoquer le jeton d'accès personnel « {name} » ? Les intégrations tierces utilisant ce jeton cesseront de fonctionner.",
     "rf_address_lbl": "Adresse RF :",
-    "rf_config_error": "Erreur lors de l'envoi des paramètres : ",
     "rf_config_failed": "Échec de l'enregistrement des paramètres sur le Hub.",
     "rf_config_load_failed": "Impossible de charger les réglages de la télécommande depuis le Hub (rien n'a été modifié) : ",
     "rf_config_saved": "Paramètres enregistrés et transmis par RF à la télécommande !",

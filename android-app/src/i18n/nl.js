@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Token intrekken",
     "revoke_token_confirm": "Persoonlijk toegangstoken \"{name}\" intrekken? Externe integraties die dit token gebruiken, stoppen met werken.",
     "rf_address_lbl": "RF-adres:",
-    "rf_config_error": "Fout bij verzenden van instellingen: ",
     "rf_config_failed": "Opslaan van instellingen op Hub mislukt.",
     "rf_config_load_failed": "Kon de instellingen van de afstandsbediening niet van de Hub laden (niets gewijzigd): ",
     "rf_config_saved": "Instellingen opgeslagen en via RF naar afstandsbediening verzonden!",

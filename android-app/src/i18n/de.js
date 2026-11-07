@@ -918,7 +918,6 @@ export default {
     "revoke_token": "Token widerrufen",
     "revoke_token_confirm": "Persönlichen Zugriffstoken „{name}“ widerrufen? Drittanbieter-Integrationen, die diesen Token nutzen, funktionieren dann nicht mehr.",
     "rf_address_lbl": "Funk-Adresse:",
-    "rf_config_error": "Fehler beim Senden der Einstellungen: ",
     "rf_config_failed": "Fehler beim Speichern der Einstellungen auf dem Hub.",
     "rf_config_load_failed": "Die Einstellungen der Fernbedienung konnten nicht vom Hub geladen werden (nichts geändert): ",
     "rf_config_saved": "Einstellungen gespeichert und per Funk an Fernbedienung gesendet!",
