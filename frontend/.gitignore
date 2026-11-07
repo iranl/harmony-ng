@@ -5,9 +5,9 @@ android/app/build/
 android/build/
 android/capacitor-cordova-android-plugins/build/
 android/local.properties
-# WebAssembly screen renderer, built by tools/elite_render/build.sh --wasm public/assets
-public/assets/elite_render.js
-public/assets/elite_render.wasm
-public/assets/elite_preview.js
-# Elite theme packages for the screen preview, built by tools/elite_render/build_theme.py --tar public/assets/themes
+# WebAssembly screen renderer, built by tools/remote_render/build.sh --wasm public/assets
+public/assets/remote_render.js
+public/assets/remote_render.wasm
+public/assets/remote_preview.js
+# Remote theme packages for the screen preview, built by tools/remote_render/build_theme.py --tar public/assets/themes
 public/assets/themes/

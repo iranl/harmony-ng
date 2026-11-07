@@ -336,14 +336,16 @@ do_apply() {
     done
   fi
 
-  # 4. Update Elite Remote OTA image (store on /data/harmony)
-  echo "[*] Checking Elite remote OTA package..."
-  if download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/elite_ui.ota.gz" 35 3; then
-    cp -f "$TMPDIR/elite_ui.ota.gz" /data/harmony/elite_ui.ota.gz 2>/dev/null || true
-    echo "$NEW_VER" > /data/harmony/elite_ui.version 2>/dev/null || true
-    rm -f /cache/elite_ui.ota.gz 2>/dev/null || true
-    rm -f "$TMPDIR/elite_ui.ota.gz"
-    echo "[+] Elite remote OTA package cached (/data/harmony/elite_ui.ota.gz)."
+  # 4. Update remote OTA image (store on /data/harmony)
+  echo "[*] Checking remote OTA package..."
+  # elite_ui.ota.gz: the name before the elite -> remote rename, on an OTA branch not yet republished
+  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3 ||
+     download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3; then
+    cp -f "$TMPDIR/remote_ui.ota.gz" /data/harmony/remote_ui.ota.gz 2>/dev/null || true
+    echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
+    rm -f /cache/remote_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
+    rm -f "$TMPDIR/remote_ui.ota.gz"
+    echo "[+] Remote OTA package cached (/data/harmony/remote_ui.ota.gz)."
   fi
 
   # 5. Check if update succeeded before recording version
@@ -380,23 +382,24 @@ do_apply() {
   fi
 }
 
-do_elite_ota() {
+do_remote_ota() {
   local slot="${1:-1}"
-  echo "[*] Triggering RF OTA firmware update for Elite remote on Slot ${slot}..."
+  echo "[*] Triggering RF OTA firmware update for the remote on Slot ${slot}..."
   
-  if [ ! -f /cache/elite_ui.ota.gz ] && [ ! -f /data/harmony/elite_ui.ota.gz ] && [ ! -f /tmp/elite_ui.ota.gz ]; then
+  if [ ! -f /cache/remote_ui.ota.gz ] && [ ! -f /data/harmony/remote_ui.ota.gz ] && [ ! -f /tmp/remote_ui.ota.gz ]; then
     echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
-    download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" /cache/elite_ui.ota.gz 35 3
-    ln -sf /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz 2>/dev/null || true
+    download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3 ||
+      download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3
+    ln -sf /cache/remote_ui.ota.gz /data/harmony/remote_ui.ota.gz 2>/dev/null || true
   fi
 
   OTA_FILE=""
-  for f in /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /tmp/elite_ui.ota.gz; do
+  for f in /cache/remote_ui.ota.gz /data/harmony/remote_ui.ota.gz /tmp/remote_ui.ota.gz; do
     if [ -f "$f" ]; then OTA_FILE="$f"; break; fi
   done
 
   if [ -z "$OTA_FILE" ]; then
-    echo "[-] Error: elite_ui.ota.gz not found and could not be downloaded."
+    echo "[-] Error: remote_ui.ota.gz not found and could not be downloaded."
     return 1
   fi
 
@@ -414,10 +417,10 @@ do_elite_ota() {
         total=$(echo "$st" | grep -o '"total_bytes":[0-9]*' | cut -d':' -f2)
         echo "    Progress: ${sent}/${total} bytes..."
       elif echo "$st" | grep -q '"status":2'; then
-        echo "[+] Elite remote OTA complete! Remote is verifying and rebooting."
+        echo "[+] Remote OTA complete! Remote is verifying and rebooting."
         break
       elif echo "$st" | grep -q '"status":-1'; then
-        echo "[-] Elite remote OTA failed: $st"
+        echo "[-] Remote OTA failed: $st"
         break
       else
         echo "Status: $st"
@@ -438,7 +441,7 @@ case "$CMD" in
     do_apply
     ;;
   elite|remote)
-    do_elite_ota "${2:-1}"
+    do_remote_ota "${2:-1}"
     ;;
   status)
     if [ -f /data/harmony/update_state.conf ]; then

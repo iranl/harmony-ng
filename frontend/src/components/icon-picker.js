@@ -8,7 +8,7 @@ import iconMeta from '../icons/metadata.json';
 
 // The remote draws three kinds of activity and device icon:
 // - keywords (rf_activity_icon_keyword in payload/source/rf_proto.h), which a theme can redraw;
-// - the remote's stock images, sent as a 16-bit index (payload/source/elite_stock_icons.c);
+// - the remote's stock images, sent as a 16-bit index (payload/source/remote_stock_icons.c);
 // - icons uploaded to the Hub, which the Hub streams to the remote.
 const KEYWORDS = [
   ['watchtv', 'Watch TV'], ['movie', 'Watch Movie / Stream'], ['music', 'Listen to Music'],

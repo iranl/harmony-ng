@@ -202,20 +202,20 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       });
     }
 
-    // 3. Harmony Elite Button Mapping Modal Listeners
-    document.getElementById('eliteCancelBtn')?.addEventListener('click', () => {
-      const m = document.getElementById('eliteBtnModal');
+    // 3. Harmony Remote Button Mapping Modal Listeners
+    document.getElementById('remoteCancelBtn')?.addEventListener('click', () => {
+      const m = document.getElementById('remoteBtnModal');
       if (m) m.style.display = 'none';
     });
-    document.getElementById('eliteModalCloseBtn')?.addEventListener('click', () => {
-      const m = document.getElementById('eliteBtnModal');
+    document.getElementById('remoteModalCloseBtn')?.addEventListener('click', () => {
+      const m = document.getElementById('remoteBtnModal');
       if (m) m.style.display = 'none';
     });
-    document.getElementById('eliteBtnModal')?.addEventListener('click', (e) => {
-      if (e.target.id === 'eliteBtnModal') e.target.style.display = 'none';
+    document.getElementById('remoteBtnModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'remoteBtnModal') e.target.style.display = 'none';
     });
-    document.getElementById('eliteScreenFrame')?.addEventListener('click', () => {
-      const sec = document.getElementById('eliteSectionScreen');
+    document.getElementById('remoteScreenFrame')?.addEventListener('click', () => {
+      const sec = document.getElementById('remoteSectionScreen');
       if (sec) sec.scrollIntoView({ behavior: 'smooth' });
     });
 
@@ -236,7 +236,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768) {
         ['irStudioColLeft', 'irStudioColRight', 'devicePropertiesBox', 'curDevCmdsWrap',
-          'eliteColVisual', 'eliteColConfig', 'eliteSectionScreen', 'eliteSectionPresets',
+          'remoteColVisual', 'remoteColConfig', 'remoteSectionScreen', 'remoteSectionPresets',
           'b25ColVisual', 'b25ColPresets'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = '';

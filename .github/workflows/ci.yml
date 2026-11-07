@@ -38,8 +38,8 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 6.0.13
-      - name: Build Elite screen renderer (WebAssembly)
-        run: tools/elite_render/build.sh --wasm android-app/public/assets
+      - name: Build remote screen renderer (WebAssembly)
+        run: tools/remote_render/build.sh --wasm android-app/public/assets
       - name: Install dependencies
         working-directory: android-app
         run: npm ci
@@ -50,10 +50,10 @@ jobs:
         run: |
           test -f android-app/dist/index.html
           test -d android-app/dist/assets
-          test -f android-app/dist/assets/elite_render.wasm
+          test -f android-app/dist/assets/remote_render.wasm
 
-  build-elite:
-    name: Compile Elite ARM Binaries
+  build-remote:
+    name: Compile Remote ARM Binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -68,17 +68,17 @@ jobs:
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
-      - name: Compile elite_ui
+      - name: Compile remote_ui
         run: |
           chmod +x build/*.sh
-          ./build/compile_all.sh elite
-          file elite/bin/elite_ui
-          ls -lh elite/bin/elite_ui elite/bin/elite_sync
+          ./build/compile_all.sh remote
+          file remote/bin/remote_ui
+          ls -lh remote/bin/remote_ui remote/bin/remote_sync
       - name: Build host screen renderer and render the empty home screen
         run: |
-          tools/elite_render/build.sh
-          mkdir -p build/tmp/elite-root
-          build/tmp/elite-render/elite_render render --root build/tmp/elite-root -o build/tmp/activities.png
+          tools/remote_render/build.sh
+          mkdir -p build/tmp/remote-root
+          build/tmp/remote-render/remote_render render --root build/tmp/remote-root -o build/tmp/activities.png
           test -s build/tmp/activities.png
 
   build-hub:

@@ -5,7 +5,7 @@
 #include "rf_ota.h"
 #include "rf_sync.h"
 #include "rf_push_queue.h"
-#include "elite_stock_icons.h"
+#include "remote_stock_icons.h"
 #include "custom_icon_registry.h"
 
 #include <stdio.h>
@@ -96,7 +96,7 @@ void *config_push_worker(void *arg) {
     }
 
     if (num_targets == 0) {
-        printf("[*] Config push skipped: no active Elite remotes\n");
+        printf("[*] Config push skipped: no active touchscreen remotes\n");
         unlink("/data/harmony/rf_sync_pending.flag");
         unlink("/data/harmony/rf_sync_pending_details.json");
         pthread_mutex_unlock(&push_lock);
@@ -391,7 +391,7 @@ void *config_push_worker(void *arg) {
         btn_count = 0;
         if (is_slot_direct_mode(target_slot)) {
             /* Direct Device Mode: Push Page 1 and Page 2 screen buttons + direct buttons */
-            cJSON *dmap = get_elite_direct_map(target_slot);
+            cJSON *dmap = get_remote_direct_map(target_slot);
             if (dmap) {
                 const char *pages[2] = { "page1", "page2" };
                 for (int p = 0; p < 2; p++) {
@@ -423,7 +423,7 @@ void *config_push_worker(void *arg) {
             }
         } else {
             /* Standard Activity Mode */
-            cJSON *map = get_elite_map();
+            cJSON *map = get_remote_map(1);
             bool has_pwroff = false;
             if (map) {
                 pthread_mutex_lock(&g_map_lock);
@@ -743,7 +743,7 @@ void *config_push_worker(void *arg) {
         int bright = 2, timeout = 10, touch = 1, gyro = 1, nav_key = 139, nav_mode = 1, confirm_act = 1, touch_sens = 2, remote_mode = 0;
         int gyro_rate = 50, btn_backlight = 2, night_start = 22, night_end = 7, usbeth = 0, power_debug = 0;
         char spath[64];
-        snprintf(spath, sizeof(spath), "/data/harmony/elite_slot%d_config.json", target_slot);
+        snprintf(spath, sizeof(spath), "/data/harmony/remote_slot%d_config.json", target_slot);
         FILE *sf = fopen(spath, "r");
         if (sf) {
             char sbuf[4096] = {0};
@@ -870,7 +870,7 @@ void *config_push_worker(void *arg) {
             int idx = target_slot - 1;
             g_remote_versions[idx].config_version = config_ver;
             char vpath[64];
-            snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", target_slot);
+            snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", target_slot);
             FILE *vf = fopen(vpath, "w");
             if (vf) {
                 fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",

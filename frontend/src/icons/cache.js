@@ -1,5 +1,5 @@
 /**
- * Harmony Hub & Elite Remote Offline Icon Cache
+ * Harmony Hub & Remote Offline Icon Cache
  * IndexedDB-backed local storage for all 800+ official PNG icons.
  * Supports direct streaming extraction of icons.tar.gz via DecompressionStream,
  * instant in-memory Blob URLs, and automatic Hub/OTA sync.

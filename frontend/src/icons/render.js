@@ -2,7 +2,7 @@
 import { h } from '../utils/dom.js';
 import { getCachedIconUrl, hasCachedIcon, initIconCache } from './cache.js';
 import { api } from '../api/index.js';
-import { loadEliteRenderer } from '../remote/elite-renderer.js';
+import { loadRemoteRenderer } from '../remote/remote-renderer.js';
 
 initIconCache().catch(() => {});
 
@@ -83,7 +83,7 @@ async function remoteIconUrl(kind, item) {
   const uploaded = ((await uploadedIcons) || []).find(u => (u.type === kind && String(u.id) === String(item.id))
     || (key && [u.id, String(u.filename || '').replace(/\.png$/i, '')].some(n => String(n || '').toLowerCase() === key)));
   if (uploaded?.url) return `${api.baseUrl}${uploaded.url}`;
-  const renderer = await loadEliteRenderer();
+  const renderer = await loadRemoteRenderer();
   if (!renderer) return '';
   if (kind === 'device') {
     renderer.preview.writeRemoteConfig(renderer.module, { devices: [item] });

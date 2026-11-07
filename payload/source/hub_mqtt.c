@@ -33,8 +33,8 @@ static int  g_mqtt_ha_discovery = 1;
 static int  g_mqtt_enabled = 0;
 static int  g_mqtt_bt_events = 0;
 static char g_mqtt_bt_topic[160] = "";
-static int  g_mqtt_elite_events = 1;
-static char g_mqtt_elite_topic[160] = "";
+static int  g_mqtt_remote_events = 1;
+static char g_mqtt_remote_topic[160] = "";
 static int  g_mqtt_slot1_events = -1;
 static char g_mqtt_slot1_topic[160] = "";
 static int  g_mqtt_slot2_events = -1;
@@ -163,23 +163,26 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
         g_mqtt_bt_topic[0] = '\0';
     }
 
-    cJSON *ele = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteEvents");
+    /* eliteRemote*: the keys before the elite -> remote rename (mqtt.json from an older build) */
+    cJSON *ele = cJSON_GetObjectItemCaseSensitive(root, "remoteEvents");
+    if (!ele) ele = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteEvents");
     if (ele) {
-        g_mqtt_elite_events = (cJSON_IsTrue(ele) || (cJSON_IsNumber(ele) && ele->valueint > 0)) ? 1 : 0;
+        g_mqtt_remote_events = (cJSON_IsTrue(ele) || (cJSON_IsNumber(ele) && ele->valueint > 0)) ? 1 : 0;
     } else {
-        g_mqtt_elite_events = 0;
+        g_mqtt_remote_events = 0;
     }
 
-    cJSON *elt = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteTopic");
+    cJSON *elt = cJSON_GetObjectItemCaseSensitive(root, "remoteTopic");
+    if (!elt) elt = cJSON_GetObjectItemCaseSensitive(root, "eliteRemoteTopic");
     if (elt && cJSON_IsString(elt) && elt->valuestring) {
-        strncpy(g_mqtt_elite_topic, elt->valuestring, sizeof(g_mqtt_elite_topic) - 1);
-        g_mqtt_elite_topic[sizeof(g_mqtt_elite_topic) - 1] = '\0';
+        strncpy(g_mqtt_remote_topic, elt->valuestring, sizeof(g_mqtt_remote_topic) - 1);
+        g_mqtt_remote_topic[sizeof(g_mqtt_remote_topic) - 1] = '\0';
     } else {
-        g_mqtt_elite_topic[0] = '\0';
+        g_mqtt_remote_topic[0] = '\0';
     }
 
     cJSON *s1e = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteEvents");
-    g_mqtt_slot1_events = s1e ? ((cJSON_IsTrue(s1e) || (cJSON_IsNumber(s1e) && s1e->valueint > 0)) ? 1 : 0) : g_mqtt_elite_events;
+    g_mqtt_slot1_events = s1e ? ((cJSON_IsTrue(s1e) || (cJSON_IsNumber(s1e) && s1e->valueint > 0)) ? 1 : 0) : g_mqtt_remote_events;
 
     cJSON *s1t = cJSON_GetObjectItemCaseSensitive(root, "slot1RemoteTopic");
     if (s1t && cJSON_IsString(s1t) && s1t->valuestring) {
@@ -190,7 +193,7 @@ static int load_mqtt_config(char *host, int *port, char *cid, char *user, char *
     }
 
     cJSON *s2e = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteEvents");
-    g_mqtt_slot2_events = s2e ? ((cJSON_IsTrue(s2e) || (cJSON_IsNumber(s2e) && s2e->valueint > 0)) ? 1 : 0) : g_mqtt_elite_events;
+    g_mqtt_slot2_events = s2e ? ((cJSON_IsTrue(s2e) || (cJSON_IsNumber(s2e) && s2e->valueint > 0)) ? 1 : 0) : g_mqtt_remote_events;
 
     cJSON *s2t = cJSON_GetObjectItemCaseSensitive(root, "slot2RemoteTopic");
     if (s2t && cJSON_IsString(s2t) && s2t->valuestring) {
@@ -860,11 +863,11 @@ int mqtt_dispatch_remote_button(const char *source, const char *action, const ch
         return 0;
     }
 
-    int is_rf = (source && (strcasecmp(source, "elite_rf") == 0 || strcasecmp(source, "elite") == 0 || strcasecmp(source, "rf_remote") == 0));
+    int is_rf = (source && (strcasecmp(source, "remote_rf") == 0 || strcasecmp(source, "elite_rf") == 0 || strcasecmp(source, "elite") == 0 || strcasecmp(source, "rf_remote") == 0));
     int is_bt = (source && (strcasecmp(source, "bt_remote") == 0 || strcasecmp(source, "bt") == 0));
 
-    int rf_events_enabled = g_mqtt_elite_events;
-    const char *rf_custom_topic = g_mqtt_elite_topic;
+    int rf_events_enabled = g_mqtt_remote_events;
+    const char *rf_custom_topic = g_mqtt_remote_topic;
     char default_rf_subpath[32] = "remotes/slot1";
     if (slot == 2) {
         if (g_mqtt_slot2_events >= 0) rf_events_enabled = g_mqtt_slot2_events;

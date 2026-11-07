@@ -34,9 +34,9 @@ build/icons.tar.gz
 payload/www/assets/icons/
 payload/bin/*
 !payload/bin/.gitkeep
-elite/bin/*
-!elite/bin/.gitkeep
-!elite/bin/dropbearmulti_musl
+remote/bin/*
+!remote/bin/.gitkeep
+!remote/bin/dropbearmulti_musl
 payload/www/*
 !payload/www/.gitkeep
 plan.md
@@ -44,5 +44,5 @@ plan.md
 .github/context-mode/
 build/*.json
 /docs/adr/
-/docs/ELITE_UI_DESIGN.md
-/docs/images/elite-ui/
+/docs/REMOTE_UI_DESIGN.md
+/docs/images/remote-ui/

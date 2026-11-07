@@ -7,8 +7,8 @@
 *.json text eol=lf
 *.sh text eol=lf
 *rcS.local text eol=lf
-elite/*.sh text eol=lf
-elite/rcS.local text eol=lf
+remote/*.sh text eol=lf
+remote/rcS.local text eol=lf
 payload/scripts/* text eol=lf
 payload/bin/FILES text eol=lf
 payload/bin/MANIFEST.txt text eol=lf

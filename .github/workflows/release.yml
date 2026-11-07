@@ -93,8 +93,8 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 6.0.13
-      - name: Build Elite screen renderer (WebAssembly)
-        run: tools/elite_render/build.sh --wasm android-app/public/assets
+      - name: Build remote screen renderer (WebAssembly)
+        run: tools/remote_render/build.sh --wasm android-app/public/assets
       - name: Build Web Bundle
         working-directory: android-app
         run: |
@@ -111,8 +111,8 @@ jobs:
           name: webui-assets
           path: payload/www/
 
-  build-elite:
-    name: Build Elite ARM Binaries
+  build-remote:
+    name: Build Remote ARM Binaries
     needs: prepare-version
     runs-on: ubuntu-latest
     steps:
@@ -134,30 +134,30 @@ jobs:
         run: |
           mkdir -p build/toolchains
           curl -sSL "https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2" | tar -xjf - -C build/toolchains/
-      - name: Compile Elite Binaries & Extended BusyBox
+      - name: Compile Remote Binaries & Extended BusyBox
         run: |
           chmod +x build/*.sh
-          ./build/compile_all.sh elite
+          ./build/compile_all.sh remote
           ./build/build_busybox.sh arm
-          mkdir -p build/output/elite
-          [ -f elite/bin/busybox ] && cp -f elite/bin/busybox build/output/elite/ || true
-          [ -f elite/bin/dropbearmulti_musl ] && cp -f elite/bin/dropbearmulti_musl build/output/elite/ || true
-          [ -f elite/b64dec_tiny ] && cp -f elite/b64dec_tiny build/output/elite/ || true
-          if [ -f build/output/elite/dropbearmulti_musl ]; then
+          mkdir -p build/output/remote
+          [ -f remote/bin/busybox ] && cp -f remote/bin/busybox build/output/remote/ || true
+          [ -f remote/bin/dropbearmulti_musl ] && cp -f remote/bin/dropbearmulti_musl build/output/remote/ || true
+          [ -f remote/b64dec_tiny ] && cp -f remote/b64dec_tiny build/output/remote/ || true
+          if [ -f build/output/remote/dropbearmulti_musl ]; then
             for link in dropbear dropbearkey scp; do
-              cp -f build/output/elite/dropbearmulti_musl "build/output/elite/$link"
+              cp -f build/output/remote/dropbearmulti_musl "build/output/remote/$link"
             done
           fi
-          if [ -f build/output/elite/busybox ]; then
-            cp -f build/output/elite/busybox build/output/elite/mknod
+          if [ -f build/output/remote/busybox ]; then
+            cp -f build/output/remote/busybox build/output/remote/mknod
           fi
-          (cd build/output/elite && gzip -c -9 elite_ui > elite_ui.gz)
-          ls -lh build/output/elite
-      - name: Archive Elite Binaries
+          (cd build/output/remote && gzip -c -9 remote_ui > remote_ui.gz)
+          ls -lh build/output/remote
+      - name: Archive Remote Binaries
         uses: actions/upload-artifact@v7
         with:
-          name: elite-binaries
-          path: build/output/elite/
+          name: remote-binaries
+          path: build/output/remote/
 
   build-hub:
     name: Build Hub MIPS Binaries
@@ -262,7 +262,7 @@ jobs:
 
   publish-release:
     name: Package and Publish GitHub Release
-    needs: [prepare-version, build-webui, build-elite, build-hub, build-android]
+    needs: [prepare-version, build-webui, build-remote, build-hub, build-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -302,19 +302,19 @@ jobs:
             cp -f artifacts/hub-binaries/hub_daemon.gz "${RELEASE_DIR}/hub_daemon_v${VERSION}.gz"
           fi
 
-          # 2. Package Complete Elite Release Bundle
-          if [ -d artifacts/elite-binaries ]; then
-            mkdir -p staging_elite/bin staging_elite/tools staging_elite/drivers/windows/rndis
-            cp -rf artifacts/elite-binaries/* staging_elite/bin/
-            rm -f staging_elite/bin/elite_ui.gz staging_elite/bin/elite_ui.ota.gz 2>/dev/null || true
-            cp -f elite/rcS.local elite/init.sh elite/elite_watchdog.sh elite/safe_reboot.sh elite/factory_reset.sh staging_elite/
-            cp -f elite/deploy_elite.py staging_elite/
-            cp -f tools/harmony_hid.py tools/harmony_firmware.py tools/usb_state.py tools/setup_remote_driver.ps1 elite/setup_remote.py staging_elite/tools/
-            cp -rf drivers/windows/rndis/* staging_elite/drivers/windows/rndis/
+          # 2. Package Complete Remote Release Bundle
+          if [ -d artifacts/remote-binaries ]; then
+            mkdir -p staging_remote/bin staging_remote/tools staging_remote/drivers/windows/rndis
+            cp -rf artifacts/remote-binaries/* staging_remote/bin/
+            rm -f staging_remote/bin/remote_ui.gz staging_remote/bin/remote_ui.ota.gz 2>/dev/null || true
+            cp -f remote/rcS.local remote/init.sh remote/remote_watchdog.sh remote/safe_reboot.sh remote/factory_reset.sh staging_remote/
+            cp -f remote/deploy_remote.py staging_remote/
+            cp -f tools/harmony_hid.py tools/harmony_firmware.py tools/usb_state.py tools/setup_remote_driver.ps1 remote/setup_remote.py staging_remote/tools/
+            cp -rf drivers/windows/rndis/* staging_remote/drivers/windows/rndis/
 
-            (cd staging_elite && zip -r "${RELEASE_DIR}/harmony-elite-v${VERSION}.zip" .)
-            tar -czvf "${RELEASE_DIR}/harmony-elite-v${VERSION}.tar.gz" -C staging_elite .
-            cp -f artifacts/elite-binaries/elite_ui.gz "${RELEASE_DIR}/elite_ui_v${VERSION}.gz"
+            (cd staging_remote && zip -r "${RELEASE_DIR}/harmony-remote-v${VERSION}.zip" .)
+            tar -czvf "${RELEASE_DIR}/harmony-remote-v${VERSION}.tar.gz" -C staging_remote .
+            cp -f artifacts/remote-binaries/remote_ui.gz "${RELEASE_DIR}/remote_ui_v${VERSION}.gz"
           fi
           
           # 3. Package WebUI Bundle

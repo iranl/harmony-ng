@@ -36,13 +36,13 @@ def build_webui(ui: str = "legacy", repo_root: pathlib.Path | None = None) -> bo
         return False
 
     # Optional: build wasm / themes if emcc available
-    elite_render_script = repo_root / "tools" / "elite_render" / "build.sh"
-    theme_builder = repo_root / "tools" / "elite_render" / "build_theme.py"
-    if shutil.which("emcc") and elite_render_script.is_file():
+    remote_render_script = repo_root / "tools" / "remote_render" / "build.sh"
+    theme_builder = repo_root / "tools" / "remote_render" / "build_theme.py"
+    if shutil.which("emcc") and remote_render_script.is_file():
         wasm_dest = app_dir / "public" / "assets"
         wasm_dest.mkdir(parents=True, exist_ok=True)
-        print("[*] Compiling Elite screen renderer WebAssembly...")
-        subprocess.run(["bash", str(elite_render_script), "--wasm", str(wasm_dest)], capture_output=True)
+        print("[*] Compiling remote screen renderer WebAssembly...")
+        subprocess.run(["bash", str(remote_render_script), "--wasm", str(wasm_dest)], capture_output=True)
         if theme_builder.is_file():
             subprocess.run([sys.executable, str(theme_builder), "--tar", str(wasm_dest / "themes")], capture_output=True)
 

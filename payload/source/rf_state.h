@@ -105,6 +105,12 @@ extern "C" {
 #endif
 
 uint64_t get_monotonic_ms(void);
+
+/* Builds before the elite -> remote rename: <harmony_dir>/elite_slot<N>_{version,config}.json and
+ * a staged elite_ui.ota.gz / elite_ui.version (and <cache_dir>/elite_ui.ota.gz) are renamed to the
+ * remote_* names unless those exist. Returns the number of files moved. */
+int rf_migrate_legacy_names_in(const char *harmony_dir, const char *cache_dir);
+void rf_migrate_legacy_names(void); /* /data/harmony and /cache */
 void mark_remote_slot_active(uint8_t slot);
 bool is_ota_busy(void);
 void http_post_local(int port, const char *endpoint, const char *json_body);

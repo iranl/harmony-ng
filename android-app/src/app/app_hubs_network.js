@@ -105,7 +105,7 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       if (rfStat?.slots && Array.isArray(rfStat.slots)) {
         for (const s of rfStat.slots) {
           if (s.active && s.sw_version && s.sw_version !== 'unknown' && s.sw_version !== 'N/A') {
-            remotesInfo += `Remote (Slot ${s.slot} - ${s.model || 'Elite'}): v${s.sw_version}\n`;
+            remotesInfo += `Remote (Slot ${s.slot} - ${s.model || 'unknown'}): v${s.sw_version}\n`;
           }
         }
       }

@@ -7,14 +7,14 @@
 #include <assert.h>
 #include <unistd.h>
 
-#include "elite/elite_state.h"
-#include "elite/elite_rf_ota.h"
-#include "elite/elite_theme.h"
+#include "remote/remote_state.h"
+#include "remote/remote_rf_ota.h"
+#include "remote/remote_theme.h"
 #include "rf_proto.h"
 #include "sha256.h"
 
-/* Mock variables needed by elite_rf_ota.c */
-elite_battery_info_t g_battery_info = { 80, 1, 4100, "battery" };
+/* Mock variables needed by remote_rf_ota.c */
+remote_battery_info_t g_battery_info = { 80, 1, 4100, "battery" };
 uint8_t g_remote_slot = 1;
 bool g_screen_on = true;
 volatile bool g_screen_dirty = false;
@@ -30,7 +30,7 @@ FILE *g_ota_file = NULL;
 int g_rf_fd = -1;
 theme_t g_theme; /* the OTA overlay draws in the theme's colours */
 
-/* Stubs for icon rx and activities referenced by handle_icon_frame in elite_rf_ota */
+/* Stubs for icon rx and activities referenced by handle_icon_frame in remote_rf_ota */
 FILE *g_icon_rx_file = NULL;
 uint32_t g_icon_rx_bytes = 0;
 uint32_t g_icon_rx_tot_bytes = 0;
@@ -49,13 +49,13 @@ uint64_t get_monotonic_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000L);
 }
 
-/* Stubs for UI & power functions called by elite_rf_ota */
+/* Stubs for UI & power functions called by remote_rf_ota */
 void fb_set_blank(bool blank) { (void)blank; }
 void fb_fill_rect(int x, int y, int w, int h, uint16_t color) { (void)x; (void)y; (void)w; (void)h; (void)color; }
 void fb_draw_rect(int x, int y, int w, int h, uint16_t color) { (void)x; (void)y; (void)w; (void)h; (void)color; }
 void fb_draw_text_aa(int x, int y, const char *text, uint16_t color, const void *font) { (void)x; (void)y; (void)text; (void)color; (void)font; }
-const char *tr(elite_str_id_t id) { (void)id; return "text"; }
-void read_elite_battery(void) {}
+const char *tr(remote_str_id_t id) { (void)id; return "text"; }
+void read_remote_battery(void) {}
 void render_screen(void) {}
 
 /* Mock RF transmit capturing */
@@ -69,8 +69,8 @@ int main(void) {
     printf("[*] Starting test_rf_ota_resume unit test...\n");
 
     /* Clean old test artifacts */
-    unlink("/tmp/elite_ui.ota.gz");
-    unlink("/tmp/elite_ui.ota.meta");
+    unlink("/tmp/remote_ui.ota.gz");
+    unlink("/tmp/remote_ui.ota.meta");
 
     /* 1. Generate synthetic payload of 2,200 bytes = 100 chunks of 22 bytes */
     const size_t test_size = 2200;
@@ -187,7 +187,7 @@ int main(void) {
         fclose(g_ota_file);
         g_ota_file = NULL;
     }
-    FILE *fcheck = fopen("/tmp/elite_ui.ota.gz", "rb");
+    FILE *fcheck = fopen("/tmp/remote_ui.ota.gz", "rb");
     assert(fcheck != NULL);
     uint8_t written_data[2200];
     size_t rd = fread(written_data, 1, sizeof(written_data), fcheck);
@@ -197,8 +197,8 @@ int main(void) {
     printf("[+] Step 6 passed: Written file matches synthetic test payload 100%% byte-for-byte!\n");
 
     /* Clean up */
-    unlink("/tmp/elite_ui.ota.gz");
-    unlink("/tmp/elite_ui.ota.meta");
+    unlink("/tmp/remote_ui.ota.gz");
+    unlink("/tmp/remote_ui.ota.meta");
 
     printf("\n[SUCCESS] All RF OTA idempotency, retransmission, and resume tests passed!\n");
     return 0;

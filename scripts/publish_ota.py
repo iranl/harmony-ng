@@ -3,7 +3,7 @@
 publish_ota.py - Package and publish binaries & WebUI assets to OTA repository / branch
 
 Features:
-  1. Packages native MIPS binaries (Hub), ARM binary (Elite), and WebUI bundle (www.tar.gz)
+  1. Packages native MIPS binaries (Hub), ARM binary (remote), and WebUI bundle (www.tar.gz)
   2. Generates manifest.json with SHA256 and MD5 checksums
   3. Prepares or pushes to dedicated orphan branch 'ota' (or remote repository) with a single squashed commit
 """
@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import hashlib
+import shutil
 import tarfile
 import argparse
 import subprocess
@@ -26,10 +27,10 @@ MIPS_SEARCH_PATHS = [
     REPO_ROOT / "payload" / "bin",
 ]
 ARM_SEARCH_PATHS = [
-    REPO_ROOT / "artifacts" / "elite-binaries",
-    REPO_ROOT / "build" / "output" / "elite",
+    REPO_ROOT / "artifacts" / "remote-binaries",
+    REPO_ROOT / "build" / "output" / "remote",
     REPO_ROOT / "build" / "output",
-    REPO_ROOT / "elite" / "bin",
+    REPO_ROOT / "remote" / "bin",
 ]
 WWW_SEARCH_PATHS = [
     REPO_ROOT / "artifacts" / "webui-assets",
@@ -52,9 +53,9 @@ HUB_BINARIES = [
     "eth_fix",
 ]
 
-ELITE_BINARIES = [
-    "elite_ui",
-    "elite_ui.ota.gz",
+REMOTE_BINARIES = [
+    "remote_ui",
+    "remote_ui.ota.gz",
 ]
 
 def find_candidate_file(name: str, search_paths: list[Path]) -> Path | None:
@@ -117,19 +118,22 @@ def package_ota(output_dir: Path, version: str):
         else:
             print(f"[-] Warning: Hub binary {bname} not found in search paths")
 
-    # 3. ARM binaries (Elite)
+    # 3. ARM binaries (remote)
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)
-    for bname in ELITE_BINARIES:
-        if bname == "elite_ui.ota.gz":
-            elite_bin = find_candidate_file("elite_ui", ARM_SEARCH_PATHS)
-            if elite_bin and elite_bin.is_file():
+    for bname in REMOTE_BINARIES:
+        if bname == "remote_ui.ota.gz":
+            remote_bin = find_candidate_file("remote_ui", ARM_SEARCH_PATHS)
+            if remote_bin and remote_bin.is_file():
                 ota_tar = arm_target / bname
-                print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
+                print(f"[*] Packaging remote OTA bundle (binary + scripts) into {ota_tar.name}...")
                 with tarfile.open(ota_tar, "w:gz") as tar:
-                    tar.add(elite_bin, arcname="elite_ui")
-                    for sf in ["rcS.local", "elite_watchdog.sh", "factory_reset.sh"]:
-                        sp = REPO_ROOT / "elite" / sf
+                    tar.add(remote_bin, arcname="remote_ui")
+                    # Transition: a remote on a build from before the elite -> remote rename looks
+                    # for "elite_ui" in the package; the new binary migrates its files at start
+                    tar.add(remote_bin, arcname="elite_ui")
+                    for sf in ["rcS.local", "init.sh", "remote_watchdog.sh", "safe_reboot.sh", "factory_reset.sh"]:
+                        sp = REPO_ROOT / "remote" / sf
                         if sp.is_file():
                             tar.add(sp, arcname=sf)
                 md5, sha = get_file_hashes(ota_tar)
@@ -138,6 +142,10 @@ def package_ota(output_dir: Path, version: str):
                     "md5": md5,
                     "sha256": sha
                 }
+                # Hubs on a build from before the rename download bin/arm/elite_ui.ota.gz
+                legacy = arm_target / "elite_ui.ota.gz"
+                shutil.copyfile(ota_tar, legacy)
+                manifest_files["bin/arm/elite_ui.ota.gz"] = dict(manifest_files[f"bin/arm/{bname}"])
                 continue
 
         src = find_candidate_file(bname, ARM_SEARCH_PATHS)
@@ -152,7 +160,7 @@ def package_ota(output_dir: Path, version: str):
                 "sha256": sha
             }
         else:
-            print(f"[-] Warning: Elite binary {bname} not found in search paths")
+            print(f"[-] Warning: remote binary {bname} not found in search paths")
 
     # 4. WebUI bundle (tar.gz)
     www_src = None
