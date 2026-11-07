@@ -156,6 +156,11 @@ class CoSimulationRunner:
                 live = True
                 break
 
+        # The answer must come from this daemon: one left running by an earlier aborted run
+        # holds the port, this one exits on the bind error, and the health check still passes
+        if live and self.hub_proc.poll() is not None:
+            live = False
+            print(f"[!] Port {TEST_PORT} is answered by another process; the test daemon exited")
         self.record("Hub Daemon Startup & Health", live, f"Port {TEST_PORT}")
         if not live:
             self.cleanup()
