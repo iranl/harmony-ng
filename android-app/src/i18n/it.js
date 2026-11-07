@@ -846,7 +846,6 @@ export default {
     "pull_config": "Scarica configurazione",
     "pull_config_confirm": "Scaricare la configurazione dal telecomando nello {slot} sull'Hub? Ciò sovrascriverà la configurazione salvata sull'Hub con quella attualmente in esecuzione sul telecomando.",
     "pulse_ms_lbl": "Impulso (ms)",
-    "push_remote_remote": "Invia al telecomando",
     "push_failed": "Invio non riuscito: ",
     "push_to_remote": "Invia al telecomando",
     "pwd_optional_lbl": "Password (Opzionale)",

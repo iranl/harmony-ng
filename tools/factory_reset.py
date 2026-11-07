@@ -156,12 +156,13 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
             "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/remote_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "rm -f /data/remote_* /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
             "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
             "echo '  + Removed all custom binaries, Dropbear symlinks, and configuration files'"
         ),
-        # 5. Flush filesystem writes
-        "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
+        # 5. Flush filesystem writes (our sync binary is gone by now; stock firmware
+        #    has no sync link in PATH, only the BusyBox applet)
+        "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
     ]
 
     for c in commands:
@@ -195,7 +196,8 @@ def main() -> None:
     parser.add_argument("--target", choices=["hub", "remote", "elite", "all"], default="all",
                         help="Target device to factory reset (default: all)")
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
-    parser.add_argument("--remote-ip", default=DEFAULT_REMOTE_IP, help=f"Remote IP address (default: {DEFAULT_REMOTE_IP})")
+    parser.add_argument("--remote-ip", "--elite-ip", dest="remote_ip", default=DEFAULT_REMOTE_IP,
+                        help=f"Remote IP address (default: {DEFAULT_REMOTE_IP}; --elite-ip accepted for compatibility)")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")

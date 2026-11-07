@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Pronto Hex ou chaîne de minutage",
     "pronto_hex_raw": "Pronto Hex / Brut",
     "pull_config": "Récupérer la config",
-    "push_remote_remote": "Transférer à la télécommande",
     "push_failed": "Échec de l'envoi : ",
     "push_to_remote": "Transférer à la télécommande",
     "quick_shortcuts": "Raccourcis rapides",

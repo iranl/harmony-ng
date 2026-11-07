@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Pronto Hex or Timing String",
     "pronto_hex_raw": "Pronto Hex / Raw",
     "pull_config": "Pull Config",
-    "push_remote_remote": "Push to Remote",
     "push_failed": "Push failed: ",
     "push_to_remote": "Push to Remote",
     "quick_shortcuts": "Quick Shortcuts",

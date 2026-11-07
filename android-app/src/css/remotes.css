@@ -267,7 +267,7 @@
     grid-template-columns: 1fr;
   }
 }
-.remote-remote-shell, .companion-remote-shell {
+.rf-remote-shell, .companion-remote-shell {
   width: 100%;
   display: flex;
   justify-content: center;
@@ -277,7 +277,7 @@
   border-radius: var(--radius-lg);
   padding: 16px;
 }
-.remote-remote-skin {
+.rf-remote-skin {
   position: relative;
   width: min(100%, 260px);
   aspect-ratio: 340/1229;

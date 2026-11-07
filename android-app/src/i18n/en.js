@@ -846,7 +846,6 @@ export default {
     "pull_config": "Pull Config",
     "pull_config_confirm": "Pull configuration from Remote in {slot} to Hub? This will overwrite the Hub's saved remote configuration with what is currently running on the remote.",
     "pulse_ms_lbl": "Pulse (ms)",
-    "push_remote_remote": "Push to Remote",
     "push_failed": "Push failed: ",
     "push_to_remote": "Push to Remote",
     "pwd_optional_lbl": "Password (Optional)",

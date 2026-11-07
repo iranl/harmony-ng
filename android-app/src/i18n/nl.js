@@ -846,7 +846,6 @@ export default {
     "pull_config": "Configuratie ophalen",
     "pull_config_confirm": "Configuratie ophalen van afstandsbediening in {slot} naar Hub? Dit overschrijft de opgeslagen afstandsbedieningsconfiguratie op de Hub met wat er momenteel op de afstandsbediening staat.",
     "pulse_ms_lbl": "Puls (ms)",
-    "push_remote_remote": "Naar afstandsbediening sturen",
     "push_failed": "Overdracht mislukt: ",
     "push_to_remote": "Naar afstandsbediening sturen",
     "pwd_optional_lbl": "Wachtwoord (Optioneel)",

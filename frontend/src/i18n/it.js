@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Stringa Pronto Hex o timing",
     "pronto_hex_raw": "Pronto Hex / Raw",
     "pull_config": "Scarica configurazione",
-    "push_remote_remote": "Invia al telecomando",
     "push_failed": "Invio non riuscito: ",
     "push_to_remote": "Invia al telecomando",
     "quick_shortcuts": "Scorciatoie rapide",

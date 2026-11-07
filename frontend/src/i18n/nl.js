@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Pronto Hex of timing-reeks",
     "pronto_hex_raw": "Pronto Hex / Ruw",
     "pull_config": "Configuratie ophalen",
-    "push_remote_remote": "Naar afstandsbediening sturen",
     "push_failed": "Overdracht mislukt: ",
     "push_to_remote": "Naar afstandsbediening sturen",
     "quick_shortcuts": "Snelle sneltoetsen",

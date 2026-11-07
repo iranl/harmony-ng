@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Pronto Hex oder Timing-String",
     "pronto_hex_raw": "Pronto Hex / Rohdaten",
     "pull_config": "Konfig abrufen",
-    "push_remote_remote": "An Fernbedienung senden",
     "push_failed": "Übertragung fehlgeschlagen: ",
     "push_to_remote": "An Fernbedienung senden",
     "quick_shortcuts": "Schnellzugriffe",

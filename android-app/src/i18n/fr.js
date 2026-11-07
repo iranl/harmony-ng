@@ -846,7 +846,6 @@ export default {
     "pull_config": "Récupérer la config",
     "pull_config_confirm": "Récupérer la configuration de la télécommande dans {slot} vers le Hub ? Cela écrasera la configuration enregistrée sur le Hub avec celle actuellement active sur la télécommande.",
     "pulse_ms_lbl": "Impulsion (ms)",
-    "push_remote_remote": "Transférer à la télécommande",
     "push_failed": "Échec de l'envoi : ",
     "push_to_remote": "Transférer à la télécommande",
     "pwd_optional_lbl": "Mot de passe (Optionnel)",

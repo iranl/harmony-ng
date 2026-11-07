@@ -537,7 +537,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     } catch (err) {
       showToast((t('push_failed', 'Push failed: ')) + (err.message || err), 'danger');
     } finally {
-      if (btn) btn.textContent = t('push_remote_remote', 'Push to Remote');
+      if (btn) btn.textContent = t('push_to_remote', 'Push to Remote');
     }
   }
 

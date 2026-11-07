@@ -481,9 +481,12 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     if (access("/tmp/remote_ota_pkg/factory_reset.sh", F_OK) == 0) {
                         system("cp -f /tmp/remote_ota_pkg/factory_reset.sh /data/factory_reset.sh && chmod 755 /data/factory_reset.sh");
                     }
-                    system("for s in /tmp/remote_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/$(basename \"$s\")\"; done 2>/dev/null || true");
-                    /* Built-in themes replace their older versions; other themes stay */
-                    system("mkdir -p /data/themes && for t in /tmp/remote_ota_pkg/themes/*; do [ -d \"$t\" ] && rm -rf \"/data/themes/$(basename \"$t\")\" && cp -r \"$t\" /data/themes/; done 2>/dev/null || true");
+                    system("for s in /tmp/remote_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/${s##*/}\"; done 2>/dev/null || true");
+                    /* Built-in themes replace their older versions; other themes stay.
+                       No basename: the stock BusyBox has none, and an empty name made
+                       older builds wipe /data/themes and leave the last theme's files
+                       at its top level; those stray files are removed here. */
+                    system("mkdir -p /data/themes && rm -f /data/themes/* 2>/dev/null; for t in /tmp/remote_ota_pkg/themes/*; do [ -d \"$t\" ] && rm -rf \"/data/themes/${t##*/}\" && cp -r \"$t\" /data/themes/; done 2>/dev/null || true");
                     if (access("/tmp/remote_ota_pkg/remote_sync", F_OK) == 0) {
                         system("cp -f /tmp/remote_ota_pkg/remote_sync /data/remote_sync && chmod 755 /data/remote_sync");
                     }

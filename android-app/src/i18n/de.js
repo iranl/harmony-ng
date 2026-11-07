@@ -846,7 +846,6 @@ export default {
     "pull_config": "Konfig abrufen",
     "pull_config_confirm": "Konfiguration von der Fernbedienung in {slot} auf den Hub laden? Dadurch wird die gespeicherte Konfiguration auf dem Hub mit dem aktuellen Stand der Fernbedienung überschrieben.",
     "pulse_ms_lbl": "Impuls (ms)",
-    "push_remote_remote": "An Fernbedienung senden",
     "push_failed": "Übertragung fehlgeschlagen: ",
     "push_to_remote": "An Fernbedienung senden",
     "pwd_optional_lbl": "Passwort (Optional)",

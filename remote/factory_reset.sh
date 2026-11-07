@@ -65,14 +65,18 @@ echo "[*] Syncing filesystems before binary removal..."
 sleep 1
 
 echo "[*] Removing custom binaries and supervisor scripts..."
-rm -f /data/remote_ui /data/remote_ui.new /data/remote_sync /data/elite_ui /data/elite_ui.new /data/elite_sync /data/elite_watchdog.sh /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true
+rm -f /data/remote_ui /data/remote_ui.new /data/elite_ui /data/elite_ui.new /data/elite_watchdog.sh /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/factory_reset.sh /data/dropbear* /data/mknod /data/scp /data/busybox 2>/dev/null || true
 rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true
 
 echo "[*] Restoring preserved configuration for future re-install..."
 cp -f /data/remote_conf_p/* /data/ 2>/dev/null || true
 rm -rf /data/remote_conf_p 2>/dev/null || true
 
-/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
+# Flush with our sync binary, remove it, then flush that removal with the stock
+# BusyBox applet (stock firmware has no sync link in PATH).
+/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
+rm -f /data/remote_sync /data/elite_sync /data/sync 2>/dev/null || true
+/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
 sleep 1
 
 /sbin/reboot -f 2>/dev/null || reboot -f

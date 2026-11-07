@@ -18,7 +18,7 @@ export function createView() {
       h('div', { style: { display: 'flex', gap: '8px' } }, [
         h('button', {
           className: 'btn btn-secondary btn-sm',
-          text: t('push_remote_remote', 'Push to Remote'),
+          text: t('push_to_remote', 'Push to Remote'),
           onclick: async () => {
             try {
               toast.info(t('config_push_started', 'Configuration push started over RF to Harmony remote!'));

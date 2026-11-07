@@ -846,7 +846,6 @@ export default {
     "pull_config": "Obtener configuración",
     "pull_config_confirm": "¿Descargar configuración del control en {slot} al Hub? Esto sobrescribirá la configuración guardada en el Hub con la que se está ejecutando actualmente en el control remoto.",
     "pulse_ms_lbl": "Pulso (ms)",
-    "push_remote_remote": "Enviar al mando",
     "push_failed": "Error al enviar: ",
     "push_to_remote": "Enviar al mando",
     "pwd_optional_lbl": "Contraseña (Opcional)",

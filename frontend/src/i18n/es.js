@@ -490,7 +490,6 @@ export default {
     "pronto_hex_or_timing": "Pronto Hex o cadena de tiempos",
     "pronto_hex_raw": "Pronto Hex / Raw",
     "pull_config": "Obtener configuración",
-    "push_remote_remote": "Enviar al mando",
     "push_failed": "Error al enviar: ",
     "push_to_remote": "Enviar al mando",
     "quick_shortcuts": "Accesos rápidos",

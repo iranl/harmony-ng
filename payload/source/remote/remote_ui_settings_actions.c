@@ -79,9 +79,11 @@ static void execute_remote_factory_reset(void) {
            "cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; "
            "else "
            "printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi; "
-           "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-           "rm -f /data/remote_ui /data/remote_ui.new /data/remote_sync /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+           "rm -f /data/remote_ui /data/remote_ui.new /data/elite_ui /data/elite_ui.new /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/elite_watchdog.sh /data/dropbear* /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
+           "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; "
+           "rm -f /data/remote_sync /data/elite_sync /data/sync 2>/dev/null || true; "
+           "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
            "/sbin/reboot -f 2>/dev/null || reboot -f; fi &");
     sleep(1);
     exit(0);
