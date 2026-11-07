@@ -1808,6 +1808,23 @@ paths:
                 ok: true
                 message: Pair command issued to BTstack
 
+  /api/remote-unpair:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Forget the pinned BLE remote
+      description: Removes the remote's address from bt_remote_map.json; hub_btstack disconnects it and deletes its target file, LE bond and HOGD record, then stays idle (no scan, no automatic adoption). Classic hosts are not touched. docs/API.md 6.6.
+      responses:
+        '200':
+          description: Forget command issued
+          content:
+            application/json:
+              example:
+                ok: true
+                state: standby
+                map_cleared: true
+                message: Bluetooth remote forgotten
+
   /api/remote-mapping:
     get:
       tags:

@@ -740,11 +740,47 @@ void hog_start_scan(void) {
         update_status("standby");
         gap_set_scan_parameters(0, 96, 24); // passive scanning (25% duty cycle): no SCAN_REQ delay, avoids Classic BT paging collision
     } else {
-        update_status("scanning");
-        gap_set_scan_parameters(1, 96, 24); // active scanning for discovery (25% duty cycle)
+        /* No remote pinned: nothing to look for (a user scan from the web UI runs its own) */
+        gap_stop_scan();
+        app_state = APP_IDLE;
+        update_status("standby");
+        return;
     }
     app_state = APP_SCANNING;
     gap_start_scan();
+}
+
+void forget_ble_remote(void) {
+    bd_addr_t addr;
+    bool have = get_pinned_target(addr) != 0;
+    if (!have && !is_null_bd_addr(remote_device.addr)) {
+        memcpy(addr, remote_device.addr, 6);
+        have = true;
+    }
+    g_user_scan_active = false;
+    btstack_run_loop_remove_timer(&reconnect_timer);
+    gap_stop_scan();
+    unlink(TARGET_FILE);
+    if (have) {
+        gap_delete_bonding(BD_ADDR_TYPE_LE_PUBLIC, addr);
+        gap_delete_bonding(BD_ADDR_TYPE_LE_RANDOM, addr);
+    }
+    if (tlv_impl) tlv_impl->delete_tag(&tlv_context, TLV_TAG_HOGD);
+    char msg[96];
+    snprintf(msg, sizeof(msg), "BLE remote forgotten: %s", have ? bd_addr_to_str(addr) : "none pinned");
+    log_msg(msg);
+    memset(&remote_device, 0, sizeof(remote_device));
+    bd_addr_t still;
+    if (get_pinned_target(still)) {
+        /* bt_remote_map.json (hub_daemon's) still names one: POST /api/remote-unpair clears it */
+        snprintf(msg, sizeof(msg), "BLE remote still pinned by %s: %s", MAP_FILE, bd_addr_to_str(still));
+        log_msg(msg);
+    }
+    app_state = APP_IDLE;
+    if (connection_handle != HCI_CON_HANDLE_INVALID) {
+        gap_disconnect(connection_handle); /* the disconnect event resumes hog_start_scan(): idle now */
+    }
+    update_status("standby");
 }
 
 void hog_connect(void) {

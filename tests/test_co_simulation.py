@@ -82,7 +82,12 @@ class CoSimulationRunner:
 
         # 2. Start Hub Daemon in Host Test Mode
         hub_bin = os.path.join(REPO_ROOT, "build/tmp/test_host/hub_daemon_test")
-        if not os.path.exists(hub_bin):
+        # Rebuild when any daemon source is newer than the binary: building only when it was
+        # missing kept testing an old daemon after a source change
+        src_dir = os.path.join(REPO_ROOT, "payload/source")
+        newest_src = max((os.path.getmtime(os.path.join(src_dir, f)) for f in os.listdir(src_dir)
+                          if f.endswith((".c", ".h"))), default=0)
+        if not os.path.exists(hub_bin) or os.path.getmtime(hub_bin) < newest_src:
             print(f"[-] Compiling host test daemon at {hub_bin}...")
             os.makedirs(os.path.dirname(hub_bin), exist_ok=True)
             compile_cmd = [
@@ -151,6 +156,11 @@ class CoSimulationRunner:
                 live = True
                 break
 
+        # The answer must come from this daemon: one left running by an earlier aborted run
+        # holds the port, this one exits on the bind error, and the health check still passes
+        if live and self.hub_proc.poll() is not None:
+            live = False
+            print(f"[!] Port {TEST_PORT} is answered by another process; the test daemon exited")
         self.record("Hub Daemon Startup & Health", live, f"Port {TEST_PORT}")
         if not live:
             self.cleanup()
@@ -160,6 +170,32 @@ class CoSimulationRunner:
         print("[-] Step 2: Testing Activity Execution in Co-Simulation...")
         st, res = self.http_post("/api/activity-stop", {"dry_run": 1})
         self.record("Activity Stop Sequence", st == 200, f"HTTP {st}")
+
+        # 3b. Forget the BLE remote: the command reaches hub_btstack, the map loses its address
+        print("[-] Step 2b: Forgetting the pinned BLE remote...")
+        cmd_file = "/tmp/hub_btstack_cmd"
+        map_path = os.path.join(MOCK_BASE, "data", "harmony", "bt_remote_map.json")
+        try:
+            os.makedirs(os.path.dirname(map_path), exist_ok=True)
+            with open(map_path, "w") as f:
+                json.dump({"remote": {"bdaddr": "11:22:33:44:55:66"}, "mapping": {"KEY_UP": "DirectionUp"}}, f)
+            if os.path.exists(cmd_file):
+                os.remove(cmd_file)
+            st, res = self.http_post("/api/remote-unpair", {})
+            res = res if isinstance(res, dict) else {"error": res}
+            cmd = open(cmd_file).read().strip() if os.path.exists(cmd_file) else ""
+            self.record("Remote unpair: FORGET sent to hub_btstack",
+                        st == 200 and res.get("ok") is True and res.get("state") == "standby" and cmd == "FORGET",
+                        f"HTTP {st} {res} cmd={cmd!r}")
+            if res.get("map_cleared"):
+                with open(map_path) as f:
+                    m = json.load(f)
+                self.record("Remote unpair: map keeps its mapping, loses the address",
+                            "bdaddr" not in m.get("remote", {}) and m.get("mapping", {}).get("KEY_UP") == "DirectionUp", str(m))
+        finally:
+            for p in (cmd_file, map_path):
+                if os.path.exists(p):
+                    os.remove(p)
 
         # 4. Test Direct Pronto Hex Blast & Verify Waveform in Mock Blaster
         print("[-] Step 3: Testing IR Blast & Mock IR Receiver...")

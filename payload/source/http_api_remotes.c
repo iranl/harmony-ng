@@ -257,6 +257,52 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: POST /api/remote-unpair: forget the pinned Bluetooth LE remote (its address in
+     * bt_remote_map.json, then hub_btstack's target file, LE bond and HOGD record). The map is
+     * cleared first: hub_btstack falls back to it when its target file is gone. */
+    if (strcmp(clean_path, "/api/remote-unpair") == 0 && strcmp(method, "POST") == 0) {
+        int map_cleared = 0;
+        FILE *mf = fopen(config_store_path("bt_remote_map.json"), "r");
+        if (mf) {
+            char *b = NULL;
+            long sz = 0;
+            if (fseek(mf, 0, SEEK_END) == 0) sz = ftell(mf);
+            fseek(mf, 0, SEEK_SET);
+            if (sz > 0 && sz < 200000) b = (char *)malloc((size_t)sz + 1);
+            if (b) {
+                size_t nr = fread(b, 1, (size_t)sz, mf);
+                b[nr] = '\0';
+            }
+            fclose(mf);
+            cJSON *mj = b ? cJSON_Parse(b) : NULL;
+            free(b);
+            cJSON *rem = mj ? cJSON_GetObjectItemCaseSensitive(mj, "remote") : NULL;
+            if (rem && cJSON_GetObjectItemCaseSensitive(rem, "bdaddr")) {
+                cJSON_DeleteItemFromObject(rem, "bdaddr");
+                char *up = cJSON_Print(mj);
+                if (up) {
+                    map_cleared = (write_file_atomic(config_store_path("bt_remote_map.json"), up) == 0);
+                    free(up);
+                }
+            }
+            cJSON_Delete(mj);
+        }
+        FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
+        if (cf) {
+            fputs("FORGET\n", cf);
+            fclose(cf);
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddStringToObject(resp, "state", "standby");
+        cJSON_AddBoolToObject(resp, "map_cleared", map_cleared);
+        cJSON_AddStringToObject(resp, "message", "Bluetooth remote forgotten");
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
     /* Route: /api/rf/... proxy to RF daemon (127.0.0.1:8092) */
     if (strcmp(clean_path, "/api/rf") == 0 || strncmp(clean_path, "/api/rf/", 8) == 0) {
         int rfsock = socket(AF_INET, SOCK_STREAM, 0);
