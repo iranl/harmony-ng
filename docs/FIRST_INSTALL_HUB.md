@@ -137,7 +137,7 @@ The installer automatically:
    [?] build/icons.tar.gz not found on host.
    Download official Elite firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)
    ```
-   If confirmed, it downloads the official Elite firmware (`elite_111_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
+   If confirmed, it downloads the official Elite firmware (`remote_111_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
 6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
 
 ### Stock configuration import

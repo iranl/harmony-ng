@@ -51,9 +51,9 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
-import { HarmonyAppRemotesElite } from './app_remotes_elite.js';
+import { HarmonyAppRemotesScreen } from './app_remotes_screen.js';
 
-export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
+export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
   /* pushed: an rf_status object from the WebSocket (state watcher); fetched when absent */
   async refreshRfStatus(pushed = null) {
     try {
@@ -151,8 +151,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         if (cfgBtn1) cfgBtn1.style.display = (s1Active && !isNonLinux1) ? 'inline-block' : 'none';
         if (refBtn1) refBtn1.style.display = (s1Active && !isNonLinux1) ? 'inline-block' : 'none';
         if (otaWrap1) {
-          const latestElite = this.latestEliteVersion || '1.3.0';
-          const needsOta = !isNonLinux1 && s1Active && s1.sw_version && s1.sw_version !== 'unknown' && this.isVersionOlder(s1.sw_version, latestElite);
+          const latestRemote = this.latestRemoteVersion || '1.3.0';
+          const needsOta = !isNonLinux1 && s1Active && s1.sw_version && s1.sw_version !== 'unknown' && this.isVersionOlder(s1.sw_version, latestRemote);
           otaWrap1.style.display = needsOta ? 'block' : 'none';
         }
 
@@ -229,8 +229,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
         if (cfgBtn2) cfgBtn2.style.display = (s2Active && !isNonLinux2) ? 'inline-block' : 'none';
         if (refBtn2) refBtn2.style.display = (s2Active && !isNonLinux2) ? 'inline-block' : 'none';
         if (otaWrap2) {
-          const latestElite = this.latestEliteVersion || '1.3.0';
-          const needsOta = !isNonLinux2 && s2Active && s2.sw_version && s2.sw_version !== 'unknown' && this.isVersionOlder(s2.sw_version, latestElite);
+          const latestRemote = this.latestRemoteVersion || '1.3.0';
+          const needsOta = !isNonLinux2 && s2Active && s2.sw_version && s2.sw_version !== 'unknown' && this.isVersionOlder(s2.sw_version, latestRemote);
           otaWrap2.style.display = needsOta ? 'block' : 'none';
         }
 
@@ -471,7 +471,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
       if (resp.ok) {
         alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
         this.closeRfConfigModal();
-        await this.loadEliteView();
+        await this.loadRemoteView();
       } else {
         alert(t('rf_config_failed', 'Failed to save settings to Hub.'));
       }
@@ -555,7 +555,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
     }
   }
 
-  async startEliteOta(slot = 1) {
+  async startRemoteOta(slot = 1) {
     if (!await showConfirm(t('rf_ota_update_confirm').replace('{slot}', slot), { title: t('rf_ota_title', 'RF OTA Update'), okText: t('btn_start_update', 'Start Update'), danger: false })) return;
     const btn = document.getElementById(`rfSlot${slot}UpdateBtn`);
     const otherBtn = document.getElementById(`rfSlot${slot === 1 ? 2 : 1}UpdateBtn`);
@@ -643,7 +643,7 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesElite {
 
       if (ver) {
         this.onlineVersion = ver;
-        this.latestEliteVersion = ver;
+        this.latestRemoteVersion = ver;
       }
     } catch { }
   }

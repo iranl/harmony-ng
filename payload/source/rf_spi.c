@@ -247,7 +247,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
     }
 
     /* 0x42: CC2544 hardware TX completion report: 20 <slot> 42 <status> ...
-       Status 0 only means the remote's radio took the frame; elite_ui can still drop it,
+       Status 0 only means the remote's radio took the frame; remote_ui can still drop it,
        so a frame counts as delivered only when the remote sends RF_MSG_ACK. */
     if (len >= 4 && pkt[0] == 0x20 && pkt[2] == 0x42) {
         uint8_t status = pkt[3];

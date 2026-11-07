@@ -135,12 +135,12 @@ build_sync() {
 
 build_rf() {
     echo "[-] Building hub_rf..."
-    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/elite_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c"
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/remote_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c"
     "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
 }
 
-build_elite() {
-    echo "[-] Building elite_ui (ARM)..."
+build_remote() {
+    echo "[-] Building remote_ui (ARM)..."
     ARM_CC=""
     for t in "$SCRIPT_DIR/toolchains"/armv5-eabi--uclibc--stable*; do
         if [ -d "$t/bin" ]; then
@@ -159,37 +159,41 @@ build_elite() {
         exit 1
     fi
 
-    mkdir -p "$REPO_ROOT/elite/bin" "$REPO_ROOT/build/output/elite"
-    echo "[-] Building elite_ui (ARM)..."
-    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/elite payload/source/elite/*.c payload/source/elite_stock_icons.c payload/source/timezone_db.c payload/source/cJSON.c payload/source/sha256.c payload/source/uclibc_static_locks.c -o "$REPO_ROOT/elite/bin/elite_ui" -lpthread -lm
-    echo "[-] Building elite_sync (ARM)..."
-    "$ARM_CC" -static -Os -s -Wall payload/source/hub_sync.c -o "$REPO_ROOT/elite/bin/elite_sync"
-    echo "[-] Packaging elite_ui.ota.gz (binary + scripts)..."
-    mkdir -p "$REPO_ROOT/build/tmp/elite_ota_pkg"
-    cp -f "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/tmp/elite_ota_pkg/"
-    cp -f "$REPO_ROOT/elite/rcS.local" "$REPO_ROOT/elite/init.sh" "$REPO_ROOT/elite/elite_watchdog.sh" "$REPO_ROOT/elite/factory_reset.sh" "$REPO_ROOT/elite/safe_reboot.sh" "$REPO_ROOT/build/tmp/elite_ota_pkg/" 2>/dev/null || true
-    sed -i 's/\r$//' "$REPO_ROOT/build/tmp/elite_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/elite_ota_pkg"/rcS.local 2>/dev/null || true
+    mkdir -p "$REPO_ROOT/remote/bin" "$REPO_ROOT/build/output/remote"
+    echo "[-] Building remote_ui (ARM)..."
+    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/remote payload/source/remote/*.c payload/source/remote_stock_icons.c payload/source/timezone_db.c payload/source/cJSON.c payload/source/sha256.c payload/source/uclibc_static_locks.c -o "$REPO_ROOT/remote/bin/remote_ui" -lpthread -lm
+    echo "[-] Building remote_sync (ARM)..."
+    "$ARM_CC" -static -Os -s -Wall payload/source/hub_sync.c -o "$REPO_ROOT/remote/bin/remote_sync"
+    echo "[-] Packaging remote_ui.ota.gz (binary + scripts)..."
+    mkdir -p "$REPO_ROOT/build/tmp/remote_ota_pkg"
+    cp -f "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/remote/bin/remote_sync" "$REPO_ROOT/build/tmp/remote_ota_pkg/"
+    # Transition: a remote still on a build from before the elite -> remote rename looks for
+    # "elite_ui" in the package and installs it as /data/elite_ui; init.sh migrate (run by that
+    # binary at start) then moves it to /data/remote_ui. Drop this copy once no such remote is left.
+    cp -f "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/build/tmp/remote_ota_pkg/elite_ui"
+    cp -f "$REPO_ROOT/remote/rcS.local" "$REPO_ROOT/remote/init.sh" "$REPO_ROOT/remote/remote_watchdog.sh" "$REPO_ROOT/remote/factory_reset.sh" "$REPO_ROOT/remote/safe_reboot.sh" "$REPO_ROOT/build/tmp/remote_ota_pkg/" 2>/dev/null || true
+    sed -i 's/\r$//' "$REPO_ROOT/build/tmp/remote_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/remote_ota_pkg"/rcS.local 2>/dev/null || true
     # Theme packages. Building them needs a host C compiler and the
-    # pinned downloads; without them, themes built earlier into build/tmp/elite-themes are used.
+    # pinned downloads; without them, themes built earlier into build/tmp/remote-themes are used.
     echo "[-] Building Elite themes..."
-    python3 "$REPO_ROOT/tools/elite_render/build_theme.py" >/dev/null \
+    python3 "$REPO_ROOT/tools/remote_render/build_theme.py" >/dev/null \
         || echo "[!] Theme build failed; packaging themes from an earlier build, if any." >&2
-    rm -rf "$REPO_ROOT/elite/bin/themes"
-    if [ -d "$REPO_ROOT/build/tmp/elite-themes" ]; then
-        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/elite/bin/themes"
-        cp -R "$REPO_ROOT/build/tmp/elite-themes" "$REPO_ROOT/build/tmp/elite_ota_pkg/themes"
+    rm -rf "$REPO_ROOT/remote/bin/themes"
+    if [ -d "$REPO_ROOT/build/tmp/remote-themes" ]; then
+        cp -R "$REPO_ROOT/build/tmp/remote-themes" "$REPO_ROOT/remote/bin/themes"
+        cp -R "$REPO_ROOT/build/tmp/remote-themes" "$REPO_ROOT/build/tmp/remote_ota_pkg/themes"
     fi
-    tar -czf "$REPO_ROOT/elite/bin/elite_ui.ota.gz" -C "$REPO_ROOT/build/tmp/elite_ota_pkg" .
-    cp -f "$REPO_ROOT/elite/bin/elite_ui.ota.gz" "$REPO_ROOT/elite/bin/elite_ui" "$REPO_ROOT/elite/bin/elite_sync" "$REPO_ROOT/build/output/elite/" 2>/dev/null || true
-    rm -rf "$REPO_ROOT/build/output/elite/themes"
-    [ -d "$REPO_ROOT/elite/bin/themes" ] && cp -R "$REPO_ROOT/elite/bin/themes" "$REPO_ROOT/build/output/elite/themes"
-    rm -rf "$REPO_ROOT/build/tmp/elite_ota_pkg"
+    tar -czf "$REPO_ROOT/remote/bin/remote_ui.ota.gz" -C "$REPO_ROOT/build/tmp/remote_ota_pkg" .
+    cp -f "$REPO_ROOT/remote/bin/remote_ui.ota.gz" "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/remote/bin/remote_sync" "$REPO_ROOT/build/output/remote/" 2>/dev/null || true
+    rm -rf "$REPO_ROOT/build/output/remote/themes"
+    [ -d "$REPO_ROOT/remote/bin/themes" ] && cp -R "$REPO_ROOT/remote/bin/themes" "$REPO_ROOT/build/output/remote/themes"
+    rm -rf "$REPO_ROOT/build/tmp/remote_ota_pkg"
 }
 
 
 case "$TARGET" in
-    elite)
-        build_elite
+    remote|elite)
+        build_remote
         exit 0
         ;;
     daemon)
@@ -257,7 +261,7 @@ case "$TARGET" in
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: $0 [all|hub|daemon|sntp|portal|dhcpd|btstack|register_ehci|eth_fix|mknod|rf|elite|apk]"
+        echo "Usage: $0 [all|hub|daemon|sntp|portal|dhcpd|btstack|register_ehci|eth_fix|mknod|rf|remote|apk] (elite = remote)"
         exit 1
         ;;
 esac

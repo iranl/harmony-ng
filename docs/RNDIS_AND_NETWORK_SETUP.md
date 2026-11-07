@@ -26,7 +26,7 @@ The script will automatically:
 5. Verify connectivity to `192.168.2.1`.
 
 > [!TIP]
-> If you run `python elite/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
+> If you run `python remote/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
 
 ---
 
@@ -72,7 +72,7 @@ chmod 600 ~/.ssh/harmony_owner_ed25519
 ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1
 ```
 
-`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_elite.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
+`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_remote.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
 
 ---
 

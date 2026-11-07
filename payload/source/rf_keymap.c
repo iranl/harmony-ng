@@ -106,19 +106,16 @@ bool get_remote_screen_button(uint8_t slot, const char *act_or_dev, int btn_idx,
     return handled;
 }
 
-cJSON *get_elite_map(void) {
-    return get_remote_map(1);
-}
 
 int is_slot_direct_mode(uint8_t slot) {
     (void)slot;
     return 0;
 }
 
-cJSON *get_elite_direct_map(int slot) {
+cJSON *get_remote_direct_map(int slot) {
     if (slot < 1 || slot > 2) slot = 1;
     char path[128];
-    snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_direct_buttons.json", slot);
+    snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
     FILE *f = fopen(path, "r");
     if (!f) return NULL;
     fseek(f, 0, SEEK_END);
@@ -158,18 +155,18 @@ static const char *rf_alias_command(cJSON *cmds, const char *button_name) {
     return NULL;
 }
 
-void dispatch_elite_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
+void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
     int is_press = (strcmp(action_state, "release") != 0);
 
     /* Forward raw button event to daemon for MQTT (fire and forget) */
     char mqtt_body[256];
     if (dev_id && dev_id[0]) {
         snprintf(mqtt_body, sizeof(mqtt_body),
-                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"elite_rf\",\"slot\":%d,\"deviceId\":\"%s\"}",
+                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d,\"deviceId\":\"%s\"}",
                  button_name, action_state, slot, dev_id);
     } else {
         snprintf(mqtt_body, sizeof(mqtt_body),
-                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"elite_rf\",\"slot\":%d}",
+                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d}",
                  button_name, action_state, slot);
     }
     http_post_local(DAEMON_PORT, "/api/button-press", mqtt_body);
@@ -354,7 +351,7 @@ static int g_rf_q_tail = 0;
 static pthread_mutex_t g_rf_q_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_rf_q_cond = PTHREAD_COND_INITIALIZER;
 
-void enqueue_elite_button(uint8_t slot, const char *name, const char *action, const char *dev_id) {
+void enqueue_remote_button(uint8_t slot, const char *name, const char *action, const char *dev_id) {
     pthread_mutex_lock(&g_rf_q_mutex);
     if (action && strcmp(action, "release") == 0) {
         /* On button release, purge any pending queued repeats for this button to stop runaway execution */
@@ -390,7 +387,7 @@ void enqueue_elite_button(uint8_t slot, const char *name, const char *action, co
     pthread_mutex_unlock(&g_rf_q_mutex);
 }
 
-void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
+void enqueue_remote_device_cmd(const char *dev_id, const char *cmd) {
     if (!dev_id || !cmd) return;
     pthread_mutex_lock(&g_rf_q_mutex);
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
@@ -409,7 +406,7 @@ void enqueue_elite_device_cmd(const char *dev_id, const char *cmd) {
     pthread_mutex_unlock(&g_rf_q_mutex);
 }
 
-void enqueue_elite_activity(const char *act_id) {
+void enqueue_remote_activity(const char *act_id) {
     if (!act_id) return;
     pthread_mutex_lock(&g_rf_q_mutex);
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
@@ -444,14 +441,14 @@ void check_companion_timeouts(void) {
                 if (now_ms - s_companion_state[s].last_repeat_ms >= 140) {
                     s_companion_state[s].last_repeat_ms = now_ms;
                     s_companion_state[s].hold_sent = true;
-                    enqueue_elite_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
+                    enqueue_remote_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
                 }
             }
             /* Safety timeout: only release if link lost or stuck for >30 seconds */
             else if (now_ms - s_companion_state[s].press_start_ms > 30000) {
                 printf("[*] Companion button AUTO-RELEASE (safety timeout): slot=%d name=%s\n",
                        s + 1, s_companion_state[s].current_name);
-                enqueue_elite_button(s + 1, s_companion_state[s].current_name, "release", NULL);
+                enqueue_remote_button(s + 1, s_companion_state[s].current_name, "release", NULL);
                 s_companion_state[s].current_key = 0;
                 s_companion_state[s].current_name[0] = '\0';
                 s_companion_state[s].hold_sent = false;
@@ -495,7 +492,7 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
             uint64_t held_ms = now_ms - s_companion_state[sidx].press_start_ms;
             printf("[*] Companion button RELEASE: slot=%d name=%s (held %llums, hold_sent=%d)\n",
                    slot, s_companion_state[sidx].current_name, (unsigned long long)held_ms, s_companion_state[sidx].hold_sent);
-            enqueue_elite_button(slot, s_companion_state[sidx].current_name, "release", NULL);
+            enqueue_remote_button(slot, s_companion_state[sidx].current_name, "release", NULL);
             s_companion_state[sidx].current_key = 0;
             s_companion_state[sidx].current_name[0] = '\0';
             s_companion_state[sidx].hold_sent = false;
@@ -508,7 +505,7 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
 
     if (s_companion_state[sidx].current_key != key_code) {
         if (s_companion_state[sidx].current_key != 0) {
-            enqueue_elite_button(slot, s_companion_state[sidx].current_name, "release", NULL);
+            enqueue_remote_button(slot, s_companion_state[sidx].current_name, "release", NULL);
         }
         s_companion_state[sidx].current_key = key_code;
         strncpy(s_companion_state[sidx].current_name, name, sizeof(s_companion_state[sidx].current_name) - 1);
@@ -518,13 +515,13 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
         s_companion_state[sidx].hold_sent = false;
 
         printf("[*] Companion button PRESS: slot=%d code=0x%04X name=%s\n", slot, key_code, name);
-        enqueue_elite_button(slot, name, "press", NULL);
+        enqueue_remote_button(slot, name, "press", NULL);
     } else {
         if (now_ms - s_companion_state[sidx].press_start_ms >= 350) {
             if (now_ms - s_companion_state[sidx].last_repeat_ms >= 140) {
                 s_companion_state[sidx].last_repeat_ms = now_ms;
                 s_companion_state[sidx].hold_sent = true;
-                enqueue_elite_button(slot, name, "hold", NULL);
+                enqueue_remote_button(slot, name, "hold", NULL);
             }
         }
     }
@@ -561,7 +558,7 @@ void *dispatch_worker(void *arg) {
         } else if (ev.kind == RF_EV_ACTIVITY) {
             dispatch_activity_to_daemon(ev.param1);
         } else {
-            dispatch_elite_button(ev.slot, ev.param1, ev.param2, ev.param3);
+            dispatch_remote_button(ev.slot, ev.param1, ev.param2, ev.param3);
         }
     }
     return NULL;

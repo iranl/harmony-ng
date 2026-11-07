@@ -219,7 +219,7 @@ if ($adapter) {
 }
 
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host " Setup complete! You can now run: python elite/setup_remote.py" -ForegroundColor Green
+Write-Host " Setup complete! You can now run: python remote/setup_remote.py" -ForegroundColor Green
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 if (-not $NonInteractive) {

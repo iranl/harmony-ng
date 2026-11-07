@@ -22,7 +22,7 @@ Hardware Factory Reset Alternative (No SSH Required):
 
 Usage:
     python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
-    python tools/factory_reset.py --target elite [--elite-ip 192.168.2.1]
+    python tools/factory_reset.py --target elite [--remote-ip 192.168.2.1]
     python tools/factory_reset.py --target all
     python tools/factory_reset.py --restore-backup
 """
@@ -40,7 +40,7 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 
 DEFAULT_HUB_IP = os.environ.get("HUB_IP", "192.168.1.1")
-DEFAULT_ELITE_IP = "192.168.2.1"
+DEFAULT_REMOTE_IP = "192.168.2.1"
 
 
 def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
@@ -118,8 +118,8 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
     return True
 
 
-def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
-    target = f"root@{elite_ip}"
+def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
+    target = f"root@{remote_ip}"
     print(f"\n[*] Probing Harmony Elite Remote at {target}...")
     probe = run_ssh_cmd(target, "uname -a", ssh_opts)
     if probe.returncode != 0:
@@ -132,7 +132,7 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
 
     commands = [
         # 1. Stop elite runtime & supervisors
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh elite_ui elite_watchdog.sh 2>/dev/null || true",
+        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui remote_watchdog.sh 2>/dev/null || true",
         # 2. Restore stock rcS.local
         (
             "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
@@ -152,16 +152,16 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
         ),
         # 4. Remove custom triggers, dangling symlinks, and files
         (
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log /tmp/elite-init.log /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
+            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/remote_ui.conf /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-            "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
+            "rm -f /data/remote_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
             "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
             "echo '  + Removed all custom binaries, Dropbear symlinks, and configuration files'"
         ),
         # 5. Flush filesystem writes
-        "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
+        "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
     ]
 
     for c in commands:
@@ -195,7 +195,7 @@ def main() -> None:
     parser.add_argument("--target", choices=["hub", "elite", "all"], default="all",
                         help="Target device to factory reset (default: all)")
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
-    parser.add_argument("--elite-ip", default=DEFAULT_ELITE_IP, help=f"Elite IP address (default: {DEFAULT_ELITE_IP})")
+    parser.add_argument("--remote-ip", default=DEFAULT_REMOTE_IP, help=f"Elite IP address (default: {DEFAULT_REMOTE_IP})")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
@@ -230,8 +230,8 @@ def main() -> None:
         reset_hub(args.hub_ip, ssh_opts)
 
     if args.target in ("elite", "all"):
-        print(f"\n>>> PROCESSING ELITE REMOTE ({args.elite_ip}) <<<")
-        reset_elite(args.elite_ip, ssh_opts)
+        print(f"\n>>> PROCESSING ELITE REMOTE ({args.remote_ip}) <<<")
+        reset_remote(args.remote_ip, ssh_opts)
 
     print("\n" + "=" * 70)
     print("[+] Factory reset process completed successfully!")

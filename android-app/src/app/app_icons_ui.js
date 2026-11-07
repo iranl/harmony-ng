@@ -390,7 +390,7 @@ function renderWithStockIconFallback(imgUrl, fallbackSvg, size, originalIconKey 
 }
 
 // Activity icons are keywords; the Hub sends them to the Elite, which draws its stock icon
-// for each keyword (resolve_activity_icon in elite/elite_config.c). These are the same stock images,
+// for each keyword (resolve_activity_icon in remote/remote_config.c). These are the same stock images,
 // so the web UI shows what the remote shows.
 const ACTIVITY_ICON_PREVIEWS = {
   watchtv: '3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png',

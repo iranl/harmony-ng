@@ -183,10 +183,10 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       }
     });
 
-    document.getElementById('btnEliteGoEnableRf')?.addEventListener('click', async () => {
+    document.getElementById('btnRemoteGoEnableRf')?.addEventListener('click', async () => {
       try {
         await this.client.toggleRfService(true);
-        await this.loadEliteView();
+        await this.loadRemoteView();
       } catch (e) {
         alert(t('enable_rf_failed', 'Enable RF failed: ') + e.message);
       }
@@ -316,42 +316,42 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('btMqttSaveBtn')?.addEventListener('click', () => this.saveBtRemoteMqttSettings());
 
     // Harmony Elite Remote Buttons
-    document.querySelectorAll('.elite-hotspot').forEach(btn => {
+    document.querySelectorAll('.remote-hotspot').forEach(btn => {
       btn.addEventListener('click', () => {
         const btnId = btn.getAttribute('data-btn');
-        if (btnId) this.selectEliteButton(btnId, true);
+        if (btnId) this.selectRemoteButton(btnId, true);
       });
     });
-    document.getElementById('eliteActivitySelect')?.addEventListener('change', (e) => {
-      this.eliteSelectedActivityId = e.target.value;
-      this.updateEliteButtonStates();
-      this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
-      this.renderEliteScreenButtons();
+    document.getElementById('remoteActivitySelect')?.addEventListener('change', (e) => {
+      this.remoteSelectedActivityId = e.target.value;
+      this.updateRemoteButtonStates();
+      this.selectRemoteButton(this.remoteSelectedBtn || 'Select', false);
+      this.renderRemoteScreenButtons();
     });
-    document.getElementById('eliteContextModeSelect')?.addEventListener('change', (e) => {
-      this.eliteContextMode = e.target.value;
-      const isDev = this.eliteContextMode === 'device';
-      const aW = document.getElementById('eliteActivitySelectWrap');
-      const dW = document.getElementById('eliteDeviceSelectWrap');
+    document.getElementById('remoteContextModeSelect')?.addEventListener('change', (e) => {
+      this.remoteContextMode = e.target.value;
+      const isDev = this.remoteContextMode === 'device';
+      const aW = document.getElementById('remoteActivitySelectWrap');
+      const dW = document.getElementById('remoteDeviceSelectWrap');
       if (aW) aW.style.display = isDev ? 'none' : 'block';
       if (dW) dW.style.display = isDev ? 'block' : 'none';
-      this.updateEliteButtonStates();
-      this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
-      this.renderEliteScreenButtons();
+      this.updateRemoteButtonStates();
+      this.selectRemoteButton(this.remoteSelectedBtn || 'Select', false);
+      this.renderRemoteScreenButtons();
     });
-    document.getElementById('eliteDeviceSelect')?.addEventListener('change', (e) => {
-      this.eliteSelectedDeviceId = e.target.value;
-      this.updateEliteButtonStates();
-      this.selectEliteButton(this.eliteSelectedBtn || 'Select', false);
-      this.renderEliteScreenButtons();
+    document.getElementById('remoteDeviceSelect')?.addEventListener('change', (e) => {
+      this.remoteSelectedDeviceId = e.target.value;
+      this.updateRemoteButtonStates();
+      this.selectRemoteButton(this.remoteSelectedBtn || 'Select', false);
+      this.renderRemoteScreenButtons();
     });
-    document.getElementById('btnEliteAddScreenBtn')?.addEventListener('click', () => this.addEliteScreenButton());
-    document.getElementById('eliteActionType')?.addEventListener('change', () => this.toggleEliteActionFields());
-    document.getElementById('eliteTargetDevice')?.addEventListener('change', () => this.updateEliteCommandDropdown());
-    document.getElementById('eliteApplyBtn')?.addEventListener('click', () => this.applyEliteMapping());
-    document.getElementById('eliteClearBtn')?.addEventListener('click', () => this.clearEliteMapping());
-    document.getElementById('eliteSaveAllBtn')?.addEventListener('click', () => this.saveAllEliteMappings());
-    document.getElementById('elitePushRemoteBtn')?.addEventListener('click', () => this.pushEliteConfiguration());
+    document.getElementById('btnRemoteAddScreenBtn')?.addEventListener('click', () => this.addRemoteScreenButton());
+    document.getElementById('remoteActionType')?.addEventListener('change', () => this.toggleRemoteActionFields());
+    document.getElementById('remoteTargetDevice')?.addEventListener('change', () => this.updateRemoteCommandDropdown());
+    document.getElementById('remoteApplyBtn')?.addEventListener('click', () => this.applyRemoteMapping());
+    document.getElementById('remoteClearBtn')?.addEventListener('click', () => this.clearRemoteMapping());
+    document.getElementById('remoteSaveAllBtn')?.addEventListener('click', () => this.saveAllRemoteMappings());
+    document.getElementById('remotePushRemoteBtn')?.addEventListener('click', () => this.pushRemoteConfiguration());
     document.getElementById('rfPairBtn')?.addEventListener('click', () => this.pairRfRemote(0));
     document.getElementById('rfPairSlot1Btn')?.addEventListener('click', () => this.pairRfRemote(1));
     document.getElementById('rfUnpairSlot1Btn')?.addEventListener('click', () => this.unpairRfSlot(1));
@@ -374,12 +374,12 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       document.getElementById('updateForm')?.scrollIntoView({ behavior: 'smooth' });
     });
     document.getElementById('btnPushConfigToRemote')?.addEventListener('click', () => this.pushConfigToRemote());
-    document.getElementById('rfSlot1UpdateBtn')?.addEventListener('click', () => this.startEliteOta(1));
-    document.getElementById('rfSlot2UpdateBtn')?.addEventListener('click', () => this.startEliteOta(2));
+    document.getElementById('rfSlot1UpdateBtn')?.addEventListener('click', () => this.startRemoteOta(1));
+    document.getElementById('rfSlot2UpdateBtn')?.addEventListener('click', () => this.startRemoteOta(2));
     document.getElementById('rfSlotSelect1Btn')?.addEventListener('click', () => this.switchRemoteSlot(1));
     document.getElementById('rfSlotSelect2Btn')?.addEventListener('click', () => this.switchRemoteSlot(2));
     document.getElementById('rfCopySlotMappingBtn')?.addEventListener('click', () => this.copySlotMappings());
-    document.getElementById('eliteMqttSaveBtn')?.addEventListener('click', () => this.saveRFRemoteMqttSettings());
+    document.getElementById('remoteMqttSaveBtn')?.addEventListener('click', () => this.saveRFRemoteMqttSettings());
 
     // MQTT Actions
     document.getElementById('mqttSaveBtn')?.addEventListener('click', () => this.saveMqttSettings());

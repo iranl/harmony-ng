@@ -106,7 +106,7 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
 void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     if (slot < 1 || slot > 2) slot = 1;
     char path[64];
-    snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
+    snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_config.json", slot);
     cJSON *root = cJSON_CreateObject();
     if (!root) return;
 
@@ -330,10 +330,10 @@ uint8_t rf_check_update_flags(uint8_t slot) {
     /* 2. OTA update check (cached from flash with 24h TTL) */
     uint32_t now = (uint32_t)time(NULL);
     if (s_ota_cache_epoch == 0 || now < s_ota_cache_epoch || now - s_ota_cache_epoch >= OTA_CACHE_TTL_S) {
-        const char *ota_path = "/data/harmony/elite_ui.ota.gz";
-        if (access(ota_path, R_OK) != 0) ota_path = "/cache/elite_ui.ota.gz";
+        const char *ota_path = "/data/harmony/remote_ui.ota.gz";
+        if (access(ota_path, R_OK) != 0) ota_path = "/cache/remote_ui.ota.gz";
         if (access(ota_path, R_OK) == 0) {
-            FILE *vf = fopen("/data/harmony/elite_ui.version", "r");
+            FILE *vf = fopen("/data/harmony/remote_ui.version", "r");
             if (!vf) vf = fopen("/data/harmony/VERSION", "r");
             if (vf) {
                 char ota_ver[32] = {0};

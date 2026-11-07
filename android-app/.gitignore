@@ -2,7 +2,7 @@ node_modules/
 dist/
 public/assets/icons/*
 !public/assets/icons/switch.png
-# WebAssembly screen renderer, built by tools/elite_render/build.sh --wasm public/assets
-public/assets/elite_render.js
-public/assets/elite_render.wasm
-public/assets/elite_preview.js
+# WebAssembly screen renderer, built by tools/remote_render/build.sh --wasm public/assets
+public/assets/remote_render.js
+public/assets/remote_render.wasm
+public/assets/remote_preview.js

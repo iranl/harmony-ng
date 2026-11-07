@@ -270,7 +270,7 @@ void *api_server_worker(void *arg) {
                         slot);
                 } else {
                     char path[64];
-                    snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
+                    snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_config.json", slot);
                     FILE *f = fopen(path, "r");
                     if (f) {
                         size_t rn = fread(res_body, 1, sizeof(res_body) - 1, f);
@@ -420,7 +420,7 @@ void *api_server_worker(void *arg) {
                             if (layout) cJSON_AddStringToObject(norm, "layout", rf_layout_name((uint8_t)layout));
 
                             char path[64];
-                            snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_config.json", slot);
+                            snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_config.json", slot);
 
                             /* Read existing config to compute diff for pending push banner */
                             char old_cfg[4096] = {0};
@@ -457,7 +457,7 @@ void *api_server_worker(void *arg) {
             } else if (strstr(buf, "GET /api/rf/remote-direct-buttons") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
                 char path[64];
-                snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_direct_buttons.json", slot);
+                snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
                 char res_body[4096] = {0};
                 FILE *f = fopen(path, "r");
                 if (f) {
@@ -482,7 +482,7 @@ void *api_server_worker(void *arg) {
                     if (body_start) {
                         body_start += 4;
                         char path[64];
-                        snprintf(path, sizeof(path), "/data/harmony/elite_slot%d_direct_buttons.json", slot);
+                        snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
                         FILE *f = fopen(path, "w");
                         if (f) {
                             fputs(body_start, f);

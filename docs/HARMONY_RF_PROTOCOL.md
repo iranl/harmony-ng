@@ -125,7 +125,7 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 
 ### 4.1 Subsystem Initialization
 - **Init Command** (`10 FF 80 00 00 01 00`): Wakes and initializes CC2544 messaging engine.
-- **Factory RF test step** (`10 FF 80 FD 01 00 00`): steps the CC2544 to its next factory test mode; reply `10 FF 80 FD 01 <mode> 00`. Logitech's firmware sends it only from the hidden factory test menu (`rf.test`), which names the modes: `0` RX sweep, `1`-`3` TX unmodulated at 2405/2444/2474 MHz, `4`-`6` TX modulated at the same channels, `7`-`9` RX at those channels, `10` TX sweep unmodulated, `11` ready. A reboot clears it. Not for normal operation: on the remote, from the fifth write since boot the link stays lost (`10 01 41 04 47`). Only `01` is accepted (`00` is rejected with `10 FF 8F 80 FD 03 00`). `elite_ui` does not send it.
+- **Factory RF test step** (`10 FF 80 FD 01 00 00`): steps the CC2544 to its next factory test mode; reply `10 FF 80 FD 01 <mode> 00`. Logitech's firmware sends it only from the hidden factory test menu (`rf.test`), which names the modes: `0` RX sweep, `1`-`3` TX unmodulated at 2405/2444/2474 MHz, `4`-`6` TX modulated at the same channels, `7`-`9` RX at those channels, `10` TX sweep unmodulated, `11` ready. A reboot clears it. Not for normal operation: on the remote, from the fifth write since boot the link stays lost (`10 01 41 04 47`). Only `01` is accepted (`00` is rejected with `10 FF 8F 80 FD 03 00`). `remote_ui` does not send it.
 - **Firmware Version Query** (`10 FF 81 F1 01 00 00`): Returns firmware version. Reply: `10 FF 81 F1 01 <ver> 00` (e.g. `0x27` = v39.00).
 
 ### 4.2 Power Mode Management
@@ -172,7 +172,7 @@ A sweep of every HID++ 1.0 short (`10 FF 81 <reg> 00 00 00`) and long (`10 FF 83
 | `81 00` | `00 01 00`: notification flags, set by the Init Command | error `02` |
 | `81 01`, `81 03` | `00 00 00` | error `02` |
 | `81 02` | `00 01 00` (on Unifying receivers, the number of connected devices) | error `02` |
-| `81 D0` | `00 00 00` | `00 00 00` before `elite_ui` starts, `01 00 00` after |
+| `81 D0` | `00 00 00` | `00 00 00` before `remote_ui` starts, `01 00 00` after |
 | `81 D2` | error `02` | `00 00 0D`, constant while the link alternates between lost and established |
 | `81 E6`, `81 F0` | `00 00 00` | error `02` |
 | `83 B3` | Device activity: byte 4 + n is an 8-bit counter of payload frames received from slot n + 1 | error `02` |
@@ -232,7 +232,7 @@ All application messages are encapsulated in the payload section of Report `0x12
   - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
   - `0x02` `RF_CAP_LONG_NAMES`: understands `RF_MSG_NAME_TAIL_CHUNK`
 
-The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/elite_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
+The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
 #### `RF_MSG_ACT_DEVICES_CHUNK` (`0x2B`)
 One frame per activity, after the device list in a config push:

@@ -26,7 +26,7 @@ MIPS_SEARCH_PATHS = [
     REPO_ROOT / "payload" / "bin",
 ]
 ARM_SEARCH_PATHS = [
-    REPO_ROOT / "artifacts" / "elite-binaries",
+    REPO_ROOT / "artifacts" / "remote-binaries",
     REPO_ROOT / "build" / "output" / "elite",
     REPO_ROOT / "build" / "output",
     REPO_ROOT / "elite" / "bin",
@@ -52,9 +52,9 @@ HUB_BINARIES = [
     "eth_fix",
 ]
 
-ELITE_BINARIES = [
-    "elite_ui",
-    "elite_ui.ota.gz",
+REMOTE_BINARIES = [
+    "remote_ui",
+    "remote_ui.ota.gz",
 ]
 
 def find_candidate_file(name: str, search_paths: list[Path]) -> Path | None:
@@ -120,15 +120,15 @@ def package_ota(output_dir: Path, version: str):
     # 3. ARM binaries (Elite)
     arm_target = output_dir / "bin" / "arm"
     arm_target.mkdir(parents=True, exist_ok=True)
-    for bname in ELITE_BINARIES:
-        if bname == "elite_ui.ota.gz":
-            elite_bin = find_candidate_file("elite_ui", ARM_SEARCH_PATHS)
-            if elite_bin and elite_bin.is_file():
+    for bname in REMOTE_BINARIES:
+        if bname == "remote_ui.ota.gz":
+            remote_bin = find_candidate_file("remote_ui", ARM_SEARCH_PATHS)
+            if remote_bin and remote_bin.is_file():
                 ota_tar = arm_target / bname
                 print(f"[*] Packaging Elite OTA bundle (binary + scripts) into {ota_tar.name}...")
                 with tarfile.open(ota_tar, "w:gz") as tar:
-                    tar.add(elite_bin, arcname="elite_ui")
-                    for sf in ["rcS.local", "elite_watchdog.sh", "factory_reset.sh"]:
+                    tar.add(remote_bin, arcname="remote_ui")
+                    for sf in ["rcS.local", "remote_watchdog.sh", "factory_reset.sh"]:
                         sp = REPO_ROOT / "elite" / sf
                         if sp.is_file():
                             tar.add(sp, arcname=sf)

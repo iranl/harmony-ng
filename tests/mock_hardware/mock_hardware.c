@@ -87,7 +87,7 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         *out_special_type = 1; /* Special RF handling */
         const char *role = getenv("HARMONY_MOCK_ROLE");
         if (role && strcmp(role, "elite") == 0) {
-            snprintf(resolved, max_len, "%s/elite_rf.sock", md);
+            snprintf(resolved, max_len, "%s/remote_rf.sock", md);
         } else {
             snprintf(resolved, max_len, "%s/hub_rf.sock", md);
         }
@@ -368,7 +368,7 @@ int ioctl(int fd, unsigned long request, ...) {
             struct fb_fix_screeninfo *finfo = (struct fb_fix_screeninfo *)arg;
             if (!finfo) return -EINVAL;
             memset(finfo, 0, sizeof(*finfo));
-            strncpy(finfo->id, "HarmonyEliteFB", sizeof(finfo->id));
+            strncpy(finfo->id, "HarmonyRemoteFB", sizeof(finfo->id));
             finfo->smem_len = 240 * 320 * 2;
             finfo->line_length = 240 * 2;
             return 0;

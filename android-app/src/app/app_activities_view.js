@@ -237,7 +237,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
     } catch { }
 
     try {
-      const rfBadge = document.getElementById('dashEliteBadge');
+      const rfBadge = document.getElementById('dashRemoteBadge');
       if (rfBadge) {
         if (svcs && svcs.rf_enabled === false) {
           rfBadge.className = 'badge bad';

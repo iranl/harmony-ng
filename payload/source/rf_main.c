@@ -71,7 +71,7 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
 
     if (full_id && cmd_name) {
         printf("[*] Device browser command: dev=%s idx=%d -> %s\n", full_id, cmd_idx, cmd_name);
-        enqueue_elite_device_cmd(full_id, cmd_name);
+        enqueue_remote_device_cmd(full_id, cmd_name);
     } else {
         printf("[-] Device browser command not found: dev=%s idx=%d name=%s\n", dev_id, cmd_idx, prefix);
     }
@@ -108,7 +108,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
             printf("[*] BUTTON_PRESS: slot=%d code=0x%04X state=%s name=%s dev=%s\n",
                    slot, key_code, action, name, dev_id[0] ? dev_id : "none");
-            enqueue_elite_button(slot, name, action, dev_id);
+            enqueue_remote_button(slot, name, action, dev_id);
 
             static uint32_t s_last_sync_ms = 0;
             uint32_t now_ms = (uint32_t)get_monotonic_ms();
@@ -125,7 +125,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             char act_id[13] = {0};
             memcpy(act_id, f->payload, 12);
             printf("[*] ACTIVITY_REQUEST: %s\n", act_id);
-            enqueue_elite_activity(act_id);
+            enqueue_remote_activity(act_id);
             break;
         }
 
@@ -150,7 +150,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
             bool handled = false;
             if (is_slot_direct_mode(slot)) {
-                cJSON *dmap = get_elite_direct_map(slot);
+                cJSON *dmap = get_remote_direct_map(slot);
                 if (dmap) {
                     const char *page_key = (strcmp(act_or_dev, "page2") == 0) ? "page2" : "page1";
                     cJSON *sbtns = cJSON_GetObjectItem(dmap, page_key);
@@ -162,7 +162,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                             if (jdev && jcmd && jdev->valuestring && jcmd->valuestring) {
                                 printf("[*] Direct Screen button dispatch: slot=%d page=%s idx=%d -> dev=%s cmd=%s\n",
                                        slot, page_key, btn_idx, jdev->valuestring, jcmd->valuestring);
-                                enqueue_elite_device_cmd(jdev->valuestring, jcmd->valuestring);
+                                enqueue_remote_device_cmd(jdev->valuestring, jcmd->valuestring);
                                 handled = true;
                             }
                         }
@@ -175,7 +175,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 if (get_remote_screen_button(slot, act_or_dev, btn_idx, dev_str, sizeof(dev_str), cmd_str, sizeof(cmd_str))) {
                     printf("[*] Screen button dispatch: act=%s idx=%d -> dev=%s cmd=%s\n",
                            act_or_dev, btn_idx, dev_str, cmd_str);
-                    enqueue_elite_device_cmd(dev_str, cmd_str);
+                    enqueue_remote_device_cmd(dev_str, cmd_str);
                     handled = true;
                 }
             }
@@ -186,7 +186,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 memcpy(dev_id, f->payload, 12);
                 memcpy(cmd, &f->payload[12], 16);
                 printf("[*] DEVICE_CMD direct: dev=%s cmd=%s\n", dev_id, cmd);
-                enqueue_elite_device_cmd(dev_id, cmd);
+                enqueue_remote_device_cmd(dev_id, cmd);
             }
             break;
         }
@@ -273,7 +273,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             g_remote_versions[idx].last_report_ms = get_monotonic_ms();
 
             char vpath[64];
-            snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", slot);
+            snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
             if (ver_changed || access(vpath, F_OK) != 0) {
                 FILE *vf = fopen(vpath, "w");
                 if (vf) {
@@ -418,7 +418,7 @@ int main(int argc, char **argv) {
     /* Load last known remote software and config versions from disk */
     for (int slot = 1; slot <= 2; slot++) {
         char vpath[64];
-        snprintf(vpath, sizeof(vpath), "/data/harmony/elite_slot%d_version.json", slot);
+        snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
         FILE *fv = fopen(vpath, "r");
         if (fv) {
             char vbuf[256] = {0};
@@ -443,7 +443,7 @@ int main(int argc, char **argv) {
 
         /* The battery state is no longer kept on flash: remove a file left by older builds */
         char bpath[64];
-        snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
+        snprintf(bpath, sizeof(bpath), "/data/harmony/remote_slot%d_battery.json", slot);
         unlink(bpath);
     }
 

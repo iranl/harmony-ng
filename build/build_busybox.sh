@@ -8,7 +8,7 @@ BB_VER="1.36.1"
 BB_TAR="busybox-${BB_VER}.tar.bz2"
 BB_URL="https://busybox.net/downloads/${BB_TAR}"
 
-mkdir -p "$TMP_DIR" "$REPO_ROOT/payload/bin" "$REPO_ROOT/elite/bin"
+mkdir -p "$TMP_DIR" "$REPO_ROOT/payload/bin" "$REPO_ROOT/remote/bin"
 
 TARGET="${1:-all}"
 
@@ -101,15 +101,15 @@ build_arm() {
     make -j"$(nproc)" CROSS_COMPILE="$CROSS" busybox
     "${CROSS}strip" busybox
 
-    cp busybox "$REPO_ROOT/elite/bin/busybox"
-    echo "[+] ARM BusyBox built: $REPO_ROOT/elite/bin/busybox ($(ls -lh "$REPO_ROOT/elite/bin/busybox" | awk '{print $5}'))"
+    cp busybox "$REPO_ROOT/remote/bin/busybox"
+    echo "[+] ARM BusyBox built: $REPO_ROOT/remote/bin/busybox ($(ls -lh "$REPO_ROOT/remote/bin/busybox" | awk '{print $5}'))"
 }
 
 case "$TARGET" in
     mips|hub)
         build_mips
         ;;
-    arm|elite)
+    arm|remote|elite)
         build_arm
         ;;
     all)
