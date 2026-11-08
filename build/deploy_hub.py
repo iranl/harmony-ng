@@ -352,10 +352,22 @@ class HubDeployer:
             )
 
             # Deploy core binaries
-            core_bins = [
-                "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
-                "hub_dhcpd", "hub_portal", "mknod", "register_ehci", "eth_fix"
-            ]
+            if (self.bin_dir / "hub_util").is_file():
+                self.deploy_file_if_changed(self.bin_dir / "hub_util", "/data/harmony/bin/hub_util", "755")
+                util_setup = (
+                    "for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do "
+                    "  [ -f /data/harmony/bin/$_app ] && [ ! -L /data/harmony/bin/$_app ] && rm -f /data/harmony/bin/$_app 2>/dev/null; "
+                    "  ln -sf /data/harmony/bin/hub_util /data/harmony/bin/$_app 2>/dev/null || true; "
+                    "done"
+                )
+                if not self.dry_skip("create hub_util symlinks and purge legacy standalone binaries"):
+                    self.run_ssh(util_setup)
+                core_bins = ["hub_daemon", "hub_rf", "hub_btstack"]
+            else:
+                core_bins = [
+                    "hub_daemon", "hub_rf", "hub_sntp", "hub_btstack", "hub_sync",
+                    "hub_dhcpd", "hub_portal", "mknod", "register_ehci", "eth_fix"
+                ]
             for b in core_bins:
                 src = self.bin_dir / b
                 if src.is_file():

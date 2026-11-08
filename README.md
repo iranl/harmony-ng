@@ -178,11 +178,10 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── state_watch.c   # Pushes Bluetooth, remote and config changes to the web UIs
 │       ├── ir_i2s.c        # Direct AR9344 I2S hardware pulse transmitter
 │       ├── ir_encoder.c    # Protocol bit encoders (NEC, RC5, RC6, Sony, Pronto)
-│       ├── hub_rf.c      # CC2544 RF protocol engine
-│       ├── hub_btstack/  # BTstack Bluetooth HID daemon integration
-│       ├── remote_ui.c   # Remote framebuffer GUI & input application
-│       ├── hub_dhcpd.c     # Clean-room RFC 2131 DHCP recovery server
-│       └── hub_portal.c    # Wi-Fi recovery captive portal
+│       ├── hub_rf.c        # CC2544 RF protocol engine
+│       ├── hub_btstack/    # BTstack Bluetooth HID daemon integration
+│       ├── remote_ui.c     # Remote framebuffer GUI & input application
+│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp)
 └── tools/
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor

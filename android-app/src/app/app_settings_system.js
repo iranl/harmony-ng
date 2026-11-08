@@ -52,6 +52,7 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppRemotesRf } from './app_remotes_rf.js';
+import { copyText } from '../clipboard.js';
 
 export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
   async loadMqttView() {
@@ -275,7 +276,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (!previewEl || !previewEl.textContent) return;
 
     try {
-      await navigator.clipboard.writeText(previewEl.textContent);
+      if (!(await copyText(previewEl.textContent))) throw new Error('clipboard unavailable');
       if (copyBtn) copyBtn.textContent = '✓ Copied!';
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">Copied to clipboard</span>';
       setTimeout(() => {
@@ -343,7 +344,6 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       port: Number(document.getElementById('mqttPort')?.value) || 1883,
       username: document.getElementById('mqttUsername')?.value.trim(),
       password: document.getElementById('mqttPassword')?.value,
-      keep_password: document.getElementById('mqttKeepPass')?.checked ? 1 : 0,
       baseTopic: document.getElementById('mqttBaseTopic')?.value.trim(),
       discoveryPrefix: document.getElementById('mqttDiscoveryPrefix')?.value.trim(),
       clientId: document.getElementById('mqttClientId')?.value.trim(),
