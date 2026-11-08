@@ -7,7 +7,10 @@
  */
 export async function copyText(text) {
   if (!text) return false;
-  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+  /* Only in a secure context: on plain HTTP a Clipboard API that exists but rejects would cost the
+   * click's user activation while awaiting, and the fallback below would then fail too. */
+  if (typeof window !== 'undefined' && window.isSecureContext &&
+      typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
@@ -19,10 +22,13 @@ export async function copyText(text) {
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.setAttribute('readonly', '');
+  /* off-screen, so that focusing it does not scroll the page on a phone */
   ta.style.position = 'fixed';
-  ta.style.top = '0';
-  ta.style.left = '0';
+  ta.style.top = '-9999px';
+  ta.style.left = '-9999px';
   ta.style.opacity = '0';
+  ta.setAttribute('aria-hidden', 'true');
+  ta.setAttribute('tabindex', '-1');
   document.body.appendChild(ta);
   ta.focus();
   ta.select();

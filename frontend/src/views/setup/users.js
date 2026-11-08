@@ -279,8 +279,15 @@ export function createView() {
           label: 'Copy & Close',
           variant: 'primary',
           onClick: async () => {
-            if (await copyText(tokenStr)) toast.success('Token copied to clipboard');
-            else toast.error('Clipboard not available on plain HTTP: select the token and copy it by hand');
+            if (await copyText(tokenStr)) {
+              toast.success('Token copied to clipboard');
+              return true;
+            }
+            /* keep the dialog open: the token is shown only once */
+            toast.error('Clipboard not available: select the token and copy it by hand');
+            tokArea.focus();
+            tokArea.select();
+            return false;
           },
         },
       ],
