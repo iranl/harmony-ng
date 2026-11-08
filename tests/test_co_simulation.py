@@ -20,6 +20,9 @@ import subprocess
 import urllib.request
 import json
 import signal
+import fcntl
+import threading
+import urllib.error
 
 # Add current dir to import mock hardware tools
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +35,34 @@ from mock_rf_router import CC2544VirtualRouter
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 TEST_PORT = 8998
 MOCK_BASE = "/tmp/harmony_mock"
+
+# The Hub's IR receiver as ir_i2s.c reads it: 0.09375 us per bit (16x the 1.5 us I2S sample),
+# MSB first, active low (a mark is 0 bits, a space and the idle line are 1 bits)
+IR_RX_US_PER_BIT = 3.0 / 32.0
+
+
+def ir_rx_bitstream(timings_us, idle_before_bytes=2048, idle_after_us=30000):
+    """Raw /dev/i2s receive data for alternating mark/space durations (starting with a mark)"""
+    runs = [("1", idle_before_bytes * 8)]
+    for i, d in enumerate(list(timings_us) + [idle_after_us]):
+        runs.append(("0" if i % 2 == 0 else "1", round(d / IR_RX_US_PER_BIT)))
+    bits = "".join(ch * n for ch, n in runs)
+    bits += "1" * (-len(bits) % 8)
+    return int(bits, 2).to_bytes(len(bits) // 8, "big")
+
+
+def learned_durations(raw):
+    """The P/S durations (us) of a learned raw string F<carrier hex>P<hex>S<hex>..."""
+    out, num = [], ""
+    for ch in raw[1:] + "P":
+        if ch in "PS":
+            if num:
+                out.append(int(num, 16))
+            num = ""
+        elif ch not in " ":
+            num += ch
+    return out[1:]  # the first number is the carrier
+
 
 class CoSimulationRunner:
     def __init__(self):
@@ -67,6 +98,22 @@ class CoSimulationRunner:
                 return resp.status, json.loads(resp.read().decode())
         except Exception as e:
             return 0, str(e)
+
+    def http_post_status(self, path, payload, timeout=15.0):
+        """POST that keeps the status code of an error reply (http_post turns those into 0)"""
+        url = f"http://127.0.0.1:{TEST_PORT}{path}"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read().decode() or "{}")
+        except urllib.error.HTTPError as e:
+            try:
+                return e.code, json.loads(e.read().decode() or "{}")
+            except ValueError:
+                return e.code, {}
+        except Exception as e:
+            return 0, {"error": str(e)}
 
     def run(self):
         print("\n=======================================================")
@@ -205,6 +252,71 @@ class CoSimulationRunner:
         pronto = "0000 0067 0000 000d 0060 0018 0030 0018 0018 0018 0030 0018 0018 0018 0030 0018 0018 0018 0018 0018 0030 0018 0018 0018 0018 0018 0018 0018 0018 03a0"
         st, blast_res = self.http_post("/api/ir-send", {"pronto": pronto, "port": 7, "repeats": 1})
         self.record("Pronto Hex IR Blast Command", st == 200 and blast_res.get("ok") is True, f"HTTP {st}")
+
+        # 4b. Learn an IR signal from the receiver (POST /api/capture) and play it back
+        print("[-] Step 3b: Learning an IR signal from the Hub's IR receiver...")
+        rx_path = os.path.join(MOCK_BASE, "i2s_rx")
+        # Sony SIRC 12-bit frame: 2.4 ms header, then 1.2 ms (1) or 0.6 ms (0) marks, 0.6 ms spaces
+        bits12 = [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0]
+        sirc = [2400, 600]
+        for i, b in enumerate(bits12):
+            sirc.append(1200 if b else 600)
+            if i < len(bits12) - 1:
+                sirc.append(600)
+        try:
+            with open(rx_path, "wb") as f:
+                f.write(ir_rx_bitstream(sirc, idle_after_us=30000))
+            st, cap = self.http_post_status("/api/capture", {"timeout": 3})
+            raw = cap.get("raw", "") if isinstance(cap, dict) else ""
+            got = learned_durations(raw) if raw else []
+            want = sirc + [30000]
+            exact = len(got) == len(want) and all(abs(a - b) <= 1 for a, b in zip(got, want))
+            self.record("IR learn: a Sony 12-bit frame comes back with every pulse and space",
+                        st == 200 and raw.startswith("F9470") and exact and cap.get("keycode") == raw,
+                        f"HTTP {st} {len(got)}/{len(want)} durations {raw[:60]}")
+            self.record("IR learn: pulse count and length reported",
+                        cap.get("pulses") == len(want) and cap.get("duration_us") == sum(want) and cap.get("carrier_hz") == 38000,
+                        f"pulses={cap.get('pulses')} duration_us={cap.get('duration_us')} carrier={cap.get('carrier_hz')}")
+            st, tst = self.http_post_status("/api/ir-test-learned", {"deviceId": "", "raw": raw, "keycode": raw})
+            self.record("IR learn: the learned code plays back (ir-test-learned)",
+                        st == 200 and tst.get("ok") is True, f"HTTP {st} {tst}")
+            st, tst = self.http_post_status("/api/ir-test-learned", {"deviceId": ""})
+            self.record("IR learn: ir-test-learned without a code is 400", st == 400, f"HTTP {st}")
+
+            with open(rx_path, "wb") as f:
+                f.write(b"\xff" * 4096)  # the line stays idle: nobody pressed a button
+            st, cap = self.http_post_status("/api/capture", {"timeout": 1})
+            self.record("IR learn: no signal is 408", st == 408, f"HTTP {st} {cap}")
+
+            os.remove(rx_path)
+            st, cap = self.http_post_status("/api/capture", {"timeout": 1})
+            self.record("IR learn: no receiver is 503", st == 503, f"HTTP {st} {cap}")
+
+            with open(rx_path, "wb") as f:
+                f.write(ir_rx_bitstream(sirc))
+            with open("/tmp/harmony_i2s.lock", "a+") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)  # an IR send holds the I2S hardware
+                st, cap = self.http_post_status("/api/capture", {"timeout": 1})
+                fcntl.flock(lk, fcntl.LOCK_UN)
+            self.record("IR learn: I2S busy (IR send) is 409", st == 409, f"HTTP {st} {cap}")
+
+            # one capture at a time: a second request while the first waits for a signal
+            with open(rx_path, "wb") as f:
+                f.write(ir_rx_bitstream(sirc))
+            results = {}
+            with open("/tmp/harmony_i2s.lock", "a+") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)  # keeps the first capture waiting for the hardware
+                t = threading.Thread(target=lambda: results.update(first=self.http_post_status("/api/capture", {"timeout": 2})))
+                t.start()
+                time.sleep(0.5)
+                st, cap = self.http_post_status("/api/capture", {"timeout": 1})
+                fcntl.flock(lk, fcntl.LOCK_UN)
+            t.join()
+            self.record("IR learn: a second capture while one runs is 409",
+                        st == 409 and "already running" in str(cap), f"HTTP {st} {cap}")
+        finally:
+            if os.path.exists(rx_path):
+                os.remove(rx_path)
 
         # 5. Test Remote Physical Button Injection via Mock Layer
         print("[-] Step 4: Injecting Remote Physical Button Events...")

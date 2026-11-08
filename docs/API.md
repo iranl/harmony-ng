@@ -607,6 +607,22 @@ Dedicated blaster endpoint for raw Pronto hex code streams.
   ```
 - **Response `200 OK`**: `{"success": true}`
 
+### 5.2a IR Learning (capture)
+#### `POST /api/capture` or `POST /api/ir-capture`
+Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns it as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`). The string can be stored as a command's `raw` (`POST /ir/command`) and sent like any other keycode.
+- **Request Body** (optional): `{"timeout": 10}` in seconds, 1 to 30 (default 10). `?timeout=` works too.
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 13, "duration_us": 24000}
+  ```
+- **Errors**: `408` no signal before the timeout, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, `500` other failures.
+
+#### `POST /api/ir-test-learned`
+Sends a captured code once through the IR ports of a device (its `controlPort`, default all).
+- **Request Body**: `{"deviceId": "3", "keycode": "F9470P...S..."}` (`raw` or `code` are accepted for `keycode`).
+- **Response `200 OK`**: `{"ok": true, "port": 7}`
+- **Errors**: `400` missing code or a code the IR encoder does not understand, `500` transmit failure.
+
 ### 5.3 Button Press & MQTT Dispatch
 #### `POST /api/button-press` or `POST /api/mqtt-publish`
 Dispatches a button press pulse to local MQTT broker and hardware handlers.

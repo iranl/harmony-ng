@@ -35,6 +35,10 @@ static int g_touch_mock_fd = -1;
 static int g_btn_mock_fd = -1;
 static int g_gyro_mock_fd = -1;
 static int g_rf_mock_fd = -1;
+/* /dev/i2s opened read-only = the Hub's IR receiver: <mock dir>/i2s_rx holds the bitstream a test
+ * wrote (the receiver line is active low, so idle bytes are 0xFF). A missing file fails like a Hub
+ * without the device. Write-only opens (IR sends) are not touched. */
+static int g_i2s_rx_mock_fd = -1;
 
 static void init_real_functions(void) {
     if (!real_open) {
@@ -251,6 +255,14 @@ int open(const char *pathname, int flags, ...) {
         va_end(args);
     }
 
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
+        char rx[512];
+        snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
+        int fd = real_open(rx, flags & ~O_CREAT, 0);
+        if (fd >= 0) g_i2s_rx_mock_fd = fd;
+        return fd;
+    }
+
     char resolved[512];
     int special_type = 0;
     const char *target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
@@ -305,6 +317,14 @@ int open64(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode = va_arg(args, mode_t);
         va_end(args);
+    }
+
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
+        char rx[512];
+        snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
+        int fd = real_open64(rx, flags & ~O_CREAT, 0);
+        if (fd >= 0) g_i2s_rx_mock_fd = fd;
+        return fd;
     }
 
     char resolved[512];
@@ -403,6 +423,11 @@ int ioctl(int fd, unsigned long request, ...) {
     arg = va_arg(va, void *);
     va_end(va);
 
+    /* IR receiver: the I2S setup ioctls succeed */
+    if (fd == g_i2s_rx_mock_fd && g_i2s_rx_mock_fd >= 0) {
+        return 0;
+    }
+
     /* Framebuffer ioctl emulation */
     if (fd == g_fb_mock_fd && g_fb_mock_fd >= 0) {
         if (request == FBIOGET_FSCREENINFO) {
@@ -469,5 +494,6 @@ int close(int fd) {
     if (fd == g_btn_mock_fd) g_btn_mock_fd = -1;
     if (fd == g_gyro_mock_fd) g_gyro_mock_fd = -1;
     if (fd == g_rf_mock_fd) g_rf_mock_fd = -1;
+    if (fd == g_i2s_rx_mock_fd) g_i2s_rx_mock_fd = -1;
     return real_close(fd);
 }

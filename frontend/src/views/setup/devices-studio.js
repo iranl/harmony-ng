@@ -173,12 +173,9 @@ export function createView() {
             const hex = prontoInput.value.trim();
             if (!name || !hex) return toast.warn('Enter both name and Pronto hex');
             try {
-              await api.saveLearnedCommand({
-                deviceId: dev.id,
-                command: name,
-                pronto: hex,
-                port: dev.controlPort || 7,
-              });
+              /* /ir/command reads name and raw; the IR encoder plays a raw value starting with "0000 " as Pronto */
+              const res = await api.saveLearnedCommand({ deviceId: dev.id, name, raw: hex });
+              if (!res || res.ok === false) return toast.error(`Could not save command ${name}`);
               toast.success(`Command ${name} saved!`);
               refreshInventory();
             } catch (e) {
@@ -299,9 +296,15 @@ export function createView() {
         {
           label: 'Test Blast',
           onClick: async () => {
-            if (result.pronto) {
-              await api.sendDirectPronto(result.pronto, selectedDevice?.controlPort || 7);
-              toast.info('Blasted captured signal');
+            try {
+              /* the Hub returns a raw timing string (no pronto); send it through the device's IR ports */
+              const res = result.pronto
+                ? await api.sendDirectPronto(result.pronto, selectedDevice?.controlPort || 7)
+                : await api.testLearnedIr({ deviceId: selectedDevice?.id, keycode: result.keycode || result.raw || '' });
+              if (res && res.ok === false) toast.error(res.error || 'IR transmit failed');
+              else toast.info('Blasted captured signal');
+            } catch (e) {
+              toast.error(e.message);
             }
             return false;
           },
@@ -315,13 +318,16 @@ export function createView() {
               toast.warn('Enter command name');
               return false;
             }
-            await api.saveLearnedCommand({
+            /* /ir/command reads name and raw (the legacy UI sends the same fields) */
+            const res = await api.saveLearnedCommand({
               deviceId: selectedDevice.id,
-              command: name,
-              pronto: result.pronto || '',
-              raw: result.raw || '',
-              port: selectedDevice.controlPort || 7,
+              name,
+              raw: result.keycode || result.raw || '',
             });
+            if (!res || res.ok === false) {
+              toast.error(`Could not save command ${name}`);
+              return false;
+            }
             toast.success(`Saved command ${name}`);
             refreshInventory();
             return true;
