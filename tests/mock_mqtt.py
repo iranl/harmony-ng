@@ -131,6 +131,7 @@ class _Client:
         self.broker = broker
         self.sock = sock
         self.subs = []
+        self.sub_qos = {}           # topic filter -> QoS the client asked for
         self.will = None
         self.connected = False
         self.wlock = threading.Lock()
@@ -228,6 +229,7 @@ class _Client:
             qos = data[pos]
             pos += 1
             self.subs.append(topic)
+            self.sub_qos[topic] = qos
             new.append(topic)
             codes += bytes([min(qos, 1)])
         self.send(b"\x90" + _enc_len(2 + len(codes)) + pid + codes)
@@ -261,6 +263,7 @@ class MockClient:
         self.inbox = []
         self.lock = threading.Lock()
         self.pid = 1
+        self.on_message = None      # optional hook (topic, payload, retain), called on the reader thread
         payload = _enc_str("MQTT") + b"\x04\x02" + struct.pack("!H", 60) + _enc_str(client_id)
         self.sock.sendall(b"\x10" + _enc_len(len(payload)) + payload)
         t, data = _read_packet(self.sock)
@@ -287,6 +290,8 @@ class MockClient:
                         self.sock.sendall(b"\x40\x02" + pid)
                     with self.lock:
                         self.inbox.append((topic, data[pos:], bool(t & 1)))
+                    if self.on_message:
+                        self.on_message(topic, data[pos:], bool(t & 1))
         except OSError:
             pass
 

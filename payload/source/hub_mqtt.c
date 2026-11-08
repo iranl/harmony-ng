@@ -873,7 +873,8 @@ static void publish_last(hub_event_type_t type, const char *suffix) {
 }
 
 static void on_connected(void) {
-    subscribe_cmd_topics();
+    /* The command topics were registered before connecting (subscribe_cmd_topics) and are
+     * subscribed by mqtt_connect() before it publishes "online" */
     clear_old_topics();
     publish_hub_object();
     publish_last(HUB_EV_ACTIVITY_STATE, "activity_state");
@@ -937,6 +938,7 @@ int hub_mqtt_init(void) {
     mqtt_init(g_mqtt_host, g_mqtt_port, g_mqtt_cid, g_mqtt_user, g_mqtt_pass);
     mqtt_set_lwt(g_status_topic, "offline", 1);
     mqtt_set_birth(g_status_topic, "online", 1);
+    subscribe_cmd_topics(); /* registered now, subscribed on connect before "online" */
     printf("[*] Connecting to MQTT broker %s:%d in background...\n", g_mqtt_host, g_mqtt_port);
     mqtt_connect_async();
     return 1;
@@ -957,6 +959,7 @@ void daemon_sync_mqtt(void) {
     mqtt_init(g_mqtt_host, g_mqtt_port, g_mqtt_cid, g_mqtt_user, g_mqtt_pass);
     mqtt_set_lwt(g_status_topic, "offline", 1);
     mqtt_set_birth(g_status_topic, "online", 1);
+    subscribe_cmd_topics(); /* mqtt_init cleared them; the base topic may have changed */
     g_mqtt_retry_interval = 5;
     g_last_mqtt_retry = 0;
     mqtt_connect_async();

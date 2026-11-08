@@ -319,14 +319,15 @@ int mqtt_connect(void) {
     g_connected = 1;
     g_last_ping = time(NULL);
 
-    /* Publish birth message if configured */
-    if (g_birth_topic[0]) {
-        mqtt_publish(g_birth_topic, g_birth_payload, g_birth_retain);
-    }
-
-    /* Re-subscribe existing subscriptions */
+    /* Subscriptions first, then the birth message: the broker handles one connection's packets in
+     * order, so whoever sees "online" can send a command and it reaches a subscription. With the
+     * birth first (clean session), a command sent right after "online" was dropped. */
     for (size_t i = 0; i < g_sub_count; i++) {
         mqtt_subscribe(g_subs[i].topic, g_subs[i].cb, g_subs[i].user_data);
+    }
+
+    if (g_birth_topic[0]) {
+        mqtt_publish(g_birth_topic, g_birth_payload, g_birth_retain);
     }
 
     return 0;
@@ -447,7 +448,7 @@ int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
     memcpy(p, topic, tlen);
     p += tlen;
 
-    *p++ = 0x00; /* QoS 0 */
+    *p++ = 0x01; /* QoS 1: commands are delivered with PUBACK (acked in mqtt_tick) */
 
     size_t total = (size_t)(p - pkt);
     ssize_t sent = send(g_fd, pkt, total, MSG_NOSIGNAL);

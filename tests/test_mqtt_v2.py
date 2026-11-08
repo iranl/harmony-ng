@@ -331,6 +331,45 @@ def main():
             check(m is not None and broker.retained.get("homeassistant/select/harmony-test_activity/config", b"") == b"",
                   "discovery off: the configs are cleared on reconnect", str(m))
             sub2.close()
+
+        # "online" must mean commands are answered: a client sends a command the instant it sees the
+        # Hub's live "online" (first connect, then two reconnects after a settings save). The Hub
+        # subscribes before it publishes "online"; with the old order the broker dropped the command.
+        print("[-] 5.3 a command sent the moment the Hub says online is answered")
+        broker2 = MockBroker()
+        try:
+            cfg2 = dict(mqtt_cfg, port=broker2.port, haDiscovery=False)
+            fast = MockClient("127.0.0.1", broker2.port, "fast-commander")
+            sent = []
+
+            def on_online(topic, payload, retain):
+                if topic == BASE + "/status" and payload == b"online" and not retain:
+                    cid = "online-%d" % (len(sent) + 1)
+                    sent.append(cid)
+                    fast.publish(BASE + "/cmd", json.dumps({"id": cid, "action": "get_state"}), qos=1)
+
+            fast.on_message = on_online
+            fast.subscribe(BASE + "/status")
+            fast.subscribe(BASE + "/cmd/response")
+            time.sleep(0.3)
+            with HubHarness(port=PORT, args=["--mfg-file", mfg_path], env={"HARMONY_MQTT_LIVE": "1"},
+                            extra_data_files={"mqtt.json": cfg2}) as hub2:
+                for n in range(1, 4):
+                    if n > 1:
+                        hub2.http_post("/api/mqtt-save", {"baseTopic": BASE, "haDiscovery": False})
+                    deadline = time.time() + 15
+                    while time.time() < deadline and len(sent) < n:
+                        time.sleep(0.05)
+                    cid = "online-%d" % n
+                    m = fast.wait_for(BASE + "/cmd/response", 5, lambda p, cid=cid: (jload(p) or {}).get("id") == cid)
+                    check(len(sent) >= n and m is not None and (jload(m[1]) or {}).get("ok") is True,
+                          "command sent right after \"online\" is answered (%s)" % ("first connect" if n == 1 else "reconnect %d" % (n - 1)),
+                          "sent=%s reply=%s" % (sent, m))
+                qos = [c.sub_qos.get(BASE + "/cmd") for c in list(broker2.clients) if BASE + "/cmd" in c.sub_qos]
+                check(qos == [1], "the Hub subscribes to <base>/cmd at QoS 1", str(qos))
+            fast.close()
+        finally:
+            broker2.close()
     finally:
         for p in (BT_STATUS_FILE, BT_STATUS_FILE + ".tmp", mfg_path):
             try:
