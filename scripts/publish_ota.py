@@ -41,6 +41,7 @@ VERSION_FILE = REPO_ROOT / "VERSION"
 STAGING_DIR = REPO_ROOT / "build" / "ota_staging"
 
 HUB_BINARIES = [
+    "hub_util",
     "hub_daemon",
     "hub_rf",
     "hub_btstack",

@@ -262,6 +262,14 @@ do_apply() {
       fi
 
       # B. Application binaries -> /data/harmony/bin/
+      if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
+        chmod 755 "$TMPDIR/pkg/bin/hub_util"
+        cp -f "$TMPDIR/pkg/bin/hub_util" "/data/harmony/bin/hub_util" 2>/dev/null || true
+        for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+          [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
+          ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
+        done
+      fi
       for b in hub_daemon hub_rf hub_btstack dropbearmulti hub_sync register_ehci eth_fix; do
         if [ -f "$TMPDIR/pkg/bin/$b" ]; then
           chmod 755 "$TMPDIR/pkg/bin/$b"
@@ -326,12 +334,18 @@ do_apply() {
       echo "[+] WebUI bundle updated in /cache/www."
     fi
 
-    for b in hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
+    for b in hub_util hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
       if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
         chmod 755 "$TMPDIR/$b"
         mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
         rm -f "/cache/bin/$b" 2>/dev/null || true
         [ "$b" = "hub_daemon" ] && OTA_FALLBACK_OK=1
+        if [ "$b" = "hub_util" ]; then
+          for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+            [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
+            ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
+          done
+        fi
       fi
     done
   fi
