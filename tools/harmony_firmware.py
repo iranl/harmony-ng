@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""Logitech Harmony Hub & Elite Remote Firmware & Asset Utility.
+"""Logitech Harmony Hub & Remote Firmware & Asset Utility.
 
 Features:
 1. Query Logitech SUS servers for latest official firmware versions & URLs.
 2. Download official .hfw2 firmware bundles directly from Logitech CloudFront/S3.
-3. Extract full Elite UI icon set from firmware squashfs filesystem.
-4. Install/flash firmware to connected Hub or Elite Remote over raw USB HID
+3. Extract full remote UI icon set from firmware squashfs filesystem.
+4. Install/flash firmware to connected Hub or remote over raw USB HID
    without Logitech software or cloud tools.
 
 Usage:
     # Query latest firmware versions from Logitech SUS
     python tools/harmony_firmware.py check
 
-    # Download latest firmware for Hub or Elite
+    # Download latest firmware for Hub or remote
     python tools/harmony_firmware.py download --target hub
-    python tools/harmony_firmware.py download --target elite
+    python tools/harmony_firmware.py download --target remote
 
-    # Extract all Elite remote UI icons/assets
+    # Extract all remote UI icons/assets
     python tools/harmony_firmware.py extract-icons [--firmware <path.hfw2>] [--out-dir data/remote_icons/extracted]
 
-    # Flash firmware to connected Hub or Elite over USB
-    python tools/harmony_firmware.py flash --target elite [--firmware <path.hfw2>] [--yes]
+    # Flash firmware to connected Hub or remote over USB
+    python tools/harmony_firmware.py flash --target remote [--firmware <path.hfw2>] [--yes]
     python tools/harmony_firmware.py flash --target hub [--firmware <path.hfw2>] [--yes]
 """
 
@@ -54,7 +54,7 @@ from tools.harmony_hid import (
     HARMONY_VID,
     HUB_PID,
     HUB_PRO_PID,
-    ELITE_PID,
+    REMOTE_PID,
     ALL_HUB_PIDS,
     encode_param_byte,
     encode_param_word_be,
@@ -85,7 +85,7 @@ SKIN_NAMES = {
 
 DEFAULT_HUB_SKIN = 97
 DEFAULT_ELITE_SKIN = 111
-ELITE_FALLBACK_SKINS = [111, 112, 102, 105, 99]
+REMOTE_FALLBACK_SKINS = [111, 112, 102, 105, 99]
 
 
 # ==============================================================================
@@ -130,14 +130,14 @@ def query_latest_firmware(skin_id: int, silent_on_empty: bool = False) -> Option
     return None
 
 
-def query_latest_elite_firmware(silent_on_empty: bool = False) -> tuple[Optional[dict[str, Any]], int]:
-    """Query Logitech SUS for latest Elite firmware, falling back across compatible skins."""
-    for skin in ELITE_FALLBACK_SKINS:
+def query_latest_remote_firmware(silent_on_empty: bool = False) -> tuple[Optional[dict[str, Any]], int]:
+    """Query Logitech SUS for latest remote firmware, falling back across compatible skins."""
+    for skin in REMOTE_FALLBACK_SKINS:
         res = query_latest_firmware(skin, silent_on_empty=True)
         if res and res.get("URI"):
             return res, skin
     if not silent_on_empty:
-        print(f"[-] Logitech's update service returned no firmware for Elite skins ({ELITE_FALLBACK_SKINS}).", file=sys.stderr)
+        print(f"[-] Logitech's update service returned no firmware for the remote skins ({REMOTE_FALLBACK_SKINS}).", file=sys.stderr)
     return None, DEFAULT_ELITE_SKIN
 
 
@@ -331,13 +331,13 @@ def find_7z_executable() -> Optional[str]:
     return None
 
 
-def extract_elite_icons(
+def extract_remote_icons(
     firmware_path: pathlib.Path,
     output_dir: pathlib.Path,
     archive_path: Optional[pathlib.Path] = None,
     android_sync: bool = False,
 ) -> int:
-    """Extract all icons from Elite .hfw2 -> ota-update.EzHex -> squashfs -> opt/luadraws."""
+    """Extract all icons from a remote .hfw2 -> ota-update.EzHex -> squashfs -> opt/luadraws."""
     seven_zip = find_7z_executable()
     if not seven_zip:
         raise RuntimeError(
@@ -398,7 +398,7 @@ def extract_elite_icons(
             print(f"[*] Packaging icons archive into {archive_path}...")
             import tarfile
             # Keep the firmware's directories: 359 file names have different images in
-            # different directories, and the Elite screen preview needs the ones the remote
+            # different directories, and the remote screen preview needs the ones the remote
             # uses. The Hub links every file into one flat directory when it unpacks.
             with tarfile.open(archive_path, "w:gz") as tar:
                 for png_file in sorted(asset_root.rglob("*.png")):
@@ -430,14 +430,14 @@ def flash_firmware(
     dry_run: bool = False,
     skip_confirm: bool = False,
 ) -> bool:
-    """Flash firmware bundle directly to connected Hub or Elite Remote over USB HID."""
+    """Flash firmware bundle directly to connected Hub or remote over USB HID."""
     # 1. Determine target PID
     if target_device.lower() == "hub":
         target_pids = [HUB_PID, HUB_PRO_PID]
-    elif target_device.lower() == "elite":
-        target_pids = [ELITE_PID]
+    elif target_device.lower() in ("remote", "elite"):  # elite: the name before the rename
+        target_pids = [REMOTE_PID]
     else:
-        target_pids = [ELITE_PID, HUB_PID, HUB_PRO_PID]
+        target_pids = [REMOTE_PID, HUB_PID, HUB_PRO_PID]
 
     print("[*] Probing USB HID for connected Harmony device...")
     hid: Optional[HarmonyHid] = None
@@ -455,8 +455,8 @@ def flash_firmware(
         print("    Ensure device is plugged into USB and powered on.", file=sys.stderr)
         return False
 
-    if connected_pid == ELITE_PID:
-        dev_name = "Harmony Elite / Touch Remote"
+    if connected_pid == REMOTE_PID:
+        dev_name = "Harmony touchscreen remote (Elite / Ultimate / Touch / 950)"
     elif connected_pid == HUB_PRO_PID:
         dev_name = "Harmony Pro Hub (2400)"
     else:
@@ -468,8 +468,8 @@ def flash_firmware(
         print(f"[*] Bundle intended skins: {bundle.intended_skins}")
         if connected_pid in (HUB_PID, HUB_PRO_PID) and not any(s in [97, 106, 109, 115] for s in bundle.intended_skins):
             print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate Hub compatibility!")
-        elif connected_pid == ELITE_PID and not any(s in [99, 100, 102, 105, 108, 111, 112, 116] for s in bundle.intended_skins):
-            print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate Elite compatibility!")
+        elif connected_pid == REMOTE_PID and not any(s in [99, 100, 102, 105, 108, 111, 112, 116] for s in bundle.intended_skins):
+            print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate remote compatibility!")
 
     # 3. Dry-run or confirmation
     for img in bundle.images:
@@ -553,24 +553,25 @@ def flash_firmware(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Logitech Harmony Hub & Elite Remote Official Firmware & Icon Utility",
+        description="Logitech Harmony Hub & Remote Official Firmware & Icon Utility",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
     # 1. check
     sub_check = subparsers.add_parser("check", help="Check latest firmware available on Logitech SUS servers")
-    sub_check.add_argument("--all-skins", action="store_true", help="Scan all known skins (Hub, Elite, Pro, etc.)")
+    sub_check.add_argument("--all-skins", action="store_true", help="Scan all known skins (Hub, remotes, Pro, etc.)")
 
     # 2. download
     sub_dl = subparsers.add_parser("download", help="Download official firmware bundle from Logitech servers")
-    sub_dl.add_argument("--target", choices=["hub", "elite"], default="elite", help="Target device (default: elite)")
+    sub_dl.add_argument("--target", choices=["hub", "remote", "elite"], default="remote",
+                        help="Target device (default: remote; elite is accepted as before)")
     sub_dl.add_argument("--skin", type=int, help="Explicit skin ID to download")
     sub_dl.add_argument("--out-dir", default=str(REPO_DIR / "firmware"), help="Directory to save downloaded bundle")
     sub_dl.add_argument("--extract-ezhex", action="store_true", help="Extract inner ota-update.EzHex after download")
 
     # 3. extract-icons
-    sub_icons = subparsers.add_parser("extract-icons", help="Extract UI icon set from Elite remote firmware")
+    sub_icons = subparsers.add_parser("extract-icons", help="Extract UI icon set from remote firmware")
     sub_icons.add_argument("--firmware", help="Path to local .hfw2 bundle (auto-downloads latest if omitted)")
     sub_icons.add_argument(
         "--out-dir",
@@ -589,7 +590,8 @@ def main():
 
     # 4. flash / install
     sub_flash = subparsers.add_parser("flash", aliases=["install"], help="Flash firmware bundle directly over USB HID")
-    sub_flash.add_argument("--target", choices=["auto", "hub", "elite"], default="auto", help="Target device (default: auto)")
+    sub_flash.add_argument("--target", choices=["auto", "hub", "remote", "elite"], default="auto",
+                           help="Target device (default: auto; elite = remote)")
     sub_flash.add_argument("--firmware", help="Path to .hfw2 bundle (auto-downloads latest if omitted)")
     sub_flash.add_argument("--dry-run", action="store_true", help="Validate bundle and intended skins without writing")
     sub_flash.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
@@ -616,8 +618,8 @@ def main():
 
     # ACTION: download
     elif args.action == "download":
-        if args.target == "elite" and not args.skin:
-            res, skin = query_latest_elite_firmware()
+        if args.target in ("remote", "elite") and not args.skin:
+            res, skin = query_latest_remote_firmware()
         else:
             skin = args.skin or (DEFAULT_HUB_SKIN if args.target == "hub" else DEFAULT_ELITE_SKIN)
             res = query_latest_firmware(skin)
@@ -653,25 +655,26 @@ def main():
         else:
             # Check local firmware folder first
             firmware_dir = REPO_DIR / "firmware"
-            candidates = sorted(firmware_dir.glob("*elite*.hfw2"), key=lambda p: p.stat().st_mtime, reverse=True)
+            candidates = sorted(list(firmware_dir.glob("*remote*.hfw2")) + list(firmware_dir.glob("*elite*.hfw2")),
+                                key=lambda p: p.stat().st_mtime, reverse=True)
             if candidates:
                 fw_path = candidates[0]
-                print(f"[*] Using local Elite firmware bundle: {fw_path}")
+                print(f"[*] Using local remote firmware bundle: {fw_path}")
             else:
-                print("[*] No local Elite firmware specified. Downloading latest from Logitech...")
-                res, skin = query_latest_elite_firmware()
+                print("[*] No local remote firmware specified. Downloading latest from Logitech...")
+                res, skin = query_latest_remote_firmware()
                 if not res or not res.get("URI"):
-                    print("[-] Failed to query latest Elite firmware URL. Pass --firmware PATH.hfw2, "
-                          f"or put an Elite .hfw2 bundle in {firmware_dir}.", file=sys.stderr)
+                    print("[-] Failed to query latest remote firmware URL. Pass --firmware PATH.hfw2, "
+                          f"or put a remote .hfw2 bundle in {firmware_dir}.", file=sys.stderr)
                     sys.exit(1)
                 ver = res.get("Id", "latest")
-                fw_path = firmware_dir / f"elite_{skin}_{ver}.hfw2"
-                if not download_file(res["URI"], fw_path, progress_desc="Downloading Elite firmware"):
+                fw_path = firmware_dir / f"remote_{skin}_{ver}.hfw2"
+                if not download_file(res["URI"], fw_path, progress_desc="Downloading remote firmware"):
                     sys.exit(1)
 
         out_dir = pathlib.Path(args.out_dir)
         arc_path = pathlib.Path(args.archive) if args.archive else None
-        extract_elite_icons(fw_path, out_dir, archive_path=arc_path, android_sync=args.android)
+        extract_remote_icons(fw_path, out_dir, archive_path=arc_path, android_sync=args.android)
 
     # ACTION: flash / install
     elif args.action in ["flash", "install"]:
@@ -682,7 +685,7 @@ def main():
             # Auto-detect for connected Harmony USB device
             print("[*] Auto-detecting connected Harmony USB device...")
             connected_pid = None
-            for pid in [ELITE_PID, HUB_PID, HUB_PRO_PID]:
+            for pid in [REMOTE_PID, HUB_PID, HUB_PRO_PID]:
                 test_hid = HarmonyHid(pid=pid)
                 if test_hid.open():
                     connected_pid = pid
@@ -693,9 +696,9 @@ def main():
                 print("[-] No Harmony device detected over USB. Specify --firmware manually or connect device.", file=sys.stderr)
                 sys.exit(1)
 
-            if connected_pid == ELITE_PID:
-                target = "elite"
-                res, skin = query_latest_elite_firmware()
+            if connected_pid == REMOTE_PID:
+                target = "remote"
+                res, skin = query_latest_remote_firmware()
             elif connected_pid == HUB_PRO_PID:
                 target = "hub"
                 skin = 115

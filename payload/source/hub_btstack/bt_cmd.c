@@ -233,6 +233,7 @@ void poll_bthid_fifo(void) {
                     if (rel_len > 0) {
                         memcpy(g_host_custom_release_buf, rel_buf, rel_len);
                         g_host_custom_release_len = rel_len;
+                        g_host_pending_cid = cur_cid;
                         g_host_pending_release_type = 3;
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
@@ -272,6 +273,7 @@ void poll_bthid_fifo(void) {
                         send_host_release_all();
                     }
                     hid_device_send_interrupt_message(cur_cid, rep, rlen);
+                    g_host_pending_cid = cur_cid;
                     if (rep[1] == 0x01 && (rlen > 4 && rep[4] != 0)) {
                         g_host_pending_release_type = 1;
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
@@ -313,6 +315,8 @@ void execute_btstack_cmd(const char *cmd_in) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
+    } else if (strncasecmp(cmd, "forget", 6) == 0) {
+        forget_ble_remote();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {
         char *addr_str = cmd + 5;
         while (*addr_str == ' ') addr_str++;

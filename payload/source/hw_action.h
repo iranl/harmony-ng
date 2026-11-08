@@ -75,6 +75,8 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler);
  * Sends a BT HID report directly via BTstack FIFO (/tmp/bthid_input).
  */
 int hw_bthid_send_report(const uint8_t *report, size_t len);
+/* RELEASE to hub_btstack: every key it still holds on any host goes up. 0 when the pipe took it. */
+int hw_bt_release_all(void);
 
 #ifdef __cplusplus
 }

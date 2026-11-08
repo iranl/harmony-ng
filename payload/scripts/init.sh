@@ -225,8 +225,15 @@ fi
     if [ -n "$_daemon" ]; then
       if ! pidof hub_daemon >/dev/null 2>&1; then
         echo "$(date) Starting hub_daemon..." >> "$LOG"
+        _started=$(date +%s)
         "$_daemon" 8089 >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) hub_daemon exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -267,8 +274,15 @@ killall -9 bluetoothd 2>/dev/null || true
     if [ -n "$_bt_bin" ]; then
       if ! pidof hub_btstack >/dev/null 2>&1; then
         echo "$(date) Starting BTstack backend..." >> "$LOG"
+        _started=$(date +%s)
         "$_bt_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) BTstack exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -281,7 +295,7 @@ killall -9 bluetoothd 2>/dev/null || true
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
-# 8. CC2544 RF Daemon (Logitech HAL replacement for Elite Remote RF)
+# 8. CC2544 RF Daemon (Logitech HAL replacement for the remote RF link)
 (
   _delay=5
   while true; do
@@ -300,8 +314,15 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     if [ -n "$_rf_bin" ]; then
       if ! pidof hub_rf >/dev/null 2>&1; then
         echo "$(date) Starting hub_rf daemon..." >> "$LOG"
+        _started=$(date +%s)
         "$_rf_bin" >> "$LOG" 2>&1
         [ -f /tmp/harmony_stop ] && exit 0
+        # A daemon that ran for a minute or more was restarted (a deploy, a kill), not
+        # crash-looping: come back after the base delay. The delay used to double on
+        # every exit and reset only while the daemon was found running, so after a
+        # few restarts every restart took 80 s.
+        _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+        [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
         echo "$(date) hub_rf exited, retry in ${_delay}s" >> "$LOG"
         sleep "$_delay"
         [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
@@ -310,6 +331,30 @@ echo "$!" >> /tmp/harmony_supervisors.pid
     fi
     _delay=5
     sleep 5
+  done
+) &
+echo "$!" >> /tmp/harmony_supervisors.pid
+
+# 9. Log cap: $LOG lives in tmpfs, which is RAM on a 32 MB Hub. Unbounded, it starved the
+# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press). Every
+# writer appends (>>), so truncating in place is safe; the last 64 KB are kept in $LOG.1.
+(
+  while true; do
+    sleep 300
+    [ -f /tmp/harmony_stop ] && exit 0
+    # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
+    _sz=$(ls -l "$LOG" 2>/dev/null | awk '{print $5}')
+    [ -n "$_sz" ] || _sz=0
+    if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
+      # keep the last 64 KB in $LOG.1 (whole file if dd is missing), then truncate in place
+      if command -v dd >/dev/null 2>&1; then
+        dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$LOG" "$LOG.1" 2>/dev/null
+      else
+        cp "$LOG" "$LOG.1" 2>/dev/null
+      fi
+      : > "$LOG"
+      echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $LOG.1" >> "$LOG"
+    fi
   done
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid

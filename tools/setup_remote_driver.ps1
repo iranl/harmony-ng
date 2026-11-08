@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Automated RNDIS Driver Installer and Network Setup for Logitech Harmony Elite / Ultimate on Windows.
+    Automated RNDIS Driver Installer and Network Setup for Logitech Harmony touchscreen remotes (Elite / Ultimate) on Windows.
 
 .DESCRIPTION
     Installs the Microsoft WHQL-signed RNDIS template driver for Linux USB Ethernet gadgets (VID_0525&PID_A4A2),
@@ -27,7 +27,7 @@ trap {
 }
 
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host " Harmony Elite / Ultimate - Windows RNDIS Driver & Network Setup" -ForegroundColor Cyan
+Write-Host " Harmony Remote (Elite / Ultimate) - Windows RNDIS Driver & Network Setup" -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 # 1. Ensure Administrator Privileges (Auto-Elevate)
@@ -219,7 +219,7 @@ if ($adapter) {
 }
 
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host " Setup complete! You can now run: python elite/setup_remote.py" -ForegroundColor Green
+Write-Host " Setup complete! You can now run: python remote/setup_remote.py" -ForegroundColor Green
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 if (-not $NonInteractive) {

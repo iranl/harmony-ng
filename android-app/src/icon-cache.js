@@ -1,5 +1,5 @@
 /**
- * Harmony Hub & Elite Remote Offline Icon Cache
+ * Harmony Hub & Remote Offline Icon Cache
  * IndexedDB-backed local storage for all 800+ official PNG icons.
  * Supports direct streaming extraction of icons.tar.gz via DecompressionStream,
  * instant in-memory Blob URLs, and automatic Hub/OTA sync.
@@ -281,7 +281,8 @@ export async function syncIconsFromHub(baseUrl, client, onProgress = null) {
 
   try {
     if (onProgress) onProgress({ status: 'connecting', percent: 5, message: 'Connecting to Hub icon archive...' });
-    const res = await fetch(archiveUrl);
+    /* login token: with authentication on, a bare fetch got 401 and fell back to one request per icon */
+    const res = await fetch(archiveUrl, { headers: client && typeof client.getHeaders === 'function' ? client.getHeaders() : {} });
     if (res.ok) {
       if (onProgress) onProgress({ status: 'downloading', percent: 30, message: 'Downloading icons bundle...' });
       const buf = await res.arrayBuffer();

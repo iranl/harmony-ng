@@ -9,6 +9,7 @@ extern "C" {
 
 extern btstack_timer_source_t g_host_key_release_timer;
 extern uint8_t g_host_pending_release_type;
+extern uint16_t g_host_pending_cid; /* channel of the pending press */
 extern uint8_t g_host_custom_release_buf[16];
 extern int g_host_custom_release_len;
 extern int g_host_send_hold_mode;

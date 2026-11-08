@@ -406,13 +406,15 @@
 }
 
 .btn-ghost {
-  background: transparent;
-  border-color: transparent;
+  /* the quiet variant: a faint fill and border so it still reads as a button, not as text */
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
   color: var(--text-muted);
 }
 
 .btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
   color: #ffffff;
 }
 

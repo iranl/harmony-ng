@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
@@ -90,7 +91,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             int8_t rssi = gap_event_advertising_report_get_rssi(packet);
 
             char dev_name[64] = "";
-            uint8_t flags = 0;
             uint16_t appearance = 0;
             bool has_hid = ad_data_contains_uuid16(ad_len, ad_data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
 
@@ -100,9 +100,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 uint8_t data_type = ad_iterator_get_data_type(&context);
                 uint8_t data_len  = ad_iterator_get_data_len(&context);
                 const uint8_t *data = ad_iterator_get_data(&context);
-                if (data_type == 0x01 && data_len >= 1) {
-                    flags = data[0];
-                } else if (data_type == 0x08 || data_type == 0x09) {
+                if (data_type == 0x08 || data_type == 0x09) {
                     int copy_len = data_len < (uint8_t)(sizeof(dev_name) - 1) ? data_len : (uint8_t)(sizeof(dev_name) - 1);
                     memcpy(dev_name, data, copy_len);
                     dev_name[copy_len] = 0;
@@ -122,7 +120,6 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     is_hid = true;
                 }
             }
-            bool in_pairing_mode = ((flags & 0x03) != 0);
 
             if (g_user_scan_active) {
                 // In active user scan: discover all nearby BLE devices/remotes
@@ -158,11 +155,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 break;
             }
 
+            /* Only the pinned remote (chosen in the web UI: scan, then pair) is connected.
+             * Matching any HID device that advertised the LE discoverable flags (0x01/0x02,
+             * which most HID devices always set) or a name made the Hub bond with whatever
+             * was in range when nothing was pinned, and act on its keys. */
             bool match = false;
             bd_addr_t target_mac;
             if (get_pinned_target(target_mac) && memcmp(adv_addr, target_mac, 6) == 0) {
-                match = true;
-            } else if (is_hid && (in_pairing_mode || dev_name[0])) {
                 match = true;
             }
 
@@ -407,6 +406,18 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     }
 
                     g_host_connecting = false;
+                    if (cid == 0) {
+                        /* A link the stack cannot address: seen when the instance was freed after
+                         * the reconnect started inside the CLOSED callback had set it up. Drop it so
+                         * the next attempt opens a clean one. */
+                        char emsg[128];
+                        snprintf(emsg, sizeof(emsg), "Classic HID Host %s opened with cid 0, dropping the link to reconnect",
+                                 bd_addr_to_str(conn_addr));
+                        log_msg(emsg);
+                        hci_con_handle_t ch = hid_subevent_connection_opened_get_con_handle(packet);
+                        if (ch != HCI_CON_HANDLE_INVALID) gap_disconnect(ch);
+                        break;
+                    }
                     g_host_connected = true;
                     /* Only the host that got a new link key during pairing mode is the new
                      * pairing. A known host that connects on its own while pairing mode is on
@@ -635,6 +646,53 @@ static void sig_handler(int sig) {
     btstack_run_loop_trigger_exit();
 }
 
+/* A crash used to leave only "Segmentation fault" in the init log (the binary is stripped, no
+ * core). Log the signal, the faulting address and the program counter / return address to the
+ * Bluetooth log, then die as before; resolve them with
+ * mips-linux-addr2line -f -e build/output/hub_btstack.debug <pc> <ra> from the same build. */
+static char g_crash_stack[16384];
+
+static void crash_handler(int sig, siginfo_t *si, void *ctx) {
+    unsigned long pc = 0, ra = 0;
+#if defined(__mips__)
+    const ucontext_t *uc = (const ucontext_t *)ctx;
+    if (uc) {
+        pc = (unsigned long)uc->uc_mcontext.pc;
+        ra = (unsigned long)uc->uc_mcontext.gregs[31];
+    }
+#else
+    UNUSED(ctx);
+#endif
+    char buf[192];
+    int n = snprintf(buf, sizeof(buf), "CRASH: signal %d, fault address %p, pc 0x%08lx, ra 0x%08lx\n",
+                     sig, si ? si->si_addr : NULL, pc, ra);
+    if (n > 0) {
+        int fd = open(LOG_FILE, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        if (fd >= 0) {
+            (void)!write(fd, buf, (size_t)n);
+            close(fd);
+        }
+        (void)!write(2, buf, (size_t)n);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void install_crash_handler(void) {
+    stack_t ss;
+    ss.ss_sp = g_crash_stack;
+    ss.ss_size = sizeof(g_crash_stack);
+    ss.ss_flags = 0;
+    sigaltstack(&ss, NULL); /* a stack overflow must still be able to report */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = crash_handler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+    const int sigs[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
+    for (size_t i = 0; i < sizeof(sigs) / sizeof(sigs[0]); i++) sigaction(sigs[i], &sa, NULL);
+}
+
 int main(int argc, const char *argv[]) {
     UNUSED(argc);
     UNUSED(argv);
@@ -642,6 +700,7 @@ int main(int argc, const char *argv[]) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     signal(SIGPIPE, SIG_IGN);
+    install_crash_handler();
 
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);

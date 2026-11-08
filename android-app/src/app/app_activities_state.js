@@ -315,7 +315,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     else if (tabId === 'lab') this.initLabView();
     else if (tabId === 'bluetooth') this.loadBtView();
     else if (tabId === 'bt-keyboard') this.loadBtKeyboardView();
-    else if (tabId === 'rf-remote') { this.loadEliteView(); this.refreshRfStatus(); }
+    else if (tabId === 'rf-remote') { this.loadRemoteView(); this.refreshRfStatus(); }
     else if (tabId === 'remotes') this.loadRemotesView();
     else if (tabId === 'mqtt') this.loadMqttView();
     else if (tabId === 'network') this.loadNetworkView();

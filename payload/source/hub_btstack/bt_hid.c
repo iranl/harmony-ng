@@ -9,34 +9,51 @@ int     g_host_send_hold_mode = 0;
 uint8_t g_host_mouse_buttons = 0;
 
 static btstack_timer_source_t g_host_crelease_timer;
+static btstack_timer_source_t g_host_mrelease_timer;
+/* The HID channel the pending press went to. A release goes there and nowhere else: the old
+ * code sent one release report to every connected host in a loop, and with a TV paired next to
+ * the Shield the Shield's report (second in the loop) never went out, so its key stayed pressed
+ * and repeated until the link dropped. One report per release, on the channel of the press. */
+uint16_t g_host_pending_cid = 0;
 
-static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
-    UNUSED(ts);
-    uint16_t cid = get_target_host_hid_cid();
-    if (cid == 0) return;
-    if (g_host_pending_release_type == 1) {
-        uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, release, sizeof(release));
-    } else if (g_host_pending_release_type == 2) {
-        uint8_t release[4] = {0xa1, 0x02, 0, 0};
-        hid_device_send_interrupt_message(cid, release, sizeof(release));
-    } else if (g_host_pending_release_type == 3 && g_host_custom_release_len > 0) {
-        hid_device_send_interrupt_message(cid, g_host_custom_release_buf, g_host_custom_release_len);
-    } else if (g_host_pending_release_type == 4) {
-        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
-        g_host_mouse_buttons = 0;
+static bool cid_connected(uint16_t cid) {
+    if (cid == 0) return false;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (g_hosts[i].connected && g_hosts[i].hid_cid == cid) return true;
     }
-    g_host_pending_release_type = 0;
+    return false;
+}
+
+/* Where a release belongs: the channel of the pending press while it is up, else the target */
+static uint16_t release_cid(void) {
+    if (cid_connected(g_host_pending_cid)) return g_host_pending_cid;
+    return get_target_host_hid_cid();
 }
 
 static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
-    uint16_t cid = get_target_host_hid_cid();
+    uint16_t cid = release_cid();
+    g_host_pending_cid = 0; /* consumed: a later release must not resolve to this host */
     if (cid != 0) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
         hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
     }
+}
+
+static void host_mrelease_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    uint16_t cid = release_cid();
+    g_host_pending_cid = 0;
+    if (cid != 0) {
+        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
+        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+    }
+    g_host_mouse_buttons = 0;
+}
+
+static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    send_host_release_all();
 }
 
 void send_host_release_all(void) {
@@ -45,56 +62,41 @@ void send_host_release_all(void) {
         btstack_run_loop_remove_timer(&g_host_key_release_timer);
         g_host_pending_release_type = 0;
     }
-    if (!is_any_host_connected()) return;
-
+    uint16_t cid = release_cid();
+    g_host_pending_cid = 0;
+    if (cid == 0) {
+        /* No reachable host: a host whose link dropped released the keys itself */
+        g_host_mouse_buttons = 0;
+        return;
+    }
+    /* One report now; a second kind of release goes out on a timer, never back to back */
     if (prev_type == 2) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, crelease, sizeof(crelease));
-            }
-        }
-    } else if (prev_type == 1) {
-        uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, release, sizeof(release));
-            }
-        }
+        hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
     } else if (prev_type == 3 && g_host_custom_release_len > 0) {
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, g_host_custom_release_buf, g_host_custom_release_len);
-            }
-        }
-    } else if (prev_type == 4 || g_host_mouse_buttons != 0) {
+        hid_device_send_interrupt_message(cid, g_host_custom_release_buf, g_host_custom_release_len);
+    } else if (prev_type == 4) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, mrelease, sizeof(mrelease));
-            }
-        }
+        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
         g_host_mouse_buttons = 0;
     } else {
+        /* keyboard (type 1), or unknown: keyboard release now, consumer release 20 ms later */
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, release, sizeof(release));
-            }
+        hid_device_send_interrupt_message(cid, release, sizeof(release));
+        if (prev_type != 1) {
+            g_host_pending_cid = cid;
+            btstack_run_loop_remove_timer(&g_host_crelease_timer);
+            btstack_run_loop_set_timer_handler(&g_host_crelease_timer, host_crelease_timer_handler);
+            btstack_run_loop_set_timer(&g_host_crelease_timer, 20);
+            btstack_run_loop_add_timer(&g_host_crelease_timer);
         }
-        btstack_run_loop_remove_timer(&g_host_crelease_timer);
-        btstack_run_loop_set_timer_handler(&g_host_crelease_timer, host_crelease_timer_handler);
-        btstack_run_loop_set_timer(&g_host_crelease_timer, 20);
-        btstack_run_loop_add_timer(&g_host_crelease_timer);
     }
     if (g_host_mouse_buttons != 0) {
-        uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (g_hosts[i].connected && g_hosts[i].hid_cid) {
-                hid_device_send_interrupt_message(g_hosts[i].hid_cid, mrelease, sizeof(mrelease));
-            }
-        }
-        g_host_mouse_buttons = 0;
+        g_host_pending_cid = cid;
+        btstack_run_loop_remove_timer(&g_host_mrelease_timer);
+        btstack_run_loop_set_timer_handler(&g_host_mrelease_timer, host_mrelease_timer_handler);
+        btstack_run_loop_set_timer(&g_host_mrelease_timer, 40);
+        btstack_run_loop_add_timer(&g_host_mrelease_timer);
     }
 }
 
@@ -115,6 +117,7 @@ void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel)
     }
     uint8_t report[6] = {0xa1, 0x03, buttons, (uint8_t)dx, (uint8_t)dy, (uint8_t)wheel};
     hid_device_send_interrupt_message(cid, report, sizeof(report));
+    if (buttons) g_host_pending_cid = cid;
     g_keys_sent++;
     update_bthid_status();
 }
@@ -128,6 +131,7 @@ void send_host_mouse_click(uint8_t button) {
     }
     g_host_mouse_buttons |= button;
     send_host_mouse_report(g_host_mouse_buttons, 0, 0, 0);
+    g_host_pending_cid = cid;
     g_host_pending_release_type = 4;
     btstack_run_loop_remove_timer(&g_host_key_release_timer);
     btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
@@ -160,6 +164,7 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
     }
     uint8_t press[10] = {0xa1, 0x01, modifier, 0, keycode, 0, 0, 0, 0, 0};
     hid_device_send_interrupt_message(cid, press, sizeof(press));
+    g_host_pending_cid = cid;
     g_host_pending_release_type = 1;
     btstack_run_loop_remove_timer(&g_host_key_release_timer);
     btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
@@ -194,6 +199,7 @@ void send_host_consumer_report(uint16_t usage_id) {
     }
     uint8_t press[4] = {0xa1, 0x02, (uint8_t)(usage_id & 0xff), (uint8_t)((usage_id >> 8) & 0xff)};
     hid_device_send_interrupt_message(cid, press, sizeof(press));
+    g_host_pending_cid = cid;
     g_host_pending_release_type = 2;
     btstack_run_loop_remove_timer(&g_host_key_release_timer);
     btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);

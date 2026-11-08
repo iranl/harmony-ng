@@ -44,6 +44,8 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts);
 void stop_host_reconnect(void);
 void hog_start_scan(void);
 void hog_connect(void);
+/* Drop the pinned BLE remote: disconnect, delete the target file, its LE bond and the HOGD tag */
+void forget_ble_remote(void);
 void hog_start_connect(void);
 void schedule_reconnect(uint32_t delay_ms);
 void start_user_scan(void);

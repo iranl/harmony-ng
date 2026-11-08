@@ -29,6 +29,31 @@ export function createView() {
     h('div', { id: 'sys-services-content', style: { display: 'flex', flexDirection: 'column', gap: '10px' } }),
   ]);
 
+  // Hub Light Card
+  const ledSelect = h('select', {
+    className: 'form-select',
+    onchange: async (e) => {
+      try {
+        await api.saveSettings({ led_mode: e.target.value });
+        toast.success(t('front_led_saved', 'Hub light saved'));
+      } catch (err) {
+        toast.error(err.message);
+      }
+    },
+  }, [
+    h('option', { value: 'green', text: t('color_green', 'Green') }),
+    h('option', { value: 'amber', text: t('color_amber', 'Amber') }),
+    h('option', { value: 'red', text: t('color_red', 'Red') }),
+    h('option', { value: 'off', text: t('front_led_off', 'Off') }),
+  ]);
+  const ledCard = h('div', { className: 'card' }, [
+    h('div', { className: 'card-header' }, [
+      h('h3', { className: 'card-title', text: t('front_led', 'Hub Front LED') }),
+    ]),
+    h('div', { className: 'text-dim', style: { fontSize: '12px', marginBottom: '10px' }, text: t('front_led_desc', "Colour of the Hub's front light while it runs normally. It flashes green while pairing a remote, alternates red and green while updating RF firmware, and flashes red slowly when either fails.") }),
+    ledSelect,
+  ]);
+
   // Maintenance & Reboot Card
   const actionsCard = h('div', { className: 'card' }, [
     h('div', { className: 'card-header' }, [
@@ -183,6 +208,25 @@ export function createView() {
     }
   }
 
+  /* Older settings use values the Hub still accepts; this is how the Hub shows each.
+     The Hub shows any other value as green, so the select does too. */
+  const LEGACY_LED_MODES = {
+    always_on: 'green', always_off: 'off', orange: 'amber',
+    flashing_slow: 'green', flashing_fast: 'green',
+  };
+  const LED_MODES = ['green', 'amber', 'red', 'off'];
+
+  async function loadLedMode() {
+    try {
+      const st = await api.getSettings();
+      const raw = String(st?.led_mode || 'green').toLowerCase();
+      const mode = LEGACY_LED_MODES[raw] || raw;
+      ledSelect.value = LED_MODES.includes(mode) ? mode : 'green';
+    } catch (e) {
+      ledSelect.value = 'green';
+    }
+  }
+
   async function loadLogs(source = 'daemon') {
     const logsMount = container.querySelector('#sys-logs-content');
     if (!logsMount) return;
@@ -198,11 +242,13 @@ export function createView() {
 
   container.appendChild(statsCard);
   container.appendChild(servicesCard);
+  container.appendChild(ledCard);
   container.appendChild(actionsCard);
   container.appendChild(logsCard);
 
   loadSystemInfo();
   loadServices();
+  loadLedMode();
   loadLogs('daemon');
 
   return container;

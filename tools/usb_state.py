@@ -22,7 +22,7 @@ REMOTE_IP = "192.168.2.1"
 REMOTE_HTTP_PORT = 8088
 REMOTE_SSH_PORT = 22
 
-ELITE_PID = 0xC12B
+REMOTE_PID = 0xC12B
 PRO_PID = 0xC132
 HARMONY_VID = 0x046D
 
@@ -30,7 +30,7 @@ HARMONY_VID = 0x046D
 RNDIS_VID_PIDS = [
     (0x0525, 0xA4A2),  # Linux USB Ethernet/RNDIS Gadget
     (0x050D, 0x010D),  # Belkin USB Ethernet Gadget
-    (0x046D, 0xC12B),  # Logitech Elite in composite/gadget mode
+    (0x046D, 0xC12B),  # Logitech touchscreen remote in composite/gadget mode
     (0x046D, 0xC132),  # Logitech Pro in composite/gadget mode
 ]
 
@@ -199,7 +199,7 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
     hid_instance = None
     try:
         from tools.harmony_hid import HarmonyHid
-        for candidate_pid in (ELITE_PID, PRO_PID):
+        for candidate_pid in (REMOTE_PID, PRO_PID):
             try:
                 h = HarmonyHid(pid=candidate_pid)
                 if h.open():
@@ -207,8 +207,8 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                     state.mode = UsbMode.USB_HID
                     state.pid = candidate_pid
                     state.description = (
-                        "Logitech Harmony Elite 950 (USB HID)"
-                        if candidate_pid == ELITE_PID
+                        "Logitech Harmony touchscreen remote (USB HID)"
+                        if candidate_pid == REMOTE_PID
                         else "Logitech Harmony Pro 2400 (USB HID)"
                     )
                     break
@@ -244,10 +244,10 @@ def detect_remote_usb_state(check_firmware: bool = True) -> UsbState:
                 state.fw_skin = skin_id
 
                 if state.fw_version:
-                    from tools.harmony_firmware import query_latest_firmware, query_latest_elite_firmware
+                    from tools.harmony_firmware import query_latest_firmware, query_latest_remote_firmware
                     latest_res = query_latest_firmware(skin_id, silent_on_empty=True)
                     if not latest_res or not latest_res.get("Id"):
-                        latest_res, _ = query_latest_elite_firmware(silent_on_empty=True)
+                        latest_res, _ = query_latest_remote_firmware(silent_on_empty=True)
                     if latest_res and latest_res.get("Id"):
                         state.fw_latest = latest_res["Id"]
                         state.fw_up_to_date = (state.fw_version == state.fw_latest)

@@ -1,6 +1,6 @@
 # HarmonyNG
 
-Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub**, **Harmony Elite 950**, **Harmony Companion**, and **Harmony Smart Control** remotes. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
+Independent, open-source local control firmware and companion suite for the **Logitech Harmony Hub**, the **Harmony touchscreen remotes** (Elite, Ultimate, Ultimate One, Ultimate Home, 950, Touch), **Harmony Companion**, and **Harmony Smart Control** remotes. Restores full universal remote and smart home functionality with zero cloud dependency after Logitech's end-of-life (EOL).
 
 <div align="center">
   <table>
@@ -11,9 +11,9 @@ Independent, open-source local control firmware and companion suite for the **Lo
         <img src="docs/images/hub_webui.png" alt="Harmony Hub Web UI" width="100%">
       </td>
       <td width="35%" align="center">
-        <b>Harmony Elite 950 Handheld Remote</b><br>
+        <b>Harmony Touchscreen Remote</b><br>
         <i>Real-time native framebuffer UI (240x320 RGB565)</i><br><br>
-        <img src="docs/images/elite_remote.png" alt="Harmony Elite Remote Interface" width="220px">
+        <img src="docs/images/elite_remote.png" alt="Harmony Remote Interface" width="220px">
       </td>
     </tr>
   </table>
@@ -28,8 +28,8 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | Target | Installation Guide | Requirements |
 | :--- | :--- | :--- |
 | **Harmony Hub** | [**Harmony Hub Installation Guide**](docs/FIRST_INSTALL_HUB.md) | Harmony Hub (Standard `046D:C129` or Pro 2400 `046D:C132`), Micro-USB cable, PC (Windows, macOS, or Linux) |
-| **Harmony Elite & Pro Remote** | [**Harmony Elite Remote Installation Guide**](docs/FIRST_INSTALL_ELITE.md) | Harmony Elite 950 or Harmony Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
-| **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/ELITE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
+| **Harmony Touchscreen Remotes** | [**Harmony Remote Installation Guide**](docs/FIRST_INSTALL_REMOTE.md) | Harmony Elite, 950, Ultimate or Pro 2400 Remote (Skin 116), Micro-USB cable, PC *(tested on a Harmony Ultimate, 2013; Ultimate Home, Touch and Pro 2400 supported, untested on physical hardware)* |
+| **Harmony Companion & Smart Control** | [**RF Remotes Guide**](docs/REMOTE.md#harmony-companion--smart-control-screenless-remotes) | Harmony Companion or Smart Control remote; pairs directly over 2.4 GHz RF (no USB connection or rooting needed) |
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **Ethernet Setup** | [**Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | Native onboard RJ45/PoE (Pro 2400) or OTG Micro-USB Ethernet Adapter (Standard Hub) |
@@ -64,8 +64,8 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
                      |                                     |
                      v                                     v
 +---------------------------------------+ +---------------------------------------+
-|  Harmony Elite 950 & Pro 2400 Remote  | |  Harmony Companion & Smart Control    |
-|   ├── Framebuffer UI (elite_ui.c)     | |   ├── CR2032 coin cell, screenless    |
+|  Harmony Touchscreen Remotes          | |  Harmony Companion & Smart Control    |
+|   ├── Framebuffer UI (remote_ui.c)     | |   ├── CR2032 coin cell, screenless    |
 |   ├── Touch & physical controls       | |   ├── eQuad HID keyboard & consumer   |
 |   └── Low-power CC2544 transceiver    | |   └── Direct Hub IR/BT/MQTT dispatch  |
 +---------------------------------------+ +---------------------------------------+
@@ -75,7 +75,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 
 ## Subsystem & Feature Comparison (HarmonyNG vs. Stock Logitech Software)
 
-The table below details every major functional component for both the **Harmony Hub** and **Harmony Elite 950**, comparing HarmonyNG with the original factory software stack:
+The table below details every major functional component for both the **Harmony Hub** and the **Harmony touchscreen remotes**, comparing HarmonyNG with the original factory software stack:
 
 ### Harmony Hub
 
@@ -87,16 +87,16 @@ The table below details every major functional component for both the **Harmony 
 | **Networking & Ethernet** | **Wi-Fi 2.4 GHz Only**: Restricted to 802.11b/g/n wireless. Micro-USB port locked to device gadget mode (USB serial / HID). No Ethernet support. | **Dual Network (Wi-Fi + Ethernet)**: Supports both **Harmony Hub Pro 2400** (native onboard Atheros GMAC `eth1` with PoE / RJ45 port; USB gadget mode remains fully active for PC control) and **Standard Harmony Hub** (dynamic USB Host mode activator switching on-chip Atheros EHCI controller to 480 Mbps host mode with Realtek RTL8152/8153, ASIX, SMSC, CDC-Ethernet dongles). Seamless link-state failover (Ethernet prioritized, Wi-Fi standby), unified static IP handover. See [Ethernet & Network Setup Guide](docs/ETHERNET_AND_NETWORK_SETUP.md). |
 | **IR Transmission** | **HAL Subsystem**: Closed-source `hal` binary driving proprietary I2S kernel driver, restricted to fixed cloud database code sets. | **Direct I2S DMA Pulsing**: Clean-room hardware driver (`ir_i2s.c`) pulsing AR9344 I2S registers directly. Supports raw Pronto hex, NEC, RC5, RC6, Sony, Denon, and custom timings across Port 1, Port 2, or front blaster. |
 | **Bluetooth Engine** | **BlueZ 4 Stack**: Legacy BlueZ daemon with heavy D-Bus overhead, prone to random disconnections and pairing drops. | **BlueKitchen BTstack**: Direct UART HCI transport (`/dev/ttyATH0`), persistent pairing table, media keys, and automated reconnect daemon (`bt_reconnect.sh`). |
-| **RF Remote Engine** | **Proprietary eQuad Protocol**: Managed by `hal_hub` via `/dev/rfspi`. Locked to stock remote pairings and cloud IDs. | **Clean-Room CC2544 Driver**: Direct `/dev/rfspi` SPI Report `0x12` & `0x20` framing with ACK tracking, dynamic pairing, instantaneous bidirectional synchronization with Elite remotes, and native decoding for Harmony Companion & Smart Control screenless remotes with dual-slot activity mappings and MQTT event mirroring. |
+| **RF Remote Engine** | **Proprietary eQuad Protocol**: Managed by `hal_hub` via `/dev/rfspi`. Locked to stock remote pairings and cloud IDs. | **Clean-Room CC2544 Driver**: Direct `/dev/rfspi` SPI Report `0x12` & `0x20` framing with ACK tracking, dynamic pairing, instantaneous bidirectional synchronization with touchscreen remotes, and native decoding for Harmony Companion & Smart Control screenless remotes with dual-slot activity mappings and MQTT event mirroring. |
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` tracks discrete device power states, interlocks, step queues, and delays, with live WebSocket and MQTT progress feeds. |
 | **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (activity `select`, plus `sensor` and `button` entities; Home Assistant's MQTT integration has no `remote` platform). Full REST & WebSocket API. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). Automatic reboot loop counter resets Hub into Safe Recovery mode if 5 boot crashes occur. |
 
-### Harmony Elite 950 Handheld Remote
+### Harmony Touchscreen Remotes
 
 | Dimension | Stock Logitech Firmware | HarmonyNG Custom Firmware |
 | :--- | :--- | :--- |
-| **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `elite_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. TrueType vector typography via `stb_truetype`. |
+| **GUI & Display Engine** | **Monolithic Lua GUI**: `luadraws` + `luaworks` taking 30+ seconds to boot, heavy memory footprint, closed stock assets. | **Native Framebuffer GUI**: `remote_ui.c` rendering directly to `/dev/fb0` (240x320 16-bit RGB565) in under 2 seconds. TrueType vector typography via `stb_truetype`. |
 | **Touch & Physical Controls** | **Vendor Input Handlers**: Custom event pipes dependent on stock daemons. | **Direct Linux Input Multiplexing**: Linux `/dev/input/event0` (touch digitizer) and `/dev/input/event1` (physical keypad) with auto-repeat and tactile haptic feedback. |
 | **Hub Synchronization** | **Desktop USB Sync Required**: Updating button maps or activities required connecting the remote via USB to a PC running MyHarmony. | **Over-the-Air RF Sync**: Over-the-air synchronization over 2.4 GHz CC2544 RF using Report `0x20` protocol. Screen updates state immediately when an activity starts on WebUI or HA. |
 | **Battery Life & Power Management** | **High Drain**: Accelerometer polled continuously at 50 Hz, unconfigurable button backlight draining battery in ~24–48 hours. | **Multi-Tier Power Optimization**: Configurable LIS3DH accelerometer rate (10/25/50 Hz, saving up to 60% standby power), night-mode button backlight scheduler, and configurable screen timeouts. |
@@ -108,8 +108,8 @@ The table below details every major functional component for both the **Harmony 
 
 HarmonyNG supports all major Logitech Harmony physical remotes:
 
-1. **Harmony Elite 950 & Harmony Pro 2400 (Handheld Remotes with Screen)**:
-   - Full native framebuffer UI (`elite_ui.c`) at 240x320 RGB565.
+1. **Harmony touchscreen remotes: Elite 950, Pro 2400, Ultimate family (Handheld Remotes with Screen)**:
+   - Full native framebuffer UI (`remote_ui.c`) at 240x320 RGB565.
    - Dynamic touch digitizer & physical button mapping.
    - Instant bidirectional RF state sync (time, activities, settings, device browser) over CC2544 Report `0x12`/`0x20`.
    - Two-tier hardware power management (Light and Deep standby with motion wake).
@@ -146,7 +146,6 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 .
 ├── android-app/            # Modern client SPA & Android Capacitor project
 ├── build/                  # Cross-compilation toolchains, build, and deploy scripts
-│   ├── cc2544/             # GPLv2 kernel driver for CC2544 RF transceiver
 │   ├── patches/            # BTstack patches
 │   ├── build_apk.py        # Android APK build and package script
 │   ├── build_btstack.sh    # MIPS32 BTstack cross-compilation script
@@ -156,17 +155,17 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
-│   ├── ELITE.md            # Elite remote hardware, RF protocol, and display specs
-│   ├── ELITE_BATTERY_OPTIMIZATION.md # Power management & battery life guide
+│   ├── REMOTE.md            # Remote hardware, RF protocol, and display specs
+│   ├── REMOTE_BATTERY_OPTIMIZATION.md # Power management & battery life guide
 │   ├── FIRST_INSTALL_HUB.md   # First-time installation and rooting guide for Hub
-│   ├── FIRST_INSTALL_ELITE.md # First-time installation and setup guide for Elite
+│   ├── FIRST_INSTALL_REMOTE.md # First-time installation and setup guide for the remote
 │   ├── HARMONY_RF_PROTOCOL.md # Reverse-engineered CC2544 2.4GHz RF protocol
 │   └── OFFLINE_UNBRICK_AND_ROOT_GUIDE.md  # Recovery, UART, and SPI flash guide
-├── elite/                  # Elite 950 remote userspace binaries and deployment tools
+├── remote/                  # Remote userspace binaries and deployment tools
 │   ├── bootstrap_serial.py # Hardware serial bootstrap
-│   ├── deploy_elite.py     # Remote deployment script (cross-platform Python)
+│   ├── deploy_remote.py     # Remote deployment script (cross-platform Python)
 │   ├── setup_remote.py     # Multi-step remote provisioning tool
-│   └── rcS.local           # Elite safe-boot script with panic recovery
+│   └── rcS.local           # Remote safe-boot script with panic recovery
 ├── payload/
 │   ├── bin/                # Target MIPS executables for Hub
 │   ├── modules/            # USB Ethernet kernel drivers (r8152, asix, cdc_ether, etc.)
@@ -179,11 +178,10 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── state_watch.c   # Pushes Bluetooth, remote and config changes to the web UIs
 │       ├── ir_i2s.c        # Direct AR9344 I2S hardware pulse transmitter
 │       ├── ir_encoder.c    # Protocol bit encoders (NEC, RC5, RC6, Sony, Pronto)
-│       ├── hub_rf.c      # CC2544 RF protocol engine
-│       ├── hub_btstack/  # BTstack Bluetooth HID daemon integration
-│       ├── elite_ui.c   # Elite framebuffer GUI & input application
-│       ├── hub_dhcpd.c     # Clean-room RFC 2131 DHCP recovery server
-│       └── hub_portal.c    # Wi-Fi recovery captive portal
+│       ├── hub_rf.c        # CC2544 RF protocol engine
+│       ├── hub_btstack/    # BTstack Bluetooth HID daemon integration
+│       ├── remote_ui.c     # Remote framebuffer GUI & input application
+│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp)
 └── tools/
     ├── factory_reset.py    # Clean revert tool to factory stock firmware
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
@@ -215,10 +213,10 @@ npm run build
 
 ## Extracting Official Remote UI Icons
 
-The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing an Elite remote connected over USB or transferring files over SSH.
+The official Logitech Elite remote firmware contains 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can extract all stock icons directly from the official firmware bundle (`.hfw2` SquashFS filesystem) without needing a remote connected over USB or transferring files over SSH.
 
 ### Automated Extraction During Hub Deployment
-When running `python build/deploy_hub.py <HUB_IP>`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`elite_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
+When running `python build/deploy_hub.py <HUB_IP>`, the installer checks for `build/icons.tar.gz`. If missing, it automatically prompts to download official Elite firmware (`remote_111_4.15.330.hfw2`), extract all 1,350 icons, package them into `build/icons.tar.gz`, and stage them to `/cache/icons.tar.gz` on the Hub.
 
 ### Standalone Extraction Using Python
 You can also extract icons or build the WebUI archive manually at any time on any platform (Windows, macOS, Linux):
@@ -232,7 +230,7 @@ python tools/harmony_firmware.py extract-icons --out-dir payload/www/assets/icon
 ```
 
 ### How It Works
-1. Downloads official Elite firmware bundle (`elite_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
+1. Downloads official Elite firmware bundle (`remote_111_4.15.330.hfw2`) from Logitech update servers (or uses cached copy).
 2. Unpacks the internal SquashFS root filesystem using Python.
 3. Indexes and extracts all 1,347+ PNG assets across `footer`, `hopsactivity`, `juniperactivity`, `commands`, `devices`, and `settings`.
 4. Packages them into `build/icons.tar.gz`. On the Hub, the web daemon dynamically unpacks icons into `/tmp/www/assets/icons` on first request.
@@ -263,7 +261,7 @@ HarmonyNG exposes an extensive local REST and WebSocket API running on port `808
 
 ## License & Legal Information
 
-This project is licensed under the **MIT License** for all userspace code and the **GNU General Public License v2 (GPL-2.0)** for the Linux kernel transceiver driver (`build/cc2544/`). See [`LICENSE`](LICENSE) for complete terms.
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE) for complete terms.
 
 ### Attribution & Acknowledgments
 This project was originally inspired by and based on the foundational research and repository created by [Ripthulhu](https://github.com/Ripthulhu) (`harmony-hub-control` and `harmony-hub-root`). We express our sincere gratitude and credit to **Ripthulhu** for the original idea, pioneering hardware investigations, and proof-of-concept groundwork before this complete architectural reimplementation and expanded feature suite was undertaken.

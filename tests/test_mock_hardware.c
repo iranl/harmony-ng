@@ -21,7 +21,7 @@ int main(void) {
 
     struct fb_fix_screeninfo finfo;
     assert(ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) == 0);
-    assert(strcmp(finfo.id, "HarmonyEliteFB") == 0);
+    assert(strcmp(finfo.id, "HarmonyRemoteFB") == 0);
     assert(finfo.smem_len == 240 * 320 * 2);
 
     struct fb_var_screeninfo vinfo;

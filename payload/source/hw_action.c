@@ -741,3 +741,11 @@ int hw_bthid_send_report(const uint8_t *report, size_t len) {
     }
     return -1;
 }
+
+int hw_bt_release_all(void) {
+    int fd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
+    if (fd < 0) return -1;
+    ssize_t w = write(fd, "RELEASE\n", 8);
+    close(fd);
+    return (w == 8) ? 0 : -1;
+}
