@@ -313,73 +313,76 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     if (!modal) return;
     if (slotInput) slotInput.value = slot;
     if (title) title.textContent = `Remote Settings (Slot ${slot})`;
-    modal.style.display = 'flex';
 
+    /* Load first, show the dialog only with the remote's own values: a failed load used to leave
+     * the fields as they were (silently), and saving them pushed those values to the remote.
+     * client.request() sends the login token, asks for a login on 401 and reports the Hub's error. */
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`);
-      if (resp.ok) {
-        const cfg = await resp.json();
-        let langCode = cfg.language || 'en';
-        if (typeof cfg.language_id !== 'undefined') {
-          const map = ['en', 'de', 'fr', 'nl', 'es', 'it'];
-          if (cfg.language_id >= 0 && cfg.language_id < map.length) langCode = map[cfg.language_id];
-        }
-        if (document.getElementById('rfCfgLanguage')) {
-          document.getElementById('rfCfgLanguage').value = langCode;
-        }
-        if (cfg.brightness) document.getElementById('rfCfgBrightness').value = cfg.brightness;
-        if (cfg.timeout) document.getElementById('rfCfgTimeout').value = cfg.timeout;
-
-        const touchVal = typeof cfg.touch !== 'undefined' ? cfg.touch : (typeof cfg.touchEnabled !== 'undefined' ? (cfg.touchEnabled ? 1 : 0) : 1);
-        document.getElementById('rfCfgTouch').value = String(touchVal ? 1 : 0);
-
-        const capButtonsVal = typeof cfg.cap_buttons !== 'undefined' ? cfg.cap_buttons : (typeof cfg.capButtonsEnabled !== 'undefined' ? (cfg.capButtonsEnabled ? 1 : 0) : 1);
-        if (document.getElementById('rfCfgCapButtons')) document.getElementById('rfCfgCapButtons').value = String(capButtonsVal ? 1 : 0);
-
-        const touchSens = cfg.touch_sensitivity || cfg.touchSensitivity || 2;
-        document.getElementById('rfCfgTouchSens').value = String(touchSens);
-
-        const noScreenVal = cfg.no_screen || cfg.noScreen ? 1 : 0;
-        if (document.getElementById('rfCfgNoScreen')) {
-          document.getElementById('rfCfgNoScreen').value = String(noScreenVal);
-        }
-
-        const navKey = cfg.nav_key || cfg.navToggleKey || 139;
-        document.getElementById('rfCfgNavKey').value = String(navKey);
-
-        const navMode = typeof cfg.nav_mode !== 'undefined' ? cfg.nav_mode : (typeof cfg.navToggleMode !== 'undefined' ? cfg.navToggleMode : 1);
-        document.getElementById('rfCfgNavMode').value = String(navMode);
-
-        const confirmAct = typeof cfg.confirm_act !== 'undefined' ? cfg.confirm_act : (typeof cfg.confirmActivity !== 'undefined' ? (cfg.confirmActivity ? 1 : 0) : 1);
-        document.getElementById('rfCfgConfirmAct').value = String(confirmAct ? 1 : 0);
-
-        const gyroVal = typeof cfg.gyro !== 'undefined' ? cfg.gyro : (typeof cfg.gyroEnabled !== 'undefined' ? (cfg.gyroEnabled ? 1 : 0) : 1);
-        if (document.getElementById('rfCfgGyro')) document.getElementById('rfCfgGyro').value = String(gyroVal ? 1 : 0);
-
-        const gyroRate = cfg.gyro_rate || cfg.gyroRate || 50;
-        if (document.getElementById('rfCfgGyroRate')) document.getElementById('rfCfgGyroRate').value = String(gyroRate);
-
-        const btnBacklight = typeof cfg.btn_backlight !== 'undefined' ? cfg.btn_backlight : (typeof cfg.btnBacklight !== 'undefined' ? cfg.btnBacklight : 2);
-        if (document.getElementById('rfCfgBtnBacklight')) document.getElementById('rfCfgBtnBacklight').value = String(btnBacklight);
-
-        const nightStart = typeof cfg.night_start !== 'undefined' ? cfg.night_start : (typeof cfg.nightStart !== 'undefined' ? cfg.nightStart : 22);
-        const nightEnd = typeof cfg.night_end !== 'undefined' ? cfg.night_end : (typeof cfg.nightEnd !== 'undefined' ? cfg.nightEnd : 7);
-        if (document.getElementById('rfCfgNightSchedule')) {
-          const schedVal = `${nightStart}-${nightEnd}`;
-          const schedSelect = document.getElementById('rfCfgNightSchedule');
-          if (schedSelect.querySelector(`option[value="${schedVal}"]`)) {
-            schedSelect.value = schedVal;
-          } else {
-            schedSelect.value = '22-7';
-          }
-        }
-
-        const powerDebug = typeof cfg.power_debug !== 'undefined' ? cfg.power_debug : (typeof cfg.powerDebug !== 'undefined' ? (cfg.powerDebug ? 1 : 0) : 0);
-        if (document.getElementById('rfCfgPowerDebug')) document.getElementById('rfCfgPowerDebug').value = String(powerDebug ? 1 : 0);
+      const cfg = await this.client.request(`/api/rf/remote-config?slot=${slot}`);
+      if (!cfg || typeof cfg !== 'object') throw new Error('no settings in the reply');
+      let langCode = cfg.language || 'en';
+      if (typeof cfg.language_id !== 'undefined') {
+        const map = ['en', 'de', 'fr', 'nl', 'es', 'it'];
+        if (cfg.language_id >= 0 && cfg.language_id < map.length) langCode = map[cfg.language_id];
       }
+      if (document.getElementById('rfCfgLanguage')) {
+        document.getElementById('rfCfgLanguage').value = langCode;
+      }
+      if (cfg.brightness) document.getElementById('rfCfgBrightness').value = cfg.brightness;
+      if (cfg.timeout) document.getElementById('rfCfgTimeout').value = cfg.timeout;
+
+      const touchVal = typeof cfg.touch !== 'undefined' ? cfg.touch : (typeof cfg.touchEnabled !== 'undefined' ? (cfg.touchEnabled ? 1 : 0) : 1);
+      document.getElementById('rfCfgTouch').value = String(touchVal ? 1 : 0);
+
+      const capButtonsVal = typeof cfg.cap_buttons !== 'undefined' ? cfg.cap_buttons : (typeof cfg.capButtonsEnabled !== 'undefined' ? (cfg.capButtonsEnabled ? 1 : 0) : 1);
+      if (document.getElementById('rfCfgCapButtons')) document.getElementById('rfCfgCapButtons').value = String(capButtonsVal ? 1 : 0);
+
+      const touchSens = cfg.touch_sensitivity || cfg.touchSensitivity || 2;
+      document.getElementById('rfCfgTouchSens').value = String(touchSens);
+
+      const noScreenVal = cfg.no_screen || cfg.noScreen ? 1 : 0;
+      if (document.getElementById('rfCfgNoScreen')) {
+        document.getElementById('rfCfgNoScreen').value = String(noScreenVal);
+      }
+
+      const navKey = cfg.nav_key || cfg.navToggleKey || 139;
+      document.getElementById('rfCfgNavKey').value = String(navKey);
+
+      const navMode = typeof cfg.nav_mode !== 'undefined' ? cfg.nav_mode : (typeof cfg.navToggleMode !== 'undefined' ? cfg.navToggleMode : 1);
+      document.getElementById('rfCfgNavMode').value = String(navMode);
+
+      const confirmAct = typeof cfg.confirm_act !== 'undefined' ? cfg.confirm_act : (typeof cfg.confirmActivity !== 'undefined' ? (cfg.confirmActivity ? 1 : 0) : 1);
+      document.getElementById('rfCfgConfirmAct').value = String(confirmAct ? 1 : 0);
+
+      const gyroVal = typeof cfg.gyro !== 'undefined' ? cfg.gyro : (typeof cfg.gyroEnabled !== 'undefined' ? (cfg.gyroEnabled ? 1 : 0) : 1);
+      if (document.getElementById('rfCfgGyro')) document.getElementById('rfCfgGyro').value = String(gyroVal ? 1 : 0);
+
+      const gyroRate = cfg.gyro_rate || cfg.gyroRate || 50;
+      if (document.getElementById('rfCfgGyroRate')) document.getElementById('rfCfgGyroRate').value = String(gyroRate);
+
+      const btnBacklight = typeof cfg.btn_backlight !== 'undefined' ? cfg.btn_backlight : (typeof cfg.btnBacklight !== 'undefined' ? cfg.btnBacklight : 2);
+      if (document.getElementById('rfCfgBtnBacklight')) document.getElementById('rfCfgBtnBacklight').value = String(btnBacklight);
+
+      const nightStart = typeof cfg.night_start !== 'undefined' ? cfg.night_start : (typeof cfg.nightStart !== 'undefined' ? cfg.nightStart : 22);
+      const nightEnd = typeof cfg.night_end !== 'undefined' ? cfg.night_end : (typeof cfg.nightEnd !== 'undefined' ? cfg.nightEnd : 7);
+      if (document.getElementById('rfCfgNightSchedule')) {
+        const schedVal = `${nightStart}-${nightEnd}`;
+        const schedSelect = document.getElementById('rfCfgNightSchedule');
+        if (schedSelect.querySelector(`option[value="${schedVal}"]`)) {
+          schedSelect.value = schedVal;
+        } else {
+          schedSelect.value = '22-7';
+        }
+      }
+
+      const powerDebug = typeof cfg.power_debug !== 'undefined' ? cfg.power_debug : (typeof cfg.powerDebug !== 'undefined' ? (cfg.powerDebug ? 1 : 0) : 0);
+      if (document.getElementById('rfCfgPowerDebug')) document.getElementById('rfCfgPowerDebug').value = String(powerDebug ? 1 : 0);
     } catch (e) {
       console.warn('Could not fetch existing remote config:', e);
+      alert(t('rf_config_load_failed', 'Could not load the remote settings from the Hub (nothing was changed): ') + e.message);
+      return;
     }
+    modal.style.display = 'flex';
   }
 
   closeRfConfigModal() {
@@ -461,24 +464,34 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     };
 
     const saveBtn = document.getElementById('rfConfigSaveBtn');
-    if (saveBtn) saveBtn.textContent = 'Pushing to remote...';
+    if (saveBtn) {
+      saveBtn.textContent = 'Pushing to remote...';
+      saveBtn.disabled = true; /* one RF push at a time */
+    }
     try {
-      const resp = await fetch(`/api/rf/remote-config?slot=${slot}`, {
+      /* client.request(): login token, login prompt on 401, the Hub's own error text on failure.
+       * A failed save becomes { ok: false }, so the catch below only sees a failed view refresh. */
+      const resp = await this.client.request(`/api/rf/remote-config?slot=${slot}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+        body: JSON.stringify(payload),
+        timeout: 20000
+      }).then(() => ({ ok: true }), (error) => ({ ok: false, error }));
       if (resp.ok) {
         alert(t('rf_config_saved', 'Settings saved and pushed over RF to remote!'));
         this.closeRfConfigModal();
         await this.loadRemoteView();
       } else {
-        alert(t('rf_config_failed', 'Failed to save settings to Hub.'));
+        alert(t('rf_config_failed', 'Failed to save settings to Hub.') + ' ' + resp.error.message);
       }
     } catch (err) {
-      alert(t('rf_config_error', 'Error pushing settings: ') + err.message);
+      /* saved and pushed; only the refresh of the remote view failed */
+      console.warn('Remote view refresh after saving failed:', err);
     } finally {
-      if (saveBtn) saveBtn.textContent = 'Save & Push to Remote';
+      if (saveBtn) {
+        saveBtn.textContent = 'Save & Push to Remote';
+        saveBtn.disabled = false;
+      }
     }
   }
 

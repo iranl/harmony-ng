@@ -817,7 +817,12 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
         }
         if (!blob) {
           const proxyUrl = `${this.client.baseUrl}/api/custom-icons/proxy-fetch?url=${encodeURIComponent(url)}`;
-          const pRes = await fetch(proxyUrl);
+          const pRes = await fetch(proxyUrl, { headers: this.client.getHeaders() }); /* login token */
+          if (pRes.status === 401) {
+            /* binary reply, so no client.request(); open the login prompt the same way */
+            window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
+            throw new Error('Authentication failed. Check hub credentials.');
+          }
           if (!pRes.ok) throw new Error(`HTTP ${pRes.status} from proxy`);
           blob = await pRes.blob();
         }
