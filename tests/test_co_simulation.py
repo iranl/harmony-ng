@@ -36,19 +36,32 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 TEST_PORT = 8998
 MOCK_BASE = "/tmp/harmony_mock"
 
-# The Hub's IR receiver as ir_i2s.c reads it: 0.09375 us per bit (16x the 1.5 us I2S sample),
-# MSB first, active low (a mark is 0 bits, a space and the idle line are 1 bits)
-IR_RX_US_PER_BIT = 3.0 / 32.0
+# The Hub's IR receiver as /dev/i2s delivers it (measured on a Harmony Hub, as stock hal reads it):
+# the sensor's raw output with the carrier, one bit per 1.5 us, MSB first, inverted (light = 0 bit),
+# and the two bytes of every 16-bit sample swapped
+IR_RX_US_PER_BIT = 1.5
 
 
-def ir_rx_bitstream(timings_us, idle_before_bytes=2048, idle_after_us=30000):
+def ir_rx_bitstream(timings_us, idle_before_bytes=2048, idle_after_us=30000, carrier_hz=38000, duty=1.0 / 3):
     """Raw /dev/i2s receive data for alternating mark/space durations (starting with a mark)"""
-    runs = [("1", idle_before_bytes * 8)]
+    period = 1e6 / carrier_hz
+    light = [0] * (idle_before_bytes * 8)
     for i, d in enumerate(list(timings_us) + [idle_after_us]):
-        runs.append(("0" if i % 2 == 0 else "1", round(d / IR_RX_US_PER_BIT)))
-    bits = "".join(ch * n for ch, n in runs)
-    bits += "1" * (-len(bits) % 8)
-    return int(bits, 2).to_bytes(len(bits) // 8, "big")
+        n = round(d / IR_RX_US_PER_BIT)
+        pulses = round(d / period)  # a remote sends whole carrier pulses: the last one is not cut short
+        for k in range(n):
+            tt = k * IR_RX_US_PER_BIT
+            light.append(1 if i % 2 == 0 and tt < pulses * period and (tt % period) < period * duty else 0)
+    light += [0] * (-len(light) % 16)
+    data = bytearray()
+    for j in range(0, len(light), 8):
+        byte = 0
+        for b in light[j:j + 8]:
+            byte = (byte << 1) | b
+        data.append(~byte & 0xFF)
+    for j in range(0, len(data), 2):
+        data[j], data[j + 1] = data[j + 1], data[j]
+    return bytes(data)
 
 
 def learned_durations(raw):
@@ -269,14 +282,18 @@ class CoSimulationRunner:
             st, cap = self.http_post_status("/api/capture", {"timeout": 3})
             raw = cap.get("raw", "") if isinstance(cap, dict) else ""
             got = learned_durations(raw) if raw else []
-            want = sirc + [30000]
-            exact = len(got) == len(want) and all(abs(a - b) <= 1 for a, b in zip(got, want))
-            self.record("IR learn: a Sony 12-bit frame comes back with every pulse and space",
-                        st == 200 and raw.startswith("F9470") and exact and cap.get("keycode") == raw,
-                        f"HTTP {st} {len(got)}/{len(want)} durations {raw[:60]}")
-            self.record("IR learn: pulse count and length reported",
-                        cap.get("pulses") == len(want) and cap.get("duration_us") == sum(want) and cap.get("carrier_hz") == 38000,
-                        f"pulses={cap.get('pulses')} duration_us={cap.get('duration_us')} carrier={cap.get('carrier_hz')}")
+            # a single frame (no second one seen) ends with the default 40 ms gap
+            want = sirc + [40000]
+            # whole carrier pulses make a mark up to half a period (13 us at 38 kHz) off its nominal length
+            exact = len(got) == len(want) and all(abs(a - b) <= 15 for a, b in zip(got, want))
+            self.record("IR learn: a Sony 12-bit frame comes back with every pulse and space (+-15 us)",
+                        st == 200 and exact and cap.get("keycode") == raw,
+                        f"HTTP {st} {len(got)}/{len(want)} durations {got[:6]} {raw[:60]}")
+            carrier = cap.get("carrier_hz") or 0
+            self.record("IR learn: carrier, pulse count and length reported",
+                        37500 <= carrier <= 38500 and raw.startswith("F%X" % carrier) and
+                        cap.get("pulses") == len(want) and cap.get("duration_us") == sum(got),
+                        f"pulses={cap.get('pulses')} duration_us={cap.get('duration_us')} carrier={carrier}")
             st, tst = self.http_post_status("/api/ir-test-learned", {"deviceId": "", "raw": raw, "keycode": raw})
             self.record("IR learn: the learned code plays back (ir-test-learned)",
                         st == 200 and tst.get("ok") is True, f"HTTP {st} {tst}")

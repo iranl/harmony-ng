@@ -609,13 +609,13 @@ Dedicated blaster endpoint for raw Pronto hex code streams.
 
 ### 5.2a IR Learning (capture)
 #### `POST /api/capture` or `POST /api/ir-capture`
-Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns it as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`). The string can be stored as a command's `raw` (`POST /ir/command`) and sent like any other keycode.
+Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns one frame as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`, the carrier measured, the last space the gap to the next frame). The string can be stored as a command's `raw` (`POST /ir/command`) and sent like any other keycode. The sensor is short-range: hold the original remote about 8 cm from the Hub and hold the button for 1 to 2 seconds (the first frame of a press is often cut, so the decoder keeps the first complete frame after it).
 - **Request Body** (optional): `{"timeout": 10}` in seconds, 1 to 30 (default 10). `?timeout=` works too.
 - **Response `200 OK`**:
   ```json
   {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 13, "duration_us": 24000}
   ```
-- **Errors**: `408` no signal before the timeout, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, `500` other failures.
+- **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, `500` other failures.
 
 #### `POST /api/ir-test-learned`
 Sends a captured code once through the IR ports of a device (its `controlPort`, default all).
