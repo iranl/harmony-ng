@@ -9,9 +9,15 @@
 #include <unistd.h>
 #include "../payload/source/cJSON.h"
 #include "../payload/source/hw_action.h"
+#include "../payload/source/orchestrator.h"
 
 /* Mock device database */
 static cJSON *s_mock_device_root = NULL;
+/* hw_action.c asks the orchestrator before a Bluetooth reconnect (no reconnect while stopping or
+ * powered off): an activity is running here */
+orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
+const char *orch_get_current_activity(void) { return "1"; }
+
 cJSON *get_device_list_cached(void) {
     if (!s_mock_device_root) {
         s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]}]}");
