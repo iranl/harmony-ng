@@ -88,29 +88,21 @@ export function createSystemApi(client) {
       const cfg = data.config || {};
       return {
         connected: Boolean(data.connected),
-        enabled: Boolean(data.connected || data.broker || data.enabled || cfg.enabled),
+        /* the saved switch, not the broker host: a host stays set while MQTT is off */
+        enabled: Boolean(data.connected || cfg.enabled),
         broker: data.broker || data.host || cfg.host || '',
         port: data.port || cfg.port || 1883,
         baseTopic: data.baseTopic || cfg.baseTopic || 'harmony/hub',
         config: {
-          enabled: Boolean(data.connected || data.broker || data.enabled || cfg.enabled),
+          enabled: Boolean(cfg.enabled),
           host: data.broker || data.host || cfg.host || '',
           port: data.port || cfg.port || 1883,
           username: data.username || cfg.username || '',
           baseTopic: data.baseTopic || cfg.baseTopic || 'harmony/hub',
-          discoveryPrefix: data.discoveryPrefix || cfg.discoveryPrefix || 'homeassistant',
           clientId: data.clientId || cfg.clientId || 'harmony_hub',
-          name: data.name || cfg.name || 'Harmony Hub',
-          keepAlive: data.keepAlive || cfg.keepAlive || 60,
+          discoveryPrefix: data.discoveryPrefix || cfg.discoveryPrefix || 'homeassistant',
           haDiscovery: data.haDiscovery !== undefined ? Boolean(data.haDiscovery) : (cfg.haDiscovery !== undefined ? Boolean(cfg.haDiscovery) : true),
-          btRemoteEvents: Boolean(data.btRemoteEvents !== undefined ? data.btRemoteEvents : (cfg.btRemoteEvents !== undefined ? cfg.btRemoteEvents : false)),
-          btRemoteTopic: data.btRemoteTopic || cfg.btRemoteTopic || '',
-          slot1RemoteEvents: Boolean(data.slot1RemoteEvents !== undefined ? data.slot1RemoteEvents : (cfg.slot1RemoteEvents !== undefined ? cfg.slot1RemoteEvents : (data.remoteEvents !== undefined ? data.remoteEvents : true))),
-          slot1RemoteTopic: data.slot1RemoteTopic || cfg.slot1RemoteTopic || data.remoteTopic || cfg.remoteTopic || '',
-          slot2RemoteEvents: Boolean(data.slot2RemoteEvents !== undefined ? data.slot2RemoteEvents : (cfg.slot2RemoteEvents !== undefined ? cfg.slot2RemoteEvents : false)),
-          slot2RemoteTopic: data.slot2RemoteTopic || cfg.slot2RemoteTopic || '',
-          remoteEvents: Boolean(data.remoteEvents !== undefined ? data.remoteEvents : (cfg.remoteEvents !== undefined ? cfg.remoteEvents : true)),
-          remoteTopic: data.remoteTopic || cfg.remoteTopic || ''
+          v2: Boolean(data.v2)
         }
       };
     },

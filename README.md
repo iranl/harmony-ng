@@ -256,6 +256,7 @@ HarmonyNG exposes an extensive local REST and WebSocket API running on port `808
   - Features real-time **"Try it out"** testing against your local Harmony Hub (e.g. `http://<hub-ip>:8089` or `http://harmony.local:8089`).
 - **OpenAPI 3.1 Spec**: [`docs/openapi.yaml`](docs/openapi.yaml)
 - **HTTP & WebSocket API Specification**: [`docs/API.md`](docs/API.md)
+- **Home Assistant, four ways (API, MQTT, MQTT discovery, Logitech protocol)**: [`docs/HOME_ASSISTANT.md`](docs/HOME_ASSISTANT.md)
 
 ---
 

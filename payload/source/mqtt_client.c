@@ -358,31 +358,45 @@ int mqtt_connect_async(void) {
 
 extern int g_dry_run;
 
-int mqtt_publish(const char *topic, const char *payload, int retain) {
-    if (g_dry_run) {
-        printf("[DRY-RUN] MQTT Publish simulated: topic=%s payload=%s retain=%d\n", topic ? topic : "", payload ? payload : "", retain);
+int mqtt_publishing_live(void) {
+    if (!g_dry_run) return 1;
+#ifdef TEST_HARNESS
+    const char *live = getenv("HARMONY_MQTT_LIVE");
+    if (live && live[0] == '1') return 1;
+#endif
+    return 0;
+}
+
+int mqtt_publish_ex(const char *topic, const char *payload, size_t plen, int qos, int retain) {
+    if (!mqtt_publishing_live()) {
+        printf("[DRY-RUN] MQTT Publish simulated: topic=%s payload=%.*s retain=%d\n", topic ? topic : "",
+               (int)(plen > 200 ? 200 : plen), payload ? payload : "", retain);
         return 0;
     }
     if (!mqtt_is_connected() || !topic) return -1;
-
+    if (!payload) plen = 0;
     size_t tlen = strlen(topic);
-    size_t plen = payload ? strlen(payload) : 0;
-    size_t rem_len = 2 + tlen + plen;
-
+    if (qos < 0) qos = 0;
+    if (qos > 1) qos = 1;
+    size_t rem_len = 2 + tlen + (qos ? 2 : 0) + plen;
+    if (rem_len + 5 > MQTT_BUF_SIZE) return -1;
     uint8_t pkt[MQTT_BUF_SIZE];
-    pkt[0] = 0x30 | (retain ? 0x01 : 0x00); /* PUBLISH QoS 0 */
+    pkt[0] = (uint8_t)(0x30 | (qos << 1) | (retain ? 0x01 : 0x00));
     uint8_t *p = encode_remaining_len(&pkt[1], rem_len);
-
     *p++ = (uint8_t)((tlen >> 8) & 0xFF);
     *p++ = (uint8_t)(tlen & 0xFF);
     memcpy(p, topic, tlen);
     p += tlen;
-
+    if (qos) {
+        uint16_t pid = g_packet_id++;
+        if (g_packet_id == 0) g_packet_id = 1;
+        *p++ = (uint8_t)((pid >> 8) & 0xFF);
+        *p++ = (uint8_t)(pid & 0xFF);
+    }
     if (plen > 0) {
         memcpy(p, payload, plen);
         p += plen;
     }
-
     size_t total = (size_t)(p - pkt);
     ssize_t sent = send(g_fd, pkt, total, MSG_NOSIGNAL);
     if (sent != (ssize_t)total) {
@@ -390,6 +404,10 @@ int mqtt_publish(const char *topic, const char *payload, int retain) {
         return -1;
     }
     return 0;
+}
+
+int mqtt_publish(const char *topic, const char *payload, int retain) {
+    return mqtt_publish_ex(topic, payload, payload ? strlen(payload) : 0, 0, retain);
 }
 
 int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
@@ -472,49 +490,76 @@ int mqtt_tick(void) {
         g_last_ping = now;
     }
 
-    uint8_t buf[MQTT_BUF_SIZE];
-    ssize_t n = recv(g_fd, buf, sizeof(buf) - 1, MSG_DONTWAIT);
+    /* Read what is there and process every complete packet; a partial packet waits for the
+     * next tick (one TCP read may carry several MQTT packets, or a piece of one) */
+    static uint8_t rxbuf[MQTT_BUF_SIZE * 2];
+    static size_t rxlen = 0;
+    ssize_t n = recv(g_fd, rxbuf + rxlen, sizeof(rxbuf) - rxlen, MSG_DONTWAIT);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+        rxlen = 0;
         mqtt_disconnect();
         return -1;
     }
     if (n == 0) {
+        rxlen = 0;
         mqtt_disconnect();
         return -1;
     }
-
-    /* Process incoming MQTT packet */
-    uint8_t type = buf[0] & 0xF0;
-    if (type == 0x30) { /* PUBLISH */
+    rxlen += (size_t)n;
+    size_t pos = 0;
+    while (pos + 2 <= rxlen) {
         size_t rem_len = 0;
-        size_t rlen_bytes = decode_remaining_len(&buf[1], (size_t)n - 1, &rem_len);
-        if (rlen_bytes == 0) return 0;
-
-        const uint8_t *p = &buf[1 + rlen_bytes];
-        if (p + 2 > buf + n) return 0;
-
-        size_t tlen = ((size_t)p[0] << 8) | p[1];
-        p += 2;
-        if (p + tlen > buf + n) return 0;
-
-        char topic[128] = {0};
-        size_t cplen = tlen < sizeof(topic) - 1 ? tlen : sizeof(topic) - 1;
-        memcpy(topic, p, cplen);
-        p += tlen;
-
-        size_t plen = (size_t)(buf + n - p);
-        char payload[1024] = {0};
-        size_t cppl = plen < sizeof(payload) - 1 ? plen : sizeof(payload) - 1;
-        memcpy(payload, p, cppl);
-
-        /* Dispatch to matching subscribers */
-        for (size_t i = 0; i < g_sub_count; i++) {
-            if (mqtt_topic_matches(g_subs[i].topic, topic) && g_subs[i].cb) {
-                g_subs[i].cb(topic, payload, cppl, g_subs[i].user_data);
+        size_t rlen_bytes = decode_remaining_len(rxbuf + pos + 1, rxlen - pos - 1, &rem_len);
+        if (rlen_bytes == 0) {
+            if (rxlen - pos < 5) break; /* the length field is not complete yet */
+            rxlen = 0;                   /* garbage: drop the buffer */
+            return 0;
+        }
+        size_t pkt_len = 1 + rlen_bytes + rem_len;
+        if (pkt_len > sizeof(rxbuf)) {
+            rxlen = 0; /* larger than we can ever hold */
+            return 0;
+        }
+        if (pos + pkt_len > rxlen) break; /* incomplete: wait for the rest */
+        const uint8_t *pkt = rxbuf + pos;
+        uint8_t type = pkt[0] & 0xF0;
+        if (type == 0x30) { /* PUBLISH */
+            int qos = (pkt[0] >> 1) & 0x03;
+            const uint8_t *p = pkt + 1 + rlen_bytes;
+            const uint8_t *end = pkt + pkt_len;
+            if (p + 2 <= end) {
+                size_t tlen = ((size_t)p[0] << 8) | p[1];
+                p += 2;
+                if (p + tlen <= end) {
+                    char topic[256] = {0};
+                    size_t cplen = tlen < sizeof(topic) - 1 ? tlen : sizeof(topic) - 1;
+                    memcpy(topic, p, cplen);
+                    p += tlen;
+                    if (qos > 0 && p + 2 <= end) {
+                        uint8_t ack[4] = { 0x40, 0x02, p[0], p[1] };
+                        send(g_fd, ack, 4, MSG_NOSIGNAL);
+                        p += 2;
+                    }
+                    size_t plen = (size_t)(end - p);
+                    char *payload = (char *)malloc(plen + 1);
+                    if (payload) {
+                        memcpy(payload, p, plen);
+                        payload[plen] = '\0';
+                        for (size_t i = 0; i < g_sub_count; i++) {
+                            if (mqtt_topic_matches(g_subs[i].topic, topic) && g_subs[i].cb) {
+                                g_subs[i].cb(topic, payload, plen, g_subs[i].user_data);
+                            }
+                        }
+                        free(payload);
+                    }
+                }
             }
         }
+        /* PUBACK (0x40), SUBACK (0x90), PINGRESP (0xD0): nothing to do */
+        pos += pkt_len;
     }
-
+    if (pos > 0 && pos < rxlen) memmove(rxbuf, rxbuf + pos, rxlen - pos);
+    rxlen -= pos;
     return 1;
 }

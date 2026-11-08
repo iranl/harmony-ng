@@ -19,12 +19,18 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
+
+
 static hw_mqtt_button_handler_t g_mqtt_button_handler = NULL;
+static int g_local_api_port = 8089;
 
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
     g_mqtt_button_handler = handler;
 }
 
+void hw_set_local_api_port(int port) {
+    if (port > 0) g_local_api_port = port;
+}
 
 static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command, int action) {
     cJSON *j = cJSON_CreateObject();
@@ -686,16 +692,19 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         }
     } else if (is_mqtt || strncmp(keycode_str, "G:MQTT", 6) == 0) {
         const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
-        if (g_mqtt_button_handler) {
-            ret = g_mqtt_button_handler(actual_dev_id_str, dev_name, command);
-        } else {
-            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:8089 */
+        /* MQTT-type devices: the pulse on the device's own topic (handler registered by
+         * hub_mqtt), plus the button event on the daemon's bus through /api/button-press */
+        if (g_mqtt_button_handler && action != HW_BTN_ACTION_RELEASE) {
+            if (g_mqtt_button_handler(actual_dev_id_str, dev_name, command) == 0) ret = 0;
+        }
+        {
+            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:<its port> */
             int mfd = socket(AF_INET, SOCK_STREAM, 0);
             if (mfd >= 0) {
                 struct sockaddr_in sin;
                 memset(&sin, 0, sizeof(sin));
                 sin.sin_family = AF_INET;
-                sin.sin_port = htons(8089);
+                sin.sin_port = htons((uint16_t)g_local_api_port);
                 sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
                 setsockopt(mfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -705,11 +714,11 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
                     char req[512];
                     snprintf(req, sizeof(req),
                              "POST /api/button-press HTTP/1.1\r\n"
-                             "Host: 127.0.0.1:8089\r\n"
+                             "Host: 127.0.0.1:%d\r\n"
                              "Content-Length: %zu\r\n"
                              "Content-Type: application/json\r\n"
                              "Connection: close\r\n\r\n%s",
-                             body ? strlen(body) : 0, body ? body : "");
+                             g_local_api_port, body ? strlen(body) : 0, body ? body : "");
                     if (body) free(body);
                     send(mfd, req, strlen(req), MSG_NOSIGNAL);
                     char resp[256] = {0};

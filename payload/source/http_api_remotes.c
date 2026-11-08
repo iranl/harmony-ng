@@ -479,41 +479,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             }
         }
 
-        char final_topic[256] = {0};
-        int final_pulse_ms = 0;
-        int mrc = -1;
-
-        if (req_source[0]) {
-            mrc = mqtt_dispatch_remote_button(req_source, req_action, cmd_name, req_slot, req_topic[0] ? req_topic : NULL, req_pulse_ms,
-                                              final_topic, sizeof(final_topic), &final_pulse_ms);
-        } else {
-            if (!dev_name[0]) {
-                if (dev_id[0]) strncpy(dev_name, dev_id, sizeof(dev_name) - 1);
-                else strncpy(dev_name, "device", sizeof(dev_name) - 1);
-            }
-            mrc = mqtt_dispatch_button_pulse_topic(dev_id, dev_name, cmd_name, req_topic[0] ? req_topic : NULL, req_pulse_ms,
-                                                   final_topic, sizeof(final_topic), &final_pulse_ms);
-        }
-
-        if (mrc == 0) {
-            cJSON *resp_j = cJSON_CreateObject();
-            cJSON_AddBoolToObject(resp_j, "ok", 1);
-            cJSON_AddBoolToObject(resp_j, "mirrored", 1);
-            cJSON_AddNumberToObject(resp_j, "pulseMs", final_pulse_ms);
-            cJSON_AddStringToObject(resp_j, "topic", final_topic);
-            cJSON_AddStringToObject(resp_j, "reply", "ok");
-            send_cjson_resp(client_fd, 200, resp_j);
-            cJSON_Delete(resp_j);
-        } else if (mrc == 1) {
-            cJSON *resp_j = cJSON_CreateObject();
-            cJSON_AddBoolToObject(resp_j, "ok", 1);
-            cJSON_AddBoolToObject(resp_j, "mirrored", 0);
-            cJSON_AddStringToObject(resp_j, "message", "MQTT button mirroring disabled for source");
-            send_cjson_resp(client_fd, 200, resp_j);
-            cJSON_Delete(resp_j);
-        } else {
-            send_json_error(client_fd, 503, "MQTT broker not connected");
-        }
+        /* The MQTT mirror of the old layer is gone: the bus event above reaches MQTT through
+         * the v2 sink (<base>/remote/<slot>/button) */
+        (void)req_pulse_ms;
+        (void)req_topic;
+        (void)dev_name;
+        cJSON *resp_j = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp_j, "ok", 1);
+        cJSON_AddStringToObject(resp_j, "button", cmd_name);
+        send_cjson_resp(client_fd, 200, resp_j);
+        cJSON_Delete(resp_j);
         close(client_fd);
         return 1;
     }

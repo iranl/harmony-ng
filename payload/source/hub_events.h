@@ -25,6 +25,7 @@ typedef enum {
     HUB_EV_BT_STATUS,
     HUB_EV_RF_STATUS,
     HUB_EV_BUTTON,
+    HUB_EV_MQTT_STATUS,   /* broker connection state: on connect, on loss, on a settings change */
     HUB_EV_COUNT
 } hub_event_type_t;
 

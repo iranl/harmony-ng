@@ -136,6 +136,8 @@ class ConnectionMonitor {
       store.set('rfStatus', data);
     } else if (data.event === 'bt_status' || data.type === 'bt_status') {
       store.set('btStatus', data);
+    } else if (data.type === 'mqtt_status') {
+      store.set('mqttStatus', data);
     }
   }
 }

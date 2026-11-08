@@ -103,6 +103,7 @@ struct hub_settings {
     char ntp_server[128];           /* Custom NTP server hostname/IP (default: empty = use pools) */
     char timezone[64];              /* Timezone string e.g. "CET-1CEST,M3.5.0,M10.5.0/3" (default: empty) */
     char led_mode[32];              /* "green", "amber", "red", "off" (default: "green"); see hub_led.h */
+    int mdns_enabled;               /* mDNS responder for _harmony-ng._tcp (default: 1) */
 };
 
 #ifdef __cplusplus

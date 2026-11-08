@@ -5,7 +5,9 @@ host build with the sample configuration, so they can be refreshed after a chang
 
   tests/fixtures/ha/status.json, inventory.json, activities.json, rf_status.json, bt_status.json,
   snapshot.json, ws_activity_switch.ndjson (every frame a client received during a dry-run
-  activity start and power off), ws_button.ndjson, ws_config_changed.ndjson, ir_raw_request.json
+  activity start and power off), ws_button.ndjson, ws_config_changed.ndjson, ir_raw_request.json;
+  milestone 3: mqtt_retained.json (topic to payload after connect), mqtt_activity_switch.ndjson
+  (topic and payload per message during a dry-run activity start and power off), mqtt_cmd_response.json
 
 Usage: python3 tests/record_fixtures.py [--out DIR]
 No private data: the daemon runs on a temporary mock root with tests/fixtures/ha/sample_config
@@ -16,6 +18,7 @@ mtimes, ip) are kept as recorded.
 import argparse
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -23,6 +26,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness  # noqa: E402
+from mock_mqtt import MockBroker, MockClient  # noqa: E402
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(TESTS_DIR, "fixtures", "ha")
@@ -75,6 +79,48 @@ def mfg_blob(unit_id):
     img = bytearray(b"\xff" * 0x10000)
     img[0x9000:0x9000 + len(recs)] = recs
     return bytes(img)
+
+
+DOC_IP = "192.0.2.10"  # RFC 5737 documentation address
+
+
+def host_addresses():
+    """The recording host's IPv4 addresses (not loopback): they must not end up in a fixture"""
+    import socket
+    found = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("192.0.2.1", 9))  # nothing is sent: picks the source address of the default route
+        found.add(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            found.add(info[4][0])
+    except OSError:
+        pass
+    return [a for a in found if a and not a.startswith("127.")]
+
+
+def scrub_dir(out_dir):
+    """Replaces the recording host's addresses with DOC_IP in every fixture written"""
+    addrs = host_addresses()
+    if not addrs:
+        return
+    for name in sorted(os.listdir(out_dir)):
+        path = os.path.join(out_dir, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, newline="") as f:
+            text = f.read()
+        new = text
+        for a in addrs:
+            new = re.sub(r"(?<![0-9.])" + re.escape(a) + r"(?![0-9])", DOC_IP, new)
+        if new != text:
+            with open(path, "w", newline="") as f:
+                f.write(new)
+            print("  scrubbed the host address in %s" % name)
 
 
 def write_json(out_dir, name, obj):
@@ -155,12 +201,67 @@ def main():
             st, r = hub.http_post("/api/ir-raw", IR_RAW_REQUEST)
             assert st == 200, (st, r)
             write_json(args.out, "ir_raw_response.json", r)
+
+        # Milestone 3: MQTT v2 against the mock broker
+        print("[-] Recording MQTT fixtures")
+        broker = MockBroker()
+        mqtt_cfg = {"enabled": True, "host": "127.0.0.1", "port": broker.port, "baseTopic": "harmony/hub",
+                    "clientId": "harmony_hub"}
+        try:
+            with HubHarness(port=PORT + 1, args=["--mfg-file", mfg_path], env={"HARMONY_MQTT_LIVE": "1"},
+                            extra_data_files={"mqtt.json": mqtt_cfg}) as hub:
+                obs = MockClient("127.0.0.1", broker.port, "observer")
+                obs.subscribe("harmony/hub/#")
+                time.sleep(1.5)
+                hub.http_post("/api/rf/status-changed", RF_STATUS)
+                deadline = time.time() + 10
+                while time.time() < deadline and "harmony/hub/rf" not in broker.retained:
+                    time.sleep(0.1)
+                time.sleep(0.5)
+                retained = {}
+                for topic, payload in sorted(broker.retained.items()):
+                    try:
+                        retained[topic] = json.loads(payload.decode("utf-8"))
+                    except ValueError:
+                        retained[topic] = payload.decode("utf-8", "replace")
+                write_json(args.out, "mqtt_retained.json", retained)
+                obs.drain()
+                hub.http_post("/api/activity", {"activity": "10"})
+                obs.wait_for("harmony/hub/activity_state", 15, lambda p: json.loads(p).get("state") == 2)
+                hub.http_post("/api/poweroff", {})
+                obs.wait_for("harmony/hub/activity_state", 15, lambda p: json.loads(p).get("state") == 0)
+                time.sleep(0.5)
+                lines = []
+                for topic, payload, retain in obs.drain():
+                    try:
+                        body = json.loads(payload.decode("utf-8"))
+                    except ValueError:
+                        body = payload.decode("utf-8", "replace")
+                    lines.append({"topic": topic, "payload": body})
+                write_ndjson(args.out, "mqtt_activity_switch.ndjson", lines)
+                cmd = MockClient("127.0.0.1", broker.port, "commander")
+                cmd.subscribe("harmony/hub/cmd/response")
+                cmd.publish("harmony/hub/cmd", json.dumps({"id": "c7d1", "action": "start_activity", "activity": "10"}), qos=1)
+                m = cmd.wait_for("harmony/hub/cmd/response", 5, lambda p: json.loads(p).get("id") == "c7d1")
+                cmd.publish("harmony/hub/cmd", json.dumps({"id": "c7d2", "action": "start_activity", "activity": "11"}), qos=1)
+                m2 = cmd.wait_for("harmony/hub/cmd/response", 5, lambda p: json.loads(p).get("id") == "c7d2")
+                write_json(args.out, "mqtt_cmd_response.json", {
+                    "request": {"id": "c7d1", "action": "start_activity", "activity": "10"},
+                    "response": json.loads(m[1]) if m else None,
+                    "busy_request": {"id": "c7d2", "action": "start_activity", "activity": "11"},
+                    "busy_response": json.loads(m2[1]) if m2 else None,
+                })
+                cmd.close()
+                obs.close()
+        finally:
+            broker.close()
     finally:
         for p in (tmp, BT_STATUS_FILE, mfg_path):
             try:
                 os.remove(p)
             except OSError:
                 pass
+    scrub_dir(args.out)
     print("[+] done")
     return 0
 

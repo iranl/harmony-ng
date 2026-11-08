@@ -11,17 +11,19 @@
       "ws_auth",
       "ws_keepalive",
       "ir_raw",
+      "mdns",
+      "mqtt_v2",
       "rf_wake"
     ],
     "legacy_enabled": false,
-    "mdns_enabled": false,
+    "mdns_enabled": true,
     "auth_enabled": false,
-    "uptime_sec": 66446
+    "uptime_sec": 66658
   },
   "activity_state": {
     "type": "activity_state",
     "seq": 1,
-    "ts": 1794092525,
+    "ts": 1794092737,
     "activity": "-1",
     "state": 0,
     "stateName": "idle",
@@ -30,10 +32,10 @@
   },
   "bt_status": {
     "type": "bt_status",
-    "seq": 2,
-    "ts": 1794092526,
+    "seq": 3,
+    "ts": 1794092738,
     "backend": "btstack",
-    "pid": 161116,
+    "pid": 163476,
     "state": "connecting",
     "target": "11:22:33:44:55:66",
     "last_button": "",
@@ -71,8 +73,8 @@
   },
   "rf_status": {
     "type": "rf_status",
-    "seq": 3,
-    "ts": 1794092527,
+    "seq": 4,
+    "ts": 1794092738,
     "running": true,
     "ok": true,
     "fw_version": "v72.00",
@@ -150,14 +152,25 @@
       }
     ]
   },
+  "mqtt_status": {
+    "type": "mqtt_status",
+    "seq": 2,
+    "ts": 1794092737,
+    "enabled": false,
+    "connected": false,
+    "broker": "",
+    "port": 1883,
+    "baseTopic": "harmony/hub",
+    "haDiscovery": true
+  },
   "config": {
     "files": {
-      "devices": 1794092525,
-      "activities": 1794092525,
-      "settings": 1794092525,
-      "remote_map": 1794092525
+      "devices": 1794092737,
+      "activities": 1794092737,
+      "settings": 1794092737,
+      "remote_map": 1794092737
     }
   },
-  "seq": 3,
-  "ts": 1794092527
+  "seq": 4,
+  "ts": 1794092739
 }

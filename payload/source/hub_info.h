@@ -5,6 +5,7 @@
  * docs/HA_INTEGRATION_FIRMWARE_SPEC.md 2.1, 2.2 and 3.6. */
 
 #include "cJSON.h"
+#include "config_store.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,8 +20,9 @@ const char *hub_info_id(void);
 int hub_info_id_is_fallback(void);
 /* New JSON array of the capability flags of this firmware */
 cJSON *hub_info_capabilities(void);
-/* Adds hub_id, version, commit, api_version, capabilities, legacy_enabled and mdns_enabled */
-void hub_info_add_status_fields(cJSON *obj);
+/* Adds hub_id, version, commit, api_version, capabilities, legacy_enabled and mdns_enabled
+ * (from the settings; NULL = defaults) */
+void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings);
 
 #ifdef __cplusplus
 }

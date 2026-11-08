@@ -70,10 +70,14 @@ int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
 
 /*
- * Callback registration for in-process MQTT button dispatch (used by hub_daemon to avoid loopback socket deadlock).
+ * In-process handler for commands of MQTT-type devices: hub_mqtt publishes the device's pulse
+ * (its topic template, "1" then "0" after mqttPulseMs). Registered by hub_mqtt_init(); the
+ * command is also posted to /api/button-press so the bus gets the button event.
  */
 typedef int (*hw_mqtt_button_handler_t)(const char *device_id, const char *dev_name, const char *command);
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler);
+/* The port hub_daemon listens on (the MQTT device path posts /api/button-press to itself) */
+void hw_set_local_api_port(int port);
 
 /*
  * Sends a BT HID report directly via BTstack FIFO (/tmp/bthid_input).

@@ -180,33 +180,6 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       }
     }
 
-    // MQTT status & config for this slot
-    try {
-      const mqRes = await this.client.getMqttStatus().catch(() => null);
-      if (mqRes && mqRes.config) {
-        const enCb = document.getElementById('remoteMqttEnabled');
-        const topIn = document.getElementById('remoteMqttTopic');
-        const badge = document.getElementById('remoteMqttStatusBadge');
-        const lbl = document.getElementById('remoteMqttLabel');
-
-        const slotEv = curSlot === 1 ?
-          (mqRes.config.slot1RemoteEvents !== undefined ? mqRes.config.slot1RemoteEvents : (mqRes.config.remoteEvents !== undefined ? mqRes.config.remoteEvents : true)) :
-          (mqRes.config.slot2RemoteEvents !== undefined ? mqRes.config.slot2RemoteEvents : false);
-        const slotTop = curSlot === 1 ?
-          (mqRes.config.slot1RemoteTopic || mqRes.config.remoteTopic || '') :
-          (mqRes.config.slot2RemoteTopic || '');
-
-        if (enCb) enCb.checked = Boolean(slotEv);
-        if (topIn) topIn.value = slotTop;
-        if (lbl) lbl.textContent = `Mirror Slot ${curSlot} (${curSlotInfo?.name || 'Remote'}) button presses to MQTT`;
-        if (badge) {
-          badge.textContent = mqRes.connected ? 'CONNECTED' : (mqRes.enabled ? 'ONLINE' : 'MQTT OFF');
-          badge.className = 'badge ' + (mqRes.connected ? 'ok' : 'subtle');
-        }
-      }
-    } catch (e) {
-      console.warn('MQTT status check failed:', e);
-    }
 
     const sel = document.getElementById('remoteActivitySelect');
     const prevActVal = this.remoteSelectedActivityId || sel?.value || '-1';
@@ -889,29 +862,5 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     this.renderRemoteScreenButtons();
   }
 
-  async saveRFRemoteMqttSettings() {
-    const status = document.getElementById('remoteMqttSaveStatus');
-    const enabled = document.getElementById('remoteMqttEnabled')?.checked ? 1 : 0;
-    const topic = document.getElementById('remoteMqttTopic')?.value.trim() || '';
-    const slot = this.selectedRemoteSlot || 1;
-    try {
-      if (status) status.textContent = 'Saving...';
-      const payload = {};
-      if (slot === 1) {
-        payload.slot1RemoteEvents = enabled;
-        payload.slot1RemoteTopic = topic;
-        payload.remoteEvents = enabled;
-        payload.remoteTopic = topic;
-      } else {
-        payload.slot2RemoteEvents = enabled;
-        payload.slot2RemoteTopic = topic;
-      }
-      await this.client.saveMqtt(payload);
-      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
-      setTimeout(() => { if (status) status.textContent = ''; }, 3000);
-    } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
-    }
-  }
 
 }

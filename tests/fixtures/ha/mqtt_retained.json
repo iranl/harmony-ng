@@ -1,0 +1,480 @@
+{
+  "harmony/hub/activity_state": {
+    "type": "activity_state",
+    "seq": 1,
+    "ts": 1794092742,
+    "activity": "-1",
+    "state": 0,
+    "stateName": "idle",
+    "busy": false,
+    "sending": false
+  },
+  "harmony/hub/bt": {
+    "type": "bt_status",
+    "seq": 4,
+    "ts": 1794092743,
+    "backend": "btstack",
+    "pid": 163476,
+    "state": "connecting",
+    "target": "11:22:33:44:55:66",
+    "last_button": "",
+    "last_seen": 0,
+    "remote": {
+      "connected": true,
+      "addr": "11:22:33:44:55:66"
+    },
+    "host": {
+      "connected": true,
+      "addr": "AA:BB:CC:DD:EE:FF",
+      "name": "Media Player",
+      "pairing": false
+    },
+    "hosts": [
+      {
+        "addr": "AA:BB:CC:DD:EE:01",
+        "name": "Television",
+        "connected": false,
+        "paired": true,
+        "cid": 2
+      },
+      {
+        "addr": "AA:BB:CC:DD:EE:FF",
+        "name": "Media Player",
+        "connected": true,
+        "paired": true,
+        "cid": 6
+      }
+    ],
+    "ok": true,
+    "running": true,
+    "connected": true,
+    "pairing": false
+  },
+  "harmony/hub/config": {
+    "type": "config",
+    "files": {
+      "devices": 1794092742,
+      "activities": 1794092742,
+      "settings": 1794092742,
+      "remote_map": 1794092742
+    },
+    "inventory_version": "504af5ca",
+    "ts": 1794092742
+  },
+  "harmony/hub/hub": {
+    "type": "hub",
+    "hub_id": "20140101120000-000001",
+    "hub_name": "Test Hub",
+    "version": "2.3.0",
+    "api_version": 2,
+    "capabilities": [
+      "events",
+      "snapshot",
+      "ws_auth",
+      "ws_keepalive",
+      "ir_raw",
+      "mdns",
+      "mqtt_v2",
+      "rf_wake"
+    ],
+    "legacy_enabled": false,
+    "mdns_enabled": true,
+    "auth_enabled": false,
+    "uptime_sec": 66661,
+    "ip": "192.0.2.10",
+    "device_count": 2,
+    "command_count": 8,
+    "ts": 1794092742
+  },
+  "harmony/hub/inventory/1": {
+    "type": "inventory_device",
+    "id": "1",
+    "name": "Living Room TV",
+    "deviceType": "Television",
+    "manufacturer": "Example",
+    "model": "TV-1000",
+    "controlPort": 7,
+    "commands": [
+      "PowerOn",
+      "PowerOff",
+      "InputHdmi1",
+      "VolumeUp",
+      "VolumeDown"
+    ]
+  },
+  "harmony/hub/inventory/2": {
+    "type": "inventory_device",
+    "id": "2",
+    "name": "Media Player",
+    "deviceType": "MediaPlayer",
+    "manufacturer": "Example",
+    "model": "Box-200",
+    "controlPort": 7,
+    "commands": [
+      "PowerToggle",
+      "Home",
+      "Select"
+    ]
+  },
+  "harmony/hub/inventory/index": {
+    "type": "inventory_index",
+    "inventory_version": "504af5ca",
+    "devices": [
+      {
+        "id": "1",
+        "name": "Living Room TV",
+        "deviceType": "Television",
+        "manufacturer": "Example",
+        "model": "TV-1000"
+      },
+      {
+        "id": "2",
+        "name": "Media Player",
+        "deviceType": "MediaPlayer",
+        "manufacturer": "Example",
+        "model": "Box-200"
+      }
+    ],
+    "activities": [
+      {
+        "id": "10",
+        "name": "Watch TV",
+        "activityType": "WatchTV",
+        "order": 1
+      },
+      {
+        "id": "11",
+        "name": "Media Player",
+        "activityType": "Custom",
+        "order": 2
+      }
+    ]
+  },
+  "harmony/hub/rf": {
+    "type": "rf_status",
+    "seq": 5,
+    "ts": 1794092744,
+    "running": true,
+    "ok": true,
+    "fw_version": "v72.00",
+    "paired": true,
+    "rf_address": "A1B2C3D4",
+    "hub_rf_address": "A1B2C3D4",
+    "pairing_active": false,
+    "sync_pending": false,
+    "sync_pending_slot": 0,
+    "sync_pending_diff": "Hub configuration changed. Push settings to sync.",
+    "hub_config_version": 7,
+    "ota": {
+      "in_progress": false,
+      "slot": 0,
+      "status": 0,
+      "sent_bytes": 0,
+      "total_bytes": 0,
+      "sent_chunks": 0,
+      "total_chunks": 0,
+      "error": ""
+    },
+    "slots": [
+      {
+        "slot": 1,
+        "name": "Harmony Remote (Slot 1)",
+        "model": "elite",
+        "has_screen": true,
+        "supports_ota": true,
+        "active": true,
+        "in_sync": true,
+        "address": "E5F60718",
+        "rf_address": "E5F60718",
+        "sw_version": "2.2.0",
+        "remote_id": "20141001120000-000002",
+        "config_version": 7,
+        "battery": {
+          "percent": 87,
+          "charging": false,
+          "voltage_mv": 3980
+        },
+        "link": {
+          "frames_rx": 120,
+          "acked_sent": 12,
+          "acked_ok": 12,
+          "retries": 0,
+          "naks": 0,
+          "last_seen_s": 2
+        }
+      },
+      {
+        "slot": 2,
+        "name": "Harmony Elite (Slot 2)",
+        "model": "unknown",
+        "has_screen": true,
+        "supports_ota": true,
+        "active": false,
+        "in_sync": false,
+        "address": "None",
+        "rf_address": "None",
+        "sw_version": "unknown",
+        "config_version": 0,
+        "battery": {
+          "percent": 0,
+          "charging": false,
+          "voltage_mv": 0
+        },
+        "link": {
+          "frames_rx": 0,
+          "acked_sent": 0,
+          "acked_ok": 0,
+          "retries": 0,
+          "naks": 0,
+          "last_seen_s": -1
+        }
+      }
+    ]
+  },
+  "harmony/hub/status": "online",
+  "homeassistant/button/harmony_hub_power_off/config": {
+    "name": "Power Off",
+    "unique_id": "harmony_hub_power_off",
+    "command_topic": "harmony/hub/activity/set",
+    "payload_press": "PowerOff",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:power",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/button/harmony_hub_remote_1_sleep/config": {
+    "name": "Remote 1 Sleep",
+    "unique_id": "harmony_hub_remote_1_sleep",
+    "command_topic": "harmony/hub/remote/1/sleep",
+    "payload_press": "PRESS",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:sleep",
+    "entity_category": "config",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/button/harmony_hub_remote_2_sleep/config": {
+    "name": "Remote 2 Sleep",
+    "unique_id": "harmony_hub_remote_2_sleep",
+    "command_topic": "harmony/hub/remote/2/sleep",
+    "payload_press": "PRESS",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:sleep",
+    "entity_category": "config",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/button/harmony_hub_sync/config": {
+    "name": "Sync",
+    "unique_id": "harmony_hub_sync",
+    "command_topic": "harmony/hub/sync",
+    "payload_press": "PRESS",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:sync",
+    "entity_category": "config",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/select/harmony_hub_activity/config": {
+    "name": "Activity",
+    "unique_id": "harmony_hub_activity",
+    "command_topic": "harmony/hub/activity/set",
+    "state_topic": "harmony/hub/activity_state",
+    "value_template": "{% set m = {'-1': 'PowerOff', '10': 'Watch TV', '11': 'Media Player'} %}{{ m.get(value_json.activity | string, 'PowerOff') }}",
+    "options": [
+      "PowerOff",
+      "Watch TV",
+      "Media Player"
+    ],
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:remote-tv",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/sensor/harmony_hub_activity_id/config": {
+    "name": "Activity ID",
+    "unique_id": "harmony_hub_activity_id",
+    "state_topic": "harmony/hub/activity_state",
+    "value_template": "{{ value_json.activity }}",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:identifier",
+    "entity_category": "diagnostic",
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/sensor/harmony_hub_firmware/config": {
+    "name": "Firmware",
+    "unique_id": "harmony_hub_firmware",
+    "state_topic": "harmony/hub/hub",
+    "value_template": "{{ value_json.version }}",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:chip",
+    "entity_category": "diagnostic",
+    "origin": {
+      "name": "HarmonyNG",
+      "sw_version": "2.3.0",
+      "support_url": "http://192.0.2.10:8089/"
+    },
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/sensor/harmony_hub_ip/config": {
+    "name": "IP Address",
+    "unique_id": "harmony_hub_ip",
+    "state_topic": "harmony/hub/hub",
+    "value_template": "{{ value_json.ip }}",
+    "json_attributes_topic": "harmony/hub/hub",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:ip-network",
+    "entity_category": "diagnostic",
+    "origin": {
+      "name": "HarmonyNG",
+      "sw_version": "2.3.0",
+      "support_url": "http://192.0.2.10:8089/"
+    },
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/sensor/harmony_hub_ir_commands/config": {
+    "name": "IR Commands",
+    "unique_id": "harmony_hub_ir_commands",
+    "state_topic": "harmony/hub/hub",
+    "value_template": "{{ value_json.command_count }}",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:counter",
+    "entity_category": "diagnostic",
+    "origin": {
+      "name": "HarmonyNG",
+      "sw_version": "2.3.0",
+      "support_url": "http://192.0.2.10:8089/"
+    },
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  },
+  "homeassistant/sensor/harmony_hub_ir_devices/config": {
+    "name": "IR Devices",
+    "unique_id": "harmony_hub_ir_devices",
+    "state_topic": "harmony/hub/hub",
+    "value_template": "{{ value_json.device_count }}",
+    "availability_topic": "harmony/hub/status",
+    "payload_available": "online",
+    "payload_not_available": "offline",
+    "icon": "mdi:remote",
+    "entity_category": "diagnostic",
+    "origin": {
+      "name": "HarmonyNG",
+      "sw_version": "2.3.0",
+      "support_url": "http://192.0.2.10:8089/"
+    },
+    "device": {
+      "identifiers": [
+        "harmony_hub",
+        "harmony-ng-20140101120000-000001"
+      ],
+      "name": "Test Hub",
+      "manufacturer": "Logitech",
+      "model": "Harmony Hub",
+      "sw_version": "2.3.0",
+      "configuration_url": "http://192.0.2.10:8089/"
+    }
+  }
+}
