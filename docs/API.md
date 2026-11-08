@@ -663,7 +663,9 @@ Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
   - `frequency`: carrier in Hz, `0` for unmodulated, otherwise 20000 to 60000. Default 38000.
   - `timings`: microseconds, 2 to 2048 values, each 1 to 65535 in absolute value. Either signed
     (positive mark, negative space, alternating) or all positive alternating mark/space starting
-    with a mark.
+    with a mark. Mark/space pairs ending with the gap after the frame are the usual form; an odd
+    count (ending with a mark) is accepted and the Hub adds 40 ms of silence after the last mark
+    (not counted in `duration_ms`).
   - `port`: bitmask as `/api/ir-send` (`1` front blaster, `2` jack 1, `4` jack 2, `7` all). Default 7.
   - `repeats`: 1 to 10, default 1.
 - **Response `200 OK`**: `{"ok": true, "count": 6, "duration_ms": 17}` (`duration_ms` = sum of the

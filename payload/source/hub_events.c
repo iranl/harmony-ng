@@ -151,8 +151,9 @@ void hub_events_dispatch(void) {
                 cJSON_Delete(child);
                 continue;
             }
-            /* AddItemToObject copies the key before freeing the old one */
-            cJSON_AddItemToObject(msg, child->string, child);
+            /* AddItemToObject copies the key before freeing the old one; on failure (out of
+             * memory) the detached child would belong to nobody */
+            if (!cJSON_AddItemToObject(msg, child->string, child)) cJSON_Delete(child);
         }
         cJSON_Delete(ev.payload);
 

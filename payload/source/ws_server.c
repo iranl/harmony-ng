@@ -358,9 +358,14 @@ int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode)
 
     uint8_t hdr[2];
     ssize_t n = recv(client_fd, hdr, 2, MSG_DONTWAIT);
+    if (n < 0) {
+        /* select() said readable but nothing is there (or a signal came in): not an error */
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return WS_READ_AGAIN;
+        return -1;
+    }
     /* 0 bytes = the peer closed: report it as an error, so that an empty frame (a pong or a
      * ping without payload, which returns 0) is not mistaken for a closed connection */
-    if (n <= 0) return -1;
+    if (n == 0) return -1;
     note_client_rx(client_fd);
 
     uint8_t opcode = hdr[0] & 0x0F;

@@ -147,6 +147,7 @@ void handle_ws_client_message(int cfd) {
     char buf[4096];
     int opcode = 0;
     int len = ws_read_frame(cfd, buf, sizeof(buf), &opcode);
+    if (len == WS_READ_AGAIN) return; /* nothing to read after all: keep the client */
     if (len < 0 || opcode == WS_OP_CLOSE) {
         ws_remove_client(cfd);  /* closes the socket (it used to be closed twice here) */
         return;

@@ -46,9 +46,11 @@ void ws_broadcast_text(const char *text);
 
 /*
  * Non-blocking read and unmask of an incoming WebSocket frame.
- * Returns the payload length (0 for an empty frame such as a pong), negative on error or when
- * the peer closed the connection.
+ * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when there was
+ * nothing to read after all (spurious wakeup, EINTR: keep the client), -1 on error or when the
+ * peer closed the connection.
  */
+#define WS_READ_AGAIN (-2)
 int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode);
 
 /* Retrieve active client socket descriptors for event loop polling */

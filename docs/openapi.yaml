@@ -1532,7 +1532,9 @@ paths:
       summary: Send a raw infrared frame (carrier + microsecond timings)
       description: |
         Timings are either signed (positive mark, negative space, alternating) or all positive
-        alternating mark/space starting with a mark. Capability flag ir_raw.
+        alternating mark/space starting with a mark. An odd count (ending with a mark) is accepted:
+        the Hub adds 40 ms of silence after the last mark (not counted in duration_ms).
+        Capability flag ir_raw.
       requestBody:
         required: true
         content:
