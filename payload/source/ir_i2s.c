@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <signal.h>
+#include <pthread.h>
+#include <time.h>
 
 #define I2S_DEVICE "/dev/i2s"
 #define I2S_LOCK_FILE "/tmp/harmony_i2s.lock"
@@ -324,10 +326,80 @@ static int ir_rx_block_lit(const uint8_t *b, size_t n) {
     return 0;
 }
 
+/*
+ * Stall guard. A read normally returns every ~9 ms, but once (2026-11-08, never
+ * reproduced in 60+ sessions since) the receive DMA stopped: read() slept in
+ * the driver for ever, and so did every later session until a reboot. The
+ * driver's read sleeps interruptibly and returns 0 on a signal, so a watchdog
+ * thread signals the capture thread when one read takes over 2 s. The driver's
+ * close() waits for the DMA to hand back its buffers, which a dead DMA never
+ * does, so the close of a stalled session runs in a detached thread; until it
+ * returns, captures fail at once instead of queueing behind it.
+ */
+#define IR_RX_STALL_MS 2000
+
+static volatile int s_rx_closing_stalled = 0;
+
+typedef struct {
+    pthread_t target;
+    volatile int done;
+    volatile int in_read;
+    volatile long long read_started_ms;
+    volatile int fired;
+} ir_rx_watch_t;
+
+static long long ir_rx_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+}
+
+static void ir_rx_wake(int sig) {
+    (void)sig;   /* only interrupts the driver's sleep */
+}
+
+static void *ir_rx_watch(void *arg) {
+    ir_rx_watch_t *w = (ir_rx_watch_t *)arg;
+    long long last_kick = 0;
+    while (!w->done) {
+        usleep(100000);
+        long long now = ir_rx_now_ms();
+        if (w->in_read && now - w->read_started_ms > IR_RX_STALL_MS && now - last_kick >= 1000) {
+            w->fired = 1;
+            last_kick = now;
+            pthread_kill(w->target, SIGUSR2);
+        }
+    }
+    return NULL;
+}
+
+static void *ir_rx_close_stalled(void *arg) {
+    int fd = (int)(long)arg;
+    close(fd);   /* may never return if the DMA is dead */
+    s_rx_closing_stalled = 0;
+    fprintf(stderr, "[*] IR: stalled receive session closed\n");
+    return NULL;
+}
+
 int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
     if (!out || outlen < 32) return -1;
     out[0] = '\0';
     if (timeout_sec == 0) timeout_sec = 5;
+    if (s_rx_closing_stalled) {
+        snprintf(out, outlen, "IR receiver is not responding (a stalled capture has not closed yet); reboot the Hub if this persists");
+        return -7;
+    }
+    {
+        static int handler_set = 0;
+        if (!handler_set) {
+            struct sigaction sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sa_handler = ir_rx_wake;   /* no SA_RESTART: the read must return */
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGUSR2, &sa, NULL);
+            handler_set = 1;
+        }
+    }
 
     int lock_fd = i2s_lock_acquire();
     if (lock_fd < 0) {
@@ -372,9 +444,15 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
     }
 
     size_t raw_len = 0, prev_len = 0, after_light = 0, since_light = 0;
-    int active = 0;
+    int active = 0, stalled = 0;
     struct timeval start_tv, now_tv;
     gettimeofday(&start_tv, NULL);
+
+    ir_rx_watch_t watch;
+    memset(&watch, 0, sizeof(watch));
+    watch.target = pthread_self();
+    pthread_t watch_thread;
+    int watching = pthread_create(&watch_thread, NULL, ir_rx_watch, &watch) == 0;
 
     while (1) {
         gettimeofday(&now_tv, NULL);
@@ -384,7 +462,14 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
         /* the recording itself is bounded by size; this only guards a stalled DMA */
         if (active && elapsed_ms >= (long)timeout_sec * 1000 + 2000) break;
 
+        watch.read_started_ms = ir_rx_now_ms();
+        watch.in_read = 1;
         ssize_t n = read(fd, chunk, chunk_len);
+        watch.in_read = 0;
+        if (watch.fired) {
+            stalled = 1;
+            break;
+        }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) n = 0;
         if (n < 0) break;
         if (n == 0) {
@@ -415,11 +500,32 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
         if (after_light >= record_len || since_light >= quiet_len || raw_len >= cap) break;
     }
 
-    close(fd);
+    if (watching) {
+        watch.done = 1;
+        pthread_join(watch_thread, NULL);
+    }
+    if (stalled) {
+        pthread_t closer;
+        s_rx_closing_stalled = 1;
+        if (pthread_create(&closer, NULL, ir_rx_close_stalled, (void *)(long)fd) == 0) {
+            pthread_detach(closer);
+        } else {
+            s_rx_closing_stalled = 0;
+            close(fd);
+        }
+    } else {
+        close(fd);
+    }
     i2s_lock_release(lock_fd);
     free(chunk);
     free(prev);
 
+    if (stalled) {
+        free(raw_buf);
+        fprintf(stderr, "[!] IR: receive DMA stalled (no data for %d ms); capture aborted\n", IR_RX_STALL_MS);
+        snprintf(out, outlen, "IR receiver stopped delivering data; try again, and reboot the Hub if it keeps failing");
+        return -7;
+    }
     if (!active) {
         free(raw_buf);
         snprintf(out, outlen, "No IR signal received: timeout waiting for remote button press");

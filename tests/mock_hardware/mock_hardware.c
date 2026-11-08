@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -21,6 +22,7 @@
 static int (*real_open)(const char *pathname, int flags, ...) = NULL;
 static int (*real_open64)(const char *pathname, int flags, ...) = NULL;
 static int (*real_close)(int fd) = NULL;
+static ssize_t (*real_read)(int fd, void *buf, size_t count) = NULL;
 static int (*real_ioctl)(int fd, unsigned long request, ...) = NULL;
 static void *(*real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
 static FILE *(*real_fopen)(const char *path, const char *mode) = NULL;
@@ -45,6 +47,7 @@ static void init_real_functions(void) {
         real_open = dlsym(RTLD_NEXT, "open");
         real_open64 = dlsym(RTLD_NEXT, "open64");
         real_close = dlsym(RTLD_NEXT, "close");
+        real_read = dlsym(RTLD_NEXT, "read");
         real_ioctl = dlsym(RTLD_NEXT, "ioctl");
         real_mmap = dlsym(RTLD_NEXT, "mmap");
         real_fopen = dlsym(RTLD_NEXT, "fopen");
@@ -487,8 +490,30 @@ int ioctl(int fd, unsigned long request, ...) {
     return real_ioctl(fd, request, arg);
 }
 
+/* <mock>/i2s_rx_stall emulates the stalled receive DMA seen once on a Hub: the driver's
+ * read sleeps until a signal (then returns 0) and its close waits for the DMA. */
+static int i2s_rx_stalled(void) {
+    char p[512];
+    snprintf(p, sizeof(p), "%s/i2s_rx_stall", get_mock_dir());
+    return access(p, F_OK) == 0;
+}
+
+ssize_t read(int fd, void *buf, size_t count) {
+    init_real_functions();
+    if (fd >= 0 && fd == g_i2s_rx_mock_fd && i2s_rx_stalled()) {
+        struct timespec ts = { 0, 50 * 1000 * 1000 };
+        while (i2s_rx_stalled()) {
+            if (nanosleep(&ts, NULL) != 0 && errno == EINTR) return 0;
+        }
+    }
+    return real_read(fd, buf, count);
+}
+
 int close(int fd) {
     init_real_functions();
+    if (fd >= 0 && fd == g_i2s_rx_mock_fd) {
+        for (int i = 0; i < 300 && i2s_rx_stalled(); i++) usleep(50 * 1000);
+    }
     if (fd == g_fb_mock_fd) g_fb_mock_fd = -1;
     if (fd == g_touch_mock_fd) g_touch_mock_fd = -1;
     if (fd == g_btn_mock_fd) g_btn_mock_fd = -1;

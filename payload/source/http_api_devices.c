@@ -248,7 +248,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
         } else if (rc == -5 || rc == -6) {
             send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
-        } else if (rc == -2 || rc == -3) {
+        } else if (rc == -2 || rc == -3 || rc == -7) {
             send_json_error(client_fd, 503, raw[0] ? raw : "IR receiver not available");
         } else {
             send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");

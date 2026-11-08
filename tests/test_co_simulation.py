@@ -331,6 +331,28 @@ class CoSimulationRunner:
             t.join()
             self.record("IR learn: a second capture while one runs is 409",
                         st == 409 and "already running" in str(cap), f"HTTP {st} {cap}")
+
+            # a stalled receive DMA (seen once on a Hub): read never returns, close waits for the DMA
+            stall_path = os.path.join(MOCK_BASE, "i2s_rx_stall")
+            with open(rx_path, "wb") as f:
+                f.write(b"\xff" * 4096)
+            open(stall_path, "w").close()
+            try:
+                t0 = time.time()
+                st, cap = self.http_post_status("/api/capture", {"timeout": 8})
+                took = time.time() - t0
+                self.record("IR learn: a stalled receiver ends the capture with 503 within ~2 s",
+                            st == 503 and "stopped delivering" in str(cap) and took < 4.5, f"HTTP {st} {took:.1f}s {cap}")
+                t0 = time.time()
+                st, cap = self.http_post_status("/api/capture", {"timeout": 8})
+                took = time.time() - t0
+                self.record("IR learn: while the stalled session is closing, a capture fails at once",
+                            st == 503 and "not responding" in str(cap) and took < 1.0, f"HTTP {st} {took:.1f}s {cap}")
+            finally:
+                os.remove(stall_path)
+            time.sleep(0.5)
+            st, cap = self.http_post_status("/api/capture", {"timeout": 1})
+            self.record("IR learn: capturing works again once the stalled session closed", st == 408, f"HTTP {st} {cap}")
         finally:
             if os.path.exists(rx_path):
                 os.remove(rx_path)

@@ -615,7 +615,7 @@ Listens on the Hub's IR receiver until a signal arrives or the timeout ends, the
   ```json
   {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 13, "duration_us": 24000}
   ```
-- **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, `500` other failures.
+- **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, or the receiver stopped delivering data (the capture gives up after 2 s without data instead of hanging; a reboot clears a stuck receiver), `500` other failures.
 
 #### `POST /api/ir-test-learned`
 Sends a captured code once through the IR ports of a device (its `controlPort`, default all).
