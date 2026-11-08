@@ -37,6 +37,8 @@ payload/bin/*
 remote/bin/*
 !remote/bin/.gitkeep
 !remote/bin/dropbearmulti_musl
+# remote build output from before the elite -> remote rename (#89), left in older checkouts
+elite/
 payload/www/*
 !payload/www/.gitkeep
 plan.md
