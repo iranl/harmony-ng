@@ -138,10 +138,15 @@ static void bs_finish(bit_stream_t *bs) {
     }
 }
 
+/* Set while a stalled receive session is being closed in the background (see the receive
+ * code below): the driver may hang in that close, so nothing else touches /dev/i2s meanwhile */
+static volatile int s_rx_closing_stalled;
+
 int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
                        const uint16_t *words, size_t num_words,
                        uint8_t port_mask) {
     if (!words || num_words == 0) return -1;
+    if (s_rx_closing_stalled) return -EBUSY; /* a stalled receiver close may hang the driver */
     if (carrier_hz == 0) carrier_hz = 38000;
     if (duty < 1) duty = 1;
     if (duty > 50) duty = 50;
@@ -179,6 +184,11 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
 
     int lock_fd = i2s_lock_acquire();
     if (lock_fd < 0) {
+        free(bs.buf);
+        return -EBUSY;
+    }
+    if (s_rx_closing_stalled) { /* a capture stalled while this send waited for the lock */
+        i2s_lock_release(lock_fd);
         free(bs.buf);
         return -EBUSY;
     }
@@ -338,7 +348,6 @@ static int ir_rx_block_lit(const uint8_t *b, size_t n) {
  */
 #define IR_RX_STALL_MS 2000
 
-static volatile int s_rx_closing_stalled = 0;
 
 typedef struct {
     pthread_t target;

@@ -1499,7 +1499,7 @@ paths:
                 timeout: {type: integer, minimum: 1, maximum: 30, default: 10}
       responses:
         '200':
-          description: Signal captured
+          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum)"
           content:
             application/json:
               example:
@@ -1508,7 +1508,7 @@ paths:
                 keycode: "F9470P0960S0258..."
                 mode: raw
                 carrier_hz: 38000
-                pulses: 13
+                pulses: 26
                 duration_us: 24000
         '408':
           description: No signal before the timeout

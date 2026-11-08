@@ -613,8 +613,9 @@ Listens on the Hub's IR receiver until a signal arrives or the timeout ends, the
 - **Request Body** (optional): `{"timeout": 10}` in seconds, 1 to 30 (default 10). `?timeout=` works too.
 - **Response `200 OK`**:
   ```json
-  {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 13, "duration_us": 24000}
+  {"ok": true, "raw": "F9470P...S...", "keycode": "F9470P...S...", "mode": "raw", "carrier_hz": 38000, "pulses": 26, "duration_us": 24000}
   ```
+  `pulses` is the number of timing intervals in `raw`, marks and spaces together (`P` and `S` entries); `duration_us` is their sum.
 - **Errors**: `408` no signal before the timeout, or only a flash that is not a code, `409` another capture is running or an IR send holds the hardware, `503` no IR receiver, or the receiver stopped delivering data (the capture gives up after 2 s without data instead of hanging; a reboot clears a stuck receiver), `500` other failures.
 
 #### `POST /api/ir-test-learned`
