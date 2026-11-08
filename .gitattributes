@@ -21,3 +21,6 @@ payload/bin/register_ehci binary
 payload/modules/*.ko binary
 tools/unbrick_recovery/** binary
 *.cmd text eol=crlf
+
+# raw IR receiver recordings (tests/test_ir_rx_decode.c)
+*.i2s binary
