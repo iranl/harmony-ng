@@ -37,7 +37,7 @@ export function createView() {
         ]),
         h('div', { className: 'form-group' }, [
           h('label', { className: 'form-label', text: 'Password' }),
-          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input' }),
+          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input', placeholder: 'Leave blank to keep current' }),
         ]),
       ]),
       h('div', { className: 'card', style: { marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.2)' } }, [

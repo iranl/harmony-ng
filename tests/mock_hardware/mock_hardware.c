@@ -220,6 +220,10 @@ int rename(const char *oldpath, const char *newpath) {
     const char *o = oldpath, *n = newpath;
     if (oldpath && strncmp(oldpath, "/data/", 6) == 0) o = resolve_mock_path(oldpath, r1, sizeof(r1), &sp);
     if (newpath && strncmp(newpath, "/data/", 6) == 0) n = resolve_mock_path(newpath, r2, sizeof(r2), &sp);
+    if (!real_rename) {
+        errno = ENOSYS;
+        return -1;
+    }
     return real_rename(o, n);
 }
 
