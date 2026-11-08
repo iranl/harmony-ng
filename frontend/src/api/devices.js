@@ -110,7 +110,13 @@ export function createDevicesApi(client) {
     },
 
     async captureIr() {
-      return client.request('/api/capture', { method: 'POST' });
+      /* the Hub waits up to 10 s for a button press (plus up to 5 s for an IR send to finish) */
+      return client.request('/api/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeout: 10 }),
+        timeout: 20000
+      });
     },
 
     async testLearnedIr(data) {

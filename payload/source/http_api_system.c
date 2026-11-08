@@ -1,4 +1,5 @@
 #include "http_api_system.h"
+#include "hub_info.h"
 #include "http_util.h"
 #include "http_auth.h"
 #include "http_api_custom_icons.h"
@@ -87,6 +88,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
         config_store_get_settings(&cs);
         cJSON_AddStringToObject(st, "hub_name", cs.hub_name[0] ? cs.hub_name : "Harmony Hub");
         cJSON_AddStringToObject(st, "firmware", "4.15.600");
+        hub_info_add_status_fields(st);
         cJSON_AddStringToObject(st, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(st, "state", (int)orch_get_state());
         cJSON_AddBoolToObject(st, "busy", orch_is_busy() ? 1 : 0);
@@ -402,12 +404,18 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             if (p_user && cJSON_IsString(p_user)) {
                 cJSON_DeleteItemFromObject(cfg, "username");
                 cJSON_AddStringToObject(cfg, "username", p_user->valuestring);
+                /* No user name, no password: clearing the user name is how stored credentials are
+                 * removed (an empty password field keeps the stored one) */
+                if (!p_user->valuestring[0]) cJSON_DeleteItemFromObject(cfg, "password");
             }
 
-            cJSON *p_keep = cJSON_GetObjectItemCaseSensitive(params, "keep_password");
-            int keep = (p_keep && (cJSON_IsTrue(p_keep) || (cJSON_IsString(p_keep) && strcmp(p_keep->valuestring, "1") == 0)));
+            /* A typed password replaces the stored one; an empty or missing field keeps it. The old
+             * keep_password flag is ignored: ticked by default, it threw a typed password away.
+             * A password is stored only with a user name. */
             cJSON *p_pass = cJSON_GetObjectItemCaseSensitive(params, "password");
-            if (!keep && p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
+            cJSON *s_user = cJSON_GetObjectItemCaseSensitive(cfg, "username");
+            int has_user = cJSON_IsString(s_user) && s_user->valuestring[0];
+            if (has_user && p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
                 cJSON_DeleteItemFromObject(cfg, "password");
                 cJSON_AddStringToObject(cfg, "password", p_pass->valuestring);
             }
@@ -638,11 +646,21 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     } else if (uname[0] && ulist[admin_idx].password[0]) {
                         compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, ulist[admin_idx].password, ulist[admin_idx].ha1);
                     }
+                } else if (!pass[0]) {
+                    /* No admin account yet and no password given: never invent admin/admin (the
+                     * web UI used to save the moment the checkbox was ticked, before the form was
+                     * filled, and locked its owner out). Enabling needs a password first. */
+                    if (new_auth_enabled) {
+                        cJSON_Delete(params);
+                        send_json_error(client_fd, 400, "Set the admin username and password before enabling authentication");
+                        close(client_fd);
+                        return 1;
+                    }
                 } else {
                     if (ucnt < MAX_HTTP_USERS) {
                         admin_idx = ucnt++;
                         const char *final_user = uname[0] ? uname : "admin";
-                        const char *final_pass = pass[0] ? pass : "admin";
+                        const char *final_pass = pass;
                         strncpy(ulist[admin_idx].username, final_user, sizeof(ulist[admin_idx].username) - 1);
                         ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
                         strncpy(ulist[admin_idx].password, final_pass, sizeof(ulist[admin_idx].password) - 1);

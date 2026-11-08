@@ -1,0 +1,36 @@
+{
+  "activities": [
+    {
+      "id": "10",
+      "name": "Watch TV",
+      "type": "WatchTV",
+      "icon": "tv.png",
+      "order": 1,
+      "startSequence": [
+        {"type": "Command", "deviceId": "1", "command": "PowerOn"},
+        {"type": "Delay", "delay": 200},
+        {"type": "Command", "deviceId": "1", "command": "InputHdmi1"}
+      ],
+      "stopSequence": [
+        {"type": "Command", "deviceId": "1", "command": "PowerOff"}
+      ]
+    },
+    {
+      "id": "11",
+      "name": "Media Player",
+      "type": "Custom",
+      "icon": "media.png",
+      "order": 2,
+      "startSequence": [
+        {"type": "Command", "deviceId": "1", "command": "PowerOn"},
+        {"type": "Command", "deviceId": "2", "command": "PowerToggle"},
+        {"type": "Delay", "delay": 200},
+        {"type": "Command", "deviceId": "2", "command": "Home"}
+      ],
+      "stopSequence": [
+        {"type": "Command", "deviceId": "2", "command": "PowerToggle"},
+        {"type": "Command", "deviceId": "1", "command": "PowerOff"}
+      ]
+    }
+  ]
+}

@@ -1,23 +1,29 @@
 /*
- * State watcher: pushes Hub state changes to the web UIs over the existing WebSocket, so that
- * pages update without a reload.
+ * State watcher: turns Hub state changes into events on the bus (hub_events), which the
+ * WebSocket sink pushes to the web UIs and the integration.
  *
- * Once a second, and only while at least one WebSocket client is connected, it checks:
+ * Once a second, whether or not a client is connected (MQTT and other sinks need the events
+ * too), it checks:
  *   - Bluetooth: hub_btstack's status file (same JSON as GET /api/bt-status)
- *       -> {"type":"bt_status", ...the /api/bt-status object...}
- *   - RF remotes: hub_rf's GET /api/rf/status on 127.0.0.1:8092
- *       -> {"type":"rf_status", ...the /api/rf/status object...}
+ *       -> HUB_EV_BT_STATUS, payload = the /api/bt-status object
+ *   - RF remotes: pushed by hub_rf to POST /api/rf/status-changed (state_watch_offer_rf_status),
+ *     fetched once from GET /api/rf/status on 127.0.0.1:8092 at start as the baseline
+ *       -> HUB_EV_RF_STATUS, payload = the /api/rf/status object
  *   - Configuration files (devices, activities, settings, remote button maps), by mtime/size
- *       -> {"type":"config_changed","files":["devices", ...]}
- * Each message is sent only when its content changed; fields that change on every report
+ *       -> HUB_EV_CONFIG_CHANGED, payload = {"files":["devices", ...]}
+ * Each event is emitted only when the content changed; fields that change on every report
  * (button counters, last-seen times, link counters, battery voltage) do not count as a change.
- * Activity progress is already pushed by the orchestrator ("activity_progress").
+ * Baselines are taken once at start and never reset: a client that connects later gets the
+ * current state from the snapshot, not from a replay.
+ * Activity state and progress come from the orchestrator (activity_state, activity_progress).
  */
 #include "state_watch.h"
-#include "ws_server.h"
+#include "hub_events.h"
 #include "config_store.h"
 #include "cJSON.h"
 
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -108,24 +114,24 @@ static char *fingerprint(const cJSON *obj, const char *const *drop_top, const ch
     return out;
 }
 
-/* Broadcast obj with "type" set, if its fingerprint differs from *last (which is updated) */
-static void push_if_changed(cJSON *obj, const char *type, char **last,
-                            const char *const *drop_top, const char *const *drop_slot) {
+/* Emit obj (ownership passes to the bus) if its fingerprint differs from *last (updated);
+ * otherwise obj is freed. Returns 1 when emitted. */
+static int emit_if_changed(cJSON *obj, hub_event_type_t type, char **last,
+                           const char *const *drop_top, const char *const *drop_slot) {
     char *fp = fingerprint(obj, drop_top, drop_slot);
-    if (!fp) return;
+    if (!fp) {
+        cJSON_Delete(obj);
+        return 0;
+    }
     if (*last && strcmp(*last, fp) == 0) {
         free(fp);
-        return;
+        cJSON_Delete(obj);
+        return 0;
     }
     free(*last);
     *last = fp;
-    cJSON_DeleteItemFromObjectCaseSensitive(obj, "type");
-    cJSON_AddStringToObject(obj, "type", type);
-    char *msg = cJSON_PrintUnformatted(obj);
-    if (msg) {
-        ws_broadcast_text(msg);
-        free(msg);
-    }
+    hub_events_emit(type, obj);
+    return 1;
 }
 
 typedef struct {
@@ -136,57 +142,103 @@ typedef struct {
     int seen;
 } watched_file_t;
 
+static const watched_file_t k_watched_files[] = {
+    { "devices", HARMONY_DEVICES_FILE, 0, 0, 0 },
+    { "activities", HARMONY_ACTIVITIES_FILE, 0, 0, 0 },
+    { "settings", HARMONY_SETTINGS_FILE, 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot1_map.json", 0, 0, 0 },
+    { "remote_map", HARMONY_DIR "/remote_slot2_map.json", 0, 0, 0 },
+};
+#define N_WATCHED_FILES (sizeof(k_watched_files) / sizeof(k_watched_files[0]))
+
+cJSON *state_watch_config_mtimes(void) {
+    cJSON *obj = cJSON_CreateObject();
+    if (!obj) return NULL;
+    for (size_t i = 0; i < N_WATCHED_FILES; i++) {
+        struct stat st;
+        double mt = (stat(k_watched_files[i].path, &st) == 0) ? (double)st.st_mtime : 0;
+        cJSON *cur = cJSON_GetObjectItemCaseSensitive(obj, k_watched_files[i].name);
+        if (cur) {
+            if (mt > cur->valuedouble) cJSON_SetNumberValue(cur, mt);
+        } else {
+            cJSON_AddNumberToObject(obj, k_watched_files[i].name, mt);
+        }
+    }
+    return obj;
+}
+
+static const char *const k_rf_drop_slot[] = { "link", NULL };
+static char *g_last_rf = NULL;
+static pthread_mutex_t g_rf_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int state_watch_offer_rf_status(cJSON *obj) {
+    if (!obj) return 0;
+    pthread_mutex_lock(&g_rf_lock);
+    int emitted = emit_if_changed(obj, HUB_EV_RF_STATUS, &g_last_rf, NULL, k_rf_drop_slot);
+    pthread_mutex_unlock(&g_rf_lock);
+    return emitted;
+}
+
+void bt_status_normalize(cJSON *bt) {
+    if (!bt || !cJSON_IsObject(bt)) return;
+    if (!cJSON_GetObjectItem(bt, "ok")) cJSON_AddBoolToObject(bt, "ok", 1);
+    if (!cJSON_GetObjectItem(bt, "running")) {
+        int running = 1;
+        const cJSON *pid = cJSON_GetObjectItem(bt, "pid");
+        if (cJSON_IsNumber(pid) && pid->valueint > 0) {
+            running = (kill((pid_t)pid->valueint, 0) == 0 || errno == EPERM);
+        }
+        cJSON_AddBoolToObject(bt, "running", running);
+    }
+    const cJSON *host = cJSON_GetObjectItem(bt, "host");
+    if (!cJSON_GetObjectItem(bt, "connected")) {
+        int connected = cJSON_IsTrue(cJSON_GetObjectItem(host, "connected"));
+        const cJSON *h = NULL;
+        cJSON_ArrayForEach(h, cJSON_GetObjectItem(bt, "hosts")) {
+            if (cJSON_IsTrue(cJSON_GetObjectItem(h, "connected"))) connected = 1;
+        }
+        cJSON_AddBoolToObject(bt, "connected", connected);
+    }
+    if (!cJSON_GetObjectItem(bt, "pairing")) {
+        cJSON_AddBoolToObject(bt, "pairing", cJSON_IsTrue(cJSON_GetObjectItem(host, "pairing")));
+    }
+}
+
 static void *state_watch_thread(void *arg) {
     (void)arg;
     static const char *const bt_drop[] = { "last_button", "last_seen", "updated", NULL };
-    static const char *const rf_drop_slot[] = { "link", NULL };
-    watched_file_t files[] = {
-        { "devices", HARMONY_DEVICES_FILE, 0, 0, 0 },
-        { "activities", HARMONY_ACTIVITIES_FILE, 0, 0, 0 },
-        { "settings", HARMONY_SETTINGS_FILE, 0, 0, 0 },
-        { "remote_map", HARMONY_DIR "/remote_slot1_map.json", 0, 0, 0 },
-        { "remote_map", HARMONY_DIR "/remote_slot2_map.json", 0, 0, 0 },
-    };
-    const size_t nfiles = sizeof(files) / sizeof(files[0]);
-    char *last_bt = NULL, *last_rf = NULL;
-    int had_clients = 0;
+    watched_file_t files[N_WATCHED_FILES];
+    memcpy(files, k_watched_files, sizeof(files));
+    const size_t nfiles = N_WATCHED_FILES;
+    char *last_bt = NULL;
+    int rf_baseline = 0;
 
     for (;;) {
         usleep(WATCH_INTERVAL_US);
-        int fds[WS_MAX_CLIENTS];
-        int clients = ws_get_clients(fds, WS_MAX_CLIENTS);
-        if (clients <= 0) {
-            had_clients = 0;
-            continue;
-        }
-        if (!had_clients) {
-            /* A client (re)connected: it loads the state itself, so start from the current
-             * state instead of sending it everything again */
-            free(last_bt);
-            free(last_rf);
-            last_bt = last_rf = NULL;
-        }
 
         char *raw = read_small_file(BT_STATUS_FILE, 16384);
         cJSON *bt = raw ? cJSON_Parse(raw) : NULL;
         free(raw);
         if (bt) {
-            if (!had_clients) {
-                last_bt = fingerprint(bt, bt_drop, NULL);
-            } else {
-                push_if_changed(bt, "bt_status", &last_bt, bt_drop, NULL);
-            }
-            cJSON_Delete(bt);
+            bt_status_normalize(bt); /* also catches hub_btstack dying with the file unchanged */
+            emit_if_changed(bt, HUB_EV_BT_STATUS, &last_bt, bt_drop, NULL);
         }
 
-        cJSON *rf = fetch_rf_status();
-        if (rf) {
-            if (!had_clients) {
-                last_rf = fingerprint(rf, NULL, rf_drop_slot);
+        /* RF status: one fetch at start so the snapshot is complete before hub_rf's first push
+         * (hub_rf also pushes right after it starts); then pushes only */
+        if (!rf_baseline) {
+            pthread_mutex_lock(&g_rf_lock);
+            int have = (g_last_rf != NULL);
+            pthread_mutex_unlock(&g_rf_lock);
+            if (have) {
+                rf_baseline = 1;
             } else {
-                push_if_changed(rf, "rf_status", &last_rf, NULL, rf_drop_slot);
+                cJSON *rf = fetch_rf_status();
+                if (rf) {
+                    state_watch_offer_rf_status(rf);
+                    rf_baseline = 1;
+                }
             }
-            cJSON_Delete(rf);
         }
 
         cJSON *changed = NULL;
@@ -195,7 +247,7 @@ static void *state_watch_thread(void *arg) {
             int ok = (stat(files[i].path, &st) == 0);
             time_t mt = ok ? st.st_mtime : 0;
             off_t sz = ok ? st.st_size : -1;
-            if (files[i].seen && (mt != files[i].mtime || sz != files[i].size) && had_clients) {
+            if (files[i].seen && (mt != files[i].mtime || sz != files[i].size)) {
                 if (!changed) changed = cJSON_CreateArray();
                 int dup = 0;
                 cJSON *it = NULL;
@@ -210,16 +262,9 @@ static void *state_watch_thread(void *arg) {
         }
         if (changed) {
             cJSON *msg = cJSON_CreateObject();
-            cJSON_AddStringToObject(msg, "type", "config_changed");
             cJSON_AddItemToObject(msg, "files", changed);
-            char *txt = cJSON_PrintUnformatted(msg);
-            cJSON_Delete(msg);
-            if (txt) {
-                ws_broadcast_text(txt);
-                free(txt);
-            }
+            hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
         }
-        had_clients = 1;
     }
     return NULL;
 }

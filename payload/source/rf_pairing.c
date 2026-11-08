@@ -192,10 +192,18 @@ void unpair_device(int slot) {
     if (slot == 1 || slot == 0) {
         g_paired_remotes[0].active = false;
         memset(g_paired_remotes[0].rf_addr, 0, 4);
+        if (g_remote_versions[0].remote_id[0]) {
+            g_remote_versions[0].remote_id[0] = '\0';
+            rf_state_save_version_file(1);
+        }
     }
     if (slot == 2 || slot == 0) {
         g_paired_remotes[1].active = false;
         memset(g_paired_remotes[1].rf_addr, 0, 4);
+        if (g_remote_versions[1].remote_id[0]) {
+            g_remote_versions[1].remote_id[0] = '\0';
+            rf_state_save_version_file(2);
+        }
     }
     if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
         g_has_paired_device = false;

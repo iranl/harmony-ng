@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -21,6 +22,7 @@
 static int (*real_open)(const char *pathname, int flags, ...) = NULL;
 static int (*real_open64)(const char *pathname, int flags, ...) = NULL;
 static int (*real_close)(int fd) = NULL;
+static ssize_t (*real_read)(int fd, void *buf, size_t count) = NULL;
 static int (*real_ioctl)(int fd, unsigned long request, ...) = NULL;
 static void *(*real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset) = NULL;
 static FILE *(*real_fopen)(const char *path, const char *mode) = NULL;
@@ -35,12 +37,17 @@ static int g_touch_mock_fd = -1;
 static int g_btn_mock_fd = -1;
 static int g_gyro_mock_fd = -1;
 static int g_rf_mock_fd = -1;
+/* /dev/i2s opened read-only = the Hub's IR receiver: <mock dir>/i2s_rx holds the bitstream a test
+ * wrote (the receiver line is active low, so idle bytes are 0xFF). A missing file fails like a Hub
+ * without the device. Write-only opens (IR sends) are not touched. */
+static int g_i2s_rx_mock_fd = -1;
 
 static void init_real_functions(void) {
     if (!real_open) {
         real_open = dlsym(RTLD_NEXT, "open");
         real_open64 = dlsym(RTLD_NEXT, "open64");
         real_close = dlsym(RTLD_NEXT, "close");
+        real_read = dlsym(RTLD_NEXT, "read");
         real_ioctl = dlsym(RTLD_NEXT, "ioctl");
         real_mmap = dlsym(RTLD_NEXT, "mmap");
         real_fopen = dlsym(RTLD_NEXT, "fopen");
@@ -220,6 +227,10 @@ int rename(const char *oldpath, const char *newpath) {
     const char *o = oldpath, *n = newpath;
     if (oldpath && strncmp(oldpath, "/data/", 6) == 0) o = resolve_mock_path(oldpath, r1, sizeof(r1), &sp);
     if (newpath && strncmp(newpath, "/data/", 6) == 0) n = resolve_mock_path(newpath, r2, sizeof(r2), &sp);
+    if (!real_rename) {
+        errno = ENOSYS;
+        return -1;
+    }
     return real_rename(o, n);
 }
 
@@ -249,6 +260,14 @@ int open(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode = va_arg(args, mode_t);
         va_end(args);
+    }
+
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
+        char rx[512];
+        snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
+        int fd = real_open(rx, flags & ~O_CREAT, 0);
+        if (fd >= 0) g_i2s_rx_mock_fd = fd;
+        return fd;
     }
 
     char resolved[512];
@@ -305,6 +324,14 @@ int open64(const char *pathname, int flags, ...) {
         va_start(args, flags);
         mode = va_arg(args, mode_t);
         va_end(args);
+    }
+
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
+        char rx[512];
+        snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
+        int fd = real_open64(rx, flags & ~O_CREAT, 0);
+        if (fd >= 0) g_i2s_rx_mock_fd = fd;
+        return fd;
     }
 
     char resolved[512];
@@ -403,6 +430,11 @@ int ioctl(int fd, unsigned long request, ...) {
     arg = va_arg(va, void *);
     va_end(va);
 
+    /* IR receiver: the I2S setup ioctls succeed */
+    if (fd == g_i2s_rx_mock_fd && g_i2s_rx_mock_fd >= 0) {
+        return 0;
+    }
+
     /* Framebuffer ioctl emulation */
     if (fd == g_fb_mock_fd && g_fb_mock_fd >= 0) {
         if (request == FBIOGET_FSCREENINFO) {
@@ -462,12 +494,35 @@ int ioctl(int fd, unsigned long request, ...) {
     return real_ioctl(fd, request, arg);
 }
 
+/* <mock>/i2s_rx_stall emulates the stalled receive DMA seen once on a Hub: the driver's
+ * read sleeps until a signal (then returns 0) and its close waits for the DMA. */
+static int i2s_rx_stalled(void) {
+    char p[512];
+    snprintf(p, sizeof(p), "%s/i2s_rx_stall", get_mock_dir());
+    return access(p, F_OK) == 0;
+}
+
+ssize_t read(int fd, void *buf, size_t count) {
+    init_real_functions();
+    if (fd >= 0 && fd == g_i2s_rx_mock_fd && i2s_rx_stalled()) {
+        struct timespec ts = { 0, 50 * 1000 * 1000 };
+        while (i2s_rx_stalled()) {
+            if (nanosleep(&ts, NULL) != 0 && errno == EINTR) return 0;
+        }
+    }
+    return real_read(fd, buf, count);
+}
+
 int close(int fd) {
     init_real_functions();
+    if (fd >= 0 && fd == g_i2s_rx_mock_fd) {
+        for (int i = 0; i < 300 && i2s_rx_stalled(); i++) usleep(50 * 1000);
+    }
     if (fd == g_fb_mock_fd) g_fb_mock_fd = -1;
     if (fd == g_touch_mock_fd) g_touch_mock_fd = -1;
     if (fd == g_btn_mock_fd) g_btn_mock_fd = -1;
     if (fd == g_gyro_mock_fd) g_gyro_mock_fd = -1;
     if (fd == g_rf_mock_fd) g_rf_mock_fd = -1;
+    if (fd == g_i2s_rx_mock_fd) g_i2s_rx_mock_fd = -1;
     return real_close(fd);
 }

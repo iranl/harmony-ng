@@ -1,0 +1,7 @@
+{
+  "dry_run": 1,
+  "hub_name": "Test Hub",
+  "ntp_server": "",
+  "timezone": "UTC0",
+  "led_mode": "always_on"
+}

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "rf_state.h"
+#include "cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -204,4 +205,55 @@ int http_request_local(int port, const char *method, const char *endpoint, const
 
 void http_post_local(int port, const char *endpoint, const char *json_body) {
     http_request_local(port, "POST", endpoint, json_body, NULL, 0, 400);
+}
+
+int rf_state_version_json(int slot, char *buf, size_t len) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES || !buf) return -1;
+    const remote_version_t *v = &g_remote_versions[slot - 1];
+    int n;
+    if (v->remote_id[0]) {
+        n = snprintf(buf, len, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"remote_id\":\"%s\",\"timestamp\":%ld}\n",
+                     slot, v->sw_version, v->config_version, v->caps, v->remote_id, (long)time(NULL));
+    } else {
+        n = snprintf(buf, len, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
+                     slot, v->sw_version, v->config_version, v->caps, (long)time(NULL));
+    }
+    return (n > 0 && (size_t)n < len) ? n : -1;
+}
+
+void rf_state_save_version_file(int slot) {
+    char buf[256];
+    if (rf_state_version_json(slot, buf, sizeof(buf)) < 0) return;
+    char vpath[64];
+    snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
+    FILE *vf = fopen(vpath, "w");
+    if (vf) {
+        fputs(buf, vf);
+        fclose(vf);
+    }
+}
+
+void rf_state_load_version_file(int slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    char vpath[64];
+    snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
+    FILE *fv = fopen(vpath, "r");
+    if (!fv) return;
+    char vbuf[256] = {0};
+    if (fread(vbuf, 1, sizeof(vbuf) - 1, fv) > 0) {
+        cJSON *vroot = cJSON_Parse(vbuf);
+        if (vroot) {
+            remote_version_t *v = &g_remote_versions[slot - 1];
+            cJSON *jv = cJSON_GetObjectItem(vroot, "version");
+            cJSON *jcv = cJSON_GetObjectItem(vroot, "config_version");
+            cJSON *jcaps = cJSON_GetObjectItem(vroot, "caps");
+            cJSON *jid = cJSON_GetObjectItem(vroot, "remote_id");
+            if (cJSON_IsNumber(jcaps)) v->caps = (uint8_t)jcaps->valueint;
+            if (jv && cJSON_IsString(jv) && jv->valuestring) snprintf(v->sw_version, sizeof(v->sw_version), "%s", jv->valuestring);
+            if (jcv && cJSON_IsNumber(jcv)) v->config_version = (uint8_t)jcv->valueint;
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(v->remote_id, sizeof(v->remote_id), "%s", jid->valuestring);
+            cJSON_Delete(vroot);
+        }
+    }
+    fclose(fv);
 }

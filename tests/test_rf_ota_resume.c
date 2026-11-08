@@ -6,6 +6,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include "remote/remote_state.h"
 #include "remote/remote_rf_ota.h"
@@ -20,7 +21,7 @@ bool g_screen_on = true;
 volatile bool g_screen_dirty = false;
 volatile bool g_is_ota_updating = false;
 uint64_t g_ota_start_ms = 0;
-uint64_t g_ota_last_packet_ms = 0;
+volatile uint64_t g_ota_last_packet_ms = 0; /* volatile in remote_state.h */
 uint32_t g_ota_total_bytes = 0;
 uint32_t g_ota_received_bytes = 0;
 uint16_t g_ota_total_chunks = 0;
@@ -28,6 +29,10 @@ uint16_t g_ota_received_chunks = 0;
 time_t g_last_activity_time = 0;
 FILE *g_ota_file = NULL;
 int g_rf_fd = -1;
+pthread_mutex_t g_rf_write_mutex = PTHREAD_MUTEX_INITIALIZER; /* RF frame writes (remote_state.c) */
+uint8_t g_rf_pm = RF_PM_ACTIVE;   /* CC2544 power mode, set during an OTA transfer */
+/* Power source; only read after a finished install, which this test never reaches (no OTA_END) */
+bool is_remote_docked(void) { return true; }
 theme_t g_theme; /* the OTA overlay draws in the theme's colours */
 
 /* Stubs for icon rx and activities referenced by handle_icon_frame in remote_rf_ota */
@@ -43,10 +48,13 @@ int g_activity_count = 0;
 int g_rf_activity_count = 0;
 void fb_invalidate_png_cache(void) {}
 
+/* The test moves this clock forward: the remote saves its resume checkpoint at most every 500 ms
+ * (remote_rf_ota.c), and the test sends its chunks within a millisecond */
+static uint64_t s_clock_skew_ms = 0;
 uint64_t get_monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000L);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000L) + s_clock_skew_ms;
 }
 
 /* Stubs for UI & power functions called by remote_rf_ota */
@@ -109,8 +117,10 @@ int main(void) {
     assert(res_chunk == 0);
     printf("[+] Step 1 passed: OTA_START clean start initialized (resume_chunk=0)\n");
 
-    /* 3. Step 2: Stream chunks 0 .. 49 */
+    /* 3. Step 2: Stream chunks 0 .. 49. Only the first chunk's checkpoint is written at once; 600 ms
+     *    later the last one writes the next (contiguous count 50) */
     for (uint16_t c = 0; c < 50; c++) {
+        if (c == 49) s_clock_skew_ms += 600;
         rf_frame_t chunk_f;
         memset(&chunk_f, 0, sizeof(chunk_f));
         chunk_f.msg_type = RF_MSG_OTA_CHUNK;

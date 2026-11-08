@@ -105,6 +105,9 @@ build_daemon() {
         payload/source/hw_action.c \
         payload/source/ws_server.c \
         payload/source/state_watch.c \
+        payload/source/hub_events.c \
+        payload/source/hub_info.c \
+        payload/source/mfg_id.c \
         payload/source/mqtt_client.c \
         payload/source/sha256.c \
         payload/source/timezone_db.c \
@@ -162,7 +165,7 @@ build_remote() {
 
     mkdir -p "$REPO_ROOT/remote/bin" "$REPO_ROOT/build/output/remote"
     echo "[-] Building remote_ui (ARM)..."
-    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/remote payload/source/remote/*.c payload/source/remote_stock_icons.c payload/source/timezone_db.c payload/source/cJSON.c payload/source/sha256.c payload/source/uclibc_static_locks.c -o "$REPO_ROOT/remote/bin/remote_ui" -lpthread -lm
+    "$ARM_CC" -static -Os -s -Wall -Ipayload/source -Ipayload/source/remote payload/source/remote/*.c payload/source/remote_stock_icons.c payload/source/mfg_id.c payload/source/timezone_db.c payload/source/cJSON.c payload/source/sha256.c payload/source/uclibc_static_locks.c -o "$REPO_ROOT/remote/bin/remote_ui" -lpthread -lm
     echo "[-] Building remote_sync (ARM)..."
     "$ARM_CC" -static -Os -s -Wall payload/source/hub_sync.c -o "$REPO_ROOT/remote/bin/remote_sync"
     echo "[-] Packaging remote_ui.ota.gz (binary + scripts)..."

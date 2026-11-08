@@ -512,11 +512,26 @@ void http_handle_client(int client_fd) {
         }
         req_count++;
 
-        /* Check for WebSocket upgrade */
+        /* Check for WebSocket upgrade. With auth enabled the upgrade needs a PAT or session
+         * token, as "Authorization: Bearer" or "?token=" in the request line; loopback callers
+         * (hub_rf, hub_btstack) are admin without one, as for every request. */
         if (ws_is_upgrade_req(init_buf)) {
+            char ws_ip[48] = {0};
+            get_client_ip(client_fd, ws_ip, sizeof(ws_ip));
+            char ws_user[MAX_USERNAME_LEN] = {0};
+            enum http_role ws_role = http_auth_check_ws_upgrade(init_buf, ws_ip, ws_user, sizeof(ws_user));
+            if (ws_role == ROLE_NONE) {
+                http_auth_send_challenge(client_fd, ws_ip); /* 401, closes the socket */
+                free(init_buf);
+                return;
+            }
             /* A failed upgrade (bad request, no free client slot, send error) leaves the socket
              * unregistered: close it here, nobody else will */
-            if (ws_handle_upgrade(client_fd, init_buf) != 0) close(client_fd);
+            if (ws_handle_upgrade(client_fd, init_buf) != 0) {
+                close(client_fd);
+            } else {
+                ws_set_client_role(client_fd, (int)ws_role);
+            }
             free(init_buf);
             return;
         }

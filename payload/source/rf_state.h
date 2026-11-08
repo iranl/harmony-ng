@@ -56,6 +56,7 @@ typedef struct {
     uint8_t config_version;
     uint8_t caps;             /* RF_CAP_* from the remote's VERSION_REPORT */
     uint64_t last_report_ms;
+    char remote_id[32];       /* factory unit id from RF_MSG_UNIT_ID; empty until reported */
 } remote_version_t;
 
 /* RF traffic with one remote since hub_rf started, for diagnosing the link */
@@ -114,6 +115,12 @@ void rf_migrate_legacy_names(void); /* /data/harmony and /cache */
 void mark_remote_slot_active(uint8_t slot);
 bool is_ota_busy(void);
 void http_post_local(int port, const char *endpoint, const char *json_body);
+
+/* /data/harmony/remote_slot<N>_version.json: the remote's software version, config version,
+ * capabilities and unit id, read back at start. Written only when something changed. */
+int rf_state_version_json(int slot, char *buf, size_t len);
+void rf_state_save_version_file(int slot);
+void rf_state_load_version_file(int slot);
 /* One request to a local HTTP server; returns the status code and copies the body into resp,
    or returns -1 if there was no response */
 int http_request_local(int port, const char *method, const char *endpoint, const char *json_body,

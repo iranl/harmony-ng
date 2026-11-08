@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "http_api_devices.h"
+#include <errno.h>
 #include "http_server.h"
 #include "http_util.h"
 #include "config_store.h"
@@ -14,10 +15,51 @@
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+#include <errno.h>
+#include <pthread.h>
 
 int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
                                      const char *topic_in, int req_pulse_ms,
                                      char *out_topic, size_t out_topic_len, int *out_pulse_ms);
+
+/* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
+static uint8_t device_ir_ports(const char *dev_id) {
+    uint8_t ports = 7;
+    if (!dev_id || !dev_id[0]) return ports;
+    cJSON *root = config_store_get_devices_json();
+    if (!root) return ports;
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    cJSON *d = NULL;
+    cJSON_ArrayForEach(d, devs) {
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+        char id[32] = {0};
+        if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id, sizeof(id), "%s", jid->valuestring);
+        else if (jid && cJSON_IsNumber(jid)) snprintf(id, sizeof(id), "%ld", (long)jid->valuedouble);
+        if (strcmp(id, dev_id) != 0) continue;
+        cJSON *cp = cJSON_GetObjectItemCaseSensitive(d, "controlPort");
+        if (cp && cJSON_IsNumber(cp) && cp->valueint >= 0 && cp->valueint <= 7) ports = (uint8_t)cp->valueint;
+        break;
+    }
+    /* root is the daemon's cached device list (config_store_get_devices_json): not freed here */
+    return ports;
+}
+
+/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds them up */
+static void learned_stats(const char *raw, int *pulses, unsigned long *total_us) {
+    *pulses = 0;
+    *total_us = 0;
+    for (const char *p = raw; p && *p; p++) {
+        if (*p == 'P' || *p == 'S') {
+            char *end = NULL;
+            unsigned long v = strtoul(p + 1, &end, 16);
+            (*pulses)++;
+            *total_us += v;
+            if (end) p = end - 1;
+        }
+    }
+}
+
+static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
@@ -89,6 +131,118 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: POST /api/ir-raw: carrier + microsecond timings (spec 3.11). Timings are either
+     * signed (mark > 0, space < 0, as Home Assistant's infrared platform produces) or all
+     * positive alternating mark/space starting with a mark; the encoder takes the latter. */
+    if (strcmp(clean_path, "/api/ir-raw") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        if (!req_j || !cJSON_IsObject(req_j)) {
+            cJSON_Delete(req_j);
+            send_json_error(client_fd, 400, "body: JSON object required");
+            close(client_fd);
+            return 1;
+        }
+        const char *err = NULL;
+        uint32_t freq = 38000;
+        int port = 7, repeats = 1;
+        cJSON *jf = cJSON_GetObjectItemCaseSensitive(req_j, "frequency");
+        if (jf) {
+            if (!cJSON_IsNumber(jf) || jf->valuedouble < 0 || jf->valuedouble != (double)(long)jf->valuedouble) err = "frequency: integer Hz required";
+            else if (jf->valuedouble != 0 && (jf->valuedouble < 20000 || jf->valuedouble > 60000)) err = "frequency: 0 or 20000 to 60000 Hz";
+            else freq = (uint32_t)jf->valuedouble;
+        }
+        cJSON *jp = cJSON_GetObjectItemCaseSensitive(req_j, "port");
+        if (!err && jp) {
+            if (!cJSON_IsNumber(jp) || jp->valueint < 1 || jp->valueint > 7) err = "port: bitmask 1 to 7";
+            else port = jp->valueint;
+        }
+        cJSON *jr = cJSON_GetObjectItemCaseSensitive(req_j, "repeats");
+        if (!err && jr) {
+            if (!cJSON_IsNumber(jr) || jr->valueint < 1 || jr->valueint > 10) err = "repeats: 1 to 10";
+            else repeats = jr->valueint;
+        }
+        cJSON *jt = cJSON_GetObjectItemCaseSensitive(req_j, "timings");
+        size_t count = 0;
+        uint32_t *timings = NULL;
+        if (!err) {
+            if (!jt || !cJSON_IsArray(jt)) err = "timings: array required";
+            else {
+                int n = cJSON_GetArraySize(jt);
+                if (n < 2 || n > 2048) err = "timings: 2 to 2048 values";
+                else {
+                    timings = (uint32_t *)calloc((size_t)n, sizeof(uint32_t));
+                    if (!timings) err = "timings: out of memory";
+                    int signed_form = 0, i = 0;
+                    cJSON *it = NULL;
+                    cJSON_ArrayForEach(it, jt) {
+                        if (err) break;
+                        if (!cJSON_IsNumber(it) || it->valuedouble != (double)(long)it->valuedouble) { err = "timings: integers required"; break; }
+                        long v = (long)it->valuedouble;
+                        if (i == 0) {
+                            if (v <= 0) { err = "timings: first value must be a positive mark"; break; }
+                        } else if (i == 1) {
+                            signed_form = (v < 0);
+                        }
+                        if (signed_form) {
+                            /* marks positive on even positions, spaces negative on odd ones */
+                            if ((i % 2 == 0 && v <= 0) || (i % 2 == 1 && v >= 0)) { err = "timings: signed form must alternate mark (+) and space (-)"; break; }
+                        } else if (v <= 0) {
+                            err = "timings: values must be positive (or use the signed form)";
+                            break;
+                        }
+                        long a = v < 0 ? -v : v;
+                        if (a > 65535) { err = "timings: each value 1 to 65535 us"; break; }
+                        timings[i++] = (uint32_t)a;
+                    }
+                    count = (size_t)n;
+                }
+            }
+        }
+        cJSON_Delete(req_j);
+        if (err) {
+            free(timings);
+            send_json_error(client_fd, 400, err);
+            close(client_fd);
+            return 1;
+        }
+        uint64_t sum_us = 0;
+        for (size_t i = 0; i < count; i++) sum_us += timings[i];
+        int rc = hw_ir_send_raw(freq, timings, count, (uint8_t)port, (uint8_t)repeats);
+        free(timings);
+        if (rc == -EBUSY) {
+            cJSON *busy = cJSON_CreateObject();
+            cJSON_AddBoolToObject(busy, "ok", 0);
+            cJSON_AddStringToObject(busy, "error", "busy");
+            send_cjson_resp(client_fd, 409, busy);
+            cJSON_Delete(busy);
+            close(client_fd);
+            return 1;
+        }
+        if (rc != 0) {
+            send_json_error(client_fd, 500, "IR transmit failed");
+            close(client_fd);
+            return 1;
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddNumberToObject(resp, "count", (double)count);
+        cJSON_AddNumberToObject(resp, "duration_ms", (double)((sum_us * (uint64_t)repeats + 999) / 1000));
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+#ifdef TEST_HARNESS
+    /* Harness only: the arguments of the last hw_ir_send_raw() call */
+    if (strcmp(clean_path, "/api/test/ir-raw-last") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *o = hw_test_last_raw_json();
+        send_cjson_resp(client_fd, 200, o);
+        cJSON_Delete(o);
+        close(client_fd);
+        return 1;
+    }
+#endif
+
     /* Route: POST /api/ir-send or POST /ir/send */
     if ((strcmp(clean_path, "/api/ir-send") == 0 || strcmp(clean_path, "/ir/send") == 0) && strcmp(method, "POST") == 0) {
         char dev_id[64] = {0};
@@ -155,6 +309,96 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         if (cmd_name[0]) cJSON_AddStringToObject(resp, "command", cmd_name);
         if (rc != 0) cJSON_AddStringToObject(resp, "error", "IR transmit failed");
         send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
+     * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
+     * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
+     * a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command saves as the
+     * command's code and the IR sender plays back as it is. */
+    if (strcmp(clean_path, "/api/capture") == 0 &&
+        strcmp(method, "POST") == 0) {
+        int timeout_s = 10;
+        cJSON *req_j = (body && body[0]) ? parse_request_params(body) : NULL;
+        if (!req_j && query && query[0]) req_j = parse_request_params(query);
+        if (req_j) {
+            cJSON *jt = cJSON_GetObjectItemCaseSensitive(req_j, "timeout");
+            if (jt && cJSON_IsNumber(jt)) timeout_s = jt->valueint;
+            else if (jt && cJSON_IsString(jt) && jt->valuestring) timeout_s = atoi(jt->valuestring);
+            cJSON_Delete(req_j);
+        }
+        if (timeout_s < 1) timeout_s = 1;
+        if (timeout_s > 30) timeout_s = 30;
+
+        if (pthread_mutex_trylock(&s_capture_lock) != 0) {
+            send_json_error(client_fd, 409, "An IR capture is already running");
+            close(client_fd);
+            return 1;
+        }
+        char raw[8192];
+        int rc = ir_i2s_capture(raw, sizeof(raw), (unsigned int)timeout_s);
+        pthread_mutex_unlock(&s_capture_lock);
+
+        if (rc == 0) {
+            int pulses = 0;
+            unsigned long total_us = 0;
+            learned_stats(raw, &pulses, &total_us);
+            unsigned long carrier = strtoul(raw + 1, NULL, 16);
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "ok", 1);
+            cJSON_AddStringToObject(resp, "raw", raw);
+            cJSON_AddStringToObject(resp, "keycode", raw);
+            cJSON_AddStringToObject(resp, "mode", "raw");
+            cJSON_AddNumberToObject(resp, "carrier_hz", (double)carrier);
+            cJSON_AddNumberToObject(resp, "pulses", pulses);
+            cJSON_AddNumberToObject(resp, "duration_us", (double)total_us);
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        } else if (rc == -EBUSY) {
+            send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
+        } else if (rc == -5 || rc == -6) {
+            send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
+        } else if (rc == -2 || rc == -3 || rc == -7) {
+            send_json_error(client_fd, 503, raw[0] ? raw : "IR receiver not available");
+        } else {
+            send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");
+        }
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/ir-test-learned: play a learned code once on the device's IR port
+     * (fields of the learn wizard: deviceId, keycode or raw) */
+    if (strcmp(clean_path, "/api/ir-test-learned") == 0 && strcmp(method, "POST") == 0) {
+        char dev_id[64] = {0};
+        char code[8192] = {0};
+        cJSON *req_j = body ? parse_request_params(body) : NULL;
+        if (req_j) {
+            cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
+            const char *keys[] = { "keycode", "raw", "code" };
+            for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && !code[0]; i++) {
+                cJSON *jc = cJSON_GetObjectItemCaseSensitive(req_j, keys[i]);
+                if (jc && cJSON_IsString(jc) && jc->valuestring) snprintf(code, sizeof(code), "%s", jc->valuestring);
+            }
+            cJSON_Delete(req_j);
+        }
+        if (!code[0]) {
+            send_json_error(client_fd, 400, "Missing keycode or raw");
+            close(client_fd);
+            return 1;
+        }
+        uint8_t ports = device_ir_ports(dev_id);
+        int rc = hw_ir_send_harmony_keycode(code, ports, 1);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", rc == 0);
+        cJSON_AddNumberToObject(resp, "port", ports);
+        if (rc != 0) cJSON_AddStringToObject(resp, "error", rc == -2 ? "Code not understood by the IR encoder" : "IR transmit failed");
+        send_cjson_resp(client_fd, rc == 0 ? 200 : (rc == -2 ? 400 : 500), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

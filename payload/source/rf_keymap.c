@@ -156,21 +156,11 @@ static const char *rf_alias_command(cJSON *cmds, const char *button_name) {
     return NULL;
 }
 
-void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
+/* Runs the button through the maps and sends the mapped command (or starts/stops an activity).
+ * When a device command was sent, its target is written to out_dev/out_cmd. */
+static void run_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id,
+                             char *out_dev, size_t out_dev_len, char *out_cmd, size_t out_cmd_len) {
     int is_press = (strcmp(action_state, "release") != 0);
-
-    /* Forward raw button event to daemon for MQTT (fire and forget) */
-    char mqtt_body[256];
-    if (dev_id && dev_id[0]) {
-        snprintf(mqtt_body, sizeof(mqtt_body),
-                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d,\"deviceId\":\"%s\"}",
-                 button_name, action_state, slot, dev_id);
-    } else {
-        snprintf(mqtt_body, sizeof(mqtt_body),
-                 "{\"command\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d}",
-                 button_name, action_state, slot);
-    }
-    http_post_local(DAEMON_PORT, "/api/button-press", mqtt_body);
 
     if (is_press && strcmp(button_name, "PowerOffActivity") == 0) {
         printf("[*] RF Dispatch: PowerOffActivity -> Stopping activity\n");
@@ -196,6 +186,8 @@ void dispatch_remote_button(uint8_t slot, const char *button_name, const char *a
                                      dev_id, j_cmd->valuestring, action_state ? action_state : "press");
                             printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s action=%s\n",
                                    button_name, dev_id, j_cmd->valuestring, action_state ? action_state : "press");
+                            snprintf(out_dev, out_dev_len, "%s", dev_id);
+                            snprintf(out_cmd, out_cmd_len, "%s", j_cmd->valuestring);
                             http_post_local(WEBUI_PORT, "/api/ir-send", body);
                             pthread_mutex_unlock(&g_map_lock);
                             return;
@@ -244,6 +236,8 @@ void dispatch_remote_button(uint8_t slot, const char *button_name, const char *a
                                  dev_id, matched_cmd, action_state ? action_state : "press");
                         printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
                                button_name, dev_id, matched_cmd, action_state ? action_state : "press");
+                        snprintf(out_dev, out_dev_len, "%s", dev_id);
+                        snprintf(out_cmd, out_cmd_len, "%s", matched_cmd);
                         http_post_local(WEBUI_PORT, "/api/ir-send", body);
                         cJSON_Delete(root);
                         fclose(fd);
@@ -318,6 +312,8 @@ void dispatch_remote_button(uint8_t slot, const char *button_name, const char *a
         snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
                  dev_id_buf, cmd_buf, action_state ? action_state : "press");
         printf("[*] RF Dispatch: IR/BT send -> dev=%s cmd=%s action=%s\n", dev_id_buf, cmd_buf, action_state ? action_state : "press");
+        snprintf(out_dev, out_dev_len, "%s", dev_id_buf);
+        snprintf(out_cmd, out_cmd_len, "%s", cmd_buf);
         http_post_local(WEBUI_PORT, "/api/ir-send", body);
     } else if (is_press && (strcmp(act_type_buf, "activity_start") == 0 || strcmp(act_type_buf, "change_activity") == 0) && target_act_id_buf[0]) {
         char body[64];
@@ -328,6 +324,27 @@ void dispatch_remote_button(uint8_t slot, const char *button_name, const char *a
         printf("[*] RF Dispatch: Stop activity (PowerOff)\n");
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
     }
+}
+
+void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
+    char mapped_dev[64] = {0};
+    char mapped_cmd[64] = {0};
+    const char *action = action_state ? action_state : "press";
+    run_remote_button(slot, button_name, action, dev_id, mapped_dev, sizeof(mapped_dev), mapped_cmd, sizeof(mapped_cmd));
+
+    /* Report the physical key to the daemon (button event on its bus, MQTT mirror): the key
+     * name as the keymap knows it, and the mapped device command when one was sent */
+    char body[320];
+    if (mapped_dev[0] && mapped_cmd[0]) {
+        snprintf(body, sizeof(body),
+                 "{\"button\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d,\"deviceId\":\"%s\",\"command\":\"%s\"}",
+                 button_name, action, slot, mapped_dev, mapped_cmd);
+    } else {
+        snprintf(body, sizeof(body),
+                 "{\"button\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d}",
+                 button_name, action, slot);
+    }
+    http_post_local(DAEMON_PORT, "/api/button-press", body);
 }
 
 typedef enum {

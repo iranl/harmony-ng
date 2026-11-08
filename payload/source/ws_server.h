@@ -5,6 +5,15 @@
 #include <stdint.h>
 
 #define WS_MAX_CLIENTS 16
+/* Keepalive: a ping after this many seconds without a frame from the client, and the client is
+ * dropped when nothing (pong or other) arrives within the timeout. Overridable at compile time
+ * (the test harness uses -DWS_PING_INTERVAL_S=2 -DWS_PONG_TIMEOUT_S=1). */
+#ifndef WS_PING_INTERVAL_S
+#define WS_PING_INTERVAL_S 30
+#endif
+#ifndef WS_PONG_TIMEOUT_S
+#define WS_PONG_TIMEOUT_S 10
+#endif
 #define WS_OP_TEXT   0x01
 #define WS_OP_BINARY 0x02
 #define WS_OP_CLOSE  0x08
@@ -37,18 +46,34 @@ void ws_broadcast_text(const char *text);
 
 /*
  * Non-blocking read and unmask of an incoming WebSocket frame.
- * Returns payload length (or negative on error/closed).
+ * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when there was
+ * nothing to read after all (spurious wakeup, EINTR: keep the client), -1 on error or when the
+ * peer closed the connection.
  */
+#define WS_READ_AGAIN (-2)
 int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode);
 
 /* Retrieve active client socket descriptors for event loop polling */
 int ws_get_clients(int *out_fds, size_t max_count);
+/* Clients that upgraded since the last call and have not received their snapshot yet: they are
+ * excluded from broadcasts until taken here (main loop). Returns the count. */
+int ws_take_pending_clients(int *out_fds, size_t max_count);
+/* Keepalive, main loop once per iteration: pings idle clients, drops the ones that did not
+ * answer. Returns the number of clients dropped. */
+int ws_server_tick(void);
+/* Send a ping frame (the client answers with a pong, which ws_read_frame counts as traffic) */
+int ws_send_ping(int client_fd);
 
 /* Send a pong frame responding to ping */
 int ws_send_pong(int client_fd);
 
 /* Remove client upon disconnect */
 void ws_remove_client(int client_fd);
+
+/* Role of the token the client upgraded with (values of enum http_role: 0 none, 1 user,
+ * 2 admin). Unknown clients and clients upgraded without auth count as admin. */
+void ws_set_client_role(int client_fd, int role);
+int ws_get_client_role(int client_fd);
 
 /* Close all connected clients */
 void ws_close_all(void);

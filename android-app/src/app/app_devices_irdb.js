@@ -269,7 +269,9 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
     try {
       if (status) status.textContent = 'Saving command...';
-      await this.client.saveLearnedCommand({ deviceId: devId, name, raw, nec, keycode, mode, protocol });
+      const res = await this.client.saveLearnedCommand({ deviceId: devId, name, raw, nec, keycode, mode, protocol });
+      /* /ir/command answers 200 with ok:false when it stored nothing (e.g. unknown device) */
+      if (res && res.ok === false) throw new Error('the Hub did not store the command');
       if (status) status.innerHTML = '<span style="color:var(--success)">✓ Command saved!</span>';
       await this.refreshData();
     } catch (err) {

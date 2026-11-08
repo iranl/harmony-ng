@@ -1,0 +1,163 @@
+{
+  "type": "snapshot",
+  "hub": {
+    "hub_id": "20140101120000-000001",
+    "hub_name": "Test Hub",
+    "version": "2.3.0",
+    "api_version": 2,
+    "capabilities": [
+      "events",
+      "snapshot",
+      "ws_auth",
+      "ws_keepalive",
+      "ir_raw",
+      "rf_wake"
+    ],
+    "legacy_enabled": false,
+    "mdns_enabled": false,
+    "auth_enabled": false,
+    "uptime_sec": 66446
+  },
+  "activity_state": {
+    "type": "activity_state",
+    "seq": 1,
+    "ts": 1794092525,
+    "activity": "-1",
+    "state": 0,
+    "stateName": "idle",
+    "busy": false,
+    "sending": false
+  },
+  "bt_status": {
+    "type": "bt_status",
+    "seq": 2,
+    "ts": 1794092526,
+    "backend": "btstack",
+    "pid": 161116,
+    "state": "connecting",
+    "target": "11:22:33:44:55:66",
+    "last_button": "",
+    "last_seen": 0,
+    "remote": {
+      "connected": true,
+      "addr": "11:22:33:44:55:66"
+    },
+    "host": {
+      "connected": true,
+      "addr": "AA:BB:CC:DD:EE:FF",
+      "name": "Media Player",
+      "pairing": false
+    },
+    "hosts": [
+      {
+        "addr": "AA:BB:CC:DD:EE:01",
+        "name": "Television",
+        "connected": false,
+        "paired": true,
+        "cid": 2
+      },
+      {
+        "addr": "AA:BB:CC:DD:EE:FF",
+        "name": "Media Player",
+        "connected": true,
+        "paired": true,
+        "cid": 6
+      }
+    ],
+    "ok": true,
+    "running": true,
+    "connected": true,
+    "pairing": false
+  },
+  "rf_status": {
+    "type": "rf_status",
+    "seq": 3,
+    "ts": 1794092527,
+    "running": true,
+    "ok": true,
+    "fw_version": "v72.00",
+    "paired": true,
+    "rf_address": "A1B2C3D4",
+    "hub_rf_address": "A1B2C3D4",
+    "pairing_active": false,
+    "sync_pending": false,
+    "sync_pending_slot": 0,
+    "sync_pending_diff": "Hub configuration changed. Push settings to sync.",
+    "hub_config_version": 7,
+    "ota": {
+      "in_progress": false,
+      "slot": 0,
+      "status": 0,
+      "sent_bytes": 0,
+      "total_bytes": 0,
+      "sent_chunks": 0,
+      "total_chunks": 0,
+      "error": ""
+    },
+    "slots": [
+      {
+        "slot": 1,
+        "name": "Harmony Remote (Slot 1)",
+        "model": "elite",
+        "has_screen": true,
+        "supports_ota": true,
+        "active": true,
+        "in_sync": true,
+        "address": "E5F60718",
+        "rf_address": "E5F60718",
+        "sw_version": "2.2.0",
+        "remote_id": "20141001120000-000002",
+        "config_version": 7,
+        "battery": {
+          "percent": 87,
+          "charging": false,
+          "voltage_mv": 3980
+        },
+        "link": {
+          "frames_rx": 120,
+          "acked_sent": 12,
+          "acked_ok": 12,
+          "retries": 0,
+          "naks": 0,
+          "last_seen_s": 2
+        }
+      },
+      {
+        "slot": 2,
+        "name": "Harmony Elite (Slot 2)",
+        "model": "unknown",
+        "has_screen": true,
+        "supports_ota": true,
+        "active": false,
+        "in_sync": false,
+        "address": "None",
+        "rf_address": "None",
+        "sw_version": "unknown",
+        "config_version": 0,
+        "battery": {
+          "percent": 0,
+          "charging": false,
+          "voltage_mv": 0
+        },
+        "link": {
+          "frames_rx": 0,
+          "acked_sent": 0,
+          "acked_ok": 0,
+          "retries": 0,
+          "naks": 0,
+          "last_seen_s": -1
+        }
+      }
+    ]
+  },
+  "config": {
+    "files": {
+      "devices": 1794092525,
+      "activities": 1794092525,
+      "settings": 1794092525,
+      "remote_map": 1794092525
+    }
+  },
+  "seq": 3,
+  "ts": 1794092527
+}

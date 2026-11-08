@@ -1,0 +1,20 @@
+{
+  "activities": {
+    "10": {
+      "VolumeUp": {"type": "command", "action": "device_cmd", "deviceId": "1", "command": "VolumeUp"},
+      "VolumeDown": {"type": "command", "action": "device_cmd", "deviceId": "1", "command": "VolumeDown"},
+      "PowerOffActivity": {"type": "command", "action": "poweroff"}
+    },
+    "11": {
+      "VolumeUp": {"type": "command", "action": "device_cmd", "deviceId": "1", "command": "VolumeUp"},
+      "VolumeDown": {"type": "command", "action": "device_cmd", "deviceId": "1", "command": "VolumeDown"},
+      "Select": {"type": "command", "action": "device_cmd", "deviceId": "2", "command": "Select"},
+      "PowerOffActivity": {"type": "command", "action": "poweroff"}
+    }
+  },
+  "devices": {
+    "1": {
+      "VolumeUp": {"type": "command", "action": "device_cmd", "deviceId": "1", "command": "VolumeUp"}
+    }
+  }
+}

@@ -1,5 +1,5 @@
 // MQTT & Home Assistant Configuration View
-import { h } from '../../utils/dom.js';
+import { h, copyText } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
@@ -37,7 +37,7 @@ export function createView() {
         ]),
         h('div', { className: 'form-group' }, [
           h('label', { className: 'form-label', text: 'Password' }),
-          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input' }),
+          h('input', { id: 'mqtt-pass', type: 'password', className: 'form-input', placeholder: 'Leave blank to keep current' }),
         ]),
       ]),
       h('div', { className: 'card', style: { marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.2)' } }, [
@@ -383,7 +383,7 @@ export function createView() {
     const statusEl = container.querySelector('#ha-helper-status');
     if (!yamlEl?.textContent) return;
     try {
-      await navigator.clipboard.writeText(yamlEl.textContent);
+      if (!(await copyText(yamlEl.textContent))) throw new Error('clipboard unavailable');
       if (copyBtn) copyBtn.textContent = '✓ Copied!';
       if (statusEl) statusEl.textContent = 'Copied to clipboard';
       setTimeout(() => {

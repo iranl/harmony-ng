@@ -3,6 +3,7 @@
 #include "remote_power.h"
 #include "remote_config.h"
 #include "remote_rf.h"
+#include "mfg_id.h"
 #include "remote_rf_sync.h"
 #include "remote_rf_ota.h"
 #include "remote_ui.h"
@@ -188,6 +189,12 @@ int main(int argc, char **argv) {
     sigaction(SIGILL, &sa, NULL);
 
     printf("[+] Starting Harmony remote custom interface (remote_ui v%s)...\n", HARMONY_REMOTE_VERSION);
+    if (mfg_read_unitid(getenv("HARMONY_MFG_FILE"), g_remote_unit_id, sizeof(g_remote_unit_id)) == 0) {
+        printf("[+] Unit id %s (mfg partition)\n", g_remote_unit_id);
+    } else {
+        g_remote_unit_id[0] = '\0';
+        printf("[!] No unit id in the mfg partition: none will be reported to the Hub\n");
+    }
 
     load_settings_conf();
     load_activity_usage();
