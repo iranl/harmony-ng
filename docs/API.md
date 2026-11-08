@@ -608,7 +608,7 @@ Dedicated blaster endpoint for raw Pronto hex code streams.
 - **Response `200 OK`**: `{"success": true}`
 
 ### 5.2a IR Learning (capture)
-#### `POST /api/capture` or `POST /api/ir-capture`
+#### `POST /api/capture`
 Listens on the Hub's IR receiver until a signal arrives or the timeout ends, then returns one frame as a Harmony raw timing string (`F<carrier hex>P<pulse us hex>S<space us hex>...`, the carrier measured, the last space the gap to the next frame). The string can be stored as a command's `raw` (`POST /ir/command`) and sent like any other keycode. The sensor is short-range: hold the original remote about 8 cm from the Hub and hold the button for 1 to 2 seconds (the first frame of a press is often cut, so the decoder keeps the first complete frame after it).
 - **Request Body** (optional): `{"timeout": 10}` in seconds, 1 to 30 (default 10). `?timeout=` works too.
 - **Response `200 OK`**:

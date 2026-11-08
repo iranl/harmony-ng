@@ -201,12 +201,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/capture (or /api/ir-capture): learn one IR signal from the Hub's IR receiver.
+    /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
      * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
      * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
      * a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command saves as the
      * command's code and the IR sender plays back as it is. */
-    if ((strcmp(clean_path, "/api/capture") == 0 || strcmp(clean_path, "/api/ir-capture") == 0) &&
+    if (strcmp(clean_path, "/api/capture") == 0 &&
         strcmp(method, "POST") == 0) {
         int timeout_s = 10;
         cJSON *req_j = (body && body[0]) ? parse_request_params(body) : NULL;

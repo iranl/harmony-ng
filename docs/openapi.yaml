@@ -1488,7 +1488,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Learn an IR code from the Hub's receiver
-      description: Waits for an IR signal and returns it as a Harmony raw timing string. Also available under /api/ir-capture.
+      description: Waits for one IR signal and returns it as a Harmony raw timing string.
       requestBody:
         required: false
         content:
