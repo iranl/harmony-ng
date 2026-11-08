@@ -18,6 +18,7 @@ import {
   safeImportName
 } from '../irdb.js';
 import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { copyText } from '../clipboard.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -317,12 +318,16 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
 
     const btnCopyPat = document.getElementById('btnCopyNewToken');
     if (btnCopyPat) {
-      btnCopyPat.addEventListener('click', () => {
+      btnCopyPat.addEventListener('click', async () => {
         const inp = document.getElementById('newlyCreatedTokenInput');
         if (inp && inp.value) {
-          navigator.clipboard?.writeText(inp.value);
-          btnCopyPat.textContent = 'Copied!';
-          setTimeout(() => { btnCopyPat.textContent = 'Copy'; }, 2000);
+          const ok = await copyText(inp.value);
+          btnCopyPat.textContent = ok ? 'Copied!' : 'Select and copy by hand';
+          if (!ok) {
+            inp.focus();
+            inp.select();
+          }
+          setTimeout(() => { btnCopyPat.textContent = 'Copy'; }, ok ? 2000 : 4000);
         }
       });
     }
