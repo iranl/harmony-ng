@@ -388,6 +388,7 @@ void execute_btstack_cmd(const char *cmd_in) {
         }
     } else if (strncasecmp(cmd, "stop_reconnect", 14) == 0) {
         stop_host_reconnect();
+        rq_clear(); /* the hosts waiting for their turn stop too */
     } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         stop_host_reconnect();
         /* A disconnect that was asked for must not be undone by the auto-reconnect on the close
@@ -398,6 +399,7 @@ void execute_btstack_cmd(const char *cmd_in) {
         bd_addr_t tgt;
         if (parse_bd_addr(addr_str, tgt)) {
             set_host_manual_disconnect(tgt, true);
+            rq_remove(tgt);
             for (int i = 0; i < MAX_HOST_CONNS; i++) {
                 if (memcmp(g_hosts[i].addr, tgt, 6) == 0 && g_hosts[i].hid_cid) {
                     hid_device_disconnect(g_hosts[i].hid_cid);
@@ -410,6 +412,7 @@ void execute_btstack_cmd(const char *cmd_in) {
             bd_addr_t all_hosts;
             memset(all_hosts, 0, sizeof(all_hosts));
             set_host_manual_disconnect(all_hosts, true);
+            rq_clear();
             for (int i = 0; i < MAX_HOST_CONNS; i++) {
                 if (g_hosts[i].connected && g_hosts[i].hid_cid) {
                     hid_device_disconnect(g_hosts[i].hid_cid);

@@ -78,6 +78,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 } else {
                     log_msg("Boot: Hub idle/poweroff, skipping Bluetooth host connect");
                 }
+                /* After the activity's host: the hosts connected before a hub_btstack restart,
+                 * and requests that came before the controller was ready */
+                bt_hosts_restore_after_start();
             }
             break;
 
@@ -452,6 +455,9 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                                              : memcmp(g_host_reconnect_target, conn_addr, 6) == 0;
                         if (loop_done) stop_host_reconnect();
                     }
+                    /* Connected (by a loop or by itself): no longer waiting; the next host's turn */
+                    rq_remove(conn_addr);
+                    host_reconnect_next();
 
                     char msg[128];
                     snprintf(msg, sizeof(msg), "Classic HID Host CONNECTED: %s (cid=0x%04x)",
@@ -709,6 +715,7 @@ int main(int argc, const char *argv[]) {
     if (pf) { fprintf(pf, "%d\n", (int)getpid()); fclose(pf); }
 
     log_msg("=== Starting Hub BTstack Daemon ===");
+    bt_hosts_load_before_restart(); /* before the status writes below update the file */
     update_status("starting");
     update_bthid_status();
 

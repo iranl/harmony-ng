@@ -2,6 +2,7 @@
 #define HARMONY_BT_PAIRING_H
 
 #include "bt_state.h"
+#include "bt_reconnect_queue.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,13 @@ void try_connect_host_addr(const bd_addr_t addr);
 void try_connect_host(void);
 void start_host_reconnect(const bd_addr_t target, int max_attempts);
 void stop_host_reconnect(void);
+/* The next host waiting for a reconnect (queued by a replaced loop, a request before the
+ * controller was ready, or the restart restore) gets its turn when no loop runs */
+void host_reconnect_next(void);
+/* At start: read the hosts connected before this hub_btstack started (/tmp) ... */
+void bt_hosts_load_before_restart(void);
+/* ... and queue them once the controller is ready */
+void bt_hosts_restore_after_start(void);
 void hog_start_scan(void);
 void hog_connect(void);
 /* Drop the pinned BLE remote: disconnect, delete the target file, its LE bond and the HOGD tag */
