@@ -345,11 +345,23 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
         document.getElementById('rfCfgNoScreen').value = String(noScreenVal);
       }
 
-      const navKey = cfg.nav_key || cfg.navToggleKey || 139;
-      document.getElementById('rfCfgNavKey').value = String(navKey);
+      const layoutVal = ['list', 'grid', 'carousel'].includes(cfg?.layout) ? cfg.layout : 'theme';
+      if (document.getElementById('rfCfgHomeLayout')) document.getElementById('rfCfgHomeLayout').value = layoutVal;
 
-      const navMode = typeof cfg.nav_mode !== 'undefined' ? cfg.nav_mode : (typeof cfg.navToggleMode !== 'undefined' ? cfg.navToggleMode : 1);
-      document.getElementById('rfCfgNavMode').value = String(navMode);
+      const physNavVal = Boolean(cfg?.physicalNavEnabled || cfg?.physical_nav);
+      if (document.getElementById('rfCfgPhysicalNav')) {
+        document.getElementById('rfCfgPhysicalNav').value = physNavVal ? '1' : '0';
+        const updateModalLayoutOptions = () => {
+          const pNav = document.getElementById('rfCfgPhysicalNav')?.value === '1';
+          const lSelect = document.getElementById('rfCfgHomeLayout');
+          if (lSelect) {
+            if (pNav) { lSelect.value = 'list'; lSelect.disabled = true; }
+            else { lSelect.disabled = false; }
+          }
+        };
+        document.getElementById('rfCfgPhysicalNav').onchange = updateModalLayoutOptions;
+        updateModalLayoutOptions();
+      }
 
       const confirmAct = typeof cfg.confirm_act !== 'undefined' ? cfg.confirm_act : (typeof cfg.confirmActivity !== 'undefined' ? (cfg.confirmActivity ? 1 : 0) : 1);
       document.getElementById('rfCfgConfirmAct').value = String(confirmAct ? 1 : 0);
@@ -397,6 +409,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     const touch = parseInt(document.getElementById('rfCfgTouch')?.value || '1', 10);
     const cap_buttons = parseInt(document.getElementById('rfCfgCapButtons')?.value || '1', 10);
     const touch_sensitivity = parseInt(document.getElementById('rfCfgTouchSens')?.value || '2', 10);
+    const physical_nav = parseInt(document.getElementById('rfCfgPhysicalNav')?.value || '0', 10);
+    const layout = physical_nav === 1 ? 'list' : (document.getElementById('rfCfgHomeLayout')?.value || 'theme');
     const nav_key = parseInt(document.getElementById('rfCfgNavKey')?.value || '139', 10);
     const nav_mode = parseInt(document.getElementById('rfCfgNavMode')?.value || '1', 10);
     const confirm_act = parseInt(document.getElementById('rfCfgConfirmAct')?.value || '1', 10);
@@ -435,6 +449,10 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
       capButtonsEnabled: cap_buttons === 1,
       touch_sensitivity: touch_sensitivity,
       touchSensitivity: touch_sensitivity,
+      layout: layout,
+      physical_nav: physical_nav,
+      physicalNavEnabled: physical_nav === 1,
+      screen_nav_mode: physical_nav === 1 ? 1 : 0,
       remote_mode: 0,
       remoteMode: 0,
       nav_key: nav_key,

@@ -424,7 +424,7 @@ void handle_navigation_key(int code, int value) {
 
     if (g_is_switching_activity || g_is_syncing_config || g_is_ota_updating) return;
 
-    if (g_touch_enabled && g_current_view != VIEW_SETTINGS && g_current_view != VIEW_PAIRING) {
+    if (!g_physical_nav_enabled && g_touch_enabled && g_current_view != VIEW_SETTINGS && g_current_view != VIEW_PAIRING) {
         return;
     }
 
@@ -481,7 +481,8 @@ void handle_navigation_key(int code, int value) {
             render_screen();
             break;
 
-        case 149: /* KEY_PROG2 (Prev Tab) */
+        case 149: /* KEY_PROG2 (Prev Tab / Ha2) */
+        case 202: /* KEY_PROG3 (Ha3 - identical to Ha2) */
             if ((g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) && g_settings_dirty) {
                 g_settings_dirty = false;
             }
@@ -659,7 +660,7 @@ void handle_navigation_key(int code, int value) {
             }
             break;
 
-        case 158: case 202: /* KEY_BACK / KEY_PROG3 */
+        case 158: /* KEY_BACK */
             if (g_current_view == VIEW_NOT_PAIRED) break;
             if (g_current_view == VIEW_ACTIVITIES) {
                 /* With touch off, Back on the home screen opens Settings */

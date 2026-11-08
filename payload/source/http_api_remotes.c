@@ -313,23 +313,30 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             sin.sin_port = htons(8092);
             sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-            struct timeval tv = { .tv_sec = 0, .tv_usec = 400000 };
+            struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
             setsockopt(rfsock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
             setsockopt(rfsock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
             if (connect(rfsock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
+                char target_url[256];
+                if (query && *query) {
+                    snprintf(target_url, sizeof(target_url), "%s?%s", clean_path, query);
+                } else {
+                    snprintf(target_url, sizeof(target_url), "%s", clean_path);
+                }
+
                 char proxy_req[512];
                 int body_len = (body && *body) ? (int)strlen(body) : 0;
                 if (body_len > 0) {
                     int prlen = snprintf(proxy_req, sizeof(proxy_req),
                         "%s %s HTTP/1.1\r\nHost: 127.0.0.1:8092\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
-                        method, clean_path, body_len);
+                        method, target_url, body_len);
                     if (prlen > 0) write(rfsock, proxy_req, (size_t)prlen);
                     write(rfsock, body, (size_t)body_len);
                 } else {
                     int prlen = snprintf(proxy_req, sizeof(proxy_req),
                         "%s %s HTTP/1.1\r\nHost: 127.0.0.1:8092\r\nConnection: close\r\n\r\n",
-                        method, clean_path);
+                        method, target_url);
                     if (prlen > 0) write(rfsock, proxy_req, (size_t)prlen);
                 }
 
@@ -488,7 +495,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
             system("mkdir -p /data/harmony 2>/dev/null");
             write_file_atomic(config_store_path(fname), body);
-            notify_rf_push_config();
+            FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
+            if (df) {
+                fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d button mappings updated. Push settings to sync.\"}\n", slot, slot);
+                fclose(df);
+            }
+            FILE *flag = fopen("/data/harmony/rf_sync_pending.flag", "w");
+            if (flag) {
+                fprintf(flag, "%ld\n", (long)time(NULL));
+                fclose(flag);
+            }
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
@@ -534,7 +550,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             system("mkdir -p /data/harmony 2>/dev/null");
             write_file_atomic(config_store_path(dst_name), content);
             free(content);
-            notify_rf_push_config();
+            FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
+            if (df) {
+                fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d button mappings copied from Slot %d. Push settings to sync.\"}\n", to_slot, to_slot, from_slot);
+                fclose(df);
+            }
+            FILE *flag = fopen("/data/harmony/rf_sync_pending.flag", "w");
+            if (flag) {
+                fprintf(flag, "%ld\n", (long)time(NULL));
+                fclose(flag);
+            }
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
             cJSON_AddNumberToObject(resp, "from", from_slot);

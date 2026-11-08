@@ -392,7 +392,8 @@ void send_remote_config_backup_rf(void) {
     payload[19] = (uint8_t)(g_language & 0xFF);
     payload[20] = rf_theme_id(g_theme.name); /* 0 for a theme the Hub has no id for */
     payload[21] = (uint8_t)(g_home_layout + 1); /* rf_layout_name() order */
-    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 22);
+    payload[22] = (uint8_t)(g_physical_nav_enabled ? 1 : 0);
+    rf_build_frame(&f, g_remote_slot, RF_MSG_REMOTE_CONFIG_BACKUP, ++g_tx_seq, 0, payload, 23);
     rf_send_frame(&f);
     printf("[*] Sent remote config backup over RF to Hub (slot %d): bright=%d touch=%d cap=%d gyro=%d rate=%d timeout=%d lang=%d\n",
            g_remote_slot, g_brightness_val, g_touch_enabled, g_cap_buttons_enabled, g_gyro_enabled, g_gyro_rate_hz, g_timeout_seconds, (int)g_language);

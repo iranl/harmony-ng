@@ -1,4 +1,5 @@
 #include "bt_pairing.h"
+#include "bt_remote.h"
 
 discovered_remote_t g_discovered[MAX_DISCOVERED];
 int g_discovered_count = 0;
@@ -635,6 +636,13 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
 void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     (void)max_attempts;
+    char cur_act[64] = "-1";
+    read_current_activity(cur_act, sizeof(cur_act));
+    if (!g_host_pairing && (strcmp(cur_act, "-1") == 0 || strcasecmp(cur_act, "poweroff") == 0)) {
+        log_msg("Host reconnect: Suppressed while Activity is PowerOff");
+        return;
+    }
+
     set_host_manual_disconnect(target, false);
     /* Another connected host must not block this one (several HID hosts are supported) */
     if (host_target_connected(target)) {

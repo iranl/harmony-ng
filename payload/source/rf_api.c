@@ -278,7 +278,7 @@ void *api_server_worker(void *arg) {
                         fclose(f);
                     } else {
                         snprintf(res_body, sizeof(res_body),
-                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":50,\"gyro_rate\":50,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
+                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"physicalNavEnabled\":false,\"physical_nav\":0,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":50,\"gyro_rate\":50,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
                             slot);
                     }
                 }
@@ -293,6 +293,7 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                 } else {
                     int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
                     if (is_companion_slot((uint8_t)slot)) {
                         const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not have screen or motion configuration\",\"ok\":false}";
                         write(cli, res, strlen(res));
@@ -302,6 +303,10 @@ void *api_server_worker(void *arg) {
                         body_start += 4;
                         cJSON *root = cJSON_Parse(body_start);
                         if (root) {
+                            cJSON *jslot = cJSON_GetObjectItem(root, "slot");
+                            if (jslot && cJSON_IsNumber(jslot) && (jslot->valueint == 1 || jslot->valueint == 2)) {
+                                slot = jslot->valueint;
+                            }
                             cJSON *jb = cJSON_GetObjectItem(root, "brightness");
                             cJSON *jt = cJSON_GetObjectItem(root, "timeout");
                             cJSON *jtouch = cJSON_GetObjectItem(root, "touchEnabled");
@@ -340,6 +345,11 @@ void *api_server_worker(void *arg) {
                             int theme = cJSON_IsString(jtheme) ? rf_theme_id(jtheme->valuestring) : 0;
                             cJSON *jlayout = cJSON_GetObjectItem(root, "layout");
                             int layout = cJSON_IsString(jlayout) ? rf_layout_id(jlayout->valuestring) : 0;
+                            cJSON *jpn = cJSON_GetObjectItem(root, "physicalNavEnabled");
+                            if (!jpn) jpn = cJSON_GetObjectItem(root, "physical_nav");
+                            if (!jpn) jpn = cJSON_GetObjectItem(root, "screen_nav_mode");
+                            int physical_nav = (jpn && (cJSON_IsTrue(jpn) || (cJSON_IsNumber(jpn) && jpn->valueint != 0))) ? 1 : 0;
+                            if (physical_nav) layout = rf_layout_id("list");
 
                             int bright = jb ? jb->valueint : 2;
                             int timeout = jt ? jt->valueint : 10;
@@ -418,11 +428,13 @@ void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "language_id", lang_id);
                             if (theme) cJSON_AddStringToObject(norm, "theme", rf_theme_name((uint8_t)theme));
                             if (layout) cJSON_AddStringToObject(norm, "layout", rf_layout_name((uint8_t)layout));
+                            cJSON_AddBoolToObject(norm, "physicalNavEnabled", physical_nav != 0);
+                            cJSON_AddNumberToObject(norm, "physical_nav", physical_nav);
 
                             char path[64];
                             snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_config.json", slot);
 
-                            /* Read existing config to compute diff for pending push banner */
+                            /* Read existing config to compute diff for pending push banner if push fails */
                             char old_cfg[4096] = {0};
                             FILE *cur_f = fopen(path, "r");
                             if (cur_f) {
@@ -430,10 +442,8 @@ void *api_server_worker(void *arg) {
                                 old_cfg[cr] = '\0';
                                 fclose(cur_f);
                             }
-                            record_config_diff(slot, old_cfg, norm);
 
                             char *norm_str = cJSON_Print(norm);
-                            cJSON_Delete(norm);
                             if (norm_str) {
                                 FILE *f = fopen(path, "w");
                                 if (f) {
@@ -443,10 +453,35 @@ void *api_server_worker(void *arg) {
                                 free(norm_str);
                             }
 
-                            rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
+                            int push_res = rf_send_settings_push_slot((uint8_t)slot, bright, timeout, touch, gyro, nav_key, nav_mode,
                                                        confirm_act, touch_sens, remote_mode, gyro_rate,
                                                        btn_backlight, night_start, night_end, usbeth, no_screen,
-                                                       cap_buttons, power_debug, lang_id, theme, layout);
+                                                       cap_buttons, power_debug, lang_id, theme, layout, physical_nav);
+                            if (push_res == 0) {
+                                /* Successfully pushed and ACKed by remote: clear pending flag if it was for this slot */
+                                int cur_pending_slot = -1;
+                                FILE *pdf = fopen("/data/harmony/rf_sync_pending_details.json", "r");
+                                if (pdf) {
+                                    char dline[512] = {0};
+                                    if (fread(dline, 1, sizeof(dline) - 1, pdf) > 0) {
+                                        cJSON *pj = cJSON_Parse(dline);
+                                        if (pj) {
+                                            cJSON *ps = cJSON_GetObjectItem(pj, "slot");
+                                            if (ps) cur_pending_slot = ps->valueint;
+                                            cJSON_Delete(pj);
+                                        }
+                                    }
+                                    fclose(pdf);
+                                }
+                                if (cur_pending_slot == slot || cur_pending_slot == -1) {
+                                    unlink("/data/harmony/rf_sync_pending.flag");
+                                    unlink("/data/harmony/rf_sync_pending_details.json");
+                                }
+                            } else {
+                                /* Remote did not ACK (asleep or offline): record diff so banner notifies user */
+                                record_config_diff(slot, old_cfg, norm);
+                            }
+                            cJSON_Delete(norm);
                             cJSON_Delete(root);
                         }
                     }
@@ -478,6 +513,7 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                 } else {
                     int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
                     char *body_start = strstr(buf, "\r\n\r\n");
                     if (body_start) {
                         body_start += 4;
@@ -544,6 +580,7 @@ void *api_server_worker(void *arg) {
                 write(cli, res, rlen);
             } else if (strstr(buf, "POST /api/rf/ota-start") == buf) {
                 int slot = strstr(buf, "slot=2") ? 2 : 1;
+                if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
                 if (is_companion_slot((uint8_t)slot)) {
                     char res[256];
                     int rlen = snprintf(res, sizeof(res),

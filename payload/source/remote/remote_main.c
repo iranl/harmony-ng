@@ -666,6 +666,15 @@ int main(int argc, char **argv) {
 
                     uint16_t rf_code = linux_to_harmony_rf_key(ev.code);
 
+                    /* With physical navigation enabled, the bottom keys drive the screen on all views (KEY_BACK passes through to RF) */
+                    if (g_physical_nav_enabled) {
+                        if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||
+                            ev.code == 148 || ev.code == 202 || ev.code == 102 || ev.code == 364) {
+                            handle_navigation_key(ev.code, ev.value);
+                            continue;
+                        }
+                    }
+
                     /* Without touch, and in Settings and Pairing, the bottom keys and Back drive the screen */
                     if (!g_touch_enabled || g_current_view == VIEW_SETTINGS || g_current_view == VIEW_PAIRING) {
                         if (ev.code == 78 || ev.code == 74 || ev.code == 149 || ev.code == 203 ||

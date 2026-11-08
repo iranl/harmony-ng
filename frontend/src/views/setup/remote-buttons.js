@@ -56,6 +56,7 @@ const KEYS = [
   { id: 'Ha4', label: 'Plug 2', ...pad(392, 1772, 143, 52), glyph: 'plug' },
 ];
 const KEY_BY_ID = Object.fromEntries(KEYS.map(k => [k.id, k]));
+const PHYSICAL_NAV_KEYS = new Set(['Ha1', 'Ha2', 'Ha3', 'Ha4', 'RockerUp', 'RockerDown']);
 
 // The two capacitive keys under the screen stay on the remote
 const NAV_KEYS = [
@@ -361,6 +362,8 @@ export function createButtonEditor() {
   const title = h('h4', { className: 'card-title', text: 'Buttons' });
 
   // ── Theme and home layout: the remote's look, which the Hub sets in its settings push ──
+  let physicalNavEnabled = false;
+
   const themeSelect = h('select', {
     className: 'form-select',
     'aria-label': 'Remote theme',
@@ -376,6 +379,39 @@ export function createButtonEditor() {
     h('option', { value: 'grid', text: 'Grid' }),
     h('option', { value: 'carousel', text: 'Carousel' }),
   ]);
+  function updateLayoutOptions() {
+    if (physicalNavEnabled) {
+      layoutSelect.replaceChildren(h('option', { value: 'list', text: 'List' }));
+      layoutSelect.value = 'list';
+      layoutSelect.disabled = true;
+    } else {
+      layoutSelect.disabled = false;
+      layoutSelect.replaceChildren(
+        h('option', { value: 'theme', text: "The theme's" }),
+        h('option', { value: 'list', text: 'List' }),
+        h('option', { value: 'grid', text: 'Grid' }),
+        h('option', { value: 'carousel', text: 'Carousel' })
+      );
+    }
+  }
+  const physicalNavSelect = h('select', {
+    className: 'form-select',
+    'aria-label': 'Physical button navigation',
+    onchange: async () => {
+      const enabled = physicalNavSelect.value === '1';
+      physicalNavEnabled = enabled;
+      updateLayoutOptions();
+      const change = { physical_nav: enabled ? 1 : 0, physicalNavEnabled: enabled };
+      if (enabled) change.layout = 'list';
+      await sendRemoteSetting(change, 'Physical button navigation');
+      refresh();
+      showScreen();
+    },
+  }, [
+    h('option', { value: '0', text: 'Disabled' }),
+    h('option', { value: '1', text: 'Enabled (Locks layout to List)' }),
+  ]);
+
   const remoteConfigPath = () => `/api/rf/remote-config?slot=${slot}`;
   async function loadTheme() {
     const renderer = await loadRemoteRenderer();
@@ -383,7 +419,12 @@ export function createButtonEditor() {
     const [list, cfg] = await Promise.all([renderer.preview.themeList(), api.request(remoteConfigPath()).catch(() => null)]);
     themeSelect.replaceChildren(...list.map(th => h('option', { value: th.id, text: th.name })));
     themeSelect.value = list.some(th => th.id === cfg?.theme) ? cfg.theme : 'classic';
-    layoutSelect.value = ['list', 'grid', 'carousel'].includes(cfg?.layout) ? cfg.layout : 'theme';
+    physicalNavEnabled = Boolean(cfg?.physicalNavEnabled || cfg?.physical_nav);
+    physicalNavSelect.value = physicalNavEnabled ? '1' : '0';
+    updateLayoutOptions();
+    if (!physicalNavEnabled) {
+      layoutSelect.value = ['list', 'grid', 'carousel'].includes(cfg?.layout) ? cfg.layout : 'theme';
+    }
     await setRendererTheme(renderer, themeSelect.value);
     drawScreen();
   }
@@ -391,7 +432,7 @@ export function createButtonEditor() {
     try {
       // The Hub rebuilds the remote's settings from the whole object
       const cfg = await api.request(remoteConfigPath());
-      await api.request(remoteConfigPath(), { method: 'POST', body: JSON.stringify({ ...cfg, ...change }) });
+      await api.request(remoteConfigPath(), { method: 'POST', body: JSON.stringify({ ...cfg, ...change, slot }) });
       toast.success(`${label} sent to the remote.`);
     } catch (e) {
       toast.error(e.message);
@@ -559,6 +600,15 @@ export function createButtonEditor() {
       }, activities().map(a => h('option', { value: String(a.id), text: a.name, selected: String(a.id) === String(own.activityId || own.targetActivity) })));
       rows.push(h('label', { className: 'eb-field' }, [h('span', { text: 'Activity' }), actSelect]));
     }
+    if (physicalNavEnabled && PHYSICAL_NAV_KEYS.has(selected)) {
+      const rows = [
+        h('div', { className: 'eb-key-head' }, [h('strong', { text: k.label }), h('code', { text: k.id }), h('span', { className: 'badge badge-accent', text: 'Physical Nav' })]),
+        h('p', { className: 'text-dim eb-hint', style: { marginTop: '10px' }, text: 'Reserved for physical screen navigation (Select / Back / Up / Down / Tab) on the remote. Cannot be mapped when physical button navigation is enabled.' })
+      ];
+      keyPanel.replaceChildren(...rows);
+      return;
+    }
+
     if (own) {
       const after = inheritedText(selected);
       rows.push(h('div', { className: 'eb-remove-row' }, [
@@ -574,11 +624,20 @@ export function createButtonEditor() {
     copyBtn.textContent = `📋 Copy from Slot ${otherSlot()}`;
     dirtyBadge.style.display = dirty ? '' : 'none';
     KEYS.forEach((k) => {
+      const isReserved = physicalNavEnabled && PHYSICAL_NAV_KEYS.has(k.id);
       const r = resolveBinding(k.id);
       const { g, title: t } = hotspots[k.id];
-      g.setAttribute('class', `eb-key eb-${r.source}${k.id === selected ? ' eb-selected' : ''}`);
-      g.setAttribute('aria-label', `${k.label}: ${r.text}`);
-      t.textContent = `${k.label}: ${r.text}`;
+      if (isReserved) {
+        g.setAttribute('class', `eb-key eb-disabled eb-nav-reserved${k.id === selected ? ' eb-selected' : ''}`);
+        g.setAttribute('aria-label', `${k.label}: Reserved for physical screen navigation`);
+        g.setAttribute('aria-disabled', 'true');
+        t.textContent = `${k.label}: Reserved for physical screen navigation`;
+      } else {
+        g.removeAttribute('aria-disabled');
+        g.setAttribute('class', `eb-key eb-${r.source}${k.id === selected ? ' eb-selected' : ''}`);
+        g.setAttribute('aria-label', `${k.label}: ${r.text}`);
+        t.textContent = `${k.label}: ${r.text}`;
+      }
     });
     renderKeyPanel();
   }
@@ -663,6 +722,7 @@ export function createButtonEditor() {
         ]),
         h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Remote theme' }), themeSelect]),
         h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Home layout' }), layoutSelect]),
+        h('label', { className: 'eb-field eb-theme' }, [h('span', { text: 'Physical button navigation' }), physicalNavSelect]),
       ]),
       h('div', { className: 'eb-panel-col' }, [keyPanel]),
     ]),

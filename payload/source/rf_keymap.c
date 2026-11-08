@@ -11,7 +11,8 @@ static time_t g_remote_map_mtime[2] = {0, 0};
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void get_current_activity(char *out, size_t outlen) {
-    FILE *f = fopen(CURRENT_ACT_FILE, "r");
+    FILE *f = fopen("/tmp/current_activity", "r");
+    if (!f) f = fopen(CURRENT_ACT_FILE, "r");
     if (f) {
         if (fgets(out, outlen, f)) {
             fclose(f);

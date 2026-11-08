@@ -88,6 +88,7 @@ int activity_list_count(void) {
 }
 
 int home_layout(void) {
+    if (g_physical_nav_enabled) return HOME_LAYOUT_LIST;
     if (g_home_layout != HOME_LAYOUT_THEME) return g_home_layout;
     return g_theme.layout == THEME_LAYOUT_GRID ? HOME_LAYOUT_GRID
          : g_theme.layout == THEME_LAYOUT_CAROUSEL ? HOME_LAYOUT_CAROUSEL : HOME_LAYOUT_LIST;

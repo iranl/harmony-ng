@@ -868,6 +868,7 @@ void load_settings_conf(void) {
         if (sscanf(line, "%63[^=]=%63[^\n\r]", key, sval) == 2) {
             int val = atoi(sval);
             if (strcmp(key, "touch") == 0) g_touch_enabled = (val != 0);
+            else if (strcmp(key, "physical_nav") == 0 || strcmp(key, "screen_nav_mode") == 0) g_physical_nav_enabled = (val != 0);
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
@@ -917,6 +918,7 @@ void save_settings_conf(void) {
     FILE *f = fopen(SETTINGS_CONFIG_FILE, "w");
     if (!f) return;
     fprintf(f, "touch=%d\n", g_touch_enabled ? 1 : 0);
+    fprintf(f, "physical_nav=%d\n", g_physical_nav_enabled ? 1 : 0);
     fprintf(f, "cap_buttons=%d\n", g_cap_buttons_enabled ? 1 : 0);
     fprintf(f, "touch_sens=%d\n", g_touch_sensitivity);
     fprintf(f, "gyro=%d\n", g_gyro_enabled ? 1 : 0);

@@ -603,6 +603,58 @@ int main(void) {
         printf("[+] Lists: drag, fling, edge resistance, catch, key reveal; card device rows open the device\n");
     }
 
+    /* 15. Physical Button Navigation */
+    {
+        printf("[-] Testing physical button navigation...\n");
+        g_touch_enabled = true;
+        g_physical_nav_enabled = false;
+        g_current_view = VIEW_ACTIVITIES;
+        g_selected_activity = 0;
+
+        /* When physical nav disabled and touch enabled, navigation keys are ignored in VIEW_ACTIVITIES */
+        handle_navigation_key(74, 1); /* RockerDown */
+        assert(g_selected_activity == 0);
+
+        /* Enable physical navigation */
+        g_physical_nav_enabled = true;
+        g_home_layout = HOME_LAYOUT_CAROUSEL;
+        assert(home_layout() == HOME_LAYOUT_LIST); /* Forces list layout */
+
+        /* Header has no nav badge when touch is enabled, even with physical nav on */
+        header_layout_t hl;
+        header_layout(&hl);
+        assert(hl.nav_x == -1);
+
+        /* RockerDown moves selected activity down */
+        handle_navigation_key(74, 1); /* RockerDown */
+        assert(g_selected_activity == 1);
+
+        /* RockerUp moves selected activity up */
+        handle_navigation_key(78, 1); /* RockerUp */
+        assert(g_selected_activity == 0);
+
+        /* Ha4 (code=203) Next tab cycles to VIEW_DEVICES */
+        handle_navigation_key(203, 1);
+        assert(g_current_view == VIEW_DEVICES);
+
+        /* Ha2 (code=149) Prev tab cycles back to VIEW_ACTIVITIES */
+        handle_navigation_key(149, 1);
+        assert(g_current_view == VIEW_ACTIVITIES);
+
+        /* Open device browser and test Ha3 (code=202) Back */
+        open_device_browser();
+        assert(g_current_view == VIEW_DEVICE_BROWSER);
+        handle_navigation_key(202, 1); /* Ha3 Back */
+        assert(g_current_view == VIEW_DEVICES);
+        handle_navigation_key(202, 1); /* Ha3 Back again to home */
+        assert(g_current_view == VIEW_ACTIVITIES);
+
+        /* Reset state */
+        g_physical_nav_enabled = false;
+        g_home_layout = HOME_LAYOUT_LIST;
+        printf("[+] Physical button navigation verified!\n");
+    }
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS REMOTE UI CHECKS PASSED!\n");
     return 0;

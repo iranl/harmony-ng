@@ -18,6 +18,15 @@ static int test_evaluate_reconnect(cJSON *devs, const char *executed_dev_id, con
                                    char *out_target_bdaddr, size_t bdaddr_sz, int *out_delay, int *out_dur) {
     if (!devs || !executed_cmd || !executed_cmd[0]) return 0;
 
+    /* Do not trigger BT reconnect for power-down or standby commands */
+    if (strcasecmp(executed_cmd, "PowerOff") == 0 ||
+        strcasecmp(executed_cmd, "Sleep") == 0 ||
+        strcasecmp(executed_cmd, "PowerToggle") == 0 ||
+        strcasecmp(executed_cmd, "Power") == 0 ||
+        strcasecmp(executed_cmd, "Standby") == 0) {
+        return 0;
+    }
+
     int matched_any = 0;
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, devs) {
@@ -225,6 +234,13 @@ int main(void) {
     rc = test_evaluate_reconnect(devs, "100", "MQTT Switch", "VolumeUp", bdaddr, sizeof(bdaddr), &delay, &dur);
     assert(rc == 0);
     printf("  [PASS] Test 4: Unrelated command does not trigger reconnect\n");
+
+    /* Scenario 5: PowerOff and Sleep on Shield TV do NOT trigger reconnect */
+    rc = test_evaluate_reconnect(devs, "7234912", "NVIDIA Shield", "PowerOff", bdaddr, sizeof(bdaddr), &delay, &dur);
+    assert(rc == 0);
+    rc = test_evaluate_reconnect(devs, "7234912", "NVIDIA Shield", "Sleep", bdaddr, sizeof(bdaddr), &delay, &dur);
+    assert(rc == 0);
+    printf("  [PASS] Test 5: PowerOff and Sleep on Shield TV do not trigger reconnect\n");
 
     cJSON_Delete(devs);
     printf("[+] All tests passed successfully!\n");

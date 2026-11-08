@@ -164,6 +164,10 @@ void execute_settings_action(int idx) {
                 break;
             }
             case 5:
+                if (g_physical_nav_enabled) {
+                    show_notice("Layout locked to List by Physical Nav", 2500);
+                    break;
+                }
                 g_home_layout = (g_home_layout + 1) % HOME_LAYOUT_COUNT;
                 g_selected_activity = 0;
                 home_select_running();
@@ -186,6 +190,15 @@ void execute_settings_action(int idx) {
                 break;
             case 2:
                 cycle_touch_sensitivity();
+                save_settings_conf();
+                break;
+            case 3:
+                g_physical_nav_enabled = !g_physical_nav_enabled;
+                if (g_physical_nav_enabled) {
+                    g_home_layout = HOME_LAYOUT_LIST;
+                    g_selected_activity = 0;
+                    home_select_running();
+                }
                 save_settings_conf();
                 break;
             default: break;

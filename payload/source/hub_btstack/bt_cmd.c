@@ -386,6 +386,8 @@ void execute_btstack_cmd(const char *cmd_in) {
                 try_connect_host();
             }
         }
+    } else if (strncasecmp(cmd, "stop_reconnect", 14) == 0) {
+        stop_host_reconnect();
     } else if (strncasecmp(cmd, "disconnect_host", 15) == 0) {
         stop_host_reconnect();
         /* A disconnect that was asked for must not be undone by the auto-reconnect on the close

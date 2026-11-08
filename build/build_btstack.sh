@@ -58,11 +58,11 @@ if [ ! -d "$BTSTACK_DIR/src" ]; then
 fi
 if [ -f "$BTSTACK_PATCH" ]; then
     # A patch that does not apply used to be ignored, building hub_btstack without it
-    if (cd "$BTSTACK_DIR" && git apply --check --reverse --whitespace=nowarn "$BTSTACK_PATCH" 2>/dev/null); then
+    if (cd "$BTSTACK_DIR" && git apply --check --reverse --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH" 2>/dev/null); then
         echo "btstack.patch already applied"
-    elif (cd "$BTSTACK_DIR" && git apply --whitespace=nowarn "$BTSTACK_PATCH"); then
+    elif (cd "$BTSTACK_DIR" && git apply --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH"); then
         echo "Applied btstack.patch"
-    elif (cd "$BTSTACK_DIR" && git checkout -q -- . && git clean -fdq && git apply --whitespace=nowarn "$BTSTACK_PATCH"); then
+    elif (cd "$BTSTACK_DIR" && git checkout -q -- . && git clean -fdq && git apply --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH"); then
         # A clone left by an earlier build carries the previous version of the patch
         echo "Applied btstack.patch to a reset clone"
     else

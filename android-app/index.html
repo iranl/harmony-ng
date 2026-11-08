@@ -2788,6 +2788,15 @@
                   <option value="21-8">21:00 – 08:00</option>
                 </select>
               </div>
+              <div>
+                <label for="rfCfgHomeLayout">Home Layout</label>
+                <select id="rfCfgHomeLayout" class="form-control">
+                  <option value="theme" selected>The Theme's</option>
+                  <option value="list">List</option>
+                  <option value="grid">Grid</option>
+                  <option value="carousel">Carousel</option>
+                </select>
+              </div>
             </div>
 
             <!-- Touch Category -->
@@ -2820,20 +2829,10 @@
                 </select>
               </div>
               <div>
-                <label for="rfCfgNavKey">Nav Mode Toggle Key</label>
-                <select id="rfCfgNavKey" class="form-control">
-                  <option value="139" selected>Menu Key (139) (Default)</option>
-                  <option value="358">Info Key (358)</option>
-                  <option value="395">Guide Key (395)</option>
-                  <option value="389">DVR Key (389)</option>
-                  <option value="174">Exit Key (174)</option>
-                </select>
-              </div>
-              <div>
-                <label for="rfCfgNavMode" data-i18n="nav_toggle_mode_lbl">Nav Toggle Mode</label>
-                <select id="rfCfgNavMode" class="form-control">
-                  <option value="0" data-i18n="opt_short_press">Short Press</option>
-                  <option value="1" selected data-i18n="opt_long_press_hold">Long Press Hold (500ms) (Default)</option>
+                <label for="rfCfgPhysicalNav">Physical Button Navigation</label>
+                <select id="rfCfgPhysicalNav" class="form-control">
+                  <option value="0" selected>Disabled (Default)</option>
+                  <option value="1">Enabled (Physical buttons navigate UI; locks layout to List)</option>
                 </select>
               </div>
             </div>

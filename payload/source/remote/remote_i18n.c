@@ -174,6 +174,8 @@ static const char * const g_remote_strings[STR_COUNT][REMOTE_LANG_COUNT] = {
     { "Capacitive Buttons", "Sensortasten", "Touches capacitives", "Sensorknoppen", "Botones capacitivos", "Tasti capacitivi" },
     /* STR_TOUCH_SENSITIVITY */
     { "Touch Sensitivity", "Touch-Empfindlichkeit", "Sensibilite tactile", "Aanraakgevoeligheid", "Sensibilidad tactil", "Sensibilita tocco" },
+    /* STR_PHYSICAL_NAV */
+    { "Physical Button Nav", "Physische Tasten-Nav", "Nav par touches", "Fysieke knoppennav.", "Nav botones fisicos", "Nav tasti fisici" },
 
     /* STR_TILT_WAKE */
     { "Tilt / Pickup Wake", "Beim Anheben wecken", "Reveil au mouvement", "Ontwaken bij optillen", "Encender al mover", "Risveglio al movimento" },

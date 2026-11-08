@@ -5,6 +5,7 @@
 #include "ir_i2s.h"
 #include "config_store.h"
 #include "bt_common.h"
+#include "orchestrator.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -131,6 +132,20 @@ static int is_bt_device_connected(const char *target_bdaddr) {
 
 static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
     if (!devs || !executed_cmd || !executed_cmd[0]) return;
+
+    /* Do not trigger BT reconnect while stopping or in PowerOff */
+    if (orch_get_state() == ORCH_STATE_STOPPING || strcmp(orch_get_current_activity(), "-1") == 0) {
+        return;
+    }
+
+    /* Do not trigger BT reconnect for power-down or standby commands */
+    if (strcasecmp(executed_cmd, "PowerOff") == 0 ||
+        strcasecmp(executed_cmd, "Sleep") == 0 ||
+        strcasecmp(executed_cmd, "PowerToggle") == 0 ||
+        strcasecmp(executed_cmd, "Power") == 0 ||
+        strcasecmp(executed_cmd, "Standby") == 0) {
+        return;
+    }
 
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, devs) {

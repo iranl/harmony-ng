@@ -430,7 +430,12 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_language = (remote_lang_t)f->payload[20];
             }
             if (rf_theme_name(f->payload[21])) apply_theme(rf_theme_name(f->payload[21]));
-            if (rf_layout_name(f->payload[22]) && f->payload[22] - 1 != g_home_layout) {
+            g_physical_nav_enabled = (f->payload[23] != 0);
+            if (g_physical_nav_enabled) {
+                g_home_layout = HOME_LAYOUT_LIST;
+                g_selected_activity = 0;
+                home_select_running();
+            } else if (rf_layout_name(f->payload[22]) && f->payload[22] - 1 != g_home_layout) {
                 g_home_layout = f->payload[22] - 1; /* HOME_LAYOUT_* in rf_layout_name() order */
                 g_selected_activity = 0;
                 home_select_running();

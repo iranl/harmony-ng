@@ -98,6 +98,7 @@ int g_factory_reset_stage = 0;
 uint64_t g_suspend_countdown_start_ms = 0;
 int g_selected_pair_opt = 0;
 bool g_touch_enabled = true;
+bool g_physical_nav_enabled = false;
 bool g_cap_buttons_enabled = true;
 int g_touch_sensitivity = 2;   /* 1 = Low, 2 = Normal, 3 = High */
 uint64_t g_last_switch_completed_ms = 0;

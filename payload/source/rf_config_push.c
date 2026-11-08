@@ -808,8 +808,13 @@ void *config_push_worker(void *arg) {
                 int theme = cJSON_IsString(jtheme) ? rf_theme_id(jtheme->valuestring) : 0;
                 cJSON *jlayout = cJSON_GetObjectItem(sroot, "layout");
                 int layout = cJSON_IsString(jlayout) ? rf_layout_id(jlayout->valuestring) : 0;
+                cJSON *jpn = cJSON_GetObjectItem(sroot, "physicalNavEnabled");
+                if (!jpn) jpn = cJSON_GetObjectItem(sroot, "physical_nav");
+                if (!jpn) jpn = cJSON_GetObjectItem(sroot, "screen_nav_mode");
+                int physical_nav = (jpn && (cJSON_IsTrue(jpn) || (cJSON_IsNumber(jpn) && jpn->valueint != 0))) ? 1 : 0;
+                if (physical_nav) layout = rf_layout_id("list");
                 cJSON_Delete(sroot);
-                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout);
+                rf_build_settings_push(&f, target_slot, bright, timeout, touch, gyro, nav_key, nav_mode, confirm_act, touch_sens, remote_mode, gyro_rate, btn_backlight, night_start, night_end, usbeth, no_screen, cap_buttons, power_debug, language, theme, layout, physical_nav);
                 push_queue_add(&queue[t], &f);
             }
         }

@@ -47,16 +47,19 @@ static uint64_t get_now_ms(void) {
 
 static void save_current_activity(const char *act_id) {
     if (!act_id || !act_id[0]) return;
+    /* Mirror to /tmp in RAM for atomic zero-contention reads */
+    FILE *ft = fopen("/tmp/current_activity", "w");
+    if (ft) {
+        fprintf(ft, "%s\n", act_id);
+        fclose(ft);
+    }
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "%s.tmp", PRIMARY_CURRENT_ACT_FILE);
     FILE *f = fopen(tmp, "w");
     if (!f) return;
     fprintf(f, "%s\n", act_id);
-    fflush(f);
-    fsync(fileno(f));
     fclose(f);
     rename(tmp, PRIMARY_CURRENT_ACT_FILE);
-    sync();
 }
 
 static void load_current_activity(void) {
@@ -129,8 +132,6 @@ void orch_cancel(void) {
         save_current_activity(g_current_act);
         g_state = ORCH_STATE_IDLE;
         pthread_mutex_unlock(&g_act_lock);
-        hub_send_btstack_cmd("disconnect_host\n");
-        system("killall -9 bt_reconnect.sh 2>/dev/null");
     } else {
         g_state = (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING;
         pthread_mutex_unlock(&g_act_lock);
@@ -261,11 +262,6 @@ int orch_tick(void) {
             g_state = (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING;
             pthread_mutex_unlock(&g_act_lock);
 
-            if (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) {
-                hub_send_btstack_cmd("disconnect_host\n");
-                system("killall -9 bt_reconnect.sh 2>/dev/null");
-            }
-
             if (g_progress_cb) {
                 g_progress_cb(g_target_act, g_state, (int)g_current_step + 1,
                               (int)g_queue_len, "Activity switched", g_cb_user_data);
@@ -274,6 +270,9 @@ int orch_tick(void) {
             g_next_deadline_ms = now;
             return 1;
         } else {
+            printf("[*] Orch step %zu/%zu: %s (type=%d, delay=%ums)\n",
+                   g_current_step + 1, g_queue_len, step->description, step->type, step->delay_ms);
+            fflush(stdout);
             execute_step(step);
         }
 
@@ -297,15 +296,6 @@ int orch_tick(void) {
     }
     g_queue_len = 0;
     g_current_step = 0;
-
-    pthread_mutex_lock(&g_act_lock);
-    int is_poweroff = (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0);
-    pthread_mutex_unlock(&g_act_lock);
-
-    if (is_poweroff) {
-        hub_send_btstack_cmd("disconnect_host\n");
-        system("killall -9 bt_reconnect.sh 2>/dev/null");
-    }
 
     if (g_progress_cb) {
         g_progress_cb(g_current_act, g_state, 0, 0, "Transition completed", g_cb_user_data);
@@ -416,6 +406,10 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
 
     strncpy(g_target_act, target_activity_id, sizeof(g_target_act) - 1);
     g_state = (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING;
+    if (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) {
+        save_current_activity(ORCH_POWEROFF_ID);
+        hub_send_btstack_cmd("stop_reconnect\n");
+    }
 
     int rc = orch_compile_transition(target_activity_id);
     if (rc != 0) {
@@ -429,11 +423,6 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         save_current_activity(g_current_act);
         g_state = (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING;
         pthread_mutex_unlock(&g_act_lock);
-
-        if (strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) {
-            hub_send_btstack_cmd("disconnect_host\n");
-            system("killall -9 bt_reconnect.sh 2>/dev/null");
-        }
 
         if (g_progress_cb) {
             g_progress_cb(g_target_act, g_state, 0, 0, "Transition completed", g_cb_user_data);

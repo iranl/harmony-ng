@@ -329,6 +329,18 @@
 .remote-hotspot.rect {
   border-radius: 6px;
 }
+.remote-hotspot.disabled, .remote-hotspot.nav-reserved {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(15, 23, 42, 0.4) !important;
+  box-shadow: none !important;
+}
+.remote-hotspot.disabled:hover, .remote-hotspot.nav-reserved:hover {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  background: rgba(15, 23, 42, 0.4) !important;
+  box-shadow: none !important;
+}
 
 /* Color Hotspots (Physical Bluetooth Remote & Harmony Touchscreen Remote) */
 .btn-color-red, .remote-color-red, [data-btn="red"], [data-btn="Red"] {

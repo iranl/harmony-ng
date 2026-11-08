@@ -48,6 +48,9 @@
 .eb-key.eb-default > :first-child, .eb-key.eb-name > :first-child { fill: #1e3a4c; }
 .eb-key.eb-none { color: #6b7280; }
 .eb-key.eb-fixed > :first-child { fill: #3a2530; }
+.eb-key.eb-disabled { opacity: 0.4; cursor: not-allowed; }
+.eb-key.eb-disabled > :first-child { stroke-dasharray: 6 3; stroke: #4b5563; }
+.eb-key.eb-disabled:hover > :first-child, .eb-key.eb-disabled:focus-visible > :first-child { fill: #262c36; }
 .eb-key:hover > :first-child, .eb-key:focus-visible > :first-child { fill: #075985; }
 .eb-key.eb-selected > :first-child { stroke: var(--warning); stroke-width: 6; }
 .eb-nav > rect { fill: transparent; stroke: #9ca3af; stroke-width: 3; }
