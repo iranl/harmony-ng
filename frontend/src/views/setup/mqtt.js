@@ -14,7 +14,7 @@ export function createView() {
       h('h3', { className: 'card-title', text: t('mqtt_config', 'MQTT & Home Assistant') }),
       h('span', { id: 'mqtt-status-badge', className: 'badge', text: 'Checking...' }),
     ]),
-    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '14px' }, text: t('elite_mqtt_help', 'Mirror physical Harmony remote button presses to MQTT for Home Assistant automations.') }),
+    h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '14px' }, text: t('remote_mqtt_help', 'Mirror physical Harmony remote button presses to MQTT for Home Assistant automations.') }),
     h('form', { id: 'mqtt-form', onsubmit: (e) => saveMqtt(e) }, [
       h('div', { className: 'form-group' }, [
         h('label', { className: 'form-label', text: 'Broker Host / IP' }),
@@ -48,7 +48,7 @@ export function createView() {
         ]),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px' } }, [
           h('input', { id: 'mqtt-slot1-events', type: 'checkbox', checked: true }),
-          h('span', { style: { fontSize: '13px' }, text: t('enable_elite_mqtt', 'Mirror Harmony remote button presses to MQTT') }),
+          h('span', { style: { fontSize: '13px' }, text: t('enable_remote_mqtt', 'Mirror Harmony remote button presses to MQTT') }),
         ]),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
           h('input', { id: 'mqtt-bt-events', type: 'checkbox' }),

@@ -1076,9 +1076,9 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         if id_map:
             slot1_obj = remap_remote_map_activities(slot1_obj, id_map)
     elif stock_maps:
-        slot1_obj = _complete_remote_map(stock_maps[0], activities_obj, devices_obj, "Harmony Elite", roles)
+        slot1_obj = _complete_remote_map(stock_maps[0], activities_obj, devices_obj, "Harmony Remote", roles)
     elif activities_obj and devices_obj:
-        slot1_obj = generate_default_remote_map(activities_obj, devices_obj, "Harmony Elite", roles)
+        slot1_obj = generate_default_remote_map(activities_obj, devices_obj, "Harmony Remote", roles)
 
     if slot1_obj:
         with open(os.path.join(dest_harmony, "remote_slot1_map.json"), "w", encoding="utf-8") as f:
@@ -1269,7 +1269,7 @@ def main() -> None:
     print(f"    Devices: {stats.get('devices')}")
     print(f"    Activities: {stats.get('activities')}")
     print(f"    Settings: {stats.get('settings')}")
-    print(f"    Remote Slot 1 (Elite): {stats.get('slot1_map')}")
+    print(f"    Remote Slot 1: {stats.get('slot1_map')}")
     print(f"    Remote Slot 2 (Companion): {stats.get('slot2_map')}")
     print(f"    Bluetooth Remote Map: {stats.get('bt_remote_map')}")
     print(f"    MQTT: {stats.get('mqtt')}")

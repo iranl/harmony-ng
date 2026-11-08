@@ -259,7 +259,7 @@ class HubDeployer:
                 self.run_ssh(
                     "mkdir -p /data/stock_backup; "
                     "if [ -f /etc/init.d/rcS.local ] && [ ! -f /data/stock_backup/rcS.local.orig ]; then "
-                    "  if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then "
+                    "  if ! grep -q 'elite' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'remote_' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'codex' /etc/init.d/rcS.local 2>/dev/null && ! grep -q 'harmony' /etc/init.d/rcS.local 2>/dev/null; then "
                     "    cp -f /etc/init.d/rcS.local /data/stock_backup/rcS.local.orig; "
                     "    echo '[+] Saved /etc/init.d/rcS.local to /data/stock_backup/rcS.local.orig'; "
                     "  fi; "
@@ -292,7 +292,7 @@ class HubDeployer:
                 "[ -f /data/harmony/elite_remote_map.json ] && [ ! -f /data/harmony/remote_slot1_map.json ] && mv -f /data/harmony/elite_remote_map.json /data/harmony/remote_slot1_map.json 2>/dev/null || true; "
                 "[ -f /data/harmony/bt_devices.json ] && [ ! -f /data/harmony/bt-devices.json ] && mv -f /data/harmony/bt_devices.json /data/harmony/bt-devices.json 2>/dev/null || true; "
                 "rm -rf /data/codex-backups /data/codexmqtt /data/harmony-backups /cache/crashlog-*.json 2>/dev/null; "
-                "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/elite_ui.ota.gz /data/elite_ui.version 2>/dev/null || true; "
+                "rm -f /data/harmony/mqtt_config.json /data/harmony/elite_remote_map.json /data/harmony/bt_devices.json /data/devices.json /data/activities.json /data/harmony/devices.json /data/harmony/config/.imported /data/remote_ui.ota.gz /data/remote_ui.version 2>/dev/null || true; "
                 "rm -f /cache/codex_*.ota.gz /cache/codex_*.ota /cache/*.new /cache/*/*.new /data/harmony/*.new /data/harmony/*/*.new /data/rf_pair_test /data/test_hub_tx /data/codex_rf /data/hub_rf /data/harmony/bin/codex_* /cache/bin/codex_* /var/run/codex_* 2>/dev/null || true; "
                 "mkdir -p /data/harmony/bin /data/harmony/www/assets /data/harmony/config /data/harmony/custom_icons"
             )
@@ -348,7 +348,7 @@ class HubDeployer:
             self.query_remote_hashes(
                 "/data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* "
                 "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox "
-                "/data/harmony/elite_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local"
+                "/data/harmony/remote_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
             # Deploy core binaries
@@ -403,15 +403,22 @@ class HubDeployer:
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
 
-            # Deploy Elite RF OTA image
-            elite_ota = self.repo_root / "elite" / "bin" / "elite_ui.ota.gz"
-            if not elite_ota.is_file():
-                elite_ota = self.repo_root / "build" / "output" / "elite" / "elite_ui.ota.gz"
-            if elite_ota.is_file():
-                print("[*] Syncing Elite RF OTA image (/data/harmony/elite_ui.ota.gz)...")
-                self.deploy_file_if_changed(elite_ota, "/data/harmony/elite_ui.ota.gz", "644")
-                if not self.dry_skip("copy /data/harmony/VERSION to /data/harmony/elite_ui.version"):
-                    self.run_ssh("rm -f /cache/elite_ui.ota.gz 2>/dev/null || true; cp -f /data/harmony/VERSION /data/harmony/elite_ui.version 2>/dev/null || true")
+            # Deploy the remote's RF OTA image. elite/bin/elite_ui.ota.gz: a release bundle or a
+            # tree from before the elite -> remote rename.
+            remote_ota = None
+            for cand in (self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
+                         self.repo_root / "build" / "output" / "remote" / "remote_ui.ota.gz",
+                         self.repo_root / "elite" / "bin" / "elite_ui.ota.gz",
+                         self.repo_root / "build" / "output" / "elite" / "elite_ui.ota.gz"):
+                if cand.is_file():
+                    remote_ota = cand
+                    break
+            if remote_ota:
+                print("[*] Syncing the remote's RF OTA image (/data/harmony/remote_ui.ota.gz)...")
+                self.deploy_file_if_changed(remote_ota, "/data/harmony/remote_ui.ota.gz", "644")
+                if not self.dry_skip("copy /data/harmony/VERSION to /data/harmony/remote_ui.version"):
+                    self.run_ssh("rm -f /cache/remote_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
+                                 "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
 
             # Deploy configs
             if self.config_dir.is_dir():
@@ -450,10 +457,10 @@ class HubDeployer:
             else:
                 ui_src_dir = self.repo_root / ("android-app" if self.ui_choice == "legacy" else "frontend")
                 if shutil.which("emcc"):
-                    render_sh = self.repo_root / "tools" / "elite_render" / "build.sh"
+                    render_sh = self.repo_root / "tools" / "remote_render" / "build.sh"
                     if render_sh.is_file():
                         subprocess.run(["bash", str(render_sh), "--wasm", str(ui_src_dir / "public" / "assets")], capture_output=True)
-                    theme_py = self.repo_root / "tools" / "elite_render" / "build_theme.py"
+                    theme_py = self.repo_root / "tools" / "remote_render" / "build_theme.py"
                     if theme_py.is_file():
                         subprocess.run([sys.executable, str(theme_py), "--tar", str(ui_src_dir / "public" / "assets" / "themes")], capture_output=True)
 
@@ -522,7 +529,7 @@ class HubDeployer:
         elif not self.icons_tar.is_file() and self.fw_tool.is_file():
             print(f"\n[?] {self.icons_tar.name} not found on host.")
             try:
-                reply = input(f"Download official Elite firmware, extract 1,350 icons, and build {self.icons_tar.name} now? [Y/n] ")
+                reply = input(f"Download official remote firmware, extract 1,350 icons, and build {self.icons_tar.name} now? [Y/n] ")
             except EOFError:
                 reply = "y"
             if not reply.strip() or reply.strip().lower().startswith("y"):

@@ -105,12 +105,12 @@ export function createSystemApi(client) {
           haDiscovery: data.haDiscovery !== undefined ? Boolean(data.haDiscovery) : (cfg.haDiscovery !== undefined ? Boolean(cfg.haDiscovery) : true),
           btRemoteEvents: Boolean(data.btRemoteEvents !== undefined ? data.btRemoteEvents : (cfg.btRemoteEvents !== undefined ? cfg.btRemoteEvents : false)),
           btRemoteTopic: data.btRemoteTopic || cfg.btRemoteTopic || '',
-          slot1RemoteEvents: Boolean(data.slot1RemoteEvents !== undefined ? data.slot1RemoteEvents : (cfg.slot1RemoteEvents !== undefined ? cfg.slot1RemoteEvents : (data.eliteRemoteEvents !== undefined ? data.eliteRemoteEvents : true))),
-          slot1RemoteTopic: data.slot1RemoteTopic || cfg.slot1RemoteTopic || data.eliteRemoteTopic || cfg.eliteRemoteTopic || '',
+          slot1RemoteEvents: Boolean(data.slot1RemoteEvents !== undefined ? data.slot1RemoteEvents : (cfg.slot1RemoteEvents !== undefined ? cfg.slot1RemoteEvents : (data.remoteEvents !== undefined ? data.remoteEvents : true))),
+          slot1RemoteTopic: data.slot1RemoteTopic || cfg.slot1RemoteTopic || data.remoteTopic || cfg.remoteTopic || '',
           slot2RemoteEvents: Boolean(data.slot2RemoteEvents !== undefined ? data.slot2RemoteEvents : (cfg.slot2RemoteEvents !== undefined ? cfg.slot2RemoteEvents : false)),
           slot2RemoteTopic: data.slot2RemoteTopic || cfg.slot2RemoteTopic || '',
-          eliteRemoteEvents: Boolean(data.eliteRemoteEvents !== undefined ? data.eliteRemoteEvents : (cfg.eliteRemoteEvents !== undefined ? cfg.eliteRemoteEvents : true)),
-          eliteRemoteTopic: data.eliteRemoteTopic || cfg.eliteRemoteTopic || ''
+          remoteEvents: Boolean(data.remoteEvents !== undefined ? data.remoteEvents : (cfg.remoteEvents !== undefined ? cfg.remoteEvents : true)),
+          remoteTopic: data.remoteTopic || cfg.remoteTopic || ''
         }
       };
     },

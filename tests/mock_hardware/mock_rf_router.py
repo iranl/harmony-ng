@@ -23,13 +23,13 @@ class CC2544VirtualRouter:
         self.mock_dir = mock_dir
         os.makedirs(self.mock_dir, exist_ok=True)
         self.hub_sock_path = os.path.join(self.mock_dir, "hub_rf.sock")
-        self.elite_sock_path = os.path.join(self.mock_dir, "elite_rf.sock")
+        self.remote_sock_path = os.path.join(self.mock_dir, "remote_rf.sock")
 
         self.running = False
         self.hub_server = None
-        self.elite_server = None
+        self.remote_server = None
         self.hub_client = None
-        self.elite_client = None
+        self.remote_client = None
 
         self.hub_tx_count = 0
         self.remote_tx_count = 0
@@ -39,7 +39,7 @@ class CC2544VirtualRouter:
 
     def start(self):
         # Remove old socket files if present
-        for p in (self.hub_sock_path, self.elite_sock_path):
+        for p in (self.hub_sock_path, self.remote_sock_path):
             if os.path.exists(p):
                 os.unlink(p)
 
@@ -47,14 +47,14 @@ class CC2544VirtualRouter:
         self.hub_server.bind(self.hub_sock_path)
         self.hub_server.listen(1)
 
-        self.elite_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.elite_server.bind(self.elite_sock_path)
-        self.elite_server.listen(1)
+        self.remote_server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.remote_server.bind(self.remote_sock_path)
+        self.remote_server.listen(1)
 
         self.running = True
         log.info(f"CC2544 Virtual RF Router online.")
         log.info(f"  Hub socket:   {self.hub_sock_path}")
-        log.info(f"  Elite socket: {self.elite_sock_path}")
+        log.info(f"  Remote socket: {self.remote_sock_path}")
 
         self.worker_thread = threading.Thread(target=self._run_loop, daemon=True)
         self.worker_thread.start()
@@ -64,16 +64,16 @@ class CC2544VirtualRouter:
         if self.hub_client:
             try: self.hub_client.close()
             except: pass
-        if self.elite_client:
-            try: self.elite_client.close()
+        if self.remote_client:
+            try: self.remote_client.close()
             except: pass
         if self.hub_server:
             try: self.hub_server.close()
             except: pass
-        if self.elite_server:
-            try: self.elite_server.close()
+        if self.remote_server:
+            try: self.remote_server.close()
             except: pass
-        for p in (self.hub_sock_path, self.elite_sock_path):
+        for p in (self.hub_sock_path, self.remote_sock_path):
             if os.path.exists(p):
                 try: os.unlink(p)
                 except: pass
@@ -81,9 +81,9 @@ class CC2544VirtualRouter:
 
     def _run_loop(self):
         while self.running:
-            readable = [self.hub_server, self.elite_server]
+            readable = [self.hub_server, self.remote_server]
             if self.hub_client: readable.append(self.hub_client)
-            if self.elite_client: readable.append(self.elite_client)
+            if self.remote_client: readable.append(self.remote_client)
 
             try:
                 r, _, _ = select.select(readable, [], [], 0.1)
@@ -96,14 +96,14 @@ class CC2544VirtualRouter:
                     client.setblocking(False)
                     self.hub_client = client
                     log.info("[+] Hub CC2544 connected")
-                elif s is self.elite_server:
-                    client, _ = self.elite_server.accept()
+                elif s is self.remote_server:
+                    client, _ = self.remote_server.accept()
                     client.setblocking(False)
-                    self.elite_client = client
+                    self.remote_client = client
                     log.info("[+] Remote CC2544 connected")
                 elif s is self.hub_client:
                     self._handle_hub_traffic()
-                elif s is self.elite_client:
+                elif s is self.remote_client:
                     self._handle_remote_traffic()
 
     def _handle_hub_traffic(self):
@@ -143,7 +143,7 @@ class CC2544VirtualRouter:
 
             # Route to Remote: Format as 32-byte Report 0x20
             # [0x20] [0x21] [0x12] [0x01] [hdr_flag] [msg_type] [flags] [payload (25B)]
-            if self.elite_client:
+            if self.remote_client:
                 remote_frame = bytearray(32)
                 remote_frame[0] = 0x20
                 remote_frame[1] = 0x21
@@ -154,17 +154,17 @@ class CC2544VirtualRouter:
                 remote_frame[6] = flags
                 remote_frame[7:32] = payload
                 try:
-                    self.elite_client.sendall(remote_frame)
+                    self.remote_client.sendall(remote_frame)
                 except Exception as e:
-                    log.warning(f"Failed delivering to Elite: {e}")
+                    log.warning(f"Failed delivering to remote: {e}")
 
     def _handle_remote_traffic(self):
         try:
-            data = self.elite_client.recv(1024)
+            data = self.remote_client.recv(1024)
             if not data:
                 log.info("[-] Remote disconnected")
-                self.elite_client.close()
-                self.elite_client = None
+                self.remote_client.close()
+                self.remote_client = None
                 return
         except Exception:
             return

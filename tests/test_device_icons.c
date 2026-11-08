@@ -1,5 +1,5 @@
 #include "rf_proto.h"
-#include "elite_stock_icons.h"
+#include "remote_stock_icons.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>

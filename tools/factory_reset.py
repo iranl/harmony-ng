@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Harmony Hub & Elite Remote - Factory Reset & Stock Revert Utility.
+"""Harmony Hub & Remote - Factory Reset & Stock Revert Utility.
 
 Safely wipes all custom runtime files, removes persistence scripts,
 restores original stock configuration files and permissions, and reboots
@@ -13,7 +13,7 @@ Hardware Factory Reset Alternative (No SSH Required):
         4. Release when the front LED flashes red rapidly.
         5. Restore stock configuration using: python tools/restore_stock.py
 
-    Harmony Elite Remote:
+    Harmony Remote:
         1. Press and hold 'Menu' (above CH+) and 'Off' (top power button) simultaneously.
         2. Keep holding both buttons for ~20 seconds.
         3. The remote graphic with circular arrow will flash briefly first.
@@ -22,7 +22,7 @@ Hardware Factory Reset Alternative (No SSH Required):
 
 Usage:
     python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
-    python tools/factory_reset.py --target elite [--elite-ip 192.168.2.1]
+    python tools/factory_reset.py --target remote [--remote-ip 192.168.2.1]
     python tools/factory_reset.py --target all
     python tools/factory_reset.py --restore-backup
 """
@@ -40,7 +40,7 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 
 DEFAULT_HUB_IP = os.environ.get("HUB_IP", "192.168.1.1")
-DEFAULT_ELITE_IP = "192.168.2.1"
+DEFAULT_REMOTE_IP = "192.168.2.1"
 
 
 def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
@@ -118,21 +118,21 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
     return True
 
 
-def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
-    target = f"root@{elite_ip}"
-    print(f"\n[*] Probing Harmony Elite Remote at {target}...")
+def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
+    target = f"root@{remote_ip}"
+    print(f"\n[*] Probing Harmony remote at {target}...")
     probe = run_ssh_cmd(target, "uname -a", ssh_opts)
     if probe.returncode != 0:
-        print(f"[-] Cannot reach Elite over SSH at {target}: {probe.stderr.strip()}")
+        print(f"[-] Cannot reach the remote over SSH at {target}: {probe.stderr.strip()}")
         print("    Ensure remote is connected via USB and PC adapter is set to 192.168.2.2.")
         return False
 
-    print(f"[+] Connected to Elite: {probe.stdout.strip()}")
-    print("[*] Performing Elite Remote factory reset sequence:")
+    print(f"[+] Connected to remote: {probe.stdout.strip()}")
+    print("[*] Performing remote factory reset sequence:")
 
     commands = [
-        # 1. Stop elite runtime & supervisors
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh elite_ui elite_watchdog.sh 2>/dev/null || true",
+        # 1. Stop remote runtime & supervisors
+        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui elite_ui remote_watchdog.sh elite_watchdog.sh 2>/dev/null || true",
         # 2. Restore stock rcS.local
         (
             "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
@@ -152,16 +152,17 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
         ),
         # 4. Remove custom triggers, dangling symlinks, and files
         (
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/elite_ui.conf /tmp/elite_ui.log /tmp/elite-init.log /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
+            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/remote_ui.conf /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true; "
             "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
             "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-            "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
+            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
+            "rm -f /data/remote_* /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
             "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
             "echo '  + Removed all custom binaries, Dropbear symlinks, and configuration files'"
         ),
-        # 5. Flush filesystem writes
-        "/data/elite_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
+        # 5. Flush filesystem writes (our sync binary is gone by now; stock firmware
+        #    has no sync link in PATH, only the BusyBox applet)
+        "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
     ]
 
     for c in commands:
@@ -169,9 +170,9 @@ def reset_elite(elite_ip: str, ssh_opts: list[str]) -> bool:
         if res.stdout.strip():
             print(res.stdout.strip())
 
-    print("[*] Rebooting Harmony Elite into stock firmware...")
+    print("[*] Rebooting the Harmony remote into stock firmware...")
     run_ssh_cmd(target, "reboot -f 2>/dev/null &", ssh_opts)
-    print("[+] Elite reboot signal delivered. Remote will boot into stock Logitech UI.")
+    print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
     return True
 
 
@@ -191,11 +192,12 @@ def confirm_prompt(device_label: str) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or Elite Remote to factory stock")
-    parser.add_argument("--target", choices=["hub", "elite", "all"], default="all",
+    parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or remote to factory stock")
+    parser.add_argument("--target", choices=["hub", "remote", "elite", "all"], default="all",
                         help="Target device to factory reset (default: all)")
     parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
-    parser.add_argument("--elite-ip", default=DEFAULT_ELITE_IP, help=f"Elite IP address (default: {DEFAULT_ELITE_IP})")
+    parser.add_argument("--remote-ip", "--elite-ip", dest="remote_ip", default=DEFAULT_REMOTE_IP,
+                        help=f"Remote IP address (default: {DEFAULT_REMOTE_IP}; --elite-ip accepted for compatibility)")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
@@ -229,9 +231,9 @@ def main() -> None:
         print(f"\n>>> PROCESSING HUB ({args.hub_ip}) <<<")
         reset_hub(args.hub_ip, ssh_opts)
 
-    if args.target in ("elite", "all"):
-        print(f"\n>>> PROCESSING ELITE REMOTE ({args.elite_ip}) <<<")
-        reset_elite(args.elite_ip, ssh_opts)
+    if args.target in ("remote", "elite", "all"):  # elite: the name before the rename
+        print(f"\n>>> PROCESSING REMOTE ({args.remote_ip}) <<<")
+        reset_remote(args.remote_ip, ssh_opts)
 
     print("\n" + "=" * 70)
     print("[+] Factory reset process completed successfully!")

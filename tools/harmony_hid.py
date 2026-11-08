@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Clean-room Logitech Harmony USB HID Client.
 
-Communicates with Logitech Harmony Hub (046D:C129) and Elite Remote (046D:C12B)
+Communicates with Logitech Harmony Hub (046D:C129) and the touchscreen remotes (046D:C12B)
 over raw USB HID without third-party dependencies.
 
 Supported OS:
@@ -25,9 +25,9 @@ from typing import Optional, Tuple
 HARMONY_VID = 0x046D
 HUB_PID = 0xC129
 HUB_PRO_PID = 0xC132
-ELITE_PID = 0xC12B
+REMOTE_PID = 0xC12B
 ALL_HUB_PIDS = (HUB_PID, HUB_PRO_PID)
-ALL_HARMONY_PIDS = (HUB_PID, HUB_PRO_PID, ELITE_PID)
+ALL_HARMONY_PIDS = (HUB_PID, HUB_PRO_PID, REMOTE_PID)
 
 REPORT_SIZE = 65  # 1 byte report ID (0x00) + 64 bytes payload
 
@@ -1026,7 +1026,7 @@ class HarmonyHid:
             self.close_file(handle_id)
 
     # --------------------------------------------------------------------------
-    # Specialized Hub / Elite Actions
+    # Specialized Hub / Remote Actions
     # --------------------------------------------------------------------------
 
     def set_tde_enable(self, state: bool = True) -> bool:

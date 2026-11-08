@@ -26,7 +26,7 @@
   }
 }
 
-/* Harmony Elite key bindings (views/setup/elite-buttons.js) */
+/* Harmony remote key bindings (views/setup/remote-buttons.js) */
 .eb-ctx { margin-bottom: 14px; }
 .eb-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; color: var(--text-muted); }
 .eb-layout { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 20px; align-items: start; }

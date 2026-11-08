@@ -1,12 +1,12 @@
 # RNDIS Driver Installation & Network Setup Guide
 
-Both the **Logitech Harmony Hub** and **Harmony Elite 950** handheld remote communicate with host computers over USB using the **RNDIS** (Remote Network Driver Interface Specification) protocol, presenting themselves as virtual Ethernet-over-USB network cards.
+Both the **Logitech Harmony Hub** and the **Harmony touchscreen remotes** (Elite, Ultimate, Touch) communicate with host computers over USB using the **RNDIS** (Remote Network Driver Interface Specification) protocol, presenting themselves as virtual Ethernet-over-USB network cards.
 
 ---
 
 ## 1. Windows RNDIS Driver Installation (Windows 10 & 11)
 
-Windows 10/11 frequently fails to automatically bind the correct driver, either showing the plugged-in Hub/Elite as `Unknown Device` or mistakenly binding it to `usbser.inf` as a `USB Serial Device (COMx)` under **Ports (COM & LPT)**. Additionally, Windows 11 sets `ExcludeFromSelect=*` on its in-box RNDIS driver templates, preventing manual selection in Device Manager.
+Windows 10/11 frequently fails to automatically bind the correct driver, either showing the plugged-in Hub/remote as `Unknown Device` or mistakenly binding it to `usbser.inf` as a `USB Serial Device (COMx)` under **Ports (COM & LPT)**. Additionally, Windows 11 sets `ExcludeFromSelect=*` on its in-box RNDIS driver templates, preventing manual selection in Device Manager.
 
 ### Option A: Automated PowerShell Setup (Recommended)
 
@@ -26,14 +26,14 @@ The script will automatically:
 5. Verify connectivity to `192.168.2.1`.
 
 > [!TIP]
-> If you run `python elite/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
+> If you run `python remote/setup_remote.py`, it will detect any missing driver or serial port binding on Windows and automatically launch this setup tool for you.
 
 ---
 
 ### Option B: Manual Device Manager Driver Selection
 
 If your Windows build allows manual selection:
-1. Connect the Hub or Elite to your PC using a known **data-capable** Micro-USB cable.
+1. Connect the Hub or remote to your PC using a known **data-capable** Micro-USB cable.
 2. Press `Win + X` and select **Device Manager**.
 3. Locate the device under **Other devices** (or under **Ports (COM & LPT)** if bound as serial).
 4. Right-click the device and select **Update driver**.
@@ -72,7 +72,7 @@ chmod 600 ~/.ssh/harmony_owner_ed25519
 ssh -i ~/.ssh/harmony_owner_ed25519 root@192.168.2.1
 ```
 
-`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_elite.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
+`usbipd bind` needs an elevated console once. Run the SSH based steps (backup, `deploy_remote.py`) from inside WSL. When the remote reboots it re-enumerates, so run `usbipd attach` again.
 
 ---
 
@@ -95,7 +95,7 @@ Do not set a default gateway on the USB adapter: the device is only reachable on
 2. Right-click the **RNDIS / USB Ethernet adapter** and choose **Properties**.
 3. Double-click **Internet Protocol Version 4 (TCP/IPv4)**.
 4. Select **Use the following IP address**:
-   - **IP address**: `192.168.2.2` (for Elite) or `192.168.1.2` (for Hub)
+   - **IP address**: `192.168.2.2` (for the remote) or `192.168.1.2` (for Hub)
    - **Subnet mask**: `255.255.255.0`
    - **Default gateway**: leave empty
 5. Leave DNS blank and click **OK**.
@@ -116,7 +116,7 @@ macOS needs no driver. When the remote is connected over USB, a network service 
 # Confirm the service name
 networksetup -listallnetworkservices
 
-# Assign static IP (Elite shown; see the table above for the Hub's subnet)
+# Assign static IP (remote shown; see the table above for the Hub's subnet)
 sudo networksetup -setmanual "RNDIS/Ethernet Gadget" 192.168.2.2 255.255.255.0
 
 # Revert to automatic addressing later
@@ -129,7 +129,7 @@ sudo networksetup -setdhcp "RNDIS/Ethernet Gadget"
 
 ### Test Ping:
 ```bash
-# Verify connection to Elite Remote:
+# Verify connection to the remote:
 ping 192.168.2.1
 
 # Verify connection to Harmony Hub:
@@ -139,7 +139,7 @@ ping 192.168.1.1
 ### SSH Access:
 Both devices run a lightweight Dropbear SSH server:
 ```bash
-# SSH into Harmony Elite:
+# SSH into the remote:
 ssh root@192.168.2.1
 
 # SSH into Harmony Hub:

@@ -389,8 +389,8 @@ function renderWithStockIconFallback(imgUrl, fallbackSvg, size, originalIconKey 
   return `<span class="stock-icon-wrap"><img src="${imgUrl}" data-icon-key="${keyToCheck}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" loading="lazy" decoding="async" width="${size}" height="${size}" onload="if(window.__harmonyCacheIcon)window.__harmonyCacheIcon(this.src);if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="if(window.__harmonyFailedIcons)window.__harmonyFailedIcons.add('${imgUrl}');this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='inline-block'" />${fallbackSvg}</span>`;
 }
 
-// Activity icons are keywords; the Hub sends them to the Elite, which draws its stock icon
-// for each keyword (resolve_activity_icon in elite/elite_config.c). These are the same stock images,
+// Activity icons are keywords; the Hub sends them to the remote, which draws its stock icon
+// for each keyword (resolve_activity_icon in remote/remote_config.c). These are the same stock images,
 // so the web UI shows what the remote shows.
 const ACTIVITY_ICON_PREVIEWS = {
   watchtv: '3BF99E7B-9904-4AFA-8D3D-7337CD8E9BFD_small.png',

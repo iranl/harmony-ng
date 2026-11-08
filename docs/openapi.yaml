@@ -3,7 +3,7 @@ info:
   title: Harmony Hub Control API
   version: 2.3.0
   description: |
-    REST and WebSocket API for the open-source **Harmony Hub** firmware and **Elite Remote** RF daemon.
+    REST and WebSocket API for the open-source **Harmony Hub** firmware and **Harmony remote** RF daemon.
     
     Runs natively on port `8089` on Atheros AR9344 MIPS hardware. Transparently proxies `/api/rf/*` calls to the `hub_rf` daemon on port `8092`.
     
@@ -34,8 +34,8 @@ tags:
     description: Direct IR blasting, Pronto hex transmission, and button pulses
   - name: Bluetooth HID
     description: Bluetooth host pairing, connection management, and BLE remotes
-  - name: RF & Elite Remote
-    description: CC2544 2.4GHz RF transceiver and Harmony Elite remote management
+  - name: RF & Remote
+    description: CC2544 2.4GHz RF transceiver and Harmony remote management
   - name: Network & MQTT
     description: Wi-Fi, USB Ethernet, and MQTT broker configuration
   - name: Updates & Maintenance
@@ -328,7 +328,7 @@ paths:
       summary: Upload custom PNG icon
       description: |
         Uploads base64-encoded PNG image (enforces <= 16 KB size limit) and saves to /data/harmony/custom_icons.
-        Automatically notifies hub_rf over local socket (port 8092) to propagate icon to paired Elite remotes.
+        Automatically notifies hub_rf over local socket (port 8092) to propagate icon to paired touchscreen remotes.
       requestBody:
         required: true
         content:
@@ -1846,7 +1846,7 @@ paths:
   /api/rf:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: CC2544 RF subsystem status
       description: |
         Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
@@ -1925,7 +1925,7 @@ paths:
   /api/rf/pair:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Start RF pairing beacon
       parameters:
         - name: slot
@@ -1944,7 +1944,7 @@ paths:
                 status: pairing_started
     post:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Start RF pairing beacon (POST)
       parameters:
         - name: slot
@@ -1965,9 +1965,9 @@ paths:
   /api/rf/sleep:
     get:
       tags:
-        - RF & Elite Remote
-      summary: Put paired Elite remote to sleep (Suspend-to-RAM)
-      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered Elite remotes.
+        - RF & Remote
+      summary: Put paired remote to sleep (Suspend-to-RAM)
+      description: Broadcasts or directs RF_MSG_SLEEP_REQ (0x1D) command over CC2544 RF to trigger immediate Suspend-to-RAM on battery-powered touchscreen remotes.
       parameters:
         - name: slot
           in: query
@@ -1991,8 +1991,8 @@ paths:
           description: RF OTA update in progress
     post:
       tags:
-        - RF & Elite Remote
-      summary: Put paired Elite remote to sleep (POST)
+        - RF & Remote
+      summary: Put paired remote to sleep (POST)
       parameters:
         - name: slot
           in: query
@@ -2017,8 +2017,8 @@ paths:
   /api/rf/wake:
     post:
       tags:
-        - RF & Elite Remote
-      summary: Turn a paired Elite remote's screen on over RF
+        - RF & Remote
+      summary: Turn a paired remote's screen on over RF
       description: Sends RF_MSG_WAKE (0x30, ACK'd) to the remote, which turns its screen on (or restarts its idle timeout when the screen is on) as a key press would. Tries for about 10 s in the background and logs whether the remote acknowledged it. A remote in deep standby (suspended to RAM on battery) does not receive it; it reports again at its next hourly alarm or key press.
       parameters:
         - name: slot
@@ -2048,8 +2048,8 @@ paths:
   /api/rf/push-icon:
     get:
       tags:
-        - RF & Elite Remote
-      summary: Push custom icon to Elite remote over RF
+        - RF & Remote
+      summary: Push custom icon to remote over RF
       parameters:
         - name: id
           in: query
@@ -2084,8 +2084,8 @@ paths:
           description: RF OTA update in progress
     post:
       tags:
-        - RF & Elite Remote
-      summary: Push custom icon to Elite remote over RF (POST)
+        - RF & Remote
+      summary: Push custom icon to remote over RF (POST)
       parameters:
         - name: id
           in: query
@@ -2121,7 +2121,7 @@ paths:
   /api/rf/pull-config:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Request configuration pull from remote slot
       parameters:
         - name: slot
@@ -2144,7 +2144,7 @@ paths:
           description: RF OTA update in progress
     post:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Request configuration pull from remote slot (POST)
       parameters:
         - name: slot
@@ -2169,7 +2169,7 @@ paths:
   /api/rf/remote-direct-buttons:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Get touchscreen direct command button grid
       parameters:
         - name: slot
@@ -2190,7 +2190,7 @@ paths:
                 buttons: {}
     post:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Save touchscreen direct command button grid
       parameters:
         - name: slot
@@ -2227,7 +2227,7 @@ paths:
   /api/rf/log-level:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Query or update RF daemon log level
       parameters:
         - name: level
@@ -2247,7 +2247,7 @@ paths:
                 log_level: 3
     post:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Query or update RF daemon log level (POST)
       parameters:
         - name: level
@@ -2268,7 +2268,7 @@ paths:
   /api/rf/send:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Transmit raw RF hex frame
       parameters:
         - name: hex
@@ -2291,7 +2291,7 @@ paths:
   /api/rf/stop-pair:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Stop RF pairing mode
       responses:
         '200':
@@ -2304,7 +2304,7 @@ paths:
   /api/rf/unpair:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Unpair remote slot
       parameters:
         - name: slot
@@ -2325,8 +2325,8 @@ paths:
   /api/rf/remote-config:
     get:
       tags:
-        - RF & Elite Remote
-      summary: Get Elite remote configuration
+        - RF & Remote
+      summary: Get remote configuration
       parameters:
         - name: slot
           in: query
@@ -2359,8 +2359,8 @@ paths:
                 usbEth: false
     post:
       tags:
-        - RF & Elite Remote
-      summary: Save and push Elite remote configuration
+        - RF & Remote
+      summary: Save and push remote configuration
       parameters:
         - name: slot
           in: query
@@ -2419,7 +2419,7 @@ paths:
   /api/rf/push-config:
     post:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Trigger OTA config sync to remote
       responses:
         '200':
@@ -2432,7 +2432,7 @@ paths:
   /api/rf/sync:
     get:
       tags:
-        - RF & Elite Remote
+        - RF & Remote
       summary: Resync current activity to remote display
       responses:
         '200':
@@ -2445,8 +2445,8 @@ paths:
   /api/rf/ota-status:
     get:
       tags:
-        - RF & Elite Remote
-      summary: Elite remote firmware update status
+        - RF & Remote
+      summary: Remote firmware update status
       responses:
         '200':
           description: Remote OTA transfer status
@@ -2465,8 +2465,8 @@ paths:
   /api/rf/ota-start:
     post:
       tags:
-        - RF & Elite Remote
-      summary: Start Elite remote firmware update over RF
+        - RF & Remote
+      summary: Start remote firmware update over RF
       parameters:
         - name: slot
           in: query
@@ -2527,7 +2527,7 @@ paths:
     get:
       tags:
         - RF & Physical Remotes
-      summary: Get physical remote button mapping (Elite, Companion, Smart Control)
+      summary: Get physical remote button mapping (Elite / Ultimate, Companion, Smart Control)
       parameters:
         - name: slot
           in: query
@@ -2550,7 +2550,7 @@ paths:
     post:
       tags:
         - RF & Physical Remotes
-      summary: Save physical remote button mapping (Elite, Companion, Smart Control)
+      summary: Save physical remote button mapping (Elite / Ultimate, Companion, Smart Control)
       parameters:
         - name: slot
           in: query
