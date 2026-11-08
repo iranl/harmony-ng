@@ -19,6 +19,10 @@ void rf_perform_unpair_cleanup(bool notify_hub);
 void rf_unpair(void);
 void send_battery_status_rf(void);
 void send_version_report_rf(void);
+/* The remote's factory unit id (mfg partition), read once at start; empty when unreadable */
+extern char g_remote_unit_id[32];
+/* RF_MSG_UNIT_ID with g_remote_unit_id; sent after every version report */
+void send_unit_id_rf(void);
 void send_remote_config_backup_rf(void);
 void rf_send_activity_start(const char *act_id);
 void rf_send_device_command(const char *dev_id, const char *cmd);

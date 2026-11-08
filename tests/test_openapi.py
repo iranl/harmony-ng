@@ -283,6 +283,19 @@ class TestOpenApiCompliance(unittest.TestCase):
     # CONTRACT & SCHEMA INTEGRITY TESTS (Run offline & in CI)
     # =========================================================================
 
+    def test_openapi_parses_with_pyyaml(self):
+        """The file must be valid YAML for real tools, not only for the parser above"""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed")
+        with open(self.spec_path, "r", encoding="utf-8") as f:
+            doc = yaml.safe_load(f)
+        self.assertIn("paths", doc)
+        self.assertIn("/api/ir-raw", doc["paths"])
+        self.assertIn("/api/rf/status-changed", doc["paths"])
+        self.assertIn("x-websocket-messages", doc["paths"]["/ws"]["get"])
+
     def test_openapi_contract_metadata(self):
         """OpenAPI root must have valid title, 3.1.x spec version, and matching firmware version."""
         self.assertEqual(self.spec.get("openapi"), "3.1.0", "Specification must be OpenAPI 3.1.0")

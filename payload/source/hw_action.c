@@ -64,8 +64,48 @@ int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) {
     return ret;
 }
 
+#ifdef TEST_HARNESS
+/* Last hw_ir_send_raw() call, for tests/test_ir_raw.py (GET /api/test/ir-raw-last) */
+static struct {
+    uint32_t freq_hz;
+    size_t count;
+    uint8_t ports;
+    uint8_t repeats;
+    uint64_t sum_us;
+    uint32_t first[8];
+    int calls;
+} s_test_last_raw;
+
+cJSON *hw_test_last_raw_json(void) {
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "calls", s_test_last_raw.calls);
+    cJSON_AddNumberToObject(o, "frequency", s_test_last_raw.freq_hz);
+    cJSON_AddNumberToObject(o, "count", (double)s_test_last_raw.count);
+    cJSON_AddNumberToObject(o, "port", s_test_last_raw.ports);
+    cJSON_AddNumberToObject(o, "repeats", s_test_last_raw.repeats);
+    cJSON_AddNumberToObject(o, "sum_us", (double)s_test_last_raw.sum_us);
+    cJSON *first = cJSON_AddArrayToObject(o, "first");
+    for (size_t i = 0; i < 8 && i < s_test_last_raw.count; i++) {
+        cJSON_AddItemToArray(first, cJSON_CreateNumber(s_test_last_raw.first[i]));
+    }
+    return o;
+}
+#endif
+
 int hw_ir_send_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count, uint8_t ports, uint8_t repeats) {
     if (!timings_us || count == 0) return -1;
+#ifdef TEST_HARNESS
+    s_test_last_raw.calls++;
+    s_test_last_raw.freq_hz = freq_hz;
+    s_test_last_raw.count = count;
+    s_test_last_raw.ports = ports;
+    s_test_last_raw.repeats = repeats;
+    s_test_last_raw.sum_us = 0;
+    for (size_t i = 0; i < count; i++) {
+        s_test_last_raw.sum_us += timings_us[i];
+        if (i < 8) s_test_last_raw.first[i] = timings_us[i];
+    }
+#endif
     if (ports == 0) return 0; /* 0 = No blasters / IR disabled */
 
     uint8_t *bin = NULL;

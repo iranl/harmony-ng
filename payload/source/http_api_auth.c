@@ -272,12 +272,13 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
     /* POST /api/auth/tokens */
     if (strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
-        const char *tname = "Personal Access Token";
+        /* Copied: the reply is built after params is freed, and the name pointed into it */
+        char tname[64] = "Personal Access Token";
         const char *trole = "admin";
         if (params) {
             cJSON *jn = cJSON_GetObjectItemCaseSensitive(params, "name");
             cJSON *jr = cJSON_GetObjectItemCaseSensitive(params, "role");
-            if (jn && cJSON_IsString(jn) && jn->valuestring[0]) tname = jn->valuestring;
+            if (jn && cJSON_IsString(jn) && jn->valuestring[0]) snprintf(tname, sizeof(tname), "%s", jn->valuestring);
             if (jr && cJSON_IsString(jr) && strcasecmp(jr->valuestring, "user") == 0) trole = "user";
         }
 
@@ -286,8 +287,11 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         char raw_token[64];
         snprintf(raw_token, sizeof(raw_token), "pat_%s", hex_rand);
 
+        /* Random id: one from time(NULL) repeats for tokens created in the same second */
+        char id_rand[17] = {0};
+        generate_random_hex(id_rand, 4);
         char tok_id[32];
-        snprintf(tok_id, sizeof(tok_id), "tok_%08x", (unsigned int)time(NULL));
+        snprintf(tok_id, sizeof(tok_id), "tok_%s", id_rand);
 
         char token_hash[65];
         sha256_hex((const uint8_t *)raw_token, strlen(raw_token), token_hash);

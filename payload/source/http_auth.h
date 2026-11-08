@@ -44,6 +44,11 @@ void generate_random_hex(char *out, size_t num_bytes);
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);
 int http_auth_is_user_role_permitted(const char *method, const char *clean_path);
+/* Role for a WebSocket upgrade request: like http_auth_check_request, plus a "?token=<pat_ or
+ * hht_ token>" in the request line when there is no Authorization header (browsers cannot set
+ * headers on a WebSocket). Digest is not supported on the upgrade. */
+enum http_role http_auth_check_ws_upgrade(const char *req, const char *client_ip,
+                                          char *out_user, size_t out_user_len);
 void http_auth_send_challenge(int client_fd, const char *client_ip);
 
 /* Handles /api/auth/me, /api/auth/token, /api/auth/logout, /api/auth/tokens, /api/users */

@@ -6,6 +6,8 @@
 #include "http_server.h"
 #include "ws_server.h"
 #include "state_watch.h"
+#include "hub_events.h"
+#include "hub_info.h"
 #include "hub_ws.h"
 #include "hub_mqtt.h"
 #include "hub_ntp.h"
@@ -58,11 +60,14 @@ static void *http_client_worker(void *arg) {
 
 int main(int argc, char **argv) {
     int port = 8089;
+    const char *mfg_file = NULL; /* test harness: a file with the mfg partition layout */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dry-run") == 0) {
             g_dry_run = 1;
         } else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--mfg-file") == 0 && i + 1 < argc) {
+            mfg_file = argv[++i];
         } else if (isdigit((unsigned char)argv[i][0])) {
             port = atoi(argv[i]);
         }
@@ -99,6 +104,7 @@ int main(int argc, char **argv) {
             fclose(vf);
         }
     }
+    hub_info_init(mfg_file);
     struct hub_settings settings;
     config_store_get_settings(&settings);
     apply_hub_settings(&settings);
@@ -107,6 +113,7 @@ int main(int argc, char **argv) {
         printf("[!] DRY-RUN MODE ACTIVE: All physical IR, BT, and MQTT outputs will be simulated\n");
     }
 
+    hub_events_init();
     orch_init();
     ir_i2s_init();
     orch_set_progress_callback(on_orch_progress, NULL);
@@ -116,6 +123,9 @@ int main(int argc, char **argv) {
 
     /* 2. Web & WebSocket Server */
     ws_server_init();
+    if (hub_events_subscribe(hub_ws_event_sink, NULL) != 0) {
+        fprintf(stderr, "[-] Could not subscribe the WebSocket sink to the event bus\n");
+    }
     if (state_watch_start() != 0) {
         fprintf(stderr, "[-] Could not start the state watcher: web UIs will not update live\n");
     }
@@ -243,6 +253,12 @@ int main(int argc, char **argv) {
 
         /* Tick Activity Orchestrator state machine & delays */
         orch_tick();
+        /* Deliver queued events to the sinks (WebSocket, later MQTT) on this thread */
+        hub_events_dispatch();
+        /* Snapshot for clients that upgraded since the last iteration */
+        hub_ws_tick();
+        /* Keepalive pings and dead-client reaping */
+        ws_server_tick();
         mqtt_cmd_tick();
 
         /* Tick SNTP network time sync */
