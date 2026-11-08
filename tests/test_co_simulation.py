@@ -189,13 +189,13 @@ class CoSimulationRunner:
             read_vbat = int(f.read().strip())
         self.record("Battery Voltage Update", read_vbat == 3820, f"3820 mV -> Discharging")
 
-        # 8. Settings: MQTT password and enabling authentication
+        # 7. Settings: MQTT password and enabling authentication
         print("[-] Step 7: Testing the MQTT password save and the authentication guard...")
         data_dir = os.path.join(MOCK_BASE, "data", "harmony")
         users_path = os.path.join(data_dir, "config", "users.json")
         mqtt_path = os.path.join(data_dir, "mqtt.json")
         os.makedirs(os.path.dirname(users_path), exist_ok=True)  # mkdir() is not virtualized by the mock
-        for pth in (users_path,):
+        for pth in (users_path, mqtt_path):
             if os.path.exists(pth):
                 os.remove(pth)
         st, _ = self.http_post("/api/mqtt-save", {"enabled": False, "host": "127.0.0.1", "username": "u",
@@ -215,6 +215,21 @@ class CoSimulationRunner:
         except (OSError, ValueError):
             saved = {}
         self.record("MQTT save with an empty password keeps the stored one", st == 200 and saved.get("password") == "typed-secret", f"HTTP {st}")
+        st, _ = self.http_post("/api/mqtt-save", {"enabled": False, "username": "", "password": ""})
+        try:
+            with open(mqtt_path) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = {}
+        self.record("MQTT save clearing the user name removes the stored password",
+                    st == 200 and saved.get("username") == "" and "password" not in saved, f"HTTP {st}, password stored: {'password' in saved}")
+        st, _ = self.http_post("/api/mqtt-save", {"enabled": False, "username": "", "password": "orphan"})
+        try:
+            with open(mqtt_path) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = {}
+        self.record("MQTT save stores no password without a user name", st == 200 and "password" not in saved, f"HTTP {st}")
         st, res = self.http_post("/system", {"action": "auth", "authEnabled": 1, "authUsername": "owner", "authPassword": ""})
         self.record("Enabling auth without an admin password is refused", st == 400 and not os.path.exists(users_path),
                     f"HTTP {st}, users.json created: {os.path.exists(users_path)}")

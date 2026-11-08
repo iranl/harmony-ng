@@ -417,12 +417,18 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             if (p_user && cJSON_IsString(p_user)) {
                 cJSON_DeleteItemFromObject(cfg, "username");
                 cJSON_AddStringToObject(cfg, "username", p_user->valuestring);
+                /* No user name, no password: clearing the user name is how stored credentials are
+                 * removed (an empty password field keeps the stored one) */
+                if (!p_user->valuestring[0]) cJSON_DeleteItemFromObject(cfg, "password");
             }
 
             /* A typed password replaces the stored one; an empty or missing field keeps it. The old
-             * keep_password flag is ignored: ticked by default, it threw a typed password away. */
+             * keep_password flag is ignored: ticked by default, it threw a typed password away.
+             * A password is stored only with a user name. */
             cJSON *p_pass = cJSON_GetObjectItemCaseSensitive(params, "password");
-            if (p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
+            cJSON *s_user = cJSON_GetObjectItemCaseSensitive(cfg, "username");
+            int has_user = cJSON_IsString(s_user) && s_user->valuestring[0];
+            if (has_user && p_pass && cJSON_IsString(p_pass) && p_pass->valuestring[0]) {
                 cJSON_DeleteItemFromObject(cfg, "password");
                 cJSON_AddStringToObject(cfg, "password", p_pass->valuestring);
             }

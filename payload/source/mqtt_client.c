@@ -202,7 +202,8 @@ int mqtt_connect(void) {
         FD_SET(sock, &wfds);
         struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
         int sel = select(sock + 1, NULL, &wfds, NULL, &tv);
-        if (sel <= 0) return connect_failed(sock, "no answer within 2 s");
+        if (sel < 0) return connect_failed(sock, "select: %s", strerror(errno));
+        if (sel == 0) return connect_failed(sock, "no answer within 2 s");
         int err = 0;
         socklen_t len = sizeof(err);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
@@ -230,8 +231,11 @@ int mqtt_connect(void) {
         flags |= 0x04; /* Will Flag */
         if (g_lwt_retain) flags |= 0x20; /* Will Retain */
     }
+    /* MQTT 3.1.1 3.1.2.9: no password without a user name (the broker would close the
+     * connection), even if a stale password is loaded */
+    int send_pass = g_user[0] && g_pass[0];
     if (g_user[0]) flags |= 0x80;
-    if (g_pass[0]) flags |= 0x40;
+    if (send_pass) flags |= 0x40;
     var_hdr[7] = flags;
 
     size_t cid_len = strlen(g_client_id);
@@ -241,7 +245,7 @@ int mqtt_connect(void) {
         payload_len += 2 + strlen(g_lwt_payload);
     }
     if (g_user[0]) payload_len += 2 + strlen(g_user);
-    if (g_pass[0]) payload_len += 2 + strlen(g_pass);
+    if (send_pass) payload_len += 2 + strlen(g_pass);
 
     size_t rem_len = sizeof(var_hdr) + payload_len;
     uint8_t pkt[1024];
@@ -282,7 +286,7 @@ int mqtt_connect(void) {
     }
 
     /* Password */
-    if (g_pass[0]) {
+    if (send_pass) {
         size_t plen = strlen(g_pass);
         *p++ = (uint8_t)((plen >> 8) & 0xFF);
         *p++ = (uint8_t)(plen & 0xFF);
