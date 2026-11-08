@@ -14,6 +14,14 @@
 #include <time.h>
 #include <errno.h>
 
+/* Copies at most n-1 bytes and always terminates: strncpy did the same here (the buffers are
+ * zeroed), but newer compilers warn that it may cut the string */
+static void copy_str(char *dst, size_t n, const char *src) {
+    size_t l = strnlen(src, n - 1);
+    memcpy(dst, src, l);
+    dst[l] = '\0';
+}
+
 #define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
 static uint8_t s_ota_bitmap[OTA_BITMAP_SIZE];
@@ -659,7 +667,7 @@ bool handle_icon_frame(const rf_frame_t *f) {
                         (i < g_rf_activity_count && g_rf_activities[i].icon_id == (uint16_t)atoi(g_icon_rx_id))) {
                         char cpath[128];
                         snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_icon_rx_id);
-                        strncpy(g_activities[i].icon_path, cpath, sizeof(g_activities[i].icon_path) - 1);
+                        copy_str(g_activities[i].icon_path, sizeof(g_activities[i].icon_path), cpath);
                     }
                 }
                 g_screen_dirty = true;

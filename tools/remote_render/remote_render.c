@@ -141,7 +141,7 @@ static int cmd_font(const char *ttf, float px, int height, int baseline, const c
         g[4] = (uint8_t)(adv * scale + 0.5f);
         g[5] = (uint8_t)(len & 0xFF); g[6] = (uint8_t)(len >> 8);
         alpha = realloc(alpha, len + (uint32_t)(w * h) + 1);
-        if (w * h) memcpy(alpha + len, bmp, (size_t)(w * h));
+        if (w > 0 && h > 0) memcpy(alpha + len, bmp, (size_t)(w * h));
         len += (uint32_t)(w * h);
         stbtt_FreeBitmap(bmp, NULL);
     }

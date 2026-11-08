@@ -4,6 +4,14 @@
 #include "remote_stock_icons.h"
 #include "remote_fb.h"
 
+/* Copies at most n-1 bytes and always terminates: strncpy did the same here (the buffers are
+ * zeroed), but newer compilers warn that it may cut the string */
+static void copy_str(char *dst, size_t n, const char *src) {
+    size_t l = strnlen(src, n - 1);
+    memcpy(dst, src, l);
+    dst[l] = '\0';
+}
+
 /* Icon files are checked where the renderer will load them (see remote_fs_path) */
 static bool fs_readable(const char *path) {
     char buf[256];
@@ -445,7 +453,7 @@ void load_activities(void) {
                     snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", id);
                 }
                 if (fs_readable(cpath)) {
-                    strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
+                    copy_str(g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path), cpath);
                 } else {
                     const char *img_key = (j_icon && j_icon->valuestring) ? j_icon->valuestring : (j_type ? j_type->valuestring : "");
                     resolve_activity_icon(0, img_key, name, g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path));
@@ -596,7 +604,7 @@ void load_rf_config(void) {
                 snprintf(act_id_str, sizeof(act_id_str), "%lld", (long long)jid->valuedouble);
             }
             if (act_id_str[0] && jname && cJSON_IsString(jname)) {
-                strncpy(g_rf_activities[g_rf_activity_count].id, act_id_str, sizeof(g_rf_activities[0].id) - 1);
+                copy_str(g_rf_activities[g_rf_activity_count].id, sizeof(g_rf_activities[0].id), act_id_str);
                 g_rf_activities[g_rf_activity_count].id[sizeof(g_rf_activities[0].id) - 1] = '\0';
                 strncpy(g_rf_activities[g_rf_activity_count].name, jname->valuestring, sizeof(g_rf_activities[0].name) - 1);
                 g_rf_activities[g_rf_activity_count].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
@@ -635,7 +643,7 @@ void load_rf_config(void) {
                 snprintf(dev_id_str, sizeof(dev_id_str), "%lld", (long long)jid->valuedouble);
             }
             if (dev_id_str[0] && jname && cJSON_IsString(jname)) {
-                strncpy(g_rf_devices[g_rf_device_count].id, dev_id_str, sizeof(g_rf_devices[0].id) - 1);
+                copy_str(g_rf_devices[g_rf_device_count].id, sizeof(g_rf_devices[0].id), dev_id_str);
                 g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, sizeof(g_rf_devices[0].name) - 1);
                 g_rf_devices[g_rf_device_count].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
@@ -736,15 +744,16 @@ static void sort_activity_list(void);
 void build_activity_list(void) {
     g_activity_count = 0;
     for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
-        strncpy(g_activities[g_activity_count].id, g_rf_activities[i].id, sizeof(g_activities[0].id) - 1);
+        copy_str(g_activities[g_activity_count].id, sizeof(g_activities[0].id), g_rf_activities[i].id);
         strncpy(g_activities[g_activity_count].name, g_rf_activities[i].name, sizeof(g_activities[0].name) - 1);
         char cpath[128];
-        snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%s.png", g_rf_activities[i].id);
+        const int idlen = (int)sizeof(g_rf_activities[0].id) - 1;
+        snprintf(cpath, sizeof(cpath), "/data/assets/custom/activity_%.*s.png", idlen, g_rf_activities[i].id);
         if (!fs_readable(cpath)) {
-            snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_rf_activities[i].id);
+            snprintf(cpath, sizeof(cpath), "/data/assets/custom/%.*s.png", idlen, g_rf_activities[i].id);
         }
         if (fs_readable(cpath)) {
-            strncpy(g_activities[g_activity_count].icon_path, cpath, sizeof(g_activities[0].icon_path) - 1);
+            copy_str(g_activities[g_activity_count].icon_path, sizeof(g_activities[0].icon_path), cpath);
         } else {
             resolve_activity_icon(g_rf_activities[i].icon_id,
                                   g_rf_activities[i].icon,
