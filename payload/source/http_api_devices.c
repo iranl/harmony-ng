@@ -15,10 +15,51 @@
 #include <string.h>
 #include <unistd.h>
 #include <strings.h>
+#include <errno.h>
+#include <pthread.h>
 
 int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
                                      const char *topic_in, int req_pulse_ms,
                                      char *out_topic, size_t out_topic_len, int *out_pulse_ms);
+
+/* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
+static uint8_t device_ir_ports(const char *dev_id) {
+    uint8_t ports = 7;
+    if (!dev_id || !dev_id[0]) return ports;
+    cJSON *root = config_store_get_devices_json();
+    if (!root) return ports;
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    cJSON *d = NULL;
+    cJSON_ArrayForEach(d, devs) {
+        cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
+        char id[32] = {0};
+        if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id, sizeof(id), "%s", jid->valuestring);
+        else if (jid && cJSON_IsNumber(jid)) snprintf(id, sizeof(id), "%ld", (long)jid->valuedouble);
+        if (strcmp(id, dev_id) != 0) continue;
+        cJSON *cp = cJSON_GetObjectItemCaseSensitive(d, "controlPort");
+        if (cp && cJSON_IsNumber(cp) && cp->valueint >= 0 && cp->valueint <= 7) ports = (uint8_t)cp->valueint;
+        break;
+    }
+    /* root is the daemon's cached device list (config_store_get_devices_json): not freed here */
+    return ports;
+}
+
+/* Counts the P/S durations of a learned raw string (F<carrier hex>P<hex>S<hex>...) and adds them up */
+static void learned_stats(const char *raw, int *pulses, unsigned long *total_us) {
+    *pulses = 0;
+    *total_us = 0;
+    for (const char *p = raw; p && *p; p++) {
+        if (*p == 'P' || *p == 'S') {
+            char *end = NULL;
+            unsigned long v = strtoul(p + 1, &end, 16);
+            (*pulses)++;
+            *total_us += v;
+            if (end) p = end - 1;
+        }
+    }
+}
+
+static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
@@ -268,6 +309,96 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         if (cmd_name[0]) cJSON_AddStringToObject(resp, "command", cmd_name);
         if (rc != 0) cJSON_AddStringToObject(resp, "error", "IR transmit failed");
         send_cjson_resp(client_fd, rc == 0 ? 200 : 500, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
+     * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
+     * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
+     * a Harmony raw string (F<carrier hex>P<us hex>S<us hex>...) that /ir/command saves as the
+     * command's code and the IR sender plays back as it is. */
+    if (strcmp(clean_path, "/api/capture") == 0 &&
+        strcmp(method, "POST") == 0) {
+        int timeout_s = 10;
+        cJSON *req_j = (body && body[0]) ? parse_request_params(body) : NULL;
+        if (!req_j && query && query[0]) req_j = parse_request_params(query);
+        if (req_j) {
+            cJSON *jt = cJSON_GetObjectItemCaseSensitive(req_j, "timeout");
+            if (jt && cJSON_IsNumber(jt)) timeout_s = jt->valueint;
+            else if (jt && cJSON_IsString(jt) && jt->valuestring) timeout_s = atoi(jt->valuestring);
+            cJSON_Delete(req_j);
+        }
+        if (timeout_s < 1) timeout_s = 1;
+        if (timeout_s > 30) timeout_s = 30;
+
+        if (pthread_mutex_trylock(&s_capture_lock) != 0) {
+            send_json_error(client_fd, 409, "An IR capture is already running");
+            close(client_fd);
+            return 1;
+        }
+        char raw[8192];
+        int rc = ir_i2s_capture(raw, sizeof(raw), (unsigned int)timeout_s);
+        pthread_mutex_unlock(&s_capture_lock);
+
+        if (rc == 0) {
+            int pulses = 0;
+            unsigned long total_us = 0;
+            learned_stats(raw, &pulses, &total_us);
+            unsigned long carrier = strtoul(raw + 1, NULL, 16);
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "ok", 1);
+            cJSON_AddStringToObject(resp, "raw", raw);
+            cJSON_AddStringToObject(resp, "keycode", raw);
+            cJSON_AddStringToObject(resp, "mode", "raw");
+            cJSON_AddNumberToObject(resp, "carrier_hz", (double)carrier);
+            cJSON_AddNumberToObject(resp, "pulses", pulses);
+            cJSON_AddNumberToObject(resp, "duration_us", (double)total_us);
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        } else if (rc == -EBUSY) {
+            send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
+        } else if (rc == -5 || rc == -6) {
+            send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
+        } else if (rc == -2 || rc == -3 || rc == -7) {
+            send_json_error(client_fd, 503, raw[0] ? raw : "IR receiver not available");
+        } else {
+            send_json_error(client_fd, 500, raw[0] ? raw : "IR capture failed");
+        }
+        close(client_fd);
+        return 1;
+    }
+
+    /* Route: POST /api/ir-test-learned: play a learned code once on the device's IR port
+     * (fields of the learn wizard: deviceId, keycode or raw) */
+    if (strcmp(clean_path, "/api/ir-test-learned") == 0 && strcmp(method, "POST") == 0) {
+        char dev_id[64] = {0};
+        char code[8192] = {0};
+        cJSON *req_j = body ? parse_request_params(body) : NULL;
+        if (req_j) {
+            cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
+            const char *keys[] = { "keycode", "raw", "code" };
+            for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && !code[0]; i++) {
+                cJSON *jc = cJSON_GetObjectItemCaseSensitive(req_j, keys[i]);
+                if (jc && cJSON_IsString(jc) && jc->valuestring) snprintf(code, sizeof(code), "%s", jc->valuestring);
+            }
+            cJSON_Delete(req_j);
+        }
+        if (!code[0]) {
+            send_json_error(client_fd, 400, "Missing keycode or raw");
+            close(client_fd);
+            return 1;
+        }
+        uint8_t ports = device_ir_ports(dev_id);
+        int rc = hw_ir_send_harmony_keycode(code, ports, 1);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", rc == 0);
+        cJSON_AddNumberToObject(resp, "port", ports);
+        if (rc != 0) cJSON_AddStringToObject(resp, "error", rc == -2 ? "Code not understood by the IR encoder" : "IR transmit failed");
+        send_cjson_resp(client_fd, rc == 0 ? 200 : (rc == -2 ? 400 : 500), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

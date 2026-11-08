@@ -53,6 +53,9 @@ import {
 } from './app_icons_ui.js';
 import { HarmonyAppEventsActions } from './app_events_actions.js';
 
+/* pages drawn from the inventory or the activities (see redrawDataView) */
+const DATA_VIEWS = new Set(['overview', 'activity-remote', 'activities', 'control', 'ir', 'bluetooth', 'bt-keyboard']);
+
 export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
   async refreshDiskSpace() {
     try {
@@ -252,10 +255,34 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     }
     this.updateActivityBanner();
     this.checkBanners();
-    if (this.currentTab === 'overview') this.loadDashboard();
-    else if (this.currentTab === 'activity-remote') this.renderActivityRemote();
-    else if (this.currentTab === 'activities') this.loadActivitiesView();
-    else if (this.currentTab === 'control') this.renderControlView();
+    this.redrawDataView();
+  }
+
+  /* Every save and every live config_changed push ends in refreshData(): redraw the open page
+   * when it is drawn from the inventory or the activities, so a change shows without a reload.
+   * Left alone: pages with their own settings forms (network, mqtt, backup, system, hubs) and
+   * the remote editors, which keep unsaved edits outside form fields (rf-remote, remotes). */
+  redrawDataView() {
+    const tab = this.currentTab;
+    if (!DATA_VIEWS.has(tab)) return;
+    if (this.isEditingIn(`view-${tab}`)) {
+      this.redrawWhenEditingEnds(tab);
+      return;
+    }
+    this.renderTab(tab);
+  }
+
+  /* A redraw would reset the field being typed in: wait until focus leaves the page's fields */
+  redrawWhenEditingEnds(tab) {
+    if (this.pendingRedrawTab) return;
+    this.pendingRedrawTab = tab;
+    const onFocusOut = () => setTimeout(() => {
+      if (this.currentTab === tab && this.isEditingIn(`view-${tab}`)) return;
+      document.removeEventListener('focusout', onFocusOut);
+      this.pendingRedrawTab = null;
+      if (this.currentTab === tab) this.renderTab(tab);
+    }, 0);
+    document.addEventListener('focusout', onFocusOut);
   }
 
   async refreshActivityState() {
@@ -306,7 +333,10 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
       btn.classList.toggle('active', t === tabId);
     });
 
-    // Load content for active tab
+    this.renderTab(tabId);
+  }
+
+  renderTab(tabId) {
     if (tabId === 'overview') this.loadDashboard();
     else if (tabId === 'activity-remote') this.renderActivityRemote();
     else if (tabId === 'activities') this.loadActivitiesView();

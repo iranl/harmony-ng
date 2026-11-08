@@ -92,6 +92,10 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_status
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_rf_ota_resume" "$SCRIPT_DIR/test_rf_ota_resume.c" "$REPO_ROOT/payload/source/remote/remote_rf_ota.c" "$REPO_ROOT/payload/source/sha256.c" && "$BUILD_DIR/test_rf_ota_resume"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_migrate" "$SCRIPT_DIR/test_rf_migrate.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_rf_migrate"
 
+# 4b. IR receiver: decoding a real recording, and a send while a stalled receiver is closing
+gcc -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_rx_decode" "$SCRIPT_DIR/test_ir_rx_decode.c" "$REPO_ROOT/payload/source/ir_i2s.c" && "$BUILD_DIR/test_ir_rx_decode" "$SCRIPT_DIR/fixtures/ir/samsung36_volume_up.i2s"
+gcc -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_tx_stall" "$SCRIPT_DIR/test_ir_tx_stall.c" "$REPO_ROOT/payload/source/ir_i2s.c" && HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_ir_tx_stall"
+
 # 5. Run Hub & Remote Full Co-Simulation
 echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_co_simulation.py"

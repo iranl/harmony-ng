@@ -1603,6 +1603,69 @@ paths:
               example:
                 success: true
 
+  /api/capture:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Learn an IR code from the Hub's receiver
+      description: Waits for one IR signal and returns it as a Harmony raw timing string.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timeout: {type: integer, minimum: 1, maximum: 30, default: 10}
+      responses:
+        '200':
+          description: "Signal captured (pulses: number of P and S intervals in raw, marks and spaces together; duration_us: their sum)"
+          content:
+            application/json:
+              example:
+                ok: true
+                raw: "F9470P0960S0258..."
+                keycode: "F9470P0960S0258..."
+                mode: raw
+                carrier_hz: 38000
+                pulses: 26
+                duration_us: 24000
+        '408':
+          description: No signal before the timeout
+        '409':
+          description: Another capture is running, or an IR send holds the hardware
+        '503':
+          description: No IR receiver
+
+  /api/ir-test-learned:
+    post:
+      tags:
+        - Hardware & IR
+      summary: Send a learned IR code once through a device's IR ports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceId: {type: string}
+                keycode: {type: string}
+                raw: {type: string}
+            example:
+              deviceId: "3"
+              keycode: "F9470P0960S0258..."
+      responses:
+        '200':
+          description: Code sent
+          content:
+            application/json:
+              example:
+                ok: true
+                port: 7
+        '400':
+          description: Missing code, or a code the IR encoder does not understand
+
   /api/button-press:
     post:
       tags:
