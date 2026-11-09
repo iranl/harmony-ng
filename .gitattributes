@@ -24,3 +24,4 @@ tools/unbrick_recovery/** binary
 
 # raw IR receiver recordings (tests/test_ir_rx_decode.c)
 *.i2s binary
+tests/fixtures/ha/ssdp_response.txt -text

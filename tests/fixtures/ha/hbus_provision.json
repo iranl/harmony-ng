@@ -1,0 +1,13 @@
+{
+  "id": 1,
+  "code": 200,
+  "msg": "OK",
+  "data": {
+    "activeRemoteId": "1234567",
+    "hubSwVersion": "2.3.0",
+    "discoveryServer": "https://svcs.myharmony.com/Discovery/Discovery.svc",
+    "hubName": "Test Hub",
+    "accountId": "0",
+    "email": ""
+  }
+}

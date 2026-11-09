@@ -9,6 +9,11 @@
 #include "config_store.h"
 #include "hub_events.h"
 #include "resource_cache.h"
+#include "http_api_ota.h"
+#include "http_api_activities.h"
+#include "hub_mqtt.h"
+#include "ws_server.h"
+#include <pthread.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -229,7 +234,91 @@ static int btn_action_from(const char *s) {
     return HW_BTN_ACTION_TAP;
 }
 
+/* An ack carrying the fields of a REST reply (minus its own ok/success flag) */
+static cJSON *ack_with(const cJSON *req, const char *action, int code, const cJSON *rest) {
+    int ok = (code >= 200 && code < 300);
+    const char *err = NULL;
+    if (!ok && rest) {
+        const cJSON *e = cJSON_GetObjectItemCaseSensitive(rest, "error");
+        if (e && cJSON_IsString(e)) err = e->valuestring;
+    }
+    cJSON *r = ack(req, action, ok, code, err);
+    if (!r || !ok || !rest) return r;
+    const cJSON *it;
+    cJSON_ArrayForEach(it, rest) {
+        if (!it->string || strcmp(it->string, "ok") == 0 || strcmp(it->string, "success") == 0) continue;
+        if (cJSON_GetObjectItemCaseSensitive(r, it->string)) continue;
+        cJSON_AddItemToObject(r, it->string, cJSON_Duplicate(it, 1));
+    }
+    return r;
+}
+
+/* update_check: the check, then the GET /api/update-status fields (spec 5.3) */
+static cJSON *update_check_reply(const cJSON *req) {
+    cJSON *chk = ota_update_check(req);
+    cJSON *st = ota_update_status();
+    if (st && chk) {
+        const cJSON *msg = cJSON_GetObjectItemCaseSensitive(chk, "message");
+        if (msg && cJSON_IsString(msg)) cJSON_AddStringToObject(st, "message", msg->valuestring);
+    }
+    cJSON *r = ack_with(req, "update_check", st ? 200 : 500, st);
+    cJSON_Delete(chk);
+    cJSON_Delete(st);
+    return r;
+}
+
+/* Replies of slow actions, produced on a thread, delivered by hub_cmd_poll on the main loop */
+typedef struct deferred {
+    int origin;
+    cJSON *req;
+    cJSON *reply;
+    struct deferred *next;
+} deferred_t;
+static pthread_mutex_t g_deferred_lock = PTHREAD_MUTEX_INITIALIZER;
+static deferred_t *g_deferred_head;
+static int g_update_check_running;
+
+static void *update_check_thread(void *arg) {
+    deferred_t *d = (deferred_t *)arg;
+    d->reply = update_check_reply(d->req);
+    pthread_mutex_lock(&g_deferred_lock);
+    d->next = g_deferred_head;
+    g_deferred_head = d;
+    g_update_check_running = 0;
+    pthread_mutex_unlock(&g_deferred_lock);
+    return NULL;
+}
+
+void hub_cmd_poll(void) {
+    pthread_mutex_lock(&g_deferred_lock);
+    deferred_t *list = g_deferred_head;
+    g_deferred_head = NULL;
+    pthread_mutex_unlock(&g_deferred_lock);
+    while (list) {
+        deferred_t *d = list;
+        list = list->next;
+        if (d->reply) {
+            if (d->origin == HUB_CMD_ORIGIN_MQTT) {
+                hub_mqtt_deliver_reply(d->req, d->reply);
+            } else if (d->origin >= 0 && ws_is_client(d->origin)) {
+                char *txt = cJSON_PrintUnformatted(d->reply);
+                if (txt) {
+                    if (ws_send_text(d->origin, txt) != 0) ws_remove_client(d->origin);
+                    free(txt);
+                }
+            }
+        }
+        cJSON_Delete(d->reply);
+        cJSON_Delete(d->req);
+        free(d);
+    }
+}
+
 cJSON *hub_cmd_execute(const cJSON *req, int role) {
+    return hub_cmd_execute_from(req, role, HUB_CMD_ORIGIN_NONE);
+}
+
+cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
     if (!req || !cJSON_IsObject(req)) return NULL;
     const char *action = json_str(req, "action", NULL, NULL);
     if (!action) action = "";
@@ -249,6 +338,10 @@ cJSON *hub_cmd_execute(const cJSON *req, int role) {
         else if (strcmp(action, "rf_wake") == 0) rest_path = "/api/rf/wake";
         else if (strcmp(action, "rf_sleep") == 0) rest_path = "/api/rf/sleep";
         else if (strcmp(action, "sync") == 0) rest_path = "/api/sync";
+        else if (strcmp(action, "update_check") == 0) rest_path = "/api/update-check";
+        else if (strcmp(action, "update_apply") == 0) rest_path = "/api/update-apply";
+        else if (strcmp(action, "activity_help") == 0) rest_path = "/api/activity/help";
+        else if (strcmp(action, "activity_help_answer") == 0) rest_path = "/api/activity/help/answer";
         if (rest_path && !http_auth_is_user_role_permitted("POST", rest_path)) {
             return ack(req, action, 0, 403, "Forbidden: Admin access required");
         }
@@ -405,6 +498,49 @@ cJSON *hub_cmd_execute(const cJSON *req, int role) {
             }
             cJSON_Delete(body);
         }
+        return r;
+    }
+    if (strcmp(action, "update_check") == 0) {
+        if (origin == HUB_CMD_ORIGIN_NONE) return update_check_reply(req);
+        pthread_mutex_lock(&g_deferred_lock);
+        int busy = g_update_check_running;
+        if (!busy) g_update_check_running = 1;
+        pthread_mutex_unlock(&g_deferred_lock);
+        if (busy) return ack(req, action, 0, 409, "an update check is already running");
+        deferred_t *d = (deferred_t *)calloc(1, sizeof(*d));
+        pthread_t tid;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 256 * 1024);
+        int started = 0;
+        if (d) {
+            d->origin = origin;
+            d->req = cJSON_Duplicate(req, 1);
+            started = d->req && pthread_create(&tid, &attr, update_check_thread, d) == 0;
+        }
+        pthread_attr_destroy(&attr);
+        if (!started) {
+            if (d) cJSON_Delete(d->req);
+            free(d);
+            pthread_mutex_lock(&g_deferred_lock);
+            g_update_check_running = 0;
+            pthread_mutex_unlock(&g_deferred_lock);
+            return ack(req, action, 0, 500, "could not start the update check");
+        }
+        return NULL; /* hub_cmd_poll delivers the reply */
+    }
+    if (strcmp(action, "update_apply") == 0) {
+        cJSON *rest = ota_update_apply(req);
+        cJSON *r = ack_with(req, action, rest ? 200 : 500, rest);
+        cJSON_Delete(rest);
+        return r;
+    }
+    if (strcmp(action, "activity_help") == 0 || strcmp(action, "activity_help_answer") == 0) {
+        cJSON *rest = NULL;
+        int code = strcmp(action, "activity_help") == 0 ? activity_help_start(req, &rest) : activity_help_answer(req, &rest);
+        cJSON *r = ack_with(req, action, code, rest);
+        cJSON_Delete(rest);
         return r;
     }
     return ack(req, action[0] ? action : "unknown", 0, 400, "unknown action");

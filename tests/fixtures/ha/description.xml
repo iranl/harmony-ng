@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion><major>1</major><minor>0</minor></specVersion>
+  <device>
+    <deviceType>urn:myharmony-com:device:harmony:1</deviceType>
+    <friendlyName>Test Hub</friendlyName>
+    <manufacturer>Logitech</manufacturer>
+    <manufacturerURL>https://github.com/iranl/harmony-ng</manufacturerURL>
+    <modelDescription>Harmony Hub running harmony-ng</modelDescription>
+    <modelName>Harmony Hub</modelName>
+    <modelNumber>2.3.0</modelNumber>
+    <serialNumber>20140101120000-000001</serialNumber>
+    <UDN>uuid:1c0dba38-c7c7-5277-a219-cd10fd0382c2</UDN>
+  </device>
+</root>

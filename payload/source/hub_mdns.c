@@ -358,7 +358,7 @@ void mdns_make_info(mdns_info_t *info, const struct hub_settings *settings, cons
     daemon_get_mqtt_info(mhost, sizeof(mhost), &mport, mbase, sizeof(mbase), &mconn);
     int mqtt = mhost[0] != '\0';
     info->txt_len = mdns_build_txt(info->txt, sizeof(info->txt), hub_info_id(), HARMONY_VERSION, HUB_API_VERSION,
-                                   auth_on, mqtt, mbase, 0, raw);
+                                   auth_on, mqtt, mbase, settings ? settings->legacy_enabled : 0, raw);
 }
 
 /* ------------------------------------------------------------------------------------------ */

@@ -9,8 +9,11 @@
 #include "hub_events.h"
 #include "hub_info.h"
 #include "hub_mdns.h"
+#include "hbus_server.h"
+#include "hub_ssdp.h"
 #include "hub_ws.h"
 #include "hub_mqtt.h"
+#include "hub_cmd.h"
 #include "hub_ntp.h"
 #include "http_api_system.h"
 #include "harmony_version.h"
@@ -59,10 +62,82 @@ static void *http_client_worker(void *arg) {
     return NULL;
 }
 
+/* Port 8088 (Logitech protocol shim): same worker pool, no auth, hbus_server.c routes */
+static void *hbus_client_worker(void *arg) {
+    int cfd = (int)(intptr_t)arg;
+    hbus_handle_client(cfd);
+    pthread_mutex_lock(&g_http_thread_lock);
+    g_active_http_threads--;
+    pthread_mutex_unlock(&g_http_thread_lock);
+    return NULL;
+}
+
+/* Accepts one connection on a listening socket and hands it to a detached worker thread */
+static void accept_client(int listen_fd, void *(*worker)(void *)) {
+    struct sockaddr_in caddr;
+    socklen_t clen = sizeof(caddr);
+    int cfd = accept(listen_fd, (struct sockaddr *)&caddr, &clen);
+    if (cfd < 0) return;
+    if (cfd >= FD_SETSIZE) {
+        fprintf(stderr, "[-] Accepted fd %d exceeds FD_SETSIZE\n", cfd);
+        close(cfd);
+        return;
+    }
+    fcntl(cfd, F_SETFD, FD_CLOEXEC);
+    struct timeval to;
+    to.tv_sec = 2;
+    to.tv_usec = 0;
+    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
+    to.tv_sec = 2;
+    to.tv_usec = 0;
+    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
+    int nodelay = 1;
+    setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    int sndbuf = 32768;
+    setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
+    int reject = 0;
+    pthread_mutex_lock(&g_http_thread_lock);
+    if (g_active_http_threads >= MAX_HTTP_CLIENT_THREADS) {
+        reject = 1;
+    } else {
+        g_active_http_threads++;
+    }
+    pthread_mutex_unlock(&g_http_thread_lock);
+
+    if (reject) {
+        const char *busy = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        send(cfd, busy, strlen(busy), MSG_NOSIGNAL);
+        close(cfd);
+        return;
+    }
+
+    pthread_t th;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    /*
+     * Keep 512 KB stack size: cJSON recursive parsing and formatting
+     * on large backup bundles (up to 2 MB) requires deep recursion headroom.
+     * Dynamic HTTP request buffers are malloc'd on the heap in http_server.c.
+     */
+    pthread_attr_setstacksize(&attr, 512 * 1024);
+    if (pthread_create(&th, &attr, worker, (void *)(intptr_t)cfd) != 0) {
+        fprintf(stderr, "[-] pthread_create failed for client fd %d\n", cfd);
+        pthread_mutex_lock(&g_http_thread_lock);
+        g_active_http_threads--;
+        pthread_mutex_unlock(&g_http_thread_lock);
+        close(cfd);
+    }
+    pthread_attr_destroy(&attr);
+}
+
 int main(int argc, char **argv) {
     int port = 8089;
     const char *mfg_file = NULL; /* test harness: a file with the mfg partition layout */
     int mdns_port = MDNS_PORT;   /* test harness: --mdns-port N */
+    int legacy_port = HBUS_PORT; /* test harness: --legacy-port N */
+    int ssdp_port = SSDP_PORT;   /* test harness: --ssdp-port N */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dry-run") == 0) {
             g_dry_run = 1;
@@ -72,6 +147,10 @@ int main(int argc, char **argv) {
             mfg_file = argv[++i];
         } else if (strcmp(argv[i], "--mdns-port") == 0 && i + 1 < argc) {
             mdns_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--legacy-port") == 0 && i + 1 < argc) {
+            legacy_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--ssdp-port") == 0 && i + 1 < argc) {
+            ssdp_port = atoi(argv[++i]);
         } else if (isdigit((unsigned char)argv[i][0])) {
             port = atoi(argv[i]);
         }
@@ -129,6 +208,9 @@ int main(int argc, char **argv) {
     if (hub_events_subscribe(hub_ws_event_sink, NULL) != 0) {
         fprintf(stderr, "[-] Could not subscribe the WebSocket sink to the event bus\n");
     }
+    if (hub_events_subscribe(hbus_event_sink, NULL) != 0) {
+        fprintf(stderr, "[-] Could not subscribe the Logitech shim sink to the event bus\n");
+    }
     if (state_watch_start() != 0) {
         fprintf(stderr, "[-] Could not start the state watcher: web UIs will not update live\n");
     }
@@ -142,6 +224,13 @@ int main(int argc, char **argv) {
     /* mDNS responder (_harmony-ng._tcp), on this loop; mdns_enabled in the settings */
     if (hub_mdns_init(mdns_port) != 0) {
         fprintf(stderr, "[-] mDNS responder not started\n");
+    }
+    /* Logitech protocol shim (port 8088) and its SSDP responder; legacy_enabled in the settings */
+    if (hbus_init(legacy_port) != 0) {
+        fprintf(stderr, "[-] Logitech protocol shim not started\n");
+    }
+    if (hub_ssdp_init(ssdp_port, legacy_port) != 0) {
+        fprintf(stderr, "[-] SSDP responder not started\n");
     }
 
     /* 3. MQTT Client */
@@ -171,6 +260,16 @@ int main(int argc, char **argv) {
             FD_SET(mdns_fd, &rset);
             if (mdns_fd > max_fd) max_fd = mdns_fd;
         }
+        int hbus_fd = hbus_listen_fd();
+        if (hbus_fd >= 0 && hbus_fd < FD_SETSIZE) {
+            FD_SET(hbus_fd, &rset);
+            if (hbus_fd > max_fd) max_fd = hbus_fd;
+        }
+        int ssdp_fd = hub_ssdp_fd();
+        if (ssdp_fd >= 0 && ssdp_fd < FD_SETSIZE) {
+            FD_SET(ssdp_fd, &rset);
+            if (ssdp_fd > max_fd) max_fd = ssdp_fd;
+        }
 
         int client_fds[WS_MAX_CLIENTS];
         int client_count = ws_get_clients(client_fds, WS_MAX_CLIENTS);
@@ -187,73 +286,18 @@ int main(int argc, char **argv) {
 
         int nready = select(max_fd + 1, &rset, NULL, NULL, &tv);
         if (nready > 0) {
-            if (FD_ISSET(srv_fd, &rset)) {
-                struct sockaddr_in caddr;
-                socklen_t clen = sizeof(caddr);
-                int cfd = accept(srv_fd, (struct sockaddr *)&caddr, &clen);
-                if (cfd >= 0) {
-                    if (cfd >= FD_SETSIZE) {
-                        fprintf(stderr, "[-] Accepted fd %d exceeds FD_SETSIZE\n", cfd);
-                        close(cfd);
-                        continue;
-                    }
-                    fcntl(cfd, F_SETFD, FD_CLOEXEC);
-                    struct timeval to;
-                    to.tv_sec = 2;
-                    to.tv_usec = 0;
-                    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(to));
-                    to.tv_sec = 2;
-                    to.tv_usec = 0;
-                    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(to));
-                    int nodelay = 1;
-                    setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
-                    int sndbuf = 32768;
-                    setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
-
-                    int reject = 0;
-                    pthread_mutex_lock(&g_http_thread_lock);
-                    if (g_active_http_threads >= MAX_HTTP_CLIENT_THREADS) {
-                        reject = 1;
-                    } else {
-                        g_active_http_threads++;
-                    }
-                    pthread_mutex_unlock(&g_http_thread_lock);
-
-                    if (reject) {
-                        const char *busy = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-                        send(cfd, busy, strlen(busy), MSG_NOSIGNAL);
-                        close(cfd);
-                        continue;
-                    }
-
-                    pthread_t th;
-                    pthread_attr_t attr;
-                    pthread_attr_init(&attr);
-                    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-                    /*
-                     * Keep 512 KB stack size: cJSON recursive parsing and formatting
-                     * on large backup bundles (up to 2 MB) requires deep recursion headroom.
-                     * Dynamic HTTP request buffers are malloc'd on the heap in http_server.c.
-                     */
-                    pthread_attr_setstacksize(&attr, 512 * 1024);
-                    if (pthread_create(&th, &attr, http_client_worker, (void *)(intptr_t)cfd) != 0) {
-                        fprintf(stderr, "[-] pthread_create failed for client fd %d\n", cfd);
-                        pthread_mutex_lock(&g_http_thread_lock);
-                        g_active_http_threads--;
-                        pthread_mutex_unlock(&g_http_thread_lock);
-                        close(cfd);
-                    }
-                    pthread_attr_destroy(&attr);
-                }
-            }
+            if (FD_ISSET(srv_fd, &rset)) accept_client(srv_fd, http_client_worker);
+            if (hbus_fd >= 0 && FD_ISSET(hbus_fd, &rset)) accept_client(hbus_fd, hbus_client_worker);
 
             for (int i = 0; i < client_count; i++) {
                 int cfd = client_fds[i];
                 if (FD_ISSET(cfd, &rset)) {
-                    handle_ws_client_message(cfd);
+                    if (ws_is_client_legacy(cfd)) hbus_handle_ws_message(cfd);
+                    else handle_ws_client_message(cfd);
                 }
             }
             if (mdns_fd >= 0 && FD_ISSET(mdns_fd, &rset)) hub_mdns_handle();
+            if (ssdp_fd >= 0 && FD_ISSET(ssdp_fd, &rset)) hub_ssdp_handle();
         }
 
         if (!bt_release_done && time(NULL) != bt_release_last) {
@@ -276,17 +320,23 @@ int main(int argc, char **argv) {
         ws_server_tick();
         /* mDNS probing, announcements, IP and TXT changes */
         hub_mdns_tick();
+        /* Logitech shim: digest for new clients, channel digits; SSDP periodic alive */
+        hbus_tick();
+        hub_ssdp_tick();
 
         /* Tick SNTP network time sync */
         sntp_tick(ntp_host);
 
         /* Tick MQTT client packet reader, keepalive, and periodic state poll */
         hub_mqtt_tick();
+        hub_cmd_poll();     /* replies of slow command-channel actions (update_check) */
     }
 
     printf("\n[*] Shutting down hub_daemon...\n");
     orch_cancel();
     hub_mdns_shutdown();
+    hub_ssdp_shutdown();
+    hbus_shutdown();
     ir_i2s_shutdown();
     ws_close_all();
     http_server_close(srv_fd);

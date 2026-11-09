@@ -18,6 +18,7 @@ static int g_client_roles[WS_MAX_CLIENTS];
 /* 1 until the main loop sent the client its snapshot: broadcasts skip it meanwhile, so the
  * snapshot is the first frame the client receives */
 static int g_client_pending[WS_MAX_CLIENTS];
+static int g_client_legacy[WS_MAX_CLIENTS];
 /* Keepalive state: monotonic seconds of the last frame from the client, and of the ping we
  * sent and still wait to be answered (0 = none outstanding) */
 static time_t g_client_last_rx[WS_MAX_CLIENTS];
@@ -172,6 +173,7 @@ static int add_client(int fd) {
             g_clients[i] = fd;
             g_client_roles[i] = 2; /* admin until the upgrade records the token's role */
             g_client_pending[i] = 1;
+            g_client_legacy[i] = 0;
             g_client_last_rx[i] = mono_now();
             g_client_ping_sent[i] = 0;
             g_client_count++;
@@ -298,7 +300,10 @@ int ws_send_text(int client_fd, const char *text) {
         header[3] = (uint8_t)(payload_len & 0xFF);
         hlen = 4;
     } else {
-        return -1;
+        /* RFC 6455 64-bit length: a stock configuration object with many devices passes 64 KB */
+        header[1] = 127;
+        for (int i = 0; i < 8; i++) header[2 + i] = (uint8_t)(((uint64_t)payload_len >> (8 * (7 - i))) & 0xFF);
+        hlen = 10;
     }
 
     int rc = 0;
@@ -316,7 +321,7 @@ void ws_broadcast_text(const char *text) {
     int n = 0;
     pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] >= 0 && !g_client_pending[i]) fds[n++] = g_clients[i];
+        if (g_clients[i] >= 0 && !g_client_pending[i] && !g_client_legacy[i]) fds[n++] = g_clients[i];
     }
     pthread_mutex_unlock(&g_clients_lock);
     for (int i = 0; i < n; i++) {
@@ -324,6 +329,63 @@ void ws_broadcast_text(const char *text) {
             ws_remove_client(fds[i]);
         }
     }
+}
+
+void ws_set_client_legacy(int client_fd, int legacy) {
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            g_client_legacy[i] = legacy ? 1 : 0;
+            if (legacy) g_client_pending[i] = 0; /* no 8089 snapshot for a legacy client */
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+}
+
+int ws_is_client_legacy(int client_fd) {
+    int legacy = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            legacy = g_client_legacy[i];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    return legacy;
+}
+
+void ws_broadcast_legacy_text(const char *text) {
+    if (!text) return;
+    int fds[WS_MAX_CLIENTS];
+    int n = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] >= 0 && g_client_legacy[i]) fds[n++] = g_clients[i];
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    for (int i = 0; i < n; i++) {
+        if (ws_send_text(fds[i], text) != 0) ws_remove_client(fds[i]);
+    }
+}
+
+void ws_close_legacy_clients(void) {
+    int fds[WS_MAX_CLIENTS];
+    int n = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] >= 0 && g_client_legacy[i]) fds[n++] = g_clients[i];
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    for (int i = 0; i < n; i++) ws_remove_client(fds[i]);
+}
+
+void ws_sha1(const uint8_t *data, size_t len, uint8_t digest[20]) {
+    sha1_ctx_t ctx;
+    sha1_init(&ctx);
+    sha1_update(&ctx, data, len);
+    sha1_final(digest, &ctx);
 }
 
 int ws_take_pending_clients(int *out_fds, size_t max_count) {
@@ -413,6 +475,19 @@ void ws_set_client_role(int client_fd, int role) {
         }
     }
     pthread_mutex_unlock(&g_clients_lock);
+}
+
+int ws_is_client(int client_fd) {
+    int found = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            found = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    return found;
 }
 
 int ws_get_client_role(int client_fd) {

@@ -25,7 +25,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness  # noqa: E402
+from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
 from mock_mqtt import MockBroker, MockClient  # noqa: E402
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -255,6 +255,48 @@ def main():
                 obs.close()
         finally:
             broker.close()
+
+        # Milestone 4: the Logitech protocol shim and SSDP
+        print("[-] Recording Logitech shim fixtures")
+        import test_hbus
+        import test_ssdp
+        test_hbus.LEGACY_PORT = PORT + 100
+        test_ssdp.SSDP_PORT = PORT + 200
+        with open(os.path.join(SAMPLE_CONFIG, "settings.json")) as f:
+            legacy_settings = json.load(f)
+        legacy_settings["legacy_enabled"] = True
+        with HubHarness(port=PORT + 2, args=["--mfg-file", mfg_path, "--legacy-port", str(test_hbus.LEGACY_PORT),
+                                             "--ssdp-port", str(test_ssdp.SSDP_PORT)],
+                        extra_config_files={"settings.json": legacy_settings},
+                        extra_root_files={"luaworks/provision/preferences": {"remoteId": 1234567}}) as hub:
+            time.sleep(0.5)
+            st, head, prov = test_hbus.provision(hub)
+            write_json(args.out, "hbus_provision.json", prov)
+            # the LOCATION carries the recording host's address and the test port: documented values instead
+            ssdp = test_ssdp.msearch("urn:myharmony-com:device:harmony:1")
+            ssdp = re.sub(r"LOCATION: http://[0-9.]+:[0-9]+/", "LOCATION: http://192.0.2.10:8088/", ssdp)
+            with open(os.path.join(args.out, "ssdp_response.txt"), "w") as f:
+                f.write(ssdp)
+            st, head, xml = test_hbus.http_get("/description")
+            with open(os.path.join(args.out, "description.xml"), "w") as f:
+                f.write(xml)
+            ws = test_hbus.legacy_ws(1234567)
+            frames = []
+            first, _ = test_hbus.recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+            frames.append(first)
+            rid = test_hbus.hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?config")
+            r, _ = test_hbus.reply_for(ws, rid)
+            write_json(args.out, "hbus_config.json", r)
+            rid = test_hbus.hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "10"})
+            m, seen = test_hbus.recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 15.0)
+            frames += seen + ([m] if m else [])
+            rid = test_hbus.hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "-1"})
+            m, seen = test_hbus.recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 15.0)
+            frames += seen + ([m] if m else [])
+            m, seen = test_hbus.recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", 5.0)
+            frames += seen + ([m] if m else [])
+            write_ndjson(args.out, "hbus_activity_switch.ndjson", [f for f in frames if f])
+            ws.close()
     finally:
         for p in (tmp, BT_STATUS_FILE, mfg_path):
             try:

@@ -163,7 +163,7 @@ void handle_ws_client_message(int cfd) {
 
     /* Every action runs through the shared executor (same actions and codes as the MQTT
      * command channel); get_snapshot is answered here so the frame goes to this client only */
-    cJSON *resp = hub_cmd_execute(root, ws_get_client_role(cfd));
+    cJSON *resp = hub_cmd_execute_from(root, ws_get_client_role(cfd), cfd); /* NULL: replied later */
     cJSON_Delete(root);
     if (!resp) return;
     char *str = cJSON_PrintUnformatted(resp);

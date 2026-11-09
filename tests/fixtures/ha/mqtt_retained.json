@@ -2,7 +2,7 @@
   "harmony/hub/activity_state": {
     "type": "activity_state",
     "seq": 1,
-    "ts": 1794092742,
+    "ts": 1794092906,
     "activity": "-1",
     "state": 0,
     "stateName": "idle",
@@ -12,9 +12,9 @@
   "harmony/hub/bt": {
     "type": "bt_status",
     "seq": 4,
-    "ts": 1794092743,
+    "ts": 1794092907,
     "backend": "btstack",
-    "pid": 163476,
+    "pid": 165503,
     "state": "connecting",
     "target": "11:22:33:44:55:66",
     "last_button": "",
@@ -53,13 +53,13 @@
   "harmony/hub/config": {
     "type": "config",
     "files": {
-      "devices": 1794092742,
-      "activities": 1794092742,
-      "settings": 1794092742,
-      "remote_map": 1794092742
+      "devices": 1794092906,
+      "activities": 1794092906,
+      "settings": 1794092906,
+      "remote_map": 1794092906
     },
     "inventory_version": "504af5ca",
-    "ts": 1794092742
+    "ts": 1794092906
   },
   "harmony/hub/hub": {
     "type": "hub",
@@ -74,17 +74,18 @@
       "ws_keepalive",
       "ir_raw",
       "mdns",
+      "legacy",
       "mqtt_v2",
       "rf_wake"
     ],
     "legacy_enabled": false,
     "mdns_enabled": true,
     "auth_enabled": false,
-    "uptime_sec": 66661,
+    "uptime_sec": 66824,
     "ip": "192.0.2.10",
     "device_count": 2,
     "command_count": 8,
-    "ts": 1794092742
+    "ts": 1794092906
   },
   "harmony/hub/inventory/1": {
     "type": "inventory_device",
@@ -153,7 +154,7 @@
   "harmony/hub/rf": {
     "type": "rf_status",
     "seq": 5,
-    "ts": 1794092744,
+    "ts": 1794092907,
     "running": true,
     "ok": true,
     "fw_version": "v72.00",

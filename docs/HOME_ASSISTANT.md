@@ -11,9 +11,6 @@ what it costs, and how to switch it on. The wire details are in [API.md](API.md)
 | 3. MQTT discovery | the MQTT integration and a broker, no custom code | MQTT settings with "Create Home Assistant entities" on | the broker (discovery topics) | an activity select, sensors and buttons |
 | 4. Logitech protocol | the core `harmony` integration, no custom code | "Logitech protocol compatibility" on | SSDP | the entities of a stock Hub: remote and activity select |
 
-Layer 4 is described in this file once milestone 4 of the firmware specification is merged; until
-then see section 6 of [HA_INTEGRATION_FIRMWARE_SPEC.md](HA_INTEGRATION_FIRMWARE_SPEC.md).
-
 ## 1. The harmony-ng integration over the API
 
 **What it is.** A native Home Assistant integration,
@@ -96,6 +93,33 @@ commands from Home Assistant go through automations or scripts, not entity servi
 broker: a command to it (from an activity sequence, the remote or Home Assistant) publishes `1` and,
 after the pulse time, `0` on the device's topic template (device editor, "Device MQTT Bridge"). That
 is how a plug, a relay or a Node-RED flow becomes a device in an activity.
+
+## 4. The Logitech protocol (core Harmony integration)
+
+**What it is.** With "Logitech protocol compatibility" on, the Hub answers SSDP searches like a stock
+Harmony Hub and serves the stock protocol on port 8088: the provisioning handshake, the WebSocket
+envelope, the configuration in the stock layout, activity changes with the stock progress sequence,
+`holdAction` commands and `changeChannel`. Home Assistant's core `harmony` integration and any other
+stock client (the `aioharmony` library, Homebridge plugins) talk to it unchanged.
+
+**You get.** What a stock Hub gave: the Hub as a `remote` entity (activities, `send_command` to a
+device) and the `Activities` select. Entities are keyed on the stock `remoteId` stored on the Hub,
+so a Hub that was used with the core integration before harmony-ng gets its old device, entity ids
+and history back.
+
+**Pros.** Nothing custom in Home Assistant and no broker; existing automations and dashboards built
+on the core integration keep working; other stock clients work too.
+
+**Cons.** The stock feature set only: no key events, no Bluetooth keys, no raw IR, no remote status;
+port 8088 has no authentication (the stock protocol has none), so keep it off on networks you do
+not trust; the stock protocol polls where layer 1 pushes.
+
+**Configure.**
+1. Hub: web UI, Settings, System, tick "Logitech protocol compatibility (port 8088)". Save. The
+   Hub announces itself by SSDP at once.
+2. Home Assistant: the core Harmony integration discovers the Hub within a minute (Settings,
+   Devices and services, discovered); confirm it. If the Hub was named like your old one, the
+   previous entities come back. Untick the setting to close the port; the entities go unavailable.
 
 ## Which one
 

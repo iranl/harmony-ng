@@ -4035,6 +4035,16 @@ harmony_send_command:
             </select>
           </div>
         </div>
+        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="hubMdnsEnabled" checked>
+            <span>mDNS discovery (<code>_harmony-ng._tcp</code>, found by Home Assistant without an address)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="hubLegacyEnabled">
+            <span>Logitech protocol compatibility (port 8088, no authentication: the stock protocol has none; for Home Assistant's core Harmony integration and other stock clients)</span>
+          </label>
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
           <button type="button" id="btnSaveHubSettings" class="btn btn-sm btn-primary" data-i18n="save_changes">Save Hub
             Settings</button>

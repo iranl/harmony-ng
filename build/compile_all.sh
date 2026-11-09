@@ -108,6 +108,9 @@ build_daemon() {
         payload/source/hub_events.c \
         payload/source/hub_info.c \
         payload/source/hub_mdns.c \
+        payload/source/hub_ssdp.c \
+        payload/source/hbus_config.c \
+        payload/source/hbus_server.c \
         payload/source/hub_cmd.c \
         payload/source/mfg_id.c \
         payload/source/mqtt_client.c \

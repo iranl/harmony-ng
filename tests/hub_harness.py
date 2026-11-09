@@ -39,7 +39,7 @@ HUB_DAEMON_SOURCES = [
     "config_store.c", "bt_migrate.c", "config_sanitize.c", "orchestrator.c",
     "orchestrator_queue.c", "hub_mqtt.c", "hub_mqtt_ha.c", "hub_ws.c", "hub_ntp.c",
     "resource_cache.c", "cJSON.c", "ir_encoder.c", "ir_i2s.c", "hw_action.c",
-    "ws_server.c", "state_watch.c", "hub_events.c", "hub_info.c", "hub_mdns.c", "hub_cmd.c", "mfg_id.c", "mqtt_client.c", "sha256.c",
+    "ws_server.c", "state_watch.c", "hub_events.c", "hub_info.c", "hub_mdns.c", "hub_ssdp.c", "hbus_config.c", "hbus_server.c", "hub_cmd.c", "mfg_id.c", "mqtt_client.c", "sha256.c",
     "timezone_db.c",
 ]
 
@@ -92,12 +92,14 @@ class HubHarness:
     """A hub_daemon_test on its own mock root. Use as a context manager."""
 
     def __init__(self, port=8997, hub_bin=None, env=None, args=None, config_dir=SAMPLE_CONFIG,
-                 log_path=None, host="127.0.0.1", extra_config_files=None, extra_data_files=None):
+                 log_path=None, host="127.0.0.1", extra_config_files=None, extra_data_files=None,
+                 extra_root_files=None):
         self.port = port
         # 127.0.0.2 is not trusted as loopback by http_auth, so auth tests use it
         self.host = host
         self.extra_config_files = dict(extra_config_files or {})
         self.extra_data_files = dict(extra_data_files or {})  # files under /data/harmony itself (mqtt.json)
+        self.extra_root_files = dict(extra_root_files or {})  # files under /data (path relative to it)
         self.hub_bin = hub_bin or HUB_BIN
         self.extra_env = dict(env or {})
         self.extra_args = list(args or [])
@@ -146,6 +148,11 @@ class HubHarness:
                 f.write(content if isinstance(content, str) else json.dumps(content))
         for name, content in self.extra_data_files.items():
             with open(os.path.join(self.data_dir, name), "w") as f:
+                f.write(content if isinstance(content, str) else json.dumps(content))
+        for name, content in self.extra_root_files.items():
+            path = os.path.join(self.mock_dir, "data", name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
                 f.write(content if isinstance(content, str) else json.dumps(content))
         env = os.environ.copy()
         env["HARMONY_MOCK_DIR"] = self.mock_dir

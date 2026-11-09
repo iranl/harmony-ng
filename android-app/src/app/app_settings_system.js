@@ -775,6 +775,10 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             tzEl.value = st.timezone;
           }
         }
+        const mdnsCb = document.getElementById('hubMdnsEnabled');
+        if (mdnsCb && st.mdns_enabled !== undefined) mdnsCb.checked = Boolean(st.mdns_enabled);
+        const legacyCb = document.getElementById('hubLegacyEnabled');
+        if (legacyCb && st.legacy_enabled !== undefined) legacyCb.checked = Boolean(st.legacy_enabled);
         const ledSel = document.getElementById('hubLedModeSelect');
         if (ledSel) {
           /* Older settings use values the Hub still accepts; this is how the Hub
