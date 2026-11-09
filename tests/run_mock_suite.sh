@@ -114,6 +114,7 @@ python3 "$SCRIPT_DIR/test_co_simulation.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
+python3 "$SCRIPT_DIR/test_activity_queue.py"
 
 # 5b. WebSocket event bus tests against hub_daemon_test on the mock root
 echo "[-] Running WebSocket event tests..."

@@ -27,6 +27,10 @@ static char g_current_act[32] = ORCH_POWEROFF_ID;
 static char g_target_act[32] = ORCH_POWEROFF_ID;
 static pthread_mutex_t g_act_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* A start or power off asked while a transition runs: it starts when that one has completed.
+ * One slot, the latest request wins (the user's last word), the running target is never queued. */
+static char g_queued_act[32];
+
 static orch_step_t g_queue[ORCH_MAX_STEPS];
 static size_t g_queue_len = 0;
 static size_t g_current_step = 0;
@@ -142,6 +146,51 @@ int orch_is_busy(void) {
     return (g_state == ORCH_STATE_STARTING || g_state == ORCH_STATE_STOPPING);
 }
 
+int orch_get_queued_activity(char *buf, size_t len) {
+    if (!buf || len == 0) return 0;
+    pthread_mutex_lock(&g_act_lock);
+    snprintf(buf, len, "%s", g_queued_act);
+    pthread_mutex_unlock(&g_act_lock);
+    return buf[0] != '\0';
+}
+
+/* True when id names a configured activity (PowerOff's "-1" included) */
+static int activity_known(const char *id) {
+    if (strcmp(id, ORCH_POWEROFF_ID) == 0) return 1;
+    cJSON *root = config_store_get_activities_json();
+    const cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
+    const cJSON *a = NULL;
+    cJSON_ArrayForEach(a, list) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
+        char aid[32] = "";
+        if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
+        else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
+        if (strcmp(aid, id) == 0) return 1;
+    }
+    return 0;
+}
+
+/* After a transition completed: start the queued request, if any */
+static void orch_start_queued(void) {
+    char next[32];
+    pthread_mutex_lock(&g_act_lock);
+    if (!g_queued_act[0]) {
+        pthread_mutex_unlock(&g_act_lock);
+        return;
+    }
+    strncpy(next, g_queued_act, sizeof(next) - 1);
+    next[sizeof(next) - 1] = '\0';
+    g_queued_act[0] = '\0';
+    pthread_mutex_unlock(&g_act_lock);
+    if (strcmp(next, g_current_act) == 0) {
+        printf("[*] Orch: queued request %s is the activity reached, nothing to do\n", next);
+        return;
+    }
+    printf("[*] Orch: starting the queued request %s\n", next);
+    fflush(stdout);
+    orch_switch_activity(next, 0, NULL, 0);
+}
+
 int orch_is_sending(void) {
     return g_queue_len > 0 || g_bg_len > 0;
 }
@@ -168,6 +217,7 @@ orch_state_t orch_get_state(void) {
 void orch_cancel(void) {
     hw_ir_cancel(IR_PORT_ALL);
     pthread_mutex_lock(&g_act_lock);
+    g_queued_act[0] = '\0'; /* a cancel is the user's last word too */
     /* Only a power off in progress ends as PowerOff. g_target_act is "-1" by default and stays so
      * when the activity was restored from flash and never switched in this run: a clean stop of
      * the daemon (SIGTERM at a reboot) used to take that for a power off and saved "-1", so every
@@ -348,7 +398,8 @@ int orch_tick(void) {
     if (g_progress_cb) {
         g_progress_cb(g_current_act, g_state, 0, 0, "Transition completed", g_cb_user_data);
     }
-    return (g_bg_len > 0) ? 1 : 0;
+    orch_start_queued();
+    return (g_bg_len > 0 || g_queue_len > 0) ? 1 : 0;
 }
 
 static int orch_compile_transition(const char *target_id) {
@@ -427,7 +478,37 @@ static void orch_format_preview_json(const char *target_id,
 int orch_switch_activity(const char *target_activity_id, int dry_run,
                          char *preview_json, size_t preview_len) {
     if (!target_activity_id || !target_activity_id[0]) return -1;
-    if (orch_is_busy()) return -2;
+    /* an unknown id fails here, whether it would run now or be queued (a dry run keeps its
+     * empty preview) */
+    if (!dry_run && !activity_known(target_activity_id)) return -1;
+    /* the queue is read and cleared by the main loop (orch_start_queued) and written from the
+     * request threads: the busy check and the queue update are one step under the lock */
+    pthread_mutex_lock(&g_act_lock);
+    if (orch_is_busy()) {
+        if (dry_run) {
+            pthread_mutex_unlock(&g_act_lock);
+            return -2;
+        }
+        if (strcmp(target_activity_id, g_target_act) == 0) {
+            g_queued_act[0] = '\0'; /* the running transition already goes there */
+            pthread_mutex_unlock(&g_act_lock);
+            return 0;
+        }
+        int changed = (strcmp(g_queued_act, target_activity_id) != 0);
+        if (changed) {
+            strncpy(g_queued_act, target_activity_id, sizeof(g_queued_act) - 1);
+            g_queued_act[sizeof(g_queued_act) - 1] = '\0';
+        }
+        char running[32];
+        snprintf(running, sizeof(running), "%s", g_target_act);
+        pthread_mutex_unlock(&g_act_lock);
+        if (changed) {
+            printf("[*] Orch: %s requested while switching to %s, queued\n", target_activity_id, running);
+            fflush(stdout);
+        }
+        return 1;
+    }
+    pthread_mutex_unlock(&g_act_lock);
 
     if (dry_run) {
         if (preview_json && preview_len > 0) {

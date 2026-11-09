@@ -235,6 +235,9 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         cJSON_AddStringToObject(aj, "activity", orch_get_current_activity());
         cJSON_AddNumberToObject(aj, "state", (int)orch_get_state());
         cJSON_AddBoolToObject(aj, "busy", orch_is_busy() ? 1 : 0);
+        char queued[32];
+        if (orch_get_queued_activity(queued, sizeof(queued))) cJSON_AddStringToObject(aj, "queued", queued);
+        else cJSON_AddNullToObject(aj, "queued");
         cJSON_AddBoolToObject(aj, "sending", orch_is_sending() ? 1 : 0);
         send_cjson_resp(client_fd, 200, aj);
         cJSON_Delete(aj);
@@ -298,14 +301,14 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             }
         } else {
             int rc = orch_switch_activity(act_id, 0, NULL, 0);
-            if (rc == 0) {
+            if (rc == 0 || rc == 1) {
                 cJSON *suc = cJSON_CreateObject();
                 cJSON_AddBoolToObject(suc, "success", 1);
-                cJSON_AddStringToObject(suc, "state", "starting");
+                cJSON_AddStringToObject(suc, "state", rc == 1 ? "queued" : "starting");
                 send_cjson_resp(client_fd, 200, suc);
                 cJSON_Delete(suc);
             } else {
-                send_json_error(client_fd, 409, "Interlock busy");
+                send_json_error(client_fd, 500, "Could not build the transition");
             }
         }
         close(client_fd);
@@ -371,14 +374,14 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             }
         } else {
             int rc = orch_power_off(0, NULL, 0);
-            if (rc == 0) {
+            if (rc == 0 || rc == 1) {
                 cJSON *suc = cJSON_CreateObject();
                 cJSON_AddBoolToObject(suc, "success", 1);
-                cJSON_AddStringToObject(suc, "state", "stopping");
+                cJSON_AddStringToObject(suc, "state", rc == 1 ? "queued" : "stopping");
                 send_cjson_resp(client_fd, 200, suc);
                 cJSON_Delete(suc);
             } else {
-                send_json_error(client_fd, 409, "busy");
+                send_json_error(client_fd, 500, "Could not build the transition");
             }
         }
         close(client_fd);

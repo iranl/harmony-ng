@@ -323,7 +323,6 @@ static cJSON *cmd_runactivity(int fd, const char *cmd, const cJSON *id, const cJ
     if (strcmp(num, "-1") == 0) snprintf(target, sizeof(target), "%s", ORCH_POWEROFF_ID);
     else hbus_resolve_id(num, target, sizeof(target));
     if (!activity_exists(target)) return reply(cmd, id, 500, "Unknown activity", NULL);
-    if (orch_is_busy()) return reply(cmd, id, 500, "Busy", NULL);
     char idtxt[80] = "";
     if (id && cJSON_IsString(id) && id->valuestring) snprintf(idtxt, sizeof(idtxt), "%s", id->valuestring);
     else if (id && cJSON_IsNumber(id)) snprintf(idtxt, sizeof(idtxt), "%ld", (long)id->valuedouble);
@@ -332,11 +331,12 @@ static cJSON *cmd_runactivity(int fd, const char *cmd, const cJSON *id, const cJ
     pending_set(fd, idtxt, target);
     int rc = (strcmp(target, ORCH_POWEROFF_ID) == 0) ? orch_power_off(0, NULL, 0)
                                                      : orch_switch_activity(target, 0, NULL, 0);
-    if (rc != 0) {
+    if (rc < 0) {
         hbus_pending_t *p = pending_for(fd);
         if (p) pending_clear(p);
-        return reply(cmd, id, 500, rc == -2 ? "Busy" : "Unknown activity", NULL);
+        return reply(cmd, id, 500, "Unknown activity", NULL);
     }
+    /* rc 1: queued behind the running transition; its frames follow when it starts */
     printf("[*] HBUS: runactivity %s (%s) from client fd %d\n", num, target, fd);
     return reply(cmd, id, 200, "OK", NULL);
 }

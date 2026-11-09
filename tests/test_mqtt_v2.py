@@ -212,8 +212,10 @@ def main():
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c3", "action": "start_activity", "activity": "11"}), qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c3")
             r = jload(m[1]) if m else {}
-            check(m is not None and r.get("ok") is False and r.get("code") == 409 and r.get("error") == "busy", "busy start: 409", str(r))
-            sub.wait_for(BASE + "/activity_state", 10, lambda p: (jload(p) or {}).get("state") == 2)
+            check(m is not None and r.get("ok") is True and r.get("state") == "queued", "start during a start: queued", str(r))
+            m = sub.wait_for(BASE + "/activity_state", 10, lambda p: (jload(p) or {}).get("state") == 2 and (jload(p) or {}).get("activity") == "10")
+            m = sub.wait_for(BASE + "/activity_state", 15, lambda p: (jload(p) or {}).get("state") == 2 and (jload(p) or {}).get("activity") == "11")
+            check(m is not None, "the queued 11 starts after 10 completed", str(m))
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c4", "action": "get_snapshot"}), qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c4")
             r = jload(m[1]) if m else {}
