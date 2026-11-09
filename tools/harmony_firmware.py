@@ -64,7 +64,12 @@ from tools.harmony_hid import (
     build_data_frames,
 )
 
-# Logitech Software Update Service (SUS) Endpoint & API Key
+# Logitech Software Update Service (SUS) endpoint and client key.
+# SUS_API_KEY is not a secret of this project: it is the client key Logitech's own software (the
+# MyHarmony desktop app and the Remote Recovery Tool) sends in the Logitech-SUS-Key header to the
+# public firmware update service, and it has been documented publicly since 2021. The stock Hub
+# firmware embeds its own key for the same service. It only allows fetching the official firmware
+# bundles this tool downloads, so there is nothing to revoke or to remove from the history.
 SUS_BASE_URL = "https://sus.dhg.myharmony.com/softwareupdatesplatform/softwareupdates/"
 SUS_API_KEY = "UV6nr6k8ZqlLYksPWMOlv5qwNU2lo1j8Q57WgwE5"
 

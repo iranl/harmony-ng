@@ -150,20 +150,24 @@ void execute_settings_action(int idx) {
                 fb_set_blank(!g_screen_on);
                 save_settings_conf();
                 break;
-            case 3:
-                if (g_night_start_hour == 22) { g_night_start_hour = 23; g_night_end_hour = 6; }
-                else if (g_night_start_hour == 23) { g_night_start_hour = 21; g_night_end_hour = 8; }
-                else { g_night_start_hour = 22; g_night_end_hour = 7; }
+            case 3:   /* night start and end: one hour per tap, wrapping at midnight */
+                g_night_start_hour = (g_night_start_hour + 1) % 24;
+                fb_set_blank(!g_screen_on);   /* the key light follows the new window at once */
                 save_settings_conf();
                 break;
-            case 4: {
+            case 4:
+                g_night_end_hour = (g_night_end_hour + 1) % 24;
+                fb_set_blank(!g_screen_on);
+                save_settings_conf();
+                break;
+            case 5: {
                 char next[32];
                 theme_next_name(next, sizeof(next));
                 apply_theme(next);
                 save_settings_conf();
                 break;
             }
-            case 5:
+            case 6:
                 if (g_physical_nav_enabled) {
                     show_notice("Layout locked to List by Physical Nav", 2500);
                     break;
@@ -221,12 +225,13 @@ void execute_settings_action(int idx) {
                 break;
             }
             case 2:
-                if (g_deep_standby_min == 15) g_deep_standby_min = 30;
+                if (g_deep_standby_min < 0) g_deep_standby_min = 15;
+                else if (g_deep_standby_min == 15) g_deep_standby_min = 30;
                 else if (g_deep_standby_min == 30) g_deep_standby_min = 60;
                 else if (g_deep_standby_min == 60) g_deep_standby_min = 120;
                 else if (g_deep_standby_min == 120) g_deep_standby_min = 240;
                 else if (g_deep_standby_min == 240) g_deep_standby_min = 0;
-                else g_deep_standby_min = 15;
+                else g_deep_standby_min = -1;
                 save_settings_conf();
                 break;
             case 3: {

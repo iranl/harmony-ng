@@ -15,6 +15,7 @@
 #define RF_MSG_ACTIVITY_LIST_CHUNK 0x0B  /* One activity entry (ACK'd) */
 #define RF_MSG_DEVICE_LIST_CHUNK   0x0C  /* One device entry (ACK'd) */
 #define RF_MSG_BUTTON_LIST_CHUNK   0x0D  /* One button entry (ACK'd) */
+#define RF_BUTTON_LIST_MAX         255   /* button entries per push: the entry index is one byte */
 #define RF_MSG_SETTINGS_PUSH       0x0E  /* Remote display settings (ACK'd) */
 #define RF_MSG_CONFIG_END          0x0F  /* Start/end config push (ACK'd) */
 #define RF_MSG_TIME_SYNC           0x10  /* Time & Timezone sync (epoch + tz) */
@@ -95,11 +96,15 @@
  * one without this message drops it as unknown and sends no ACK. */
 #define RF_MSG_WAKE                0x30
 
-/* Remote -> Hub: the remote's factory unit id (ACK'd). payload[0] = length, payload[1..] = the
- * id as ASCII (21 characters on current hardware, at most RF_UNIT_ID_MAX). Sent right after
- * every RF_MSG_VERSION_REPORT by remotes that report RF_CAP_UNIT_ID. */
+/* Remote -> Hub: the remote's factory identity (ACK'd). payload[0] = length, payload[1..] = the
+ * unit id as ASCII (21 characters on current hardware, at most RF_UNIT_ID_MAX; length 0 when the
+ * remote has none), payload[RF_UNIT_ID_SKIN_OFF] = the skin id of its mfg partition (0 = not
+ * reported; read only when the id is shorter than RF_UNIT_ID_SKIN_OFF). Sent right after every
+ * RF_MSG_VERSION_REPORT by remotes that report RF_CAP_UNIT_ID; older remotes pad the skin byte
+ * with 0, older Hubs ignore it. */
 #define RF_MSG_UNIT_ID             0x31
 #define RF_UNIT_ID_MAX             24
+#define RF_UNIT_ID_SKIN_OFF        24
 
 /* RF_MSG_HELP_STATUS payload[0] */
 #define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */

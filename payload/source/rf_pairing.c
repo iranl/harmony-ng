@@ -192,16 +192,24 @@ void unpair_device(int slot) {
     if (slot == 1 || slot == 0) {
         g_paired_remotes[0].active = false;
         memset(g_paired_remotes[0].rf_addr, 0, 4);
-        if (g_remote_versions[0].remote_id[0]) {
+        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
+        g_paired_remotes[0].equad_id = 0;
+        g_paired_remotes[0].model = REMOTE_MODEL_UNKNOWN;
+        if (g_remote_versions[0].remote_id[0] || g_remote_versions[0].skin) {
             g_remote_versions[0].remote_id[0] = '\0';
+            g_remote_versions[0].skin = 0;
             rf_state_save_version_file(1);
         }
     }
     if (slot == 2 || slot == 0) {
         g_paired_remotes[1].active = false;
         memset(g_paired_remotes[1].rf_addr, 0, 4);
-        if (g_remote_versions[1].remote_id[0]) {
+        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
+        g_paired_remotes[1].equad_id = 0;
+        g_paired_remotes[1].model = REMOTE_MODEL_UNKNOWN;
+        if (g_remote_versions[1].remote_id[0] || g_remote_versions[1].skin) {
             g_remote_versions[1].remote_id[0] = '\0';
+            g_remote_versions[1].skin = 0;
             rf_state_save_version_file(2);
         }
     }

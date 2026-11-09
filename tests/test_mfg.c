@@ -49,6 +49,15 @@ static size_t build_records(uint8_t *p, const char *unitid, int with_unitid) {
     return n;
 }
 
+/* magic + a single key/value pair (key NULL: magic and an unrelated record only) */
+static size_t build_one(uint8_t *p, const char *key, const char *value) {
+    memcpy(p, MFG_MAGIC, MFG_MAGIC_LEN);
+    size_t n = MFG_MAGIC_LEN;
+    n += put_rec(p + n, key ? key : "arch");
+    n += put_rec(p + n, key ? value : "0x11");
+    return n;
+}
+
 int main(void) {
     printf("mfg_id test\n");
     char out[MFG_UNITID_MAX];
@@ -108,6 +117,40 @@ int main(void) {
         unlink(path);
     }
     CHECK(mfg_read_unitid("/nonexistent/mfg.bin", out, sizeof(out)) == -1, "missing file");
+
+    /* 10. Skin id: stored as text ("0x64" on a Harmony Ultimate), returned as a number */
+    uint8_t skin = 0xAA;
+    CHECK(mfg_parse_skin(small, slen, &skin) == 0 && skin == 0x61, "skin from the full record chain (0x61)");
+    uint8_t one[256];
+    size_t olen = build_one(one, "skin", "0x64");
+    CHECK(mfg_parse_skin(one, olen, &skin) == 0 && skin == 100, "skin 0x64 -> 100");
+    olen = build_one(one, "skin", "111");
+    CHECK(mfg_parse_skin(one, olen, &skin) == 0 && skin == 111, "decimal skin");
+    olen = build_one(one, "skin", " 0x6F\n");
+    CHECK(mfg_parse_skin(one, olen, &skin) == 0 && skin == 0x6F, "trimmed skin");
+    olen = build_one(one, NULL, NULL);
+    skin = 0xAA;
+    CHECK(mfg_parse_skin(one, olen, &skin) == -1 && skin == 0, "missing skin record: -1, skin 0");
+    olen = build_one(one, "skin", "0x1FF");
+    CHECK(mfg_parse_skin(one, olen, &skin) == -1 && skin == 0, "skin out of range");
+    olen = build_one(one, "skin", "ultimate");
+    CHECK(mfg_parse_skin(one, olen, &skin) == -1 && skin == 0, "skin not a number");
+    olen = build_one(one, "skin", "0");
+    CHECK(mfg_parse_skin(one, olen, &skin) == -1, "skin 0 is not a skin");
+    char rec_out[32];
+    CHECK(mfg_parse_record(small, slen, "hw_ver", rec_out, sizeof(rec_out)) == 0 && strcmp(rec_out, "01.00") == 0, "any record by key");
+    char spath[] = "/tmp/mfg_skin_XXXXXX";
+    int sfd = mkstemp(spath);
+    if (sfd >= 0) {
+        memset(blob, 0xFF, len);
+        build_records(blob + MFG_RECORDS_OFF, id, 1);
+        FILE *f = fdopen(sfd, "wb");
+        fwrite(blob, 1, len, f);
+        fclose(f);
+        CHECK(mfg_read_skin(spath, &skin) == 0 && skin == 0x61, "skin read from a file");
+        unlink(spath);
+    }
+    CHECK(mfg_read_skin("/nonexistent/mfg.bin", &skin) == -1 && skin == 0, "skin: missing file");
     free(blob);
 
     if (g_failures) {

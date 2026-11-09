@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Reinicio manual bloqueado: actualización de software en curso.",
     "manual_refresh": "Actualizar",
     "manufacturer": "Fabricante",
-    "max_screen_buttons": "Se alcanzó el máximo de 48 botones de pantalla.",
+    "max_screen_buttons": "Se alcanzó el máximo de 240 botones de pantalla.",
     "menu": "Menú",
     "mfr_model_required": "Por favor especifique tanto el fabricante como el modelo.",
     "middle_click": "Centro",

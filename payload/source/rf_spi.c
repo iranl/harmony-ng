@@ -355,14 +355,15 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                     g_paired_remotes[sidx].active = true;
                     g_has_paired_device = true;
                     g_paired_remotes[sidx].equad_id = equad_id;
-                    if (equad_id == 0x401E) {
+                    /* the EquadID names the family; a Juniper product comes from its skin id */
+                    if (equad_id == RF_EQUAD_SMART_CONTROL) {
                         g_paired_remotes[sidx].model = REMOTE_MODEL_SMART_CONTROL;
-                    } else if (equad_id == 0x4026 || equad_id == 0x4027) {
+                    } else if (equad_id == RF_EQUAD_SPRITE_A || equad_id == RF_EQUAD_SPRITE_B) {
                         g_paired_remotes[sidx].model = REMOTE_MODEL_COMPANION;
-                    } else if (equad_id == 0x4021) {
-                        g_paired_remotes[sidx].model = REMOTE_MODEL_ELITE;
+                    } else if (equad_id == RF_EQUAD_JUNIPER) {
+                        g_paired_remotes[sidx].model = REMOTE_MODEL_JUNIPER;
                     }
-                    printf("[+] Slot %d identified: EquadID=0x%04X (model=%s)\n",
+                    printf("[+] Slot %d identified: EquadID=0x%04X (family=%s)\n",
                            sidx + 1, equad_id, get_remote_model_name(g_paired_remotes[sidx].model));
                 }
                 return;
@@ -387,14 +388,10 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                     if (nlen > 15) nlen = 15;
                     memcpy(g_paired_remotes[sidx].name, &pkt[6], nlen);
                     g_paired_remotes[sidx].name[nlen] = '\0';
-                    if (strstr(g_paired_remotes[sidx].name, "20+") != NULL ||
-                        strstr(g_paired_remotes[sidx].name, "Smart") != NULL) {
-                        g_paired_remotes[sidx].model = REMOTE_MODEL_SMART_CONTROL;
-                    } else if (strstr(g_paired_remotes[sidx].name, "Companion") != NULL ||
-                               strstr(g_paired_remotes[sidx].name, "Home") != NULL) {
-                        g_paired_remotes[sidx].model = REMOTE_MODEL_COMPANION;
-                    }
-                    printf("[+] Slot %d Device Name: '%s' (model=%s)\n",
+                    /* the name hints at a Sprite remote only while the EquadID is unknown; it
+                     * never replaces an identified family (is_companion_slot applies it) */
+                    is_companion_slot((uint8_t)(sidx + 1));
+                    printf("[+] Slot %d Device Name: '%s' (family=%s)\n",
                            sidx + 1, g_paired_remotes[sidx].name, get_remote_model_name(g_paired_remotes[sidx].model));
                 }
                 return;

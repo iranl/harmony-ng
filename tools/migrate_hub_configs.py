@@ -53,8 +53,9 @@ _HUB_BUTTON_BY_LOWER = {n.lower(): n for n in HUB_BUTTON_NAMES}
 # Stock MapList ButtonKey names that differ from hub_rf's names (compared case-insensitively)
 STOCK_BUTTON_KEY_ALIASES = {"prevchannel": "Back"}
 
-# The config push sends at most 48 buttons per remote (rf_config_push.c)
-SCREEN_BUTTONS_PER_REMOTE = 48
+# The config push carries 255 entries per remote (RF_BUTTON_LIST_MAX in rf_proto.h); room is kept
+# for the activity start/stop keys, so 240 of them are on-screen buttons (rf_button_list.c)
+SCREEN_BUTTONS_PER_REMOTE = 240
 
 # Fallback map when a stock activity has no ButtonMap: hub button -> stock command names to try
 DEFAULT_BUTTON_COMMANDS: Dict[str, List[str]] = {

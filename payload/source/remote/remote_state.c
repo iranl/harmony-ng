@@ -109,7 +109,7 @@ int g_act_trigger_count = 0;
 
 bool g_gyro_enabled = true;
 int g_gyro_rate_hz = 50;       /* 10, 25, 50, 100 Hz */
-int g_deep_standby_min = 30;   /* 15, 30, 60, 120, 240, 0=never */
+int g_deep_standby_min = -1;   /* -1 = at once (2 s after the screen blanks, as stock), 15, 30, 60, 120, 240, 0 = never */
 int g_btn_backlight_mode = 2;  /* 0 = OFF, 1 = ON, 2 = NIGHT_SCHEDULE */
 int g_night_start_hour = 22;   /* 10 PM */
 int g_night_end_hour = 7;      /* 7 AM */
@@ -175,6 +175,31 @@ uint64_t get_monotonic_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+/* CLOCK_MONOTONIC stops while the remote is suspended to RAM, and this kernel (2.6.37) has no
+ * CLOCK_BOOTTIME (2.6.39). The time spent suspended is measured on the wall clock around each
+ * suspend (the kernel restores it from the MSP430 RTC on resume) and added here. */
+volatile uint64_t g_suspended_ms = 0;
+
+uint64_t get_boot_ms(void) {
+    return get_monotonic_ms() + g_suspended_ms;
+}
+
+uint64_t get_wall_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+uint64_t remote_suspend_gap_ms(uint64_t wall_before, uint64_t mono_before, uint64_t wall_after, uint64_t mono_after) {
+    if (wall_after < wall_before || mono_after < mono_before) return 0; /* clock set backwards: unknown */
+    uint64_t wall = wall_after - wall_before;
+    uint64_t mono = mono_after - mono_before;
+    if (wall <= mono) return 0;
+    uint64_t gap = wall - mono;
+    if (gap > REMOTE_SUSPEND_GAP_MAX_MS) return 0; /* a clock jump (time sync), not a suspend */
+    return gap;
 }
 
 uint64_t get_monotonic_us(void) {

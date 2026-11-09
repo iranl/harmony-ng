@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Redémarrage manuel bloqué : mise à jour logicielle en cours.",
     "manual_refresh": "Actualiser",
     "manufacturer": "Fabricant",
-    "max_screen_buttons": "Maximum de 48 boutons à l'écran atteint.",
+    "max_screen_buttons": "Maximum de 240 boutons à l'écran atteint.",
     "menu": "Menu",
     "mfr_model_required": "Veuillez spécifier le fabricant et le modèle.",
     "middle_click": "Milieu",

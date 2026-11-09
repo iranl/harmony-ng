@@ -120,7 +120,7 @@ typedef struct {
 #define MAX_ACTIVITIES 16
 #define MAX_RF_ACTIVITIES 16
 #define MAX_RF_DEVICES    16
-#define MAX_RF_BUTTONS    48
+#define MAX_RF_BUTTONS    RF_BUTTON_LIST_MAX   /* rf_proto.h: the most a push can carry */
 #define MAX_RF_STEPS      64
 #define MAX_ACT_TRIGGERS  16
 
@@ -344,6 +344,17 @@ extern uint64_t g_touch_down_ms;
 
 /* Utility / helper functions */
 uint64_t get_monotonic_ms(void);
+/* Monotonic time plus the time spent suspended to RAM (what CLOCK_BOOTTIME gives on newer
+ * kernels): for intervals that must count the suspend, such as the battery's rest and report
+ * timing and the time since the screen blanked. Watchdog, idle and transfer timers stay on
+ * get_monotonic_ms(). */
+uint64_t get_boot_ms(void);
+uint64_t get_wall_ms(void);
+extern volatile uint64_t g_suspended_ms;
+#define REMOTE_SUSPEND_GAP_MAX_MS (14ULL * 24 * 3600 * 1000)
+/* The time a suspend lasted, from the wall and monotonic clocks read before and after it;
+ * 0 when the wall clock went backwards or jumped further than a suspend can last */
+uint64_t remote_suspend_gap_ms(uint64_t wall_before, uint64_t mono_before, uint64_t wall_after, uint64_t mono_after);
 uint64_t get_monotonic_us(void);
 
 /* Milliseconds from then to now, 0 if then is later. Timestamps written by another thread (the RF

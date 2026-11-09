@@ -336,6 +336,34 @@ static int is_nec_family(const char *proto) {
     return strcasecmp(proto, "Toshiba 32 Bit") == 0;
 }
 
+/* The Harmony raw string F<carrier hex>P<mark us hex>S<space us hex>... in both directions:
+ * the encoder plays it, the IR capture produces it (ir_i2s_decode_capture). Marks come out
+ * positive and spaces negative; whitespace is skipped and anything else ends the list. */
+int ir_parse_harmony_raw(const char *code, uint32_t *carrier_hz, int32_t *timings, size_t max) {
+    if (!code || (code[0] != 'F' && code[0] != 'f')) return -1;
+    char *endp = NULL;
+    unsigned long freq = strtoul(code + 1, &endp, 16);
+    if (endp == code + 1) return -1;
+    if (carrier_hz) *carrier_hz = (uint32_t)freq;
+    const char *p = endp;
+    size_t count = 0;
+    while (*p && count < max) {
+        char type = *p++;
+        if (type == 'P' || type == 'p' || type == 'S' || type == 's') {
+            unsigned long dur = strtoul(p, &endp, 16);
+            if (endp == p) break;
+            p = endp;
+            if (dur > 0x7FFFFFFFUL) dur = 0x7FFFFFFFUL;
+            timings[count++] = (type == 'S' || type == 's') ? -(int32_t)dur : (int32_t)dur;
+        } else if (isspace((unsigned char)type)) {
+            continue;
+        } else {
+            break;
+        }
+    }
+    return (int)count;
+}
+
 int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                              uint8_t **out_buf, size_t *out_len) {
     if (!keycode || !keycode[0] || !out_buf || !out_len) return -1;
@@ -348,27 +376,14 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     /* Handle Harmony raw timing format: F<freq_hex>P<mark_hex>S<space_hex>... */
     if ((keycode[0] == 'F' || keycode[0] == 'f') &&
         (strchr(keycode, 'P') || strchr(keycode, 'p') || strchr(keycode, 'S') || strchr(keycode, 's'))) {
-        const char *p = keycode + 1;
-        char *endp = NULL;
-        unsigned long freq = strtoul(p, &endp, 16);
-        uint32_t carrier = freq ? (uint32_t)freq : 38000;
-        p = endp;
-        uint32_t timings[2048];
-        size_t count = 0;
-        while (*p && count < sizeof(timings)/sizeof(timings[0])) {
-            char type = *p++;
-            if (type == 'P' || type == 'p' || type == 'S' || type == 's') {
-                unsigned long dur = strtoul(p, &endp, 16);
-                p = endp;
-                timings[count++] = (uint32_t)dur;
-            } else if (isspace((unsigned char)type)) {
-                continue;
-            } else {
-                break;
-            }
-        }
-        if (count >= 4) {
-            return ir_encode_raw(carrier, timings, count, min_repeats ? min_repeats : 1, out_buf, out_len);
+        /* one array (8 KB of stack, as before): parsed signed, then made absolute in place */
+        uint32_t timings[IR_RAW_MAX_TIMINGS];
+        int32_t *signed_t = (int32_t *)timings;
+        uint32_t carrier = 0;
+        int n = ir_parse_harmony_raw(keycode, &carrier, signed_t, IR_RAW_MAX_TIMINGS);
+        if (n >= 4) {
+            for (int i = 0; i < n; i++) timings[i] = (uint32_t)(signed_t[i] < 0 ? -(int64_t)signed_t[i] : signed_t[i]);
+            return ir_encode_raw(carrier ? carrier : 38000, timings, (size_t)n, min_repeats ? min_repeats : 1, out_buf, out_len);
         }
     }
 

@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Manual reboot blocked: software update is currently in progress.",
     "manual_refresh": "Refresh",
     "manufacturer": "Manufacturer",
-    "max_screen_buttons": "Maximum of 48 screen buttons reached.",
+    "max_screen_buttons": "Maximum of 240 screen buttons reached.",
     "menu": "Menu",
     "mfr_model_required": "Please specify both Manufacturer and Model.",
     "middle_click": "Middle",

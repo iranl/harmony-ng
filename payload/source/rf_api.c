@@ -51,31 +51,37 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
 
     bool is_comp1 = is_companion_slot(1);
     bool is_comp2 = is_companion_slot(2);
-    const char *model1 = get_remote_model_name(g_paired_remotes[0].model);
-    const char *model2 = get_remote_model_name(g_paired_remotes[1].model);
-    if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].active) {
-        model1 = is_comp1 ? "smart_control" : "elite";
-    }
-    if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].active) {
-        model2 = is_comp2 ? "smart_control" : "elite";
-    }
+    /* The product: Juniper (touchscreen) remotes by their skin id, Sprite remotes by the
+     * EquadID; "unknown" until known, never a guess */
+    const char *model1 = rf_slot_model_id(1);
+    const char *model2 = rf_slot_model_id(2);
+    const char *mname1 = rf_slot_model_name(1);
+    const char *mname2 = rf_slot_model_name(2);
 
-    char name1[48] = "Harmony Remote (Slot 1)";
-    char name2[48] = "Harmony Remote (Slot 2)";
-    if (strcmp(model1, "smart_control") == 0) {
-        snprintf(name1, sizeof(name1), "Harmony Smart Control (Slot 1)");
-    } else if (strcmp(model1, "companion") == 0) {
-        snprintf(name1, sizeof(name1), "Harmony Companion (Slot 1)");
-    } else if (g_paired_remotes[0].name[0]) {
+    /* "<product> (Slot N)"; while the product is unknown the CC2544 slot name, if any */
+    char name1[48], name2[48];
+    if (strcmp(model1, "unknown") == 0 && g_paired_remotes[0].name[0]) {
         snprintf(name1, sizeof(name1), "%s (Slot 1)", g_paired_remotes[0].name);
+    } else {
+        snprintf(name1, sizeof(name1), "%s (Slot 1)", mname1 ? mname1 : "Harmony Remote");
+    }
+    if (strcmp(model2, "unknown") == 0 && g_paired_remotes[1].name[0]) {
+        snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
+    } else {
+        snprintf(name2, sizeof(name2), "%s (Slot 2)", mname2 ? mname2 : "Harmony Remote");
     }
 
-    if (strcmp(model2, "smart_control") == 0) {
-        snprintf(name2, sizeof(name2), "Harmony Smart Control (Slot 2)");
-    } else if (strcmp(model2, "companion") == 0) {
-        snprintf(name2, sizeof(name2), "Harmony Companion (Slot 2)");
-    } else if (g_paired_remotes[1].name[0]) {
-        snprintf(name2, sizeof(name2), "%s (Slot 2)", g_paired_remotes[1].name);
+    /* model_name: a string, null when the product is unknown; skin and equad_id: integers,
+     * null when not known */
+    char ident_json[MAX_PAIRED_REMOTES][112];
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        char skin_s[8] = "null", equad_s[8] = "null", mname_s[40] = "null";
+        const char *mn = (i == 0) ? mname1 : mname2;
+        if (mn) snprintf(mname_s, sizeof(mname_s), "\"%s\"", mn);
+        if (g_remote_versions[i].skin) snprintf(skin_s, sizeof(skin_s), "%u", (unsigned)g_remote_versions[i].skin);
+        if (g_paired_remotes[i].equad_id) snprintf(equad_s, sizeof(equad_s), "%u", (unsigned)g_paired_remotes[i].equad_id);
+        snprintf(ident_json[i], sizeof(ident_json[i]), ",\"model_name\":%s,\"skin\":%s,\"equad_id\":%s",
+                 mname_s, skin_s, equad_s);
     }
 
     if ((flags & RF_STATUS_QUERY_RADIO) &&
@@ -163,13 +169,23 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
         }
     }
 
+    /* battery.reported_at: Unix time of the report, null before the first one or while the clock
+     * was not set; part of the stable key, so every report is a change (one event per report) */
+    char reported_json[MAX_PAIRED_REMOTES][24];
+    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
+        if (g_remote_batteries[i].reported_at > 0)
+            snprintf(reported_json[i], sizeof(reported_json[i]), "%lld", (long long)g_remote_batteries[i].reported_at);
+        else
+            snprintf(reported_json[i], sizeof(reported_json[i]), "null");
+    }
+
     int blen = snprintf(body, len,
         "{\"running\":true,\"ok\":true,\"fw_version\":\"v%d.00\",\"paired\":%s,\"rf_address\":\"%s\",\"hub_rf_address\":\"%s\",\"pairing_active\":%s,"
         "\"sync_pending\":%s,\"sync_pending_slot\":%d,\"sync_pending_diff\":\"%s\",\"hub_config_version\":%d,"
         "\"ota\":{\"in_progress\":%s,\"slot\":%d,\"status\":%d,\"sent_bytes\":%u,\"total_bytes\":%u,\"sent_chunks\":%u,\"total_chunks\":%u,\"error\":\"%s\"},"
         "\"slots\":["
-        "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s},"
-        "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\",\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d},\"link\":%s}"
+        "{\"slot\":1,\"name\":\"%s\",\"model\":\"%s\"%s,\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d,\"reported_at\":%s,\"restored\":%s},\"link\":%s},"
+        "{\"slot\":2,\"name\":\"%s\",\"model\":\"%s\"%s,\"has_screen\":%s,\"supports_ota\":%s,\"active\":%s,\"in_sync\":%s,\"address\":\"%s\",\"rf_address\":\"%s\",\"sw_version\":\"%s\"%s,\"config_version\":%d,\"battery\":{\"percent\":%d,\"charging\":%s,\"voltage_mv\":%d,\"reported_at\":%s,\"restored\":%s},\"link\":%s}"
         "]}",
         g_fw_version, (g_has_paired_device || g_paired_remotes[0].active || g_paired_remotes[1].active) ? "true" : "false",
         hub_rf_str, hub_rf_str,
@@ -177,14 +193,16 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
         sync_pending ? "true" : "false",
         pending_slot, pending_diff, g_config_version,
         ota_in_prog ? "true" : "false", ota_slot, ota_status, ota_sent_b, ota_tot_b, ota_sent_c, ota_tot_c, ota_err,
-        name1, model1, is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
+        name1, model1, ident_json[0], is_comp1 ? "false" : "true", is_comp1 ? "false" : "true",
         g_paired_remotes[0].active ? "true" : "false", slot1_in_sync ? "true" : "false", addr1_str, addr1_str,
         ver1_str, rid_json[0], is_comp1 ? 0 : g_remote_versions[0].config_version,
-        g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", stable ? 0 : g_remote_batteries[0].voltage_mv, link_json[0],
-        name2, model2, is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
+        g_remote_batteries[0].percent, g_remote_batteries[0].charging ? "true" : "false", stable ? 0 : g_remote_batteries[0].voltage_mv,
+        reported_json[0], g_remote_batteries[0].restored ? "true" : "false", link_json[0],
+        name2, model2, ident_json[1], is_comp2 ? "false" : "true", is_comp2 ? "false" : "true",
         g_paired_remotes[1].active ? "true" : "false", slot2_in_sync ? "true" : "false", addr2_str, addr2_str,
         ver2_str, rid_json[1], is_comp2 ? 0 : g_remote_versions[1].config_version,
-        g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", stable ? 0 : g_remote_batteries[1].voltage_mv, link_json[1]);
+        g_remote_batteries[1].percent, g_remote_batteries[1].charging ? "true" : "false", stable ? 0 : g_remote_batteries[1].voltage_mv,
+        reported_json[1], g_remote_batteries[1].restored ? "true" : "false", link_json[1]);
     if (blen < 0) return -1;
     if ((size_t)blen >= len) return -1;
     return blen;

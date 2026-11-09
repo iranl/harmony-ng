@@ -16,6 +16,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness, WsClient  # noqa: E402
+from ir_rx_signal import ir_rx_bitstream, nec_timings  # noqa: E402
+import bt_status_seed  # noqa: E402
 from mock_mqtt import MockBroker, MockClient  # noqa: E402
 
 PORT = 8989
@@ -167,12 +169,12 @@ def main():
             hub.http_post("/api/rf/status-changed", rf)
             m = sub.wait_for(BASE + "/rf", 5)
             check(m is not None and jload(m[1]).get("type") == "rf_status" and jload(m[1])["slots"][0]["battery"]["percent"] == 50, "rf published and retained", str(m))
-            bt = {"ok": True, "running": True, "connected": False, "hosts": []}
-            with open(BT_STATUS_FILE + ".tmp", "w") as f:
-                json.dump(bt, f)
-            os.replace(BT_STATUS_FILE + ".tmp", BT_STATUS_FILE)
+            bt_status_seed.write_status(BT_STATUS_FILE, host_connected=False)  # the real writer's format
             m = sub.wait_for(BASE + "/bt", 5)
-            check(m is not None and jload(m[1]).get("type") == "bt_status", "bt published", str(m))
+            btp = jload(m[1]) if m else {}
+            check(m is not None and btp.get("type") == "bt_status" and btp.get("running") is True
+                  and btp.get("connected") is False and len(btp.get("hosts", [])) == 2,
+                  "bt published (hub_btstack's fields plus running and connected)", str(m))
             # button event -> remote/<slot>/button, QoS 1, not retained
             sub.drain()
             hub.http_post("/api/button-press", {"button": "VolumeUp", "action": "press", "source": "remote_rf", "slot": 1, "deviceId": "1", "command": "VolumeUp"})
@@ -306,6 +308,42 @@ def main():
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "r2")
             r = jload(m[1]) if m else {}
             check(m is not None and r.get("code") == 400 and "timings" in r.get("error", ""), "ir/raw validation error", str(r))
+
+            print("[-] 3.14 cmd ir_capture and ir/received")
+            hubo = retained_json(broker, BASE + "/hub") or {}
+            check(hubo.get("ir_capture") is False, "retained hub: ir_capture false", str(hubo.get("ir_capture")))
+            rx = os.path.join(hub.mock_dir, "i2s_rx")
+            with open(rx, "wb") as f:
+                f.write(b"\xff" * 4096)   # the mock's IR receiver, idle
+            time.sleep(3)   # the device saves above republish the hub object a moment later
+            sub.drain()
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "i1", "action": "ir_capture", "enabled": True}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "i1")
+            r = jload(m[1]) if m else {}
+            check(r.get("ok") is True and r.get("action") == "ir_capture" and r.get("enabled") is True, "cmd ir_capture on answered", str(r))
+            mh = sub.wait_for(BASE + "/hub", 5, lambda p: (jload(p) or {}).get("ir_capture") is True)
+            check(mh is not None and (retained_json(broker, BASE + "/hub") or {}).get("ir_capture") is True,
+                  "hub object republished (retained) with ir_capture true", str(mh))
+            nec = nec_timings(0x20DF10EF)
+            with open(rx, "ab") as f:
+                f.write(ir_rx_bitstream(nec, idle_before_bytes=1024, idle_after_us=200000))
+            mi = sub.wait_for(BASE + "/ir/received", 5)
+            p = jload(mi[1]) if mi else {}
+            t = p.get("timings", [])
+            check(p.get("type") == "ir_received" and 37500 <= (p.get("modulation") or 0) <= 38500 and len(t) == len(nec) + 1
+                  and t[0] > 0 and t[1] < 0, "ir/received carries the signal", str(p)[:200])
+            pubs = [(rt, q) for (tp, pl, rt, q) in broker.log if tp == BASE + "/ir/received"]
+            check(pubs and all(rt is False or rt == 0 for rt, q in pubs) and all(q == 0 for rt, q in pubs)
+                  and (BASE + "/ir/received") not in broker.retained, "ir/received: QoS 0, not retained", str(pubs))
+            sub.drain()   # wait for a hub object published after the off
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "i2", "action": "ir_capture", "enabled": False}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "i2")
+            r = jload(m[1]) if m else {}
+            check(r.get("ok") is True and r.get("enabled") is False, "cmd ir_capture off answered", str(r))
+            mh = sub.wait_for(BASE + "/hub", 5, lambda p: (jload(p) or {}).get("ir_capture") is False)
+            check(mh is not None and (retained_json(broker, BASE + "/hub") or {}).get("ir_capture") is False,
+                  "hub object republished with ir_capture false", str(mh))
+            os.remove(rx)
             cmd.close()
             sub.close()
             st, s = hub.http_get("/api/mqtt-status")
@@ -316,11 +354,17 @@ def main():
             sub2 = MockClient("127.0.0.1", broker.port, "observer2")
             ws_frames = []
             sub2.subscribe("homeassistant/#")
+            sub2.subscribe(BASE + "/hub")
+            hub_before = retained_json(broker, BASE + "/hub") or {}
             st, s = hub.http_post("/api/mqtt-save", {"baseTopic": BASE, "slot1RemoteEvents": False, "haDiscovery": False, "discoveryPrefix": "homeassistant"})
             with open(os.path.join(hub.data_dir, "mqtt.json")) as f:
                 saved = json.load(f)
             check(st == 200 and "slot1RemoteEvents" not in saved and saved.get("haDiscovery") is False and saved.get("discoveryPrefix") == "homeassistant"
                   and saved.get("baseTopic") == BASE, "mqtt-save keeps haDiscovery and discoveryPrefix, drops the per-remote fields", str(saved))
+            check(hub_before.get("ha_discovery") is True and hub_before.get("discovery_prefix") == "homeassistant",
+                  "retained hub object carried ha_discovery true before the save", str({k: hub_before.get(k) for k in ("ha_discovery", "discovery_prefix")}))
+            mh = sub2.wait_for(BASE + "/hub", 10, lambda p: (jload(p) or {}).get("ha_discovery") is False)
+            check(mh is not None, "hub object republished with ha_discovery false after the save")
             deadline = time.time() + 10
             while time.time() < deadline and not any(f.get("connected") for f in ws_frames):
                 try:

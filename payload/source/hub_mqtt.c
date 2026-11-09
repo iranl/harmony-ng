@@ -7,7 +7,7 @@
  * Topics (<base> = baseTopic, default harmony/hub):
  *   status (LWT online/offline), hub, activity_state, progress, bt, rf, config,
  *   inventory/index, inventory/<deviceId>, remote/<slot>/button (button, no slot: <base>/button),
- *   cmd (in), cmd/response (out), ir/raw (in).
+ *   cmd (in), cmd/response (out), ir/raw (in), ir/received (out, while the IR capture mode is on).
  *
  * Kept from the first MQTT layer: the Home Assistant discovery entities (hub_mqtt_ha.c, on the
  * v2 topics), the inbound command topics activity/set, send_command, command/<dev>/<cmd>, sync,
@@ -471,6 +471,7 @@ void hub_mqtt_deliver_reply(const cJSON *req, const cJSON *reply) {
 /* Inbound topics of the first MQTT layer, kept as aliases of the command channel               */
 
 static void publish_hub_object(void);
+static long g_published_boot_time = 0; /* boot_time in the last hub object published, 0 = null */
 static void publish_last(hub_event_type_t type, const char *suffix);
 
 static void publish_discovery(void) {
@@ -869,9 +870,34 @@ static void publish_hub_object(void) {
     get_device_and_command_counts(&dev_count, &cmd_count);
     cJSON_AddNumberToObject(typed, "device_count", dev_count);
     cJSON_AddNumberToObject(typed, "command_count", cmd_count);
+    /* whether this Hub also publishes Home Assistant discovery entities, and where: a client on
+     * MQTT alone can tell the two layers apart (a settings save reconnects, so this is current) */
+    cJSON_AddBoolToObject(typed, "ha_discovery", g_mqtt_ha_discovery);
+    cJSON_AddStringToObject(typed, "discovery_prefix", g_mqtt_discovery_prefix);
     cJSON_AddNumberToObject(typed, "ts", (double)time(NULL));
+    const cJSON *bt = cJSON_GetObjectItemCaseSensitive(typed, "boot_time");
+    g_published_boot_time = cJSON_IsNumber(bt) ? (long)bt->valuedouble : 0;
     pub_json("hub", typed, 1, 1);
     cJSON_Delete(typed);
+}
+
+/* The retained hub object carries uptime_sec and ts as of its publish, and boot_time. Published
+ * before hub_sntp set the clock, its ts is from 1970 and boot_time is null; republish it once the
+ * clock is set (or jumps), so a client reading the retained copy later gets a usable boot time. */
+static void republish_hub_on_clock_change(void) {
+    static time_t last_check = 0;
+    time_t now = time(NULL);
+    if (now - last_check < 5 && now >= last_check) return;
+    last_check = now;
+    long boot = hub_info_boot_time();
+    int was_set = g_published_boot_time > 0, is_set = boot > 0;
+    long diff = boot - g_published_boot_time;
+    if (diff < 0) diff = -diff;
+    if (was_set != is_set || (is_set && diff > 30)) {
+        printf("[*] MQTT: clock %s, republishing the hub object (boot_time %ld)\n",
+               was_set ? "changed" : "set", boot);
+        publish_hub_object();
+    }
 }
 
 static void publish_last(hub_event_type_t type, const char *suffix) {
@@ -901,6 +927,8 @@ static void mqtt_event_sink(const hub_event_t *ev, void *user) {
         case HUB_EV_ACTIVITY_PROGRESS: pub_json("progress", ev->payload, 0, 0); break;
         case HUB_EV_BT_STATUS: pub_json("bt", ev->payload, 1, 1); break;
         case HUB_EV_RF_STATUS: pub_json("rf", ev->payload, 1, 1); break;
+        case HUB_EV_IR_RECEIVED: pub_json("ir/received", ev->payload, 0, 0); break;
+        case HUB_EV_IR_CAPTURE: publish_hub_object(); break;   /* the hub object carries ir_capture */
         case HUB_EV_BUTTON: {
             const cJSON *slot = cJSON_GetObjectItemCaseSensitive(ev->payload, "slot");
             char suffix[48];
@@ -986,6 +1014,7 @@ void hub_mqtt_tick(void) {
         mqtt_tick();
         pulse_tick();
         seq_tick();
+        republish_hub_on_clock_change();
     } else {
         if (g_last_mqtt_connected) {
             g_last_mqtt_connected = 0;

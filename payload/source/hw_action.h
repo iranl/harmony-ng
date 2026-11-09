@@ -85,6 +85,12 @@ void hw_set_local_api_port(int port);
 int hw_bthid_send_report(const uint8_t *report, size_t len);
 /* RELEASE to hub_btstack: every key it still holds on any host goes up. 0 when the pipe took it. */
 int hw_bt_release_all(void);
+/* The Bluetooth host a device's keys go to: its bdaddr in config/devices.json; for a device of
+ * type BT without one, the default host. 1 and the address in out, 0 when the device has none. */
+int hw_device_bt_host(const char *device_id, char *out, size_t outlen);
+/* Closes the Bluetooth link of a device's host (disconnect_host <addr> to hub_btstack), as the
+ * stock firmware does after a Bluetooth device's power-off command. 0 when sent, -1 without a host. */
+int hw_device_bt_disconnect(const char *device_id);
 
 #ifdef __cplusplus
 }

@@ -2,7 +2,10 @@
 #include "mfg_id.h"
 #include "hub_network_util.h"
 #include "harmony_version.h"
+#include "ir_i2s.h"
 
+#include <unistd.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +21,7 @@ static const char *const k_capabilities[] = {
     "ws_auth",
     "ws_keepalive",
     "ir_raw",
+    "ir_capture",
     "mdns",
     "legacy",
     "mqtt_v2",
@@ -69,6 +73,30 @@ cJSON *hub_info_capabilities(void) {
     return arr;
 }
 
+/* Before this the clock has not been set: 2024-01-01 */
+#define HUB_CLOCK_VALID_EPOCH 1704067200L
+
+long hub_info_uptime_sec(void) {
+    double up = 0;
+    FILE *f = fopen("/proc/uptime", "r");
+    if (f) {
+        if (fscanf(f, "%lf", &up) != 1) up = 0;
+        fclose(f);
+    }
+    return (long)up;
+}
+
+long hub_info_boot_time(void) {
+#ifdef TEST_HARNESS
+    /* the harness runs on a host whose clock is set; this file simulates a Hub before SNTP */
+    const char *unset = getenv("HARMONY_TEST_CLOCK_UNSET_FILE");
+    if (unset && unset[0] && access(unset, F_OK) == 0) return 0;
+#endif
+    long now = (long)time(NULL);
+    if (now < HUB_CLOCK_VALID_EPOCH) return 0;
+    return now - hub_info_uptime_sec();
+}
+
 void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings) {
     if (!obj) return;
     cJSON_AddStringToObject(obj, "hub_id", g_hub_id);
@@ -79,4 +107,15 @@ void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings)
     if (caps) cJSON_AddItemToObject(obj, "capabilities", caps);
     cJSON_AddBoolToObject(obj, "legacy_enabled", settings ? (settings->legacy_enabled ? 1 : 0) : 0);
     cJSON_AddBoolToObject(obj, "mdns_enabled", settings ? (settings->mdns_enabled ? 1 : 0) : 1);
+    long boot = hub_info_boot_time();
+    if (boot > 0) cJSON_AddNumberToObject(obj, "boot_time", (double)boot);
+    else cJSON_AddNullToObject(obj, "boot_time");
+    hub_info_add_ir_capture(obj);
+}
+
+void hub_info_add_ir_capture(cJSON *obj) {
+    if (!obj) return;
+    cJSON_AddBoolToObject(obj, "ir_capture", ir_i2s_capture_mode_enabled() ? 1 : 0);
+    char err[160];
+    if (ir_i2s_capture_mode_error(err, sizeof(err))) cJSON_AddStringToObject(obj, "ir_capture_error", err);
 }

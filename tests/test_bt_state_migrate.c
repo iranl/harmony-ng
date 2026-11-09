@@ -92,7 +92,7 @@ static const char *DEVICES =
 
 static const char *LEGACY =
     "{\"version\":1,\"devices\":[\n"
-    " {\"id\":\"2\",\"name\":\"Shield\",\"type\":\"btkeyboard\",\"bdaddr\":\"48:B0:2D:04:6F:6E\",\"commands\":[]},\n"
+    " {\"id\":\"2\",\"name\":\"Shield\",\"type\":\"btkeyboard\",\"bdaddr\":\"00:11:22:33:44:02\",\"commands\":[]},\n"
     " {\"id\":\"3\",\"name\":\"TV\",\"bdaddr\":\"AA:AA:AA:AA:AA:AA\"},\n"
     " {\"id\":\"4\",\"name\":\"Old\",\"bdaddr\":\"BB:BB:BB:BB:BB:BB\"},\n"
     " {\"id\":\"5\",\"name\":\"Numeric\",\"bdaddr\":\"CC:CC:CC:CC:CC:CC\"},\n"
@@ -111,7 +111,7 @@ int main(void) {
     put("config/devices.json", DEVICES);
     put("bt-devices.json", LEGACY);
     bt_migrate_legacy_state(g_dir, test_log);
-    assert(strcmp(host_of("2"), "48:B0:2D:04:6F:6E") == 0);  /* empty bdaddr/btHost filled */
+    assert(strcmp(host_of("2"), "00:11:22:33:44:02") == 0);  /* empty bdaddr/btHost filled */
     assert(strcmp(host_of("3"), "11:22:33:44:55:66") == 0);  /* existing host kept */
     assert(strcmp(host_of("4"), "22:33:44:55:66:77") == 0);  /* legacy btHost counts as a host */
     assert(strcmp(host_of("5"), "CC:CC:CC:CC:CC:CC") == 0);  /* numeric id matched */
@@ -131,7 +131,7 @@ int main(void) {
     printf("[*] case 3: an old backup's bt-devices.json restored later fills only devices without host\n");
     put("bt-devices.json", "{\"devices\":[{\"id\":\"2\",\"bdaddr\":\"EE:EE:EE:EE:EE:EE\"}]}");
     bt_migrate_legacy_state(g_dir, test_log);
-    assert(strcmp(host_of("2"), "48:B0:2D:04:6F:6E") == 0);
+    assert(strcmp(host_of("2"), "00:11:22:33:44:02") == 0);
     again = get("config/devices.json");
     assert(strcmp(after, again) == 0);                       /* nothing to change: file untouched */
     assert(!exists("bt-devices.json"));
@@ -185,21 +185,21 @@ int main(void) {
 
     printf("[*] case 9: bthid_target becomes bthid_host_target\n");
     reset_dir();
-    put("bthid_target", "type=btkeyboard\nbdaddr=48:B0:2D:04:6F:6E\n");
+    put("bthid_target", "type=btkeyboard\nbdaddr=00:11:22:33:44:02\n");
     bt_migrate_legacy_state(g_dir, test_log);
     after = get("bthid_host_target");
-    assert(after && strcmp(after, "bdaddr=48:B0:2D:04:6F:6E\n") == 0);
+    assert(after && strcmp(after, "bdaddr=00:11:22:33:44:02\n") == 0);
     assert(!exists("bthid_target") && exists("bthid_target.migrated"));
     free(after);
     bt_migrate_legacy_state(g_dir, test_log);              /* re-run */
     after = get("bthid_host_target");
-    assert(strcmp(after, "bdaddr=48:B0:2D:04:6F:6E\n") == 0);
+    assert(strcmp(after, "bdaddr=00:11:22:33:44:02\n") == 0);
     free(after);
 
     printf("[*] case 10: existing bthid_host_target wins\n");
     reset_dir();
     put("bthid_host_target", "bdaddr=11:22:33:44:55:66\n");
-    put("bthid_target", "type=btkeyboard\nbdaddr=48:B0:2D:04:6F:6E\n");
+    put("bthid_target", "type=btkeyboard\nbdaddr=00:11:22:33:44:02\n");
     bt_migrate_legacy_state(g_dir, test_log);
     after = get("bthid_host_target");
     assert(strcmp(after, "bdaddr=11:22:33:44:55:66\n") == 0);

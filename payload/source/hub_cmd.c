@@ -2,6 +2,8 @@
  * tick (also the main loop); the hub_rf calls go over its loopback HTTP API. */
 #define _GNU_SOURCE
 #include "hub_cmd.h"
+#include "ir_i2s.h"
+#include "ir_encoder.h"
 #include "hub_ws.h"
 #include "orchestrator.h"
 #include "hw_action.h"
@@ -13,6 +15,7 @@
 #include "http_api_activities.h"
 #include "hub_mqtt.h"
 #include "ws_server.h"
+#include "hub_info.h"
 #include <pthread.h>
 
 #include <stdio.h>
@@ -128,6 +131,69 @@ static int pipe_write(const char *target, const char *line) {
     int ok = write(bfd, line, strlen(line)) > 0;
     close(bfd);
     return ok;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* ir_capture (spec 3.14)                                                                     */
+
+/* Capture thread: one learned signal -> ir_received on the bus (WebSocket clients, MQTT
+ * <base>/ir/received). timings are signed microseconds (+ mark, - space) from the raw string,
+ * modulation the measured carrier or null. */
+static void ir_capture_emit(const char *raw, uint32_t measured_hz, void *user) {
+    (void)user;
+    int32_t *t = (int32_t *)malloc(IR_RAW_MAX_TIMINGS * sizeof(int32_t));
+    if (!t) return;
+    int n = ir_parse_harmony_raw(raw, NULL, t, IR_RAW_MAX_TIMINGS);
+    if (n < 2) {
+        free(t);
+        return;
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON *arr = cJSON_CreateArray();
+    if (!o || !arr) {
+        cJSON_Delete(o);
+        cJSON_Delete(arr);
+        free(t);
+        return;
+    }
+    if (measured_hz) cJSON_AddNumberToObject(o, "modulation", (double)measured_hz);
+    else cJSON_AddNullToObject(o, "modulation");
+    for (int i = 0; i < n; i++) cJSON_AddItemToArray(arr, cJSON_CreateNumber((double)t[i]));
+    cJSON_AddItemToObject(o, "timings", arr);
+    free(t);
+    hub_events_emit(HUB_EV_IR_RECEIVED, o);
+}
+
+/* The mode turned on or off or its receiver problem changed -> ir_capture on the bus (WebSocket
+ * clients; the MQTT sink republishes <base>/hub). Same fields as /api/status. */
+void hub_cmd_ir_capture_state_changed(void *user) {
+    (void)user;
+    cJSON *o = cJSON_CreateObject();
+    if (!o) return;
+    hub_info_add_ir_capture(o);
+    hub_events_emit(HUB_EV_IR_CAPTURE, o);
+}
+
+int hub_cmd_ir_capture(const cJSON *req, cJSON **reply) {
+    *reply = cJSON_CreateObject();
+    const cJSON *je = req ? cJSON_GetObjectItemCaseSensitive(req, "enabled") : NULL;
+    if (!je || !cJSON_IsBool(je)) {
+        cJSON_AddBoolToObject(*reply, "ok", 0);
+        cJSON_AddStringToObject(*reply, "error", "enabled: boolean required");
+        return 400;
+    }
+    int enable = cJSON_IsTrue(je);
+    char err[160] = {0};
+    int rc = ir_i2s_capture_mode_set(enable, ir_capture_emit, NULL, err, sizeof(err));
+    int code = 200;
+    if (rc == -EBUSY) code = 409;
+    else if (rc == -2 || rc == -3 || rc == -7) code = 503;
+    else if (rc != 0) code = 500;
+    cJSON_AddBoolToObject(*reply, "ok", code == 200);
+    cJSON_AddBoolToObject(*reply, "ir_capture", ir_i2s_capture_mode_enabled());
+    if (code != 200) cJSON_AddStringToObject(*reply, "error", err[0] ? err : "IR capture could not start");
+    else printf("[*] IR capture mode %s\n", enable ? "on" : "off");
+    return code;
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -335,6 +401,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         else if (strcmp(action, "bt_text") == 0) rest_path = "/api/bt-text";
         else if (strcmp(action, "bt_mouse") == 0) rest_path = "/api/bt-mouse";
         else if (strcmp(action, "ir_raw") == 0) rest_path = "/api/ir-raw";
+        else if (strcmp(action, "ir_capture") == 0) rest_path = "/api/ir-capture";
         else if (strcmp(action, "rf_wake") == 0) rest_path = "/api/rf/wake";
         else if (strcmp(action, "rf_sleep") == 0) rest_path = "/api/rf/sleep";
         else if (strcmp(action, "sync") == 0) rest_path = "/api/sync";
@@ -492,6 +559,22 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
                 if (c) cJSON_AddNumberToObject(r, "count", c->valuedouble);
                 if (d) cJSON_AddNumberToObject(r, "duration_ms", d->valuedouble);
             } else {
+                cJSON *e = cJSON_GetObjectItemCaseSensitive(body, "error");
+                cJSON_DeleteItemFromObjectCaseSensitive(r, "error");
+                cJSON_AddStringToObject(r, "error", (e && cJSON_IsString(e)) ? e->valuestring : "error");
+            }
+            cJSON_Delete(body);
+        }
+        return r;
+    }
+    if (strcmp(action, "ir_capture") == 0) {
+        cJSON *body = NULL;
+        int code = hub_cmd_ir_capture(req, &body);
+        cJSON *r = ack(req, action, code == 200, code, NULL);
+        if (body) {
+            cJSON *on = cJSON_GetObjectItemCaseSensitive(body, "ir_capture");
+            cJSON_AddBoolToObject(r, "enabled", on && cJSON_IsTrue(on));
+            if (code != 200) {
                 cJSON *e = cJSON_GetObjectItemCaseSensitive(body, "error");
                 cJSON_DeleteItemFromObjectCaseSensitive(r, "error");
                 cJSON_AddStringToObject(r, "error", (e && cJSON_IsString(e)) ? e->valuestring : "error");

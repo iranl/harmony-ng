@@ -27,6 +27,12 @@ extern "C" {
  * that holds only the record area). Writes the trimmed value to out. Returns 0, or -1 when the
  * magic, the key or a plausible record chain is missing. */
 int mfg_parse_unitid(const uint8_t *blob, size_t len, char *out, size_t out_len);
+/* Any record by key (trimmed value as text), same rules */
+int mfg_parse_record(const uint8_t *blob, size_t len, const char *key, char *out, size_t out_len);
+/* The "skin" record (stored as text, "0x64" on a Harmony Ultimate) as a number 1..255.
+ * Returns 0, or -1 with *skin = 0 when it is missing or not a number in range. */
+int mfg_parse_skin(const uint8_t *blob, size_t len, uint8_t *skin);
+int mfg_read_skin(const char *override_path, uint8_t *skin);
 
 /* Reads the unit id from the mfg partition (found by name in /proc/mtd), or from override_path
  * when given (a file with the same layout, for the host harness). Returns 0 or -1. */

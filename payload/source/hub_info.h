@@ -23,6 +23,17 @@ cJSON *hub_info_capabilities(void);
 /* Adds hub_id, version, commit, api_version, capabilities, legacy_enabled and mdns_enabled
  * (from the settings; NULL = defaults) */
 void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings);
+/* ir_capture (bool) and, while the capture mode has a problem, ir_capture_error (spec 3.14).
+ * Part of the status fields: /api/status, the snapshot's hub object and MQTT <base>/hub. */
+void hub_info_add_ir_capture(cJSON *obj);
+
+/* Seconds since boot (/proc/uptime) */
+long hub_info_uptime_sec(void);
+/* The boot time as a Unix epoch, 0 while the clock is not set (the Hub starts at 1970 and
+ * hub_sntp sets it later). Added to the status object as "boot_time" (null while 0): a client
+ * reading a retained or cached object cannot derive it from uptime_sec, which is only right at
+ * the moment the object was built. */
+long hub_info_boot_time(void);
 
 #ifdef __cplusplus
 }

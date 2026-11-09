@@ -1,7 +1,7 @@
 {
   "running": true,
   "ok": true,
-  "fw_version": "v72.00",
+  "fw_version": "v39.00",
   "paired": true,
   "rf_address": "A1B2C3D4",
   "hub_rf_address": "A1B2C3D4",
@@ -23,21 +23,26 @@
   "slots": [
     {
       "slot": 1,
-      "name": "Harmony Remote (Slot 1)",
-      "model": "elite",
+      "name": "Harmony Ultimate (Slot 1)",
+      "model": "ultimate",
+      "model_name": "Harmony Ultimate",
+      "skin": 100,
+      "equad_id": 16417,
       "has_screen": true,
       "supports_ota": true,
       "active": true,
       "in_sync": true,
       "address": "E5F60718",
       "rf_address": "E5F60718",
-      "sw_version": "2.2.0",
+      "sw_version": "2.3.0",
       "remote_id": "20141001120000-000002",
       "config_version": 7,
       "battery": {
         "percent": 87,
         "charging": false,
-        "voltage_mv": 3980
+        "voltage_mv": 3980,
+        "reported_at": 1794000000,
+        "restored": false
       },
       "link": {
         "frames_rx": 120,
@@ -50,8 +55,11 @@
     },
     {
       "slot": 2,
-      "name": "Harmony Elite (Slot 2)",
+      "name": "Harmony Remote (Slot 2)",
       "model": "unknown",
+      "model_name": null,
+      "skin": null,
+      "equad_id": null,
       "has_screen": true,
       "supports_ota": true,
       "active": false,
@@ -63,7 +71,9 @@
       "battery": {
         "percent": 0,
         "charging": false,
-        "voltage_mv": 0
+        "voltage_mv": 0,
+        "reported_at": null,
+        "restored": false
       },
       "link": {
         "frames_rx": 0,

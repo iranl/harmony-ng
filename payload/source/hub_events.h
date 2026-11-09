@@ -26,6 +26,8 @@ typedef enum {
     HUB_EV_RF_STATUS,
     HUB_EV_BUTTON,
     HUB_EV_MQTT_STATUS,   /* broker connection state: on connect, on loss, on a settings change */
+    HUB_EV_IR_RECEIVED,   /* one learned IR signal while the capture mode is on (spec 3.14) */
+    HUB_EV_IR_CAPTURE,    /* the capture mode turned on or off, or its receiver problem changed */
     HUB_EV_COUNT
 } hub_event_type_t;
 

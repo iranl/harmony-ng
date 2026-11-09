@@ -15,7 +15,7 @@ int get_settings_sub_count(void) {
     switch (g_settings_subview) {
         case SETTINGS_VIEW_CATEGORIES: return 6;
         case SETTINGS_VIEW_ACTIVITIES: return 4;
-        case SETTINGS_VIEW_DISPLAY:    return 6;
+        case SETTINGS_VIEW_DISPLAY:    return 7;
         case SETTINGS_VIEW_TOUCH:      return 4;
         case SETTINGS_VIEW_POWER:      return 6;
         case SETTINGS_VIEW_SYSTEM:     return 3;
@@ -340,32 +340,35 @@ void render_settings_screen(void) {
             break;
         }
         case SETTINGS_VIEW_DISPLAY: {
-            const char *labels[6] = { tr(STR_DISPLAY_BRIGHTNESS), tr(STR_DISPLAY_TIMEOUT), tr(STR_BTN_BACKLIGHT), tr(STR_NIGHT_SCHEDULE), tr(STR_DISPLAY_THEME), tr(STR_HOME_LAYOUT) };
+            const char *labels[7] = { tr(STR_DISPLAY_BRIGHTNESS), tr(STR_DISPLAY_TIMEOUT), tr(STR_BTN_BACKLIGHT), tr(STR_NIGHT_START), tr(STR_NIGHT_END), tr(STR_DISPLAY_THEME), tr(STR_HOME_LAYOUT) };
             static const char *const layouts[HOME_LAYOUT_COUNT] = { "THEME", "LIST", "GRID", "CAROUSEL" };
-            char values[6][32];
+            char values[7][32];
             snprintf(values[0], sizeof(values[0]), "[ LVL %d ]", g_brightness_val);
             snprintf(values[1], sizeof(values[1]), "[ %ds ]", g_timeout_seconds);
             snprintf(values[2], sizeof(values[2]), "[ %s ]", g_btn_backlight_mode == 0 ? "OFF" : (g_btn_backlight_mode == 1 ? "ON" : "NIGHT"));
-            snprintf(values[3], sizeof(values[3]), "[ %02d-%02d ]", g_night_start_hour, g_night_end_hour);
-            snprintf(values[4], sizeof(values[4]), "[ %s ]", g_theme.label);
-            snprintf(values[5], sizeof(values[5]), "[ %s ]", g_physical_nav_enabled ? "LIST" : layouts[g_home_layout]);
-            uint16_t cols[6] = {
+            snprintf(values[3], sizeof(values[3]), "[ %02d:00 ]", g_night_start_hour);
+            snprintf(values[4], sizeof(values[4]), "[ %02d:00 ]", g_night_end_hour);
+            snprintf(values[5], sizeof(values[5]), "[ %s ]", g_theme.label);
+            snprintf(values[6], sizeof(values[6]), "[ %s ]", g_physical_nav_enabled ? "LIST" : layouts[g_home_layout]);
+            uint16_t cols[7] = {
                 RGB_TEAL,
                 RGB_TEAL,
                 g_btn_backlight_mode == 0 ? RGB_RED : (g_btn_backlight_mode == 1 ? RGB_GREEN : RGB_YELLOW),
                 RGB_TEAL,
                 RGB_TEAL,
+                RGB_TEAL,
                 RGB_TEAL
             };
-            const char *icons[6] = {
+            const char *icons[7] = {
                 "/opt/luadraws/appscommon/asset/hue/brightness.png",
                 "/opt/luadraws/appscommon/asset/commands/145.png",
                 "/opt/luadraws/appscommon/asset/juniperHomeAutomation/lamp_on.png",
                 "/opt/luadraws/appscommon/asset/clock_small.png",
+                "/opt/luadraws/appscommon/asset/clock_small.png",
                 "/opt/luadraws/appscommon/asset/hue/color.png",
                 "/opt/luadraws/appscommon/asset/footer/menu.png"
             };
-            render_settings_items(tr(STR_CAT_DISPLAY), 6, labels, values, cols, icons, g_selected_sub_item);
+            render_settings_items(tr(STR_CAT_DISPLAY), 7, labels, values, cols, icons, g_selected_sub_item);
             break;
         }
         case SETTINGS_VIEW_TOUCH: {
@@ -399,6 +402,8 @@ void render_settings_screen(void) {
             snprintf(values[1], sizeof(values[1]), "[ %dHz ]", g_gyro_rate_hz);
             if (g_deep_standby_min == 0) {
                 snprintf(values[2], sizeof(values[2]), "[ NEVER ]");
+            } else if (g_deep_standby_min < 0) {
+                snprintf(values[2], sizeof(values[2]), "[ AT ONCE ]");
             } else {
                 snprintf(values[2], sizeof(values[2]), "[ %dm ]", g_deep_standby_min);
             }

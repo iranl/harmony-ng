@@ -138,6 +138,22 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 | **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
 | **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
 
+Deep standby is the kernel's suspend to RAM, on battery only. The **Deep standby** setting picks
+when it starts after the screen blanks: **at once** (the default since 2026-11, as the stock
+firmware does: 2 s after the blank, the time for a key release and its acknowledgement), 15, 30,
+60, 120 or 240 minutes, or never. In suspend only a physical button, the cradle and the hourly
+MSP430 alarm wake the remote; RF wake requests from the Hub do not reach it. After an alarm wake
+the remote stays up until it has linked and reported its battery (at most 8 s), then suspends
+again, so a sleeping remote reports once an hour. **Powered (cradle, USB or charging) it never
+suspends**: the Hub can wake it, push config and update it over RF at any time.
+
+`CLOCK_MONOTONIC` stops during suspend and the remote's kernel (2.6.37) has no `CLOCK_BOOTTIME`,
+so `remote_ui` measures each suspend on the wall clock (restored from the MSP430 RTC on resume)
+and adds it in `get_boot_ms()`. The battery's timing (rested reading, slow drop, reports) and the
+time since the screen blanked use that clock. After a resume the battery samples start fresh,
+the first reading counts as rested when the suspend lasted 30 s or more (the cell rested all that
+time), and a battery report is requested, for an alarm wake and a button wake alike.
+
 > [!NOTE]
 > Touchscreen taps do **not** wake the remote in either standby mode. The Synaptics Clearpad sensor is put into hardware sleep mode (`0x35 = 0x01`) upon display blanking to prevent accidental touches and save ~10.5 mA.
 
@@ -259,6 +275,7 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
   - Sysfs accelerometer rate when remote is in active or near-standby state.
 - **`Battery Status`**: `[ XX% XXXXmV ]`.
   - Refreshes live hardware voltage and battery percentage filtered via a 16-sample moving average window.
+  - The percentage (`remote_battery.c`): the voltage maps to a curve through the stock firmware's points for this remote (3.55 V shutdown = 0 %, 3.70 V = 30 %, 3.85 V = 75 %, 3.90 V = 90 %, 3.95 V and up = 100 %, linear between), minus the charging offset while charging (measured at each charging start as the first charging reading minus the last rested one on battery, 0.05 to 0.25 V: about 0.1 V on USB, 0.17 V on the cradle; 0.1 V when the remote starts while already charging). A rested reading (screen off for 30 s) sets it; under load it never rises and falls by at most one point per 2 minutes, because the cell sags 0.1 to 0.15 V within seconds of the screen turning on; while charging it only rises; a change of the charging state keeps the last value, and the state itself counts only after it held for 5 s (lifting the remote off the cradle flips it several times). The remote reports the battery every 5 minutes, at once on a charging change, with the screen on for a change of 2 points or more (at most once a minute), and at once when its link to the Hub comes up and with every version report, so a Hub that restarted gets it as soon as the remote is linked.
 
 ### 5. `SYSTEM`
 - **`Software Version`**: Displays current firmware version string (e.g. `v1.3.0`).

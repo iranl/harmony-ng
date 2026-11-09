@@ -2,6 +2,7 @@
 #include "orchestrator_queue.h"
 #include "config_store.h"
 #include "cJSON.h"
+#include "hw_action.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,21 @@ void append_orch_step(orch_step_t *steps, size_t *count, const struct activity_s
         snprintf(steps[*count].description, sizeof(steps[*count].description), "%s: %s", prefix,
                  st->command[0] ? st->command : st->type);
     }
+    (*count)++;
+}
+
+/* The step that closes a departing device's Bluetooth link (see section 2 below) */
+static void append_bt_disconnect(orch_step_t *steps, size_t *count, size_t max, const struct ir_device *dev,
+                                 uint32_t *t_sim) {
+    if (*count >= max) return;
+    orch_step_t *s = &steps[*count];
+    memset(s, 0, sizeof(*s));
+    s->type = STEP_ACT_BTHID;
+    snprintf(s->device_id, sizeof(s->device_id), "%s", dev->id);
+    snprintf(s->command_name, sizeof(s->command_name), "DISCONNECT");
+    s->delay_ms = 100;
+    snprintf(s->description, sizeof(s->description), "Power off %s: close the Bluetooth link", dev->name);
+    *t_sim += s->delay_ms;
     (*count)++;
 }
 
@@ -142,7 +158,18 @@ int orch_build_steps(const char *current_id, const char *target_id,
                         break;
                     }
                 }
-                if (!dev || dev->is_power_always_on) continue;
+                if (!dev) continue;
+                /* Stock firmware closes a Bluetooth device's link right after its power-off
+                 * commands (also when the device stays powered or the stop sequence powered it
+                 * off): the next start then has to connect again, and the new connection is what
+                 * wakes a host such as an Android TV. A link left open while the host falls
+                 * asleep swallows the next start's power-on key. */
+                char bt_host[32];
+                int bt_disconnect = hw_device_bt_host(dev->id, bt_host, sizeof(bt_host));
+                if (dev->is_power_always_on) {
+                    if (bt_disconnect) append_bt_disconnect(main_steps, &main_count, max_main, dev, &t_sim);
+                    continue;
+                }
 
                 int in_stop_seq = 0;
                 for (int s = 0; s < leaving_act->stop_count; s++) {
@@ -154,7 +181,10 @@ int orch_build_steps(const char *current_id, const char *target_id,
                         break;
                     }
                 }
-                if (in_stop_seq) continue;
+                if (in_stop_seq) {
+                    if (bt_disconnect) append_bt_disconnect(main_steps, &main_count, max_main, dev, &t_sim);
+                    continue;
+                }
 
                 if (dev->power_off_count > 0 && dev->power_off_steps) {
                     for (int k = 0; k < dev->power_off_count && main_count < max_main; k++) {
@@ -207,6 +237,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
                         main_count++;
                     }
                 }
+                if (bt_disconnect) append_bt_disconnect(main_steps, &main_count, max_main, dev, &t_sim);
             }
         }
     }

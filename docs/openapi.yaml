@@ -106,6 +106,7 @@ paths:
           bt_key: {reply: ack}
           bt_text: {reply: ack}
           bt_mouse: {reply: ack}
+          ir_capture: {reply: ack, fields: [enabled]}
         pushed:
           activity_state:
             example: {type: activity_state, seq: 17, ts: 1762387200, activity: "123456", state: 2, stateName: running, busy: false, sending: true}
@@ -122,11 +123,17 @@ paths:
           button:
             description: First press and release of a physical key on an RF remote, with the mapped device command when any
             example: {type: button, seq: 22, ts: 1762387200, slot: 1, button: VolumeUp, action: press, source: remote_rf, deviceId: "70321456", command: VolumeUp}
+          ir_received:
+            description: One learned IR signal while the capture mode is on (POST /api/ir-capture). timings are signed microseconds (+ mark, - space) of one frame ending with the gap; modulation is the measured carrier in Hz or null.
+            example: {type: ir_received, seq: 57, ts: 1762387257, modulation: 37700, timings: [4537, -4518, 505, -505, 505, -1513, 505, -55833]}
+          ir_capture:
+            description: The IR capture mode turned on or off, or its receiver problem changed. ir_capture_error is present only while there is a problem.
+            example: {type: ir_capture, seq: 58, ts: 1762387260, ir_capture: true}
           snapshot:
             description: First frame after the upgrade and the reply to get_snapshot
             example:
               type: snapshot
-              hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake], auth_enabled: false, uptime_sec: 34821, legacy_enabled: false, mdns_enabled: false}
+              hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake], auth_enabled: false, uptime_sec: 34821, boot_time: 1762352379, legacy_enabled: false, mdns_enabled: false, ir_capture: false}
               activity_state: {type: activity_state, activity: "-1", state: 0, stateName: idle, busy: false, sending: false, seq: 3, ts: 1762387100}
               bt_status: null
               rf_status: null
@@ -157,9 +164,10 @@ paths:
                 version: 2.2.0
                 commit: abc1234
                 api_version: 2
-                capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, mdns, legacy, mqtt_v2, rf_wake]
+                capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, ir_capture, mdns, legacy, mqtt_v2, rf_wake]
                 legacy_enabled: false
                 mdns_enabled: true
+                ir_capture: false
                 activity: "-1"
                 state: 0
                 busy: false
@@ -167,6 +175,7 @@ paths:
                 total_kb: 5120
                 free_kb: 1372
                 uptime_sec: 10421
+                boot_time: 1762352379
                 updating: false
                 auth_enabled: false
                 role: admin
@@ -1611,6 +1620,40 @@ paths:
         '503':
           description: No IR receiver
 
+  /api/ir-capture:
+    post:
+      tags:
+        - Hardware & IR
+      summary: IR capture mode on or off
+      description: |
+        While on, a thread keeps the IR receiver open and every button press becomes an ir_received
+        event (WebSocket, MQTT <base>/ir/received). Sends keep working; what the receiver reads
+        during a send is dropped. POST /api/capture answers 409 meanwhile. Off at every start.
+        Also the WebSocket and MQTT action ir_capture. Capability flag ir_capture.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: {type: boolean}
+              required: [enabled]
+      responses:
+        '200':
+          description: Mode set
+          content:
+            application/json:
+              example:
+                ok: true
+                ir_capture: true
+        '400':
+          description: enabled missing or not a boolean
+        '409':
+          description: A one-shot capture is running
+        '503':
+          description: No IR receiver, or it could not be set up
+
   /api/ir-test-learned:
     post:
       tags:
@@ -2028,6 +2071,13 @@ paths:
       summary: CC2544 RF subsystem status
       description: |
         Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
+        battery.reported_at is the Unix time of the last report (null before the first one or while the clock was not set), battery.restored is true for a value read back from RAM after a hub_rf restart, until the remote reports again. docs/API.md 7.1.
+        Per slot, the product: model (ultimate, ultimate_one, ultimate_home, elite, 950, touch,
+        companion, smart_control, unknown), model_name (the stock product name, null
+        while unknown), skin (the skin id a touchscreen remote reports, null when not reported) and
+        equad_id (the CC2544's EquadID for the slot, null when not known: 16417 = 0x4021
+        touchscreen remotes, 16414 = 0x401E Smart Control, 16422 / 16423 Companion). A touchscreen
+        remote is unknown until it reports its skin id. docs/API.md 7.1.
       responses:
         '200':
           description: RF status
@@ -2061,7 +2111,10 @@ paths:
                     in_sync: true
                     address: "12345678"
                     rf_address: "12345678"
-                    model: "Harmony Companion"
+                    model: "companion"
+                    model_name: "Harmony Companion"
+                    skin: null
+                    equad_id: 16422
                     has_screen: false
                     supports_ota: false
                     sw_version: "N/A"
@@ -2078,12 +2131,15 @@ paths:
                       naks: 9
                       last_seen_s: 2
                   - slot: 2
-                    name: "Harmony Elite (Slot 2)"
+                    name: "Harmony Ultimate (Slot 2)"
                     active: true
                     in_sync: true
                     address: "87654321"
                     rf_address: "87654321"
-                    model: "elite"
+                    model: "ultimate"
+                    model_name: "Harmony Ultimate"
+                    skin: 100
+                    equad_id: 16417
                     has_screen: true
                     supports_ota: true
                     sw_version: "v2.0.2"
@@ -2093,6 +2149,8 @@ paths:
                       percent: 78
                       charging: false
                       voltage_mv: 3840
+                      reported_at: 1794000000
+                      restored: false
                     link:
                       frames_rx: 210
                       acked_sent: 85
