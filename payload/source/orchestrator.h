@@ -86,8 +86,9 @@ orch_state_t orch_get_state(void);
 int orch_switch_activity(const char *target_activity_id, int dry_run,
                          char *preview_json, size_t preview_len);
 
-/* The activity id queued behind the running transition, or NULL */
-const char *orch_get_queued_activity(void);
+/* Copies the activity id queued behind the running transition into buf; returns 1 when there
+ * is one, 0 when the queue is empty (buf is then ""). */
+int orch_get_queued_activity(char *buf, size_t len);
 
 /*
  * Power off all devices in current activity.

@@ -255,6 +255,24 @@ def main():
         r, _ = reply_for(ws, rid, 3.0)
         check(r is not None and r.get("code") == 500 and r.get("msg") == "Unknown activity", "unknown activity 500", str(r))
 
+        # a request during a transition is acknowledged and queued (no "Busy" reply): 11 starts
+        # (its start sequence has a delay), 10 is asked at once and runs after it
+        rid11 = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "11"})
+        r11, _ = reply_for(ws, rid11, 3.0)
+        rid10 = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "10"})
+        r10, _ = reply_for(ws, rid10, 3.0)
+        check(r11 is not None and r11.get("code") == 200 and r10 is not None and r10.get("code") == 200,
+              "runactivity during a transition acknowledged with code 200 (queued)", "%s / %s" % (r11, r10))
+        fin11, _ = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished" and m.get("data", {}).get("activityId") == "11", 15.0)
+        fin10, frames10 = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished" and m.get("data", {}).get("activityId") == "10", 15.0)
+        check(fin11 is not None and fin10 is not None, "startActivityFinished for 11, then for the queued 10")
+        check(any(f.get("cmd") == "harmony.engine?startActivity" and f.get("code") == 200 and f.get("id") == rid10 for f in frames10),
+              "the queued request's startActivity code 200 carries its own request id")
+        recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+        rid = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?getCurrentActivity")
+        r, _ = reply_for(ws, rid)
+        check(r is not None and r.get("data", {}).get("result") == "10", "getCurrentActivity 10 after the queued start")
+
         print("[-] holdAction and changeChannel")
         act = '{"command":: "VolumeUp","type":: "IRCommand","deviceId":: "1"}'
         rid_p = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?holdAction",

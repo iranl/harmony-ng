@@ -5,8 +5,8 @@ Activity requests while a transition runs are queued, not refused (orchestrator)
   and it runs when the start has completed: the activity reaches running, then idle
 - a later request replaces the queued one (start 10, then 11 queued, then power off queued: the Hub
   ends idle and activity 11 never starts)
-- a request for the transition's own target is not queued
-- the WebSocket command channel answers ok with state "queued"
+- a request for the transition's own target is not queued; an unknown activity is a 500, not queued
+- the WebSocket command channel answers ok with state "queued" (and names the action it was called by)
 The daemon runs with --dry-run; the start sequence of the test activity has a 1.5 s delay.
 """
 
@@ -96,6 +96,9 @@ def main():
             st, r = hub.http_post("/api/poweroff", {})
             check(st == 200 and r.get("state") == "queued" and state_of(hub).get("queued") == "-1",
                   "power off replaces the queued 10", str(state_of(hub)))
+            st, r = hub.http_post("/api/activity", {"activity": "999"})
+            check(st == 500 and state_of(hub).get("queued") == "-1",
+                  "an unknown activity during the start: 500, the queue keeps the power off", "%s %s %s" % (st, r, state_of(hub)))
             st, r = hub.http_post("/api/activity", {"activity": "12"})
             check(st == 200 and r.get("state") == "starting" and state_of(hub).get("queued") is None,
                   "asking for the transition's own target drops the queue", "%s %s %s" % (st, r, state_of(hub)))
@@ -107,9 +110,10 @@ def main():
             print("[-] WebSocket command channel")
             ws = hub.ws()
             ws.recv_json(5)  # snapshot
-            ws.send_json({"action": "stop_activity", "msgId": 7})
+            ws.send_json({"action": "power_off", "msgId": 7})
             m, _ = ws.wait_for("ack", 5)
-            check(m is not None and m.get("ok") is True and m.get("state") == "stopping", "stop_activity while 10 runs: stopping", str(m))
+            check(m is not None and m.get("ok") is True and m.get("state") == "stopping" and m.get("action") == "power_off",
+                  "power_off while 10 runs: stopping, ack names the action", str(m))
             time.sleep(0.2)
             ws.send_json({"action": "start_activity", "activity": "10", "msgId": 8})
             m, _ = ws.wait_for("ack", 5)

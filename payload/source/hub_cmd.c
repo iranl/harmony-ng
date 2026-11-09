@@ -473,8 +473,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
     }
     if (strcmp(action, "stop_activity") == 0 || strcmp(action, "power_off") == 0) {
         int rc = orch_power_off(0, NULL, 0);
-        if (rc < 0) return ack(req, "stop_activity", 0, 500, "could not build the transition");
-        cJSON *r = ack(req, "stop_activity", 1, 200, NULL);
+        if (rc < 0) return ack(req, action, 0, 500, "could not build the transition");
+        cJSON *r = ack(req, action, 1, 200, NULL);
         if (r) cJSON_AddStringToObject(r, "state", rc == 1 ? "queued" : "stopping");
         return r;
     }

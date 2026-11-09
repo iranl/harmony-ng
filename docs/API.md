@@ -314,7 +314,7 @@ integrations can be used at the same time.
   | --- | --- |
   | `vnd.logitech.harmony/vnd.logitech.harmony.engine?config` | the stock configuration object built from `devices.json` and `activities.json` on every request: `activity[]` (with the `-1` `PowerOff` entry last), `device[]` with `controlGroup[].function[].action` as a JSON-encoded string, `global.timeStampHash` `<inventory_version>;<activeRemoteId>`. Ids are the daemon's ids when numeric, else a stable CRC32-derived number (mapped back on `runactivity` and `holdAction`) |
   | `...?getCurrentActivity` | `{"result":"<activity id>"}`, `"-1"` when idle |
-  | `harmony.activityengine?runactivity` (`activityId`, `"-1"` = power off) | `{}` with `code` 200 at once (`500` "Busy" or "Unknown activity"), then the start sequence below |
+  | `harmony.activityengine?runactivity` (`activityId`, `"-1"` = power off) | `{}` with `code` 200 at once (`500` "Unknown activity"), then the start sequence below. A request while a transition runs is acknowledged the same way and queued (REST 4.3); its frames follow when it starts |
   | `...?holdAction` (`status` `press` or `release`, `action` with `::` for `:`) | no reply on success; `code` 500 reply on error. Same press, hold and release path as `send_command` on 8089 |
   | `harmony.engine?changeChannel` (`channel` digits) | `{}`; the digits go to the first device of the running activity with digit commands, 200 ms apart; `500` without one |
   | `setup.sync?None` | `{}` |
@@ -573,7 +573,7 @@ Switches to or starts the target activity sequence.
   the reply is `{"success": true, "state": "queued"}`. One request is queued at a time, the latest
   replaces an earlier one, and a request for the running transition's own target drops the queue.
   `GET /api/activity` shows the queued id in `queued` (`null` when none).
-- **Error `500`**: the transition could not be built (unknown activity).
+- **Error `500`**: unknown activity (nothing is queued for it either), or the transition could not be built.
 
 ### 4.4 Stop Activity / Power Off
 #### `POST /api/poweroff` or `POST /api/activity-stop`
