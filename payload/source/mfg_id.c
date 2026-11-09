@@ -121,21 +121,9 @@ int mfg_read_skin(const char *override_path, uint8_t *skin) {
 int mfg_read_unitid(const char *override_path, char *out, size_t out_len) {
     if (!out || out_len == 0) return -1;
     out[0] = '\0';
-    char dev[32];
-    const char *path = override_path;
-    if (!path || !path[0]) {
-        if (find_mfg_mtd(dev, sizeof(dev)) != 0) return -1;
-        path = dev;
-    }
-    FILE *f = fopen(path, "rb");
-    if (!f) return -1;
-    uint8_t *buf = (uint8_t *)malloc(MFG_READ_LEN);
-    if (!buf) {
-        fclose(f);
-        return -1;
-    }
-    size_t n = fread(buf, 1, MFG_READ_LEN, f);
-    fclose(f);
+    size_t n = 0;
+    uint8_t *buf = read_partition(override_path, &n);
+    if (!buf) return -1;
     int rc = mfg_parse_unitid(buf, n, out, out_len);
     free(buf);
     return rc;

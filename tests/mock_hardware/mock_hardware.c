@@ -190,8 +190,10 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
-    /* 6. Virtualize /data/ directory if physical /data is not writable */
-    if (strncmp(pathname, "/data/", 6) == 0 && access("/data", W_OK) != 0) {
+    /* 6. Virtualize the /data/ directory: always when a mock root is set, otherwise when the
+     * physical /data is not writable (a host with a writable /data must never be touched) */
+    if (strncmp(pathname, "/data/", 6) == 0 &&
+        (getenv("HARMONY_MOCK_DIR") != NULL || access("/data", W_OK) != 0)) {
         snprintf(resolved, max_len, "%s/data/%s", md, pathname + 6);
         char dtmp[512];
         snprintf(dtmp, sizeof(dtmp), "%s/data", md);

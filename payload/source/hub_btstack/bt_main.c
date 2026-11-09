@@ -562,6 +562,11 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                 case HID_SUBEVENT_CONNECTION_CLOSED: {
                     g_host_connecting = false;
                     uint16_t cid = hid_subevent_connection_closed_get_hid_cid(packet);
+                    if (cid != 0 && cid == s_wake_key_cid) {
+                        /* the buffered wake key was meant for this channel: never send it on a later one */
+                        btstack_run_loop_remove_timer(&s_wake_key_timer);
+                        s_wake_key_btn[0] = '\0';
+                    }
                     char msg[64];
                     snprintf(msg, sizeof(msg), "Classic HID Host DISCONNECTED (cid=0x%04x)", cid);
                     log_msg(msg);

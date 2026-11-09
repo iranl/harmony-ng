@@ -699,8 +699,12 @@ static void *ir_mode_thread(void *arg) {
             uint32_t hz = 0;
             rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop);
             if (rc == 0) {
+                /* the listener pair is replaced under the lock: take both together */
+                pthread_mutex_lock(&s_rx_lock);
                 ir_rx_signal_cb cb = s_mode_cb;
-                if (cb) cb(out, hz, s_mode_user);
+                void *user = s_mode_user;
+                pthread_mutex_unlock(&s_rx_lock);
+                if (cb) cb(out, hz, user);
             }
             if (rc == 0 || rc == -6) {
                 rc = ir_rx_wait_quiet(&s, ir_mode_should_stop);

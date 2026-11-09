@@ -459,13 +459,16 @@ int rf_state_version_json(int slot, char *buf, size_t len) {
 void rf_state_save_version_file(int slot) {
     char buf[256];
     if (rf_state_version_json(slot, buf, sizeof(buf)) < 0) return;
-    char vpath[64];
+    /* written to a temporary file and renamed, like the battery cache: a power cut during the
+     * write must not leave an empty or cut file on the flash */
+    char vpath[160], tmp[176];
     snprintf(vpath, sizeof(vpath), "%s/remote_slot%d_version.json", g_rf_version_dir, slot);
-    FILE *vf = fopen(vpath, "w");
-    if (vf) {
-        fputs(buf, vf);
-        fclose(vf);
-    }
+    snprintf(tmp, sizeof(tmp), "%s.tmp", vpath);
+    FILE *vf = fopen(tmp, "w");
+    if (!vf) return;
+    fputs(buf, vf);
+    fclose(vf);
+    rename(tmp, vpath);
 }
 
 /* A config push delivered: the remote applies it on receipt but reports its version only on link
