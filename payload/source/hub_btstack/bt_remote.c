@@ -3,8 +3,6 @@
 #include "bt_hid.h"
 
 static cJSON *g_cached_map_json = NULL;
-static time_t g_map_mtime = 0;
-static off_t g_map_size = 0;
 static btstack_timer_source_t g_remote_watchdog_timer;
 static bool g_remote_watchdog_active = false;
 static char g_active_remote_btn[64] = "";
