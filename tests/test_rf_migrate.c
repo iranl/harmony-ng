@@ -5,6 +5,10 @@
 #include <string.h>
 #include <unistd.h>
 #include "rf_state.h"
+#include "rf_proto.h"
+#include "rf_api.h"
+#include "cJSON.h"
+#include "rf_api_stubs.h"
 
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s (line %d)\n", msg, __LINE__); } } while (0)

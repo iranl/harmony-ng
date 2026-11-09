@@ -616,7 +616,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     if (helpEl) {
       helpEl.textContent = isDevScope
         ? 'Buttons shown on the remote\'s touchscreen when browsing this device (commands can be reordered, renamed, or deleted).'
-        : 'Buttons shown on the remote\'s touchscreen when pressing "DEVICES" during this activity (up to 48 buttons, 6 per page).';
+        : 'Buttons shown on the remote\'s touchscreen when pressing "DEVICES" during this activity (up to 240 buttons, 6 per page).';
     }
 
     let sbtns = [];
@@ -885,7 +885,8 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       firstCmd = firstDev?.commands?.[0]?.name || '';
     }
 
-    if (sbtns.length >= 48) {
+    /* the config push carries 255 entries per remote, with room kept for the activity start/stop keys */
+    if (sbtns.length >= 240) {
       return alert(t("max_screen_buttons"));
     }
     sbtns.push({

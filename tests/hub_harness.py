@@ -76,7 +76,9 @@ def build_hub_daemon_test(force=False, extra_cflags=None, out=HUB_BIN):
 
 
 def build_mock_lib(force=False):
-    if os.path.exists(MOCK_LIB) and not force:
+    src = os.path.join(TESTS_DIR, "mock_hardware", "mock_hardware.c")
+    # rebuilt when the source is newer: a stale library tests old mock behaviour
+    if os.path.exists(MOCK_LIB) and not force and os.path.getmtime(MOCK_LIB) >= os.path.getmtime(src):
         return MOCK_LIB
     os.makedirs(BUILD_DIR, exist_ok=True)
     cmd = ["gcc", "-Wall", "-O2", "-fPIC", "-shared",

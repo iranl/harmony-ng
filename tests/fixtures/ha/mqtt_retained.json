@@ -2,7 +2,7 @@
   "harmony/hub/activity_state": {
     "type": "activity_state",
     "seq": 1,
-    "ts": 1794092906,
+    "ts": 1794227335,
     "activity": "-1",
     "state": 0,
     "stateName": "idle",
@@ -12,9 +12,9 @@
   "harmony/hub/bt": {
     "type": "bt_status",
     "seq": 4,
-    "ts": 1794092907,
+    "ts": 1794227336,
     "backend": "btstack",
-    "pid": 165503,
+    "pid": 1,
     "state": "connecting",
     "target": "11:22:33:44:55:66",
     "last_button": "",
@@ -53,13 +53,13 @@
   "harmony/hub/config": {
     "type": "config",
     "files": {
-      "devices": 1794092906,
-      "activities": 1794092906,
-      "settings": 1794092906,
-      "remote_map": 1794092906
+      "devices": 1794227335,
+      "activities": 1794227335,
+      "settings": 1794227335,
+      "remote_map": 1794227335
     },
     "inventory_version": "504af5ca",
-    "ts": 1794092906
+    "ts": 1794227335
   },
   "harmony/hub/hub": {
     "type": "hub",
@@ -73,6 +73,7 @@
       "ws_auth",
       "ws_keepalive",
       "ir_raw",
+      "ir_capture",
       "mdns",
       "legacy",
       "mqtt_v2",
@@ -80,12 +81,16 @@
     ],
     "legacy_enabled": false,
     "mdns_enabled": true,
+    "boot_time": 1794174077,
+    "ir_capture": false,
     "auth_enabled": false,
-    "uptime_sec": 66824,
+    "uptime_sec": 53258,
     "ip": "192.0.2.10",
     "device_count": 2,
     "command_count": 8,
-    "ts": 1794092906
+    "ha_discovery": true,
+    "discovery_prefix": "homeassistant",
+    "ts": 1794227335
   },
   "harmony/hub/inventory/1": {
     "type": "inventory_device",
@@ -154,10 +159,10 @@
   "harmony/hub/rf": {
     "type": "rf_status",
     "seq": 5,
-    "ts": 1794092907,
+    "ts": 1794227336,
     "running": true,
     "ok": true,
-    "fw_version": "v72.00",
+    "fw_version": "v39.00",
     "paired": true,
     "rf_address": "A1B2C3D4",
     "hub_rf_address": "A1B2C3D4",
@@ -179,21 +184,26 @@
     "slots": [
       {
         "slot": 1,
-        "name": "Harmony Remote (Slot 1)",
-        "model": "elite",
+        "name": "Harmony Ultimate (Slot 1)",
+        "model": "ultimate",
+        "model_name": "Harmony Ultimate",
+        "skin": 100,
+        "equad_id": 16417,
         "has_screen": true,
         "supports_ota": true,
         "active": true,
         "in_sync": true,
         "address": "E5F60718",
         "rf_address": "E5F60718",
-        "sw_version": "2.2.0",
+        "sw_version": "2.3.0",
         "remote_id": "20141001120000-000002",
         "config_version": 7,
         "battery": {
           "percent": 87,
           "charging": false,
-          "voltage_mv": 3980
+          "voltage_mv": 3980,
+          "reported_at": 1794000000,
+          "restored": false
         },
         "link": {
           "frames_rx": 120,
@@ -206,8 +216,11 @@
       },
       {
         "slot": 2,
-        "name": "Harmony Elite (Slot 2)",
+        "name": "Harmony Remote (Slot 2)",
         "model": "unknown",
+        "model_name": null,
+        "skin": null,
+        "equad_id": null,
         "has_screen": true,
         "supports_ota": true,
         "active": false,
@@ -219,7 +232,9 @@
         "battery": {
           "percent": 0,
           "charging": false,
-          "voltage_mv": 0
+          "voltage_mv": 0,
+          "reported_at": null,
+          "restored": false
         },
         "link": {
           "frames_rx": 0,

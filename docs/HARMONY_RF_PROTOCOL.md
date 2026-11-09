@@ -139,10 +139,24 @@ On Remote startup or display wake, the CC2544 radio's frequency-hopping spread-s
 Query command: `10 FF 83 B5 <pipe> 00 00`:
 - **Hub Responses (`11 FF 83 B5 <pipe> ...`)**:
   - `pipe 0x03`: Hub's own 4-byte RF address (`11 FF 83 B5 03 <addr:4> ...`).
-  - `pipe 0x20..0x25`: Slot identification / EquadID (`11 FF 83 B5 20 <EquadID:2> ...`):
-    - `0x4021`: Harmony Elite 950 / Ultimate / Pro 2400 (`"Juniper"`)
-    - `0x401E`: Harmony Smart Control (`"20+"`)
-    - `0x4026`, `0x4027`: Harmony Companion (`"Companion"`, `"Home Control"`)
+  - `pipe 0x20..0x25`: Slot identification / EquadID (`11 FF 83 B5 20 <EquadID:2> ...`). The EquadID names the hardware family, not the product. The list the stock Hub firmware knows (`pimento_rfthread`):
+    - `0x4021` "Juniper": every touchscreen remote (Harmony Ultimate, Ultimate One, Ultimate Home, Elite, 950). The product is the remote's skin id (the `skin` record of its `mfg` partition), which a harmony-ng remote reports in `RF_MSG_UNIT_ID`. The stock Hub logs "Paired Remote is not Juniper" when no slot has `0x4021`; the stock button maps use the same number as a prefix (`16417Activity<id>`, 16417 = `0x4021`).
+    - `0x401E` "Sprite": Harmony Smart Control (stock firmware, no skin id).
+    - `0x4026`, `0x4027` "Sprite": Harmony Companion (stock firmware, no skin id).
+    - `0x4024`: handled by a thread of its own in the stock Hub; the product is not identified.
+    - `0x880E`: the Logitech USB dongle.
+    - Any other id: an unpaired pipe.
+
+  Skin ids of the Juniper products, as the stock remote UI names them (`harmony.lua`, `MODEL_NAME`); any other skin is "Harmony Touch" there. `0x63` appears once in the stock UI, in a provisioning check, without a name. The stock UI picks its "hops" layout for `0x6F` and `0x70` and "juniper" for the others.
+
+  | Skin | Product | `model` in the RF status |
+  | --- | --- | --- |
+  | `0x64` (100) | Harmony Ultimate | `ultimate` |
+  | `0x66` (102) | Harmony Ultimate One | `ultimate_one` |
+  | `0x69` (105), `0x6C` (108) | Harmony Ultimate Home | `ultimate_home` |
+  | `0x6F` (111) | Harmony Elite | `elite` |
+  | `0x70` (112) | Harmony 950 | `950` |
+  | other | Harmony Touch | `touch` |
   - `pipe 0x30..0x35`: Remote 4-byte RF address for slot (`11 FF 83 B5 30 <addr:4> ...`).
   - `pipe 0x40..0x45`: Remote name string for slot (`11 FF 83 B5 40 <len> <name...>`).
 - **Remote Responses**:
@@ -222,7 +236,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x2E` | `RF_MSG_HELP_STATUS` | Hub -> Remote | Help progress, or a device to ask about (ACK'd except a repeated "started"); sent only in reply to `RF_MSG_HELP_REQUEST` |
 | `0x2F` | `RF_MSG_HELP_ANSWER` | Remote -> Hub | Help: whether a device is on (ACK'd) |
 | `0x30` | `RF_MSG_WAKE` | Hub -> Remote | Turn the screen on (ACK'd); a remote in light standby still receives frames. Remotes without it drop it as unknown and send no ACK |
-| `0x31` | `RF_MSG_UNIT_ID` | Remote -> Hub | The remote's factory unit id (ACK'd); sent right after every `RF_MSG_VERSION_REPORT` by remotes that report `RF_CAP_UNIT_ID`. A Hub without it drops the frame as unknown |
+| `0x31` | `RF_MSG_UNIT_ID` | Remote -> Hub | The remote's factory unit id and skin id (ACK'd); sent right after every `RF_MSG_VERSION_REPORT` by remotes that report `RF_CAP_UNIT_ID`. A Hub without it drops the frame as unknown |
 
 ### 5.2 Key Payload Structures
 
@@ -237,15 +251,20 @@ All application messages are encapsulated in the payload section of Report `0x12
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
 #### `RF_MSG_UNIT_ID` (`0x31`)
-- `payload[0]`: Length `n` of the id, at most 24 (`RF_UNIT_ID_MAX`)
+- `payload[0]`: Length `n` of the id, at most 24 (`RF_UNIT_ID_MAX`); 0 when the remote has no id
 - `payload[1..n]`: The remote's factory unit id as ASCII, read from the `unitid` record of its
   `mfg` partition (21 characters on current hardware, for example `20141001120000-000002`)
+- `payload[24]` (`RF_UNIT_ID_SKIN_OFF`): The remote's skin id, read from the `skin` record of the
+  same partition (stored as text, `0x64` on a Harmony Ultimate); 0 when the record is missing.
+  Read only when `n` < 24. Older remotes pad this byte with 0, older Hubs ignore it.
 
 Sent right after every `RF_MSG_VERSION_REPORT` (link up, every 24 hours, before a full config
-request) by remotes that report `RF_CAP_UNIT_ID`; a remote whose partition has no id sends
-nothing. The Hub ACKs it, keeps the id in memory and in `/data/harmony/remote_slot<N>_version.json`
-(`remote_id`, rewritten only when it changed), reports it as `slots[].remote_id` in
-`GET /api/rf/status`, and clears it when the slot is unpaired.
+request) by remotes that report `RF_CAP_UNIT_ID`; a remote whose partition has neither record
+sends nothing. The Hub ACKs it, keeps the id and the skin in memory and in
+`/data/harmony/remote_slot<N>_version.json` (`remote_id`, `skin`, rewritten only when they
+changed), reports them as `slots[].remote_id`, `slots[].skin` and the product in
+`slots[].model` / `slots[].model_name` of `GET /api/rf/status`, and clears them when the slot is
+unpaired.
 
 #### `RF_MSG_ACT_DEVICES_CHUNK` (`0x2B`)
 One frame per activity, after the device list in a config push:

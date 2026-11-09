@@ -377,15 +377,16 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
 
       const nightStart = typeof cfg.night_start !== 'undefined' ? cfg.night_start : (typeof cfg.nightStart !== 'undefined' ? cfg.nightStart : 22);
       const nightEnd = typeof cfg.night_end !== 'undefined' ? cfg.night_end : (typeof cfg.nightEnd !== 'undefined' ? cfg.nightEnd : 7);
-      if (document.getElementById('rfCfgNightSchedule')) {
-        const schedVal = `${nightStart}-${nightEnd}`;
-        const schedSelect = document.getElementById('rfCfgNightSchedule');
-        if (schedSelect.querySelector(`option[value="${schedVal}"]`)) {
-          schedSelect.value = schedVal;
-        } else {
-          schedSelect.value = '22-7';
+      /* the night window in whole hours (what the remote and the RF settings frame carry) */
+      [['rfCfgNightStart', nightStart], ['rfCfgNightEnd', nightEnd]].forEach(([id, hour]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (!el.options.length) {
+          el.innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
         }
-      }
+        const h = parseInt(hour, 10);
+        el.value = String(h >= 0 && h <= 23 ? h : 0);
+      });
 
       const powerDebug = typeof cfg.power_debug !== 'undefined' ? cfg.power_debug : (typeof cfg.powerDebug !== 'undefined' ? (cfg.powerDebug ? 1 : 0) : 0);
       if (document.getElementById('rfCfgPowerDebug')) document.getElementById('rfCfgPowerDebug').value = String(powerDebug ? 1 : 0);
@@ -417,9 +418,8 @@ export class HarmonyAppRemotesRf extends HarmonyAppRemotesScreen {
     const gyro = parseInt(document.getElementById('rfCfgGyro')?.value || '1', 10);
     const gyro_rate = parseInt(document.getElementById('rfCfgGyroRate')?.value || '50', 10);
     const btn_backlight = parseInt(document.getElementById('rfCfgBtnBacklight')?.value || '2', 10);
-    const schedParts = (document.getElementById('rfCfgNightSchedule')?.value || '22-7').split('-');
-    const night_start = parseInt(schedParts[0] || '22', 10);
-    const night_end = parseInt(schedParts[1] || '7', 10);
+    const night_start = parseInt(document.getElementById('rfCfgNightStart')?.value || '22', 10);
+    const night_end = parseInt(document.getElementById('rfCfgNightEnd')?.value || '7', 10);
     const power_debug = parseInt(document.getElementById('rfCfgPowerDebug')?.value || '0', 10);
     const language = document.getElementById('rfCfgLanguage')?.value || 'en';
     const langMap = ['en', 'de', 'fr', 'nl', 'es', 'it'];

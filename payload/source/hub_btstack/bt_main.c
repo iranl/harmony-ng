@@ -19,6 +19,63 @@
 #include "bt_state.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
+
+/* A key for a host whose link is down is kept (g_pending_wake_btn) and used to be sent the instant
+ * the HID channel opened. An Android TV box is not ready for input at that instant and drops it, so
+ * the wake only happened on the next key, seconds later. The key now goes out once the host has
+ * settled; a second key 1.75 s after the open was measured to wake the box at once. */
+#define WAKE_KEY_SETTLE_MS 1500
+static btstack_timer_source_t s_wake_key_timer;
+static char s_wake_key_btn[64];
+static uint16_t s_wake_key_cid;
+
+static bool host_cid_connected(uint16_t cid) {
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (g_hosts[i].connected && g_hosts[i].hid_cid == cid) return true;
+    }
+    return false;
+}
+
+static void wake_key_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    char pbtn[64];
+    strncpy(pbtn, s_wake_key_btn, sizeof(pbtn) - 1);
+    pbtn[sizeof(pbtn) - 1] = 0;
+    s_wake_key_btn[0] = 0;
+    if (!pbtn[0]) return;
+    if (!host_cid_connected(s_wake_key_cid)) {
+        log_msg("Buffered wake report dropped: the host disconnected before it settled");
+        return;
+    }
+    uint8_t mod = 0, kc = 0;
+    if (sscanf(pbtn, "KEY %hhx %hhx", &mod, &kc) == 2) {
+        send_host_keyboard_report(mod, kc);
+        log_msg("Dispatched buffered wake keyboard report to host");
+    } else if (strncmp(pbtn, "CONSUMER ", 9) == 0) {
+        unsigned int usage = 0;
+        if (sscanf(pbtn + 9, "%x", &usage) == 1) {
+            send_host_consumer_report((uint16_t)usage);
+            log_msg("Dispatched buffered wake consumer report to host");
+        }
+    }
+}
+
+/* Called when a HID channel opened: the kept key (if fresh) goes out after WAKE_KEY_SETTLE_MS */
+static void wake_key_schedule(uint16_t cid) {
+    if (g_pending_wake_btn[0] && (time(NULL) - g_pending_wake_time) < 10) {
+        strncpy(s_wake_key_btn, g_pending_wake_btn, sizeof(s_wake_key_btn) - 1);
+        s_wake_key_btn[sizeof(s_wake_key_btn) - 1] = 0;
+        s_wake_key_cid = cid;
+        btstack_run_loop_remove_timer(&s_wake_key_timer);
+        btstack_run_loop_set_timer_handler(&s_wake_key_timer, wake_key_timer_handler);
+        btstack_run_loop_set_timer(&s_wake_key_timer, WAKE_KEY_SETTLE_MS);
+        btstack_run_loop_add_timer(&s_wake_key_timer);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Buffered wake report queued, sent in %d ms once the host has settled", WAKE_KEY_SETTLE_MS);
+        log_msg(msg);
+    }
+    g_pending_wake_btn[0] = 0;
+}
 #include "bt_cmd.h"
 #include "bt_remote.h"
 
@@ -499,30 +556,17 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                         gap_start_scan();
                     }
 
-                    if (g_pending_wake_btn[0] && (time(NULL) - g_pending_wake_time) < 10) {
-                        char pbtn[64];
-                        strncpy(pbtn, g_pending_wake_btn, sizeof(pbtn) - 1);
-                        pbtn[sizeof(pbtn) - 1] = 0;
-                        g_pending_wake_btn[0] = 0;
-                        uint8_t mod = 0, kc = 0;
-                        if (sscanf(pbtn, "KEY %hhx %hhx", &mod, &kc) == 2) {
-                            send_host_keyboard_report(mod, kc);
-                            log_msg("Dispatched buffered wake keyboard report to host");
-                        } else if (strncmp(pbtn, "CONSUMER ", 9) == 0) {
-                            unsigned int usage = 0;
-                            if (sscanf(pbtn + 9, "%x", &usage) == 1) {
-                                send_host_consumer_report((uint16_t)usage);
-                                log_msg("Dispatched buffered wake consumer report to host");
-                            }
-                        }
-                    } else {
-                        g_pending_wake_btn[0] = 0;
-                    }
+                    wake_key_schedule(cid);
                     break;
                 }
                 case HID_SUBEVENT_CONNECTION_CLOSED: {
                     g_host_connecting = false;
                     uint16_t cid = hid_subevent_connection_closed_get_hid_cid(packet);
+                    if (cid != 0 && cid == s_wake_key_cid) {
+                        /* the buffered wake key was meant for this channel: never send it on a later one */
+                        btstack_run_loop_remove_timer(&s_wake_key_timer);
+                        s_wake_key_btn[0] = '\0';
+                    }
                     char msg[64];
                     snprintf(msg, sizeof(msg), "Classic HID Host DISCONNECTED (cid=0x%04x)", cid);
                     log_msg(msg);

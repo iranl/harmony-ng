@@ -5,6 +5,7 @@
 #include "remote_config.h"
 #include "remote_ui.h"
 #include "timezone_db.h"
+#include "remote_battery.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -250,7 +251,7 @@ void fb_set_blank(bool blank) {
         close(fd);
     }
     g_screen_on = !blank;
-    uint64_t now_ms = get_monotonic_ms();
+    uint64_t now_ms = get_boot_ms(); /* the blank time counts a suspend (get_boot_ms) */
 
     if (g_screen_on) {
         s_last_wake_ms = now_ms;
@@ -316,25 +317,34 @@ static int s_batt_sample_idx = 0;
 static int s_batt_sample_num = 0;
 static uint64_t s_last_batt_sample_ms = 0;
 static uint8_t s_filtered_pct = 0xFF;
+static remote_batt_filter_t s_batt_filter = { 0xFF, 0 };
 
 time_t ui_wall_time(void) {
     return time(NULL);
 }
 
+/* Set by a resume after a suspend longer than REMOTE_BATT_REST_MS: the cell rested all that
+ * time, so the next reading is a rested one even if the screen is already on */
+static bool s_resume_rested = false;
+
 void read_remote_battery(void) {
-    uint64_t now_ms = get_monotonic_ms();
+    uint64_t now_ms = get_boot_ms(); /* rest, drop and debounce times count a suspend */
 
     if (s_last_batt_sample_ms > 0 && (now_ms - s_last_batt_sample_ms < 1000) && s_batt_sample_num > 0) {
         return;
     }
     s_last_batt_sample_ms = now_ms;
 
+    /* The PMIC's battery voltage in volts ("4.188"): one Li-ion cell, as the stock remote reads
+     * it (juniper/init.lua: default "3.80", low battery below 3.55 V). It used to be multiplied
+     * by 2000, which reported twice the cell voltage (8376 mV for 4.188 V). */
     FILE *fv = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/vbat", "r");
-    float v = 2.05f;
+    float v = 0.0f;
     uint16_t raw_mv = g_battery_info.voltage_mv;
     if (fv) {
         if (fscanf(fv, "%f", &v) == 1) {
-            raw_mv = (uint16_t)(v * 2000.0f);
+            if (v > 0.5f && v < 6.0f) raw_mv = (uint16_t)(v * 1000.0f + 0.5f);  /* volts (the PMIC) */
+            else if (v > 500.0f && v < 6000.0f) raw_mv = (uint16_t)(v + 0.5f);  /* millivolts (the test mock) */
         }
         fclose(fv);
     }
@@ -362,11 +372,12 @@ void read_remote_battery(void) {
         }
         fclose(fp);
     }
+    /* Debounced: lifting the remote off the cradle or setting it down flips the charger and
+     * power source readings several times within seconds (remote_battery.h) */
+    if (s_filtered_pct == 0xFF) remote_battery_filter_init(&s_batt_filter);
+    bool chg_transition = false;
+    is_charging = remote_battery_charging(&s_batt_filter, is_charging != 0, now_ms, &chg_transition) ? 1 : 0;
     g_battery_info.charging = is_charging;
-
-    static uint8_t s_last_charging_flag = 0xFF;
-    bool chg_transition = (s_last_charging_flag != 0xFF && s_last_charging_flag != is_charging);
-    s_last_charging_flag = is_charging;
 
     if (s_batt_sample_num == 0 || chg_transition) {
         for (int i = 0; i < BATT_SAMPLE_COUNT; i++) {
@@ -386,37 +397,14 @@ void read_remote_battery(void) {
     uint16_t avg_mv = (uint16_t)(sum / BATT_SAMPLE_COUNT);
     g_battery_info.voltage_mv = avg_mv;
 
-    int mv = g_battery_info.voltage_mv;
-    int pct = 0;
-    if (mv > 5000) {
-        if (mv >= 8200) pct = 100;
-        else if (mv <= 6800) pct = 0;
-        else pct = (int)((mv - 6800) * 100 / (8200 - 6800));
-    } else {
-        if (mv >= 4150) pct = 100;
-        else if (mv <= 3400) pct = 0;
-        else pct = (int)((mv - 3400) * 100 / (4150 - 3400));
-    }
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-
-    if (s_filtered_pct == 0xFF || chg_transition) {
-        s_filtered_pct = (uint8_t)pct;
-    } else {
-        if (g_battery_info.charging) {
-            if (pct > s_filtered_pct) {
-                s_filtered_pct = (uint8_t)pct;
-            } else if (s_filtered_pct - pct > 4) {
-                s_filtered_pct--;
-            }
-        } else {
-            if (pct < s_filtered_pct) {
-                s_filtered_pct = (uint8_t)pct;
-            } else if (pct - s_filtered_pct > 4) {
-                s_filtered_pct = (uint8_t)pct;
-            }
-        }
-    }
+    /* Rested = the screen has been off long enough for the cell to recover from the load
+     * (remote_battery.h); the percentage follows the rested voltage and only creeps down under
+     * load, so a wake no longer walks it down 2 points at a time */
+    bool rested = (!g_screen_on && s_last_blank_time_ms > 0 &&
+                   now_ms - s_last_blank_time_ms >= REMOTE_BATT_REST_MS) || s_resume_rested;
+    s_resume_rested = false;
+    s_filtered_pct = remote_battery_filter_step(&s_batt_filter, g_battery_info.voltage_mv, is_charging,
+                                               chg_transition, rested, now_ms);
     g_battery_info.percent = s_filtered_pct;
 }
 
@@ -438,6 +426,27 @@ void start_usbeth_and_dropbear(void) {
            "if ! pidof dropbear >/dev/null 2>&1 && ! pidof dropbearmulti >/dev/null 2>&1; then "
            "/data/dropbear -R -p 0.0.0.0:22 2>/dev/null || /data/dropbear -R -B 2>/dev/null || true & fi");
     log_power_debug("[+] USB Ethernet and Dropbear started.\n");
+}
+
+uint64_t g_suspend_hold_until_ms = 0;
+
+bool remote_deep_standby_due(uint64_t standby_s) {
+    if (g_deep_standby_min == 0) return false;
+    if (g_deep_standby_min < 0) return standby_s >= REMOTE_SUSPEND_AT_ONCE_S;
+    return standby_s >= (uint64_t)g_deep_standby_min * 60;
+}
+
+bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms) {
+    if (is_remote_docked()) return false;
+    if (strcmp(g_battery_info.powersource, "battery") != 0) return false;
+    if (g_is_syncing_config || g_is_ota_updating) return false;
+    if (now_ms < g_suspend_hold_until_ms) return false;
+    return remote_deep_standby_due(standby_s);
+}
+
+void remote_power_report_sent(void) {
+    uint64_t now = get_monotonic_ms();
+    if (g_suspend_hold_until_ms > now + 800) g_suspend_hold_until_ms = now + 800; /* time for the ACK */
 }
 
 void enter_kernel_suspend(void) {
@@ -465,6 +474,7 @@ void enter_kernel_suspend(void) {
     }
 
     log_power_debug("[*] Entering kernel Suspend-to-RAM (echo mem > /sys/power/state)...\n");
+    uint64_t wall_before = get_wall_ms(), mono_before = get_monotonic_ms();
     int fd = open("/sys/power/state", O_WRONLY);
     if (fd >= 0) {
         ssize_t w = write(fd, "mem\n", 4);
@@ -476,8 +486,11 @@ void enter_kernel_suspend(void) {
             return;
         }
     }
-    log_power_debug("[*] Resumed from kernel Suspend-to-RAM!\n");
+    uint64_t gap_ms = remote_suspend_gap_ms(wall_before, mono_before, get_wall_ms(), get_monotonic_ms());
+    g_suspended_ms += gap_ms;
+    log_power_debug("[*] Resumed from kernel Suspend-to-RAM after %llu s\n", (unsigned long long)(gap_ms / 1000));
     remote_wdt_init();
+    remote_power_resumed(gap_ms);
 
     FILE *fev = fopen("/sys/bus/i2c/devices/1-0034/wakeup_event", "r");
     if (fev) {
@@ -486,6 +499,9 @@ void enter_kernel_suspend(void) {
             log_power_debug("[*] Kernel resume wakeup_event: %s\n", wev);
             if (strcmp(wev, "alarm") != 0) {
                 g_wake_requested = 1;
+            } else {
+                /* the hourly alarm: stay up to link and report the battery, then suspend again */
+                g_suspend_hold_until_ms = get_monotonic_ms() + REMOTE_ALARM_WAKE_HOLD_MS;
             }
         }
         fclose(fev);
@@ -494,6 +510,16 @@ void enter_kernel_suspend(void) {
     }
 
     rf_wake_and_reconnect();
+}
+
+void remote_power_resumed(uint64_t suspended_ms) {
+    /* The samples in the average are from before the suspend: start it from the next reading */
+    s_batt_sample_num = 0;
+    s_last_batt_sample_ms = 0;
+    if (suspended_ms >= REMOTE_BATT_REST_MS) s_resume_rested = true;
+    /* CLOCK_MONOTONIC did not see the suspend, and the RF link may not have looked down to the
+     * main loop: report the battery once the link is up (alarm wakes stay up until it went out) */
+    remote_battery_request_report(&g_batt_report);
 }
 
 void trigger_manual_suspend_to_ram(void) {
@@ -519,7 +545,7 @@ void sig_wake_handler(int sig) {
 void sig_deep_sleep_handler(int sig) {
     (void)sig;
     fb_set_blank(true);
-    uint64_t now_ms = get_monotonic_ms();
+    uint64_t now_ms = get_boot_ms();
     s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
     log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2\n");
     clearpad_sleep();
@@ -567,8 +593,9 @@ void *power_manager(void *arg) {
 
         if (!g_screen_on) {
             bool is_docked = is_remote_docked();
-            uint64_t now_ms = get_monotonic_ms();
-            uint64_t standby_s = (s_last_blank_time_ms > 0) ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
+            uint64_t now_ms = get_monotonic_ms();  /* holds */
+            uint64_t boot_ms = get_boot_ms();      /* time since the blank, suspends included */
+            uint64_t standby_s = (s_last_blank_time_ms > 0) ? (boot_ms - s_last_blank_time_ms) / 1000 : 0;
 
             if (is_docked) {
                 usleep(300000);
@@ -576,10 +603,12 @@ void *power_manager(void *arg) {
                 read_remote_battery();
                 if (g_is_syncing_config || g_is_ota_updating) {
                     usleep(500000); /* a transfer that started with the screen off: suspend after it */
-                } else if (g_deep_standby_min > 0 && standby_s >= ((uint64_t)g_deep_standby_min * 60)) {
-                    if (strcmp(g_battery_info.powersource, "battery") == 0) {
-                        log_power_debug("[*] Standby time %llus reached deep standby threshold (%dm), suspending to RAM...\n",
-                                        (unsigned long long)standby_s, g_deep_standby_min);
+                } else if (now_ms < g_suspend_hold_until_ms) {
+                    usleep(200000); /* awake after an alarm until the battery report went out */
+                } else if (remote_deep_standby_due(standby_s)) {
+                    if (remote_should_suspend(standby_s, now_ms)) {
+                        log_power_debug("[*] Standby time %llus reached deep standby (%s), suspending to RAM...\n",
+                                        (unsigned long long)standby_s, g_deep_standby_min < 0 ? "at once" : "timeout");
                         clearpad_sleep();
                         enter_kernel_suspend();
                         usleep(100000);
@@ -592,12 +621,12 @@ void *power_manager(void *arg) {
                 }
             }
 
-            if (now_ms - last_standby_heartbeat_ms >= 300000) {
-                last_standby_heartbeat_ms = now_ms;
+            if (boot_ms - last_standby_heartbeat_ms >= 300000) {
+                last_standby_heartbeat_ms = boot_ms;
                 read_remote_battery();
                 char cstat[96];
                 get_cpu_freq_status(cstat, sizeof(cstat));
-                uint64_t elapsed_s = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
+                uint64_t elapsed_s = s_last_blank_time_ms > 0 ? (boot_ms - s_last_blank_time_ms) / 1000 : 0;
                 log_power_debug("[HEARTBEAT in STANDBY] Slept %llus | Batt: %dmV, %d%%, %s (chg=%d) | CPU: %s\n",
                                 (unsigned long long)elapsed_s,
                                 g_battery_info.voltage_mv, g_battery_info.percent,

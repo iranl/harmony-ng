@@ -824,6 +824,56 @@ int hw_bthid_send_report(const uint8_t *report, size_t len) {
     return -1;
 }
 
+int hw_device_bt_host(const char *device_id, char *out, size_t outlen) {
+    if (!device_id || !device_id[0] || !out || outlen < 18) return 0;
+    out[0] = '\0';
+    /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
+    cJSON *root = get_device_list_cached();
+    cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
+    if (!devs || !cJSON_IsArray(devs)) return 0;
+    cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs) {
+        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+        char id_str[64] = {0};
+        if (j_id && cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
+        else if (j_id && cJSON_IsString(j_id) && j_id->valuestring) snprintf(id_str, sizeof(id_str), "%s", j_id->valuestring);
+        if (strcmp(id_str, device_id) != 0) continue;
+
+        cJSON *j_bta = cJSON_GetObjectItemCaseSensitive(dev, "bdaddr");
+        if (!j_bta) j_bta = cJSON_GetObjectItemCaseSensitive(dev, "btHost");
+        if (j_bta && cJSON_IsString(j_bta) && hub_valid_bdaddr(j_bta->valuestring)) {
+            snprintf(out, outlen, "%s", j_bta->valuestring);
+            return 1;
+        }
+        /* Same fallback as the send path: a BT device without an address uses the default host */
+        cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
+        int is_bt = j_type && cJSON_IsString(j_type) && j_type->valuestring &&
+                    (strcasecmp(j_type->valuestring, "BT") == 0 || strcasestr(j_type->valuestring, "bluetooth"));
+        if (!is_bt) return 0;
+        FILE *tf = fopen("/data/harmony/bthid_host_target", "r");
+        if (!tf) return 0;
+        char line[128], addr[32] = {0};
+        while (fgets(line, sizeof(line), tf)) {
+            if (strncmp(line, "bdaddr=", 7) == 0) sscanf(line + 7, "%31s", addr);
+        }
+        fclose(tf);
+        if (!hub_valid_bdaddr(addr)) return 0;
+        snprintf(out, outlen, "%s", addr);
+        return 1;
+    }
+    return 0;
+}
+
+int hw_device_bt_disconnect(const char *device_id) {
+    char addr[32];
+    if (!hw_device_bt_host(device_id, addr, sizeof(addr))) return -1;
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "disconnect_host %s\n", addr);
+    printf("[*] BT: closing the link of device %s (host %s) after its power off\n", device_id, addr);
+    fflush(stdout);
+    return hub_send_btstack_cmd(cmd);
+}
+
 int hw_bt_release_all(void) {
     int fd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
     if (fd < 0) return -1;

@@ -10,6 +10,7 @@
 #include "remote/remote_ui_scroll.h"
 #include "remote/remote_transition.h"
 #include "remote/remote_fb.h"
+#include "remote/remote_battery.h"
 #include "remote/remote_input.h"
 #include "remote/remote_power.h"
 #include "remote/remote_rf.h"
@@ -469,7 +470,17 @@ int main(void) {
         /* Back goes up one level; Settings pages have no Back rows */
         g_pairing_state = 2; /* paired: the categories go back to home, not the pairing prompt */
         g_current_view = VIEW_SETTINGS; g_settings_subview = SETTINGS_VIEW_DISPLAY;
-        assert(get_settings_sub_count() == 6);
+        assert(get_settings_sub_count() == 7);
+        /* night start and end are two rows, one hour per tap, wrapping at midnight */
+        g_night_start_hour = 23; g_night_end_hour = 8;
+        execute_settings_action(3);
+        assert(g_night_start_hour == 0 && g_night_end_hour == 8);
+        execute_settings_action(4);
+        assert(g_night_start_hour == 0 && g_night_end_hour == 9);
+        g_night_end_hour = 23;
+        execute_settings_action(4);
+        assert(g_night_end_hour == 0);
+        g_night_start_hour = 21; g_night_end_hour = 8;
         assert(ui_go_back() && g_settings_subview == SETTINGS_VIEW_CATEGORIES && g_selected_category == 1);
         assert(ui_go_back() && g_current_view == VIEW_ACTIVITIES);
         assert(!ui_go_back());
@@ -653,6 +664,126 @@ int main(void) {
         g_physical_nav_enabled = false;
         g_home_layout = HOME_LAYOUT_LIST;
         printf("[+] Physical button navigation verified!\n");
+    }
+
+    {
+        /* Deep standby: on battery "at once" suspends 2 s after the blank (as stock); powered
+         * (cradle, USB, charging) it never suspends, so the Hub can wake, control and update it */
+        int saved_ds = g_deep_standby_min;
+        remote_battery_info_t saved_bi = g_battery_info;
+        g_is_syncing_config = false;
+        g_is_ota_updating = false;
+        g_suspend_hold_until_ms = 0;
+        g_deep_standby_min = -1;
+        strcpy(g_battery_info.powersource, "battery");
+        g_battery_info.charging = 0;
+        assert(!remote_should_suspend(1, 100000));            /* key release and its ACK first */
+        assert(remote_should_suspend(2, 100000));             /* then at once */
+        strcpy(g_battery_info.powersource, "cradle");
+        assert(!remote_should_suspend(3600, 100000));         /* docked: never */
+        strcpy(g_battery_info.powersource, "usb");
+        assert(!remote_should_suspend(3600, 100000));         /* on USB: never */
+        strcpy(g_battery_info.powersource, "battery");
+        g_battery_info.charging = 1;
+        assert(!remote_should_suspend(3600, 100000));         /* charging: never */
+        g_battery_info.charging = 0;
+        g_is_syncing_config = true;
+        assert(!remote_should_suspend(3600, 100000));         /* a config sync finishes first */
+        g_is_syncing_config = false;
+        g_is_ota_updating = true;
+        assert(!remote_should_suspend(3600, 100000));         /* an RF update finishes first */
+        g_is_ota_updating = false;
+        g_suspend_hold_until_ms = 108000;                    /* an alarm wake: report first */
+        assert(!remote_should_suspend(3600, 100000));
+        remote_power_report_sent();                           /* the report went out */
+        assert(g_suspend_hold_until_ms <= get_monotonic_ms() + 800);
+        g_suspend_hold_until_ms = 0;
+        g_deep_standby_min = 0;
+        assert(!remote_should_suspend(86400, 100000));        /* never */
+        g_deep_standby_min = 15;
+        assert(!remote_should_suspend(899, 100000) && remote_should_suspend(900, 100000));
+        g_deep_standby_min = saved_ds;
+        g_battery_info = saved_bi;
+        printf("[+] Deep standby: at once on battery after 2 s, never when docked, on USB or charging, not during sync, update or an alarm hold\n");
+    }
+
+    {
+        /* Suspend to RAM: CLOCK_MONOTONIC stops, so the time suspended comes from the wall clock
+         * (remote_suspend_gap_ms) and get_boot_ms() counts it */
+        assert(remote_suspend_gap_ms(1000, 1000, 3601000, 1500) == 3599500); /* 1 h asleep */
+        assert(remote_suspend_gap_ms(5000, 1000, 4000, 1500) == 0);          /* wall clock set back */
+        assert(remote_suspend_gap_ms(1000, 1000, 1400, 1500) == 0);          /* no suspend */
+        assert(remote_suspend_gap_ms(1000, 1000, 1000 + 15ULL * 24 * 3600 * 1000, 1500) == 0); /* a jump */
+        uint64_t saved_susp = g_suspended_ms;
+        uint64_t b0 = get_boot_ms();
+        g_suspended_ms += 3600000;
+        assert(get_boot_ms() - b0 >= 3600000 && get_boot_ms() - b0 < 3601000);
+
+        /* The battery across a suspend (mocked PMIC files: volts in vbat, power source) */
+        bool saved_screen = g_screen_on;
+        uint64_t saved_blank = s_last_blank_time_ms;
+        FILE *f;
+#define SET_SYSFS(path, val) do { f = fopen(path, "w"); assert(f); fputs(val, f); fclose(f); } while (0)
+#define PMIC "/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/"
+        /* the mock keeps these files between runs and test_mock_hardware reads them first:
+         * saved here and written back at the end */
+        static const char *const pmic_files[3] = { PMIC "vbat", PMIC "powersource", PMIC "charger" };
+        char pmic_saved[3][32];
+        for (int i = 0; i < 3; i++) {
+            pmic_saved[i][0] = '\0';
+            f = fopen(pmic_files[i], "r");
+            if (f) {
+                if (!fgets(pmic_saved[i], sizeof(pmic_saved[i]), f)) pmic_saved[i][0] = '\0';
+                fclose(f);
+            }
+        }
+        SET_SYSFS(PMIC "powersource", "battery\n");
+        SET_SYSFS(PMIC "charger", "0\n");
+        /* rested at 3.90 V before going to sleep */
+        g_screen_on = false;
+        s_last_blank_time_ms = get_boot_ms() - 60000;
+        SET_SYSFS(PMIC "vbat", "3.900\n");
+        remote_power_resumed(0);            /* fresh samples, no rest from this one */
+        read_remote_battery();
+        assert(g_battery_info.percent == remote_battery_pct_of_mv(3900));
+        /* the blank, then an hour suspended: the cell drained to 3.70 V. The first reading after
+         * the alarm wake is rested and sets the percentage; before, the monotonic blank time was a
+         * few seconds, so it counted as under load and the percentage stayed where it was */
+        s_last_blank_time_ms = get_boot_ms();
+        g_suspended_ms += 3600000;
+        SET_SYSFS(PMIC "vbat", "3.700\n");
+        g_batt_report.requested = false;
+        remote_power_resumed(3600000);
+        assert(g_batt_report.requested);    /* the alarm wake reports before it sleeps again */
+        read_remote_battery();
+        assert(g_battery_info.percent == remote_battery_pct_of_mv(3700));
+        assert(remote_battery_report_due(&g_batt_report, get_boot_ms(), g_battery_info.percent, false, false));
+        assert(!remote_battery_report_due(&g_batt_report, get_boot_ms(), g_battery_info.percent, false, false));
+        /* a button wake after half an hour: the screen is on before the first reading, which
+         * is still a rested one */
+        g_screen_on = true;
+        g_suspended_ms += 1800000;
+        SET_SYSFS(PMIC "vbat", "3.650\n");
+        remote_power_resumed(1800000);
+        read_remote_battery();
+        assert(g_battery_info.percent == remote_battery_pct_of_mv(3650));
+        /* a short suspend (under 30 s) with the screen on: the sag of a wake is not taken for
+         * the battery, the percentage falls by one point at most */
+        int before = g_battery_info.percent;
+        g_suspended_ms += 10000;
+        SET_SYSFS(PMIC "vbat", "3.450\n");
+        remote_power_resumed(10000);
+        read_remote_battery();
+        assert(g_battery_info.percent >= before - 1);
+        for (int i = 0; i < 3; i++) {
+            if (pmic_saved[i][0]) SET_SYSFS(pmic_files[i], pmic_saved[i]);
+        }
+#undef SET_SYSFS
+#undef PMIC
+        g_screen_on = saved_screen;
+        s_last_blank_time_ms = saved_blank;
+        g_suspended_ms = saved_susp;
+        printf("[+] Suspend: the time asleep counts, a resume reads a rested battery and requests a report\n");
     }
 
     free(g_fb_mem);

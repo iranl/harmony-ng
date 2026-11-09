@@ -26,6 +26,23 @@ time_t ui_wall_time(void);
 void stop_usbeth_and_dropbear(void);
 void start_usbeth_and_dropbear(void);
 void enter_kernel_suspend(void);
+/* Deep standby (suspend to RAM, on battery) is due after the screen has been off this long:
+ * the deep_standby setting, -1 = at once (2 s, time for a key release and its ACK), 0 = never */
+#define REMOTE_SUSPEND_AT_ONCE_S 2
+bool remote_deep_standby_due(uint64_t standby_s);
+/* The whole suspend decision with the screen off: never when docked, on USB or charging (the
+ * remote stays reachable for RF wake, config pushes and RF updates), never during a config sync
+ * or an RF update or an alarm-wake hold, and only on battery once deep standby is due */
+bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms);
+/* After an alarm wake the remote stays up until it has reported its battery (or this long),
+ * then suspends again: without it a sleeping remote never reported */
+#define REMOTE_ALARM_WAKE_HOLD_MS 8000ULL
+extern uint64_t g_suspend_hold_until_ms;
+/* Called after a battery report went out: an alarm-wake hold can end now */
+void remote_power_report_sent(void);
+/* After a resume from suspend to RAM that lasted suspended_ms: fresh battery samples, the next
+ * reading counts as rested when the suspend was long enough, and a battery report is requested */
+void remote_power_resumed(uint64_t suspended_ms);
 void trigger_manual_suspend_to_ram(void);
 void *power_manager(void *arg);
 void set_msp430_rtc(uint32_t epoch_sec);

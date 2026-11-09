@@ -51,6 +51,10 @@ static void i2s_lock_release(int lfd) {
 
 static int s_i2s_tx_fd = -1;
 
+/* the capture mode drops what it reads during a send (defined with the receive code) */
+static void ir_rx_tx_begin(void);
+static void ir_rx_tx_end(void);
+
 int ir_i2s_init(void) {
     if (s_i2s_tx_fd >= 0) return 0;
     s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
@@ -138,6 +142,8 @@ static void bs_finish(bit_stream_t *bs) {
     }
 }
 
+static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint32_t stereo_clk, uint32_t pulse_bclk_ns);
+
 /* Set while a stalled receive session is being closed in the background (see the receive
  * code below): the driver may hang in that close, so nothing else touches /dev/i2s meanwhile */
 static volatile int s_rx_closing_stalled;
@@ -192,22 +198,28 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
         free(bs.buf);
         return -EBUSY;
     }
+    ir_rx_tx_begin();
+    int rc = ir_i2s_blast_locked(&bs, port_mask, stereo_clk, pulse_bclk_ns);
+    ir_rx_tx_end();
+    i2s_lock_release(lock_fd);
+    free(bs.buf);
+    return rc;
+}
 
+/* The send itself, with the I2S lock held: 0 or -3..-6 */
+static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint32_t stereo_clk, uint32_t pulse_bclk_ns) {
+    const bit_stream_t bs = *bsp;
     if (s_i2s_tx_fd < 0) {
         s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
     }
     int fd = s_i2s_tx_fd;
     if (fd < 0) {
-        i2s_lock_release(lock_fd);
-        free(bs.buf);
         return -3;
     }
 
     if (ioctl(fd, I2S_FREQ, (int)stereo_clk) < 0) {
         close(s_i2s_tx_fd);
         s_i2s_tx_fd = -1;
-        i2s_lock_release(lock_fd);
-        free(bs.buf);
         return -4;
     }
 
@@ -220,8 +232,6 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
     if (written != (ssize_t)bs.len) {
         close(fd);
         s_i2s_tx_fd = -1;
-        i2s_lock_release(lock_fd);
-        free(bs.buf);
         return -5;
     }
 
@@ -232,8 +242,6 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
     if (ioctl(fd, I2S_START, start_arg) < 0) {
         close(fd);
         s_i2s_tx_fd = -1;
-        i2s_lock_release(lock_fd);
-        free(bs.buf);
         return -6;
     }
 
@@ -244,8 +252,6 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
      * DO NOT call close(fd): ath_i2s_close enters an infinite while (desc->own) loop locking CPU core. */
     ioctl(fd, I2S_DRAIN, 0);
 
-    i2s_lock_release(lock_fd);
-    free(bs.buf);
     return 0;
 }
 
@@ -390,109 +396,154 @@ static void *ir_rx_close_stalled(void *arg) {
     return NULL;
 }
 
-int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
-    if (!out || outlen < 32) return -1;
-    out[0] = '\0';
-    if (timeout_sec == 0) timeout_sec = 5;
+static void ir_rx_install_wake_handler(void) {
+    static int handler_set = 0;
+    if (handler_set) return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = ir_rx_wake;   /* no SA_RESTART: the read must return */
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGUSR2, &sa, NULL);
+    handler_set = 1;
+}
+
+/* ---- Receive session: open with the setup ioctls, reads under the stall watchdog, close ---- */
+
+typedef struct {
+    int fd;
+    uint8_t *chunk;              /* IR_RX_BLOCK * IR_RX_READ_BLOCKS: the driver copies whole buffers */
+    ir_rx_watch_t watch;
+    pthread_t watch_thread;
+    int watching;
+    int stalled;
+} ir_rx_session_t;
+
+#define IR_RX_CHUNK_LEN (IR_RX_BLOCK * IR_RX_READ_BLOCKS)
+
+/* Opens the receiver; the calling thread is the one the watchdog wakes, so it must be the one
+ * that reads. Returns 0, -2 (open), -3 (ioctls), -4 (memory) or -7 (a stalled close pending). */
+static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
+    memset(s, 0, sizeof(*s));
+    s->fd = -1;
     if (s_rx_closing_stalled) {
-        snprintf(out, outlen, "IR receiver is not responding (a stalled capture has not closed yet); reboot the Hub if this persists");
+        snprintf(err, errlen, "IR receiver is not responding (a stalled capture has not closed yet); reboot the Hub if this persists");
         return -7;
     }
-    {
-        static int handler_set = 0;
-        if (!handler_set) {
-            struct sigaction sa;
-            memset(&sa, 0, sizeof(sa));
-            sa.sa_handler = ir_rx_wake;   /* no SA_RESTART: the read must return */
-            sigemptyset(&sa.sa_mask);
-            sigaction(SIGUSR2, &sa, NULL);
-            handler_set = 1;
-        }
+    ir_rx_install_wake_handler();
+    s->chunk = (uint8_t *)malloc(IR_RX_CHUNK_LEN);
+    if (!s->chunk) {
+        snprintf(err, errlen, "Out of memory allocating capture buffer");
+        return -4;
     }
-
-    int lock_fd = i2s_lock_acquire();
-    if (lock_fd < 0) {
-        snprintf(out, outlen, "I2S hardware is busy (locked)");
-        return -EBUSY;
-    }
-
-    /* Release persistent TX handle before switching to RX capture */
-    ir_i2s_shutdown();
-
-    int fd = open(I2S_DEVICE, O_RDONLY);
-    if (fd < 0) {
-        snprintf(out, outlen, "Failed to open " I2S_DEVICE ": %s", strerror(errno));
-        i2s_lock_release(lock_fd);
+    /* The transmit handle stays open: receive and transmit coexist (measured on a Hub), and
+     * closing the transmit side can hang in ath_i2s_close (see ir_i2s_blast_words). */
+    s->fd = open(I2S_DEVICE, O_RDONLY);
+    if (s->fd < 0) {
+        snprintf(err, errlen, "Failed to open " I2S_DEVICE ": %s", strerror(errno));
+        free(s->chunk);
+        s->chunk = NULL;
         return -2;
     }
-
-    if (ioctl(fd, I2S_DSIZE, 16) < 0 ||
-        ioctl(fd, I2S_MODE, 2) < 0 ||
-        ioctl(fd, I2S_VOLUME, 15) < 0 ||
-        ioctl(fd, I2S_FREQ, I2S_FREQ_CAP) < 0) {
-        snprintf(out, outlen, "Failed to configure I2S RX ioctls: %s", strerror(errno));
-        close(fd);
-        i2s_lock_release(lock_fd);
+    if (ioctl(s->fd, I2S_DSIZE, 16) < 0 ||
+        ioctl(s->fd, I2S_MODE, 2) < 0 ||
+        ioctl(s->fd, I2S_VOLUME, 15) < 0 ||
+        ioctl(s->fd, I2S_FREQ, I2S_FREQ_CAP) < 0) {
+        snprintf(err, errlen, "Failed to configure I2S RX ioctls: %s", strerror(errno));
+        close(s->fd);
+        s->fd = -1;
+        free(s->chunk);
+        s->chunk = NULL;
         return -3;
     }
-    ioctl(fd, I2S_START, 0);
+    ioctl(s->fd, I2S_START, 0);
+    s->watch.target = pthread_self();
+    s->watching = pthread_create(&s->watch_thread, NULL, ir_rx_watch, &s->watch) == 0;
+    return 0;
+}
 
-    const size_t chunk_len = IR_RX_BLOCK * IR_RX_READ_BLOCKS;
+/* One read of whole buffers into s->chunk: bytes read, 0 for none yet (the first read only
+ * starts the DMA), -1 on a read error, -7 when the watchdog found the DMA stalled. */
+static ssize_t ir_rx_session_read(ir_rx_session_t *s) {
+    s->watch.read_started_ms = ir_rx_now_ms();
+    s->watch.in_read = 1;
+    ssize_t n = read(s->fd, s->chunk, IR_RX_CHUNK_LEN);
+    s->watch.in_read = 0;
+    if (s->watch.fired) {
+        s->stalled = 1;
+        return -7;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) n = 0;
+    return n < 0 ? -1 : n;
+}
+
+static void ir_rx_session_close(ir_rx_session_t *s) {
+    if (s->watching) {
+        s->watch.done = 1;
+        pthread_join(s->watch_thread, NULL);
+        s->watching = 0;
+    }
+    if (s->fd >= 0) {
+        if (s->stalled) {
+            pthread_t closer;
+            fprintf(stderr, "[!] IR: receive DMA stalled (no data for %d ms)\n", IR_RX_STALL_MS);
+            s_rx_closing_stalled = 1;
+            if (pthread_create(&closer, NULL, ir_rx_close_stalled, (void *)(long)s->fd) == 0) {
+                pthread_detach(closer);
+            } else {
+                s_rx_closing_stalled = 0;
+                close(s->fd);
+            }
+        } else {
+            close(s->fd);
+        }
+        s->fd = -1;
+    }
+    free(s->chunk);
+    s->chunk = NULL;
+}
+
+/* Waits for light until deadline_ms, then records until IR_RX_QUIET_US without light or
+ * IR_RX_RECORD_US after the first light, and decodes. stop (may be NULL) is asked before each
+ * read; a 1 ends the wait or the recording. Returns 0 (out holds the raw string, *measured_hz
+ * the carrier or 0), -5 no light before the deadline, -6 light that is not a code, -7 stalled,
+ * -1 read error, -4 memory, -9 stopped. */
+static int ir_rx_record(ir_rx_session_t *s, char *out, size_t outlen, uint32_t *measured_hz,
+                        long long deadline_ms, int (*stop)(void)) {
     const size_t record_len = ir_rx_bytes_for_us(IR_RX_RECORD_US);
     const size_t quiet_len = ir_rx_bytes_for_us(IR_RX_QUIET_US);
-    const size_t cap = chunk_len + record_len + chunk_len;
-    uint8_t *chunk = (uint8_t *)malloc(chunk_len);
-    uint8_t *prev = (uint8_t *)malloc(chunk_len);
+    const size_t cap = IR_RX_CHUNK_LEN + record_len + IR_RX_CHUNK_LEN;
+    uint8_t *prev = (uint8_t *)malloc(IR_RX_CHUNK_LEN);
     uint8_t *raw_buf = (uint8_t *)malloc(cap);
-    if (!chunk || !prev || !raw_buf) {
-        free(chunk); free(prev); free(raw_buf);
-        close(fd);
-        i2s_lock_release(lock_fd);
+    if (!prev || !raw_buf) {
+        free(prev);
+        free(raw_buf);
         snprintf(out, outlen, "Out of memory allocating capture buffer");
         return -4;
     }
-
     size_t raw_len = 0, prev_len = 0, after_light = 0, since_light = 0;
-    int active = 0, stalled = 0;
-    struct timeval start_tv, now_tv;
-    gettimeofday(&start_tv, NULL);
-
-    ir_rx_watch_t watch;
-    memset(&watch, 0, sizeof(watch));
-    watch.target = pthread_self();
-    pthread_t watch_thread;
-    int watching = pthread_create(&watch_thread, NULL, ir_rx_watch, &watch) == 0;
+    int active = 0, rc = 0;
 
     while (1) {
-        gettimeofday(&now_tv, NULL);
-        long elapsed_ms = (now_tv.tv_sec - start_tv.tv_sec) * 1000 +
-                          (now_tv.tv_usec - start_tv.tv_usec) / 1000;
-        if (!active && elapsed_ms >= (long)timeout_sec * 1000) break;
+        if (stop && stop()) { rc = -9; break; }
+        long long now = ir_rx_now_ms();
+        if (!active && now >= deadline_ms) { rc = -5; break; }
         /* the recording itself is bounded by size; this only guards a stalled DMA */
-        if (active && elapsed_ms >= (long)timeout_sec * 1000 + 2000) break;
+        if (active && now >= deadline_ms + 2000) break;
 
-        watch.read_started_ms = ir_rx_now_ms();
-        watch.in_read = 1;
-        ssize_t n = read(fd, chunk, chunk_len);
-        watch.in_read = 0;
-        if (watch.fired) {
-            stalled = 1;
-            break;
-        }
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) n = 0;
-        if (n < 0) break;
+        ssize_t n = ir_rx_session_read(s);
+        if (n == -7) { rc = -7; break; }
+        if (n < 0) { rc = -1; break; }
         if (n == 0) {
-            /* the first read only starts the DMA; after that the driver blocks
-             * until a buffer is ready, so a 0 once recording means the end */
+            /* the first read only starts the DMA; after that the driver blocks until a
+             * buffer is ready, so a 0 once recording means the end (the test mock's EOF) */
             if (active) break;
             usleep(2000);
             continue;
         }
-
-        int lit = ir_rx_block_lit(chunk, (size_t)n);
+        int lit = ir_rx_block_lit(s->chunk, (size_t)n);
         if (!active) {
             if (!lit) {
-                memcpy(prev, chunk, (size_t)n);
+                memcpy(prev, s->chunk, (size_t)n);
                 prev_len = (size_t)n;
                 continue;
             }
@@ -502,48 +553,282 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
         }
         size_t c = (size_t)n;
         if (raw_len + c > cap) c = cap - raw_len;
-        memcpy(raw_buf + raw_len, chunk, c);
+        memcpy(raw_buf + raw_len, s->chunk, c);
         raw_len += c;
         after_light += (size_t)n;
         since_light = lit ? 0 : since_light + (size_t)n;
         if (after_light >= record_len || since_light >= quiet_len || raw_len >= cap) break;
     }
-
-    if (watching) {
-        watch.done = 1;
-        pthread_join(watch_thread, NULL);
+    free(prev);
+    if (rc == 0 && !active) rc = -5;
+    if (rc == 0) {
+        rc = ir_i2s_decode_capture_ex(raw_buf, raw_len, out, outlen, measured_hz);
+    } else if (rc == -5) {
+        snprintf(out, outlen, "No IR signal received: timeout waiting for remote button press");
+    } else if (rc == -7) {
+        snprintf(out, outlen, "IR receiver stopped delivering data; try again, and reboot the Hub if it keeps failing");
+    } else if (rc == -1) {
+        snprintf(out, outlen, "IR receiver read failed: %s", strerror(errno));
     }
-    if (stalled) {
-        pthread_t closer;
-        s_rx_closing_stalled = 1;
-        if (pthread_create(&closer, NULL, ir_rx_close_stalled, (void *)(long)fd) == 0) {
-            pthread_detach(closer);
-        } else {
-            s_rx_closing_stalled = 0;
-            close(fd);
+    free(raw_buf);
+    return rc;
+}
+
+/* Reads until the line has been dark for IR_RX_QUIET_US (a held button keeps it busy), so one
+ * press gives one signal. Returns 0, -7 stalled, -1 read error, -9 stopped. */
+static int ir_rx_wait_quiet(ir_rx_session_t *s, int (*stop)(void)) {
+    const size_t quiet_len = ir_rx_bytes_for_us(IR_RX_QUIET_US);
+    size_t dark = 0;
+    while (dark < quiet_len) {
+        if (stop && stop()) return -9;
+        ssize_t n = ir_rx_session_read(s);
+        if (n == -7) return -7;
+        if (n < 0) return -1;
+        if (n == 0) return 0;   /* nothing more (the test mock's EOF) */
+        dark = ir_rx_block_lit(s->chunk, (size_t)n) ? 0 : dark + (size_t)n;
+    }
+    return 0;
+}
+
+/* ---- Capture mode (spec 3.14) and the one-shot capture exclude each other ---- */
+
+static pthread_mutex_t s_rx_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t s_rx_cond = PTHREAD_COND_INITIALIZER;
+static int s_oneshot_running = 0;
+static int s_mode_on = 0;                 /* the mode thread exists */
+static volatile int s_mode_stop = 0;
+static int s_mode_open_rc = 1;            /* 1 = the thread has not reported its open yet */
+static char s_mode_open_err[160];
+static char s_mode_error[160];            /* last problem of a running mode, "" when fine */
+static pthread_t s_mode_thread;
+static ir_rx_signal_cb s_mode_cb = NULL;
+static void *s_mode_user = NULL;
+
+/* Sends (ir_i2s_blast_words) while the mode listens: the receiver sees the Hub's own blaster,
+ * and a send reprograms the shared I2S clock for its carrier (the receiver then samples at
+ * ~2.1 us instead of 1.5 us until its clock is set again; measured on a Hub). The mode thread
+ * drops what it reads during a send and IR_RX_TX_GUARD_MS after it, then sets its clock again. */
+#define IR_RX_TX_GUARD_MS 100
+static volatile int s_tx_active = 0;
+static volatile long long s_rx_discard_until_ms = 0;
+static volatile int s_rx_refreq = 0;
+
+static void ir_rx_tx_begin(void) {
+    s_tx_active = 1;
+}
+
+static void ir_rx_tx_end(void) {
+    s_rx_discard_until_ms = ir_rx_now_ms() + IR_RX_TX_GUARD_MS;
+    s_rx_refreq = 1;
+    s_tx_active = 0;
+}
+
+static int ir_mode_should_stop(void) {
+    return s_mode_stop || s_tx_active;
+}
+
+static ir_capture_state_cb s_state_cb = NULL;
+static void *s_state_user = NULL;
+
+void ir_i2s_set_capture_state_listener(ir_capture_state_cb cb, void *user) {
+    pthread_mutex_lock(&s_rx_lock);
+    s_state_cb = cb;
+    s_state_user = user;
+    pthread_mutex_unlock(&s_rx_lock);
+}
+
+/* s_rx_lock must not be held */
+static void ir_mode_notify(void) {
+    pthread_mutex_lock(&s_rx_lock);
+    ir_capture_state_cb cb = s_state_cb;
+    void *user = s_state_user;
+    pthread_mutex_unlock(&s_rx_lock);
+    if (cb) cb(user);
+}
+
+static void ir_mode_set_error(const char *msg) {
+    if (!msg) msg = "";
+    pthread_mutex_lock(&s_rx_lock);
+    int changed = strncmp(s_mode_error, msg, sizeof(s_mode_error) - 1) != 0;
+    snprintf(s_mode_error, sizeof(s_mode_error), "%s", msg);
+    int on = s_mode_on;
+    pthread_mutex_unlock(&s_rx_lock);
+    if (changed && on) ir_mode_notify();
+}
+
+static void *ir_mode_thread(void *arg) {
+    (void)arg;
+    char out[8192];
+    int first = 1;
+    while (!s_mode_stop) {
+        ir_rx_session_t s;
+        char err[160] = {0};
+        int orc = ir_rx_session_open(&s, err, sizeof(err));
+        if (first) {
+            pthread_mutex_lock(&s_rx_lock);
+            s_mode_open_rc = orc;
+            snprintf(s_mode_open_err, sizeof(s_mode_open_err), "%s", err);
+            pthread_cond_broadcast(&s_rx_cond);
+            pthread_mutex_unlock(&s_rx_lock);
+            first = 0;
+            if (orc != 0) return NULL;   /* the enable request reports it */
         }
-    } else {
-        close(fd);
+        if (orc != 0) {
+            ir_mode_set_error(err);
+            for (int i = 0; i < 50 && !s_mode_stop; i++) usleep(100000);   /* retry in 5 s */
+            continue;
+        }
+        ir_mode_set_error("");
+        fprintf(stderr, "[*] IR: capture mode listening\n");
+        int rc = 0;
+        while (!s_mode_stop) {
+            if (s_tx_active || ir_rx_now_ms() < s_rx_discard_until_ms) {
+                if (!s_tx_active && s_rx_refreq) {
+                    ioctl(s.fd, I2S_FREQ, I2S_FREQ_CAP);   /* the send left its own clock */
+                    s_rx_refreq = 0;
+                }
+                ssize_t n = ir_rx_session_read(&s);   /* dropped: our own blaster */
+                if (n == -7 || n < 0) { rc = (int)n; break; }
+                if (n == 0) usleep(2000);
+                continue;
+            }
+            if (s_rx_refreq) {
+                ioctl(s.fd, I2S_FREQ, I2S_FREQ_CAP);
+                s_rx_refreq = 0;
+            }
+            uint32_t hz = 0;
+            rc = ir_rx_record(&s, out, sizeof(out), &hz, ir_rx_now_ms() + 1000, ir_mode_should_stop);
+            if (rc == 0) {
+                /* the listener pair is replaced under the lock: take both together */
+                pthread_mutex_lock(&s_rx_lock);
+                ir_rx_signal_cb cb = s_mode_cb;
+                void *user = s_mode_user;
+                pthread_mutex_unlock(&s_rx_lock);
+                if (cb) cb(out, hz, user);
+            }
+            if (rc == 0 || rc == -6) {
+                rc = ir_rx_wait_quiet(&s, ir_mode_should_stop);
+            }
+            if (rc == -7 || rc == -1 || rc == -4) break;
+            rc = 0;   /* -5 (nothing yet) and -9 (a send or stop) just go round */
+        }
+        ir_rx_session_close(&s);
+        if (rc == -7) {
+            ir_mode_set_error("IR receiver stopped delivering data (DMA stalled); reboot the Hub if it does not recover");
+        } else if (rc == -1 || rc == -4) {
+            ir_mode_set_error("IR receiver read failed");
+        }
+        if (rc != 0 && !s_mode_stop) {
+            for (int i = 0; i < 50 && !s_mode_stop; i++) usleep(100000);   /* reopen in 5 s */
+        }
+    }
+    fprintf(stderr, "[*] IR: capture mode stopped\n");
+    return NULL;
+}
+
+int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
+    if (err && errlen) err[0] = '\0';
+    pthread_mutex_lock(&s_rx_lock);
+    if (!enable) {
+        if (!s_mode_on) {
+            pthread_mutex_unlock(&s_rx_lock);
+            return 0;
+        }
+        s_mode_stop = 1;
+        pthread_t t = s_mode_thread;
+        pthread_mutex_unlock(&s_rx_lock);
+        pthread_join(t, NULL);   /* a read returns within ~10 ms, a stalled one within 3 s */
+        pthread_mutex_lock(&s_rx_lock);
+        s_mode_on = 0;
+        s_mode_error[0] = '\0';
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_mode_notify();
+        return 0;
+    }
+    if (s_mode_on) {
+        s_mode_cb = cb;
+        s_mode_user = user;
+        pthread_mutex_unlock(&s_rx_lock);
+        return 0;
+    }
+    if (s_oneshot_running) {
+        pthread_mutex_unlock(&s_rx_lock);
+        if (err) snprintf(err, errlen, "An IR capture is running");
+        return -EBUSY;
+    }
+    s_mode_cb = cb;
+    s_mode_user = user;
+    s_mode_stop = 0;
+    s_mode_open_rc = 1;
+    s_mode_error[0] = '\0';
+    if (pthread_create(&s_mode_thread, NULL, ir_mode_thread, NULL) != 0) {
+        pthread_mutex_unlock(&s_rx_lock);
+        if (err) snprintf(err, errlen, "Could not start the capture thread");
+        return -4;
+    }
+    while (s_mode_open_rc == 1) pthread_cond_wait(&s_rx_cond, &s_rx_lock);
+    int rc = s_mode_open_rc;
+    if (rc != 0) {
+        if (err) snprintf(err, errlen, "%s", s_mode_open_err);
+        pthread_mutex_unlock(&s_rx_lock);
+        pthread_join(s_mode_thread, NULL);
+        return rc;
+    }
+    s_mode_on = 1;
+    pthread_mutex_unlock(&s_rx_lock);
+    ir_mode_notify();
+    return 0;
+}
+
+int ir_i2s_capture_mode_enabled(void) {
+    pthread_mutex_lock(&s_rx_lock);
+    int on = s_mode_on;
+    pthread_mutex_unlock(&s_rx_lock);
+    return on;
+}
+
+int ir_i2s_capture_mode_error(char *buf, size_t len) {
+    pthread_mutex_lock(&s_rx_lock);
+    int has = s_mode_on && s_mode_error[0];
+    if (buf && len) snprintf(buf, len, "%s", has ? s_mode_error : "");
+    pthread_mutex_unlock(&s_rx_lock);
+    return has;
+}
+
+int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec) {
+    if (!out || outlen < 32) return -1;
+    out[0] = '\0';
+    if (timeout_sec == 0) timeout_sec = 5;
+
+    pthread_mutex_lock(&s_rx_lock);
+    if (s_mode_on) {
+        pthread_mutex_unlock(&s_rx_lock);
+        snprintf(out, outlen, "IR capture mode is on: learned signals arrive as ir_received events");
+        return -11;
+    }
+    s_oneshot_running = 1;
+    pthread_mutex_unlock(&s_rx_lock);
+
+    int lock_fd = i2s_lock_acquire();
+    if (lock_fd < 0) {
+        snprintf(out, outlen, "I2S hardware is busy (locked)");
+        pthread_mutex_lock(&s_rx_lock);
+        s_oneshot_running = 0;
+        pthread_mutex_unlock(&s_rx_lock);
+        return -EBUSY;
+    }
+    ir_rx_session_t s;
+    int rc = ir_rx_session_open(&s, out, outlen);
+    if (rc == 0) {
+        uint32_t hz = 0;
+        rc = ir_rx_record(&s, out, outlen, &hz, ir_rx_now_ms() + (long long)timeout_sec * 1000, NULL);
+        ir_rx_session_close(&s);
     }
     i2s_lock_release(lock_fd);
-    free(chunk);
-    free(prev);
-
-    if (stalled) {
-        free(raw_buf);
-        fprintf(stderr, "[!] IR: receive DMA stalled (no data for %d ms); capture aborted\n", IR_RX_STALL_MS);
-        snprintf(out, outlen, "IR receiver stopped delivering data; try again, and reboot the Hub if it keeps failing");
-        return -7;
-    }
-    if (!active) {
-        free(raw_buf);
-        snprintf(out, outlen, "No IR signal received: timeout waiting for remote button press");
-        return -5;
-    }
-
-    int ret = ir_i2s_decode_capture(raw_buf, raw_len, out, outlen);
-    free(raw_buf);
-    return ret;
+    pthread_mutex_lock(&s_rx_lock);
+    s_oneshot_running = 0;
+    pthread_mutex_unlock(&s_rx_lock);
+    return rc;
 }
 
 static inline int ir_rx_light(const uint8_t *raw_buf, size_t bit) {
@@ -557,6 +842,11 @@ static uint32_t ir_rx_us(size_t samples) {
 }
 
 int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen) {
+    return ir_i2s_decode_capture_ex(raw_buf, raw_len, out, outlen, NULL);
+}
+
+int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen, uint32_t *measured_hz) {
+    if (measured_hz) *measured_hz = 0;
     if (!raw_buf || raw_len < 2 || !out || outlen < 32) return -1;
     out[0] = '\0';
     raw_len &= ~(size_t)1;   /* whole 16-bit samples */
@@ -650,7 +940,10 @@ int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, siz
     uint32_t comp_us = 0;
     if (period_n >= 8) {
         unsigned long long hz = 1000000000ULL * period_n / (period_sum * IR_RX_SAMPLE_NS);
-        if (hz >= 20000 && hz <= 60000) carrier = (uint32_t)((hz + 50) / 100 * 100);
+        if (hz >= 20000 && hz <= 60000) {
+            carrier = (uint32_t)((hz + 50) / 100 * 100);
+            if (measured_hz) *measured_hz = carrier;
+        }
         /* A burst is measured from its first to its last light sample, so the
          * last carrier pulse's dark part counts as space: move it to the mark. */
         if (on_n >= 8) {

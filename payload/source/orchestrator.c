@@ -63,6 +63,18 @@ static void save_current_activity(const char *act_id) {
     rename(tmp, PRIMARY_CURRENT_ACT_FILE);
 }
 
+/* hub_btstack reads /tmp/current_activity to decide whether a host may reconnect ("-1" = no).
+ * While an activity starts it holds that activity, so the start's own Bluetooth keys can
+ * connect their host; the flash copy keeps the activity the Hub is in. */
+static void write_activity_mirror(const char *act_id) {
+    if (!act_id || !act_id[0]) return;
+    FILE *ft = fopen("/tmp/current_activity", "w");
+    if (ft) {
+        fprintf(ft, "%s\n", act_id);
+        fclose(ft);
+    }
+}
+
 static void load_current_activity(void) {
     const char *path = PRIMARY_CURRENT_ACT_FILE;
     FILE *f = fopen(path, "r");
@@ -167,6 +179,7 @@ void orch_cancel(void) {
         pthread_mutex_unlock(&g_act_lock);
     } else {
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
+        write_activity_mirror(g_current_act); /* a cancelled start: back to the activity the Hub is in */
         pthread_mutex_unlock(&g_act_lock);
     }
     g_queue_len = 0;
@@ -228,7 +241,9 @@ static void execute_step(const orch_step_t *step) {
                     hub_send_btstack_cmd("CONNECT");
                 }
             } else if (strcasecmp(step->command_name, "DISCONNECT") == 0) {
-                hub_send_btstack_cmd("DISCONNECT");
+                /* With a device: close that device's host link (power off, see orchestrator_queue.c) */
+                if (step->device_id[0]) hw_device_bt_disconnect(step->device_id);
+                else hub_send_btstack_cmd("DISCONNECT");
             } else {
                 char bt_reply[256];
                 run_bt_saved_script("btkeyboard", "", step->command_name, 50, bt_reply, sizeof(bt_reply));
@@ -443,11 +458,14 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
     if (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) {
         save_current_activity(ORCH_POWEROFF_ID);
         hub_send_btstack_cmd("stop_reconnect\n");
+    } else {
+        write_activity_mirror(target_activity_id);
     }
 
     int rc = orch_compile_transition(target_activity_id);
     if (rc != 0) {
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
+        write_activity_mirror(g_current_act);
         return -1;
     }
 

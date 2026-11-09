@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Manueller Neustart blockiert: Software-Update läuft derzeit.",
     "manual_refresh": "Aktualisieren",
     "manufacturer": "Hersteller",
-    "max_screen_buttons": "Maximum von 48 Bildschirmtasten erreicht.",
+    "max_screen_buttons": "Maximum von 240 Bildschirmtasten erreicht.",
     "menu": "Menü",
     "mfr_model_required": "Bitte sowohl Hersteller als auch Modell angeben.",
     "middle_click": "Mitte",

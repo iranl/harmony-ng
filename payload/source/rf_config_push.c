@@ -5,6 +5,7 @@
 #include "rf_ota.h"
 #include "rf_sync.h"
 #include "rf_push_queue.h"
+#include "rf_button_list.h"
 #include "remote_stock_icons.h"
 #include "custom_icon_registry.h"
 
@@ -400,7 +401,7 @@ void *config_push_worker(void *arg) {
                         int sidx = 0;
                         cJSON *sitem = NULL;
                         cJSON_ArrayForEach(sitem, sbtns) {
-                            if (btn_count >= 48) break;
+                            if (btn_count >= RF_BUTTON_LIST_MAX) break;
                             if (!cJSON_IsObject(sitem)) continue;
                             cJSON *jlbl = cJSON_GetObjectItem(sitem, "label");
                             const char *label = (jlbl && jlbl->valuestring) ? jlbl->valuestring : "Button";
@@ -422,104 +423,31 @@ void *config_push_worker(void *arg) {
                 cJSON_Delete(dmap);
             }
         } else {
-            /* Standard Activity Mode */
+            /* Activity mode: on-screen buttons first, then the hard keys that start or stop an
+             * activity (rf_button_list.c says why nothing else is sent) */
+            rf_button_entry_t *entries = (rf_button_entry_t *)calloc(RF_BUTTON_LIST_MAX, sizeof(rf_button_entry_t));
+            int n = 0;
             cJSON *map = get_remote_map(1);
-            bool has_pwroff = false;
-            if (map) {
+            if (entries) {
                 pthread_mutex_lock(&g_map_lock);
-                cJSON *acts_map = cJSON_GetObjectItemCaseSensitive(map, "activities");
-                if (acts_map && cJSON_IsObject(acts_map)) {
-                    cJSON *act_entry = NULL;
-                    cJSON_ArrayForEach(act_entry, acts_map) {
-                        const char *ctx_id = act_entry->string ? act_entry->string : "-1";
-                        if (!cJSON_IsObject(act_entry)) continue;
-
-                        cJSON *sbtns = cJSON_GetObjectItemCaseSensitive(act_entry, "screen_buttons");
-                        if (sbtns && cJSON_IsArray(sbtns) && cJSON_GetArraySize(sbtns) > 0) {
-                            int sidx = 0;
-                            cJSON *sitem = NULL;
-                            cJSON_ArrayForEach(sitem, sbtns) {
-                                if (btn_count >= 48) break;
-                                if (!cJSON_IsObject(sitem)) continue;
-                                cJSON *jlbl = cJSON_GetObjectItemCaseSensitive(sitem, "label");
-                                const char *label = (jlbl && jlbl->valuestring) ? jlbl->valuestring : "Button";
-
-                                uint8_t payload[26] = {0};
-                                payload[0] = (uint8_t)btn_count;
-                                payload[1] = (uint8_t)sidx;
-                                payload[2] = 0x01; /* screen button */
-                                strncpy((char *)&payload[3], ctx_id, 9);
-                                strncpy((char *)&payload[12], label, 12);
-                                payload[24] = 0x01; /* device_cmd */
-
-                                rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                push_queue_add(&queue[t], &f);
-                                btn_count++;
-                                sidx++;
-                            }
-                        } else {
-                            cJSON *b_entry = NULL;
-                            int b_idx = 0;
-                            cJSON_ArrayForEach(b_entry, act_entry) {
-                                if (btn_count >= 48) break;
-                                const char *btn_name = b_entry->string;
-                                if (!btn_name || !cJSON_IsObject(b_entry)) continue;
-                                if (strcmp(btn_name, "screen_buttons") == 0) continue;
-                                if (strcasecmp(btn_name, "PwrOff") == 0 || strcasecmp(btn_name, "PowerOffActivity") == 0) {
-                                    has_pwroff = true;
-                                }
-
-                                cJSON *j_act = cJSON_GetObjectItemCaseSensitive(b_entry, "action");
-                                uint8_t atype = 0x01;
-                                char target_id[16] = {0};
-                                strncpy(target_id, ctx_id, sizeof(target_id) - 1);
-
-                                if (j_act && cJSON_IsString(j_act)) {
-                                    if (strcmp(j_act->valuestring, "device_cmd") == 0) {
-                                        atype = 0x01;
-                                    } else if (strcmp(j_act->valuestring, "activity_start") == 0) {
-                                        atype = 0x02;
-                                        cJSON *j_actid = cJSON_GetObjectItemCaseSensitive(b_entry, "activityId");
-                                        if (j_actid && cJSON_IsString(j_actid)) {
-                                            strncpy(target_id, j_actid->valuestring, sizeof(target_id) - 1);
-                                        }
-                                    } else if (strcmp(j_act->valuestring, "activity_stop") == 0) {
-                                        atype = 0x03;
-                                        strncpy(target_id, "-1", sizeof(target_id) - 1);
-                                    }
-                                }
-
-                                uint8_t payload[26] = {0};
-                                payload[0] = (uint8_t)btn_count;
-                                payload[1] = (uint8_t)b_idx;
-                                payload[2] = 0x00; /* physical button */
-                                strncpy((char *)&payload[3], target_id, 9);
-                                strncpy((char *)&payload[12], btn_name, 12);
-                                payload[24] = atype;
-
-                                rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
-                                push_queue_add(&queue[t], &f);
-                                btn_count++;
-                                b_idx++;
-                            }
-                        }
-                    }
-                }
+                n = rf_build_button_list(map ? cJSON_GetObjectItemCaseSensitive(map, "activities") : NULL,
+                                         entries, RF_BUTTON_LIST_MAX);
                 pthread_mutex_unlock(&g_map_lock);
             }
-            if (!has_pwroff && btn_count < 48) {
+            for (int i = 0; i < n; i++) {
                 uint8_t payload[26] = {0};
                 payload[0] = (uint8_t)btn_count;
-                payload[1] = 0;
-                payload[2] = 0x00; /* physical button */
-                strncpy((char *)&payload[3], "-1", 9);
-                strncpy((char *)&payload[12], "PwrOff", 12);
-                payload[24] = 0x03; /* activity_stop */
+                payload[1] = entries[i].idx;
+                payload[2] = entries[i].ctype;
+                strncpy((char *)&payload[3], entries[i].ctx, 9);
+                strncpy((char *)&payload[12], entries[i].label, 12);
+                payload[24] = entries[i].atype;
 
                 rf_build_frame(&f, target_slot, RF_MSG_BUTTON_LIST_CHUNK, ++g_tx_seq, RF_FLAG_ACK_REQ, payload, 25);
                 push_queue_add(&queue[t], &f);
                 btn_count++;
             }
+            free(entries);
         }
     }
 
@@ -871,17 +799,9 @@ void *config_push_worker(void *arg) {
         }
         if (target_slot >= 1 && target_slot <= 2) {
             /* The remote applies the config when it receives this frame, but it only sends
-               VERSION_REPORT on first link and every 24h, so record its new version here. */
-            int idx = target_slot - 1;
-            g_remote_versions[idx].config_version = config_ver;
-            char vpath[64];
-            snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", target_slot);
-            FILE *vf = fopen(vpath, "w");
-            if (vf) {
-                fprintf(vf, "{\"slot\":%d,\"version\":\"%s\",\"config_version\":%d,\"caps\":%d,\"timestamp\":%ld}\n",
-                        target_slot, g_remote_versions[idx].sw_version, config_ver, g_remote_versions[idx].caps, (long)time(NULL));
-                fclose(vf);
-            }
+               VERSION_REPORT on first link and every 24h, so record its new version here
+               (with the shared writer: remote_id and skin stay in the file). */
+            rf_state_note_config_pushed(target_slot, config_ver);
         }
     }
 

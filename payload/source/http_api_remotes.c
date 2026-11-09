@@ -317,12 +317,20 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             return 1;
         }
         cJSON *st = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        static int s_rejecting; /* log a rejected push once per streak, not every second */
         if (!st || !cJSON_IsObject(st)) {
             cJSON_Delete(st);
+            if (!s_rejecting) {
+                fprintf(stderr, "[-] /api/rf/status-changed: body is not a status object (%zu bytes), rf_status not emitted\n",
+                        body ? strlen(body) : (size_t)0);
+            }
+            s_rejecting = 1;
             send_json_error(client_fd, 400, "status object required");
             close(client_fd);
             return 1;
         }
+        if (s_rejecting) fprintf(stderr, "[+] /api/rf/status-changed: status objects accepted again\n");
+        s_rejecting = 0;
         int emitted = state_watch_offer_rf_status(st); /* takes ownership */
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);

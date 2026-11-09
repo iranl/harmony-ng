@@ -81,9 +81,7 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
 void handle_rf_frame(const rf_frame_t *f) {
     if (f->dev_slot == 1 || f->dev_slot == 2) {
         mark_remote_slot_active(f->dev_slot);
-        if (g_paired_remotes[f->dev_slot - 1].model != REMOTE_MODEL_COMPANION) {
-            g_paired_remotes[f->dev_slot - 1].model = REMOTE_MODEL_ELITE;
-        }
+        rf_slot_saw_protocol_frame(f->dev_slot);
     }
     switch (f->msg_type) {
         case RF_MSG_ACK: {
@@ -221,14 +219,12 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t slot = f->dev_slot & 0x0F;
             if (slot < 1 || slot > 2) slot = 1;
             int idx = slot - 1;
-            g_remote_batteries[idx].percent = f->payload[0];
-            g_remote_batteries[idx].charging = f->payload[1];
-            g_remote_batteries[idx].voltage_mv = (uint16_t)f->payload[2] | ((uint16_t)f->payload[3] << 8);
-            g_remote_batteries[idx].last_update_ms = get_monotonic_ms();
+            rf_battery_note_report(slot, f->payload[0], f->payload[1],
+                                   (uint16_t)f->payload[2] | ((uint16_t)f->payload[3] << 8));
             printf("[*] BATTERY_STATUS: Slot %d: %d%% (chg=%d, %umV)\n",
                    slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
-            /* Kept in memory only: the remote reports every few minutes and MQTT retains the
-             * last value; writing it to flash cost hundreds of writes a day */
+            /* Kept in memory and in /tmp only (rf_battery_note_report): the remote reports every
+             * few minutes; writing it to flash cost hundreds of writes a day */
             publish_remote_battery_mqtt(slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
             if (!is_ota_busy()) {
                 rf_frame_t ack;
@@ -289,26 +285,10 @@ void handle_rf_frame(const rf_frame_t *f) {
         }
 
         case RF_MSG_UNIT_ID: {
-            /* The remote's factory unit id: payload[0] = length, then ASCII. Stored next to the
-             * version (file rewritten only on change), shown as slots[].remote_id. */
+            /* The remote's factory unit id and skin id (rf_proto.h), applied by rf_state.c */
             uint8_t slot = f->dev_slot & 0x0F;
             if (slot < 1 || slot > 2) slot = 1;
-            int idx = slot - 1;
-            size_t n = f->payload[0];
-            if (n > RF_UNIT_ID_MAX) n = RF_UNIT_ID_MAX;
-            char id[RF_UNIT_ID_MAX + 1] = {0};
-            size_t k = 0;
-            for (size_t i = 0; i < n; i++) {
-                uint8_t c = f->payload[1 + i];
-                if (c < 0x21 || c > 0x7E) break; /* printable ASCII only, no blanks */
-                id[k++] = (char)c;
-            }
-            id[k] = '\0';
-            if (k > 0 && strcmp(g_remote_versions[idx].remote_id, id) != 0) {
-                snprintf(g_remote_versions[idx].remote_id, sizeof(g_remote_versions[idx].remote_id), "%s", id);
-                rf_state_save_version_file(slot);
-                printf("[*] UNIT_ID: Slot %d -> %s\n", slot, id);
-            }
+            if (rf_slot_apply_unit_id(slot, f->payload)) rf_state_save_version_file(slot);
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
@@ -448,6 +428,8 @@ int main(int argc, char **argv) {
         snprintf(bpath, sizeof(bpath), "/data/harmony/elite_slot%d_battery.json", slot);
         unlink(bpath);
     }
+    /* The last battery per slot from before a hub_rf restart (RAM only) */
+    rf_battery_restore();
 
     /* 1. Initialize CC2544 message engine */
     uint8_t pkt_init[7] = {0x10, 0xFF, 0x80, 0x00, 0x00, 0x01, 0x00};
@@ -525,17 +507,32 @@ int main(int argc, char **argv) {
      * charging, link state, pairing, model, version, config sync, OTA state). The daemon turns
      * it into an rf_status event; the link counters and the battery voltage are not changes. */
     char *last_key = NULL;
+    int push_failing = 0;
     while (g_running) {
         sleep(1);
+        rf_battery_fix_times(); /* a report from before the clock was set gets its reported_at */
         char key[3584];
         if (rf_build_status_json(key, sizeof(key), RF_STATUS_STABLE_ONLY) < 0) continue;
         if (last_key && strcmp(last_key, key) == 0) continue;
+        char body[3584];
+        int blen = rf_build_status_json(body, sizeof(body), 0);
+        if (blen <= 0) continue;
+        char resp[128];
+        int st = http_request_local(DAEMON_PORT, "POST", "/api/rf/status-changed", body, resp, sizeof(resp), 400);
+        if (st != 200) {
+            /* Not delivered: keep last_key so the next second tries again, and say so once per
+             * streak (the daemon may be restarting) */
+            if (!push_failing) {
+                printf("[-] RF status push to hub_daemon failed (%s %d, %d bytes): %.80s\n",
+                       st < 0 ? "no answer," : "HTTP", st, blen, st < 0 ? "" : resp);
+            }
+            push_failing = 1;
+            continue;
+        }
+        if (push_failing) printf("[+] RF status push to hub_daemon works again\n");
+        push_failing = 0;
         free(last_key);
         last_key = strdup(key);
-        char body[3584];
-        if (rf_build_status_json(body, sizeof(body), 0) > 0) {
-            http_post_local(DAEMON_PORT, "/api/rf/status-changed", body);
-        }
     }
     free(last_key);
 

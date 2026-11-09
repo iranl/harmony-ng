@@ -224,6 +224,20 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    /* Route: POST /api/ir-capture {"enabled": bool}: the IR capture mode (spec 3.14). While it is
+     * on, every learned signal is an ir_received event (WebSocket, MQTT <base>/ir/received); the
+     * one-shot POST /api/capture answers 409. Shared with the ir_capture command action. */
+    if (strcmp(clean_path, "/api/ir-capture") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        cJSON *resp = NULL;
+        int code = hub_cmd_ir_capture(req_j, &resp);
+        cJSON_Delete(req_j);
+        send_cjson_resp(client_fd, code, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
     /* Route: POST /api/capture: learn one IR signal from the Hub's IR receiver.
      * Blocks this worker until a signal arrives or the timeout ends (seconds, default 10, 1..30).
      * The capture holds the I2S lock that IR sends take too, so a send waits for it. The result is
@@ -269,6 +283,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_Delete(resp);
         } else if (rc == -EBUSY) {
             send_json_error(client_fd, 409, "IR hardware is busy (an IR send is running); try again");
+        } else if (rc == -11) {
+            send_json_error(client_fd, 409, raw[0] ? raw : "IR capture mode is on");
         } else if (rc == -5 || rc == -6) {
             send_json_error(client_fd, 408, raw[0] ? raw : "No IR signal received");
         } else if (rc == -2 || rc == -3 || rc == -7) {

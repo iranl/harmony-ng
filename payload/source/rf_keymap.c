@@ -480,10 +480,8 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
     uint8_t slot = pkt[1] & 0x0F;
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) slot = 1;
     mark_remote_slot_active(slot);
-    if (g_paired_remotes[slot - 1].model != REMOTE_MODEL_SMART_CONTROL &&
-        g_paired_remotes[slot - 1].model != REMOTE_MODEL_COMPANION) {
-        g_paired_remotes[slot - 1].model = REMOTE_MODEL_COMPANION;
-    }
+    /* a stock-protocol key packet: a Sprite remote, unless the slot is already identified */
+    rf_note_slot_family(slot, REMOTE_MODEL_COMPANION);
 
     uint8_t sub_id = pkt[2];
     uint16_t key_code = 0;

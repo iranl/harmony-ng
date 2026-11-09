@@ -2,6 +2,7 @@
 #include "remote_ui.h"
 #include "remote_power.h"
 #include "remote_config.h"
+#include "remote_battery.h"
 
 int rf_send_frame(rf_frame_t *frame) {
     if (g_rf_fd < 0 || !frame) return -1;
@@ -400,18 +401,21 @@ void send_remote_config_backup_rf(void) {
 }
 
 char g_remote_unit_id[32] = "";
+uint8_t g_remote_skin_id = 0;
 
 void send_unit_id_rf(void) {
-    if (g_rf_fd < 0 || !g_remote_unit_id[0]) return;
+    if (g_rf_fd < 0 || (!g_remote_unit_id[0] && !g_remote_skin_id)) return;
     rf_frame_t f;
     uint8_t payload[25] = {0};
     size_t n = strlen(g_remote_unit_id);
     if (n > RF_UNIT_ID_MAX) n = RF_UNIT_ID_MAX;
     payload[0] = (uint8_t)n;
     memcpy(payload + 1, g_remote_unit_id, n);
-    rf_build_frame(&f, g_remote_slot, RF_MSG_UNIT_ID, ++g_tx_seq, 0, payload, 1 + n);
+    /* the skin id rides in the last byte when the id leaves room (21 characters today) */
+    if (n < RF_UNIT_ID_SKIN_OFF) payload[RF_UNIT_ID_SKIN_OFF] = g_remote_skin_id;
+    rf_build_frame(&f, g_remote_slot, RF_MSG_UNIT_ID, ++g_tx_seq, 0, payload, RF_UNIT_ID_SKIN_OFF + 1);
     rf_send_frame(&f);
-    printf("[*] Sent unit id over RF: %.*s\n", (int)n, g_remote_unit_id);
+    printf("[*] Sent unit id over RF: %.*s (skin 0x%02X)\n", (int)n, g_remote_unit_id, g_remote_skin_id);
 }
 
 void send_version_report_rf(void) {
@@ -430,4 +434,6 @@ void send_version_report_rf(void) {
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);
     /* A Hub without RF_MSG_UNIT_ID drops the frame like any unknown type: no cost */
     send_unit_id_rf();
+    /* and the battery right after: a Hub that restarted asks for the version first */
+    remote_battery_request_report(&g_batt_report);
 }

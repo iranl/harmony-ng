@@ -56,6 +56,32 @@ int ir_i2s_capture(char *out, size_t outlen, unsigned int timeout_sec);
 int ir_i2s_init(void);
 void ir_i2s_shutdown(void);
 int ir_i2s_decode_capture(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen);
+/* As ir_i2s_decode_capture; *measured_hz gets the measured carrier, or 0 when there were too
+ * few carrier pulses to measure (the string then says 38 kHz). */
+int ir_i2s_decode_capture_ex(const uint8_t *raw_buf, size_t raw_len, char *out, size_t outlen,
+                             uint32_t *measured_hz);
+
+/*
+ * Capture mode (Home Assistant spec 3.14): a thread keeps the receiver open and calls cb once
+ * per button press with the decoded raw string (F...P...S...) and the measured carrier (0 when
+ * not measurable). Sends keep working: the thread drops what it reads during a send and resets
+ * the receive clock after it. The one-shot ir_i2s_capture() answers -11 while the mode is on.
+ * cb runs on the capture thread.
+ */
+typedef void (*ir_rx_signal_cb)(const char *raw, uint32_t measured_hz, void *user);
+
+/* enable 1: starts listening (or updates cb when already on); returns 0, -EBUSY (a one-shot
+ * capture runs), -2 (no receiver), -3 (setup failed), -4 or -7 (a stalled session has not
+ * closed), with a message in err. enable 0: stops and waits for the thread; returns 0. */
+int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen);
+int ir_i2s_capture_mode_enabled(void);
+/* 1 and the message when the running mode has a problem (receiver stalled or failing) */
+int ir_i2s_capture_mode_error(char *buf, size_t len);
+/* Called (no lock held) when the mode turns on or off or its problem message changes; read the
+ * state with the two functions above. Runs on the caller of ir_i2s_capture_mode_set() or on the
+ * capture thread. */
+typedef void (*ir_capture_state_cb)(void *user);
+void ir_i2s_set_capture_state_listener(ir_capture_state_cb cb, void *user);
 
 #ifdef __cplusplus
 }

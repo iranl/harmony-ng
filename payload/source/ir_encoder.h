@@ -47,6 +47,15 @@ int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
  * directly into HAL binary waveform format.
  * Returns 0 on success, negative error code on failure.
  */
+/* Most timings a raw string carries (the encoder's and the capture event's limit) */
+#define IR_RAW_MAX_TIMINGS 2048
+
+/* Parses F<carrier hex>P<mark hex>S<space hex>... (the Harmony raw string the IR capture
+ * produces and the encoder plays). *carrier_hz gets the F value (0 if it was 0); timings get
+ * microseconds, marks positive and spaces negative. Returns the number of timings, or -1 when
+ * code is not a raw string. */
+int ir_parse_harmony_raw(const char *code, uint32_t *carrier_hz, int32_t *timings, size_t max);
+
 int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                              uint8_t **out_buf, size_t *out_len);
 

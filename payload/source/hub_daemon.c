@@ -199,6 +199,7 @@ int main(int argc, char **argv) {
     hub_events_init();
     orch_init();
     ir_i2s_init();
+    ir_i2s_set_capture_state_listener(hub_cmd_ir_capture_state_changed, NULL);
     orch_set_progress_callback(on_orch_progress, NULL);
     printf("[+] Hardware core & Activity Orchestrator initialized (current: %s)\n",
            orch_get_current_activity());
@@ -337,6 +338,7 @@ int main(int argc, char **argv) {
     hub_mdns_shutdown();
     hub_ssdp_shutdown();
     hbus_shutdown();
+    ir_i2s_capture_mode_set(0, NULL, NULL, NULL, 0);
     ir_i2s_shutdown();
     ws_close_all();
     http_server_close(srv_fd);

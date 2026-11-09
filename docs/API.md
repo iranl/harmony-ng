@@ -40,6 +40,7 @@ Returns high-level hub status, firmware, identity, active activity, memory, upti
     "total_kb": 5120,
     "free_kb": 1372,
     "uptime_sec": 34821,
+    "boot_time": 1762352379,
     "mqtt": {
       "connected": true,
       "broker": "192.168.1.50",
@@ -55,11 +56,21 @@ Returns high-level hub status, firmware, identity, active activity, memory, upti
     characters, logged as a warning) only when the partition has no unit id.
   - `api_version`: `2` from milestone 1 of the integration work on; it changes only on a breaking
     change to an existing endpoint or message. Additions are announced through `capabilities`.
+  - `uptime_sec`: seconds since boot, right when the object was built. `boot_time`: the boot time as
+    a Unix epoch, `null` while the Hub's clock is not set yet (it starts at 1970 and `hub_sntp` sets
+    it after the network is up). Use `boot_time` for anything stored or retained: `uptime_sec` from
+    an older copy of the object gives a wrong boot time. The same two fields are in the snapshot's
+    `hub` object (10.14) and the retained MQTT `<base>/hub` (8.1), which is published again once the
+    clock is set.
   - `capabilities`: flags of the features compiled into this firmware, independent of settings:
     `events` (event bus, pushed WebSocket messages 10.8 to 10.13), `snapshot` (10.14), `ws_auth`
-    (11.4), `ws_keepalive` (10.15), `ir_raw` (5.4), `rf_wake` (`POST /api/rf/wake`).
+    (11.4), `ws_keepalive` (10.15), `ir_raw` (5.4), `ir_capture` (5.5), `rf_wake` (`POST /api/rf/wake`).
   - `legacy_enabled`, `mdns_enabled`: mirror the settings of the Logitech protocol shim and the mDNS
     responder; `false` while those features do not exist.
+  - `ir_capture`: whether the IR capture mode (5.5) is on; `false` at every start, never stored.
+    `ir_capture_error` appears only while the mode is on and its receiver has a problem. Both are
+    also in the snapshot's `hub` object (10.14) and the retained MQTT `<base>/hub` (8.1); a change is
+    pushed as `ir_capture` (10.13c) and `<base>/hub` is published again.
 
 ### 1.3 System Info
 #### `GET /api/system-info`
@@ -760,6 +771,34 @@ Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
   blaster (the same lock the orchestrator and `/api/ir-send` take).
 - Nothing of the frame is logged.
 
+### 5.5 Infrared Capture Mode
+#### `POST /api/ir-capture`
+Turns the capture mode on or off. While it is on, a thread keeps the Hub's IR receiver open and
+pushes one `ir_received` event (10.13b) per button press, to every WebSocket client and on MQTT
+`<base>/ir/received` (8.1). It is what Home Assistant's infrared receiver uses to learn codes.
+Capability flag: `ir_capture`. Admin only, like `POST /api/capture`.
+- **Request Body**: `{"enabled": true}` or `{"enabled": false}`.
+- **Response `200 OK`**: `{"ok": true, "ir_capture": true}`.
+- **Error `400`**: `enabled` missing or not a boolean.
+- **Error `409`**: a one-shot capture (`POST /api/capture`, 5.2a) is running.
+- **Error `503`**: no IR receiver, or it could not be set up.
+
+Behaviour:
+- One event per press: the first complete frame is decoded (as in 5.2a), then nothing until the
+  receiver has been dark for 150 ms, so a held button gives one event.
+- Sends keep working while the mode is on (activity steps, `ir-send`, `ir-raw`): the receiver sees
+  the Hub's own blasters, so what it reads during a send and 100 ms after it is dropped, and a
+  press in that window is lost. A send also reprograms the shared I2S clock; the receiver sets
+  its own clock again before it reads on.
+- While the mode is on, `POST /api/capture` answers `409`.
+- The sensor is short-range: the remote about 5 to 8 cm above the Hub's upper side.
+- If the receiver stops delivering data (seen once on a Hub), the mode reports it in
+  `GET /api/status` (`ir_capture_error`) and reopens the receiver every 5 s; a reboot clears it.
+- The mode is off at every start and is not stored.
+- Every change of the state (on, off, `ir_capture_error` set or cleared) is pushed as an
+  `ir_capture` event (10.13c) to WebSocket clients, and the retained MQTT `<base>/hub` is
+  published again with it, whoever made the change (REST, WebSocket, MQTT).
+
 ## 6. Bluetooth Stack & HID
 
 ### 6.1 Bluetooth Status
@@ -768,7 +807,9 @@ Returns `hub_btstack`'s status (`/tmp/hub_btstack_status.json`) with four fields
 `ok`, `running` (the `hub_btstack` process is alive), `connected` (any host connected) and
 `pairing` (pairing mode on). `hosts` lists every paired host with its address (`addr`), name,
 `connected`, `paired` and `cid`; `host` is the host keys go to. `target` and `remote` are the
-Bluetooth LE remote, not a host; `state` is that link's state.
+Bluetooth LE remote, not a host; `state` is that link's state. `hub_btstack` writes the file in
+`update_status()` through `bt_status_json.c`; the tests and fixtures use the same writer
+(`tests/bt_status_sample.c`).
 - **Response `200 OK`**:
   ```json
   {
@@ -887,17 +928,25 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
         "active": true,
         "address": "12345678",
         "rf_address": "12345678",
-        "model": "Harmony Companion",
-        "has_screen": false,
-        "supports_ota": false,
+        "name": "Harmony Ultimate (Slot 1)",
+        "model": "ultimate",
+        "model_name": "Harmony Ultimate",
+        "skin": 100,
+        "equad_id": 16417,
+        "has_screen": true,
+        "supports_ota": true,
         "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9, "last_seen_s": 2 }
       },
       {
         "slot": 2,
-        "active": false,
-        "address": "None",
-        "rf_address": "None",
-        "model": "None",
+        "active": true,
+        "address": "87654321",
+        "rf_address": "87654321",
+        "name": "Harmony Companion (Slot 2)",
+        "model": "companion",
+        "model_name": "Harmony Companion",
+        "skin": null,
+        "equad_id": 16422,
         "has_screen": false,
         "supports_ota": false
       }
@@ -906,6 +955,33 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   ```
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
 
+- `slots[].model`: the product, a stable machine id: `ultimate`, `ultimate_one`, `ultimate_home`,
+  `elite`, `950`, `touch` (a touchscreen remote with a skin id the stock table does not list),
+  `companion`, `smart_control`, or `unknown`. A touchscreen remote (EquadID `0x4021`, the
+  "Juniper" family) is identified by the skin id it reports and is `unknown` until it does
+  (older harmony-ng remotes do not report one); Smart Control and Companion are identified by
+  their EquadID. Never guessed from traffic.
+- `slots[].model_name`: the product name as the stock remote UI shows it ("Harmony Ultimate",
+  "Harmony Ultimate One", "Harmony Ultimate Home", "Harmony Elite", "Harmony 950",
+  "Harmony Touch", "Harmony Companion", "Harmony Smart Control"), `null` while unknown.
+  `slots[].name` is `"<model_name> (Slot N)"`; while the model is unknown, the CC2544's slot name
+  or "Harmony Remote".
+- `slots[].battery`: the remote's last battery report: `percent`, `charging`, `voltage_mv` (one
+  cell), `reported_at` (Unix time of that report; `null` before the first one, and while the Hub's
+  clock was not set yet, until it is) and `restored` (`true` when the value was read back after a
+  `hub_rf` or `hub_daemon` restart and the remote has not reported since). The last report per slot
+  is kept in RAM (`/tmp/hub_rf_battery_slot<N>.json`, never on flash), so a daemon restart shows it
+  at once; after a reboot the block stays at its placeholder (`percent` 0, `voltage_mv` 0,
+  `reported_at` `null`) until the remote reports, which it does right after its link to the Hub
+  comes up, every 5 minutes while awake, and on a charging change. The age of a value is now minus
+  `reported_at`. A new report is a change (one `rf_status` event per report); a voltage change
+  alone is not.
+- `slots[].skin`: the skin id the remote reported (an integer, `null` when not reported).
+- `slots[].equad_id`: the EquadID the Hub's CC2544 reports for the slot (an integer: 16417 =
+  `0x4021` touchscreen remotes, 16414 = `0x401E` Smart Control, 16422 / 16423 = `0x4026` /
+  `0x4027` Companion; `null` when not known). See `HARMONY_RF_PROTOCOL.md` 4.3.
+  The same slot objects are in the WebSocket `rf_status` event and snapshot (10.12, 10.14) and
+  in the MQTT topic `<base>/rf` (8.1).
 - `slots[].remote_id`: the remote's factory unit id (its `mfg` partition, `RF_MSG_UNIT_ID`),
   present once the remote reported it since pairing. The identifier for the remote's device in
   integrations; the slot number is only an attribute. Cleared on unpair.
@@ -1076,7 +1152,7 @@ devices are kept (below).
 | Topic | Retained | QoS | Payload |
 | --- | --- | --- | --- |
 | `<base>/status` | yes | 1 | `online` / `offline` (last will) |
-| `<base>/hub` | yes | 1 | `{"type":"hub", ...}`: the `hub` object of the snapshot (10.14) plus `ip`, `device_count` and `command_count` |
+| `<base>/hub` | yes | 1 | `{"type":"hub", ...}`: the `hub` object of the snapshot (10.14) plus `ip`, `device_count`, `command_count`, `ha_discovery` and `discovery_prefix` (whether and where this Hub publishes the discovery entities described below, so a client on MQTT alone can tell the layers apart) and `ts`; published on connect, on the Home Assistant birth message, on a config change, again when the clock is set or jumps (so `boot_time` and `ts` are real times in the retained copy), and when the IR capture mode turns on or off or its `ir_capture_error` changes |
 | `<base>/activity_state` | yes | 1 | `activity_state` (10.8) |
 | `<base>/progress` | no | 0 | `activity_progress` (10.9) |
 | `<base>/bt` | yes | 1 | `bt_status` (10.11) |
@@ -1088,6 +1164,7 @@ devices are kept (below).
 | `<base>/cmd` | in | 1 | command request (below) |
 | `<base>/cmd/response` | no | 1 | command reply (below) |
 | `<base>/ir/raw` | in | 1 | the body of `POST /api/ir-raw` (5.4), optional `id` for a reply |
+| `<base>/ir/received` | no | 0 | `ir_received` (10.13b), while the IR capture mode (5.5) is on |
 
 `inventory_version` is the first 8 hex digits of the SHA-256 over the device and activity files. A
 device chunk is republished only when its own content changed, a removed device gets an empty
@@ -1159,6 +1236,7 @@ is executed and not answered. Actions and fields mirror the WebSocket actions (s
 `stop_activity`, `cancel_activity`, `send_command` (`deviceId`, `command`, `status` = `press`,
 `hold`, `release` or omitted for a tap), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
 `bt_mouse`, `rf_wake` (`slot`), `rf_sleep` (`slot`), `sync`, `ir_raw` (fields of 5.4),
+`ir_capture` (`enabled`, 5.5; the reply carries `enabled`),
 `update_check`, `update_apply`, `activity_help`, `activity_help_answer` (10.6a, 10.6b).
 
 Reply on `<base>/cmd/response`:
@@ -1452,6 +1530,17 @@ that is not running gets `409`.
 {"type": "ack", "action": "activity_help_answer", "ok": true, "msgId": 52, "sent": true}
 ```
 
+#### 10.6c IR Capture Mode
+`ir_capture` is `POST /api/ir-capture` (5.5): `enabled` turns the capture mode on or off; signals
+then arrive as `ir_received` (10.13b).
+```json
+{"action": "ir_capture", "enabled": true, "msgId": 61}
+```
+**Response**:
+```json
+{"type": "ack", "action": "ir_capture", "ok": true, "msgId": 61, "enabled": true}
+```
+
 #### 10.7 Bluetooth HID Key Simulation
 ```json
 {
@@ -1561,6 +1650,26 @@ current activity, absent when the key was not mapped to a device command. Calls 
 }
 ```
 
+#### 10.13b IR Received
+One learned infrared signal while the IR capture mode (5.5) is on: `timings` are signed
+microseconds (positive mark, negative space, at most 2048 values) of one frame, ending with the
+gap to the next frame (40 ms when no second frame was seen); `modulation` is the measured carrier
+in Hz, or `null` when there were too few carrier pulses to measure it. The same timings can be
+sent back through `POST /api/ir-raw` (5.4). Not kept for the snapshot.
+```json
+{"type": "ir_received", "seq": 57, "ts": 1762387257, "modulation": 37700,
+ "timings": [4537, -4518, 505, -505, 505, -1513, "...", 505, -55833]}
+```
+
+#### 10.13c IR Capture
+The IR capture mode (5.5) turned on or off, or its receiver problem appeared, changed or cleared.
+Same fields as `GET /api/status`: `ir_capture`, and `ir_capture_error` only while there is a
+problem. The current state is also in the snapshot's `hub` object (10.14); this event is not kept
+separately for the snapshot. On MQTT the change shows as a new retained `<base>/hub`.
+```json
+{"type": "ir_capture", "seq": 58, "ts": 1762387260, "ir_capture": true}
+```
+
 #### 10.13a MQTT Status
 The broker connection state, pushed when hub_daemon starts, when the client connects or loses the
 broker, and after `POST /api/mqtt-save`. `broker` is empty while MQTT is disabled. Both web UIs
@@ -1584,7 +1693,8 @@ refetch over REST. The frame can exceed 4 KB (outbound frames may be up to 64 KB
   "msgId": 8,
   "hub": {"hub_id": "20140101120000-000001", "hub_name": "Living Room Hub", "version": "2.2.0",
           "api_version": 2, "capabilities": ["events", "snapshot", "ws_auth", "ws_keepalive", "ir_raw", "rf_wake"],
-          "auth_enabled": false, "uptime_sec": 34821, "legacy_enabled": false, "mdns_enabled": false},
+          "auth_enabled": false, "uptime_sec": 34821, "boot_time": 1762352379, "legacy_enabled": false, "mdns_enabled": false,
+          "ir_capture": false},
   "activity_state": {"type": "activity_state", "activity": "-1", "state": 0, "stateName": "idle", "busy": false, "sending": false, "seq": 3, "ts": 1762387100},
   "bt_status": {"type": "bt_status", "seq": 20, "ts": 1762387200, "...": "..."},
   "rf_status": {"type": "rf_status", "seq": 21, "ts": 1762387200, "...": "..."},

@@ -37,32 +37,7 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 TEST_PORT = 8998
 MOCK_BASE = "/tmp/harmony_mock"
 
-# The Hub's IR receiver as /dev/i2s delivers it (measured on a Harmony Hub, as stock hal reads it):
-# the sensor's raw output with the carrier, one bit per 1.5 us, MSB first, inverted (light = 0 bit),
-# and the two bytes of every 16-bit sample swapped
-IR_RX_US_PER_BIT = 1.5
-
-
-def ir_rx_bitstream(timings_us, idle_before_bytes=2048, idle_after_us=30000, carrier_hz=38000, duty=1.0 / 3):
-    """Raw /dev/i2s receive data for alternating mark/space durations (starting with a mark)"""
-    period = 1e6 / carrier_hz
-    light = [0] * (idle_before_bytes * 8)
-    for i, d in enumerate(list(timings_us) + [idle_after_us]):
-        n = round(d / IR_RX_US_PER_BIT)
-        pulses = round(d / period)  # a remote sends whole carrier pulses: the last one is not cut short
-        for k in range(n):
-            tt = k * IR_RX_US_PER_BIT
-            light.append(1 if i % 2 == 0 and tt < pulses * period and (tt % period) < period * duty else 0)
-    light += [0] * (-len(light) % 16)
-    data = bytearray()
-    for j in range(0, len(light), 8):
-        byte = 0
-        for b in light[j:j + 8]:
-            byte = (byte << 1) | b
-        data.append(~byte & 0xFF)
-    for j in range(0, len(data), 2):
-        data[j], data[j + 1] = data[j + 1], data[j]
-    return bytes(data)
+from ir_rx_signal import ir_rx_bitstream  # noqa: E402  (the receiver's data, shared with test_ws_events)
 
 
 def learned_durations(raw):

@@ -36,6 +36,12 @@ void hub_cmd_poll(void);
 /* POST /api/ir-raw body -> hw_ir_send_raw. Returns the HTTP code and the reply object in *reply. */
 int hub_cmd_ir_raw(const cJSON *req, cJSON **reply);
 
+/* POST /api/ir-capture body {"enabled": bool} -> the IR capture mode (spec 3.14): on, every
+ * learned signal is emitted as an ir_received event. Returns the HTTP code and the reply. */
+int hub_cmd_ir_capture(const cJSON *req, cJSON **reply);
+/* ir_i2s capture-state listener: emits HUB_EV_IR_CAPTURE (registered by hub_daemon at start) */
+void hub_cmd_ir_capture_state_changed(void *user);
+
 #ifdef __cplusplus
 }
 #endif

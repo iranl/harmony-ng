@@ -91,7 +91,7 @@ def soft(index, dev, cmd, group=0):
 
 MAP_LIST = {"ButtonMaps": [
     # Only the "Watch TV" activity has a stock map; "Player" must get a role-based default
-    {"ButtonMapIdentifier": f"16417Activity{WATCH}", "RemoteId-": 7274750, "Buttons": [
+    {"ButtonMapIdentifier": f"16417Activity{WATCH}", "RemoteId-": 1234567, "Buttons": [
         hard("VolumeMute", SOUNDBAR, "Mute"),
         hard("PrevChannel", TV, "Return"),
         hard("Menu", TV, "SmartHub", long_cmd="Exit"),
@@ -103,7 +103,7 @@ MAP_LIST = {"ButtonMaps": [
         {"__type": "GestureRemoteButton", "ButtonKey": "SwipeUp",
          "ButtonAction": {"__type": "ButtonCommandAction", "DeviceId-": SOUNDBAR, "CommandName": "VolumeUp"}},
     ]},
-    {"ButtonMapIdentifier": f"16417Device{TV}", "RemoteId-": 7274750, "Buttons": [
+    {"ButtonMapIdentifier": f"16417Device{TV}", "RemoteId-": 1234567, "Buttons": [
         hard("PrevChannel", TV, "Return"),
         hard("VolumeMute", TV, "Mute"),
     ]},

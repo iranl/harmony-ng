@@ -1,5 +1,6 @@
 #include "bt_pairing.h"
 #include "bt_remote.h"
+#include "bt_status_json.h"
 
 /* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
  * hosts are reconnected, not only the activity's. Gone after a reboot. */
@@ -182,47 +183,41 @@ void update_bthid_status(void) {
 }
 
 void update_status(const char *state_str) {
+    /* The values; the layout is bt_status_write() (bt_status_json.c), which the tests run too */
+    bt_status_view_t v;
+    memset(&v, 0, sizeof(v));
+    v.pid = (int)getpid();
+    v.state = state_str;
+    snprintf(v.target, sizeof(v.target), "%s", bd_addr_to_str(remote_device.addr));
+    v.last_button = g_last_btn;
+    v.last_seen = (long)g_last_seen;
+    v.remote_connected = (connection_handle != HCI_CON_HANDLE_INVALID);
+    snprintf(v.remote_addr, sizeof(v.remote_addr), "%s", bd_addr_to_str(remote_device.addr));
+    uint16_t active_cid = get_target_host_hid_cid();
+    host_conn_t *ah = (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) ? &g_hosts[g_active_host_idx] : NULL;
+    v.host_connected = (active_cid != 0);
+    snprintf(v.host_addr, sizeof(v.host_addr), "%s",
+             ah ? bd_addr_to_str(ah->addr) : (g_host_connected ? bd_addr_to_str(g_host_addr) : ""));
+    v.host_name = (ah && ah->name[0]) ? ah->name : g_host_name;
+    v.host_pairing = g_host_pairing;
+    for (int i = 0; i < MAX_HOST_CONNS && v.nhosts < BT_STATUS_MAX_HOSTS; i++) {
+        if (is_null_bd_addr(g_hosts[i].addr)) continue;
+        bt_status_host_t *h = &v.hosts[v.nhosts++];
+        /* paired = BTstack has a link key for it; hosts known only from devices.json
+         * (e.g. after a reset, or migrated from the stock config) have none */
+        link_key_t lk;
+        link_key_type_t lkt;
+        bd_addr_t ha;
+        memcpy(ha, g_hosts[i].addr, 6);
+        snprintf(h->addr, sizeof(h->addr), "%s", bd_addr_to_str(g_hosts[i].addr));
+        h->name = g_hosts[i].name;
+        h->connected = g_hosts[i].connected;
+        h->paired = gap_get_link_key_for_bd_addr(ha, lk, &lkt);
+        h->cid = g_hosts[i].hid_cid;
+    }
     FILE *f = fopen(STATUS_FILE, "w");
     if (f) {
-        fprintf(f, "{\n");
-        fprintf(f, "  \"backend\": \"btstack\",\n");
-        fprintf(f, "  \"pid\": %d,\n", (int)getpid());
-        fprintf(f, "  \"state\": \"%s\",\n", state_str);
-        fprintf(f, "  \"target\": \"%s\",\n", bd_addr_to_str(remote_device.addr));
-        fprintf(f, "  \"last_button\": \"%s\",\n", g_last_btn);
-        fprintf(f, "  \"last_seen\": %ld,\n", (long)g_last_seen);
-        fprintf(f, "  \"remote\": {\n");
-        fprintf(f, "    \"connected\": %s,\n", (connection_handle != HCI_CON_HANDLE_INVALID) ? "true" : "false");
-        fprintf(f, "    \"addr\": \"%s\"\n", bd_addr_to_str(remote_device.addr));
-        fprintf(f, "  },\n");
-        fprintf(f, "  \"host\": {\n");
-        uint16_t active_cid = get_target_host_hid_cid();
-        host_conn_t *ah = (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) ? &g_hosts[g_active_host_idx] : NULL;
-        bool host_conn = (active_cid != 0);
-        fprintf(f, "    \"connected\": %s,\n", host_conn ? "true" : "false");
-        fprintf(f, "    \"addr\": \"%s\",\n", ah ? bd_addr_to_str(ah->addr) : (g_host_connected ? bd_addr_to_str(g_host_addr) : ""));
-        fprintf(f, "    \"name\": \"%s\",\n", (ah && ah->name[0]) ? ah->name : g_host_name);
-        fprintf(f, "    \"pairing\": %s\n", g_host_pairing ? "true" : "false");
-        fprintf(f, "  },\n");
-        fprintf(f, "  \"hosts\": [\n");
-        bool first = true;
-        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-            if (is_null_bd_addr(g_hosts[i].addr)) continue;
-            if (!first) fprintf(f, ",\n");
-            first = false;
-            /* paired = BTstack has a link key for it; hosts known only from devices.json
-             * (e.g. after a reset, or migrated from the stock config) have none */
-            link_key_t lk;
-            link_key_type_t lkt;
-            bd_addr_t ha;
-            memcpy(ha, g_hosts[i].addr, 6);
-            bool paired = gap_get_link_key_for_bd_addr(ha, lk, &lkt);
-            fprintf(f, "    {\"addr\": \"%s\", \"name\": \"%s\", \"connected\": %s, \"paired\": %s, \"cid\": %u}",
-                    bd_addr_to_str(g_hosts[i].addr), g_hosts[i].name,
-                    g_hosts[i].connected ? "true" : "false", paired ? "true" : "false", g_hosts[i].hid_cid);
-        }
-        fprintf(f, "\n  ]\n");
-        fprintf(f, "}\n");
+        bt_status_write(f, &v);
         fclose(f);
     }
     update_bthid_status();

@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Handmatige herstart geblokkeerd: software-update is bezig.",
     "manual_refresh": "Vernieuwen",
     "manufacturer": "Fabrikant",
-    "max_screen_buttons": "Maximum van 48 schermknoppen bereikt.",
+    "max_screen_buttons": "Maximum van 240 schermknoppen bereikt.",
     "menu": "Menu",
     "mfr_model_required": "Geef zowel fabrikant als model op.",
     "middle_click": "Midden",

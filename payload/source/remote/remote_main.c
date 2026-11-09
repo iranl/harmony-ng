@@ -12,6 +12,7 @@
 #include "remote_ui_scroll.h"
 #include "harmony_version.h"
 #include "remote_migrate.h"
+#include "remote_battery.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,6 +195,14 @@ int main(int argc, char **argv) {
     } else {
         g_remote_unit_id[0] = '\0';
         printf("[!] No unit id in the mfg partition: none will be reported to the Hub\n");
+    }
+    /* The product (Ultimate, Elite, ...) is the skin id, not the RF family: reported with the
+     * unit id. A missing record is fine: the Hub shows the model as unknown. */
+    if (mfg_read_skin(getenv("HARMONY_MFG_FILE"), &g_remote_skin_id) == 0) {
+        printf("[+] Skin id 0x%02X (mfg partition)\n", g_remote_skin_id);
+    } else {
+        g_remote_skin_id = 0;
+        printf("[!] No skin id in the mfg partition: the Hub will show the model as unknown\n");
     }
 
     load_settings_conf();
@@ -391,7 +400,7 @@ int main(int argc, char **argv) {
             FD_SET(g_touch_fd, &rfds);
             if (g_touch_fd > max_fd) max_fd = g_touch_fd;
         }
-        uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_monotonic_ms() - s_last_blank_time_ms) / 1000 : 0;
+        uint64_t standby_s = (s_last_blank_time_ms > 0) ? (get_boot_ms() - s_last_blank_time_ms) / 1000 : 0;
         bool is_docked = is_remote_docked();
         bool allow_gyro_wake = !is_docked;
         if (g_gyro_fd >= 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
@@ -407,7 +416,7 @@ int main(int argc, char **argv) {
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
         } else {
-            bool in_deep = (g_deep_standby_min > 0 && standby_s >= (uint64_t)g_deep_standby_min * 60);
+            bool in_deep = remote_deep_standby_due(standby_s) && get_monotonic_ms() >= g_suspend_hold_until_ms;
             tv.tv_sec = (!is_docked && in_deep) ? 30 : 2;
             tv.tv_usec = 0;
         }
@@ -476,20 +485,17 @@ int main(int argc, char **argv) {
             }
         }
 
-        static uint64_t last_battery_report_ms = 0;
-        static uint8_t last_charging_state = 0xFF;
-        static uint8_t last_reported_percent = 0xFF;
+        /* A link that came (back) up: report the battery at once, a Hub that restarted has none */
+        static bool s_link_was_up = false;
+        if (g_rf_link_connected && !s_link_was_up) remote_battery_request_report(&g_batt_report);
+        s_link_was_up = g_rf_link_connected;
         /* The battery read takes about 4 ms, so it waits until a drag or settle ends */
         if (g_rf_fd >= 0 && g_rf_link_connected && !g_is_ota_updating && !ui_scroll_active()) {
             read_remote_battery();
-            bool pct_changed = (last_reported_percent == 0xFF || abs((int)g_battery_info.percent - (int)last_reported_percent) >= 2);
-            bool chg_changed = (g_battery_info.charging != last_charging_state);
-            bool interval_elapsed = (last_battery_report_ms == 0 || now_ms - last_battery_report_ms >= 300000);
-            if (interval_elapsed || chg_changed || (g_screen_on && pct_changed)) {
-                last_charging_state = g_battery_info.charging;
-                last_reported_percent = g_battery_info.percent;
-                last_battery_report_ms = now_ms;
+            if (remote_battery_report_due(&g_batt_report, get_boot_ms(), g_battery_info.percent,
+                                         g_battery_info.charging != 0, g_screen_on)) {
                 send_battery_status_rf();
+                remote_power_report_sent();
             }
         }
 

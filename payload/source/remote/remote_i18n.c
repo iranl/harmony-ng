@@ -159,8 +159,10 @@ static const char * const g_remote_strings[STR_COUNT][REMOTE_LANG_COUNT] = {
     { "Display Timeout", "Display-Timeout", "Delai d'extinction", "Scherm time-out", "Tiempo de espera", "Timeout schermo" },
     /* STR_BTN_BACKLIGHT */
     { "Button Backlight", "Tastenbeleuchtung", "Eclairage touches", "Knopverlichting", "Luz de botones", "Retroilluminazione tasti" },
-    /* STR_NIGHT_SCHEDULE */
-    { "Night Schedule", "Nachtmodus Zeit", "Horaire nuit", "Nachtschema", "Horario nocturno", "Orario notturno" },
+    /* STR_NIGHT_START */
+    { "Night Starts", "Nacht beginnt", "Debut nuit", "Nacht begint", "Inicio noche", "Inizio notte" },
+    /* STR_NIGHT_END */
+    { "Night Ends", "Nacht endet", "Fin nuit", "Nacht eindigt", "Fin noche", "Fine notte" },
     /* STR_DISPLAY_THEME */
     { "Theme", "Design", "Theme", "Thema", "Tema", "Tema" },
     /* STR_HOME_LAYOUT */

@@ -374,7 +374,7 @@ export default {
     "manual_reboot_blocked": "Riavvio manuale bloccato: aggiornamento software in corso.",
     "manual_refresh": "Aggiorna",
     "manufacturer": "Produttore",
-    "max_screen_buttons": "Raggiunto il numero massimo di 48 pulsanti sullo schermo.",
+    "max_screen_buttons": "Raggiunto il numero massimo di 240 pulsanti sullo schermo.",
     "menu": "Menu",
     "mfr_model_required": "Specifica sia il produttore che il modello.",
     "middle_click": "Centrale",

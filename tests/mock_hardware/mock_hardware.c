@@ -41,6 +41,7 @@ static int g_rf_mock_fd = -1;
  * wrote (the receiver line is active low, so idle bytes are 0xFF). A missing file fails like a Hub
  * without the device. Write-only opens (IR sends) are not touched. */
 static int g_i2s_rx_mock_fd = -1;
+static int g_i2s_tx_mock_fd = -1;   /* write-only /dev/i2s: <mock>/i2s_tx, ioctls succeed */
 
 static void init_real_functions(void) {
     if (!real_open) {
@@ -189,8 +190,10 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
-    /* 6. Virtualize /data/ directory if physical /data is not writable */
-    if (strncmp(pathname, "/data/", 6) == 0 && access("/data", W_OK) != 0) {
+    /* 6. Virtualize the /data/ directory: always when a mock root is set, otherwise when the
+     * physical /data is not writable (a host with a writable /data must never be touched) */
+    if (strncmp(pathname, "/data/", 6) == 0 &&
+        (getenv("HARMONY_MOCK_DIR") != NULL || access("/data", W_OK) != 0)) {
         snprintf(resolved, max_len, "%s/data/%s", md, pathname + 6);
         char dtmp[512];
         snprintf(dtmp, sizeof(dtmp), "%s/data", md);
@@ -262,6 +265,13 @@ int open(const char *pathname, int flags, ...) {
         va_end(args);
     }
 
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_WRONLY) {
+        char tx[512];
+        snprintf(tx, sizeof(tx), "%s/i2s_tx", get_mock_dir());
+        int fd = real_open(tx, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) g_i2s_tx_mock_fd = fd;
+        return fd;
+    }
     if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
         char rx[512];
         snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
@@ -326,6 +336,13 @@ int open64(const char *pathname, int flags, ...) {
         va_end(args);
     }
 
+    if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_WRONLY) {
+        char tx[512];
+        snprintf(tx, sizeof(tx), "%s/i2s_tx", get_mock_dir());
+        int fd = real_open64(tx, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) g_i2s_tx_mock_fd = fd;
+        return fd;
+    }
     if (strcmp(pathname, "/dev/i2s") == 0 && (flags & O_ACCMODE) == O_RDONLY) {
         char rx[512];
         snprintf(rx, sizeof(rx), "%s/i2s_rx", get_mock_dir());
@@ -434,6 +451,22 @@ int ioctl(int fd, unsigned long request, ...) {
     if (fd == g_i2s_rx_mock_fd && g_i2s_rx_mock_fd >= 0) {
         return 0;
     }
+    /* IR transmitter: the I2S ioctls (clock, start, drain) succeed. On a Hub the drain
+     * (0x80044e31) returns when the signal has gone out; <mock>/i2s_tx_ms makes it take that
+     * many milliseconds, so a test can act while a send is running. */
+    if (fd == g_i2s_tx_mock_fd && g_i2s_tx_mock_fd >= 0) {
+        if (request == 0x80044e31UL) {
+            char p[512];
+            snprintf(p, sizeof(p), "%s/i2s_tx_ms", get_mock_dir());
+            FILE *f = real_fopen ? real_fopen(p, "r") : NULL;
+            if (f) {
+                int ms = 0;
+                if (fscanf(f, "%d", &ms) == 1 && ms > 0 && ms < 10000) usleep((useconds_t)ms * 1000);
+                fclose(f);
+            }
+        }
+        return 0;
+    }
 
     /* Framebuffer ioctl emulation */
     if (fd == g_fb_mock_fd && g_fb_mock_fd >= 0) {
@@ -524,5 +557,6 @@ int close(int fd) {
     if (fd == g_gyro_mock_fd) g_gyro_mock_fd = -1;
     if (fd == g_rf_mock_fd) g_rf_mock_fd = -1;
     if (fd == g_i2s_rx_mock_fd) g_i2s_rx_mock_fd = -1;
+    if (fd == g_i2s_tx_mock_fd) g_i2s_tx_mock_fd = -1;
     return real_close(fd);
 }

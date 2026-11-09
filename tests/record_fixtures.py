@@ -6,6 +6,8 @@ host build with the sample configuration, so they can be refreshed after a chang
   tests/fixtures/ha/status.json, inventory.json, activities.json, rf_status.json, bt_status.json,
   snapshot.json, ws_activity_switch.ndjson (every frame a client received during a dry-run
   activity start and power off), ws_button.ndjson, ws_config_changed.ndjson, ir_raw_request.json;
+  spec 3.14: ir_capture_response.json, ws_ir_capture.ndjson (on and off), ws_ir_received.ndjson (the real Hub recording
+  tests/fixtures/ir/samsung36_volume_up.i2s played as the IR receiver);
   milestone 3: mqtt_retained.json (topic to payload after connect), mqtt_activity_switch.ndjson
   (topic and payload per message during a dry-run activity start and power off), mqtt_cmd_response.json
 
@@ -20,13 +22,15 @@ import json
 import os
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
+from hub_harness import HubHarness, SAMPLE_CONFIG, REPO_ROOT  # noqa: E402
 from mock_mqtt import MockBroker, MockClient  # noqa: E402
+import bt_status_seed  # noqa: E402
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(TESTS_DIR, "fixtures", "ha")
@@ -34,35 +38,23 @@ PORT = 8991
 UNIT_ID = "20140101120000-000001"
 BT_STATUS_FILE = "/tmp/hub_btstack_status.json"
 
-# hub_btstack's own format (/tmp/hub_btstack_status.json); hub_daemon adds ok, running, connected
-# and pairing. "pid" is filled in at run time with a live process.
-BT_STATUS = {
-    "backend": "btstack", "pid": 0, "state": "connecting", "target": "11:22:33:44:55:66",
-    "last_button": "", "last_seen": 0,
-    "remote": {"connected": True, "addr": "11:22:33:44:55:66"},
-    "host": {"connected": True, "addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "pairing": False},
-    "hosts": [{"addr": "AA:BB:CC:DD:EE:01", "name": "Television", "connected": False, "paired": True, "cid": 2},
-              {"addr": "AA:BB:CC:DD:EE:FF", "name": "Media Player", "connected": True, "paired": True, "cid": 6}],
-}
 
-RF_STATUS = {
-    "running": True, "ok": True, "fw_version": "v72.00", "paired": True, "rf_address": "A1B2C3D4",
-    "hub_rf_address": "A1B2C3D4", "pairing_active": False, "sync_pending": False, "sync_pending_slot": 0,
-    "sync_pending_diff": "Hub configuration changed. Push settings to sync.", "hub_config_version": 7,
-    "ota": {"in_progress": False, "slot": 0, "status": 0, "sent_bytes": 0, "total_bytes": 0, "sent_chunks": 0,
-            "total_chunks": 0, "error": ""},
-    "slots": [
-        {"slot": 1, "name": "Harmony Remote (Slot 1)", "model": "elite", "has_screen": True, "supports_ota": True,
-         "active": True, "in_sync": True, "address": "E5F60718", "rf_address": "E5F60718", "sw_version": "2.2.0",
-         "remote_id": "20141001120000-000002", "config_version": 7,
-         "battery": {"percent": 87, "charging": False, "voltage_mv": 3980},
-         "link": {"frames_rx": 120, "acked_sent": 12, "acked_ok": 12, "retries": 0, "naks": 0, "last_seen_s": 2}},
-        {"slot": 2, "name": "Harmony Elite (Slot 2)", "model": "unknown", "has_screen": True, "supports_ota": True,
-         "active": False, "in_sync": False, "address": "None", "rf_address": "None", "sw_version": "unknown",
-         "config_version": 0, "battery": {"percent": 0, "charging": False, "voltage_mv": 0},
-         "link": {"frames_rx": 0, "acked_sent": 0, "acked_ok": 0, "retries": 0, "naks": 0, "last_seen_s": -1}},
-    ],
-}
+def load_rf_status():
+    """hub_rf's RF status object from the real builder (tests/rf_status_sample.c: a Harmony
+    Ultimate in slot 1 with skin 0x64 and EquadID 0x4021, slot 2 empty; dummy addresses)"""
+    src = os.path.join(REPO_ROOT, "payload", "source")
+    out = os.path.join(REPO_ROOT, "build", "tmp", "test_host", "rf_status_sample")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    subprocess.run(["gcc", "-Wall", "-O2", "-I" + src, os.path.join(REPO_ROOT, "tests", "rf_status_sample.c"),
+                    os.path.join(src, "rf_state.c"), os.path.join(src, "rf_api.c"), os.path.join(src, "cJSON.c"),
+                    "-lpthread", "-lm", "-o", out], check=True)
+    with open(os.path.join(REPO_ROOT, "VERSION")) as f:
+        version = f.read().strip()
+    res = subprocess.run([out, version], check=True, capture_output=True, text=True)
+    return json.loads(res.stdout)
+
+
+RF_STATUS = load_rf_status()
 
 IR_RAW_REQUEST = {"frequency": 38000, "timings": [9000, -4500, 560, -560, 560, -1690, 560, -560, 560, -39000],
                   "port": 1, "repeats": 1}
@@ -148,9 +140,9 @@ def main():
         mfg_path = f.name
     tmp = BT_STATUS_FILE + ".tmp"
     try:
-        with open(tmp, "w") as f:
-            json.dump(dict(BT_STATUS, pid=os.getpid()), f)
-        os.replace(tmp, BT_STATUS_FILE)
+        # hub_btstack's file from its real writer (tests/bt_status_sample.c); pid 1 is always
+        # alive, so "running" is true and the fixtures do not change with the recorder's pid
+        bt_status_seed.write_status(BT_STATUS_FILE, pid=1)
         print("[-] Recording milestone 1 fixtures into %s" % args.out)
         with HubHarness(port=PORT, args=["--mfg-file", mfg_path]) as hub:
             time.sleep(1.5)  # watcher baseline (bt_status emitted from the file)
@@ -195,6 +187,28 @@ def main():
             os.utime(devices, (time.time() + 5, time.time() + 5))
             m, seen = ws.wait_for("config_changed", 5)
             write_ndjson(args.out, "ws_config_changed.ndjson", [f for f in seen if f.get("type") == "config_changed"])
+
+            # IR capture mode (3.14): a real Hub recording (Samsung soundbar remote, Volume Up)
+            # played as the mock's IR receiver
+            rx = os.path.join(hub.mock_dir, "i2s_rx")
+            with open(rx, "wb") as f:
+                f.write(b"\xff" * 4096)
+            st, r = hub.http_post("/api/ir-capture", {"enabled": True})
+            assert st == 200, (st, r)
+            write_json(args.out, "ir_capture_response.json", r)
+            ev_on, _ = ws.wait_for("ir_capture", 5)
+            assert ev_on is not None and ev_on.get("ir_capture") is True, ev_on
+            with open(rx, "ab") as f, open(os.path.join(REPO_ROOT, "tests", "fixtures", "ir", "samsung36_volume_up.i2s"), "rb") as g:
+                f.write(g.read())
+                f.write(b"\xff" * 30000)
+            m, seen = ws.wait_for("ir_received", 5)
+            assert m is not None, seen
+            write_ndjson(args.out, "ws_ir_received.ndjson", [m])
+            st, r = hub.http_post("/api/ir-capture", {"enabled": False})
+            assert st == 200, (st, r)
+            ev_off, _ = ws.wait_for("ir_capture", 5)
+            assert ev_off is not None and ev_off.get("ir_capture") is False, ev_off
+            write_ndjson(args.out, "ws_ir_capture.ndjson", [ev_on, ev_off])
             ws.close()
 
             write_json(args.out, "ir_raw_request.json", IR_RAW_REQUEST)

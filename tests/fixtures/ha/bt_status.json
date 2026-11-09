@@ -1,6 +1,6 @@
 {
   "backend": "btstack",
-  "pid": 165503,
+  "pid": 1,
   "state": "connecting",
   "target": "11:22:33:44:55:66",
   "last_button": "",

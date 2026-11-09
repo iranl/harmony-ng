@@ -155,7 +155,7 @@ Not imported; the migration prints a warning for each:
 - Long presses, double presses and touch gestures (HarmonyNG has no equivalent yet).
 - Inputs that the stock config selects by stepping through a Source key (common on soundbars). Add the steps to the activity by hand.
 - Commands of a second transport on the same device, e.g. the Bluetooth keyboard commands of an IR TV.
-- Screen buttons beyond the config push limit of 48 per remote, which is shared out between the activities.
+- Screen buttons beyond the config push limit of 240 per remote, which is shared out between the activities.
 
 **Bluetooth devices** (e.g. an NVIDIA Shield) have to be paired again: HarmonyNG uses its own Bluetooth stack, so the stock pairings are not carried over.
 
