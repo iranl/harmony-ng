@@ -125,6 +125,7 @@ payload/source/hub_btstack/bt_hid.c
 payload/source/hub_btstack/bt_cmd.c
 payload/source/hub_btstack/bt_remote.c
 payload/source/hub_btstack/bt_main.c
+payload/source/hub_btstack/bt_reconnect_queue.c
 "
 
 # Compile and link

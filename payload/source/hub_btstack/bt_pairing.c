@@ -1,6 +1,15 @@
 #include "bt_pairing.h"
 #include "bt_remote.h"
 
+/* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
+ * hosts are reconnected, not only the activity's. Gone after a reboot. */
+#define BT_HOSTS_UP_FILE "/tmp/hub_btstack_hosts_up"
+static uint8_t s_hosts_before[MAX_HOST_CONNS][6];
+static int s_hosts_before_n;
+static bool s_hosts_restore_done;
+static uint8_t s_hosts_saved[MAX_HOST_CONNS][6];
+static int s_hosts_saved_n = -1;
+
 discovered_remote_t g_discovered[MAX_DISCOVERED];
 int g_discovered_count = 0;
 bool g_user_scan_active = false;
@@ -113,7 +122,29 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
     return NULL;
 }
 
+/* Read once at start, before anything rewrites the file */
+void bt_hosts_load_before_restart(void) {
+    s_hosts_before_n = bt_hosts_file_read(BT_HOSTS_UP_FILE, s_hosts_before, MAX_HOST_CONNS);
+}
+
+/* Rewrites the file when the set of connected hosts changed; not before the hosts connected
+ * before the restart were queued, so a crash during the start does not lose them */
+static void bt_hosts_save_connected(void) {
+    if (!s_hosts_restore_done) return;
+    uint8_t now[MAX_HOST_CONNS][6];
+    int n = 0;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (!is_null_bd_addr(g_hosts[i].addr) && g_hosts[i].connected && g_hosts[i].hid_cid) memcpy(now[n++], g_hosts[i].addr, 6);
+    }
+    if (n == s_hosts_saved_n && memcmp(now, s_hosts_saved, (size_t)n * 6) == 0) return;
+    if (bt_hosts_file_write(BT_HOSTS_UP_FILE, (const uint8_t (*)[6])now, n) == 0) {
+        memcpy(s_hosts_saved, now, (size_t)n * 6);
+        s_hosts_saved_n = n;
+    }
+}
+
 void update_bthid_status(void) {
+    bt_hosts_save_connected();
     cJSON *root = cJSON_CreateObject();
     if (!root) return;
     cJSON_AddBoolToObject(root, "ok", 1);
@@ -592,6 +623,47 @@ void try_connect_host(void) {
     }
 }
 
+static bool rq_skip_host(const uint8_t addr[6]) {
+    return is_host_connected(addr) || host_manual_disconnect(addr);
+}
+
+/* A loop ended (its host connected, or it gave up): the next waiting host gets its turn */
+void host_reconnect_next(void) {
+    if (g_host_reconnect_active || g_host_pairing) return;
+    /* No reconnects while the activity is off (start_host_reconnect refuses them): drop the
+     * waiting hosts at once instead of one refused start per host */
+    char cur_act[64] = "-1";
+    read_current_activity(cur_act, sizeof(cur_act));
+    if (strcmp(cur_act, "-1") == 0 || strcasecmp(cur_act, "poweroff") == 0) {
+        rq_clear();
+        return;
+    }
+    bd_addr_t next;
+    if (!rq_pop(next, rq_skip_host)) return;
+    char msg[96];
+    snprintf(msg, sizeof(msg), "Host reconnect: next waiting host %s", bd_addr_to_str(next));
+    log_msg(msg);
+    start_host_reconnect(next, MAX_HOST_RECONNECT_ATTEMPTS);
+}
+
+/* Controller ready (after the activity's host loop was started): the hosts that were connected
+ * before this hub_btstack started wait for their turn */
+void bt_hosts_restore_after_start(void) {
+    int queued = 0;
+    for (int i = 0; i < s_hosts_before_n; i++) {
+        register_host_target(s_hosts_before[i], NULL);
+        if (g_host_reconnect_active && memcmp(g_host_reconnect_target, s_hosts_before[i], 6) == 0) continue;
+        if (rq_push(s_hosts_before[i])) queued++;
+    }
+    if (queued) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Host reconnect: %d host(s) connected before the restart wait for their turn", queued);
+        log_msg(msg);
+    }
+    s_hosts_restore_done = true;
+    host_reconnect_next();
+}
+
 static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
     if (!g_host_reconnect_active) return;
@@ -600,6 +672,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
         log_msg("Host reconnect: Host connected, stopping retry loop");
         g_host_reconnect_active = false;
         g_host_connecting = false;
+        host_reconnect_next();
         return;
     }
 
@@ -607,6 +680,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
         log_msg("Host reconnect: Maximum retry attempts reached");
         g_host_reconnect_active = false;
         g_host_connecting = false;
+        host_reconnect_next();
         return;
     }
 
@@ -644,15 +718,41 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     }
 
     set_host_manual_disconnect(target, false);
+    /* Before the controller is ready a connection attempt goes nowhere: wait for it (the
+     * hosts waiting are started from bt_hosts_restore_after_start). Only an address waits:
+     * every caller passes one (the activity's, pinned or requested host), none asks for a
+     * loop over all hosts. */
+    if (hci_get_state() != HCI_STATE_WORKING) {
+        if (rq_push(target)) {
+            char dmsg[96];
+            snprintf(dmsg, sizeof(dmsg), "Host reconnect for %s waits until the controller is ready", bd_addr_to_str(target));
+            log_msg(dmsg);
+        }
+        return;
+    }
     /* Another connected host must not block this one (several HID hosts are supported) */
     if (host_target_connected(target)) {
         log_msg("Host reconnect: Host already connected");
+        rq_remove(target);
         return;
     }
 
     if (g_host_reconnect_active && !is_null_bd_addr(target) && memcmp(g_host_reconnect_target, target, 6) == 0 && g_host_connecting) {
         return;
     }
+
+    /* One loop at a time: the host of a loop replaced by this one waits for its turn instead of
+     * being dropped (after a restart the activity's host replaced the other paired host) */
+    if (g_host_reconnect_active && !is_null_bd_addr(g_host_reconnect_target) &&
+        (is_null_bd_addr(target) || memcmp(g_host_reconnect_target, target, 6) != 0) &&
+        !rq_skip_host(g_host_reconnect_target) && rq_push(g_host_reconnect_target)) {
+        char qmsg[128];
+        snprintf(qmsg, sizeof(qmsg), "Host reconnect: %s waits, ", bd_addr_to_str(g_host_reconnect_target));
+        size_t ql = strlen(qmsg);
+        snprintf(qmsg + ql, sizeof(qmsg) - ql, "%s first", is_null_bd_addr(target) ? "targets" : bd_addr_to_str(target));
+        log_msg(qmsg);
+    }
+    if (!is_null_bd_addr(target)) rq_remove(target);
 
     if (!is_null_bd_addr(target)) {
         memcpy(g_host_reconnect_target, target, 6);
