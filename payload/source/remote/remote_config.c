@@ -4,14 +4,6 @@
 #include "remote_stock_icons.h"
 #include "remote_fb.h"
 
-/* Copies at most n-1 bytes and always terminates: strncpy did the same here (the buffers are
- * zeroed), but newer compilers warn that it may cut the string */
-static void copy_str(char *dst, size_t n, const char *src) {
-    size_t l = strnlen(src, n - 1);
-    memcpy(dst, src, l);
-    dst[l] = '\0';
-}
-
 /* Icon files are checked where the renderer will load them (see remote_fs_path) */
 static bool fs_readable(const char *path) {
     char buf[256];
@@ -605,7 +597,6 @@ void load_rf_config(void) {
             }
             if (act_id_str[0] && jname && cJSON_IsString(jname)) {
                 copy_str(g_rf_activities[g_rf_activity_count].id, sizeof(g_rf_activities[0].id), act_id_str);
-                g_rf_activities[g_rf_activity_count].id[sizeof(g_rf_activities[0].id) - 1] = '\0';
                 strncpy(g_rf_activities[g_rf_activity_count].name, jname->valuestring, sizeof(g_rf_activities[0].name) - 1);
                 g_rf_activities[g_rf_activity_count].name[sizeof(g_rf_activities[0].name) - 1] = '\0';
                 if (jico && cJSON_IsString(jico) && jico->valuestring[0]) {
@@ -644,7 +635,6 @@ void load_rf_config(void) {
             }
             if (dev_id_str[0] && jname && cJSON_IsString(jname)) {
                 copy_str(g_rf_devices[g_rf_device_count].id, sizeof(g_rf_devices[0].id), dev_id_str);
-                g_rf_devices[g_rf_device_count].id[sizeof(g_rf_devices[0].id) - 1] = '\0';
                 strncpy(g_rf_devices[g_rf_device_count].name, jname->valuestring, sizeof(g_rf_devices[0].name) - 1);
                 g_rf_devices[g_rf_device_count].name[sizeof(g_rf_devices[0].name) - 1] = '\0';
                 cJSON *jico = cJSON_GetObjectItem(d, "icon");

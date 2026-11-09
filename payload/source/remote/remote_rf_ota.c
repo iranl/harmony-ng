@@ -14,14 +14,6 @@
 #include <time.h>
 #include <errno.h>
 
-/* Copies at most n-1 bytes and always terminates: strncpy did the same here (the buffers are
- * zeroed), but newer compilers warn that it may cut the string */
-static void copy_str(char *dst, size_t n, const char *src) {
-    size_t l = strnlen(src, n - 1);
-    memcpy(dst, src, l);
-    dst[l] = '\0';
-}
-
 #define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
 static uint8_t s_ota_bitmap[OTA_BITMAP_SIZE];

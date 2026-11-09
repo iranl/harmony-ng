@@ -353,6 +353,16 @@ static inline uint64_t ms_since(uint64_t now_ms, uint64_t then_ms) {
     return now_ms > then_ms ? now_ms - then_ms : 0;
 }
 
+/* Copies at most n-1 bytes and always terminates (nothing is written when n is 0). strncpy did
+ * the same where it was used (the buffers are zeroed), but newer compilers warn that it may cut
+ * the string. */
+static inline void copy_str(char *dst, size_t n, const char *src) {
+    if (!dst || n == 0) return;
+    size_t l = src ? strnlen(src, n - 1) : 0;
+    if (l) memcpy(dst, src, l);
+    dst[l] = '\0';
+}
+
 /* Files the renderer and config loader read are opened through remote_fs_path(). On the
    remote g_fs_root is empty; the host renderer points it at a directory laid out like the
    remote's filesystem. */
