@@ -814,7 +814,7 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
                 break;
             }
         }
-        cJSON_Delete(droot);
+        /* droot is borrowed from config_store cache: not freed here */
     }
     if (req_pulse_ms > 0) pulse_ms = req_pulse_ms;
 
