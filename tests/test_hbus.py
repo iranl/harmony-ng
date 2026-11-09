@@ -322,23 +322,40 @@ def main():
         ws2.close()
         plain.close()
 
-    print("[-] changeChannel with a channel device, derived remote id")
+    print("[-] changeChannel with a channel device (listed in deviceIds only), derived remote id, large config")
     with open(os.path.join(SAMPLE_CONFIG, "devices.json")) as f:
         devs = json.load(f)
+    with open(os.path.join(SAMPLE_CONFIG, "activities.json")) as f:
+        acts = json.load(f)
     for d in devs["devices"]:
-        if d.get("id") == "1":
-            raw = d["commands"][3]["raw"]
+        raw = d["commands"][0]["raw"]
+        if d.get("id") == "2":
+            # the digits live on a device that activity 10 lists in deviceIds, not in its sequences
             for n in range(10):
                 d["commands"].append({"name": str(n), "raw": raw, "port": 7, "repeats": 1})
+        if d.get("id") == "1":
+            # enough commands for a stock configuration object over 64 KB (one WebSocket frame)
+            for n in range(400):
+                d["commands"].append({"name": "Extra%03d" % n, "raw": raw, "port": 7, "repeats": 1})
+    for a in acts["activities"]:
+        if a.get("id") == "10":
+            a["deviceIds"] = ["2"]
     import tempfile
     log_path = os.path.join(tempfile.mkdtemp(prefix="hbus_"), "hub.log")
     with HubHarness(port=PORT, args=["--legacy-port", str(LEGACY_PORT), "--ssdp-port", "0"], log_path=log_path,
-                    extra_config_files={"settings.json": settings(True), "devices.json": devs}) as hub:
+                    extra_config_files={"settings.json": settings(True), "devices.json": devs, "activities.json": acts}) as hub:
         st, _, prov = provision(hub)
         rid_derived = prov.get("data", {}).get("activeRemoteId", "")
         check(rid_derived.isdigit() and 0 < int(rid_derived) < 2 ** 31, "activeRemoteId derived from hub_id without the stock file", rid_derived)
         ws = legacy_ws(rid_derived)
         recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify", 3.0)
+        rid = hbus(ws, "vnd.logitech.harmony/vnd.logitech.harmony.engine?config", remote_id=rid_derived)
+        r, _ = reply_for(ws, rid, 10.0)
+        cfg_len = len(json.dumps(r)) if r else 0
+        dev1 = [d for d in (r or {}).get("data", {}).get("device", []) if d.get("label") == "Living Room TV"]
+        check(r is not None and r.get("code") == 200 and cfg_len > 65535, "configuration object over 64 KB arrives in one frame (%d bytes)" % cfg_len)
+        check(len(dev1) == 1 and sum(len(g.get("function", [])) for g in dev1[0].get("controlGroup", [])) >= 400,
+              "its 400 extra commands are all there")
         rid = hbus(ws, "harmony.activityengine?runactivity", {"async": "true", "timestamp": 0, "activityId": "10"}, remote_id=rid_derived)
         recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 15.0)
         time.sleep(0.5)
@@ -346,7 +363,7 @@ def main():
             sent_before = f.read().count("[DRY-RUN] IR ")
         rid = hbus(ws, "harmony.engine?changeChannel", {"timestamp": 0, "channel": "12"}, remote_id=rid_derived)
         r, _ = reply_for(ws, rid, 2.0)
-        check(r is not None and r.get("code") == 200 and r.get("data") == {}, "changeChannel 12 with a channel device: 200", str(r))
+        check(r is not None and r.get("code") == 200 and r.get("data") == {}, "changeChannel 12 with the channel device from deviceIds: 200", str(r))
         time.sleep(0.8)
         with open(log_path) as f:
             sent_after = f.read().count("[DRY-RUN] IR ")

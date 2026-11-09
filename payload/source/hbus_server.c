@@ -66,6 +66,12 @@ static int g_new_clients[WS_MAX_CLIENTS];
 static int g_new_count;
 static pthread_mutex_t g_new_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Settings saved by an HTTP worker wait here for the main loop (hbus_tick), which owns the
+ * listener, the clients and g_pending */
+static struct hub_settings g_settings_next;
+static int g_settings_pending;
+static pthread_mutex_t g_settings_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* changeChannel digits in flight */
 static char g_chan_device[32] = "";
 static char g_chan_digits[24] = "";
@@ -135,13 +141,20 @@ static const char *hub_name(void) {
 /* ------------------------------------------------------------------------------------------ */
 /* Digest */
 
-static int config_version_now(void) {
+/* The inventory hash is read from the config files only at init and when the bus reports a
+ * configuration change (state_watch), never per digest: the digest goes out on every activity
+ * step and request, and the config files live on the NOR flash that shares the SPI bus with
+ * the RF transceiver. */
+static void inventory_refresh(void) {
     char ver[9];
     hbus_inventory_version(ver);
     if (strcmp(ver, g_last_inventory) != 0) {
         snprintf(g_last_inventory, sizeof(g_last_inventory), "%s", ver);
         g_config_version++;
     }
+}
+
+static int config_version_now(void) {
     return g_config_version;
 }
 
@@ -387,33 +400,28 @@ static int channel_device(char *out, size_t cap) {
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
         else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
         if (strcmp(aid, cur) != 0) continue;
-        const char *seqs[2] = { "startSequence", "stopSequence" };
-        for (int s = 0; s < 2; s++) {
-            const cJSON *st = NULL;
-            cJSON_ArrayForEach(st, cJSON_GetObjectItemCaseSensitive(a, seqs[s])) {
-                char did[32] = "";
-                const cJSON *dj = cJSON_GetObjectItemCaseSensitive(st, "deviceId");
-                if (dj && cJSON_IsString(dj) && dj->valuestring) snprintf(did, sizeof(did), "%s", dj->valuestring);
-                else if (dj && cJSON_IsNumber(dj)) snprintf(did, sizeof(did), "%ld", (long)dj->valuedouble);
-                if (!did[0]) continue;
-                cJSON *d = NULL;
-                cJSON_ArrayForEach(d, devs) {
-                    const cJSON *ij = cJSON_GetObjectItemCaseSensitive(d, "id");
-                    char xid[32] = "";
-                    if (ij && cJSON_IsString(ij) && ij->valuestring) snprintf(xid, sizeof(xid), "%s", ij->valuestring);
-                    else if (ij && cJSON_IsNumber(ij)) snprintf(xid, sizeof(xid), "%ld", (long)ij->valuedouble);
-                    if (strcmp(xid, did) != 0) continue;
-                    const cJSON *c = NULL;
-                    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(d, "commands")) {
-                        const char *nm = cJSON_IsString(c) ? c->valuestring : NULL;
-                        if (!nm) {
-                            const cJSON *nj = cJSON_GetObjectItemCaseSensitive(c, "name");
-                            nm = (nj && cJSON_IsString(nj)) ? nj->valuestring : NULL;
-                        }
-                        if (nm && strlen(nm) == 1 && nm[0] >= '0' && nm[0] <= '9') {
-                            snprintf(out, cap, "%s", did);
-                            return 1;
-                        }
+        /* the same device list as the configuration object: sequence steps plus deviceIds */
+        char ids[16][32];
+        int nids = hbus_activity_devices(a, ids);
+        for (int s = 0; s < nids; s++) {
+            const char *did = ids[s];
+            cJSON *d = NULL;
+            cJSON_ArrayForEach(d, devs) {
+                const cJSON *ij = cJSON_GetObjectItemCaseSensitive(d, "id");
+                char xid[32] = "";
+                if (ij && cJSON_IsString(ij) && ij->valuestring) snprintf(xid, sizeof(xid), "%s", ij->valuestring);
+                else if (ij && cJSON_IsNumber(ij)) snprintf(xid, sizeof(xid), "%ld", (long)ij->valuedouble);
+                if (strcmp(xid, did) != 0) continue;
+                const cJSON *c = NULL;
+                cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(d, "commands")) {
+                    const char *nm = cJSON_IsString(c) ? c->valuestring : NULL;
+                    if (!nm) {
+                        const cJSON *nj = cJSON_GetObjectItemCaseSensitive(c, "name");
+                        nm = (nj && cJSON_IsString(nj)) ? nj->valuestring : NULL;
+                    }
+                    if (nm && strlen(nm) == 1 && nm[0] >= '0' && nm[0] <= '9') {
+                        snprintf(out, cap, "%s", did);
+                        return 1;
                     }
                 }
             }
@@ -579,6 +587,7 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
     }
     if (ev->type == HUB_EV_CONFIG_CHANGED) {
         /* A new configVersion makes the clients refetch the configuration */
+        inventory_refresh();
         char cur[32];
         current_numeric(cur, sizeof(cur));
         broadcast_digest(cur, current_status());
@@ -588,7 +597,10 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
 /* ------------------------------------------------------------------------------------------ */
 /* Main loop tick */
 
+static void apply_pending_settings(void);
+
 void hbus_tick(void) {
+    apply_pending_settings();
     int fds[WS_MAX_CLIENTS];
     int n = 0;
     pthread_mutex_lock(&g_new_lock);
@@ -761,6 +773,7 @@ int hbus_init(int port) {
         config_store_get_settings(&g_settings);
         g_have_settings = 1;
     }
+    inventory_refresh();
     g_initialized = 1;
     if (g_settings.legacy_enabled) start();
     return (g_settings.legacy_enabled && g_listen_fd < 0) ? -1 : 0;
@@ -772,10 +785,25 @@ int hbus_listen_fd(void) {
 
 void hbus_apply_settings(const struct hub_settings *s) {
     if (!s) return;
-    g_settings = *s;
+    pthread_mutex_lock(&g_settings_lock);
+    g_settings_next = *s;
+    g_settings_pending = 1;
+    pthread_mutex_unlock(&g_settings_lock);
+}
+
+/* Main loop: take over saved settings, start or stop the listener */
+static void apply_pending_settings(void) {
+    pthread_mutex_lock(&g_settings_lock);
+    if (!g_settings_pending) {
+        pthread_mutex_unlock(&g_settings_lock);
+        return;
+    }
+    g_settings = g_settings_next;
+    g_settings_pending = 0;
+    pthread_mutex_unlock(&g_settings_lock);
     g_have_settings = 1;
     if (!g_initialized) return;
-    if (s->legacy_enabled) start();
+    if (g_settings.legacy_enabled) start();
     else stop();
 }
 

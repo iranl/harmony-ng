@@ -300,7 +300,10 @@ int ws_send_text(int client_fd, const char *text) {
         header[3] = (uint8_t)(payload_len & 0xFF);
         hlen = 4;
     } else {
-        return -1;
+        /* RFC 6455 64-bit length: a stock configuration object with many devices passes 64 KB */
+        header[1] = 127;
+        for (int i = 0; i < 8; i++) header[2 + i] = (uint8_t)(((uint64_t)payload_len >> (8 * (7 - i))) & 0xFF);
+        hlen = 10;
     }
 
     int rc = 0;

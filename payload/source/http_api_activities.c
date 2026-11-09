@@ -198,6 +198,12 @@ static void device_name(const char *id, char *out, size_t len) {
     }
 }
 
+/* The "error" string of a Help reply, or a plain text when the reply has none (out of memory) */
+static const char *help_error_text(const cJSON *resp) {
+    const cJSON *e = resp ? cJSON_GetObjectItemCaseSensitive(resp, "error") : NULL;
+    return (e && cJSON_IsString(e) && e->valuestring) ? e->valuestring : "Error";
+}
+
 int http_api_activities_handle(int client_fd, const char *method, const char *clean_path,
                                const char *query, const char *body, const char *req) {
     (void)query;
@@ -314,7 +320,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         int code = activity_help_start(req_j, &resp);
         cJSON_Delete(req_j);
         if (code == 200) send_cjson_resp(client_fd, 200, resp);
-        else send_json_error(client_fd, code, cJSON_GetObjectItemCaseSensitive(resp, "error")->valuestring);
+        else send_json_error(client_fd, code, help_error_text(resp));
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -328,7 +334,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         int code = activity_help_answer(req_j, &resp);
         cJSON_Delete(req_j);
         if (code == 200) send_cjson_resp(client_fd, 200, resp);
-        else send_json_error(client_fd, code, cJSON_GetObjectItemCaseSensitive(resp, "error")->valuestring);
+        else send_json_error(client_fd, code, help_error_text(resp));
         cJSON_Delete(resp);
         close(client_fd);
         return 1;

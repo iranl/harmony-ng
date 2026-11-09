@@ -189,7 +189,7 @@ static const cJSON *find_device(cJSON *devs, const char *id) {
 }
 
 /* Device ids an activity uses: its sequences' steps plus an optional deviceIds list */
-static int activity_devices(const cJSON *act, char ids[16][32]) {
+int hbus_activity_devices(const cJSON *act, char ids[16][32]) {
     int n = 0;
     const char *seqs[2] = { "startSequence", "stopSequence" };
     for (int s = 0; s < 2; s++) {
@@ -239,7 +239,7 @@ static cJSON *make_activity(const cJSON *act, cJSON *devs, int is_power_off) {
     cJSON *fixit = cJSON_AddObjectToObject(a, "fixit");
     if (!is_power_off) {
         char ids[16][32];
-        int n = activity_devices(act, ids);
+        int n = hbus_activity_devices(act, ids);
         for (int i = 0; i < n; i++) {
             const cJSON *dev = find_device(devs, ids[i]);
             if (!dev) continue;

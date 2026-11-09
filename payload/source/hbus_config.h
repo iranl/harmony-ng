@@ -24,6 +24,8 @@ int hbus_resolve_id(const char *numeric, char *out, size_t cap);
 
 /* First 8 hex digits of the SHA-256 over devices.json and activities.json */
 void hbus_inventory_version(char out[9]);
+/* Device ids an activity uses: its sequences' steps plus its deviceIds list; at most 16 */
+int hbus_activity_devices(const cJSON *act, char ids[16][32]);
 
 /* The configuration object (activity, device, global, content, sequence). remote_id is the
  * activeRemoteId; version the inventory version for global.timeStampHash. */

@@ -125,7 +125,8 @@ def main():
         check(h2.get("ST") == URN and h2.get("USN") == usn, "ssdp:all answered with the harmony URN", str(h2.get("ST")))
         r3 = msearch("upnp:rootdevice")
         _, h3 = headers(r3)
-        check(h3.get("ST") == "upnp:rootdevice" and h3.get("USN") == usn, "upnp:rootdevice answered", str(h3.get("ST")))
+        check(h3.get("ST") == "upnp:rootdevice" and h3.get("USN") == "uuid:%s::upnp:rootdevice" % uuid_v5,
+              "upnp:rootdevice answered, USN trails upnp:rootdevice (UPnP 1.0)", str(h3.get("USN")))
         r4 = msearch("urn:schemas-upnp-org:device:MediaRenderer:1")
         check(r4 == "", "other search targets get no reply", r4[:40])
         # same uuid on a restart: derived from hub_id

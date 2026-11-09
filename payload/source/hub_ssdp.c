@@ -75,6 +75,8 @@ static void active_ip(char *out, size_t cap) {
 
 int hub_ssdp_build_response(const char *st, const char *ip, int shim_port, char *out, size_t cap) {
     const char *reply_st = (st && strcasecmp(st, "ssdp:all") != 0) ? st : SSDP_URN;
+    /* UPnP 1.0: the USN trails the ST it answers; for the root device that is upnp:rootdevice */
+    const char *usn_tail = strcasecmp(reply_st, "upnp:rootdevice") == 0 ? "upnp:rootdevice" : SSDP_URN;
     int n = snprintf(out, cap,
                      "HTTP/1.1 200 OK\r\n"
                      "CACHE-CONTROL: max-age=%d\r\n"
@@ -84,7 +86,7 @@ int hub_ssdp_build_response(const char *st, const char *ip, int shim_port, char 
                      "ST: %s\r\n"
                      "USN: uuid:%s::%s\r\n"
                      "\r\n",
-                     SSDP_MAX_AGE, ip, shim_port, HARMONY_VERSION, reply_st, hub_ssdp_uuid(), SSDP_URN);
+                     SSDP_MAX_AGE, ip, shim_port, HARMONY_VERSION, reply_st, hub_ssdp_uuid(), usn_tail);
     return (n > 0 && (size_t)n < cap) ? n : -1;
 }
 
