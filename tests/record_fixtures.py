@@ -262,8 +262,8 @@ def main():
                 write_json(args.out, "mqtt_cmd_response.json", {
                     "request": {"id": "c7d1", "action": "start_activity", "activity": "10"},
                     "response": json.loads(m[1]) if m else None,
-                    "busy_request": {"id": "c7d2", "action": "start_activity", "activity": "11"},
-                    "busy_response": json.loads(m2[1]) if m2 else None,
+                    "queued_request": {"id": "c7d2", "action": "start_activity", "activity": "11"},
+                    "queued_response": json.loads(m2[1]) if m2 else None,
                 })
                 cmd.close()
                 obs.close()

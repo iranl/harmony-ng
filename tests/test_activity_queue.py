@@ -7,6 +7,8 @@ Activity requests while a transition runs are queued, not refused (orchestrator)
   ends idle and activity 11 never starts)
 - a request for the transition's own target is not queued; an unknown activity is a 500, not queued
 - the WebSocket command channel answers ok with state "queued" (and names the action it was called by)
+- the activity_state event carries the queued id: one event when the power off is queued (state
+  still starting, queued "-1"), none before, queued null again from the event of the queued stop on
 The daemon runs with --dry-run; the start sequence of the test activity has a 1.5 s delay.
 """
 
@@ -71,15 +73,35 @@ def main():
     try:
         with HubHarness(port=PORT, config_dir=cfg, log_path=log_path) as hub:
             print("[-] power off during a start")
+            ev = hub.ws()
+            snap = ev.recv_json(5)  # snapshot
+            check(snap is not None and snap.get("type") == "snapshot" and "queued" in snap.get("activity_state", {}),
+                  "the snapshot's activity_state has the queued field", str(snap)[:200])
             st, r = hub.http_post("/api/activity", {"activity": "12"})
             check(st == 200 and r.get("state") == "starting", "start 12 accepted", "%s %s" % (st, r))
+            m, seen = ev.wait_for("activity_state", 5, lambda m: m.get("stateName") == "starting")
+            check(m is not None and m.get("queued") is None, "activity_state starting, queued null", str(m))
             time.sleep(0.3)
             st, r = hub.http_post("/api/poweroff", {})
             check(st == 200 and r.get("state") == "queued", "power off during the start: 200, queued", "%s %s" % (st, r))
             s = state_of(hub)
             check(s.get("busy") is True and s.get("queued") == "-1", "GET /api/activity: busy, queued -1", str(s))
+            m, seen = ev.wait_for("activity_state", 5)
+            check(m is not None and m.get("stateName") == "starting" and m.get("activity") == "-1"
+                  and m.get("queued") == "-1" and m.get("busy") is True,
+                  "activity_state event for the queued power off: still starting, queued -1", str(m))
+            st, r = hub.http_post("/api/poweroff", {})
+            check(st == 200 and r.get("state") == "queued", "asking again: still queued")
             s = wait_for(hub, lambda s: str(s.get("activity")) == "-1" and s.get("state") == 0 and not s.get("busy"))
             check(s is not None and s.get("queued") is None, "the queued power off ran: idle, queue empty", str(state_of(hub)))
+            m, seen = ev.wait_for("activity_state", 5, lambda m: m.get("stateName") == "idle")
+            names = [(x.get("stateName"), x.get("queued")) for x in seen if x.get("type") == "activity_state"]
+            check(m is not None and m.get("queued") is None, "activity_state idle, queued null", str(names))
+            # the repeated power off (same queued id) sent no event; the completion of 12 carries the
+            # queued id, then the queued stop starts: stopping and idle with queued null
+            check(names == [("running", "-1"), ("stopping", None), ("idle", None)],
+                  "event sequence: running (queued -1), stopping, idle; no event for the repeated request", str(names))
+            ev.close()
             # the queued power off starts the instant the start completes, so "12 running" is not
             # observable over REST: the order of the steps in the log shows the start finished first
             log = open(log_path, errors="replace").read()

@@ -19,25 +19,26 @@
     ],
     "legacy_enabled": false,
     "mdns_enabled": true,
-    "boot_time": 1794174076,
+    "boot_time": 1794174077,
     "ir_capture": false,
     "auth_enabled": false,
-    "uptime_sec": 53255
+    "uptime_sec": 77108
   },
   "activity_state": {
     "type": "activity_state",
     "seq": 1,
-    "ts": 1794227330,
+    "ts": 1794251183,
     "activity": "-1",
     "state": 0,
     "stateName": "idle",
     "busy": false,
-    "sending": false
+    "sending": false,
+    "queued": null
   },
   "bt_status": {
     "type": "bt_status",
     "seq": 3,
-    "ts": 1794227331,
+    "ts": 1794251184,
     "backend": "btstack",
     "pid": 1,
     "state": "connecting",
@@ -78,7 +79,7 @@
   "rf_status": {
     "type": "rf_status",
     "seq": 4,
-    "ts": 1794227331,
+    "ts": 1794251185,
     "running": true,
     "ok": true,
     "fw_version": "v39.00",
@@ -169,7 +170,7 @@
   "mqtt_status": {
     "type": "mqtt_status",
     "seq": 2,
-    "ts": 1794227330,
+    "ts": 1794251183,
     "enabled": false,
     "connected": false,
     "broker": "",
@@ -179,12 +180,12 @@
   },
   "config": {
     "files": {
-      "devices": 1794227330,
-      "activities": 1794227330,
-      "settings": 1794227330,
-      "remote_map": 1794227330
+      "devices": 1794251183,
+      "activities": 1794251183,
+      "settings": 1794251183,
+      "remote_map": 1794251183
     }
   },
   "seq": 4,
-  "ts": 1794227331
+  "ts": 1794251185
 }

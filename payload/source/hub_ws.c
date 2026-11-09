@@ -44,6 +44,9 @@ static cJSON *snapshot_activity_state(void) {
                                              s == ORCH_STATE_STOPPING ? "stopping" : "idle");
     cJSON_AddBoolToObject(st, "busy", orch_is_busy() ? 1 : 0);
     cJSON_AddBoolToObject(st, "sending", orch_is_sending() ? 1 : 0);
+    char queued[32];
+    if (orch_get_queued_activity(queued, sizeof(queued))) cJSON_AddStringToObject(st, "queued", queued);
+    else cJSON_AddNullToObject(st, "queued");
     return st;
 }
 

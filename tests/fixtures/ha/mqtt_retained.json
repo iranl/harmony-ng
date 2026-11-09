@@ -2,17 +2,18 @@
   "harmony/hub/activity_state": {
     "type": "activity_state",
     "seq": 1,
-    "ts": 1794227335,
+    "ts": 1794251188,
     "activity": "-1",
     "state": 0,
     "stateName": "idle",
     "busy": false,
-    "sending": false
+    "sending": false,
+    "queued": null
   },
   "harmony/hub/bt": {
     "type": "bt_status",
     "seq": 4,
-    "ts": 1794227336,
+    "ts": 1794251189,
     "backend": "btstack",
     "pid": 1,
     "state": "connecting",
@@ -53,13 +54,13 @@
   "harmony/hub/config": {
     "type": "config",
     "files": {
-      "devices": 1794227335,
-      "activities": 1794227335,
-      "settings": 1794227335,
-      "remote_map": 1794227335
+      "devices": 1794251188,
+      "activities": 1794251188,
+      "settings": 1794251188,
+      "remote_map": 1794251188
     },
     "inventory_version": "504af5ca",
-    "ts": 1794227335
+    "ts": 1794251188
   },
   "harmony/hub/hub": {
     "type": "hub",
@@ -81,16 +82,16 @@
     ],
     "legacy_enabled": false,
     "mdns_enabled": true,
-    "boot_time": 1794174077,
+    "boot_time": 1794174076,
     "ir_capture": false,
     "auth_enabled": false,
-    "uptime_sec": 53258,
+    "uptime_sec": 77112,
     "ip": "192.0.2.10",
     "device_count": 2,
     "command_count": 8,
     "ha_discovery": true,
     "discovery_prefix": "homeassistant",
-    "ts": 1794227335
+    "ts": 1794251188
   },
   "harmony/hub/inventory/1": {
     "type": "inventory_device",
@@ -159,7 +160,7 @@
   "harmony/hub/rf": {
     "type": "rf_status",
     "seq": 5,
-    "ts": 1794227336,
+    "ts": 1794251190,
     "running": true,
     "ok": true,
     "fw_version": "v39.00",

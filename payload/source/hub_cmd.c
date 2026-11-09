@@ -429,6 +429,9 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
                                                 st == ORCH_STATE_STOPPING ? "stopping" : "idle");
         cJSON_AddBoolToObject(r, "busy", orch_is_busy() ? 1 : 0);
         cJSON_AddBoolToObject(r, "sending", orch_is_sending() ? 1 : 0);
+        char queued[32];
+        if (orch_get_queued_activity(queued, sizeof(queued))) cJSON_AddStringToObject(r, "queued", queued);
+        else cJSON_AddNullToObject(r, "queued");
         return r;
     }
     if (strcmp(action, "get_snapshot") == 0) {

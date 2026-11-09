@@ -92,11 +92,13 @@ static void load_current_activity(void) {
     }
 }
 
-/* Activity state event (spec 3.2): one HUB_EV_ACTIVITY_STATE per change of state or activity,
- * same shape as the WebSocket get_state reply and GET /api/activity. The first call (from
- * orch_init) always emits, so sinks have a baseline. Callers may hold g_act_lock. */
+/* Activity state event (spec 3.2): one HUB_EV_ACTIVITY_STATE per change of state, activity or
+ * queued request, same shape as the WebSocket get_state reply and GET /api/activity. The first
+ * call (from orch_init) always emits, so sinks have a baseline. Callers may hold g_act_lock;
+ * the queue paths call set_state(g_state) under it to publish a queue change alone. */
 static int g_last_emitted_state = -1;
 static char g_last_emitted_act[32] = "";
+static char g_last_emitted_queued[32] = "";
 
 static const char *orch_state_name(orch_state_t st) {
     switch (st) {
@@ -109,10 +111,13 @@ static const char *orch_state_name(orch_state_t st) {
 
 static void set_state(orch_state_t st) {
     g_state = st;
-    if ((int)st == g_last_emitted_state && strcmp(g_current_act, g_last_emitted_act) == 0) return;
+    if ((int)st == g_last_emitted_state && strcmp(g_current_act, g_last_emitted_act) == 0 &&
+        strcmp(g_queued_act, g_last_emitted_queued) == 0) return;
     g_last_emitted_state = (int)st;
     strncpy(g_last_emitted_act, g_current_act, sizeof(g_last_emitted_act) - 1);
     g_last_emitted_act[sizeof(g_last_emitted_act) - 1] = '\0';
+    strncpy(g_last_emitted_queued, g_queued_act, sizeof(g_last_emitted_queued) - 1);
+    g_last_emitted_queued[sizeof(g_last_emitted_queued) - 1] = '\0';
     cJSON *p = cJSON_CreateObject();
     if (!p) return;
     cJSON_AddStringToObject(p, "activity", g_current_act[0] ? g_current_act : ORCH_POWEROFF_ID);
@@ -120,6 +125,9 @@ static void set_state(orch_state_t st) {
     cJSON_AddStringToObject(p, "stateName", orch_state_name(st));
     cJSON_AddBoolToObject(p, "busy", (st == ORCH_STATE_STARTING || st == ORCH_STATE_STOPPING) ? 1 : 0);
     cJSON_AddBoolToObject(p, "sending", (g_queue_len > 0 || g_bg_len > 0) ? 1 : 0);
+    /* the request queued behind the running transition, null when none (spec 3.2, #105) */
+    if (g_queued_act[0]) cJSON_AddStringToObject(p, "queued", g_queued_act);
+    else cJSON_AddNullToObject(p, "queued");
     hub_events_emit(HUB_EV_ACTIVITY_STATE, p);
 }
 
@@ -184,6 +192,9 @@ static void orch_start_queued(void) {
     pthread_mutex_unlock(&g_act_lock);
     if (strcmp(next, g_current_act) == 0) {
         printf("[*] Orch: queued request %s is the activity reached, nothing to do\n", next);
+        pthread_mutex_lock(&g_act_lock);
+        set_state(g_state); /* publishes the emptied queue */
+        pthread_mutex_unlock(&g_act_lock);
         return;
     }
     printf("[*] Orch: starting the queued request %s\n", next);
@@ -491,6 +502,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         }
         if (strcmp(target_activity_id, g_target_act) == 0) {
             g_queued_act[0] = '\0'; /* the running transition already goes there */
+            set_state(g_state);     /* publishes the emptied queue (no event when it was empty) */
             pthread_mutex_unlock(&g_act_lock);
             return 0;
         }
@@ -498,6 +510,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         if (changed) {
             strncpy(g_queued_act, target_activity_id, sizeof(g_queued_act) - 1);
             g_queued_act[sizeof(g_queued_act) - 1] = '\0';
+            set_state(g_state); /* same state and activity: the event carries the new queued id */
         }
         char running[32];
         snprintf(running, sizeof(running), "%s", g_target_act);

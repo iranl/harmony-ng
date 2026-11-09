@@ -109,7 +109,7 @@ paths:
           ir_capture: {reply: ack, fields: [enabled]}
         pushed:
           activity_state:
-            example: {type: activity_state, seq: 17, ts: 1762387200, activity: "123456", state: 2, stateName: running, busy: false, sending: true}
+            example: {type: activity_state, seq: 17, ts: 1762387200, activity: "123456", state: 2, stateName: running, busy: false, sending: true, queued: null}
           activity_progress:
             example: {type: activity_progress, seq: 18, ts: 1762387200, activity: "123456", activityId: "123456", state: starting, stateCode: 1, step: 2, currentStep: 2, total: 6, totalSteps: 6, desc: TV PowerOn, stepDesc: TV PowerOn}
           config_changed:
@@ -134,7 +134,7 @@ paths:
             example:
               type: snapshot
               hub: {hub_id: "20140101120000-000001", hub_name: Living Room Hub, version: 2.2.0, api_version: 2, capabilities: [events, snapshot, ws_auth, ws_keepalive, ir_raw, rf_wake], auth_enabled: false, uptime_sec: 34821, boot_time: 1762352379, legacy_enabled: false, mdns_enabled: false, ir_capture: false}
-              activity_state: {type: activity_state, activity: "-1", state: 0, stateName: idle, busy: false, sending: false, seq: 3, ts: 1762387100}
+              activity_state: {type: activity_state, activity: "-1", state: 0, stateName: idle, busy: false, sending: false, queued: null, seq: 3, ts: 1762387100}
               bt_status: null
               rf_status: null
               config: {files: {devices: 1762387000, activities: 1762387000, settings: 1762380000, remote_map: 1762387000}}
@@ -1153,7 +1153,7 @@ paths:
       tags:
         - Activities
       summary: Current activity and state
-      description: Returns active activity ID, state, busy status (interlock held), and sending flag (pending command transmission). Also available under /api/current_activity.
+      description: Returns active activity ID, state, busy status (interlock held), sending flag (pending command transmission) and the request queued behind the running transition (null when none). Also available under /api/current_activity.
       responses:
         '200':
           description: Current activity ID and orchestrator state
@@ -1163,6 +1163,7 @@ paths:
                 activity: "-1"
                 state: 0
                 busy: false
+                queued: null
                 sending: false
     post:
       tags:

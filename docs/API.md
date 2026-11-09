@@ -572,7 +572,8 @@ Switches to or starts the target activity sequence.
 - While a transition runs, the request is queued and starts when that transition has completed:
   the reply is `{"success": true, "state": "queued"}`. One request is queued at a time, the latest
   replaces an earlier one, and a request for the running transition's own target drops the queue.
-  `GET /api/activity` shows the queued id in `queued` (`null` when none).
+  `GET /api/activity` shows the queued id in `queued` (`null` when none), and so does the
+  `activity_state` event (10.8), sent whenever the queue changes.
 - **Error `500`**: unknown activity (nothing is queued for it either), or the transition could not be built.
 
 ### 4.4 Stop Activity / Power Off
@@ -1577,18 +1578,23 @@ a client that connects later: it fetches the current state over REST (or the `sn
 10.10). A client that fails a send is dropped.
 
 #### 10.8 Activity State
-Sent on every change of the orchestrator state or of the current activity, including cancel and
-dry runs, and once at daemon start. Same shape as the `get_state` reply and `GET /api/activity`.
+Sent on every change of the orchestrator state, of the current activity or of the queued request
+(4.3), including cancel and dry runs, and once at daemon start. Same shape as the `get_state` reply
+and `GET /api/activity`. `queued` is the id of the request waiting behind the running transition,
+`null` when none: a start or power off asked while `busy` is true sets it, the next request replaces
+it, and it goes back to `null` when the queued request starts (the following event is its `starting`
+or `stopping`) or is dropped.
 ```json
 {
   "type": "activity_state",
   "seq": 17,
   "ts": 1762387200,
   "activity": "123456",
-  "state": 2,
-  "stateName": "running",
-  "busy": false,
-  "sending": true
+  "state": 1,
+  "stateName": "starting",
+  "busy": true,
+  "sending": true,
+  "queued": "-1"
 }
 ```
 - `state`: `0` idle, `1` starting, `2` running, `3` stopping; `stateName` is the same as a word.
@@ -1701,7 +1707,7 @@ refetch over REST. The frame can exceed 4 KB (outbound frames may be up to 64 KB
           "api_version": 2, "capabilities": ["events", "snapshot", "ws_auth", "ws_keepalive", "ir_raw", "rf_wake"],
           "auth_enabled": false, "uptime_sec": 34821, "boot_time": 1762352379, "legacy_enabled": false, "mdns_enabled": false,
           "ir_capture": false},
-  "activity_state": {"type": "activity_state", "activity": "-1", "state": 0, "stateName": "idle", "busy": false, "sending": false, "seq": 3, "ts": 1762387100},
+  "activity_state": {"type": "activity_state", "activity": "-1", "state": 0, "stateName": "idle", "busy": false, "sending": false, "queued": null, "seq": 3, "ts": 1762387100},
   "bt_status": {"type": "bt_status", "seq": 20, "ts": 1762387200, "...": "..."},
   "rf_status": {"type": "rf_status", "seq": 21, "ts": 1762387200, "...": "..."},
   "mqtt_status": {"type": "mqtt_status", "seq": 23, "ts": 1762387200, "enabled": true, "connected": true, "...": "..."},
