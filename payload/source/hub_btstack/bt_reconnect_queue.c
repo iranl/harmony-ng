@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static uint8_t s_q[RQ_MAX][6];
 static int s_n;
@@ -61,8 +62,11 @@ int bt_hosts_file_write(const char *path, const uint8_t (*addrs)[6], int n) {
         const uint8_t *a = addrs[i];
         fprintf(f, "%02X:%02X:%02X:%02X:%02X:%02X\n", a[0], a[1], a[2], a[3], a[4], a[5]);
     }
-    if (fclose(f) != 0) return -1;
-    return rename(tmp, path) == 0 ? 0 : -1;
+    if (fclose(f) != 0 || rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
 }
 
 int bt_hosts_file_read(const char *path, uint8_t (*out)[6], int max) {

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 static int g_fail;
 #define CHECK(c, m) do { if (!(c)) { g_fail++; printf("  FAIL %s (line %d)\n", m, __LINE__); } else printf("  PASS %s\n", m); } while (0)
@@ -63,6 +64,13 @@ int main(void) {
     fclose(f);
     CHECK(bt_hosts_file_read(path, rd, 4) == 1 && memcmp(rd[0], A, 6) == 0, "bad lines, null and duplicate addresses ignored");
     unlink(path);
+    /* A failed rename leaves no temporary file behind: the target is a directory */
+    char sub[160], tmpf[176];
+    snprintf(sub, sizeof(sub), "%s/sub", dir);
+    snprintf(tmpf, sizeof(tmpf), "%s.new", sub);
+    CHECK(mkdir(sub, 0700) == 0 && bt_hosts_file_write(sub, two, 2) == -1 && access(tmpf, F_OK) != 0,
+          "write fails on a directory and removes its temporary file");
+    rmdir(sub);
     rmdir(dir);
 
     printf("%s\n", g_fail ? "bt_reconnect_queue: FAILED" : "bt_reconnect_queue: all passed");

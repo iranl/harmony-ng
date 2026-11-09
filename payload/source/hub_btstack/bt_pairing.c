@@ -719,7 +719,9 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
 
     set_host_manual_disconnect(target, false);
     /* Before the controller is ready a connection attempt goes nowhere: wait for it (the
-     * hosts waiting are started from bt_hosts_restore_after_start) */
+     * hosts waiting are started from bt_hosts_restore_after_start). Only an address waits:
+     * every caller passes one (the activity's, pinned or requested host), none asks for a
+     * loop over all hosts. */
     if (hci_get_state() != HCI_STATE_WORKING) {
         if (rq_push(target)) {
             char dmsg[96];
