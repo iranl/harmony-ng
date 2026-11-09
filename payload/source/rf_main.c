@@ -97,7 +97,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
             static uint32_t s_last_sync_ms = 0;
             uint32_t now_ms = (uint32_t)get_monotonic_ms();
-            if (!is_ota_busy() && (now_ms - s_last_sync_ms > 5000)) {
+            if (!is_ota_busy() && !is_activity_transitioning() && (now_ms - s_last_sync_ms > 5000)) {
                 s_last_sync_ms = now_ms;
                 char cur[32] = "-1";
                 get_current_activity(cur, sizeof(cur));

@@ -625,7 +625,7 @@ void *activity_sync_worker(void *arg) {
         char cur_act[32] = "-1";
         get_current_activity(cur_act, sizeof(cur_act));
         if (strcmp(cur_act, last_act) != 0) {
-            if (!is_ota_busy()) {
+            if (!is_activity_transitioning() && !is_ota_busy()) {
                 strncpy(last_act, cur_act, sizeof(last_act) - 1);
                 last_act[sizeof(last_act) - 1] = '\0';
                 rf_send_hub_activity_sync_seq(cur_act, ++g_tx_seq);

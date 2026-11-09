@@ -26,6 +26,8 @@
 extern int g_log_level;
 #define RF_LOG(level, fmt, ...) do { if (g_log_level >= (level)) { printf(fmt, ##__VA_ARGS__); fflush(stdout); } } while (0)
 
+int is_activity_transitioning(void);
+
 /* Hardware family of a paired remote. The EquadID the Hub's CC2544 reports per slot names the
  * family, not the product: every touchscreen remote (Ultimate, Ultimate One, Ultimate Home,
  * Elite, 950) is "Juniper" 0x4021, and its product comes from the skin id it reports

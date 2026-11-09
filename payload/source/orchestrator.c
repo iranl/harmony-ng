@@ -115,6 +115,11 @@ static const char *orch_state_name(orch_state_t st) {
 
 static void set_state(orch_state_t st) {
     g_state = st;
+    FILE *fs = fopen("/tmp/activity_state", "w");
+    if (fs) {
+        fprintf(fs, "%s\n", orch_state_name(st));
+        fclose(fs);
+    }
     if ((int)st == g_last_emitted_state && strcmp(g_current_act, g_last_emitted_act) == 0 &&
         strcmp(g_queued_act, g_last_emitted_queued) == 0) return;
     g_last_emitted_state = (int)st;
@@ -143,6 +148,7 @@ int orch_init(void) {
     memset(g_bg_queue, 0, sizeof(g_bg_queue));
     pthread_mutex_lock(&g_act_lock);
     load_current_activity();
+    save_current_activity(g_current_act);
     /* Emits the baseline activity_state event */
     set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
     pthread_mutex_unlock(&g_act_lock);
@@ -330,6 +336,9 @@ int orch_tick(void) {
         for (size_t b = 0; b < g_bg_len; b++) {
             if (!g_bg_queue[b].executed) {
                 if (g_bg_queue[b].target_time_ms > 0 && now >= g_bg_queue[b].target_time_ms) {
+                    printf("[*] Orch bg step %zu/%zu: %s (type=%d)\n",
+                           b + 1, g_bg_len, g_bg_queue[b].step.description, g_bg_queue[b].step.type);
+                    fflush(stdout);
                     execute_step(&g_bg_queue[b].step);
                     g_bg_queue[b].executed = 1;
                 } else {

@@ -110,6 +110,19 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
+int is_activity_transitioning(void) {
+    FILE *fs = fopen("/tmp/activity_state", "r");
+    if (fs) {
+        char st[32] = "";
+        int r = (fscanf(fs, "%31s", st) == 1);
+        fclose(fs);
+        if (r && (strcmp(st, "starting") == 0 || strcmp(st, "stopping") == 0)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static cJSON *get_remote_map_unlocked(uint8_t slot) {
     if (slot < 1 || slot > 2) slot = 1;
     int idx = slot - 1;
