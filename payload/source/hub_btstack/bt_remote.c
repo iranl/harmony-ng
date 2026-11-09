@@ -155,23 +155,20 @@ char *read_entire_file(const char *path) {
     return buf;
 }
 
-cJSON *get_cached_map(void) {
-    struct stat st;
-    if (stat(MAP_FILE, &st) != 0) return NULL;
-    if (g_cached_map_json && st.st_mtime == g_map_mtime && st.st_size == g_map_size) {
-        return g_cached_map_json;
-    }
+void bt_remote_invalidate_map(void) {
     if (g_cached_map_json) {
         cJSON_Delete(g_cached_map_json);
         g_cached_map_json = NULL;
     }
+}
+
+cJSON *get_cached_map(void) {
+    if (g_cached_map_json) return g_cached_map_json;
     char *buf = read_entire_file(MAP_FILE);
     if (buf) {
         g_cached_map_json = cJSON_Parse(buf);
         free(buf);
     }
-    g_map_mtime = st.st_mtime;
-    g_map_size = st.st_size;
     return g_cached_map_json;
 }
 
@@ -195,7 +192,7 @@ int is_bt_device_id(const char *target) {
     if (!target || !target[0]) return 0;
     if (strncmp(target, "bt", 2) == 0 || strcasecmp(target, "bluetooth") == 0 || strcasecmp(target, "bthid") == 0) return 1;
 
-    #define BT_DEV_CACHE_SZ 4
+    #define BT_DEV_CACHE_SZ 32
     static struct {
         char id[64];
         int is_bt;

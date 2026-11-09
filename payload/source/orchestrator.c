@@ -58,6 +58,9 @@ static void save_current_activity(const char *act_id) {
         fprintf(ft, "%s\n", act_id);
         fclose(ft);
     }
+    static char s_last_persisted_act[64] = "";
+    if (strcmp(s_last_persisted_act, act_id) == 0) return;
+
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "%s.tmp", PRIMARY_CURRENT_ACT_FILE);
     FILE *f = fopen(tmp, "w");
@@ -65,6 +68,7 @@ static void save_current_activity(const char *act_id) {
     fprintf(f, "%s\n", act_id);
     fclose(f);
     rename(tmp, PRIMARY_CURRENT_ACT_FILE);
+    strncpy(s_last_persisted_act, act_id, sizeof(s_last_persisted_act) - 1);
 }
 
 /* hub_btstack reads /tmp/current_activity to decide whether a host may reconnect ("-1" = no).

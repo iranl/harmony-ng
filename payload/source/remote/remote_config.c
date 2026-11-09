@@ -547,8 +547,26 @@ void save_rf_config(void) {
 
     char *json = cJSON_PrintUnformatted(root);
     if (json) {
-        FILE *f = fopen(RF_CONFIG_FILE, "w");
-        if (f) { fputs(json, f); fclose(f); }
+        char *existing = NULL;
+        FILE *rf = fopen(RF_CONFIG_FILE, "r");
+        if (rf) {
+            fseek(rf, 0, SEEK_END);
+            long sz = ftell(rf);
+            fseek(rf, 0, SEEK_SET);
+            if (sz > 0 && sz < 524288) {
+                existing = malloc(sz + 1);
+                if (existing) {
+                    size_t rd = fread(existing, 1, sz, rf);
+                    existing[rd] = '\0';
+                }
+            }
+            fclose(rf);
+        }
+        if (!existing || strcmp(existing, json) != 0) {
+            FILE *f = fopen(RF_CONFIG_FILE, "w");
+            if (f) { fputs(json, f); fclose(f); }
+        }
+        if (existing) free(existing);
         free(json);
     }
     cJSON_Delete(root);
@@ -899,6 +917,9 @@ void load_settings_conf(void) {
             else if (strcmp(key, "order") == 0) {
                 g_activity_order = strcmp(sval, "used") == 0 ? ACTIVITY_ORDER_MOST_USED : ACTIVITY_ORDER_YOURS;
             }
+            else if (strcmp(key, "debug_logging") == 0 || strcmp(key, "power_debug") == 0) {
+                g_debug_logging = (val != 0);
+            }
             else if (strcmp(key, "slot") == 0) g_remote_slot = (val >= 1 && val <= 15) ? (uint8_t)val : 0x01;
             else if (strcmp(key, "tz") == 0) {
                 expand_timezone(sval, g_timezone_str, sizeof(g_timezone_str));
@@ -909,38 +930,91 @@ void load_settings_conf(void) {
     }
     fclose(f);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
+        g_debug_logging = true;
         g_log_level = LOG_LEVEL_DEBUG;
     }
 }
 
 void save_settings_conf(void) {
-    FILE *f = fopen(SETTINGS_CONFIG_FILE, "w");
-    if (!f) return;
-    fprintf(f, "touch=%d\n", g_touch_enabled ? 1 : 0);
-    fprintf(f, "physical_nav=%d\n", g_physical_nav_enabled ? 1 : 0);
-    fprintf(f, "cap_buttons=%d\n", g_cap_buttons_enabled ? 1 : 0);
-    fprintf(f, "touch_sens=%d\n", g_touch_sensitivity);
-    fprintf(f, "gyro=%d\n", g_gyro_enabled ? 1 : 0);
-    fprintf(f, "gyro_rate=%d\n", g_gyro_rate_hz);
-    fprintf(f, "deep_standby=%d\n", g_deep_standby_min);
-    fprintf(f, "btn_backlight=%d\n", g_btn_backlight_mode);
-    fprintf(f, "night_start=%d\n", g_night_start_hour);
-    fprintf(f, "night_end=%d\n", g_night_end_hour);
-    fprintf(f, "timeout=%d\n", g_timeout_seconds);
-    fprintf(f, "brightness=%d\n", g_brightness_val);
-    fprintf(f, "screen=1\n");
-    fprintf(f, "no_screen=%d\n", g_no_screen_mode ? 1 : 0);
-    fprintf(f, "log_level=%d\n", g_log_level);
-    fprintf(f, "key_hint=%d\n", g_key_hint_pending ? 1 : 0);
-    fprintf(f, "confirm_act=%d\n", g_confirm_activity ? 1 : 0);
-    fprintf(f, "slot=%d\n", g_remote_slot);
-    fprintf(f, "language=%s\n", remote_lang_code(g_language));
-    fprintf(f, "theme=%s\n", g_theme.name);
-    fprintf(f, "layout=%s\n", g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list"
-                             : g_home_layout == HOME_LAYOUT_CAROUSEL ? "carousel" : "theme");
-    fprintf(f, "order=%s\n", g_activity_order == ACTIVITY_ORDER_MOST_USED ? "used" : "yours");
-    fprintf(f, "tz=%s\n", g_timezone_str);
-    fclose(f);
+    char buf[2048];
+    int n = snprintf(buf, sizeof(buf),
+        "touch=%d\n"
+        "physical_nav=%d\n"
+        "cap_buttons=%d\n"
+        "touch_sens=%d\n"
+        "gyro=%d\n"
+        "gyro_rate=%d\n"
+        "deep_standby=%d\n"
+        "btn_backlight=%d\n"
+        "night_start=%d\n"
+        "night_end=%d\n"
+        "timeout=%d\n"
+        "brightness=%d\n"
+        "screen=1\n"
+        "no_screen=%d\n"
+        "log_level=%d\n"
+        "debug_logging=%d\n"
+        "power_debug=%d\n"
+        "key_hint=%d\n"
+        "confirm_act=%d\n"
+        "slot=%d\n"
+        "language=%s\n"
+        "theme=%s\n"
+        "layout=%s\n"
+        "order=%s\n"
+        "tz=%s\n",
+        g_touch_enabled ? 1 : 0,
+        g_physical_nav_enabled ? 1 : 0,
+        g_cap_buttons_enabled ? 1 : 0,
+        g_touch_sensitivity,
+        g_gyro_enabled ? 1 : 0,
+        g_gyro_rate_hz,
+        g_deep_standby_min,
+        g_btn_backlight_mode,
+        g_night_start_hour,
+        g_night_end_hour,
+        g_timeout_seconds,
+        g_brightness_val,
+        g_no_screen_mode ? 1 : 0,
+        g_log_level,
+        g_debug_logging ? 1 : 0,
+        g_debug_logging ? 1 : 0,
+        g_key_hint_pending ? 1 : 0,
+        g_confirm_activity ? 1 : 0,
+        g_remote_slot,
+        remote_lang_code(g_language),
+        g_theme.name,
+        g_home_layout == HOME_LAYOUT_GRID ? "grid" : g_home_layout == HOME_LAYOUT_LIST ? "list"
+                                 : g_home_layout == HOME_LAYOUT_CAROUSEL ? "carousel" : "theme",
+        g_activity_order == ACTIVITY_ORDER_MOST_USED ? "used" : "yours",
+        g_timezone_str);
+
+    if (n > 0 && n < (int)sizeof(buf)) {
+        char cur[2048] = {0};
+        FILE *rf = fopen(SETTINGS_CONFIG_FILE, "r");
+        if (rf) {
+            size_t rd = fread(cur, 1, sizeof(cur) - 1, rf);
+            cur[rd] = '\0';
+            fclose(rf);
+        }
+        if (strcmp(cur, buf) != 0) {
+            FILE *f = fopen(SETTINGS_CONFIG_FILE, "w");
+            if (f) {
+                fputs(buf, f);
+                fclose(f);
+            }
+        }
+    }
+
+    if (g_debug_logging) {
+        if (access("/data/debug_logging.conf", F_OK) != 0) {
+            FILE *df = fopen("/data/debug_logging.conf", "w");
+            if (df) { fprintf(df, "1\n"); fclose(df); }
+        }
+    } else {
+        unlink("/data/debug_logging.conf");
+    }
+
     g_settings_dirty = true;
     if (g_rf_link_connected) {
         send_remote_config_backup_rf();

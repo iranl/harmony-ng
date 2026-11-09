@@ -202,7 +202,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
 
         const char *filepath = "/tmp/hub_daemon.log";
         if (strcmp(src, "btstack") == 0) filepath = "/tmp/hub-btstack.log";
-        else if (strcmp(src, "rf") == 0) filepath = "/data/harmony/hub_rf.log";
+        else if (strcmp(src, "rf") == 0) filepath = "/tmp/harmony-init.log";
         else if (strcmp(src, "network") == 0) filepath = "/tmp/hub-network.log";
 
         char log_buf[16384] = {0};

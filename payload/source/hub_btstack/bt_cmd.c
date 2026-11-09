@@ -70,6 +70,11 @@ void poll_bthid_fifo(void) {
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            if (strncasecmp(line, "reload_map", 10) == 0) {
+                bt_remote_invalidate_map();
+                line = strtok_r(NULL, "\r\n", &save);
+                continue;
+            }
             if (strncmp(line, "TARGET ", 7) == 0) {
                 bd_addr_t t_addr;
                 if (parse_bd_addr(line + 7, t_addr)) {

@@ -244,16 +244,16 @@ void execute_settings_action(int idx) {
                 break;
             }
             case 4:
-                if (g_power_debug) {
-                    log_power_debug("[*] Power debugging disabled from Power menu\n");
-                    g_power_debug = false;
+                if (g_debug_logging) {
+                    log_remote_debug("[*] Debug logging disabled from Settings\n");
+                    g_debug_logging = false;
                     save_settings_conf();
-                    show_notice("Power Debug: DISABLED", 2000);
+                    show_notice("Debug Log: DISABLED", 2000);
                 } else {
-                    g_power_debug = true;
+                    g_debug_logging = true;
                     save_settings_conf();
-                    log_power_debug("[*] Power debugging enabled from Power menu\n");
-                    show_notice("Power Debug: ENABLED", 2000);
+                    log_remote_debug("[*] Debug logging enabled from Settings\n");
+                    show_notice("Debug Log: ENABLED", 2000);
                 }
                 break;
             case 5:

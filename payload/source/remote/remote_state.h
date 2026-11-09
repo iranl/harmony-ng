@@ -329,7 +329,8 @@ extern uint64_t s_last_blank_time_ms;
 extern uint64_t s_last_wake_ms;
 extern uint64_t s_last_reconnect_ms;
 extern volatile uint64_t g_last_hub_frame_ms;
-extern bool g_power_debug;
+extern bool g_debug_logging;
+#define g_power_debug g_debug_logging
 extern pthread_mutex_t g_render_mutex;
 extern pthread_mutex_t g_rf_write_mutex;
 extern uint8_t g_rf_pm; /* CC2544 power mode, in byte 1 of every frame sent (RF_PM_ACTIVE / RF_PM_TRANSFER) */
@@ -382,7 +383,8 @@ const char *remote_fs_path(const char *path, char *buf, size_t len);
 bool is_remote_paired(void);
 void reset_idle_timer(void);
 void show_notice(const char *msg, int duration_ms);
-void log_power_debug(const char *fmt, ...);
+void log_remote_debug(const char *fmt, ...);
+#define log_power_debug log_remote_debug
 bool has_configured_activities(void);
 int get_active_dev_cmd_count(void);
 int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len);

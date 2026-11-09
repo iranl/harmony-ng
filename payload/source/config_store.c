@@ -4,6 +4,7 @@
 #include "config_sanitize.h"
 #include "hub_led.h"
 #include "bt_common.h"
+#include "state_watch.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -144,6 +145,7 @@ int config_store_save_devices(cJSON *devices_json) {
     g_devices_json_cache = devices_json;
     pthread_mutex_unlock(&g_cfg_lock);
     notify_rf_push_config();
+    state_watch_notify_config_changed("devices");
     return 0;
 }
 
@@ -161,6 +163,7 @@ int config_store_save_activities(cJSON *activities_json) {
     g_activities_json_cache = activities_json;
     pthread_mutex_unlock(&g_cfg_lock);
     notify_rf_push_config();
+    state_watch_notify_config_changed("activities");
     return 0;
 }
 
@@ -422,8 +425,8 @@ int load_activity_inventory(struct activity_inventory *inv) {
     strncpy(inv->current_id, "-1", sizeof(inv->current_id) - 1);
     strncpy(inv->current_name, "PowerOff", sizeof(inv->current_name) - 1);
 
-    const char *cur_path = "/data/harmony/current_activity";
-    FILE *cf = fopen(cur_path, "r");
+    FILE *cf = fopen("/tmp/current_activity", "r");
+    if (!cf) cf = fopen("/data/harmony/current_activity", "r");
     if (cf) {
         if (fscanf(cf, "%31s", inv->current_id) != 1) strncpy(inv->current_id, "-1", sizeof(inv->current_id) - 1);
         fclose(cf);
@@ -612,6 +615,7 @@ int config_store_save_settings(const struct hub_settings *settings) {
 
     int rc = write_file_atomic(HARMONY_SETTINGS_FILE, out);
     free(out);
+    if (rc == 0) state_watch_notify_config_changed("settings");
     return rc;
 }
 

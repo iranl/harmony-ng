@@ -32,19 +32,7 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
     int cmd_idx = payload[4];
     memcpy(prefix, &payload[5], 20);
 
-    FILE *fd = fopen("/data/harmony/config/devices.json", "r");
-    if (!fd) return;
-    fseek(fd, 0, SEEK_END);
-    long sz = ftell(fd);
-    fseek(fd, 0, SEEK_SET);
-    char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
-    if (!buf) { fclose(fd); return; }
-    size_t n = fread(buf, 1, sz, fd);
-    fclose(fd);
-    if (n != (size_t)sz) { free(buf); return; }
-    buf[n] = '\0';
-    cJSON *root = cJSON_Parse(buf);
-    free(buf);
+    cJSON *root = rf_get_devices_cache();
     if (!root) return;
 
     cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
@@ -75,7 +63,6 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
     } else {
         printf("[-] Device browser command not found: dev=%s idx=%d name=%s\n", dev_id, cmd_idx, prefix);
     }
-    cJSON_Delete(root);
 }
 
 void handle_rf_frame(const rf_frame_t *f) {
