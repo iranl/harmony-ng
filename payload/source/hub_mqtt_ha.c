@@ -207,16 +207,24 @@ static cJSON *create_ha_device_obj(const char *ident, const char *hub_id, const 
 
 /* Jinja map from activity id to name for the select's value_template: the activity_state
  * payload carries the id (-1 = PowerOff) */
+static void template_safe(char *s) {
+    for (char *c = s; *c; c++) {
+        if (*c == '\'' || *c == '{' || *c == '}' || *c == '\\' || (unsigned char)*c < 0x20) *c = ' ';
+    }
+}
+
 static void build_activity_value_template(const struct daemon_activity_list *acts, char *out, size_t cap) {
     size_t n = 0;
     n += (size_t)snprintf(out + n, cap - n, "{%% set m = {'-1': 'PowerOff'");
     for (int i = 0; i < acts->count && n < cap; i++) {
-        /* names and ids come from the Hub's own config; quotes in a name would break the
-         * template, replace them */
-        char name[64];
+        /* names and ids come from the Hub's own config; quotes, braces, backslashes and control
+         * characters would break the template's strings, replace them */
+        char name[64], id[32];
         snprintf(name, sizeof(name), "%s", acts->items[i].name);
-        for (char *c = name; *c; c++) if (*c == '\'' || *c == '{' || *c == '}') *c = ' ';
-        n += (size_t)snprintf(out + n, cap - n, ", '%s': '%s'", acts->items[i].id, name);
+        snprintf(id, sizeof(id), "%s", acts->items[i].id);
+        template_safe(name);
+        template_safe(id);
+        n += (size_t)snprintf(out + n, cap - n, ", '%s': '%s'", id, name);
     }
     if (n < cap) snprintf(out + n, cap - n, "} %%}{{ m.get(value_json.activity | string, 'PowerOff') }}");
 }

@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -320,6 +321,24 @@ static int has_lan_address(const uint8_t ip[4]) {
     return ip[0] != 127;
 }
 
+/* Whether web authentication is on (a TXT value). The responder rebuilds its info every 10 s:
+ * the users file is parsed again only when it changed (saves replace it: new inode or mtime). */
+static int mdns_auth_enabled(void) {
+    static int s_valid = 0, s_auth_on = 0;
+    static struct stat s_st;
+    struct stat st;
+    if (stat(HARMONY_USERS_JSON, &st) != 0) memset(&st, 0, sizeof(st));
+    if (s_valid && st.st_ino == s_st.st_ino && st.st_mtime == s_st.st_mtime && st.st_size == s_st.st_size) {
+        return s_auth_on;
+    }
+    int auth_on = 0;
+    load_user_accounts(NULL, 0, &auth_on);
+    s_auth_on = auth_on;
+    s_st = st;
+    s_valid = 1;
+    return s_auth_on;
+}
+
 void mdns_make_info(mdns_info_t *info, const struct hub_settings *settings, const char *name_suffix) {
     memset(info, 0, sizeof(*info));
     const char *raw = (settings && settings->hub_name[0]) ? settings->hub_name : "Harmony Hub";
@@ -333,8 +352,7 @@ void mdns_make_info(mdns_info_t *info, const struct hub_settings *settings, cons
     snprintf(info->hostname, sizeof(info->hostname), "harmony-ng-%s.local", hub_info_id());
     info->port = 8089;
     active_ip(info->ip);
-    int auth_on = 0;
-    load_user_accounts(NULL, 0, &auth_on);
+    int auth_on = mdns_auth_enabled();
     char mhost[128] = {0}, mbase[128] = {0};
     int mport = 1883, mconn = 0;
     daemon_get_mqtt_info(mhost, sizeof(mhost), &mport, mbase, sizeof(mbase), &mconn);

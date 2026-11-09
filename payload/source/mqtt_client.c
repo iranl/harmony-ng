@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,8 @@
 #include <unistd.h>
 
 #define MQTT_BUF_SIZE 4096
+/* Larger packets (an inventory index of a big setup) are built in a heap buffer */
+#define MQTT_MAX_PACKET (64 * 1024)
 #define MQTT_KEEPALIVE_SEC 30
 #define MQTT_MAX_SUBS 32
 
@@ -41,12 +44,42 @@ static char g_birth_payload[128] = {0};
 static int  g_birth_retain = 0;
 
 static int g_fd = -1;
-static int g_connected = 0;
+static int publish_packet(const char *topic, const char *payload, size_t plen, int qos, int retain);
+static int subscribe_packet(const char *topic);
+/* Set by mqtt_connect() only after the subscriptions and the birth message went out: until then
+ * the connecting thread is the only one writing to the socket (the main loop publishes as soon
+ * as it sees the connection, and two threads writing one socket can mix their packets) */
+static volatile int g_connected = 0;
 static uint16_t g_packet_id = 1;
 static time_t g_last_ping = 0;
 
 static mqtt_sub_entry_t g_subs[MQTT_MAX_SUBS];
 static size_t g_sub_count = 0;
+
+/* Received bytes not processed yet (a packet split over several reads). Belongs to one
+ * connection: emptied whenever the connection ends. */
+static uint8_t g_rxbuf[MQTT_BUF_SIZE * 2];
+static size_t g_rxlen = 0;
+
+/* Writes the whole buffer on the non-blocking socket, waiting up to 2 s for room each time the
+ * send buffer is full (a large packet does not fit at once). -1 when the connection failed. */
+static int send_all(int fd, const uint8_t *buf, size_t len) {
+    while (len > 0) {
+        ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
+        if (n > 0) {
+            buf += n;
+            len -= (size_t)n;
+            continue;
+        }
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            struct pollfd pfd = { .fd = fd, .events = POLLOUT, .revents = 0 };
+            if (poll(&pfd, 1, 2000) > 0 && !(pfd.revents & (POLLERR | POLLHUP))) continue;
+        }
+        return -1;
+    }
+    return 0;
+}
 
 static uint8_t *encode_remaining_len(uint8_t *p, size_t len) {
     do {
@@ -90,6 +123,7 @@ int mqtt_init(const char *host, int port, const char *client_id, const char *use
     g_sub_count = 0;
     g_connected = 0;
     g_fd = -1;
+    g_rxlen = 0;
     return 0;
 }
 
@@ -127,6 +161,7 @@ void mqtt_disconnect(void) {
     int fd = g_fd;
     g_connected = 0;
     g_fd = -1;
+    g_rxlen = 0; /* a partial packet of this connection must not prefix the next one */
     if (fd >= 0) {
         uint8_t disc[2] = {0xE0, 0x00};
         send(fd, disc, 2, MSG_NOSIGNAL);
@@ -315,21 +350,25 @@ int mqtt_connect(void) {
     int f = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, f | O_NONBLOCK);
 
+    g_rxlen = 0;
     g_fd = sock;
-    g_connected = 1;
     g_last_ping = time(NULL);
 
     /* Subscriptions first, then the birth message: the broker handles one connection's packets in
      * order, so whoever sees "online" can send a command and it reaches a subscription. With the
      * birth first (clean session), a command sent right after "online" was dropped. */
     for (size_t i = 0; i < g_sub_count; i++) {
-        mqtt_subscribe(g_subs[i].topic, g_subs[i].cb, g_subs[i].user_data);
+        if (subscribe_packet(g_subs[i].topic) != 0) return -1;
     }
 
-    if (g_birth_topic[0]) {
-        mqtt_publish(g_birth_topic, g_birth_payload, g_birth_retain);
+    if (g_birth_topic[0] &&
+        publish_packet(g_birth_topic, g_birth_payload, strlen(g_birth_payload), 0, g_birth_retain) != 0) {
+        return -1;
     }
 
+    /* Only now may the main loop publish (see g_connected) */
+    __sync_synchronize();
+    g_connected = 1;
     return 0;
 }
 
@@ -375,13 +414,29 @@ int mqtt_publish_ex(const char *topic, const char *payload, size_t plen, int qos
         return 0;
     }
     if (!mqtt_is_connected() || !topic) return -1;
+    return publish_packet(topic, payload, plen, qos, retain);
+}
+
+/* Builds and sends one PUBLISH on the current socket (no connected check: mqtt_connect() sends
+ * the birth message before the connection is announced) */
+static int publish_packet(const char *topic, const char *payload, size_t plen, int qos, int retain) {
+    if (g_fd < 0 || !topic) return -1;
     if (!payload) plen = 0;
     size_t tlen = strlen(topic);
     if (qos < 0) qos = 0;
     if (qos > 1) qos = 1;
     size_t rem_len = 2 + tlen + (qos ? 2 : 0) + plen;
-    if (rem_len + 5 > MQTT_BUF_SIZE) return -1;
-    uint8_t pkt[MQTT_BUF_SIZE];
+    if (rem_len + 5 > MQTT_MAX_PACKET) {
+        fprintf(stderr, "[-] MQTT: %s not published, %zu bytes is over the %d byte limit\n", topic, rem_len,
+                MQTT_MAX_PACKET);
+        return -1;
+    }
+    uint8_t stack_pkt[MQTT_BUF_SIZE];
+    uint8_t *pkt = stack_pkt;
+    if (rem_len + 5 > sizeof(stack_pkt)) {
+        pkt = (uint8_t *)malloc(rem_len + 5);
+        if (!pkt) return -1;
+    }
     pkt[0] = (uint8_t)(0x30 | (qos << 1) | (retain ? 0x01 : 0x00));
     uint8_t *p = encode_remaining_len(&pkt[1], rem_len);
     *p++ = (uint8_t)((tlen >> 8) & 0xFF);
@@ -399,8 +454,9 @@ int mqtt_publish_ex(const char *topic, const char *payload, size_t plen, int qos
         p += plen;
     }
     size_t total = (size_t)(p - pkt);
-    ssize_t sent = send(g_fd, pkt, total, MSG_NOSIGNAL);
-    if (sent != (ssize_t)total) {
+    int rc = send_all(g_fd, pkt, total);
+    if (pkt != stack_pkt) free(pkt);
+    if (rc != 0) {
         mqtt_disconnect();
         return -1;
     }
@@ -431,8 +487,15 @@ int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
     }
 
     if (!mqtt_is_connected()) return 0;
+    return subscribe_packet(topic);
+}
 
+/* Sends one SUBSCRIBE on the current socket (mqtt_connect() resubscribes before the connection
+ * is announced) */
+static int subscribe_packet(const char *topic) {
+    if (g_fd < 0 || !topic) return -1;
     size_t tlen = strlen(topic);
+    if (tlen > 200) return -1;
     size_t rem_len = 2 /* pkt_id */ + 2 /* tlen */ + tlen + 1 /* qos */;
 
     uint8_t pkt[256];
@@ -451,8 +514,7 @@ int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
     *p++ = 0x01; /* QoS 1: commands are delivered with PUBACK (acked in mqtt_tick) */
 
     size_t total = (size_t)(p - pkt);
-    ssize_t sent = send(g_fd, pkt, total, MSG_NOSIGNAL);
-    if (sent != (ssize_t)total) {
+    if (send_all(g_fd, pkt, total) != 0) {
         mqtt_disconnect();
         return -1;
     }
@@ -484,7 +546,7 @@ int mqtt_tick(void) {
     time_t now = time(NULL);
     if (now - g_last_ping >= MQTT_KEEPALIVE_SEC) {
         uint8_t ping[2] = {0xC0, 0x00};
-        if (send(g_fd, ping, 2, MSG_NOSIGNAL) != 2) {
+        if (send_all(g_fd, ping, 2) != 0) {
             mqtt_disconnect();
             return 0;
         }
@@ -493,36 +555,34 @@ int mqtt_tick(void) {
 
     /* Read what is there and process every complete packet; a partial packet waits for the
      * next tick (one TCP read may carry several MQTT packets, or a piece of one) */
-    static uint8_t rxbuf[MQTT_BUF_SIZE * 2];
-    static size_t rxlen = 0;
-    ssize_t n = recv(g_fd, rxbuf + rxlen, sizeof(rxbuf) - rxlen, MSG_DONTWAIT);
+    uint8_t *rxbuf = g_rxbuf;
+    const int fd = g_fd;
+    ssize_t n = recv(g_fd, rxbuf + g_rxlen, sizeof(g_rxbuf) - g_rxlen, MSG_DONTWAIT);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
-        rxlen = 0;
         mqtt_disconnect();
         return -1;
     }
     if (n == 0) {
-        rxlen = 0;
         mqtt_disconnect();
         return -1;
     }
-    rxlen += (size_t)n;
+    g_rxlen += (size_t)n;
     size_t pos = 0;
-    while (pos + 2 <= rxlen) {
+    while (pos + 2 <= g_rxlen) {
         size_t rem_len = 0;
-        size_t rlen_bytes = decode_remaining_len(rxbuf + pos + 1, rxlen - pos - 1, &rem_len);
+        size_t rlen_bytes = decode_remaining_len(rxbuf + pos + 1, g_rxlen - pos - 1, &rem_len);
         if (rlen_bytes == 0) {
-            if (rxlen - pos < 5) break; /* the length field is not complete yet */
-            rxlen = 0;                   /* garbage: drop the buffer */
+            if (g_rxlen - pos < 5) break; /* the length field is not complete yet */
+            g_rxlen = 0;                   /* garbage: drop the buffer */
             return 0;
         }
         size_t pkt_len = 1 + rlen_bytes + rem_len;
-        if (pkt_len > sizeof(rxbuf)) {
-            rxlen = 0; /* larger than we can ever hold */
+        if (pkt_len > sizeof(g_rxbuf)) {
+            g_rxlen = 0; /* larger than we can ever hold */
             return 0;
         }
-        if (pos + pkt_len > rxlen) break; /* incomplete: wait for the rest */
+        if (pos + pkt_len > g_rxlen) break; /* incomplete: wait for the rest */
         const uint8_t *pkt = rxbuf + pos;
         uint8_t type = pkt[0] & 0xF0;
         if (type == 0x30) { /* PUBLISH */
@@ -539,7 +599,7 @@ int mqtt_tick(void) {
                     p += tlen;
                     if (qos > 0 && p + 2 <= end) {
                         uint8_t ack[4] = { 0x40, 0x02, p[0], p[1] };
-                        send(g_fd, ack, 4, MSG_NOSIGNAL);
+                        send_all(g_fd, ack, 4);
                         p += 2;
                     }
                     size_t plen = (size_t)(end - p);
@@ -554,13 +614,16 @@ int mqtt_tick(void) {
                         }
                         free(payload);
                     }
+                    /* A callback that ended the connection (settings saved over MQTT) also
+                     * emptied the buffer: the rest belonged to the old connection */
+                    if (g_fd != fd) return 0;
                 }
             }
         }
         /* PUBACK (0x40), SUBACK (0x90), PINGRESP (0xD0): nothing to do */
         pos += pkt_len;
     }
-    if (pos > 0 && pos < rxlen) memmove(rxbuf, rxbuf + pos, rxlen - pos);
-    rxlen -= pos;
+    if (pos > 0 && pos < g_rxlen) memmove(rxbuf, rxbuf + pos, g_rxlen - pos);
+    g_rxlen -= pos;
     return 1;
 }

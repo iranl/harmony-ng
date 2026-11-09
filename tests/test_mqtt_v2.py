@@ -221,6 +221,11 @@ def main():
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c5")
             r = jload(m[1]) if m else {}
             check(m is not None and r.get("code") == 400, "unknown action: 400", str(r))
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7", "action": "start_activity"}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7")
+            r = jload(m[1]) if m else {}
+            check(m is not None and r.get("ok") is False and r.get("code") == 400,
+                  "start_activity without activity: 400, the request id is not an activity", str(r))
             cmd.publish(BASE + "/cmd", '{"id":"c6","action":"ping",', qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c6")
             r = jload(m[1]) if m else {}

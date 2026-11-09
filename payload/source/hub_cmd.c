@@ -32,6 +32,27 @@ static const char *json_str(const cJSON *o, const char *k1, const char *k2, cons
     return (j && cJSON_IsString(j) && j->valuestring) ? j->valuestring : NULL;
 }
 
+/* True when id names a configured activity, or is PowerOff's "-1" */
+static int activity_id_known(const char *id) {
+    if (!id || !id[0]) return 0;
+    if (strcmp(id, "-1") == 0) return 1;
+    cJSON *root = config_store_get_activities_json();
+    const cJSON *arr = root ? cJSON_GetObjectItemCaseSensitive(root, "activities") : NULL;
+    const cJSON *a = NULL;
+    cJSON_ArrayForEach(a, arr) {
+        const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
+        char buf[32];
+        const char *aid = NULL;
+        if (jid && cJSON_IsString(jid)) aid = jid->valuestring;
+        else if (jid && cJSON_IsNumber(jid)) {
+            snprintf(buf, sizeof(buf), "%ld", (long)jid->valuedouble);
+            aid = buf;
+        }
+        if (aid && strcmp(aid, id) == 0) return 1;
+    }
+    return 0;
+}
+
 static cJSON *reply_base(const cJSON *req, const char *type, const char *action) {
     cJSON *r = cJSON_CreateObject();
     if (!r) return NULL;
@@ -275,10 +296,14 @@ cJSON *hub_cmd_execute(const cJSON *req, int role) {
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
     }
     if (strcmp(action, "start_activity") == 0) {
-        const char *target = json_str(req, "id", "activity", NULL);
-        /* "id" is also the MQTT request id: only an activity id that looks like one counts */
-        const char *act = json_str(req, "activity", NULL, NULL);
-        if (act) target = act;
+        /* "activity" names the activity. The web UI sends it as "id" (its request id is msgId),
+         * but on MQTT and in the WebSocket API "id" is the request id: "id" counts only when no
+         * "activity" is given and it names a configured activity. */
+        const char *target = json_str(req, "activity", NULL, NULL);
+        if (!target) {
+            const char *id = json_str(req, "id", NULL, NULL);
+            if (activity_id_known(id)) target = id;
+        }
         if (!target || !target[0]) return ack(req, action, 0, 400, "activity required");
         int rc = orch_switch_activity(target, 0, NULL, 0);
         return rc == 0 ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 409, "busy");
@@ -317,6 +342,8 @@ cJSON *hub_cmd_execute(const cJSON *req, int role) {
         char *line = (char *)malloc(strlen(t) + 8);
         if (!line) return ack(req, action, 0, 500, "out of memory");
         sprintf(line, "TEXT %s\n", t);
+        /* one pipe line per command: a line break in the text would start another command */
+        for (char *c = line + 5; *c && c[1]; c++) if (*c == '\n' || *c == '\r') *c = ' ';
         int ok = pipe_write(tgt, line);
         free(line);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
