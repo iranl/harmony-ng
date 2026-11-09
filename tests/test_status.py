@@ -15,7 +15,8 @@ from hub_harness import HubHarness  # noqa: E402
 PORT = 8996
 UNIT_ID = "20140101120000-000001"
 # Flags of milestone 1 (spec 2.2)
-M1_CAPABILITIES = ["events", "rf_wake"]
+M1_CAPABILITIES = ["events", "snapshot", "ws_auth", "ws_keepalive", "ir_raw", "rf_wake"]
+M2_CAPABILITIES = M1_CAPABILITIES + ["mdns"]
 
 
 def rec(s):
@@ -56,9 +57,9 @@ def main():
             check(isinstance(s.get("commit"), str) and s["commit"], "commit", str(s.get("commit")))
             check(s.get("api_version") == 2, "api_version 2", str(s.get("api_version")))
             caps = s.get("capabilities")
-            check(isinstance(caps, list) and all(c in caps for c in M1_CAPABILITIES),
-                  "capabilities contain %s" % M1_CAPABILITIES, str(caps))
-            check(s.get("legacy_enabled") is False and s.get("mdns_enabled") is False, "legacy_enabled and mdns_enabled false",
+            check(isinstance(caps, list) and all(c in caps for c in M2_CAPABILITIES),
+                  "capabilities contain %s" % M2_CAPABILITIES, str(caps))
+            check(s.get("legacy_enabled") is False and s.get("mdns_enabled") is True, "legacy_enabled false, mdns_enabled true (default)",
                   str((s.get("legacy_enabled"), s.get("mdns_enabled"))))
             check(s.get("firmware") == "4.15.600" and "hub_name" in s and "uptime_sec" in s, "existing fields kept", str(s))
         print("[-] 3.6 fallback without a readable mfg partition")

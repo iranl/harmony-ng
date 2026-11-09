@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "http_api_devices.h"
 #include <errno.h>
+#include "hub_cmd.h"
+#include "hub_mqtt.h"
 #include "http_server.h"
 #include "http_util.h"
 #include "config_store.h"
@@ -17,10 +19,6 @@
 #include <strings.h>
 #include <errno.h>
 #include <pthread.h>
-
-int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in, const char *cmd_name,
-                                     const char *topic_in, int req_pulse_ms,
-                                     char *out_topic, size_t out_topic_len, int *out_pulse_ms);
 
 /* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
 static uint8_t device_ir_ports(const char *dev_id) {
@@ -131,103 +129,15 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/ir-raw: carrier + microsecond timings (spec 3.11). Timings are either
-     * signed (mark > 0, space < 0, as Home Assistant's infrared platform produces) or all
-     * positive alternating mark/space starting with a mark; the encoder takes the latter. */
+    /* Route: POST /api/ir-raw: carrier + microsecond timings (spec 3.11); the validation and
+     * the send live in hub_cmd_ir_raw, shared with the MQTT command channel */
     if (strcmp(clean_path, "/api/ir-raw") == 0 && strcmp(method, "POST") == 0) {
         cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
-        if (!req_j || !cJSON_IsObject(req_j)) {
-            cJSON_Delete(req_j);
-            send_json_error(client_fd, 400, "body: JSON object required");
-            close(client_fd);
-            return 1;
-        }
-        const char *err = NULL;
-        uint32_t freq = 38000;
-        int port = 7, repeats = 1;
-        cJSON *jf = cJSON_GetObjectItemCaseSensitive(req_j, "frequency");
-        if (jf) {
-            if (!cJSON_IsNumber(jf) || jf->valuedouble < 0 || jf->valuedouble != (double)(long)jf->valuedouble) err = "frequency: integer Hz required";
-            else if (jf->valuedouble != 0 && (jf->valuedouble < 20000 || jf->valuedouble > 60000)) err = "frequency: 0 or 20000 to 60000 Hz";
-            else freq = (uint32_t)jf->valuedouble;
-        }
-        cJSON *jp = cJSON_GetObjectItemCaseSensitive(req_j, "port");
-        if (!err && jp) {
-            if (!cJSON_IsNumber(jp) || jp->valueint < 1 || jp->valueint > 7) err = "port: bitmask 1 to 7";
-            else port = jp->valueint;
-        }
-        cJSON *jr = cJSON_GetObjectItemCaseSensitive(req_j, "repeats");
-        if (!err && jr) {
-            if (!cJSON_IsNumber(jr) || jr->valueint < 1 || jr->valueint > 10) err = "repeats: 1 to 10";
-            else repeats = jr->valueint;
-        }
-        cJSON *jt = cJSON_GetObjectItemCaseSensitive(req_j, "timings");
-        size_t count = 0;
-        uint32_t *timings = NULL;
-        if (!err) {
-            if (!jt || !cJSON_IsArray(jt)) err = "timings: array required";
-            else {
-                int n = cJSON_GetArraySize(jt);
-                if (n < 2 || n > 2048) err = "timings: 2 to 2048 values";
-                else {
-                    timings = (uint32_t *)calloc((size_t)n, sizeof(uint32_t));
-                    if (!timings) err = "timings: out of memory";
-                    int signed_form = 0, i = 0;
-                    cJSON *it = NULL;
-                    cJSON_ArrayForEach(it, jt) {
-                        if (err) break;
-                        if (!cJSON_IsNumber(it) || it->valuedouble != (double)(long)it->valuedouble) { err = "timings: integers required"; break; }
-                        long v = (long)it->valuedouble;
-                        if (i == 0) {
-                            if (v <= 0) { err = "timings: first value must be a positive mark"; break; }
-                        } else if (i == 1) {
-                            signed_form = (v < 0);
-                        }
-                        if (signed_form) {
-                            /* marks positive on even positions, spaces negative on odd ones */
-                            if ((i % 2 == 0 && v <= 0) || (i % 2 == 1 && v >= 0)) { err = "timings: signed form must alternate mark (+) and space (-)"; break; }
-                        } else if (v <= 0) {
-                            err = "timings: values must be positive (or use the signed form)";
-                            break;
-                        }
-                        long a = v < 0 ? -v : v;
-                        if (a > 65535) { err = "timings: each value 1 to 65535 us"; break; }
-                        timings[i++] = (uint32_t)a;
-                    }
-                    count = (size_t)n;
-                }
-            }
-        }
+        cJSON *resp = NULL;
+        int code = hub_cmd_ir_raw(req_j, &resp);
         cJSON_Delete(req_j);
-        if (err) {
-            free(timings);
-            send_json_error(client_fd, 400, err);
-            close(client_fd);
-            return 1;
-        }
-        uint64_t sum_us = 0;
-        for (size_t i = 0; i < count; i++) sum_us += timings[i];
-        int rc = hw_ir_send_raw(freq, timings, count, (uint8_t)port, (uint8_t)repeats);
-        free(timings);
-        if (rc == -EBUSY) {
-            cJSON *busy = cJSON_CreateObject();
-            cJSON_AddBoolToObject(busy, "ok", 0);
-            cJSON_AddStringToObject(busy, "error", "busy");
-            send_cjson_resp(client_fd, 409, busy);
-            cJSON_Delete(busy);
-            close(client_fd);
-            return 1;
-        }
-        if (rc != 0) {
-            send_json_error(client_fd, 500, "IR transmit failed");
-            close(client_fd);
-            return 1;
-        }
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddBoolToObject(resp, "ok", 1);
-        cJSON_AddNumberToObject(resp, "count", (double)count);
-        cJSON_AddNumberToObject(resp, "duration_ms", (double)((sum_us * (uint64_t)repeats + 999) / 1000));
-        send_cjson_resp(client_fd, 200, resp);
+        if (!resp) resp = cJSON_CreateObject();
+        send_cjson_resp(client_fd, code, resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -451,7 +361,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: POST /api/device-mqtt-test */
+    /* Route: POST /api/device-mqtt-test: publish the device's MQTT pulse once (the topic
+     * template and pulse of the request, else the device's) */
     if (strcmp(clean_path, "/api/device-mqtt-test") == 0 && strcmp(method, "POST") == 0) {
         char dev_id[64] = {0};
         char dev_name[128] = {0};

@@ -12,28 +12,31 @@
     "ws_auth",
     "ws_keepalive",
     "ir_raw",
+    "mdns",
+    "mqtt_v2",
     "rf_wake"
   ],
   "legacy_enabled": false,
-  "mdns_enabled": false,
+  "mdns_enabled": true,
   "activity": "-1",
   "state": 0,
   "busy": false,
   "ip": "127.0.0.1",
   "total_kb": 62914560,
-  "free_kb": 21374464,
+  "free_kb": 21373952,
   "cache_total_kb": 0,
   "cache_free_kb": 0,
   "updating": false,
   "auth_enabled": false,
   "role": "admin",
   "user": "admin",
-  "uptime_sec": 66446,
+  "uptime_sec": 66657,
   "mqtt": {
     "connected": false,
     "broker": "",
     "port": 1883,
-    "baseTopic": "harmony/hub"
+    "baseTopic": "harmony/hub",
+    "v2": true
   },
   "has_icons": false
 }

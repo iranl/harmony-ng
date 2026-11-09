@@ -3,6 +3,7 @@
 #include "config_store.h"
 #include "mqtt_client.h"
 #include "harmony_version.h"
+#include "hub_info.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -181,20 +182,74 @@ static cJSON *create_ha_origin_obj(const char *ip) {
     return orig;
 }
 
-static cJSON *create_ha_device_obj(const char *ident, const char *device_name) {
+static cJSON *create_ha_device_obj(const char *ident, const char *hub_id, const char *device_name, const char *ip) {
     cJSON *dev = cJSON_CreateObject();
     if (!dev) return NULL;
     cJSON *ids = cJSON_CreateArray();
-    cJSON_AddItemToArray(ids, cJSON_CreateString(ident));
+    cJSON_AddItemToArray(ids, cJSON_CreateString(ident)); /* first MQTT layer: keeps the HA device */
+    if (hub_id && hub_id[0]) {
+        char hid[96];
+        snprintf(hid, sizeof(hid), "harmony-ng-%s", hub_id);
+        cJSON_AddItemToArray(ids, cJSON_CreateString(hid));
+    }
     cJSON_AddItemToObject(dev, "identifiers", ids);
     cJSON_AddStringToObject(dev, "name", device_name && device_name[0] ? device_name : "Harmony Hub");
     cJSON_AddStringToObject(dev, "manufacturer", "Logitech");
     cJSON_AddStringToObject(dev, "model", "Harmony Hub");
+    cJSON_AddStringToObject(dev, "sw_version", HARMONY_VERSION);
+    if (ip && ip[0]) {
+        char url[96];
+        snprintf(url, sizeof(url), "http://%s:8089/", ip);
+        cJSON_AddStringToObject(dev, "configuration_url", url);
+    }
     return dev;
 }
 
-void publish_ha_discovery(const char *cid, const char *name, const char *base_topic,
-                          const char *discovery_prefix, const char *state_topic,
+/* Jinja map from activity id to name for the select's value_template: the activity_state
+ * payload carries the id (-1 = PowerOff) */
+static void template_safe(char *s) {
+    for (char *c = s; *c; c++) {
+        if (*c == '\'' || *c == '{' || *c == '}' || *c == '\\' || (unsigned char)*c < 0x20) *c = ' ';
+    }
+}
+
+static void build_activity_value_template(const struct daemon_activity_list *acts, char *out, size_t cap) {
+    size_t n = 0;
+    n += (size_t)snprintf(out + n, cap - n, "{%% set m = {'-1': 'PowerOff'");
+    for (int i = 0; i < acts->count && n < cap; i++) {
+        /* names and ids come from the Hub's own config; quotes, braces, backslashes and control
+         * characters would break the template's strings, replace them */
+        char name[64], id[32];
+        snprintf(name, sizeof(name), "%s", acts->items[i].name);
+        snprintf(id, sizeof(id), "%s", acts->items[i].id);
+        template_safe(name);
+        template_safe(id);
+        n += (size_t)snprintf(out + n, cap - n, ", '%s': '%s'", id, name);
+    }
+    if (n < cap) snprintf(out + n, cap - n, "} %%}{{ m.get(value_json.activity | string, 'PowerOff') }}");
+}
+
+static const char *const k_discovery_objects[] = {
+    "select/%s_activity/config", "sensor/%s_activity_id/config", "sensor/%s_ip/config",
+    "sensor/%s_firmware/config", "sensor/%s_ir_devices/config", "sensor/%s_ir_commands/config",
+    "button/%s_power_off/config", "button/%s_sync/config", "button/%s_remote_1_sleep/config",
+    "button/%s_remote_2_sleep/config", NULL
+};
+
+void clear_ha_discovery(const char *cid, const char *discovery_prefix) {
+    if (!mqtt_is_connected()) return;
+    char ident[64];
+    safe_id(cid, ident, sizeof(ident));
+    char obj[128], top[256];
+    for (int i = 0; k_discovery_objects[i]; i++) {
+        snprintf(obj, sizeof(obj), k_discovery_objects[i], ident);
+        snprintf(top, sizeof(top), "%s/%s", discovery_prefix, obj);
+        mqtt_publish_ex(top, "", 0, 1, 1);
+    }
+}
+
+void publish_ha_discovery(const char *cid, const char *name, const char *hub_id,
+                          const char *base_topic, const char *discovery_prefix,
                           const char *status_topic, const char *mqtt_host,
                           int ha_discovery_enabled) {
     if (!mqtt_is_connected() || !ha_discovery_enabled) return;
@@ -202,8 +257,18 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
     char ident[64];
     safe_id(cid, ident, sizeof(ident));
 
+    char ip[64] = {0};
+    get_local_ip(mqtt_host, ip, sizeof(ip));
+
     struct daemon_activity_list act_list;
     load_daemon_activities(&act_list);
+
+    /* v2 topics the entities read */
+    char act_state_topic[160], hub_topic[160];
+    snprintf(act_state_topic, sizeof(act_state_topic), "%s/activity_state", base_topic);
+    snprintf(hub_topic, sizeof(hub_topic), "%s/hub", base_topic);
+    char act_tpl[2048];
+    build_activity_value_template(&act_list, act_tpl, sizeof(act_tpl));
 
     char top[256];
     char uid[128];
@@ -218,8 +283,8 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         snprintf(uid, sizeof(uid), "%s_activity", ident);
         cJSON_AddStringToObject(c1, "unique_id", uid);
         cJSON_AddStringToObject(c1, "command_topic", cmd_top);
-        cJSON_AddStringToObject(c1, "state_topic", state_topic);
-        cJSON_AddStringToObject(c1, "value_template", "{{ value_json.activity }}");
+        cJSON_AddStringToObject(c1, "state_topic", act_state_topic);
+        cJSON_AddStringToObject(c1, "value_template", act_tpl);
         cJSON *opts = cJSON_CreateArray();
         cJSON_AddItemToArray(opts, cJSON_CreateString("PowerOff"));
         for (int i = 0; i < act_list.count; i++) {
@@ -230,7 +295,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c1, "payload_available", "online");
         cJSON_AddStringToObject(c1, "payload_not_available", "offline");
         cJSON_AddStringToObject(c1, "icon", "mdi:remote-tv");
-        cJSON_AddItemToObject(c1, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c1, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p1 = cJSON_PrintUnformatted(c1);
         cJSON_Delete(c1);
         if (p1) {
@@ -246,14 +311,14 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c2, "name", "Activity ID");
         snprintf(uid, sizeof(uid), "%s_activity_id", ident);
         cJSON_AddStringToObject(c2, "unique_id", uid);
-        cJSON_AddStringToObject(c2, "state_topic", state_topic);
-        cJSON_AddStringToObject(c2, "value_template", "{{ value_json.activityId }}");
+        cJSON_AddStringToObject(c2, "state_topic", act_state_topic);
+        cJSON_AddStringToObject(c2, "value_template", "{{ value_json.activity }}");
         cJSON_AddStringToObject(c2, "availability_topic", status_topic);
         cJSON_AddStringToObject(c2, "payload_available", "online");
         cJSON_AddStringToObject(c2, "payload_not_available", "offline");
         cJSON_AddStringToObject(c2, "icon", "mdi:identifier");
         cJSON_AddStringToObject(c2, "entity_category", "diagnostic");
-        cJSON_AddItemToObject(c2, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c2, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p2 = cJSON_PrintUnformatted(c2);
         cJSON_Delete(c2);
         if (p2) {
@@ -263,7 +328,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
     }
 
     char local_ip[64] = {0};
-    get_local_ip(mqtt_host, local_ip, sizeof(local_ip));
+    snprintf(local_ip, sizeof(local_ip), "%s", ip);
 
     /* 3. sensor/<ident>_ip/config */
     snprintf(top, sizeof(top), "%s/sensor/%s_ip/config", discovery_prefix, ident);
@@ -272,16 +337,16 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c_ip, "name", "IP Address");
         snprintf(uid, sizeof(uid), "%s_ip", ident);
         cJSON_AddStringToObject(c_ip, "unique_id", uid);
-        cJSON_AddStringToObject(c_ip, "state_topic", state_topic);
+        cJSON_AddStringToObject(c_ip, "state_topic", hub_topic);
         cJSON_AddStringToObject(c_ip, "value_template", "{{ value_json.ip }}");
-        cJSON_AddStringToObject(c_ip, "json_attributes_topic", state_topic);
+        cJSON_AddStringToObject(c_ip, "json_attributes_topic", hub_topic);
         cJSON_AddStringToObject(c_ip, "availability_topic", status_topic);
         cJSON_AddStringToObject(c_ip, "payload_available", "online");
         cJSON_AddStringToObject(c_ip, "payload_not_available", "offline");
         cJSON_AddStringToObject(c_ip, "icon", "mdi:ip-network");
         cJSON_AddStringToObject(c_ip, "entity_category", "diagnostic");
         cJSON_AddItemToObject(c_ip, "origin", create_ha_origin_obj(local_ip));
-        cJSON_AddItemToObject(c_ip, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c_ip, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p_ip = cJSON_PrintUnformatted(c_ip);
         cJSON_Delete(c_ip);
         if (p_ip) {
@@ -297,15 +362,15 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c_fw, "name", "Firmware");
         snprintf(uid, sizeof(uid), "%s_firmware", ident);
         cJSON_AddStringToObject(c_fw, "unique_id", uid);
-        cJSON_AddStringToObject(c_fw, "state_topic", state_topic);
-        cJSON_AddStringToObject(c_fw, "value_template", "{{ value_json.firmware }}");
+        cJSON_AddStringToObject(c_fw, "state_topic", hub_topic);
+        cJSON_AddStringToObject(c_fw, "value_template", "{{ value_json.version }}");
         cJSON_AddStringToObject(c_fw, "availability_topic", status_topic);
         cJSON_AddStringToObject(c_fw, "payload_available", "online");
         cJSON_AddStringToObject(c_fw, "payload_not_available", "offline");
         cJSON_AddStringToObject(c_fw, "icon", "mdi:chip");
         cJSON_AddStringToObject(c_fw, "entity_category", "diagnostic");
         cJSON_AddItemToObject(c_fw, "origin", create_ha_origin_obj(local_ip));
-        cJSON_AddItemToObject(c_fw, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c_fw, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p_fw = cJSON_PrintUnformatted(c_fw);
         cJSON_Delete(c_fw);
         if (p_fw) {
@@ -321,15 +386,15 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c_devs, "name", "IR Devices");
         snprintf(uid, sizeof(uid), "%s_ir_devices", ident);
         cJSON_AddStringToObject(c_devs, "unique_id", uid);
-        cJSON_AddStringToObject(c_devs, "state_topic", state_topic);
-        cJSON_AddStringToObject(c_devs, "value_template", "{{ value_json.deviceCount }}");
+        cJSON_AddStringToObject(c_devs, "state_topic", hub_topic);
+        cJSON_AddStringToObject(c_devs, "value_template", "{{ value_json.device_count }}");
         cJSON_AddStringToObject(c_devs, "availability_topic", status_topic);
         cJSON_AddStringToObject(c_devs, "payload_available", "online");
         cJSON_AddStringToObject(c_devs, "payload_not_available", "offline");
         cJSON_AddStringToObject(c_devs, "icon", "mdi:remote");
         cJSON_AddStringToObject(c_devs, "entity_category", "diagnostic");
         cJSON_AddItemToObject(c_devs, "origin", create_ha_origin_obj(local_ip));
-        cJSON_AddItemToObject(c_devs, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c_devs, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p_devs = cJSON_PrintUnformatted(c_devs);
         cJSON_Delete(c_devs);
         if (p_devs) {
@@ -345,15 +410,15 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c_cmds, "name", "IR Commands");
         snprintf(uid, sizeof(uid), "%s_ir_commands", ident);
         cJSON_AddStringToObject(c_cmds, "unique_id", uid);
-        cJSON_AddStringToObject(c_cmds, "state_topic", state_topic);
-        cJSON_AddStringToObject(c_cmds, "value_template", "{{ value_json.commandCount }}");
+        cJSON_AddStringToObject(c_cmds, "state_topic", hub_topic);
+        cJSON_AddStringToObject(c_cmds, "value_template", "{{ value_json.command_count }}");
         cJSON_AddStringToObject(c_cmds, "availability_topic", status_topic);
         cJSON_AddStringToObject(c_cmds, "payload_available", "online");
         cJSON_AddStringToObject(c_cmds, "payload_not_available", "offline");
         cJSON_AddStringToObject(c_cmds, "icon", "mdi:counter");
         cJSON_AddStringToObject(c_cmds, "entity_category", "diagnostic");
         cJSON_AddItemToObject(c_cmds, "origin", create_ha_origin_obj(local_ip));
-        cJSON_AddItemToObject(c_cmds, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c_cmds, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p_cmds = cJSON_PrintUnformatted(c_cmds);
         cJSON_Delete(c_cmds);
         if (p_cmds) {
@@ -375,7 +440,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c3, "payload_available", "online");
         cJSON_AddStringToObject(c3, "payload_not_available", "offline");
         cJSON_AddStringToObject(c3, "icon", "mdi:power");
-        cJSON_AddItemToObject(c3, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c3, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p3 = cJSON_PrintUnformatted(c3);
         cJSON_Delete(c3);
         if (p3) {
@@ -400,7 +465,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
         cJSON_AddStringToObject(c4, "payload_not_available", "offline");
         cJSON_AddStringToObject(c4, "icon", "mdi:sync");
         cJSON_AddStringToObject(c4, "entity_category", "config");
-        cJSON_AddItemToObject(c4, "device", create_ha_device_obj(ident, name));
+        cJSON_AddItemToObject(c4, "device", create_ha_device_obj(ident, hub_id, name, ip));
         char *p4 = cJSON_PrintUnformatted(c4);
         cJSON_Delete(c4);
         if (p4) {
@@ -428,7 +493,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *base_to
             cJSON_AddStringToObject(cs, "payload_not_available", "offline");
             cJSON_AddStringToObject(cs, "icon", "mdi:sleep");
             cJSON_AddStringToObject(cs, "entity_category", "config");
-            cJSON_AddItemToObject(cs, "device", create_ha_device_obj(ident, name));
+            cJSON_AddItemToObject(cs, "device", create_ha_device_obj(ident, hub_id, name, ip));
             char *ps = cJSON_PrintUnformatted(cs);
             cJSON_Delete(cs);
             if (ps) {

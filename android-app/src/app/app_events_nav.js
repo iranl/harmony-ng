@@ -663,55 +663,6 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     document.getElementById('btnAddPowerOffDelay')?.addEventListener('click', () => {
       this.addSequenceStep('powerOffStepsList', 'Delay');
     });
-    document.getElementById('btnDevMqttConfig')?.addEventListener('click', () => {
-      const box = document.getElementById('devMqttConfigBox');
-      if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
-    });
-    document.getElementById('devMqttEnabled')?.addEventListener('change', (e) => {
-      const badge = document.getElementById('devMqttEnabledBadge');
-      if (badge) {
-        badge.className = e.target.checked ? 'badge badge-success mini' : 'badge badge-secondary mini';
-        badge.textContent = e.target.checked ? 'Enabled' : 'Disabled';
-      }
-    });
-    document.getElementById('btnSaveDevMqtt')?.addEventListener('click', async () => {
-      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
-      if (!devId) return;
-      this.selectedIrDeviceId = String(devId);
-      const topic = document.getElementById('devMqttTopic')?.value.trim();
-      const enabled = document.getElementById('devMqttEnabled')?.checked ? 1 : 0;
-      const pulse = parseInt(document.getElementById('devMqttPulse')?.value, 10) || 1000;
-      const stat = document.getElementById('devMqttStatus');
-      if (stat) stat.textContent = 'Saving MQTT...';
-      try {
-        await this.client.saveDeviceDetails({ deviceId: devId, mqttTopic: topic, mqttEnabled: enabled, mqttPulse: pulse });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">Saved!</span>';
-        await this.refreshData();
-      } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
-      }
-    });
-    document.getElementById('btnTestDevMqtt')?.addEventListener('click', async () => {
-      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
-      const topic = document.getElementById('devMqttTopic')?.value.trim();
-      const pulseMs = parseInt(document.getElementById('devMqttPulse')?.value, 10) || 1000;
-      const stat = document.getElementById('devMqttStatus');
-      if (!topic) return alert(t("enter_mqtt_topic"));
-      if (stat) stat.textContent = 'Testing publish...';
-      try {
-        const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
-        const res = await this.client.testDeviceMqtt({
-          deviceId: devId,
-          device: dev?.name || devId,
-          command: 'PowerToggle',
-          topic: topic,
-          pulseMs: pulseMs
-        });
-        if (stat) stat.innerHTML = `<span style="color:var(--success)">Published to ${res.topic || topic}! (${res.pulseMs || pulseMs}ms pulse)</span>`;
-      } catch (err) {
-        if (stat) stat.innerHTML = '<span style="color:var(--danger)">' + err.message + '</span>';
-      }
-    });
     document.getElementById('btnCmdEditClose')?.addEventListener('click', () => {
       const modal = document.getElementById('cmdEditModal');
       if (modal) modal.style.display = 'none';

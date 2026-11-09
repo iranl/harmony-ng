@@ -357,7 +357,8 @@ export class HarmonyAppCore {
         if (changed && this.currentTab === 'overview') this.loadDashboard();
         if (changed && this.currentTab === 'activities') this.loadActivitiesView();
         this.refreshActivityState();
-      } else if (data.type === 'bt_status' || data.type === 'rf_status' || data.type === 'config_changed') {
+      } else if (data.type === 'bt_status' || data.type === 'rf_status' || data.type === 'config_changed' ||
+                 data.type === 'mqtt_status') {
         this.onLiveState(data);
       }
     };
@@ -404,6 +405,9 @@ export class HarmonyAppCore {
       if (this.currentTab === 'overview') this.scheduleLiveRefresh('dashboard', () => this.loadDashboard());
     } else if (data.type === 'config_changed') {
       this.scheduleLiveRefresh('config', () => this.refreshData());
+    } else if (data.type === 'mqtt_status') {
+      /* only the badge: reloading the whole view would reset a form being edited */
+      if (this.currentTab === 'mqtt') this.setMqttBadge(data);
     }
   }
 

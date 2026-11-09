@@ -158,10 +158,11 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
       const cmdName = document.getElementById('mqttNewCmdName')?.value.trim();
       const stat = document.getElementById('mqttNewCmdStatus');
       if (!cmdName) return alert(t('enter_mqtt_cmd_name_first', 'Enter MQTT command name first'));
-      if (stat) stat.textContent = 'Publishing test MQTT message...';
+      if (stat) stat.textContent = 'Sending test command...';
       try {
-        await this.client.testDeviceMqtt({ deviceId: devId, command: cmdName });
-        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test published!</span>';
+        /* MQTT v2: the command goes through the device path and reaches MQTT as a button event */
+        await this.client.sendCommand(devId, cmdName);
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test command sent!</span>';
       } catch (err) {
         if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + err.message + '</span>';
       }
@@ -313,7 +314,6 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('b25ScanBtn')?.addEventListener('click', () => this.scanB25Remote());
     document.getElementById('b25PairBtn')?.addEventListener('click', () => this.pairB25Remote());
     document.getElementById('b25RefreshBtn')?.addEventListener('click', () => this.loadRemotesView());
-    document.getElementById('btMqttSaveBtn')?.addEventListener('click', () => this.saveBtRemoteMqttSettings());
 
     // Harmony Remote Buttons
     document.querySelectorAll('.remote-hotspot').forEach(btn => {
@@ -379,7 +379,6 @@ export class HarmonyAppEventsActions extends HarmonyAppEventsNav {
     document.getElementById('rfSlotSelect1Btn')?.addEventListener('click', () => this.switchRemoteSlot(1));
     document.getElementById('rfSlotSelect2Btn')?.addEventListener('click', () => this.switchRemoteSlot(2));
     document.getElementById('rfCopySlotMappingBtn')?.addEventListener('click', () => this.copySlotMappings());
-    document.getElementById('remoteMqttSaveBtn')?.addEventListener('click', () => this.saveRFRemoteMqttSettings());
 
     // MQTT Actions
     document.getElementById('mqttSaveBtn')?.addEventListener('click', () => this.saveMqttSettings());

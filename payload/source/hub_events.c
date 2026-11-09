@@ -15,6 +15,7 @@ static const char *const k_type_names[HUB_EV_COUNT] = {
     "bt_status",
     "rf_status",
     "button",
+    "mqtt_status",
 };
 
 typedef struct {

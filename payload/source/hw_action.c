@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -20,12 +21,30 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
+
+
 static hw_mqtt_button_handler_t g_mqtt_button_handler = NULL;
+static int g_local_api_port = 8089;
 
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
     g_mqtt_button_handler = handler;
 }
 
+void hw_set_local_api_port(int port) {
+    if (port > 0) g_local_api_port = port;
+}
+
+/* Blocking socket: send until everything is out */
+static int send_all_fd(int fd, const char *buf, size_t len) {
+    while (len > 0) {
+        ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        buf += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
 
 static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command, int action) {
     cJSON *j = cJSON_CreateObject();
@@ -701,32 +720,40 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         }
     } else if (is_mqtt || strncmp(keycode_str, "G:MQTT", 6) == 0) {
         const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
-        if (g_mqtt_button_handler) {
-            ret = g_mqtt_button_handler(actual_dev_id_str, dev_name, command);
-        } else {
-            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:8089 */
+        /* MQTT-type devices: the pulse on the device's own topic (handler registered by
+         * hub_mqtt), plus the button event on the daemon's bus through /api/button-press */
+        if (g_mqtt_button_handler && action != HW_BTN_ACTION_RELEASE) {
+            if (g_mqtt_button_handler(actual_dev_id_str, dev_name, command) == 0) ret = 0;
+        }
+        {
+            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:<its port> */
             int mfd = socket(AF_INET, SOCK_STREAM, 0);
             if (mfd >= 0) {
                 struct sockaddr_in sin;
                 memset(&sin, 0, sizeof(sin));
                 sin.sin_family = AF_INET;
-                sin.sin_port = htons(8089);
+                sin.sin_port = htons((uint16_t)g_local_api_port);
                 sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
                 setsockopt(mfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
                 setsockopt(mfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
                 if (connect(mfd, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
                     char *body = build_button_press_json(actual_dev_id_str, dev_name, command, action);
-                    char req[512];
-                    snprintf(req, sizeof(req),
-                             "POST /api/button-press HTTP/1.1\r\n"
-                             "Host: 127.0.0.1:8089\r\n"
-                             "Content-Length: %zu\r\n"
-                             "Content-Type: application/json\r\n"
-                             "Connection: close\r\n\r\n%s",
-                             body ? strlen(body) : 0, body ? body : "");
+                    size_t blen = body ? strlen(body) : 0;
+                    /* headers and body sent separately: a body built into a fixed buffer was cut
+                     * for long device or command names while Content-Length gave its full size */
+                    char hdr[192];
+                    int hl = snprintf(hdr, sizeof(hdr),
+                                      "POST /api/button-press HTTP/1.1\r\n"
+                                      "Host: 127.0.0.1:%d\r\n"
+                                      "Content-Length: %zu\r\n"
+                                      "Content-Type: application/json\r\n"
+                                      "Connection: close\r\n\r\n",
+                                      g_local_api_port, blen);
+                    if (hl > 0 && (size_t)hl < sizeof(hdr) && send_all_fd(mfd, hdr, (size_t)hl) == 0 && blen) {
+                        send_all_fd(mfd, body, blen);
+                    }
                     if (body) free(body);
-                    send(mfd, req, strlen(req), MSG_NOSIGNAL);
                     char resp[256] = {0};
                     recv(mfd, resp, sizeof(resp) - 1, 0);
                     if (strstr(resp, "200 OK") != NULL || strstr(resp, "\"ok\":true") != NULL) {

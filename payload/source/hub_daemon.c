@@ -8,6 +8,7 @@
 #include "state_watch.h"
 #include "hub_events.h"
 #include "hub_info.h"
+#include "hub_mdns.h"
 #include "hub_ws.h"
 #include "hub_mqtt.h"
 #include "hub_ntp.h"
@@ -61,6 +62,7 @@ static void *http_client_worker(void *arg) {
 int main(int argc, char **argv) {
     int port = 8089;
     const char *mfg_file = NULL; /* test harness: a file with the mfg partition layout */
+    int mdns_port = MDNS_PORT;   /* test harness: --mdns-port N */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dry-run") == 0) {
             g_dry_run = 1;
@@ -68,6 +70,8 @@ int main(int argc, char **argv) {
             port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--mfg-file") == 0 && i + 1 < argc) {
             mfg_file = argv[++i];
+        } else if (strcmp(argv[i], "--mdns-port") == 0 && i + 1 < argc) {
+            mdns_port = atoi(argv[++i]);
         } else if (isdigit((unsigned char)argv[i][0])) {
             port = atoi(argv[i]);
         }
@@ -117,7 +121,6 @@ int main(int argc, char **argv) {
     orch_init();
     ir_i2s_init();
     orch_set_progress_callback(on_orch_progress, NULL);
-    hw_set_mqtt_button_handler(daemon_mqtt_button_handler);
     printf("[+] Hardware core & Activity Orchestrator initialized (current: %s)\n",
            orch_get_current_activity());
 
@@ -136,7 +139,13 @@ int main(int argc, char **argv) {
     }
     printf("[+] HTTP & WebSocket server listening on port %d\n", port);
 
+    /* mDNS responder (_harmony-ng._tcp), on this loop; mdns_enabled in the settings */
+    if (hub_mdns_init(mdns_port) != 0) {
+        fprintf(stderr, "[-] mDNS responder not started\n");
+    }
+
     /* 3. MQTT Client */
+    hw_set_local_api_port(port);
     hub_mqtt_init();
 
     printf("[+] Entering master non-blocking event loop...\n");
@@ -157,6 +166,11 @@ int main(int argc, char **argv) {
         FD_ZERO(&rset);
         FD_SET(srv_fd, &rset);
         int max_fd = srv_fd;
+        int mdns_fd = hub_mdns_fd();
+        if (mdns_fd >= 0 && mdns_fd < FD_SETSIZE) {
+            FD_SET(mdns_fd, &rset);
+            if (mdns_fd > max_fd) max_fd = mdns_fd;
+        }
 
         int client_fds[WS_MAX_CLIENTS];
         int client_count = ws_get_clients(client_fds, WS_MAX_CLIENTS);
@@ -239,6 +253,7 @@ int main(int argc, char **argv) {
                     handle_ws_client_message(cfd);
                 }
             }
+            if (mdns_fd >= 0 && FD_ISSET(mdns_fd, &rset)) hub_mdns_handle();
         }
 
         if (!bt_release_done && time(NULL) != bt_release_last) {
@@ -259,7 +274,8 @@ int main(int argc, char **argv) {
         hub_ws_tick();
         /* Keepalive pings and dead-client reaping */
         ws_server_tick();
-        mqtt_cmd_tick();
+        /* mDNS probing, announcements, IP and TXT changes */
+        hub_mdns_tick();
 
         /* Tick SNTP network time sync */
         sntp_tick(ntp_host);
@@ -270,6 +286,7 @@ int main(int argc, char **argv) {
 
     printf("\n[*] Shutting down hub_daemon...\n");
     orch_cancel();
+    hub_mdns_shutdown();
     ir_i2s_shutdown();
     ws_close_all();
     http_server_close(srv_fd);

@@ -21,6 +21,7 @@ class Store {
       commandsMap: {},
       rfStatus: null,
       btStatus: null,
+      mqttStatus: null,
       systemStatus: null,
       activeTab: 'remote', // 'remote' | 'devices' | 'setup'
       activeSetupView: null,

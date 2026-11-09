@@ -1,0 +1,26 @@
+{
+  "request": {
+    "id": "c7d1",
+    "action": "start_activity",
+    "activity": "10"
+  },
+  "response": {
+    "type": "cmd_response",
+    "id": "c7d1",
+    "action": "start_activity",
+    "ok": true
+  },
+  "busy_request": {
+    "id": "c7d2",
+    "action": "start_activity",
+    "activity": "11"
+  },
+  "busy_response": {
+    "type": "cmd_response",
+    "id": "c7d2",
+    "action": "start_activity",
+    "ok": false,
+    "code": 409,
+    "error": "busy"
+  }
+}

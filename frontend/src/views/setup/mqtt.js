@@ -3,6 +3,7 @@ import { h, copyText } from '../../utils/dom.js';
 import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
+import { store } from '../../store.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-mqtt', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -41,20 +42,18 @@ export function createView() {
         ]),
       ]),
       h('div', { className: 'card', style: { marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.2)' } }, [
-        h('div', { className: 'card-title', style: { fontSize: '13px', marginBottom: '8px' }, text: 'Home Assistant & Remotes' }),
+        h('div', { className: 'card-title', style: { fontSize: '13px', marginBottom: '8px' }, text: 'Home Assistant MQTT discovery' }),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px' } }, [
           h('input', { id: 'mqtt-ha-discovery', type: 'checkbox', checked: true }),
-          h('span', { style: { fontSize: '13px' }, text: 'Home Assistant Auto-Discovery' }),
+          h('span', { style: { fontSize: '13px' }, text: 'Create Home Assistant entities automatically (activity select, sensors, buttons)' }),
         ]),
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px' } }, [
-          h('input', { id: 'mqtt-slot1-events', type: 'checkbox', checked: true }),
-          h('span', { style: { fontSize: '13px' }, text: t('enable_remote_mqtt', 'Mirror Harmony remote button presses to MQTT') }),
-        ]),
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
-          h('input', { id: 'mqtt-bt-events', type: 'checkbox' }),
-          h('span', { style: { fontSize: '13px' }, text: 'Mirror B25 BT remote button presses to MQTT' }),
+        h('div', { className: 'form-group' }, [
+          h('label', { className: 'form-label', text: 'Discovery prefix' }),
+          h('input', { id: 'mqtt-discovery-prefix', type: 'text', className: 'form-input', value: 'homeassistant' }),
         ]),
       ]),
+      h('div', { className: 'help', style: { marginTop: '10px', fontSize: '12px' },
+        text: 'MQTT v2: retained state topics (hub, activity_state, bt, rf, config, inventory) and the cmd channel under the base topic; remote button events on <base>/remote/<slot>/button. The harmony-ng Home Assistant integration does not need the discovery entities.' }),
       h('button', {
         type: 'submit',
         className: 'btn btn-primary',
@@ -452,17 +451,15 @@ export function createView() {
       const portEl = container.querySelector('#mqtt-port');
       const topicEl = container.querySelector('#mqtt-basetopic');
       const userEl = container.querySelector('#mqtt-user');
-      const haEl = container.querySelector('#mqtt-ha-discovery');
-      const slot1El = container.querySelector('#mqtt-slot1-events');
-      const btEl = container.querySelector('#mqtt-bt-events');
 
       if (hostEl) hostEl.value = cfg.host || mqttData.broker || '';
       if (portEl) portEl.value = cfg.port || 1883;
       if (topicEl) topicEl.value = cfg.baseTopic || 'harmony/hub';
       if (userEl) userEl.value = cfg.username || '';
+      const haEl = container.querySelector('#mqtt-ha-discovery');
+      const prefixEl = container.querySelector('#mqtt-discovery-prefix');
       if (haEl) haEl.checked = cfg.haDiscovery !== false;
-      if (slot1El) slot1El.checked = cfg.slot1RemoteEvents !== false;
-      if (btEl) btEl.checked = Boolean(cfg.btRemoteEvents);
+      if (prefixEl) prefixEl.value = cfg.discoveryPrefix || 'homeassistant';
     } catch (e) {
       if (badge) {
         badge.className = 'badge badge-danger';
@@ -480,8 +477,7 @@ export function createView() {
       username: container.querySelector('#mqtt-user')?.value.trim() || '',
       password: container.querySelector('#mqtt-pass')?.value || '',
       haDiscovery: container.querySelector('#mqtt-ha-discovery')?.checked ? 1 : 0,
-      slot1RemoteEvents: container.querySelector('#mqtt-slot1-events')?.checked ? 1 : 0,
-      btRemoteEvents: container.querySelector('#mqtt-bt-events')?.checked ? 1 : 0,
+      discoveryPrefix: container.querySelector('#mqtt-discovery-prefix')?.value.trim() || 'homeassistant',
     };
 
     try {
@@ -499,6 +495,14 @@ export function createView() {
   container.appendChild(builderCard);
   loadMqtt();
   loadInventory();
+  /* pushed by the Hub on connect, loss and settings changes: update the badge only */
+  const off = store.on('mqttStatus', (st) => {
+    if (!container.isConnected) { off(); return; }
+    const badge = container.querySelector('#mqtt-status-badge');
+    if (!badge || !st) return;
+    badge.className = st.connected ? 'badge badge-success' : 'badge badge-danger';
+    badge.textContent = st.connected ? 'Connected' : (st.enabled ? 'Disconnected' : 'Disabled');
+  });
   return container;
 }
 

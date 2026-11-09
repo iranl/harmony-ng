@@ -18,6 +18,8 @@ static const char *const k_capabilities[] = {
     "ws_auth",
     "ws_keepalive",
     "ir_raw",
+    "mdns",
+    "mqtt_v2",
     "rf_wake",
     NULL
 };
@@ -66,7 +68,7 @@ cJSON *hub_info_capabilities(void) {
     return arr;
 }
 
-void hub_info_add_status_fields(cJSON *obj) {
+void hub_info_add_status_fields(cJSON *obj, const struct hub_settings *settings) {
     if (!obj) return;
     cJSON_AddStringToObject(obj, "hub_id", g_hub_id);
     cJSON_AddStringToObject(obj, "version", HARMONY_VERSION);
@@ -74,7 +76,7 @@ void hub_info_add_status_fields(cJSON *obj) {
     cJSON_AddNumberToObject(obj, "api_version", HUB_API_VERSION);
     cJSON *caps = hub_info_capabilities();
     if (caps) cJSON_AddItemToObject(obj, "capabilities", caps);
-    /* Settings of milestones 2 and 4; false until they exist */
+    /* legacy_enabled: milestone 4, false until it exists */
     cJSON_AddBoolToObject(obj, "legacy_enabled", 0);
-    cJSON_AddBoolToObject(obj, "mdns_enabled", 0);
+    cJSON_AddBoolToObject(obj, "mdns_enabled", settings ? (settings->mdns_enabled ? 1 : 0) : 1);
 }

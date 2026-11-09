@@ -6,8 +6,6 @@
 #include "orchestrator.h"
 #include "hw_action.h"
 #include "ws_server.h"
-#include "hub_mqtt.h"
-#include "mqtt_client.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -153,10 +151,6 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
     if (strcmp(clean_path, "/api/activity-progress") == 0 && strcmp(method, "POST") == 0) {
         if (body && body[0]) {
             ws_broadcast_text(body);
-            char act_status_top[160];
-            snprintf(act_status_top, sizeof(act_status_top), "%s/activity/status", g_mqtt_base_topic);
-            mqtt_publish(act_status_top, body, 1);
-            daemon_publish_mqtt_state();
         }
         cJSON *ok = cJSON_CreateObject();
         cJSON_AddBoolToObject(ok, "ok", 1);

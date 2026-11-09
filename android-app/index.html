@@ -1281,44 +1281,6 @@
               </div>
             </div>
 
-            <!-- Device MQTT Bridge -->
-            <div
-              style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px;">
-              <span class="muted mini">Device MQTT Bridge:</span>
-              <div style="display: flex; gap: 6px; align-items: center;">
-                <button type="button" id="btnDevMqttConfig" class="btn btn-xs btn-secondary"
-                  title="Configure MQTT topic for this device" data-i18n="mqtt_setup" data-i18n-title="mqtt_dev_topic_title">MQTT Setup</button>
-              </div>
-            </div>
-            <div id="devMqttConfigBox"
-              style="display: none; border-top: 1px dashed var(--border); margin-top: 8px; padding-top: 8px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <label for="devMqttEnabled"
-                  style="cursor: pointer; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 500;">
-                  <input type="checkbox" id="devMqttEnabled" style="width: 16px; height: 16px; cursor: pointer;">
-                  <span data-i18n="enable_mqtt_device">Enable MQTT Bridging for this Device</span>
-                </label>
-                <span id="devMqttEnabledBadge" class="badge badge-secondary mini" data-i18n="disabled">Disabled</span>
-              </div>
-              <label class="mini muted" for="devMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-              <input type="text" id="devMqttTopic" class="form-control form-control-sm"
-                placeholder="{base_topic}/button/{device}/{command}">
-              <div class="mini muted" style="margin-top: 3px; font-size: 10px;">Available variables:
-                <code>{base_topic}</code>, <code>{device}</code>, <code>{command}</code>, <code>{device_id}</code>
-              </div>
-              <div style="margin-top: 6px;">
-                <label class="mini muted" for="devMqttPulse" data-i18n="hold_pulse_duration">Hold / Pulse Duration (ms
-                  between 1 / 0)</label>
-                <input type="number" id="devMqttPulse" class="form-control form-control-sm" placeholder="1000" min="50"
-                  max="10000" step="50" value="1000">
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
-                <button type="button" id="btnSaveDevMqtt" class="btn btn-xs btn-primary" data-i18n="save_mqtt">Save
-                  MQTT</button>
-                <button type="button" id="btnTestDevMqtt" class="btn btn-xs btn-ghost" data-i18n="test_publish">Test
-                  Publish</button>
-                <span id="devMqttStatus" class="mini subtle"></span>
-              </div>
             </div>
           </div>
 
@@ -2299,33 +2261,6 @@
         <div id="b25PairLog" class="muted mini" style="margin-top: 6px;"></div>
       </div>
 
-      <!-- Bluetooth Remote MQTT Mirroring Card -->
-      <div class="card" style="margin-bottom: 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <h3 style="margin: 0; font-size: 15px;" data-i18n="bt_mqtt_mirroring">MQTT Button Mirroring</h3>
-          <span id="btMqttStatusBadge" class="badge" data-i18n="mqtt">MQTT</span>
-        </div>
-        <div class="help" data-i18n="bt_mqtt_help">Mirror physical Bluetooth remote button presses to MQTT for Home
-          Assistant automations.</div>
-        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="btRemoteMqttEnabled">
-            <strong data-i18n="enable_bt_mqtt">Mirror Bluetooth remote button presses to MQTT</strong>
-          </label>
-          <div id="btMqttTopicWrap" class="row" style="margin-top: 2px;">
-            <div style="flex: 1;">
-              <label for="btRemoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-              <input id="btRemoteMqttTopic" class="form-control"
-                placeholder="harmony/hub/remotes/bt (default: {baseTopic}/remotes/bt/{button})">
-              <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
-                placeholder or defaults to <code>{baseTopic}/remotes/bt/{button}</code>.</div>
-            </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-            <button id="btMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
-              Settings</button>
-            <span id="btMqttSaveStatus" class="subtle mini"></span>
-          </div>
         </div>
       </div>
 
@@ -2906,33 +2841,6 @@
       <!-- RF Remote Mapping Container (Shown only when at least one remote is paired) -->
       <div id="rfRemoteMappingContainer">
 
-        <!-- Remote MQTT Mirroring Card -->
-        <div class="card" style="margin-bottom: 14px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 15px;" data-i18n="remote_mqtt_mirroring">MQTT Button Mirroring</h3>
-            <span id="remoteMqttStatusBadge" class="badge" data-i18n="mqtt">MQTT</span>
-          </div>
-          <div class="help" id="remoteMqttHelpText" data-i18n="mirror_remote_mqtt_desc">Mirror physical remote button presses to MQTT for Home Assistant
-            automations.</div>
-          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="remoteMqttEnabled">
-              <strong id="remoteMqttLabel">Mirror remote button presses to MQTT</strong>
-            </label>
-            <div id="remoteMqttTopicWrap" class="row" style="margin-top: 2px;">
-              <div style="flex: 1;">
-                <label for="remoteMqttTopic" data-i18n="mqtt_topic">MQTT Topic</label>
-                <input id="remoteMqttTopic" class="form-control"
-                  placeholder="harmony/hub/remotes/slot{slot} (default: {baseTopic}/remotes/slot{slot}/{button})">
-                <div class="muted mini" style="margin-top: 4px;">Optional custom topic. Supports <code>{button}</code>
-                  placeholder or defaults to <code>{baseTopic}/remotes/slot{slot}/{button}</code>.</div>
-              </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-              <button id="remoteMqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt">Save MQTT
-                Settings</button>
-              <span id="remoteMqttSaveStatus" class="subtle mini"></span>
-            </div>
           </div>
         </div>
 
@@ -3507,10 +3415,7 @@
               <label for="mqttBaseTopic" data-i18n="base_topic">Base Topic</label>
               <input id="mqttBaseTopic" name="baseTopic" class="form-control" value="harmony/hub">
             </div>
-            <div>
-              <label for="mqttDiscoveryPrefix" data-i18n="discovery_prefix">Discovery Prefix</label>
-              <input id="mqttDiscoveryPrefix" name="discoveryPrefix" class="form-control" value="homeassistant">
-            </div>
+            <div></div>
           </div>
 
           <div class="row" style="margin-top: 8px;">
@@ -3519,25 +3424,19 @@
               <input id="mqttClientId" name="clientId" class="form-control" value="harmony_hub">
             </div>
             <div>
-              <label for="mqttName" data-i18n="display_name">Display Name</label>
-              <input id="mqttName" name="name" class="form-control" value="Harmony Hub">
+              <label for="mqttDiscoveryPrefix" data-i18n="discovery_prefix">Discovery Prefix</label>
+              <input id="mqttDiscoveryPrefix" name="discoveryPrefix" class="form-control" value="homeassistant">
             </div>
           </div>
-
           <div class="row" style="margin-top: 8px;">
-            <div>
-              <label for="mqttKeepAlive" data-i18n="keepalive_sec">Keepalive (sec)</label>
-              <input id="mqttKeepAlive" name="keepAlive" type="number" class="form-control" value="60">
-            </div>
-            <div></div>
-          </div>
-
-          <div style="margin-top: 10px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
+            <label style="display: flex; align-items: center; gap: 6px;">
               <input type="checkbox" id="mqttHaDiscovery" name="haDiscovery" value="1" checked>
               <span data-i18n="create_ha_entities_auto">Create Home Assistant entities automatically</span>
             </label>
           </div>
+          <div class="help" style="margin-top: 6px;">MQTT v2: retained state topics (hub, activity_state, bt, rf, config, inventory) and the cmd channel under the base topic; remote keys on &lt;base&gt;/remote/&lt;slot&gt;/button. The Home Assistant entities (activity select, sensors, buttons) use the MQTT integration's discovery; the harmony-ng integration does not need them.</div>
+
+
 
           <div class="actions" style="margin-top: 14px;">
             <button id="mqttSaveBtn" type="button" class="btn btn-sm btn-primary" data-i18n="save_mqtt_settings">Save

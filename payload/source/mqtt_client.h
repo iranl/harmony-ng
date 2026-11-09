@@ -32,7 +32,13 @@ int mqtt_connect_async(void);
 int mqtt_is_connected(void);
 
 /* Publish message (QoS 0) */
+/* QoS 0 publish of a string payload (kept for the existing callers) */
 int mqtt_publish(const char *topic, const char *payload, int retain);
+/* Publish with an explicit length (an empty payload clears a retained topic) and QoS 0 or 1.
+ * QoS 1 sends a packet id; the broker's PUBACK is consumed by mqtt_tick (no retransmission). */
+int mqtt_publish_ex(const char *topic, const char *payload, size_t len, int qos, int retain);
+/* Dry run normally only logs publishes; the test harness sets HARMONY_MQTT_LIVE=1 to publish for real */
+int mqtt_publishing_live(void);
 
 /* Subscribe to topic with callback */
 int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data);
