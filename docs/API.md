@@ -544,6 +544,7 @@ Returns active activity and orchestration status.
     "activity": "-1",
     "state": 0,
     "busy": false,
+    "queued": null,
     "sending": false
   }
   ```
@@ -568,7 +569,11 @@ Switches to or starts the target activity sequence.
     "state": "starting"
   }
   ```
-- **Error `409 Conflict`**: State machine interlock busy executing another sequence.
+- While a transition runs, the request is queued and starts when that transition has completed:
+  the reply is `{"success": true, "state": "queued"}`. One request is queued at a time, the latest
+  replaces an earlier one, and a request for the running transition's own target drops the queue.
+  `GET /api/activity` shows the queued id in `queued` (`null` when none).
+- **Error `500`**: the transition could not be built (unknown activity).
 
 ### 4.4 Stop Activity / Power Off
 #### `POST /api/poweroff` or `POST /api/activity-stop`
@@ -1241,12 +1246,13 @@ is executed and not answered. Actions and fields mirror the WebSocket actions (s
 
 Reply on `<base>/cmd/response`:
 ```json
-{"type": "cmd_response", "id": "c7d1", "action": "start_activity", "ok": true}
-{"type": "cmd_response", "id": "c7d1", "action": "start_activity", "ok": false, "code": 409, "error": "busy"}
+{"type": "cmd_response", "id": "c7d1", "action": "start_activity", "ok": true, "state": "starting"}
+{"type": "cmd_response", "id": "c7d1", "action": "start_activity", "ok": true, "state": "queued"}
 {"type": "cmd_response", "id": "c7d2", "action": "get_state", "ok": true, "activity_state": {...}}
 ```
-Codes and errors equal the REST ones (400 bad input, 404 not found, 409 busy, 503 a service is not
-running). An ack carries the fields of the REST reply as well (`count` and `duration_ms` for
+Codes and errors equal the REST ones (400 bad input, 404 not found, 409 busy for the update check,
+503 a service is not running); `start_activity` and `stop_activity` during a transition are queued
+(`state` `queued`), as in REST 4.3. An ack carries the fields of the REST reply as well (`count` and `duration_ms` for
 `ir_raw`, the update and Help fields), on MQTT next to `ok`:
 ```json
 {"type": "cmd_response", "id": "u1", "action": "update_check", "ok": true, "current_version": "2.3.0", "remote_version": "2.4.0", "update_available": true, "updating": false, "message": "Update available: v2.4.0 (Current: v2.3.0)", "...": "..."}

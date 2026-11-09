@@ -76,12 +76,18 @@ const char *orch_get_current_activity(void);
 orch_state_t orch_get_state(void);
 
 /*
- * Switch activity with interlock checks.
- * If dry_run != 0, does not execute; populates preview_json with the step list.
- * Returns 0 on success, -1 if busy, negative on error.
+ * Switch activity. While a transition runs, a new request is queued and starts when the running
+ * one has completed (a later request replaces a queued one; the running transition's own target
+ * is not queued). If dry_run != 0, does not execute; populates preview_json with the step list
+ * (dry runs are refused while busy).
+ * Returns 0 when started (or already in that activity), 1 when queued, -2 when a dry run finds the
+ * orchestrator busy, -1 on error.
  */
 int orch_switch_activity(const char *target_activity_id, int dry_run,
                          char *preview_json, size_t preview_len);
+
+/* The activity id queued behind the running transition, or NULL */
+const char *orch_get_queued_activity(void);
 
 /*
  * Power off all devices in current activity.
