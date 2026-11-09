@@ -659,7 +659,7 @@ bool handle_icon_frame(const rf_frame_t *f) {
                         (i < g_rf_activity_count && g_rf_activities[i].icon_id == (uint16_t)atoi(g_icon_rx_id))) {
                         char cpath[128];
                         snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_icon_rx_id);
-                        strncpy(g_activities[i].icon_path, cpath, sizeof(g_activities[i].icon_path) - 1);
+                        copy_str(g_activities[i].icon_path, sizeof(g_activities[i].icon_path), cpath);
                     }
                 }
                 g_screen_dirty = true;

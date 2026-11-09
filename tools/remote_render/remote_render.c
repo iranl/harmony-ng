@@ -140,8 +140,12 @@ static int cmd_font(const char *ttf, float px, int height, int baseline, const c
         g[2] = (uint8_t)(int8_t)xoff; g[3] = (uint8_t)(int8_t)(baseline + yoff);
         g[4] = (uint8_t)(adv * scale + 0.5f);
         g[5] = (uint8_t)(len & 0xFF); g[6] = (uint8_t)(len >> 8);
-        alpha = realloc(alpha, len + (uint32_t)(w * h) + 1);
-        if (w * h) memcpy(alpha + len, bmp, (size_t)(w * h));
+        /* stb returns NULL for an empty glyph, and also when its allocation fails (w and h set) */
+        if (w > 0 && h > 0 && !bmp) { fprintf(stderr, "[-] glyph %d: no bitmap\n", c); free(alpha); return 1; }
+        uint8_t *grown = realloc(alpha, len + (uint32_t)(w * h) + 1);
+        if (!grown) { fprintf(stderr, "[-] out of memory\n"); stbtt_FreeBitmap(bmp, NULL); free(alpha); return 1; }
+        alpha = grown;
+        if (w > 0 && h > 0) memcpy(alpha + len, bmp, (size_t)(w * h));
         len += (uint32_t)(w * h);
         stbtt_FreeBitmap(bmp, NULL);
     }
