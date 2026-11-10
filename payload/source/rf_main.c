@@ -298,11 +298,11 @@ void handle_rf_frame(const rf_frame_t *f) {
             if (slot < 1 || slot > 2) slot = g_remote_slot ? g_remote_slot : 1;
             printf("[*] Remote in slot %d requested RF OTA pull\n", slot);
             pthread_mutex_lock(&g_ota_lock);
-            if (!g_rf_ota.in_progress) {
-                g_rf_ota.in_progress = true;
+            if (!g_rf_ota.in_progress && g_rf_ota.status_code != 3) {
+                g_rf_ota.in_progress = false;
                 g_rf_ota.target_slot = slot;
-                g_rf_ota.status_code = 1;
-                g_rf_ota.error_msg[0] = '\0';
+                g_rf_ota.status_code = 3;
+                snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Preparing OTA update...");
                 pthread_t ota_th;
                 if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
                     pthread_detach(ota_th);
@@ -310,7 +310,6 @@ void handle_rf_frame(const rf_frame_t *f) {
                     rf_build_ack(&ack, slot, f->seq, 0x00);
                     rf_send_frame(&ack);
                 } else {
-                    g_rf_ota.in_progress = false;
                     g_rf_ota.status_code = -1;
                     rf_frame_t ack;
                     rf_build_ack(&ack, slot, f->seq, 0x01);

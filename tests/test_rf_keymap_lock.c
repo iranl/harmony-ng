@@ -64,13 +64,9 @@ int main(void) {
     printf("[*] Starting test_rf_keymap_lock concurrency stress test...\n");
 
     /* Create dummy remote_slot1_map.json */
-    system("mkdir -p /data/harmony 2>/dev/null || true");
     FILE *f = fopen("/data/harmony/remote_slot1_map.json", "w");
-    if (!f) {
-        /* Fallback if /data/harmony not writable: test still validates NULL safety */
-        printf("[-] Note: /data/harmony/remote_slot1_map.json could not be created\n");
-    } else {
-        const char *sample =
+    assert(f != NULL);
+    const char *sample =
             "{\n"
             "  \"activities\": {\n"
             "    \"act1\": {\n"
@@ -86,7 +82,6 @@ int main(void) {
             "}\n";
         fputs(sample, f);
         fclose(f);
-    }
 
     pthread_t inv_th;
     pthread_t rdr_th1, rdr_th2;

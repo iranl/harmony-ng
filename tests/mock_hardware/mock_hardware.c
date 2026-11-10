@@ -32,6 +32,7 @@ static int (*real_unlink)(const char *pathname) = NULL;
 static int (*real_stat)(const char *pathname, struct stat *st) = NULL;
 static int (*real_rename)(const char *oldpath, const char *newpath) = NULL;
 static int (*real_xstat)(int ver, const char *pathname, struct stat *st) = NULL;
+static int (*real_access)(const char *pathname, int mode) = NULL;
 
 static int g_fb_mock_fd = -1;
 static int g_touch_mock_fd = -1;
@@ -58,6 +59,7 @@ static void init_real_functions(void) {
         real_stat = dlsym(RTLD_NEXT, "stat");
         real_rename = dlsym(RTLD_NEXT, "rename");
         real_xstat = dlsym(RTLD_NEXT, "__xstat");
+        real_access = dlsym(RTLD_NEXT, "access");
         if (!real_open64) real_open64 = real_open;
         if (!real_fopen64) real_fopen64 = real_fopen;
     }
@@ -191,8 +193,8 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
-    /* 6. Virtualize the /data/ directory: always when a mock root is set, otherwise when the
-     * physical /data is not writable (a host with a writable /data must never be touched) */
+    /* 6. Virtualize the /data/ and /cache/ directories: always when a mock root is set, otherwise when the
+     * physical directory is not writable (a host with a writable dir must never be touched) */
     if (strncmp(pathname, "/data/", 6) == 0 &&
         (getenv("HARMONY_MOCK_DIR") != NULL || access("/data", W_OK) != 0)) {
         snprintf(resolved, max_len, "%s/data/%s", md, pathname + 6);
@@ -203,18 +205,26 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         mkdir(dtmp, 0777);
         return resolved;
     }
+    if (strncmp(pathname, "/cache/", 7) == 0 &&
+        (getenv("HARMONY_MOCK_DIR") != NULL || access("/cache", W_OK) != 0)) {
+        snprintf(resolved, max_len, "%s/cache/%s", md, pathname + 7);
+        char dtmp[512];
+        snprintf(dtmp, sizeof(dtmp), "%s/cache", md);
+        mkdir(dtmp, 0777);
+        return resolved;
+    }
 
     return pathname;
 }
 
-/* stat() of a virtualized /data path (hub_daemon's state watcher polls config file mtimes).
+/* stat() of a virtualized /data or /cache path (hub_daemon's state watcher polls config file mtimes).
  * glibc >= 2.33 exports stat as a real symbol; older ones route it through __xstat. */
 static int mock_stat_impl(const char *pathname, struct stat *st, int ver) {
     init_real_functions();
     char resolved[512];
     int special_type = 0;
     const char *target = pathname;
-    if (pathname && strncmp(pathname, "/data/", 6) == 0) {
+    if (pathname && (strncmp(pathname, "/data/", 6) == 0 || strncmp(pathname, "/cache/", 7) == 0)) {
         target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
     }
     if (real_stat) return real_stat(target, st);
@@ -223,14 +233,14 @@ static int mock_stat_impl(const char *pathname, struct stat *st, int ver) {
     return -1;
 }
 
-/* rename() of virtualized /data paths (atomic config writes: write .tmp, rename over) */
+/* rename() of virtualized /data or /cache paths (atomic config writes: write .tmp, rename over) */
 int rename(const char *oldpath, const char *newpath) {
     init_real_functions();
     char r1[512], r2[512];
     int sp = 0;
     const char *o = oldpath, *n = newpath;
-    if (oldpath && strncmp(oldpath, "/data/", 6) == 0) o = resolve_mock_path(oldpath, r1, sizeof(r1), &sp);
-    if (newpath && strncmp(newpath, "/data/", 6) == 0) n = resolve_mock_path(newpath, r2, sizeof(r2), &sp);
+    if (oldpath && (strncmp(oldpath, "/data/", 6) == 0 || strncmp(oldpath, "/cache/", 7) == 0)) o = resolve_mock_path(oldpath, r1, sizeof(r1), &sp);
+    if (newpath && (strncmp(newpath, "/data/", 6) == 0 || strncmp(newpath, "/cache/", 7) == 0)) n = resolve_mock_path(newpath, r2, sizeof(r2), &sp);
     if (!real_rename) {
         errno = ENOSYS;
         return -1;
@@ -252,6 +262,19 @@ int unlink(const char *pathname) {
     int special_type = 0;
     const char *target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
     return real_unlink(target);
+}
+
+int access(const char *pathname, int mode) {
+    init_real_functions();
+    char resolved[512];
+    int special_type = 0;
+    const char *target = pathname;
+    if (pathname && (strncmp(pathname, "/data/", 6) == 0 || strncmp(pathname, "/cache/", 7) == 0)) {
+        target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
+    }
+    if (real_access) return real_access(target, mode);
+    errno = ENOSYS;
+    return -1;
 }
 
 int open(const char *pathname, int flags, ...) {

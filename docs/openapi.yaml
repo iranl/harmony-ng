@@ -2733,6 +2733,7 @@ paths:
       tags:
         - RF & Remote
       summary: Start remote firmware update over RF
+      description: Initiates on-demand download of remote OTA package to /tmp (RAM) and streams chunks over CC2544 RF.
       parameters:
         - name: slot
           in: query
@@ -2748,9 +2749,47 @@ paths:
             application/json:
               example:
                 status: started
+                slot: 1
                 ok: true
+        '400':
+          description: Companion remotes do not support OTA
+          content:
+            application/json:
+              example:
+                status: unsupported
+                slot: 1
+                error: Companion remotes do not support OTA
+                ok: false
         '409':
-          description: Update already in progress
+          description: Update or download already in progress
+          content:
+            application/json:
+              example:
+                status: already_in_progress
+                slot: 1
+                error: RF OTA already in progress on slot 1
+                ok: false
+
+  /api/rf/ota-status:
+    get:
+      tags:
+        - RF & Remote
+      summary: Query RF remote OTA progress and status
+      description: Returns real-time OTA progress, chunk metrics, and transfer or download status codes.
+      responses:
+        '200':
+          description: OTA status telemetry
+          content:
+            application/json:
+              example:
+                in_progress: false
+                slot: 1
+                status: 0
+                sent_bytes: 0
+                total_bytes: 0
+                sent_chunks: 0
+                total_chunks: 0
+                error: ""
 
   /api/ui-remote-layout:
     get:

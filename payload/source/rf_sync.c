@@ -341,10 +341,6 @@ uint8_t rf_check_update_flags(uint8_t slot) {
         snprintf(vpath, sizeof(vpath), "%s/remote_ui.version", vdir);
         FILE *vf = fopen(vpath, "r");
         if (!vf) {
-            snprintf(vpath, sizeof(vpath), "%s/latest_version", vdir);
-            vf = fopen(vpath, "r");
-        }
-        if (!vf) {
             snprintf(vpath, sizeof(vpath), "%s/VERSION", vdir);
             vf = fopen(vpath, "r");
         }

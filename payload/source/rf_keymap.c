@@ -161,13 +161,6 @@ cJSON *get_remote_map_unlocked(uint8_t slot) {
     return g_remote_map_cache[idx];
 }
 
-cJSON *get_remote_map(uint8_t slot) {
-    pthread_mutex_lock(&g_map_lock);
-    cJSON *res = get_remote_map_unlocked(slot);
-    pthread_mutex_unlock(&g_map_lock);
-    return res;
-}
-
 bool get_remote_screen_button(uint8_t slot, const char *act_or_dev, int btn_idx, char *out_dev, size_t dev_sz, char *out_cmd, size_t cmd_sz) {
     if (!act_or_dev || !out_dev || !out_cmd || dev_sz == 0 || cmd_sz == 0) return false;
     out_dev[0] = '\0';
@@ -325,18 +318,22 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
                     break;
                 }
             }
+            char cmd_copy[64] = {0};
             if (matched_cmd) {
+                strncpy(cmd_copy, matched_cmd, sizeof(cmd_copy) - 1);
+            }
+            pthread_mutex_unlock(&g_rf_devices_lock);
+            if (cmd_copy[0]) {
                 char body[256];
                 snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                         dev_id, matched_cmd, action_state ? action_state : "press");
+                         dev_id, cmd_copy, action_state ? action_state : "press");
                 printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
-                       button_name, dev_id, matched_cmd, action_state ? action_state : "press");
+                       button_name, dev_id, cmd_copy, action_state ? action_state : "press");
                 snprintf(out_dev, out_dev_len, "%s", dev_id);
-                snprintf(out_cmd, out_cmd_len, "%s", matched_cmd);
+                snprintf(out_cmd, out_cmd_len, "%s", cmd_copy);
                 http_post_local(WEBUI_PORT, "/api/ir-send", body);
-                pthread_mutex_unlock(&g_rf_devices_lock);
-                return;
             }
+            return;
         }
         pthread_mutex_unlock(&g_rf_devices_lock);
         return;

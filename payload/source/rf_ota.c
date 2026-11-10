@@ -4,9 +4,11 @@
 #include "rf_pairing.h"
 #include "hub_led.h"
 #include "sha256.h"
+#include "cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
 
@@ -134,6 +136,50 @@ void ota_set_status(int status, bool in_prog, const char *err) {
     }
 }
 
+static void get_ota_repo_source(char *out_repo, size_t out_sz) {
+    out_repo[0] = '\0';
+    FILE *f = fopen("/data/harmony/update_state.conf", "r");
+    if (f) {
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "source=", 7) == 0) {
+                char *src = line + 7;
+                char *nl = strchr(src, '\r'); if (nl) *nl = '\0';
+                nl = strchr(src, '\n'); if (nl) *nl = '\0';
+                if (*src) strncpy(out_repo, src, out_sz - 1);
+                break;
+            }
+        }
+        fclose(f);
+    }
+    if (!out_repo[0]) {
+        strncpy(out_repo, "https://raw.githubusercontent.com/iranl/harmony-ng/ota", out_sz - 1);
+    }
+}
+
+static void get_hub_version(char *out_ver, size_t sz) {
+    out_ver[0] = '\0';
+    const char *vdir = g_rf_version_dir ? g_rf_version_dir : "/data/harmony";
+    char p[256];
+    snprintf(p, sizeof(p), "%s/remote_ui.version", vdir);
+    FILE *f = fopen(p, "r");
+    if (!f) {
+        snprintf(p, sizeof(p), "%s/VERSION", vdir);
+        f = fopen(p, "r");
+    }
+    if (f) {
+        if (fgets(out_ver, sz, f)) {
+            char *nl = strchr(out_ver, '\r'); if (nl) *nl = '\0';
+            nl = strchr(out_ver, '\n'); if (nl) *nl = '\0';
+            while (out_ver[0] == 'v' || out_ver[0] == 'V') memmove(out_ver, out_ver + 1, strlen(out_ver));
+        }
+        fclose(f);
+    }
+    if (!out_ver[0]) {
+        strncpy(out_ver, "2.0.0", sz - 1);
+    }
+}
+
 void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
     if (target_slot < 1 || target_slot > 2) target_slot = g_remote_slot ? g_remote_slot : 1;
@@ -145,42 +191,36 @@ void *rf_ota_sender_worker(void *arg) {
     }
 
     pthread_mutex_lock(&g_ota_lock);
-    g_rf_ota.in_progress = true;
+    g_rf_ota.in_progress = false;
     g_rf_ota.target_slot = target_slot;
-    g_rf_ota.status_code = 1;
-    g_rf_ota.error_msg[0] = '\0';
+    g_rf_ota.status_code = 3; /* downloading / preparing */
+    snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Preparing OTA update...");
     g_rf_ota.sent_bytes = 0;
     g_rf_ota.sent_chunks = 0;
     g_rf_ota.total_bytes = 0;
     g_rf_ota.total_chunks = 0;
     pthread_mutex_unlock(&g_ota_lock);
 
-    /* Purge any stale OTA binaries from flash storage */
-    if (g_rf_version_dir) {
-        char p[256];
-        snprintf(p, sizeof(p), "%s/remote_ui.ota.gz", g_rf_version_dir);
-        unlink(p);
-        snprintf(p, sizeof(p), "%s/elite_ui.ota.gz", g_rf_version_dir);
-        unlink(p);
-    }
-    unlink("/data/harmony/remote_ui.ota.gz");
-    unlink("/cache/remote_ui.ota.gz");
-    unlink("/data/harmony/elite_ui.ota.gz");
-    unlink("/cache/elite_ui.ota.gz");
-
     const char *ota_path = "/tmp/remote_ui.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
         printf("[*] Remote OTA image not found in /tmp. Downloading to %s...\n", ota_path);
+        char repo[256];
+        get_ota_repo_source(repo, sizeof(repo));
+        char fetch_cmd[512];
+        snprintf(fetch_cmd, sizeof(fetch_cmd), "/data/harmony/update.sh fetch-remote-ota '%s' >/tmp/ota_fetch.log 2>&1", repo);
         int rc = -1;
         if (access("/data/harmony/update.sh", X_OK) == 0) {
-            rc = system("/data/harmony/update.sh fetch-remote-ota >/tmp/ota_fetch.log 2>&1");
+            rc = system(fetch_cmd);
         }
         if (rc != 0 || access(ota_path, R_OK) != 0) {
-            system("/cache/bin/busybox wget --no-check-certificate -q -T 35 -O /tmp/remote_ui.ota.gz "
-                   "'https://raw.githubusercontent.com/iranl/harmony-ng/ota/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
-                   "/cache/bin/busybox wget --no-check-certificate -q -T 35 -O /tmp/remote_ui.ota.gz "
-                   "'https://raw.githubusercontent.com/iranl/harmony-ng/ota/bin/arm/elite_ui.ota.gz' 2>/dev/null");
+            char wget_cmd[1024];
+            snprintf(wget_cmd, sizeof(wget_cmd),
+                     "/cache/bin/busybox wget -q -T 10 -O /tmp/remote_manifest.json '%s/manifest.json' 2>/dev/null; "
+                     "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
+                     "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/elite_ui.ota.gz' 2>/dev/null",
+                     repo, repo, repo);
+            system(wget_cmd);
         }
         f = fopen(ota_path, "rb");
     }
@@ -198,6 +238,7 @@ void *rf_ota_sender_worker(void *arg) {
     if (file_size <= 0 || file_size > (long)RF_OTA_MAX_BYTES) {
         fclose(f);
         unlink(ota_path);
+        unlink("/tmp/remote_manifest.json");
         char err[128];
         snprintf(err, sizeof(err), "Invalid OTA file size: %ld", file_size);
         ota_set_status(-1, false, err);
@@ -207,14 +248,6 @@ void *rf_ota_sender_worker(void *arg) {
     uint32_t tot_bytes = (uint32_t)file_size;
     /* OTA_START carries the stop-and-wait chunk count; a windowed remote derives its own */
     uint16_t tot_chunks = (uint16_t)((tot_bytes + RF_OTA_CHUNK_BYTES - 1) / RF_OTA_CHUNK_BYTES);
-
-    pthread_mutex_lock(&g_ota_lock);
-    g_rf_ota.total_bytes = tot_bytes;
-    g_rf_ota.total_chunks = tot_chunks;
-    pthread_mutex_unlock(&g_ota_lock);
-
-    printf("[*] Starting RF OTA to slot %d: %u bytes, %u chunks from %s\n",
-           target_slot, tot_bytes, tot_chunks, ota_path);
 
     /* Pre-compute CRC32 and SHA-256 of entire file upfront for resume and verification */
     uint32_t file_crc = 0;
@@ -238,6 +271,85 @@ void *rf_ota_sender_worker(void *arg) {
         sha256_final(ota_digest, &full_sha);
         fseek(f, 0, SEEK_SET);
     }
+
+    /* Verify manifest if present */
+    if (access("/tmp/remote_manifest.json", R_OK) == 0) {
+        FILE *mf = fopen("/tmp/remote_manifest.json", "r");
+        if (mf) {
+            fseek(mf, 0, SEEK_END);
+            long msz = ftell(mf);
+            fseek(mf, 0, SEEK_SET);
+            if (msz > 0 && msz < 200000) {
+                char *mbuf = malloc(msz + 1);
+                if (mbuf) {
+                    size_t n = fread(mbuf, 1, msz, mf);
+                    mbuf[n] = '\0';
+                    cJSON *mroot = cJSON_Parse(mbuf);
+                    if (mroot) {
+                        cJSON *j_ver = cJSON_GetObjectItemCaseSensitive(mroot, "version");
+                        if (j_ver && cJSON_IsString(j_ver) && j_ver->valuestring) {
+                            const char *mver = j_ver->valuestring;
+                            while (*mver == 'v' || *mver == 'V') mver++;
+                            char hub_ver[64];
+                            get_hub_version(hub_ver, sizeof(hub_ver));
+                            if (strcmp(mver, hub_ver) != 0) {
+                                printf("[-] Remote OTA version mismatch: manifest %s vs Hub %s\n", mver, hub_ver);
+                                cJSON_Delete(mroot);
+                                free(mbuf);
+                                fclose(mf);
+                                fclose(f);
+                                unlink(ota_path);
+                                unlink("/tmp/remote_manifest.json");
+                                ota_set_status(-1, false, "Remote OTA version mismatch against Hub");
+                                return NULL;
+                            }
+                        }
+                        cJSON *files = cJSON_GetObjectItemCaseSensitive(mroot, "files");
+                        if (files && cJSON_IsObject(files)) {
+                            cJSON *file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/remote_ui.ota.gz");
+                            if (!file_obj) file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/elite_ui.ota.gz");
+                            if (file_obj && cJSON_IsObject(file_obj)) {
+                                cJSON *j_sha = cJSON_GetObjectItemCaseSensitive(file_obj, "sha256");
+                                if (j_sha && cJSON_IsString(j_sha) && j_sha->valuestring) {
+                                    char computed_sha_hex[65];
+                                    for (int i = 0; i < 32; i++) {
+                                        snprintf(computed_sha_hex + (i * 2), 3, "%02x", ota_digest[i]);
+                                    }
+                                    if (strcasecmp(j_sha->valuestring, computed_sha_hex) != 0) {
+                                        printf("[-] Remote OTA SHA-256 mismatch: manifest %s vs file %s\n",
+                                               j_sha->valuestring, computed_sha_hex);
+                                        cJSON_Delete(mroot);
+                                        free(mbuf);
+                                        fclose(mf);
+                                        fclose(f);
+                                        unlink(ota_path);
+                                        unlink("/tmp/remote_manifest.json");
+                                        ota_set_status(-1, false, "Remote OTA SHA-256 checksum mismatch");
+                                        return NULL;
+                                    }
+                                }
+                            }
+                        }
+                        cJSON_Delete(mroot);
+                    }
+                    free(mbuf);
+                }
+            }
+            fclose(mf);
+        }
+        unlink("/tmp/remote_manifest.json");
+    }
+
+    pthread_mutex_lock(&g_ota_lock);
+    g_rf_ota.in_progress = true;
+    g_rf_ota.status_code = 1;
+    g_rf_ota.total_bytes = tot_bytes;
+    g_rf_ota.total_chunks = tot_chunks;
+    g_rf_ota.error_msg[0] = '\0';
+    pthread_mutex_unlock(&g_ota_lock);
+
+    printf("[*] Starting RF OTA to slot %d: %u bytes, %u chunks from %s\n",
+           target_slot, tot_bytes, tot_chunks, ota_path);
 
     /* 1. RF_MSG_OTA_START with CRC32 file ID */
     rf_frame_t frame;
@@ -316,7 +428,6 @@ void *rf_ota_sender_worker(void *arg) {
         }
         if (!ota_send_windowed(f, target_slot, resume, tot_data, tot_bytes)) {
             fclose(f);
-            unlink(ota_path);
             return NULL;
         }
         c_idx = tot_chunks;
@@ -365,7 +476,6 @@ void *rf_ota_sender_worker(void *arg) {
             }
             if (ack_ok != 0) {
                 fclose(f);
-                unlink(ota_path);
                 char err[128];
                 snprintf(err, sizeof(err), "Chunk %u ACK timeout (can resume)", c_idx);
                 ota_set_status(-1, false, err);

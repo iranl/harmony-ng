@@ -66,6 +66,7 @@ class HubDeployer:
         debug_busybox: bool = False,
         dry_run: bool = False,
         no_backup: bool = False,
+        stage_remote_ota: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -76,6 +77,7 @@ class HubDeployer:
         self.debug_busybox = debug_busybox
         self.dry_run = dry_run
         self.no_backup = no_backup
+        self.stage_remote_ota = stage_remote_ota
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -421,7 +423,26 @@ class HubDeployer:
             if not self.dry_skip("clean flash OTA images and sync remote_ui.version"):
                 self.run_ssh("rm -f /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz "
                              "/data/harmony/elite_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
+                             "cmp -s /data/harmony/VERSION /data/harmony/remote_ui.version || "
                              "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
+
+            # Stage local remote OTA image into /tmp (RAM only, no flash wear) if requested
+            if self.stage_remote_ota:
+                candidates = [
+                    self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
+                    self.bin_dir / "remote_ui.ota.gz",
+                    self.repo_root / "remote" / "remote_ui.ota.gz",
+                ]
+                staged = False
+                for cand in candidates:
+                    if cand.is_file():
+                        print(f"[*] Staging local {cand} to Hub /tmp/remote_ui.ota.gz (RAM tmpfs)...")
+                        if not self.dry_run:
+                            self.deploy_file_if_changed(cand, "/tmp/remote_ui.ota.gz", "644")
+                        staged = True
+                        break
+                if not staged:
+                    print("[-] Warning: --stage-remote-ota requested but no remote_ui.ota.gz found locally", file=sys.stderr)
 
             # Deploy configs
             if self.config_dir.is_dir():
@@ -618,6 +639,7 @@ def main() -> None:
     parser.add_argument("--debug", "--debug-busybox", "--dev", action="store_true", help="Enable developer mode / extended BusyBox")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
+    parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
@@ -642,6 +664,7 @@ def main() -> None:
         debug_busybox=args.debug,
         dry_run=args.dry_run,
         no_backup=args.no_backup,
+        stage_remote_ota=args.stage_remote_ota,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)
