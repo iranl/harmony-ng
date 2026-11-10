@@ -47,7 +47,11 @@ MIGRATE_LEGACY_SH = (
 )
 # Commands the deployment runs on the remote, other than through /data/busybox
 REMOTE_COMMANDS = ("md5sum", "mkdir", "rm", "mv", "cp", "chmod", "ln", "grep", "touch", "scp")
-CHECK_BUSYBOX = "/tmp/.deploy_check_busybox"  # the local busybox, run from RAM by the check
+# The local busybox, run from RAM by the check. BusyBox picks the applet from its own file name,
+# so the staged copy must be called busybox: under any other name every applet call fails with
+# "applet not found" and the check refuses a fresh install. Same path setup_remote.py stages for
+# the backup; the check removes it when done.
+CHECK_BUSYBOX = "/tmp/busybox"
 FLASH_SLACK_KB = 32  # JFFS2/UBIFS need room beyond each file's own size
 
 
