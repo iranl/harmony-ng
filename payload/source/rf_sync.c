@@ -333,28 +333,23 @@ uint8_t rf_check_update_flags(uint8_t slot) {
         flags |= 0x01;
     }
 
-    /* 2. OTA update check (cached from flash with 24h TTL) */
+    /* 2. OTA update check (cached from version metadata with 24h TTL; binary is fetched on-demand to /tmp) */
     uint32_t now = (uint32_t)time(NULL);
     if (s_ota_cache_epoch == 0 || now < s_ota_cache_epoch || now - s_ota_cache_epoch >= OTA_CACHE_TTL_S) {
-        const char *ota_path = "/data/harmony/remote_ui.ota.gz";
-        if (access(ota_path, R_OK) != 0) ota_path = "/cache/remote_ui.ota.gz";
-        if (access(ota_path, R_OK) == 0) {
-            FILE *vf = fopen("/data/harmony/remote_ui.version", "r");
-            if (!vf) vf = fopen("/data/harmony/VERSION", "r");
-            if (vf) {
-                char ota_ver[32] = {0};
-                if (fgets(ota_ver, sizeof(ota_ver), vf)) {
-                    char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
-                    nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
-                    strncpy(s_cached_ota_ver, ota_ver, sizeof(s_cached_ota_ver) - 1);
-                    s_cached_ota_ver[sizeof(s_cached_ota_ver) - 1] = '\0';
-                    s_cached_ota_avail = true;
-                }
-                fclose(vf);
-            } else {
-                s_cached_ota_avail = false;
-                s_cached_ota_ver[0] = '\0';
+        FILE *vf = fopen("/data/harmony/remote_ui.version", "r");
+        if (!vf) vf = fopen("/data/harmony/latest_version", "r");
+        if (!vf) vf = fopen("/data/harmony/VERSION", "r");
+        if (vf) {
+            char ota_ver[32] = {0};
+            if (fgets(ota_ver, sizeof(ota_ver), vf)) {
+                char *nl = strchr(ota_ver, '\r'); if (nl) *nl = '\0';
+                nl = strchr(ota_ver, '\n'); if (nl) *nl = '\0';
+                const char *clean = (ota_ver[0] == 'v' || ota_ver[0] == 'V') ? ota_ver + 1 : ota_ver;
+                strncpy(s_cached_ota_ver, clean, sizeof(s_cached_ota_ver) - 1);
+                s_cached_ota_ver[sizeof(s_cached_ota_ver) - 1] = '\0';
+                s_cached_ota_avail = true;
             }
+            fclose(vf);
         } else {
             s_cached_ota_avail = false;
             s_cached_ota_ver[0] = '\0';

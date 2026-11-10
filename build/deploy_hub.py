@@ -348,7 +348,7 @@ class HubDeployer:
             self.query_remote_hashes(
                 "/data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* "
                 "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox "
-                "/data/harmony/remote_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local"
+                "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
             # Deploy core binaries
@@ -415,22 +415,13 @@ class HubDeployer:
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
 
-            # Deploy the remote's RF OTA image. elite/bin/elite_ui.ota.gz: a release bundle or a
-            # tree from before the elite -> remote rename.
-            remote_ota = None
-            for cand in (self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
-                         self.repo_root / "build" / "output" / "remote" / "remote_ui.ota.gz",
-                         self.repo_root / "elite" / "bin" / "elite_ui.ota.gz",
-                         self.repo_root / "build" / "output" / "elite" / "elite_ui.ota.gz"):
-                if cand.is_file():
-                    remote_ota = cand
-                    break
-            if remote_ota:
-                print("[*] Syncing the remote's RF OTA image (/data/harmony/remote_ui.ota.gz)...")
-                self.deploy_file_if_changed(remote_ota, "/data/harmony/remote_ui.ota.gz", "644")
-                if not self.dry_skip("copy /data/harmony/VERSION to /data/harmony/remote_ui.version"):
-                    self.run_ssh("rm -f /cache/remote_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
-                                 "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
+            # Remote OTA: Do not deploy remote_ui.ota.gz to flash storage on Hub.
+            # Only record remote version metadata and clean up any legacy flash OTA binaries.
+            print("[*] Recording remote version metadata and cleaning flash OTA cache...")
+            if not self.dry_skip("clean flash OTA images and sync remote_ui.version"):
+                self.run_ssh("rm -f /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz "
+                             "/data/harmony/elite_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
+                             "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
 
             # Deploy configs
             if self.config_dir.is_dir():

@@ -155,15 +155,31 @@ void *rf_ota_sender_worker(void *arg) {
     g_rf_ota.total_chunks = 0;
     pthread_mutex_unlock(&g_ota_lock);
 
-    const char *ota_path = "/data/harmony/remote_ui.ota.gz";
+    /* Purge any stale OTA binaries from flash storage */
+    unlink("/data/harmony/remote_ui.ota.gz");
+    unlink("/cache/remote_ui.ota.gz");
+    unlink("/data/harmony/elite_ui.ota.gz");
+    unlink("/cache/elite_ui.ota.gz");
+
+    const char *ota_path = "/tmp/remote_ui.ota.gz";
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
-        ota_path = "/cache/remote_ui.ota.gz";
+        printf("[*] Remote OTA image not found in /tmp. Downloading to %s...\n", ota_path);
+        int rc = -1;
+        if (access("/data/harmony/update.sh", X_OK) == 0) {
+            rc = system("/data/harmony/update.sh fetch-remote-ota >/tmp/ota_fetch.log 2>&1");
+        }
+        if (rc != 0 || access(ota_path, R_OK) != 0) {
+            system("/cache/bin/busybox wget --no-check-certificate -q -T 35 -O /tmp/remote_ui.ota.gz "
+                   "'https://raw.githubusercontent.com/iranl/harmony-ng/ota/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
+                   "/cache/bin/busybox wget --no-check-certificate -q -T 35 -O /tmp/remote_ui.ota.gz "
+                   "'https://raw.githubusercontent.com/iranl/harmony-ng/ota/bin/arm/elite_ui.ota.gz' 2>/dev/null");
+        }
         f = fopen(ota_path, "rb");
     }
     if (!f) {
         char err[128];
-        snprintf(err, sizeof(err), "OTA image not found (/data/harmony or /cache)");
+        snprintf(err, sizeof(err), "Failed to download OTA image to /tmp");
         ota_set_status(-1, false, err);
         return NULL;
     }
@@ -174,6 +190,7 @@ void *rf_ota_sender_worker(void *arg) {
 
     if (file_size <= 0 || file_size > (long)RF_OTA_MAX_BYTES) {
         fclose(f);
+        unlink(ota_path);
         char err[128];
         snprintf(err, sizeof(err), "Invalid OTA file size: %ld", file_size);
         ota_set_status(-1, false, err);
@@ -254,11 +271,13 @@ void *rf_ota_sender_worker(void *arg) {
 
     if (ack_res != 0) {
         fclose(f);
+        unlink(ota_path);
         ota_set_status(-1, false, "Remote failed to ACK OTA_START (timeout - wake remote)");
         return NULL;
     }
     if (g_ack_status != 0x00) {
         fclose(f);
+        unlink(ota_path);
         char err[128];
         if (g_ack_status == 0x02) {
             snprintf(err, sizeof(err), "Remote rejected OTA: Low battery (<40%%)");
@@ -290,6 +309,7 @@ void *rf_ota_sender_worker(void *arg) {
         }
         if (!ota_send_windowed(f, target_slot, resume, tot_data, tot_bytes)) {
             fclose(f);
+            unlink(ota_path);
             return NULL;
         }
         c_idx = tot_chunks;
@@ -338,6 +358,7 @@ void *rf_ota_sender_worker(void *arg) {
             }
             if (ack_ok != 0) {
                 fclose(f);
+                unlink(ota_path);
                 char err[128];
                 snprintf(err, sizeof(err), "Chunk %u ACK timeout (can resume)", c_idx);
                 ota_set_status(-1, false, err);
@@ -366,11 +387,13 @@ void *rf_ota_sender_worker(void *arg) {
     memcpy(&end_payload[1], ota_digest, 20);
     rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 21);
     if (rf_send_frame_acked(&frame, 6000) != 0) {
+        unlink(ota_path);
         ota_set_status(-1, false, "OTA_END ACK timeout");
         return NULL;
     }
 
     if (g_ack_status != 0x00) {
+        unlink(ota_path);
         char err[128];
         if (g_ack_status == 0x06) {
             snprintf(err, sizeof(err), "Remote rejected OTA: SHA-256 integrity check failed");
@@ -381,6 +404,7 @@ void *rf_ota_sender_worker(void *arg) {
         return NULL;
     }
 
+    unlink(ota_path);
     printf("[+] RF OTA completed successfully to slot %d!\n", target_slot);
     ota_set_status(2, false, NULL);
     return NULL;
