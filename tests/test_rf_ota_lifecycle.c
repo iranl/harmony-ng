@@ -47,10 +47,8 @@ int is_activity_transitioning(void) { return 0; }
 int main(void) {
     printf("[*] Starting test_rf_ota_lifecycle...\n");
 
-    /* 1. Ensure clean slate */
+    /* 1. Ensure clean slate in /tmp */
     unlink("/tmp/remote_ui.ota.gz");
-    unlink("/data/harmony/remote_ui.ota.gz");
-    unlink("/cache/remote_ui.ota.gz");
 
     /* Create dummy /tmp/remote_ui.ota.gz (synthetic small payload) */
     FILE *f = fopen("/tmp/remote_ui.ota.gz", "wb");
@@ -62,24 +60,33 @@ int main(void) {
 
     CHECK(access("/tmp/remote_ui.ota.gz", F_OK) == 0, "/tmp/remote_ui.ota.gz created for test");
 
-    /* Also create mock stale flash files to verify purging */
-    system("mkdir -p /data/harmony /cache 2>/dev/null || true");
-    FILE *f_stale1 = fopen("/data/harmony/remote_ui.ota.gz", "wb");
-    if (f_stale1) { fwrite("stale", 1, 5, f_stale1); fclose(f_stale1); }
-    FILE *f_stale2 = fopen("/cache/remote_ui.ota.gz", "wb");
-    if (f_stale2) { fwrite("stale", 1, 5, f_stale2); fclose(f_stale2); }
+    /* Create temporary version dir in /tmp (works unprivileged in CI) */
+    char vdir[] = "/tmp/rf_ota_test_XXXXXX";
+    if (!mkdtemp(vdir)) {
+        perror("mkdtemp");
+        return 1;
+    }
+    g_rf_version_dir = vdir;
+
+    /* Create mock stale flash file in vdir to verify purging */
+    char stale_path[256];
+    snprintf(stale_path, sizeof(stale_path), "%s/remote_ui.ota.gz", vdir);
+    FILE *f_stale = fopen(stale_path, "wb");
+    if (f_stale) { fwrite("stale", 1, 5, f_stale); fclose(f_stale); }
+    CHECK(access(stale_path, F_OK) == 0, "mock stale file created");
 
     /* 2. Set up paired remote in slot 1 with software version 2.0.0 */
     g_paired_remotes[0].active = true;
     g_paired_remotes[0].model = REMOTE_MODEL_JUNIPER;
     strncpy(g_remote_versions[0].sw_version, "2.0.0", sizeof(g_remote_versions[0].sw_version));
 
-    /* Write remote_ui.version with 2.1.0 */
-    FILE *vf = fopen("/data/harmony/remote_ui.version", "w");
-    if (vf) {
-        fputs("2.1.0\n", vf);
-        fclose(vf);
-    }
+    /* Write remote_ui.version with 2.1.0 in temp vdir */
+    char ver_path[256];
+    snprintf(ver_path, sizeof(ver_path), "%s/remote_ui.version", vdir);
+    FILE *vf = fopen(ver_path, "w");
+    assert(vf != NULL);
+    fputs("2.1.0\n", vf);
+    fclose(vf);
 
     /* Verify rf_check_update_flags advertises flag 0x02 even without flash .ota.gz */
     uint8_t flags = rf_check_update_flags(1);
@@ -90,14 +97,15 @@ int main(void) {
     rf_ota_sender_worker((void *)(uintptr_t)1);
 
     /* 4. Verify stale flash files were purged */
-    CHECK(access("/data/harmony/remote_ui.ota.gz", F_OK) != 0, "/data/harmony/remote_ui.ota.gz was purged");
-    CHECK(access("/cache/remote_ui.ota.gz", F_OK) != 0, "/cache/remote_ui.ota.gz was purged");
+    CHECK(access(stale_path, F_OK) != 0, "stale remote_ui.ota.gz was purged from version dir");
 
     /* 5. Verify /tmp/remote_ui.ota.gz was unlinked upon worker exit */
     CHECK(access("/tmp/remote_ui.ota.gz", F_OK) != 0, "/tmp/remote_ui.ota.gz unlinked after OTA worker finished");
 
-    /* Clean up temporary test files */
-    unlink("/data/harmony/remote_ui.version");
+    /* Clean up temporary test directory */
+    unlink(ver_path);
+    rmdir(vdir);
+    g_rf_version_dir = "/data/harmony";
 
     if (g_failures) {
         printf("[-] %d tests failed!\n", g_failures);

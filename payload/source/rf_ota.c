@@ -156,6 +156,13 @@ void *rf_ota_sender_worker(void *arg) {
     pthread_mutex_unlock(&g_ota_lock);
 
     /* Purge any stale OTA binaries from flash storage */
+    if (g_rf_version_dir) {
+        char p[256];
+        snprintf(p, sizeof(p), "%s/remote_ui.ota.gz", g_rf_version_dir);
+        unlink(p);
+        snprintf(p, sizeof(p), "%s/elite_ui.ota.gz", g_rf_version_dir);
+        unlink(p);
+    }
     unlink("/data/harmony/remote_ui.ota.gz");
     unlink("/cache/remote_ui.ota.gz");
     unlink("/data/harmony/elite_ui.ota.gz");

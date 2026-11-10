@@ -336,9 +336,18 @@ uint8_t rf_check_update_flags(uint8_t slot) {
     /* 2. OTA update check (cached from version metadata with 24h TTL; binary is fetched on-demand to /tmp) */
     uint32_t now = (uint32_t)time(NULL);
     if (s_ota_cache_epoch == 0 || now < s_ota_cache_epoch || now - s_ota_cache_epoch >= OTA_CACHE_TTL_S) {
-        FILE *vf = fopen("/data/harmony/remote_ui.version", "r");
-        if (!vf) vf = fopen("/data/harmony/latest_version", "r");
-        if (!vf) vf = fopen("/data/harmony/VERSION", "r");
+        const char *vdir = g_rf_version_dir ? g_rf_version_dir : "/data/harmony";
+        char vpath[256];
+        snprintf(vpath, sizeof(vpath), "%s/remote_ui.version", vdir);
+        FILE *vf = fopen(vpath, "r");
+        if (!vf) {
+            snprintf(vpath, sizeof(vpath), "%s/latest_version", vdir);
+            vf = fopen(vpath, "r");
+        }
+        if (!vf) {
+            snprintf(vpath, sizeof(vpath), "%s/VERSION", vdir);
+            vf = fopen(vpath, "r");
+        }
         if (vf) {
             char ota_ver[32] = {0};
             if (fgets(ota_ver, sizeof(ota_ver), vf)) {
