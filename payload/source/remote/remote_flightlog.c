@@ -75,28 +75,37 @@ static void append_durable(const char *text, size_t len) {
     if (is_new) sync_dir_of(s_file);
 }
 
-static size_t format_prefix(char *buf, size_t buf_sz, const char *event) {
+static size_t format_prefix(char *buf, size_t buf_sz, const char *event, bool in_signal) {
     struct timespec mono = {0, 0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
     time_t now = time(NULL);
     struct tm tmv;
     char stamp[32] = "";
-    if (localtime_r(&now, &tmv)) strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S%z", &tmv);
+    /* localtime_r() takes the C library's time zone lock: not from a signal handler */
+    if (!in_signal && localtime_r(&now, &tmv)) strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%S%z", &tmv);
     else snprintf(stamp, sizeof(stamp), "epoch=%ld", (long)now);
     int n = snprintf(buf, buf_sz, "%s up=%ld.%03ld n=%lu %s", stamp, (long)mono.tv_sec,
                      mono.tv_nsec / 1000000L, ++s_count, event);
     return (n < 0) ? 0 : ((size_t)n >= buf_sz ? buf_sz - 1 : (size_t)n);
 }
 
-/* One record, plus optional lines after it (tail), in a single write and a single fsync */
-static void write_record(const char *event, const char *tail, size_t tail_len, const char *fmt, va_list args) {
+/* One record, plus optional lines after it (tail), in a single write and a single fsync.
+ * in_signal: called from a crash signal handler. Then the lock is only tried (the crashed thread
+ * may hold it, and waiting for it would keep the handler from ever reaching _exit()), nothing is
+ * allocated, and the time is not converted. */
+static void write_record(bool in_signal, const char *event, const char *tail, size_t tail_len, const char *fmt,
+                         va_list args) {
     char line[640];
     char ctx[256] = "";
-    if (s_context) s_context(ctx, sizeof(ctx));
 
-    pthread_mutex_lock(&s_lock);
+    if (in_signal) {
+        if (pthread_mutex_trylock(&s_lock) != 0) return;
+    } else {
+        pthread_mutex_lock(&s_lock);
+    }
+    if (s_context) s_context(ctx, sizeof(ctx));
     const size_t cap = sizeof(line) - 2; /* room for the newline and the terminator */
-    size_t n = format_prefix(line, cap, event);
+    size_t n = format_prefix(line, cap, event, in_signal);
     if (fmt && fmt[0] && n + 2 < cap) {
         line[n++] = ' ';
         int m = vsnprintf(line + n, cap - n, fmt, args);
@@ -110,37 +119,44 @@ static void write_record(const char *event, const char *tail, size_t tail_len, c
         if (line[i] == '\n' || line[i] == '\r') line[i] = ' ';
     }
     line[n++] = '\n';
-    if (tail && tail_len > 0) {
-        char *all = malloc(n + tail_len);
-        if (all) {
-            memcpy(all, line, n);
-            memcpy(all + n, tail, tail_len);
-            append_durable(all, n + tail_len);
-            free(all);
-        } else {
-            append_durable(line, n);
-        }
+    char *all = (tail && tail_len > 0 && !in_signal) ? malloc(n + tail_len) : NULL;
+    if (all) {
+        memcpy(all, line, n);
+        memcpy(all + n, tail, tail_len);
+        append_durable(all, n + tail_len);
+        free(all);
     } else {
         append_durable(line, n);
     }
     pthread_mutex_unlock(&s_lock);
 }
 
+/* For the records this file writes itself; fmt may be NULL for a record without details */
+static void record_fmt(bool in_signal, const char *event, const char *tail, size_t tail_len, const char *fmt, ...)
+    __attribute__((format(printf, 5, 6)));
+static void record_fmt(bool in_signal, const char *event, const char *tail, size_t tail_len, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    write_record(in_signal, event, tail, tail_len, fmt, args);
+    va_end(args);
+}
+
 void flightlog_event(const char *event, const char *fmt, ...) {
     if (!event || !flightlog_enabled()) return;
     va_list args;
     va_start(args, fmt);
-    write_record(event, NULL, 0, fmt, args);
+    write_record(false, event, NULL, 0, fmt, args);
     va_end(args);
 }
 
-static void event_with_tail(const char *event, const char *tail, size_t tail_len, const char *fmt, ...)
-    __attribute__((format(printf, 4, 5)));
-static void event_with_tail(const char *event, const char *tail, size_t tail_len, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    write_record(event, tail, tail_len, fmt, args);
-    va_end(args);
+void flightlog_mark(const char *event) {
+    if (!event || !flightlog_enabled()) return;
+    record_fmt(false, event, NULL, 0, NULL);
+}
+
+void flightlog_crash(int sig) {
+    if (!flightlog_enabled()) return;
+    record_fmt(true, "CRASH", NULL, 0, "signal=%d", sig);
 }
 
 /* The event and time stamp of the last record (lines that start with a space are kernel lines) */
@@ -262,7 +278,7 @@ void flightlog_kernel(void) {
         if (got > 0) {
             raw[got] = '\0';
             size_t n = flightlog_filter_klog(raw, out, 8192, 45);
-            if (n > 0) event_with_tail("KLOG", out, n, "bytes=%d", got);
+            if (n > 0) record_fmt(false, "KLOG", out, n, "bytes=%d", got);
         }
     }
     free(raw);

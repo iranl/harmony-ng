@@ -228,7 +228,7 @@ void fb_set_blank(bool blank) {
             while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
         }
         read_remote_battery();
-        flightlog_event("SCREEN_OFF", NULL);
+        flightlog_mark("SCREEN_OFF");
         bool usb_plug = (strcmp(g_battery_info.powersource, "usb") == 0);
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
         log_power_debug("  fb_blank=%d, bl=0 | USB cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
@@ -450,7 +450,7 @@ void enter_kernel_suspend(void) {
     uint64_t wall_before = get_wall_ms(), mono_before = get_monotonic_ms();
     int fd = open("/sys/power/state", O_WRONLY);
     if (fd >= 0) {
-        ssize_t w = write(fd, REMOTE_SLEEP_STATE "\n", strlen(REMOTE_SLEEP_STATE) + 1);
+        ssize_t w = write(fd, REMOTE_SLEEP_STATE "\n", sizeof(REMOTE_SLEEP_STATE "\n") - 1);
         int write_errno = errno;
         close(fd);
         if (w < 0) {
@@ -554,7 +554,7 @@ void *power_manager(void *arg) {
         uint64_t hb_now_ms = get_boot_ms();
         if (hb_now_ms - last_flight_heartbeat_ms >= 300000) {
             last_flight_heartbeat_ms = hb_now_ms;
-            flightlog_event("HEARTBEAT", NULL);
+            flightlog_mark("HEARTBEAT");
         }
         /* Check power source switch (battery <-> usb <-> cradle) */
         FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");

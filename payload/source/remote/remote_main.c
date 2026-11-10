@@ -89,7 +89,7 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     }
 
     sync();
-    flightlog_event("CRASH", "signal=%d", sig); /* after the crash log, in case this cannot finish */
+    flightlog_crash(sig); /* never waits for the recorder's lock, so _exit() below is always reached */
     _exit(128 + sig);
 }
 
@@ -220,7 +220,9 @@ int main(int argc, char **argv) {
 
     sync_time_from_rtc();
 
-    /* After the clock is set, so the records carry the real time */
+    /* After the clock is set, so the records carry the real time, and after a first battery
+     * reading, so the BOOT and CONFIG records carry a measured voltage and not the defaults */
+    read_remote_battery();
     flightlog_set_context(remote_flightlog_context);
     flightlog_init(HARMONY_REMOTE_VERSION);
     flightlog_event("CONFIG", "sleep_state=%s deep_standby=%d screen_timeout_s=%d", REMOTE_SLEEP_STATE,

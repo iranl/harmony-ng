@@ -34,7 +34,18 @@ void flightlog_init(const char *version);
 /* One record: "<local time> up=<s> n=<count> <event> <fmt...> | <context>" */
 void flightlog_event(const char *event, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
-/* The state appended to every record after " | " (battery, screen, link...): the caller fills buf */
+/* A record with nothing to add to its name: "<local time> up=<s> n=<count> <event> | <context>" */
+void flightlog_mark(const char *event);
+
+/* The CRASH record, for a crash signal handler. It never waits: if the recorder's lock is held
+ * (the crash may be inside the recorder itself, on this very thread) the record is skipped, so the
+ * handler always gets to its _exit(). The time is "epoch=<s>": converting to local time takes a
+ * lock inside the C library, which the crashed thread may hold too. */
+void flightlog_crash(int sig);
+
+/* The state appended to every record after " | " (battery, screen, link...): the caller fills buf.
+ * Called with the recorder's lock held, and from flightlog_crash() inside a signal handler: it
+ * must only format values it can read without a lock. */
 void flightlog_set_context(void (*fn)(char *buf, size_t buf_sz));
 
 /* Copies the newest kernel messages printed since the last call into the log (and clears the

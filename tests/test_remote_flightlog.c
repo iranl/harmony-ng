@@ -13,7 +13,15 @@ static int g_failures = 0;
 
 static char g_dir[128], g_file[192], g_old[200], g_enable[192];
 
+/* Set to make the context callback behave like a crash inside the recorder: it runs with the
+ * recorder's lock held, as a crash handler on the same thread would */
+static int g_crash_in_context = 0;
+
 static void context(char *buf, size_t buf_sz) {
+    if (g_crash_in_context) {
+        g_crash_in_context = 0;
+        flightlog_crash(11);
+    }
     snprintf(buf, buf_sz, "batt=3980mV 87%% battery");
 }
 
@@ -54,7 +62,8 @@ int main(void) {
 
     /* Off: nothing is written, nothing is created */
     flightlog_init("9.9.9");
-    flightlog_event("SCREEN_OFF", NULL);
+    flightlog_mark("SCREEN_OFF");
+    flightlog_crash(11);
     CHECK(access(g_file, F_OK) != 0, "disabled: no file");
     CHECK(!flightlog_enabled(), "disabled without the enable file");
 
@@ -104,9 +113,33 @@ int main(void) {
     CHECK(stat(g_old, &sb) == 0 && sb.st_size <= 4096, "the previous file is kept as .1");
     CHECK(strstr(slurp(g_file), "HEARTBEAT i=199") != NULL, "the newest record is in the current file");
 
+    /* A record without details */
+    flightlog_mark("SCREEN_OFF");
+    CHECK(strstr(slurp(g_file), " SCREEN_OFF | batt=3980mV") != NULL, "a mark is the event and the context");
+
+    /* The crash record: written with the raw time, and found by the next start */
+    flightlog_crash(11);
+    txt = slurp(g_file);
+    CHECK(strstr(txt, " CRASH signal=11 | batt=3980mV") != NULL, "the crash record");
+    CHECK(strstr(txt, "\nepoch=") != NULL, "the crash record's time is not converted");
+    CHECK(flightlog_last_event(g_file, ev, sizeof(ev), st, sizeof(st)) && strcmp(ev, "CRASH") == 0 &&
+          strncmp(st, "epoch=", 6) == 0, "a start after a crash finds it as the last record");
+
+    /* A crash while the recorder holds its lock on the same thread: the handler must come back
+     * (it has _exit() to reach) and the record is skipped. With a blocking lock this never
+     * returns; the alarm turns that into a failure instead of a hung test. */
+    int crashes_before = count(slurp(g_file), " CRASH ");
+    g_crash_in_context = 1;
+    alarm(10);
+    flightlog_event("NOTE", "interrupted=%d", 1);
+    alarm(0);
+    txt = slurp(g_file);
+    CHECK(strstr(txt, " NOTE interrupted=1 | ") != NULL, "the interrupted record is still written");
+    CHECK(count(txt, " CRASH ") == crashes_before, "no crash record while the lock is held, and no deadlock");
+
     /* Turned off while running */
     enable(0);
-    flightlog_event("AFTER_OFF", NULL);
+    flightlog_mark("AFTER_OFF");
     CHECK(strstr(slurp(g_file), "AFTER_OFF") == NULL, "no record once the enable file is gone");
 
     /* Kernel log filter: the board's pin dump goes, the rest stays, long input is cut */
