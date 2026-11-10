@@ -168,64 +168,15 @@ void get_cpu_freq_status(char *out, size_t max_len) {
     snprintf(out, max_len, "gov=%.16s, cur=%.16s", gov, cur_freq);
 }
 
-void set_cpu_freq_standby(bool standby) {
-    if (standby && is_remote_docked()) {
-        log_power_debug("CPU scale -> STANDBY bypassed (docked/charging: holding 456MHz)\n");
-        return;
-    }
-    char before[96];
-    get_cpu_freq_status(before, sizeof(before));
-    if (standby) {
-        bool gov_ok = false;
-        FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-        if (fg) {
-            if (fputs("userspace\n", fg) >= 0) gov_ok = true;
-            fclose(fg);
-        }
-        bool speed_ok = false;
-        if (gov_ok) {
-            FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
-            if (fs) {
-                if (fputs("96000\n", fs) >= 0) speed_ok = true;
-                fclose(fs);
-            }
-        }
-        if (!gov_ok || !speed_ok) {
-            FILE *fp = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-            if (fp) {
-                fputs("powersave\n", fp);
-                fclose(fp);
-            }
-        }
-        char after[96];
-        get_cpu_freq_status(after, sizeof(after));
-        log_power_debug("CPU scale -> STANDBY: before [%s] -> after [%s] (gov_ok=%d, speed_ok=%d)\n",
-                        before, after, gov_ok, speed_ok);
-    } else {
-        bool gov_ok = false;
-        FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-        if (fg) {
-            if (fputs("performance\n", fg) >= 0) gov_ok = true;
-            fclose(fg);
-        }
-        FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
-        if (fs) {
-            fputs("456000\n", fs);
-            fclose(fs);
-        }
-        if (!gov_ok) {
-            FILE *fgu = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-            if (fgu) {
-                fputs("userspace\n", fgu);
-                fclose(fgu);
-            }
-        }
-        char after[96];
-        get_cpu_freq_status(after, sizeof(after));
-        log_power_debug("CPU scale -> ACTIVE: before [%s] -> after [%s] (gov_ok=%d)\n",
-                        before, after, gov_ok);
-    }
-}
+/* The processor frequency is never changed (it used to drop to 96 MHz while the screen was off).
+ * The stock kernel's I2C driver hooks every frequency change: i2c_davinci_cpufreq_transition()
+ * puts the I2C controller in reset and recomputes its clock, and the wait that should let a
+ * running transfer finish first does not wait (its completion is only ever completed, so it is a
+ * counter that is never zero). A frequency change can therefore cut a transfer on the bus the
+ * MSP430 keypad controller, the PMIC, the touch controller and the accelerometer share. On two
+ * remotes that ended with the remote dark and dead to keys and USB until the battery was pulled,
+ * at the first screen blank after a wake from suspend. The stock firmware never writes cpufreq;
+ * the kernel default is the performance governor. */
 
 bool is_night_time(void) {
     time_t now = time(NULL);
@@ -257,7 +208,6 @@ void fb_set_blank(bool blank) {
     if (g_screen_on) {
         s_last_wake_ms = now_ms;
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
-        set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
         clearpad_wake(false);
         read_remote_battery();
@@ -272,7 +222,6 @@ void fb_set_blank(bool blank) {
     } else {
         s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
-        set_cpu_freq_standby(true);
         clearpad_doze();
         if (g_gyro_fd >= 0) {
             struct input_event ev[16];

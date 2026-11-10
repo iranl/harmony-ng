@@ -17,7 +17,6 @@ void clearpad_doze(void);
 void clearpad_sleep(void);
 bool is_remote_docked(void);
 void get_cpu_freq_status(char *out, size_t max_len);
-void set_cpu_freq_standby(bool standby);
 bool is_night_time(void);
 void fb_set_blank(bool blank);
 bool is_usb_hardware_connected(void);

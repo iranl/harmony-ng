@@ -211,7 +211,8 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
    - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons during Light Standby (0-30m).
    - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
    - After 30 minutes (Deep Standby), `/dev/input/event1` is detached to prevent accidental motion wakes.
-4. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
+4. **No processor frequency change**: `remote_ui` used to drop the processor to 96 MHz while the screen was off and go back to 456 MHz at the wake. It no longer does. The stock kernel's I2C driver puts its controller in reset on every frequency change without waiting for a running transfer, on the bus shared by the keypad controller, the PMIC, the touch controller and the accelerometer; two remotes stopped dead at the first blank after a wake from suspend, until their battery was pulled. The stock firmware never changes the frequency. The standby figures in this section were measured with the 96 MHz step, so a remote that stays awake with the screen off (deep standby later than "at once", or never) now draws more than they say; asleep it draws the same.
+5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
 
 ---
 
