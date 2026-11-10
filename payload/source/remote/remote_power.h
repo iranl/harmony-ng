@@ -17,7 +17,6 @@ void clearpad_doze(void);
 void clearpad_sleep(void);
 bool is_remote_docked(void);
 void get_cpu_freq_status(char *out, size_t max_len);
-void set_cpu_freq_standby(bool standby);
 bool is_night_time(void);
 void fb_set_blank(bool blank);
 bool is_usb_hardware_connected(void);
@@ -26,6 +25,11 @@ time_t ui_wall_time(void);
 void stop_usbeth_and_dropbear(void);
 void start_usbeth_and_dropbear(void);
 void enter_kernel_suspend(void);
+/* What a deep standby writes to /sys/power/state */
+#define REMOTE_SLEEP_STATE "mem"
+/* The state every flight recorder line ends with (remote_flightlog.h): battery, screen, activity,
+ * what is in progress, RF link and the age of the last Hub frame */
+void remote_flightlog_context(char *buf, size_t buf_sz);
 /* Deep standby (suspend to RAM, on battery) is due after the screen has been off this long:
  * the deep_standby setting, -1 = at once (2 s, time for a key release and its ACK), 0 = never */
 #define REMOTE_SUSPEND_AT_ONCE_S 2

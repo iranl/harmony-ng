@@ -786,6 +786,30 @@ int main(void) {
         printf("[+] Suspend: the time asleep counts, a resume reads a rested battery and requests a report\n");
     }
 
+    {
+        /* A blank and a wake leave the processor frequency alone: the kernel's I2C driver resets
+         * its controller on every change, which stopped two remotes dead (remote_power.c). The
+         * mock keeps every cpufreq node in one file. */
+        FILE *f;
+        char governor[32] = "";
+        bool saved_screen = g_screen_on;
+        uint64_t saved_blank = s_last_blank_time_ms;
+        f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
+        assert(f);
+        fputs("performance\n", f);
+        fclose(f);
+        fb_set_blank(true);
+        fb_set_blank(false);
+        f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "r");
+        assert(f && fgets(governor, sizeof(governor), f));
+        fclose(f);
+        assert(strcmp(governor, "performance\n") == 0);
+        if (!saved_screen) fb_set_blank(true);
+        g_screen_on = saved_screen;
+        s_last_blank_time_ms = saved_blank;
+        printf("[+] A screen blank and wake do not change the processor frequency\n");
+    }
+
     free(g_fb_mem);
     printf("\n[+] ALL HEADLESS REMOTE UI CHECKS PASSED!\n");
     return 0;

@@ -93,6 +93,41 @@ The remote's `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/
 
 ---
 
+## Flight Recorder (a Log That Survives a Battery Pull)
+`/tmp/remote_ui.log` and the power debug log live in RAM: they are gone after a reboot, a watchdog reset or a
+battery pull, which is exactly when a remote that stopped responding needs them. The flight recorder is a small
+event log on flash for that case.
+
+- **Turn it on**: `touch /data/flightlog_on` over SSH. **Turn it off**: `rm /data/flightlog_on`. No restart needed.
+- **Read it**: `cat /data/remote_flightlog.txt` (the previous file, after 1 MB, is `/data/remote_flightlog.txt.1`).
+- Every record is one line, written and `fsync()`ed before `remote_ui` continues, and ends with the state at that
+  moment: battery voltage, percentage and power source, screen, running activity, a switch, sync or update in
+  progress, RF link and the age of the last Hub frame.
+- It costs one small flash write per record (a few hundred a day in normal use), so it is a diagnostic: turn it
+  off when you have what you need.
+
+| Record | Written |
+|---|---|
+| `BOOT` | At every start of `remote_ui`: version, system uptime, and the last record of the previous run |
+| `CONFIG` | After `BOOT`: sleep state, deep standby setting, screen timeout |
+| `SCREEN_OFF` / `SCREEN_ON` | The display blanks or wakes (`off_s` = how long it was off) |
+| `SUSPEND_ENTER` | Right before the kernel is asked to sleep |
+| `SUSPEND_RETURN` | After the resume: `slept_ms`, `awake_ms` (time spent going in and coming out), `wakeup_event` (`key`, `alarm`, `touch`, `lowbatt`, `none`), or the error |
+| `KLOG` | After every resume: the newest lines the kernel printed since the last one (the board's pin dump is left out) |
+| `POWER` | The power source changed (battery, usb, cradle) |
+| `HEARTBEAT` | Every 5 minutes awake, and after a resume |
+| `EXIT` / `CRASH` | A clean stop, or a crash signal |
+
+**Reading a halt.** When the remote stopped responding and only pulling the battery brought it back, look at the
+`BOOT` record of the next start. `prev=SUSPEND_ENTER ... SUSPEND_DID_NOT_RETURN` means it went into that suspend
+and never came out; `prev_t` is when. Any other `prev=` is the last thing it did before it stopped, and the
+`HEARTBEAT` records show until when it was still running.
+
+`KLOG` reads the kernel log with "read and clear", so while the recorder is on `dmesg` only shows what was printed
+since the last resume.
+
+---
+
 ## Note on Busybox `sync`
 BusyBox v1.13.4 on both the Hub and the remote lacks the `sync` applet. Never run raw `sync` in scripts. Always use:
 ```sh
@@ -176,7 +211,8 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
    - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons during Light Standby (0-30m).
    - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
    - After 30 minutes (Deep Standby), `/dev/input/event1` is detached to prevent accidental motion wakes.
-4. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
+4. **No processor frequency change**: `remote_ui` used to drop the processor to 96 MHz while the screen was off and go back to 456 MHz at the wake. It no longer does. The stock kernel's I2C driver puts its controller in reset on every frequency change without waiting for a running transfer, on the bus shared by the keypad controller, the PMIC, the touch controller and the accelerometer; two remotes stopped dead at the first blank after a wake from suspend, until their battery was pulled. The stock firmware never changes the frequency. The standby figures in this section were measured with the 96 MHz step, so a remote that stays awake with the screen off (deep standby later than "at once", or never) now draws more than they say; asleep it draws the same.
+5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
 
 ---
 

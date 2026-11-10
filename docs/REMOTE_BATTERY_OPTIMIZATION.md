@@ -15,7 +15,7 @@ Expected standby battery life on a fully charged battery is **~3 days**. This is
 | **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Button LEDs disabled when screen blanks or daytime. |
 | **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Suspended after 30 min; 0 I2C bus transactions. |
 | **CC2544 2.4GHz RF** (`/dev/rfspi`) | ~18 - 24 mA | < 0.5 mA | < 0.5 mA | Radio idle in PM2 sleep; wakes on button event. |
-| **ARM926EJ-S SoC** (TI DaVinci DM365) | ~80 mA | ~12 mA | ~8 mA | CPU throttled to 24MHz; `select()` sleeps up to 30s. |
+| **ARM926EJ-S SoC** (TI DaVinci DM365) | ~80 mA | ~12 mA | ~8 mA | `select()` sleeps up to 30s. The standby figures were measured with the processor stepped down to 96 MHz; that step is gone (it could stop the remote dead, see REMOTE.md), so awake with the screen off it now draws more. |
 
 ---
 

@@ -6,6 +6,7 @@
 #include "remote_ui.h"
 #include "timezone_db.h"
 #include "remote_battery.h"
+#include "remote_flightlog.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -167,64 +168,15 @@ void get_cpu_freq_status(char *out, size_t max_len) {
     snprintf(out, max_len, "gov=%.16s, cur=%.16s", gov, cur_freq);
 }
 
-void set_cpu_freq_standby(bool standby) {
-    if (standby && is_remote_docked()) {
-        log_power_debug("CPU scale -> STANDBY bypassed (docked/charging: holding 456MHz)\n");
-        return;
-    }
-    char before[96];
-    get_cpu_freq_status(before, sizeof(before));
-    if (standby) {
-        bool gov_ok = false;
-        FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-        if (fg) {
-            if (fputs("userspace\n", fg) >= 0) gov_ok = true;
-            fclose(fg);
-        }
-        bool speed_ok = false;
-        if (gov_ok) {
-            FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
-            if (fs) {
-                if (fputs("96000\n", fs) >= 0) speed_ok = true;
-                fclose(fs);
-            }
-        }
-        if (!gov_ok || !speed_ok) {
-            FILE *fp = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-            if (fp) {
-                fputs("powersave\n", fp);
-                fclose(fp);
-            }
-        }
-        char after[96];
-        get_cpu_freq_status(after, sizeof(after));
-        log_power_debug("CPU scale -> STANDBY: before [%s] -> after [%s] (gov_ok=%d, speed_ok=%d)\n",
-                        before, after, gov_ok, speed_ok);
-    } else {
-        bool gov_ok = false;
-        FILE *fg = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-        if (fg) {
-            if (fputs("performance\n", fg) >= 0) gov_ok = true;
-            fclose(fg);
-        }
-        FILE *fs = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed", "w");
-        if (fs) {
-            fputs("456000\n", fs);
-            fclose(fs);
-        }
-        if (!gov_ok) {
-            FILE *fgu = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
-            if (fgu) {
-                fputs("userspace\n", fgu);
-                fclose(fgu);
-            }
-        }
-        char after[96];
-        get_cpu_freq_status(after, sizeof(after));
-        log_power_debug("CPU scale -> ACTIVE: before [%s] -> after [%s] (gov_ok=%d)\n",
-                        before, after, gov_ok);
-    }
-}
+/* The processor frequency is never changed (it used to drop to 96 MHz while the screen was off).
+ * The stock kernel's I2C driver hooks every frequency change: i2c_davinci_cpufreq_transition()
+ * puts the I2C controller in reset and recomputes its clock, and the wait that should let a
+ * running transfer finish first does not wait (its completion is only ever completed, so it is a
+ * counter that is never zero). A frequency change can therefore cut a transfer on the bus the
+ * MSP430 keypad controller, the PMIC, the touch controller and the accelerometer share. On two
+ * remotes that ended with the remote dark and dead to keys and USB until the battery was pulled,
+ * at the first screen blank after a wake from suspend. The stock firmware never writes cpufreq;
+ * the kernel default is the performance governor. */
 
 bool is_night_time(void) {
     time_t now = time(NULL);
@@ -256,12 +208,12 @@ void fb_set_blank(bool blank) {
     if (g_screen_on) {
         s_last_wake_ms = now_ms;
         uint64_t sleep_sec = s_last_blank_time_ms > 0 ? (now_ms - s_last_blank_time_ms) / 1000 : 0;
-        set_cpu_freq_standby(false);
         set_backlight_level(g_brightness_val);
         clearpad_wake(false);
         read_remote_battery();
         rf_wake_and_reconnect();
         g_screen_dirty = true;
+        flightlog_event("SCREEN_ON", "off_s=%llu", (unsigned long long)sleep_sec);
         log_power_debug("=== WAKING FROM STANDBY (Screen Active) ===\n");
         log_power_debug("  Slept for: %llu seconds | Backlight: %d | Battery: %dmV, %d%% (%s, chg=%d)\n",
                         (unsigned long long)sleep_sec, g_brightness_val,
@@ -270,13 +222,13 @@ void fb_set_blank(bool blank) {
     } else {
         s_last_blank_time_ms = now_ms;
         set_backlight_level(0);
-        set_cpu_freq_standby(true);
         clearpad_doze();
         if (g_gyro_fd >= 0) {
             struct input_event ev[16];
             while (read(g_gyro_fd, ev, sizeof(ev)) > 0) {}
         }
         read_remote_battery();
+        flightlog_mark("SCREEN_OFF");
         bool usb_plug = (strcmp(g_battery_info.powersource, "usb") == 0);
         log_power_debug("=== ENTERING STANDBY (Screen Blank) ===\n");
         log_power_debug("  fb_blank=%d, bl=0 | USB cable=%d | Battery: %dmV, %d%% (%s, chg=%d)\n",
@@ -449,6 +401,23 @@ void remote_power_report_sent(void) {
     if (g_suspend_hold_until_ms > now + 800) g_suspend_hold_until_ms = now + 800; /* time for the ACK */
 }
 
+void remote_flightlog_context(char *buf, size_t buf_sz) {
+    uint64_t now = get_monotonic_ms();
+    uint64_t last = g_last_hub_frame_ms; /* stamped by the RF thread, may be newer than now */
+    char hub[24] = "-";
+    if (last > 0) {
+        uint64_t age = now >= last ? now - last : 0;
+        snprintf(hub, sizeof(hub), "%llu.%llus", (unsigned long long)(age / 1000),
+                 (unsigned long long)((age % 1000) / 100));
+    }
+    snprintf(buf, buf_sz, "batt=%umV %u%% %s chg=%u scr=%d act=%s sw=%d sync=%d ota=%d link=%d hubrx=%s",
+             (unsigned)g_battery_info.voltage_mv, (unsigned)g_battery_info.percent,
+             g_battery_info.powersource[0] ? g_battery_info.powersource : "?", (unsigned)g_battery_info.charging,
+             g_screen_on ? 1 : 0, g_active_activity_id[0] ? g_active_activity_id : "-",
+             g_is_switching_activity ? 1 : 0, g_is_syncing_config ? 1 : 0, g_is_ota_updating ? 1 : 0,
+             g_rf_link_connected ? 1 : 0, hub);
+}
+
 void enter_kernel_suspend(void) {
     flush_activity_usage();
     read_remote_battery();
@@ -459,6 +428,10 @@ void enter_kernel_suspend(void) {
         g_usb_connected = false;
         stop_usbeth_and_dropbear();
     }
+
+    /* On flash before the kernel is asked to sleep: if the remote never comes back, this is the
+     * last record and the next start reports it (remote_flightlog.h) */
+    flightlog_event(FLIGHTLOG_EV_SUSPEND_ENTER, "state=%s wakeup_s=3600", REMOTE_SLEEP_STATE);
 
     int lfd = open(BTN_LED_SYSFS, O_WRONLY);
     if (lfd >= 0) {
@@ -473,28 +446,33 @@ void enter_kernel_suspend(void) {
         close(mfd);
     }
 
-    log_power_debug("[*] Entering kernel Suspend-to-RAM (echo mem > /sys/power/state)...\n");
+    log_power_debug("[*] Entering kernel suspend (echo %s > /sys/power/state)...\n", REMOTE_SLEEP_STATE);
     uint64_t wall_before = get_wall_ms(), mono_before = get_monotonic_ms();
     int fd = open("/sys/power/state", O_WRONLY);
     if (fd >= 0) {
-        ssize_t w = write(fd, "mem\n", 4);
+        ssize_t w = write(fd, REMOTE_SLEEP_STATE "\n", sizeof(REMOTE_SLEEP_STATE "\n") - 1);
+        int write_errno = errno;
         close(fd);
         if (w < 0) {
-            log_power_debug("[-] Kernel suspend returned error: %s\n", strerror(errno));
+            log_power_debug("[-] Kernel suspend returned error: %s\n", strerror(write_errno));
             remote_wdt_init();
+            flightlog_event(FLIGHTLOG_EV_SUSPEND_RETURN, "rc=error errno=%d (%s) awake_ms=%llu", write_errno,
+                            strerror(write_errno), (unsigned long long)(get_monotonic_ms() - mono_before));
+            flightlog_kernel();
             usleep(5000000);
             return;
         }
     }
-    uint64_t gap_ms = remote_suspend_gap_ms(wall_before, mono_before, get_wall_ms(), get_monotonic_ms());
+    uint64_t mono_after = get_monotonic_ms();
+    uint64_t gap_ms = remote_suspend_gap_ms(wall_before, mono_before, get_wall_ms(), mono_after);
     g_suspended_ms += gap_ms;
-    log_power_debug("[*] Resumed from kernel Suspend-to-RAM after %llu s\n", (unsigned long long)(gap_ms / 1000));
+    log_power_debug("[*] Resumed from kernel suspend after %llu s\n", (unsigned long long)(gap_ms / 1000));
     remote_wdt_init();
     remote_power_resumed(gap_ms);
 
+    char wev[32] = "unreadable";
     FILE *fev = fopen("/sys/bus/i2c/devices/1-0034/wakeup_event", "r");
     if (fev) {
-        char wev[32] = {0};
         if (fscanf(fev, "%31s", wev) == 1) {
             log_power_debug("[*] Kernel resume wakeup_event: %s\n", wev);
             if (strcmp(wev, "alarm") != 0) {
@@ -508,6 +486,14 @@ void enter_kernel_suspend(void) {
     } else {
         g_wake_requested = 1;
     }
+
+    /* slept_ms is measured on the wall clock; awake_ms is the time the write itself took on the
+     * monotonic clock, which stops while the processor sleeps: the way in plus the way out */
+    read_remote_battery();
+    flightlog_event(FLIGHTLOG_EV_SUSPEND_RETURN, "rc=%s slept_ms=%llu awake_ms=%llu wakeup_event=%s",
+                    fd >= 0 ? "ok" : "open_failed", (unsigned long long)gap_ms,
+                    (unsigned long long)(mono_after - mono_before), wev);
+    flightlog_kernel();
 
     rf_wake_and_reconnect();
 }
@@ -559,9 +545,17 @@ void *power_manager(void *arg) {
     uint64_t last_standby_heartbeat_ms = 0;
     static char s_last_dock_psrc[16] = "";
     static uint64_t s_last_dock_wake_ms = 0;
+    uint64_t last_flight_heartbeat_ms = get_boot_ms();
 
     while (g_running) {
         remote_wdt_ping();
+        /* A record every 5 minutes awake (a resume counts the time asleep, so one follows it too):
+         * the battery over time, and how long before a halt the remote was still running */
+        uint64_t hb_now_ms = get_boot_ms();
+        if (hb_now_ms - last_flight_heartbeat_ms >= 300000) {
+            last_flight_heartbeat_ms = hb_now_ms;
+            flightlog_mark("HEARTBEAT");
+        }
         /* Check power source switch (battery <-> usb <-> cradle) */
         FILE *fpsrc = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
         if (fpsrc) {
@@ -576,6 +570,7 @@ void *power_manager(void *arg) {
                         s_last_dock_wake_ms = now_ms;
                         log_power_debug("[*] Power source transition (%s -> %s), waking display\n",
                                         s_last_dock_psrc, psrc);
+                        flightlog_event("POWER", "source=%s->%s", s_last_dock_psrc, psrc);
                         if (strcmp(s_last_dock_psrc, "battery") == 0)
                             g_charging_page_until_ms = (uint32_t)(now_ms + CHARGING_PAGE_MS) | 1; /* 0 means off */
                         g_screen_dirty = true; /* the header's battery changes even when the screen is on */
