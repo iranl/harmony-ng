@@ -12,6 +12,7 @@
 #include "remote_ui_scroll.h"
 #include "harmony_version.h"
 #include "remote_migrate.h"
+#include "remote_flightlog.h"
 #include "remote_battery.h"
 
 #include <stdio.h>
@@ -88,6 +89,7 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     }
 
     sync();
+    flightlog_event("CRASH", "signal=%d", sig); /* after the crash log, in case this cannot finish */
     _exit(128 + sig);
 }
 
@@ -217,6 +219,12 @@ int main(int argc, char **argv) {
     }
 
     sync_time_from_rtc();
+
+    /* After the clock is set, so the records carry the real time */
+    flightlog_set_context(remote_flightlog_context);
+    flightlog_init(HARMONY_REMOTE_VERSION);
+    flightlog_event("CONFIG", "sleep_state=%s deep_standby=%d screen_timeout_s=%d", REMOTE_SLEEP_STATE,
+                    g_deep_standby_min, g_timeout_seconds);
 
     bool do_pairing = false;
     for (int i = 1; i < argc; i++) {
@@ -870,6 +878,7 @@ int main(int argc, char **argv) {
     }
 
     flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
+    flightlog_event("EXIT", "clean=1");
     printf("[+] Cleaning up hardware resources...\n");
     remote_wdt_close();
     if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
