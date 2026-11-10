@@ -24,6 +24,14 @@ void rf_keymap_invalidate_devices_cache(void) {
     pthread_mutex_unlock(&g_rf_devices_lock);
 }
 
+void rf_devices_cache_lock(void) {
+    pthread_mutex_lock(&g_rf_devices_lock);
+}
+
+void rf_devices_cache_unlock(void) {
+    pthread_mutex_unlock(&g_rf_devices_lock);
+}
+
 void rf_keymap_invalidate_activities_cache(void) {
     pthread_mutex_lock(&g_rf_activities_lock);
     if (g_rf_activities_cache) {

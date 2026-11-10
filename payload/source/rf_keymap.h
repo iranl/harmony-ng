@@ -30,6 +30,8 @@ void get_current_activity(char *out, size_t outlen);
 void get_activity_name_by_id(const char *act_id, char *out_name, size_t out_len);
 
 cJSON *rf_get_devices_cache(void);
+void rf_devices_cache_lock(void);
+void rf_devices_cache_unlock(void);
 cJSON *rf_get_activities_cache(void);
 void rf_keymap_invalidate_devices_cache(void);
 void rf_keymap_invalidate_activities_cache(void);

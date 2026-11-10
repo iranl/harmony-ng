@@ -21,6 +21,7 @@ from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
 
 PORT = 8983
 MIRROR = "/tmp/current_activity"
+TARGET = "/tmp/activity_target"
 STREAMER = "0A:0B:0C:0D:0E:01"  # test addresses, not a real device
 SPEAKER = "0A:0B:0C:0D:0E:02"
 
@@ -58,12 +59,16 @@ def config_dir():
     return d
 
 
-def read_mirror():
+def read_file(path):
     try:
-        with open(MIRROR) as f:
+        with open(path) as f:
             return f.read().strip()
     except OSError:
         return None
+
+
+def read_mirror():
+    return read_file(MIRROR)
 
 
 def state_of(hub):
@@ -99,15 +104,18 @@ def main():
             s = state_of(hub)
             check(str(s.get("activity")) == "-1" and s.get("state") == 1,
                   "the Hub's current activity is still -1 while it starts", str(s))
-            check(read_mirror() == "12", "while it starts, /tmp/current_activity holds the activity being started",
-                  str(read_mirror()))
+            check(read_file(TARGET) == "12", "while it starts, /tmp/activity_target holds the activity being started",
+                  str(read_file(TARGET)))
+            check(read_file(MIRROR) == "-1", "while it starts, /tmp/current_activity is still -1",
+                  str(read_file(MIRROR)))
             check(wait_state(hub, "12"), "activity 12 running")
-            check(read_mirror() == "12", "running: /tmp/current_activity 12", str(read_mirror()))
+            check(read_file(MIRROR) == "12", "running: /tmp/current_activity 12", str(read_file(MIRROR)))
 
             st, _ = hub.http_post("/api/poweroff", {})
             check(st == 200, "power off")
-            check(read_mirror() == "-1", "power off: /tmp/current_activity -1 at once", str(read_mirror()))
+            check(read_file(TARGET) == "-1", "power off: /tmp/activity_target -1 at once", str(read_file(TARGET)))
             check(wait_state(hub, "-1"), "powered off")
+            check(read_file(MIRROR) == "-1", "powered off: /tmp/current_activity -1", str(read_file(MIRROR)))
             time.sleep(0.3)
 
         log = open(log_path, errors="replace").read().splitlines()

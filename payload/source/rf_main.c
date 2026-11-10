@@ -32,34 +32,44 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
     int cmd_idx = payload[4];
     memcpy(prefix, &payload[5], 20);
 
+    char matched_full_id[64] = {0};
+    char matched_cmd_name[64] = {0};
+    int found = 0;
+
+    rf_devices_cache_lock();
     cJSON *root = rf_get_devices_cache();
-    if (!root) return;
-
-    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
-    const char *full_id = NULL;
-    const char *cmd_name = NULL;
-    cJSON *dev = NULL;
-    cJSON_ArrayForEach(dev, devs_arr) {
-        cJSON *jid = cJSON_GetObjectItem(dev, "id");
-        if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 7) != 0) continue;
-        full_id = jid->valuestring;
-        cJSON *cmds = cJSON_GetObjectItem(dev, "commands");
-        int c = 0;
-        cJSON *cmd = NULL;
-        cJSON_ArrayForEach(cmd, cmds) {
-            cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
-            if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 20) == 0) {
-                if (c == cmd_idx) { cmd_name = jn->valuestring; break; }
-                if (!cmd_name) cmd_name = jn->valuestring; /* index moved: first name match */
+    if (root) {
+        cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
+        cJSON *dev = NULL;
+        cJSON_ArrayForEach(dev, devs_arr) {
+            cJSON *jid = cJSON_GetObjectItem(dev, "id");
+            if (!jid || !cJSON_IsString(jid) || strncmp(jid->valuestring, dev_id, 7) != 0) continue;
+            const char *full_id = jid->valuestring;
+            cJSON *cmds = cJSON_GetObjectItem(dev, "commands");
+            int c = 0;
+            const char *cmd_name = NULL;
+            cJSON *cmd = NULL;
+            cJSON_ArrayForEach(cmd, cmds) {
+                cJSON *jn = cJSON_IsString(cmd) ? cmd : cJSON_GetObjectItem(cmd, "name");
+                if (jn && cJSON_IsString(jn) && strncmp(jn->valuestring, prefix, 20) == 0) {
+                    if (c == cmd_idx) { cmd_name = jn->valuestring; break; }
+                    if (!cmd_name) cmd_name = jn->valuestring; /* index moved: first name match */
+                }
+                c++;
             }
-            c++;
+            if (full_id && cmd_name) {
+                strncpy(matched_full_id, full_id, sizeof(matched_full_id) - 1);
+                strncpy(matched_cmd_name, cmd_name, sizeof(matched_cmd_name) - 1);
+                found = 1;
+            }
+            break;
         }
-        break;
     }
+    rf_devices_cache_unlock();
 
-    if (full_id && cmd_name) {
-        printf("[*] Device browser command: dev=%s idx=%d -> %s\n", full_id, cmd_idx, cmd_name);
-        enqueue_remote_device_cmd(full_id, cmd_name);
+    if (found) {
+        printf("[*] Device browser command: dev=%s idx=%d -> %s\n", matched_full_id, cmd_idx, matched_cmd_name);
+        enqueue_remote_device_cmd(matched_full_id, matched_cmd_name);
     } else {
         printf("[-] Device browser command not found: dev=%s idx=%d name=%s\n", dev_id, cmd_idx, prefix);
     }
@@ -191,6 +201,7 @@ void handle_rf_frame(const rf_frame_t *f) {
 
             if (req_type == 0x02) {
                 rf_sync_cache_invalidate();
+                rf_keymap_invalidate_map(0);
                 usleep(50000);
                 pthread_t push_th;
                 pthread_create(&push_th, NULL, config_push_worker, NULL);

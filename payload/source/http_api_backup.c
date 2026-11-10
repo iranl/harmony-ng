@@ -369,6 +369,13 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                         if (strcmp(tgt, "devices") == 0 || strcmp(tgt, "activities") == 0 || strcmp(tgt, "remote_slot1_map") == 0 || strcmp(tgt, "remote_slot2_map") == 0) {
                             notify_rf_push_config();
                         }
+                        if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
+                            FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
+                            if (cf) {
+                                fputs("reload_map\n", cf);
+                                fclose(cf);
+                            }
+                        }
                         if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {
                             struct user_account tmp_u[MAX_HTTP_USERS];
                             int tmp_en = 0;

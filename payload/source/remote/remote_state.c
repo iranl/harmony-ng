@@ -231,7 +231,6 @@ bool is_remote_paired(void) {
 }
 
 
-#undef log_power_debug
 void log_remote_debug(const char *fmt, ...) {
     if (!g_debug_logging) return;
     pthread_mutex_lock(&g_power_log_mutex);
@@ -259,15 +258,6 @@ void log_remote_debug(const char *fmt, ...) {
         fclose(ftmp);
     }
     pthread_mutex_unlock(&g_power_log_mutex);
-}
-
-void log_power_debug(const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    char msg[512];
-    vsnprintf(msg, sizeof(msg), fmt, args);
-    va_end(args);
-    log_remote_debug("%s", msg);
 }
 
 bool has_configured_activities(void) {
