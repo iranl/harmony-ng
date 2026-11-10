@@ -16,6 +16,7 @@
 #include <sys/un.h>
 #include <linux/fb.h>
 #include <linux/input.h>
+#include <sys/inotify.h>
 
 #define DEFAULT_MOCK_DIR "/tmp/harmony_mock"
 
@@ -559,4 +560,17 @@ int close(int fd) {
     if (fd == g_i2s_rx_mock_fd) g_i2s_rx_mock_fd = -1;
     if (fd == g_i2s_tx_mock_fd) g_i2s_tx_mock_fd = -1;
     return real_close(fd);
+}
+
+int inotify_add_watch(int fd, const char *pathname, uint32_t mask) {
+    init_real_functions();
+    char resolved[512];
+    int special_type = 0;
+    const char *target = pathname;
+    if (pathname && strncmp(pathname, "/data/", 6) == 0) {
+        target = resolve_mock_path(pathname, resolved, sizeof(resolved), &special_type);
+    }
+    static int (*real_in_add)(int, const char *, uint32_t) = NULL;
+    if (!real_in_add) real_in_add = dlsym(RTLD_NEXT, "inotify_add_watch");
+    return real_in_add ? real_in_add(fd, target, mask) : -1;
 }

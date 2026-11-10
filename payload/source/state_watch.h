@@ -25,6 +25,7 @@ void bt_status_normalize(cJSON *bt);
 /* New object {"devices": mtime, "activities": mtime, "settings": mtime, "remote_map": mtime}
  * (Unix seconds, 0 when a file is missing; remote_map = the newest slot map) for the snapshot */
 cJSON *state_watch_config_mtimes(void);
+void state_watch_notify_config_changed(const char *name);
 
 #ifdef __cplusplus
 }

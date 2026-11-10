@@ -19,6 +19,7 @@ void dispatch_button(const char *btn);
 void handle_gatt_notification_event(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 void handle_gatt_client_event(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 void bt_remote_on_disconnect(void);
+void bt_remote_invalidate_map(void);
 
 #ifdef __cplusplus
 }

@@ -51,9 +51,14 @@ while true; do
     fi
 
     NOW=$(date +%s 2>/dev/null || echo 0)
-    echo "$(date) [WATCHDOG] $PROG died with exit code $EXIT_CODE (PID $PID). Restarting..." >> "$LOG_FILE" 2>/dev/null
-    dmesg > /data/last_kmsg.log 2>/dev/null || true
-    /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
+    if [ -f /data/debug_logging.conf ] || grep -q 'debug_logging=1' /data/remote_settings.conf 2>/dev/null; then
+        echo "$(date) [WATCHDOG] $PROG died with exit code $EXIT_CODE (PID $PID). Restarting..." >> "$LOG_FILE" 2>/dev/null
+        dmesg > /data/last_kmsg.log 2>/dev/null || true
+        /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true
+    else
+        echo "$(date) [WATCHDOG] $PROG died with exit code $EXIT_CODE (PID $PID). Restarting..." >> /tmp/harmony_crash.log 2>/dev/null
+        dmesg > /tmp/last_kmsg.log 2>/dev/null || true
+    fi
 
     # Throttle rapid crash looping: count crashes in last 60 seconds
     NEW_TIMESTAMPS="$NOW"
@@ -68,7 +73,11 @@ while true; do
     CRASH_TIMESTAMPS="$NEW_TIMESTAMPS"
 
     if [ "$COUNT" -ge "$MAX_CRASHES" ]; then
-        echo "$(date) [WATCHDOG] Rapid crash detected ($COUNT crashes in ${CRASH_WINDOW}s). Pausing 30s before retry..." >> "$LOG_FILE" 2>/dev/null
+        if [ -f /data/debug_logging.conf ] || grep -q 'debug_logging=1' /data/remote_settings.conf 2>/dev/null; then
+            echo "$(date) [WATCHDOG] Rapid crash detected ($COUNT crashes in ${CRASH_WINDOW}s). Pausing 30s before retry..." >> "$LOG_FILE" 2>/dev/null
+        else
+            echo "$(date) [WATCHDOG] Rapid crash detected ($COUNT crashes in ${CRASH_WINDOW}s). Pausing 30s before retry..." >> /tmp/harmony_crash.log 2>/dev/null
+        fi
         turn_off_lights
         sleep 30
     else

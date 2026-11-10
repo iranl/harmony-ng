@@ -120,6 +120,13 @@ int orch_build_steps(const char *current_id, const char *target_id,
 
         if (sw1_idx >= 0) {
             t_sw1 = t_sim;
+            if (main_count < max_main) {
+                memset(&main_steps[main_count], 0, sizeof(orch_step_t));
+                main_steps[main_count].type = STEP_ACT_STOP_SWITCHED;
+                main_steps[main_count].delay_ms = 0;
+                snprintf(main_steps[main_count].description, sizeof(main_steps[main_count].description), "Stop activity switched");
+                main_count++;
+            }
             uint32_t cur_offset = 0;
             for (int k = sw1_idx + 1; k < leaving_act->stop_count; k++) {
                 const struct activity_step *st = &leaving_act->stop_steps[k];

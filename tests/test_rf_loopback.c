@@ -48,6 +48,9 @@ void rf_sync_cache_invalidate(void) {}
 int rf_wake_remote(uint8_t slot, int attempts) { (void)slot; (void)attempts; return 0; }
 void *config_push_worker(void *arg) { (void)arg; return NULL; }
 void *rf_ota_sender_worker(void *arg) { (void)arg; return NULL; }
+void rf_keymap_invalidate_devices_cache(void) {}
+void rf_keymap_invalidate_activities_cache(void) {}
+void rf_keymap_invalidate_map(uint8_t slot) { (void)slot; }
 
 int main(void) {
     pthread_t th;

@@ -70,6 +70,11 @@ void poll_bthid_fifo(void) {
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            if (strncasecmp(line, "reload_map", 10) == 0) {
+                bt_remote_invalidate_map();
+                line = strtok_r(NULL, "\r\n", &save);
+                continue;
+            }
             if (strncmp(line, "TARGET ", 7) == 0) {
                 bd_addr_t t_addr;
                 if (parse_bd_addr(line + 7, t_addr)) {
@@ -434,6 +439,9 @@ void execute_btstack_cmd(const char *cmd_in) {
         send_host_named_key(cmd + 4);
     } else if (strncmp(cmd, "text ", 5) == 0) {
         send_host_text(cmd + 5);
+    } else if (strcasecmp(cmd, "reload_map") == 0) {
+        bt_remote_invalidate_map();
+        log_msg("BLE remote map invalidated");
     }
 }
 

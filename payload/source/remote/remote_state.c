@@ -169,7 +169,7 @@ volatile uint64_t g_last_hub_frame_ms = 0;
 /* Power Debug Logging */
 #define POWER_LOG_TMP "/tmp/power_debug.log"
 static pthread_mutex_t g_power_log_mutex = PTHREAD_MUTEX_INITIALIZER;
-bool g_power_debug = false;
+bool g_debug_logging = false;
 
 uint64_t get_monotonic_ms(void) {
     struct timespec ts;
@@ -231,8 +231,8 @@ bool is_remote_paired(void) {
 }
 
 
-void log_power_debug(const char *fmt, ...) {
-    if (!g_power_debug) return;
+void log_remote_debug(const char *fmt, ...) {
+    if (!g_debug_logging) return;
     pthread_mutex_lock(&g_power_log_mutex);
     time_t now = time(NULL);
     struct tm *tm = localtime(&now);
@@ -249,7 +249,7 @@ void log_power_debug(const char *fmt, ...) {
     vsnprintf(msg, sizeof(msg), fmt, args);
     va_end(args);
 
-    printf("[PWR %s] %s", time_buf, msg);
+    printf("[DBG %s] %s", time_buf, msg);
     fflush(stdout);
 
     FILE *ftmp = fopen(POWER_LOG_TMP, "a");

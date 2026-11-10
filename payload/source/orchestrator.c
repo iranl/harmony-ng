@@ -50,6 +50,8 @@ static uint64_t get_now_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
 
+static char s_last_persisted_act[64] = "";
+
 static void save_current_activity(const char *act_id) {
     if (!act_id || !act_id[0]) return;
     /* Mirror to /tmp in RAM for atomic zero-contention reads */
@@ -58,6 +60,8 @@ static void save_current_activity(const char *act_id) {
         fprintf(ft, "%s\n", act_id);
         fclose(ft);
     }
+    if (strcmp(s_last_persisted_act, act_id) == 0) return;
+
     char tmp[64];
     snprintf(tmp, sizeof(tmp), "%s.tmp", PRIMARY_CURRENT_ACT_FILE);
     FILE *f = fopen(tmp, "w");
@@ -65,11 +69,12 @@ static void save_current_activity(const char *act_id) {
     fprintf(f, "%s\n", act_id);
     fclose(f);
     rename(tmp, PRIMARY_CURRENT_ACT_FILE);
+    strncpy(s_last_persisted_act, act_id, sizeof(s_last_persisted_act) - 1);
 }
 
-/* hub_btstack reads /tmp/current_activity to decide whether a host may reconnect ("-1" = no).
- * While an activity starts it holds that activity, so the start's own Bluetooth keys can
- * connect their host; the flash copy keeps the activity the Hub is in. */
+/* Mirror active activity to /tmp/current_activity in RAM for atomic zero-contention
+ * reads. Updates when activity actually switches (STEP_ACT_SWITCHED) or reaches idle;
+ * in-flight target during switch is tracked in /tmp/activity_target. */
 static void write_activity_mirror(const char *act_id) {
     if (!act_id || !act_id[0]) return;
     FILE *ft = fopen("/tmp/current_activity", "w");
@@ -77,6 +82,19 @@ static void write_activity_mirror(const char *act_id) {
         fprintf(ft, "%s\n", act_id);
         fclose(ft);
     }
+}
+
+static void write_activity_target(const char *act_id) {
+    if (!act_id || !act_id[0]) return;
+    FILE *ft = fopen("/tmp/activity_target", "w");
+    if (ft) {
+        fprintf(ft, "%s\n", act_id);
+        fclose(ft);
+    }
+}
+
+static void clear_activity_target(void) {
+    unlink("/tmp/activity_target");
 }
 
 static void load_current_activity(void) {
@@ -87,6 +105,7 @@ static void load_current_activity(void) {
         if (fscanf(f, "%31s", buf) == 1 && buf[0]) {
             strncpy(g_current_act, buf, sizeof(g_current_act) - 1);
             g_current_act[sizeof(g_current_act) - 1] = '\0';
+            strncpy(s_last_persisted_act, g_current_act, sizeof(s_last_persisted_act) - 1);
         }
         fclose(f);
     }
@@ -111,6 +130,11 @@ static const char *orch_state_name(orch_state_t st) {
 
 static void set_state(orch_state_t st) {
     g_state = st;
+    FILE *fs = fopen("/tmp/activity_state", "w");
+    if (fs) {
+        fprintf(fs, "%s\n", orch_state_name(st));
+        fclose(fs);
+    }
     if ((int)st == g_last_emitted_state && strcmp(g_current_act, g_last_emitted_act) == 0 &&
         strcmp(g_queued_act, g_last_emitted_queued) == 0) return;
     g_last_emitted_state = (int)st;
@@ -139,6 +163,8 @@ int orch_init(void) {
     memset(g_bg_queue, 0, sizeof(g_bg_queue));
     pthread_mutex_lock(&g_act_lock);
     load_current_activity();
+    write_activity_mirror(g_current_act);
+    clear_activity_target();
     /* Emits the baseline activity_state event */
     set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
     pthread_mutex_unlock(&g_act_lock);
@@ -227,6 +253,7 @@ orch_state_t orch_get_state(void) {
 
 void orch_cancel(void) {
     hw_ir_cancel(IR_PORT_ALL);
+    clear_activity_target();
     pthread_mutex_lock(&g_act_lock);
     g_queued_act[0] = '\0'; /* a cancel is the user's last word too */
     /* Only a power off in progress ends as PowerOff. g_target_act is "-1" by default and stays so
@@ -326,6 +353,9 @@ int orch_tick(void) {
         for (size_t b = 0; b < g_bg_len; b++) {
             if (!g_bg_queue[b].executed) {
                 if (g_bg_queue[b].target_time_ms > 0 && now >= g_bg_queue[b].target_time_ms) {
+                    printf("[*] Orch bg step %zu/%zu: %s (type=%d)\n",
+                           b + 1, g_bg_len, g_bg_queue[b].step.description, g_bg_queue[b].step.type);
+                    fflush(stdout);
                     execute_step(&g_bg_queue[b].step);
                     g_bg_queue[b].executed = 1;
                 } else {
@@ -368,6 +398,7 @@ int orch_tick(void) {
             pthread_mutex_lock(&g_act_lock);
             strncpy(g_current_act, g_target_act, sizeof(g_current_act) - 1);
             save_current_activity(g_current_act);
+            clear_activity_target();
             set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
             pthread_mutex_unlock(&g_act_lock);
 
@@ -403,6 +434,7 @@ int orch_tick(void) {
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         pthread_mutex_unlock(&g_act_lock);
     }
+    clear_activity_target();
     g_queue_len = 0;
     g_current_step = 0;
 
@@ -549,15 +581,14 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
     strncpy(g_target_act, target_activity_id, sizeof(g_target_act) - 1);
     set_state((strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING);
     
+    write_activity_target(target_activity_id);
     if (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0) {
-        save_current_activity(ORCH_POWEROFF_ID);
         hub_send_btstack_cmd("stop_reconnect\n");
-    } else {
-        write_activity_mirror(target_activity_id);
     }
 
     int rc = orch_compile_transition(target_activity_id);
     if (rc != 0) {
+        clear_activity_target();
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         write_activity_mirror(g_current_act);
         return -1;
@@ -567,6 +598,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         pthread_mutex_lock(&g_act_lock);
         strncpy(g_current_act, g_target_act, sizeof(g_current_act) - 1);
         save_current_activity(g_current_act);
+        clear_activity_target();
         set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
         pthread_mutex_unlock(&g_act_lock);
 

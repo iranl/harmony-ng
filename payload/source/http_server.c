@@ -83,11 +83,6 @@ static struct static_cache_entry *static_cache_find(const char *rel_path, int is
     for (int i = 0; i < g_static_cache_count; i++) {
         struct static_cache_entry *e = &g_static_cache[i];
         if (!e->data || e->stale || e->is_gzip != is_gzip || strcmp(e->rel_path, rel_path) != 0) continue;
-        struct stat st;
-        if (stat(e->src_path, &st) != 0 || st.st_mtime != e->src_mtime || st.st_size != e->src_size) {
-            static_cache_drop(e);
-            break;
-        }
         e->users++;
         found = e;
         break;

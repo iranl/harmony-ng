@@ -7,8 +7,100 @@
 #include <sys/stat.h>
 
 static cJSON *g_remote_map_cache[2] = {NULL, NULL};
-static time_t g_remote_map_mtime[2] = {0, 0};
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static cJSON *g_rf_devices_cache = NULL;
+static pthread_mutex_t g_rf_devices_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static cJSON *g_rf_activities_cache = NULL;
+static pthread_mutex_t g_rf_activities_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void rf_keymap_invalidate_devices_cache(void) {
+    pthread_mutex_lock(&g_rf_devices_lock);
+    if (g_rf_devices_cache) {
+        cJSON_Delete(g_rf_devices_cache);
+        g_rf_devices_cache = NULL;
+    }
+    pthread_mutex_unlock(&g_rf_devices_lock);
+}
+
+void rf_devices_cache_lock(void) {
+    pthread_mutex_lock(&g_rf_devices_lock);
+}
+
+void rf_devices_cache_unlock(void) {
+    pthread_mutex_unlock(&g_rf_devices_lock);
+}
+
+void rf_keymap_invalidate_activities_cache(void) {
+    pthread_mutex_lock(&g_rf_activities_lock);
+    if (g_rf_activities_cache) {
+        cJSON_Delete(g_rf_activities_cache);
+        g_rf_activities_cache = NULL;
+    }
+    pthread_mutex_unlock(&g_rf_activities_lock);
+}
+
+void rf_keymap_invalidate_map(uint8_t slot) {
+    pthread_mutex_lock(&g_map_lock);
+    if (slot >= 1 && slot <= 2) {
+        int idx = slot - 1;
+        if (g_remote_map_cache[idx]) {
+            cJSON_Delete(g_remote_map_cache[idx]);
+            g_remote_map_cache[idx] = NULL;
+        }
+    } else {
+        for (int i = 0; i < 2; i++) {
+            if (g_remote_map_cache[i]) {
+                cJSON_Delete(g_remote_map_cache[i]);
+                g_remote_map_cache[i] = NULL;
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_map_lock);
+}
+
+cJSON *rf_get_devices_cache(void) {
+    if (!g_rf_devices_cache) {
+        FILE *fd = fopen("/data/harmony/config/devices.json", "r");
+        if (fd) {
+            fseek(fd, 0, SEEK_END);
+            long sz = ftell(fd);
+            fseek(fd, 0, SEEK_SET);
+            char *buf = (sz > 0 && sz < 2000000) ? malloc(sz + 1) : NULL;
+            if (buf) {
+                size_t n = fread(buf, 1, sz, fd);
+                buf[n] = '\0';
+                g_rf_devices_cache = cJSON_Parse(buf);
+                free(buf);
+            }
+            fclose(fd);
+        }
+    }
+    return g_rf_devices_cache;
+}
+
+cJSON *rf_get_activities_cache(void) {
+    if (!g_rf_activities_cache) {
+        FILE *f = fopen("/data/harmony/config/activities.json", "r");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            long sz = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (sz > 0 && sz < 2000000) {
+                char *buf = malloc(sz + 1);
+                if (buf) {
+                    size_t n = fread(buf, 1, sz, f);
+                    buf[n] = '\0';
+                    g_rf_activities_cache = cJSON_Parse(buf);
+                    free(buf);
+                }
+            }
+            fclose(f);
+        }
+    }
+    return g_rf_activities_cache;
+}
 
 void get_current_activity(char *out, size_t outlen) {
     FILE *f = fopen("/tmp/current_activity", "r");
@@ -26,40 +118,45 @@ void get_current_activity(char *out, size_t outlen) {
     snprintf(out, outlen, "-1");
 }
 
+int is_activity_transitioning(void) {
+    FILE *fs = fopen("/tmp/activity_state", "r");
+    if (fs) {
+        char st[32] = "";
+        int r = (fscanf(fs, "%31s", st) == 1);
+        fclose(fs);
+        if (r && (strcmp(st, "starting") == 0 || strcmp(st, "stopping") == 0)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static cJSON *get_remote_map_unlocked(uint8_t slot) {
     if (slot < 1 || slot > 2) slot = 1;
     int idx = slot - 1;
+
+    if (g_remote_map_cache[idx]) return g_remote_map_cache[idx];
 
     char slot_path[64];
     snprintf(slot_path, sizeof(slot_path), "/data/harmony/remote_slot%d_map.json", slot);
 
     const char *map_file = slot_path;
-    struct stat st;
-    if (stat(map_file, &st) != 0) return NULL;
-
-    if (st.st_mtime != g_remote_map_mtime[idx] || !g_remote_map_cache[idx]) {
-        if (g_remote_map_cache[idx]) {
-            cJSON_Delete(g_remote_map_cache[idx]);
-            g_remote_map_cache[idx] = NULL;
-        }
-        FILE *mf = fopen(map_file, "r");
-        if (mf) {
-            fseek(mf, 0, SEEK_END);
-            long sz = ftell(mf);
-            fseek(mf, 0, SEEK_SET);
-            if (sz > 0 && sz < 500000) {
-                char *buf = malloc(sz + 1);
-                if (buf) {
-                    size_t n = fread(buf, 1, sz, mf);
-                    buf[n] = '\0';
-                    g_remote_map_cache[idx] = cJSON_Parse(buf);
-                    free(buf);
-                }
+    FILE *mf = fopen(map_file, "r");
+    if (mf) {
+        fseek(mf, 0, SEEK_END);
+        long sz = ftell(mf);
+        fseek(mf, 0, SEEK_SET);
+        if (sz > 0 && sz < 500000) {
+            char *buf = malloc(sz + 1);
+            if (buf) {
+                size_t n = fread(buf, 1, sz, mf);
+                buf[n] = '\0';
+                g_remote_map_cache[idx] = cJSON_Parse(buf);
+                free(buf);
             }
-            fclose(mf);
         }
-        g_remote_map_mtime[idx] = st.st_mtime;
-        printf("[+] (Re)loaded remote slot %d map cache (%s, size=%ld bytes)\n", slot, map_file, (long)st.st_size);
+        fclose(mf);
+        printf("[+] Loaded remote slot %d map cache (%s)\n", slot, map_file);
     }
     return g_remote_map_cache[idx];
 }
@@ -198,56 +295,43 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
             pthread_mutex_unlock(&g_map_lock);
         }
 
-        /* Default fallback: auto-match button_name against device commands in devices.json */
-        FILE *fd = fopen("/data/harmony/config/devices.json", "r");
-        if (fd) {
-            fseek(fd, 0, SEEK_END);
-            long sz = ftell(fd);
-            fseek(fd, 0, SEEK_SET);
-            char *buf = (sz > 0 && sz < 1000000) ? malloc(sz + 1) : NULL;
-            if (buf) {
-                size_t n = fread(buf, 1, sz, fd);
-                buf[n] = '\0';
-                cJSON *root = cJSON_Parse(buf);
-                free(buf);
-                if (root) {
-                    cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
-                    cJSON *d = NULL;
-                    const char *matched_cmd = NULL;
-                    cJSON_ArrayForEach(d, devs_arr) {
-                        cJSON *jid = cJSON_GetObjectItem(d, "id");
-                        if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, dev_id) == 0) {
-                            cJSON *cmds = cJSON_GetObjectItem(d, "commands");
-                            cJSON *c = NULL;
-                            cJSON_ArrayForEach(c, cmds) {
-                                cJSON *jn = cJSON_IsString(c) ? c : cJSON_GetObjectItem(c, "name");
-                                if (jn && cJSON_IsString(jn) && strcasecmp(jn->valuestring, button_name) == 0) {
-                                    matched_cmd = jn->valuestring;
-                                    break;
-                                }
-                            }
-                            if (!matched_cmd) matched_cmd = rf_alias_command(cmds, button_name);
+        /* Default fallback: auto-match button_name against device commands in cached devices.json */
+        pthread_mutex_lock(&g_rf_devices_lock);
+        cJSON *root = rf_get_devices_cache();
+        if (root) {
+            cJSON *devs_arr = cJSON_IsArray(root) ? root : cJSON_GetObjectItem(root, "devices");
+            cJSON *d = NULL;
+            const char *matched_cmd = NULL;
+            cJSON_ArrayForEach(d, devs_arr) {
+                cJSON *jid = cJSON_GetObjectItem(d, "id");
+                if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, dev_id) == 0) {
+                    cJSON *cmds = cJSON_GetObjectItem(d, "commands");
+                    cJSON *c = NULL;
+                    cJSON_ArrayForEach(c, cmds) {
+                        cJSON *jn = cJSON_IsString(c) ? c : cJSON_GetObjectItem(c, "name");
+                        if (jn && cJSON_IsString(jn) && strcasecmp(jn->valuestring, button_name) == 0) {
+                            matched_cmd = jn->valuestring;
                             break;
                         }
                     }
-                    if (matched_cmd) {
-                        char body[256];
-                        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                                 dev_id, matched_cmd, action_state ? action_state : "press");
-                        printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
-                               button_name, dev_id, matched_cmd, action_state ? action_state : "press");
-                        snprintf(out_dev, out_dev_len, "%s", dev_id);
-                        snprintf(out_cmd, out_cmd_len, "%s", matched_cmd);
-                        http_post_local(WEBUI_PORT, "/api/ir-send", body);
-                        cJSON_Delete(root);
-                        fclose(fd);
-                        return;
-                    }
-                    cJSON_Delete(root);
+                    if (!matched_cmd) matched_cmd = rf_alias_command(cmds, button_name);
+                    break;
                 }
             }
-            fclose(fd);
+            if (matched_cmd) {
+                char body[256];
+                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                         dev_id, matched_cmd, action_state ? action_state : "press");
+                printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
+                       button_name, dev_id, matched_cmd, action_state ? action_state : "press");
+                snprintf(out_dev, out_dev_len, "%s", dev_id);
+                snprintf(out_cmd, out_cmd_len, "%s", matched_cmd);
+                http_post_local(WEBUI_PORT, "/api/ir-send", body);
+                pthread_mutex_unlock(&g_rf_devices_lock);
+                return;
+            }
         }
+        pthread_mutex_unlock(&g_rf_devices_lock);
         return;
     }
 
@@ -671,45 +755,30 @@ void get_activity_name_by_id(const char *act_id, char *out_name, size_t out_len)
         snprintf(out_name, out_len, "PowerOff");
         return;
     }
-    FILE *f = fopen("/data/harmony/config/activities.json", "r");
-    if (f) {
-        fseek(f, 0, SEEK_END);
-        long sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (sz > 0 && sz < 1000000) {
-            char *buf = malloc(sz + 1);
-            if (buf) {
-                size_t n = fread(buf, 1, sz, f);
-                buf[n] = '\0';
-                cJSON *root = cJSON_Parse(buf);
-                free(buf);
-                if (root) {
-                    cJSON *acts_arr = cJSON_GetObjectItem(root, "activities");
-                    if (acts_arr && cJSON_IsArray(acts_arr)) {
-                        cJSON *elem = NULL;
-                        cJSON_ArrayForEach(elem, acts_arr) {
-                            cJSON *j_name = cJSON_GetObjectItem(elem, "name");
-                            cJSON *j_id = cJSON_GetObjectItem(elem, "id");
-                            if (j_name && cJSON_IsString(j_name) && j_id) {
-                                char id_str[32] = {0};
-                                if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%d", j_id->valueint);
-                                else if (cJSON_IsString(j_id)) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
-                                if (strcmp(id_str, act_id) == 0) {
-                                    strncpy(out_name, j_name->valuestring, out_len - 1);
-                                    out_name[out_len - 1] = '\0';
-                                    cJSON_Delete(root);
-                                    fclose(f);
-                                    return;
-                                }
-                            }
-                        }
+    pthread_mutex_lock(&g_rf_activities_lock);
+    cJSON *root = rf_get_activities_cache();
+    if (root) {
+        cJSON *acts_arr = cJSON_GetObjectItem(root, "activities");
+        if (acts_arr && cJSON_IsArray(acts_arr)) {
+            cJSON *elem = NULL;
+            cJSON_ArrayForEach(elem, acts_arr) {
+                cJSON *j_name = cJSON_GetObjectItem(elem, "name");
+                cJSON *j_id = cJSON_GetObjectItem(elem, "id");
+                if (j_name && cJSON_IsString(j_name) && j_id) {
+                    char id_str[32] = {0};
+                    if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%d", j_id->valueint);
+                    else if (cJSON_IsString(j_id)) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
+                    if (strcmp(id_str, act_id) == 0) {
+                        strncpy(out_name, j_name->valuestring, out_len - 1);
+                        out_name[out_len - 1] = '\0';
+                        pthread_mutex_unlock(&g_rf_activities_lock);
+                        return;
                     }
-                    cJSON_Delete(root);
                 }
             }
         }
-        fclose(f);
     }
+    pthread_mutex_unlock(&g_rf_activities_lock);
     strncpy(out_name, act_id, out_len - 1);
     out_name[out_len - 1] = '\0';
 }

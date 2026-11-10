@@ -31,6 +31,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -204,14 +205,33 @@ void bt_status_normalize(cJSON *bt) {
     }
 }
 
+static int s_inotify_fd = -1;
+
+void state_watch_notify_config_changed(const char *name) {
+    if (!name || s_inotify_fd >= 0) return;
+    cJSON *changed = cJSON_CreateArray();
+    if (!changed) return;
+    cJSON_AddItemToArray(changed, cJSON_CreateString(name));
+    cJSON *msg = cJSON_CreateObject();
+    if (!msg) {
+        cJSON_Delete(changed);
+        return;
+    }
+    cJSON_AddItemToObject(msg, "files", changed);
+    hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
+}
+
 static void *state_watch_thread(void *arg) {
     (void)arg;
     static const char *const bt_drop[] = { "last_button", "last_seen", "updated", NULL };
-    watched_file_t files[N_WATCHED_FILES];
-    memcpy(files, k_watched_files, sizeof(files));
-    const size_t nfiles = N_WATCHED_FILES;
     char *last_bt = NULL;
     int rf_baseline = 0;
+
+    s_inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (s_inotify_fd >= 0) {
+        inotify_add_watch(s_inotify_fd, HARMONY_CONFIG_DIR, IN_CLOSE_WRITE | IN_MOVED_TO | IN_ATTRIB);
+        inotify_add_watch(s_inotify_fd, HARMONY_DIR, IN_CLOSE_WRITE | IN_MOVED_TO | IN_ATTRIB);
+    }
 
     for (;;) {
         usleep(WATCH_INTERVAL_US);
@@ -241,29 +261,37 @@ static void *state_watch_thread(void *arg) {
             }
         }
 
-        cJSON *changed = NULL;
-        for (size_t i = 0; i < nfiles; i++) {
-            struct stat st;
-            int ok = (stat(files[i].path, &st) == 0);
-            time_t mt = ok ? st.st_mtime : 0;
-            off_t sz = ok ? st.st_size : -1;
-            if (files[i].seen && (mt != files[i].mtime || sz != files[i].size)) {
-                if (!changed) changed = cJSON_CreateArray();
-                int dup = 0;
-                cJSON *it = NULL;
-                cJSON_ArrayForEach(it, changed) {
-                    if (cJSON_IsString(it) && strcmp(it->valuestring, files[i].name) == 0) dup = 1;
+        if (s_inotify_fd >= 0) {
+            char ibuf[2048] __attribute__((aligned(__alignof__(struct inotify_event))));
+            ssize_t len;
+            cJSON *changed = NULL;
+            while ((len = read(s_inotify_fd, ibuf, sizeof(ibuf))) > 0) {
+                for (char *ptr = ibuf; ptr < ibuf + len; ) {
+                    const struct inotify_event *ev = (const struct inotify_event *)ptr;
+                    if (ev->len > 0) {
+                        const char *name = NULL;
+                        if (strcmp(ev->name, "devices.json") == 0) name = "devices";
+                        else if (strcmp(ev->name, "activities.json") == 0) name = "activities";
+                        else if (strcmp(ev->name, "settings.json") == 0) name = "settings";
+                        else if (strcmp(ev->name, "remote_slot1_map.json") == 0 || strcmp(ev->name, "remote_slot2_map.json") == 0) name = "remote_map";
+                        if (name) {
+                            if (!changed) changed = cJSON_CreateArray();
+                            int dup = 0;
+                            cJSON *it = NULL;
+                            cJSON_ArrayForEach(it, changed) {
+                                if (cJSON_IsString(it) && strcmp(it->valuestring, name) == 0) dup = 1;
+                            }
+                            if (!dup) cJSON_AddItemToArray(changed, cJSON_CreateString(name));
+                        }
+                    }
+                    ptr += sizeof(struct inotify_event) + ev->len;
                 }
-                if (!dup) cJSON_AddItemToArray(changed, cJSON_CreateString(files[i].name));
             }
-            files[i].mtime = mt;
-            files[i].size = sz;
-            files[i].seen = 1;
-        }
-        if (changed) {
-            cJSON *msg = cJSON_CreateObject();
-            cJSON_AddItemToObject(msg, "files", changed);
-            hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
+            if (changed) {
+                cJSON *msg = cJSON_CreateObject();
+                cJSON_AddItemToObject(msg, "files", changed);
+                hub_events_emit(HUB_EV_CONFIG_CHANGED, msg);
+            }
         }
     }
     return NULL;

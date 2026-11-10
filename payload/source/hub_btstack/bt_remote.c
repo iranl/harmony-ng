@@ -3,8 +3,6 @@
 #include "bt_hid.h"
 
 static cJSON *g_cached_map_json = NULL;
-static time_t g_map_mtime = 0;
-static off_t g_map_size = 0;
 static btstack_timer_source_t g_remote_watchdog_timer;
 static bool g_remote_watchdog_active = false;
 static char g_active_remote_btn[64] = "";
@@ -155,28 +153,26 @@ char *read_entire_file(const char *path) {
     return buf;
 }
 
-cJSON *get_cached_map(void) {
-    struct stat st;
-    if (stat(MAP_FILE, &st) != 0) return NULL;
-    if (g_cached_map_json && st.st_mtime == g_map_mtime && st.st_size == g_map_size) {
-        return g_cached_map_json;
-    }
+void bt_remote_invalidate_map(void) {
     if (g_cached_map_json) {
         cJSON_Delete(g_cached_map_json);
         g_cached_map_json = NULL;
     }
+}
+
+cJSON *get_cached_map(void) {
+    if (g_cached_map_json) return g_cached_map_json;
     char *buf = read_entire_file(MAP_FILE);
     if (buf) {
         g_cached_map_json = cJSON_Parse(buf);
         free(buf);
     }
-    g_map_mtime = st.st_mtime;
-    g_map_size = st.st_size;
     return g_cached_map_json;
 }
 
 void read_current_activity(char *out, size_t outlen) {
-    FILE *f = fopen("/tmp/current_activity", "r");
+    FILE *f = fopen("/tmp/activity_target", "r");
+    if (!f) f = fopen("/tmp/current_activity", "r");
     if (!f) f = fopen(CURRENT_ACT_FILE, "r");
     if (f) {
         if (fgets(out, outlen, f)) {
@@ -195,7 +191,7 @@ int is_bt_device_id(const char *target) {
     if (!target || !target[0]) return 0;
     if (strncmp(target, "bt", 2) == 0 || strcasecmp(target, "bluetooth") == 0 || strcasecmp(target, "bthid") == 0) return 1;
 
-    #define BT_DEV_CACHE_SZ 4
+    #define BT_DEV_CACHE_SZ 32
     static struct {
         char id[64];
         int is_bt;

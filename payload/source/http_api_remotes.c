@@ -513,6 +513,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         if (body && body[0]) {
             system("mkdir -p /data/harmony 2>/dev/null");
             write_file_atomic(config_store_path("bt_remote_map.json"), body);
+            hub_send_btstack_cmd("reload_map");
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);

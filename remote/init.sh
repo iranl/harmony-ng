@@ -171,10 +171,16 @@ fi
                 sleep 1
                 continue
             fi
-            echo "$(date) remote_ui died with exit code $EXIT_CODE. Restarting..." >> /data/harmony_crash.log
-            dmesg > /data/last_kmsg.log 2>/dev/null || true
-            turn_off_lights
-            sync_fs
+            if [ -f /data/debug_logging.conf ] || grep -q 'debug_logging=1' /data/remote_settings.conf 2>/dev/null; then
+                echo "$(date) remote_ui died with exit code $EXIT_CODE. Restarting..." >> /data/harmony_crash.log
+                dmesg > /data/last_kmsg.log 2>/dev/null || true
+                turn_off_lights
+                sync_fs
+            else
+                echo "$(date) remote_ui died with exit code $EXIT_CODE. Restarting..." >> /tmp/harmony_crash.log
+                dmesg > /tmp/last_kmsg.log 2>/dev/null || true
+                turn_off_lights
+            fi
             sleep 1
         else
             sleep 2

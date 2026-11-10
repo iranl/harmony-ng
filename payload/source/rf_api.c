@@ -411,6 +411,10 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                 } else {
                     rf_sync_cache_invalidate();
+                    rf_keymap_invalidate_devices_cache();
+                    rf_keymap_invalidate_activities_cache();
+                    rf_keymap_invalidate_map(1);
+                    rf_keymap_invalidate_map(2);
                     g_config_version++;
                     if (g_config_version == 0) g_config_version = 1;
                     FILE *vf = fopen("/data/harmony/config_version", "w");
@@ -452,7 +456,7 @@ void *api_server_worker(void *arg) {
                         fclose(f);
                     } else {
                         snprintf(res_body, sizeof(res_body),
-                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"physicalNavEnabled\":false,\"physical_nav\":0,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":50,\"gyro_rate\":50,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
+                            "{\"slot\":%d,\"brightness\":2,\"timeout\":10,\"touchEnabled\":true,\"touch\":1,\"physicalNavEnabled\":false,\"physical_nav\":0,\"capButtonsEnabled\":true,\"cap_buttons\":1,\"gyroEnabled\":true,\"gyro\":1,\"gyroRate\":50,\"gyro_rate\":50,\"btnBacklight\":2,\"btn_backlight\":2,\"nightStart\":22,\"night_start\":22,\"nightEnd\":7,\"night_end\":7,\"navToggleKey\":139,\"nav_key\":139,\"navToggleMode\":1,\"nav_mode\":1,\"usbEth\":false,\"usbeth\":0,\"confirmActivity\":true,\"confirm_act\":1,\"touchSensitivity\":2,\"touch_sensitivity\":2,\"remoteMode\":0,\"remote_mode\":0,\"noScreen\":false,\"no_screen\":0,\"debugLogging\":false,\"debug_logging\":0,\"powerDebug\":false,\"power_debug\":0,\"language\":\"en\",\"language_id\":0}",
                             slot);
                     }
                 }
@@ -507,7 +511,9 @@ void *api_server_worker(void *arg) {
                             if (!jne) jne = cJSON_GetObjectItem(root, "night_end");
                             cJSON *jue = cJSON_GetObjectItem(root, "usbEth");
                             if (!jue) jue = cJSON_GetObjectItem(root, "usbeth");
-                            cJSON *jpd = cJSON_GetObjectItem(root, "powerDebug");
+                            cJSON *jpd = cJSON_GetObjectItem(root, "debugLogging");
+                            if (!jpd) jpd = cJSON_GetObjectItem(root, "debug_logging");
+                            if (!jpd) jpd = cJSON_GetObjectItem(root, "powerDebug");
                             if (!jpd) jpd = cJSON_GetObjectItem(root, "power_debug");
                             cJSON *jnscreen = cJSON_GetObjectItem(root, "noScreen");
                             if (!jnscreen) jnscreen = cJSON_GetObjectItem(root, "no_screen");
@@ -594,6 +600,8 @@ void *api_server_worker(void *arg) {
                             cJSON_AddNumberToObject(norm, "night_end", night_end);
                             cJSON_AddBoolToObject(norm, "usbEth", usbeth != 0);
                             cJSON_AddNumberToObject(norm, "usbeth", usbeth);
+                            cJSON_AddBoolToObject(norm, "debugLogging", power_debug != 0);
+                            cJSON_AddNumberToObject(norm, "debug_logging", power_debug);
                             cJSON_AddBoolToObject(norm, "powerDebug", power_debug != 0);
                             cJSON_AddNumberToObject(norm, "power_debug", power_debug);
                             cJSON_AddBoolToObject(norm, "noScreen", no_screen != 0);
@@ -619,10 +627,12 @@ void *api_server_worker(void *arg) {
 
                             char *norm_str = cJSON_Print(norm);
                             if (norm_str) {
-                                FILE *f = fopen(path, "w");
-                                if (f) {
-                                    fputs(norm_str, f);
-                                    fclose(f);
+                                if (strcmp(old_cfg, norm_str) != 0) {
+                                    FILE *f = fopen(path, "w");
+                                    if (f) {
+                                        fputs(norm_str, f);
+                                        fclose(f);
+                                    }
                                 }
                                 free(norm_str);
                             }
