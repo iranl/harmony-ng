@@ -72,9 +72,9 @@ static void save_current_activity(const char *act_id) {
     strncpy(s_last_persisted_act, act_id, sizeof(s_last_persisted_act) - 1);
 }
 
-/* hub_btstack reads /tmp/current_activity to decide whether a host may reconnect ("-1" = no).
- * While an activity starts it holds that activity, so the start's own Bluetooth keys can
- * connect their host; the flash copy keeps the activity the Hub is in. */
+/* Mirror active activity to /tmp/current_activity in RAM for atomic zero-contention
+ * reads. Updates when activity actually switches (STEP_ACT_SWITCHED) or reaches idle;
+ * in-flight target during switch is tracked in /tmp/activity_target. */
 static void write_activity_mirror(const char *act_id) {
     if (!act_id || !act_id[0]) return;
     FILE *ft = fopen("/tmp/current_activity", "w");

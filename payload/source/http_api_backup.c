@@ -3,6 +3,7 @@
 #include "http_auth.h"
 #include "config_store.h"
 #include "resource_cache.h"
+#include "bt_common.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -327,6 +328,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     invalidate_device_list_cache();
                     config_store_init();
                     notify_rf_push_config();
+                    hub_send_btstack_cmd("reload_map");
                     struct user_account tmp_u[MAX_HTTP_USERS];
                     int tmp_en = 0;
                     int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
@@ -370,11 +372,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                             notify_rf_push_config();
                         }
                         if (strcmp(tgt, "remote-mapping") == 0 || strcmp(tgt, "bt_remote_map") == 0) {
-                            FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
-                            if (cf) {
-                                fputs("reload_map\n", cf);
-                                fclose(cf);
-                            }
+                            hub_send_btstack_cmd("reload_map");
                         }
                         if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {
                             struct user_account tmp_u[MAX_HTTP_USERS];

@@ -105,6 +105,7 @@ def main():
             check(st == 200, "power off requested")
 
             time.sleep(0.05)
+            check(read_file(MIRROR) == "12", "while power off starts, current_activity is still 12", str(read_file(MIRROR)))
             check(read_file(TARGET) == "-1", "target file holds -1 during power off", str(read_file(TARGET)))
 
             check(wait_state(hub, "-1"), "activity reaches idle / powered off")

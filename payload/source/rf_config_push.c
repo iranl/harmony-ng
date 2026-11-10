@@ -54,6 +54,8 @@ void *config_push_worker(void *arg) {
         return NULL;
     }
     rf_keymap_invalidate_map(0);
+    rf_keymap_invalidate_devices_cache();
+    rf_keymap_invalidate_activities_cache();
     printf("[*] Starting config push to remote...\n");
 
     if (g_config_version == 0) {

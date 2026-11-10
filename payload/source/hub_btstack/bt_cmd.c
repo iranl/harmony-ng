@@ -439,6 +439,9 @@ void execute_btstack_cmd(const char *cmd_in) {
         send_host_named_key(cmd + 4);
     } else if (strncmp(cmd, "text ", 5) == 0) {
         send_host_text(cmd + 5);
+    } else if (strcasecmp(cmd, "reload_map") == 0) {
+        bt_remote_invalidate_map();
+        log_msg("BLE remote map invalidated");
     }
 }
 
