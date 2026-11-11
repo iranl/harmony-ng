@@ -173,27 +173,47 @@ int main(void) {
     CHECK(m_res, "rf_ota_verify_manifest succeeds on matching version and SHA-256");
     CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "manifest unlinked after verification");
 
-    /* 5. Test pre-staged image behavior (Item C & A) */
-    /* Create leftover manifest with wrong SHA in /tmp */
+    /* 5. Test manifest marker behavior when image is present in /tmp */
+    /* Case 5A: Image in /tmp + manifest with version mismatch (9.9.9) */
     write_file("/tmp/remote_manifest.json", "{\"version\":\"9.9.9\"}");
-    /* Stage binary in /tmp */
+    FILE *f_mismatch = fopen("/tmp/remote_ui.ota.gz", "wb");
+    assert(f_mismatch != NULL);
+    uint8_t dummy_mismatch[512];
+    memset(dummy_mismatch, 0xCD, sizeof(dummy_mismatch));
+    fwrite(dummy_mismatch, 1, sizeof(dummy_mismatch), f_mismatch);
+    fclose(f_mismatch);
+
+    rf_ota_sender_worker((void *)(uintptr_t)1);
+    CHECK(access("/tmp/remote_ui.ota.gz", F_OK) != 0, "image in /tmp unlinked when manifest in /tmp has version mismatch");
+    CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "mismatched manifest unlinked");
+
+    /* Case 5B: Image in /tmp + manifest with SHA mismatch */
+    write_file("/tmp/remote_manifest.json",
+               "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}}}");
+    FILE *f_shamismatch = fopen("/tmp/remote_ui.ota.gz", "wb");
+    assert(f_shamismatch != NULL);
+    fwrite(dummy_mismatch, 1, sizeof(dummy_mismatch), f_shamismatch);
+    fclose(f_shamismatch);
+
+    rf_ota_sender_worker((void *)(uintptr_t)1);
+    CHECK(access("/tmp/remote_ui.ota.gz", F_OK) != 0, "image in /tmp unlinked when manifest in /tmp has SHA mismatch");
+    CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "SHA-mismatched manifest unlinked");
+
+    /* Case 5C: Image in /tmp WITHOUT manifest (staged build via --stage-remote-ota) */
     FILE *f_stage = fopen("/tmp/remote_ui.ota.gz", "wb");
     assert(f_stage != NULL);
-    uint8_t stage_dummy[512];
-    memset(stage_dummy, 0xCD, sizeof(stage_dummy));
-    fwrite(stage_dummy, 1, sizeof(stage_dummy), f_stage);
+    fwrite(dummy_mismatch, 1, sizeof(dummy_mismatch), f_stage);
     fclose(f_stage);
+    unlink("/tmp/remote_manifest.json");
 
     /* Remote asleep: simulate OTA_START ACK timeout (s_mock_ack_res = -1) */
     s_mock_ack_res = -1;
     rf_ota_sender_worker((void *)(uintptr_t)1);
 
-    /* Verify staged image was NOT deleted on asleep remote timeout (Item B) */
+    /* Verify staged image reached OTA_START and was retained on wake timeout */
     CHECK(access("/tmp/remote_ui.ota.gz", F_OK) == 0, "/tmp/remote_ui.ota.gz retained when remote asleep");
-    /* Verify leftover manifest was unlinked because image was pre-staged (Item C) */
-    CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "leftover manifest purged for staged build");
 
-    /* 6. Test low battery rejection retention (Item B) */
+    /* 6. Test low battery rejection retention */
     s_mock_ack_res = 0;
     g_ack_status = 0x02; /* Remote rejected OTA: Low battery (<40%) */
     rf_ota_sender_worker((void *)(uintptr_t)1);

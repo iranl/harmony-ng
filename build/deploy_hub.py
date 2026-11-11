@@ -444,6 +444,9 @@ class HubDeployer:
                         break
                 if not staged:
                     print("[-] Warning: --stage-remote-ota requested but no remote_ui.ota.gz found locally", file=sys.stderr)
+            else:
+                if not self.dry_run:
+                    self.run_ssh("rm -f /tmp/remote_ui.ota.gz /tmp/remote_manifest.json 2>/dev/null || true")
 
             # Deploy configs
             if self.config_dir.is_dir():

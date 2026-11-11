@@ -429,18 +429,7 @@ do_remote_ota() {
   # Purge any stale flash copies
   rm -f /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz /data/harmony/elite_ui.ota.gz /cache/elite_ui.ota.gz 2>/dev/null || true
 
-  # Ensure remote OTA image exists in /tmp (RAM)
-  if [ ! -f /tmp/remote_ui.ota.gz ]; then
-    do_fetch_remote_ota || return 1
-  fi
-
-  OTA_FILE="/tmp/remote_ui.ota.gz"
-  if [ ! -f "$OTA_FILE" ]; then
-    echo "[-] Error: remote_ui.ota.gz not found and could not be downloaded."
-    return 1
-  fi
-
-  # Trigger hub_rf OTA endpoint on port 8092
+  # Trigger hub_rf OTA endpoint on port 8092 (hub_rf downloads, verifies manifest, and streams)
   res=$($WGET -qO- --post-data '' "http://127.0.0.1:8092/api/rf/ota-start?slot=${slot}" 2>/dev/null || true)
   echo "Response: $res"
   

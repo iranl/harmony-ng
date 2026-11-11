@@ -292,10 +292,19 @@ void *rf_ota_sender_worker(void *arg) {
     pthread_mutex_unlock(&g_ota_lock);
 
     const char *ota_path = "/tmp/remote_ui.ota.gz";
-    bool was_staged = (access(ota_path, R_OK) == 0);
-    if (was_staged) {
-        unlink("/tmp/remote_manifest.json");
+    const char *manifest_path = "/tmp/remote_manifest.json";
+
+    /* Age limit: purge image if older than 2 hours to avoid stale RAM retention */
+    struct stat ota_st;
+    if (stat(ota_path, &ota_st) == 0) {
+        if (time(NULL) - ota_st.st_mtime > 7200) {
+            printf("[*] Remote OTA image in /tmp is older than 2 hours; purging stale cache\n");
+            unlink(ota_path);
+            unlink(manifest_path);
+        }
     }
+
+    bool was_staged = (access(ota_path, R_OK) == 0);
 
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
@@ -333,7 +342,7 @@ void *rf_ota_sender_worker(void *arg) {
     if (file_size <= 0 || file_size > (long)RF_OTA_MAX_BYTES) {
         fclose(f);
         unlink(ota_path);
-        unlink("/tmp/remote_manifest.json");
+        unlink(manifest_path);
         char err[128];
         snprintf(err, sizeof(err), "Invalid OTA file size: %ld", file_size);
         ota_set_status(-1, false, err);
@@ -367,8 +376,13 @@ void *rf_ota_sender_worker(void *arg) {
         fseek(f, 0, SEEK_SET);
     }
 
-    /* Verify manifest: required when worker downloaded the image itself, skipped for staged builds */
-    if (!was_staged) {
+    /* Verify manifest:
+     * - Required if worker downloaded the image itself (!was_staged)
+     * - Required if a manifest sits next to the image in /tmp
+     * - Skipped solely for staged builds where no manifest is present in /tmp
+     */
+    bool has_manifest = (access(manifest_path, R_OK) == 0);
+    if (!was_staged || has_manifest) {
         char manifest_err[128];
         if (!rf_ota_verify_manifest(ota_digest, manifest_err, sizeof(manifest_err))) {
             fclose(f);
