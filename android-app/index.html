@@ -334,6 +334,10 @@
         <div><strong data-i18n="system">System</strong><small data-i18n="nav_system_sub">Logs, update & reboot</small>
         </div>
       </button>
+      <button type="button" class="drawer-item" data-view-target="plugins">
+        <span class="drawer-icon">P</span>
+        <div><strong>Plugins & Marketplace</strong><small>Community drivers & add-ons</small></div>
+      </button>
       <button type="button" class="drawer-item" data-view-target="hubs" data-native-only="true">
         <span class="drawer-icon">HB</span>
         <div><strong data-i18n="multi_hub">Hub Management</strong><small data-i18n="nav_multi_hub_sub">Multi-hub
@@ -583,6 +587,23 @@
               <span class="muted mini" data-i18n="card_services_logs">RF/BT Toggles • Logs</span>
               <span style="font-size: 12px; font-weight: 600; color: var(--accent);"
                 data-i18n="card_footer_open_sys">Open System →</span>
+            </div>
+          </div>
+
+          <!-- Plugins & Marketplace Shortcut -->
+          <div class="card settings-nav-card" data-view-target="plugins"
+            style="cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div>
+                <strong style="font-size: 15px; color: var(--accent);">Plugins & Marketplace</strong>
+                <div class="muted mini" style="margin-top: 3px;">Install, configure community drivers (Roku, Android TV, PS5 Wake)</div>
+              </div>
+              <span class="badge">Add-ons</span>
+            </div>
+            <div
+              style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px;">
+              <span class="muted mini" id="ovPluginsCount">Extensions</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--accent);">Manage →</span>
             </div>
           </div>
 
@@ -3893,6 +3914,74 @@ harmony_send_command:
             <span id="backupImportStatus" class="subtle" style="margin-left: 8px;"></span>
           </div>
         </form>
+      </div>
+    </section>
+
+    <!-- Plugins & Marketplace View -->
+    <section id="view-plugins" class="view-panel">
+      <button type="button" class="btn btn-sm btn-ghost btn-back-settings"
+        style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        <span data-i18n="back_to_settings">Back to Settings</span>
+      </button>
+      <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <h2>Plugins & Marketplace</h2>
+          <div class="section-lead">Community drivers and integrations (Roku, Android TV, PS5 Wake, BLE Adv).</div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input type="file" id="pluginArchiveFileInput" accept=".tar.gz,.tgz" style="display: none;">
+          <button type="button" class="btn btn-sm btn-outline" id="btnUploadPluginArchive">Upload Archive (.tar.gz)</button>
+          <button type="button" class="btn btn-sm btn-secondary" id="btnRefreshPlugins">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Segmented Navigation for Plugins View -->
+      <div class="segmented-nav" style="margin-bottom: 16px;">
+        <button type="button" class="segmented-btn active" data-plugin-tab="installed">
+          <span>Installed</span>
+        </button>
+        <button type="button" class="segmented-btn" data-plugin-tab="marketplace">
+          <span>Marketplace</span>
+        </button>
+        <button type="button" class="segmented-btn" data-plugin-tab="repos">
+          <span>Repositories</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Installed Plugins -->
+      <div id="pluginPanelInstalled">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Installed Daemons</h3>
+          <span id="pluginsStatusBadge" class="badge">Loading...</span>
+        </div>
+        <div id="installedPluginsList"></div>
+      </div>
+
+      <!-- Tab 2: Marketplace Catalog -->
+      <div id="pluginPanelMarketplace" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Available Community Plugins</h3>
+        </div>
+        <div id="marketplaceCatalogList"></div>
+      </div>
+
+      <!-- Tab 3: Repositories -->
+      <div id="pluginPanelRepos" style="display: none;">
+        <div class="card" style="margin-bottom: 14px; padding: 14px;">
+          <h3 style="font-size: 15px; margin-bottom: 6px;">Add Community Repository</h3>
+          <div class="muted mini" style="margin-bottom: 10px;">Enter a URL pointing to a community repository.json manifest catalog.</div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <input type="url" id="newRepoUrlInput" class="form-control" style="flex: 1; min-width: 240px;" placeholder="https://raw.githubusercontent.com/.../repository.json">
+            <button type="button" class="btn btn-sm btn-primary" id="btnAddRepoBtn">+ Add Repo</button>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Configured Repositories</h3>
+        </div>
+        <div id="pluginReposList"></div>
       </div>
     </section>
 

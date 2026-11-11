@@ -351,6 +351,7 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
     else if (tabId === 'network') this.loadNetworkView();
     else if (tabId === 'backup') this.loadBackupView();
     else if (tabId === 'system') this.loadSystemView();
+    else if (tabId === 'plugins') this.loadPluginsView();
     else if (tabId === 'hubs') this.renderHubsList();
   }
 

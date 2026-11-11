@@ -320,6 +320,8 @@ python3 "$SCRIPT_DIR/test_live_key_gaps.py"
 python3 "$SCRIPT_DIR/test_key_trace.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_trace" "$SCRIPT_DIR/test_bt_key_trace.c" && "$BUILD_DIR/test_bt_key_trace"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ble_adv_payload" "$SCRIPT_DIR/test_ble_adv_payload.c" && "$BUILD_DIR/test_ble_adv_payload"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_plugin_mgr" "$SCRIPT_DIR/test_plugin_mgr.c" "$REPO_ROOT/payload/source/plugin_mgr.c" "$REPO_ROOT/payload/source/http_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_plugin_mgr"
+python3 "$SCRIPT_DIR/test_plugin_manifest.py"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"

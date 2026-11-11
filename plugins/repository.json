@@ -1,0 +1,42 @@
+{
+  "repo_name": "Official Harmony-NG Plugin Repository",
+  "repo_version": "1.0.0",
+  "plugins": [
+    {
+      "id": "roku-ecp",
+      "name": "Roku ECP Controller",
+      "version": "1.0.0",
+      "author": "Harmony-NG Community",
+      "description": "Control Roku streaming boxes and Roku TVs over local Wi-Fi via External Control Protocol (ECP)",
+      "homepage": "https://github.com/iranl/harmony-ng",
+      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/roku-ecp-plugin.tar.gz"
+    },
+    {
+      "id": "ps5-wake",
+      "name": "PlayStation 5 BT Wake",
+      "version": "1.0.0",
+      "author": "Harmony-NG Community",
+      "description": "Wake PlayStation 4 and PlayStation 5 consoles over Bluetooth via DualSense/DualShock controller emulation",
+      "homepage": "https://github.com/deftdawg/pywakepsXonbt",
+      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/ps5-wake-plugin.tar.gz"
+    },
+    {
+      "id": "android-tv",
+      "name": "Android TV Remote",
+      "version": "1.0.0",
+      "author": "Harmony-NG Community",
+      "description": "Control Android TV and Google TV devices over local network with key and media commands",
+      "homepage": "https://github.com/iranl/harmony-ng",
+      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/android-tv-plugin.tar.gz"
+    },
+    {
+      "id": "ble-adv",
+      "name": "BLE Advertisement Broadcast",
+      "version": "1.0.0",
+      "author": "Harmony-NG Community",
+      "description": "Broadcast custom non-connectable BLE advertisements for devices like Mantra ceiling fans",
+      "homepage": "https://github.com/iranl/harmony-ng",
+      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/ble-adv-plugin.tar.gz"
+    }
+  ]
+}
