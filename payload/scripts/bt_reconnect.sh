@@ -29,7 +29,7 @@ echo $$ > "$PID_FILE"
 trap 'rm -f "$PID_FILE"' EXIT INT TERM
 
 TARGET="$1"
-DURATION="${2:-30}"
+DURATION="${2:-60}"
 DELAY="${3:-0}"
 if [ "$DELAY" -gt 0 ]; then
     log "BT reconnect: waiting ${DELAY}s before starting supervision"

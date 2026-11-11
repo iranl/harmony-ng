@@ -95,7 +95,7 @@ typedef struct {
     char name[64];
 } host_conn_t;
 
-#define MAX_HOST_RECONNECT_ATTEMPTS 15
+#define MAX_HOST_RECONNECT_ATTEMPTS 25
 
 /* Shared Globals */
 extern app_state_t app_state;

@@ -266,7 +266,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
             if (cJSON_IsNumber(jd_dur) && jd_dur->valuedouble > 0) dur = (int)jd_dur->valuedouble;
             else if (cJSON_IsString(jd_dur) && jd_dur->valuestring) dur = atoi(jd_dur->valuestring);
         }
-        if (dur <= 0) dur = 30;
+        if (dur <= 0) dur = 60;
 
         char trig_did_buf[64] = {0};
         cJSON *j_trig_dev = cJSON_GetObjectItemCaseSensitive(dev, "btTriggerDeviceId");

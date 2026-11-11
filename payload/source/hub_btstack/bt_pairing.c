@@ -680,7 +680,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
     }
 
     if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
-        btstack_run_loop_set_timer(&g_host_reconnect_timer, 1500);
+        btstack_run_loop_set_timer(&g_host_reconnect_timer, 1000);
         btstack_run_loop_add_timer(&g_host_reconnect_timer);
         return;
     }
@@ -698,7 +698,7 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
         try_connect_host();
     }
 
-    uint32_t next_ms = (g_host_reconnect_attempts <= 3) ? 2000 : 4000;
+    uint32_t next_ms = (g_host_reconnect_attempts <= 5) ? 1000 : 2000;
     btstack_run_loop_set_timer(&g_host_reconnect_timer, next_ms);
     btstack_run_loop_add_timer(&g_host_reconnect_timer);
 }
@@ -758,7 +758,7 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     g_host_reconnect_active = true;
 
     char msg[128];
-    snprintf(msg, sizeof(msg), "Starting host reconnect loop for %s (fast retry: 2s interval)",
+    snprintf(msg, sizeof(msg), "Starting host reconnect loop for %s (fast retry: 1s interval)",
              is_null_bd_addr(g_host_reconnect_target) ? "targets" : bd_addr_to_str(g_host_reconnect_target));
     log_msg(msg);
 
@@ -769,7 +769,7 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     }
 
     btstack_run_loop_remove_timer(&g_host_reconnect_timer);
-    btstack_run_loop_set_timer(&g_host_reconnect_timer, 2000);
+    btstack_run_loop_set_timer(&g_host_reconnect_timer, 1000);
     btstack_run_loop_set_timer_handler(&g_host_reconnect_timer, host_reconnect_timer_handler);
     btstack_run_loop_add_timer(&g_host_reconnect_timer);
 }
