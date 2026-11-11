@@ -609,6 +609,15 @@ void handle_navigation_key(int code, int value) {
                     }
                 }
                 if (matched_trig) {
+                    if (matched_trig->atype == 0x04) {
+                        if (strcmp(g_active_activity_id, "-1") != 0 && g_active_activity_id[0]) {
+                            ui_help_start();
+                        } else {
+                            show_notice("No active activity", 2000);
+                        }
+                        render_screen();
+                        break;
+                    }
                     const char *target_id = matched_trig->target_act_id;
                     if (matched_trig->atype == 0x03) target_id = "-1";
                     const char *target_name = "PowerOff";

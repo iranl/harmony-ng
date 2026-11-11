@@ -388,6 +388,7 @@ void log_remote_debug(const char *fmt, ...);
 bool has_configured_activities(void);
 int get_active_dev_cmd_count(void);
 int get_active_dev_cmd_item(int filtered_idx, char *out_label, size_t label_len, uint8_t *out_btn_index, uint8_t *out_atype, char *out_icon, size_t icon_len);
+void remote_hardware_cleanup(void);
 
 #ifdef __cplusplus
 }

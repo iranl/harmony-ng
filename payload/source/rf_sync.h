@@ -24,6 +24,7 @@ int rf_send_settings_push_slot(uint8_t slot, int bright, int timeout, int touch,
                                int physical_nav);
 void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slot, uint8_t is_query_reply);
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq);
+void rf_send_hub_activity_sync_state(const char *act_id, uint8_t seq, uint8_t state);
 void rf_send_hub_activity_sync(const char *act_id);
 uint8_t rf_check_update_flags(uint8_t slot);
 void rf_notify_update_available(uint8_t target_slot);

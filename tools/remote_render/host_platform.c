@@ -19,6 +19,7 @@ bool frame_timing_enabled(void) { return false; }
 void frame_timing_record(const frame_timing_t *t) { (void)t; }
 void set_backlight_level(int level) { (void)level; }
 void trigger_manual_suspend_to_ram(void) {}
+void remote_hardware_cleanup(void) {}
 void init_gyro_interrupt(void) {}
 
 int build_combined_activity_sequence(const char *from_id, const char *to_id, rf_act_step_t *out_steps,

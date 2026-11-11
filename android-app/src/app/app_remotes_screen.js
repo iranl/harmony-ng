@@ -327,6 +327,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         if (!mapping) typeSel.value = 'none';
         else if (mapping.type === 'activity_start' || mapping.action === 'activity_start') typeSel.value = 'activity_start';
         else if (mapping.type === 'activity_stop' || mapping.action === 'activity_stop' || mapping.action === 'poweroff') typeSel.value = 'activity_stop';
+        else if (mapping.type === 'help' || mapping.action === 'help') typeSel.value = 'help';
         else if (mapping.type) typeSel.value = mapping.type;
         else if (mapping.action === 'device_cmd' || mapping.command) typeSel.value = 'command';
         else typeSel.value = 'none';
@@ -422,6 +423,11 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       mapObj = {
         type: 'activity_stop',
         action: 'activity_stop'
+      };
+    } else if (type === 'help') {
+      mapObj = {
+        type: 'help',
+        action: 'help'
       };
     } else if (type === 'sequence') {
       mapObj = {

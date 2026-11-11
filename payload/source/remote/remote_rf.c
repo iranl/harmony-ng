@@ -349,7 +349,7 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         }
     }
 
-    if (total < 1500) total = 2000;
+    if (total == 0) total = 2000;
     if (out_total_ms) *out_total_ms = total;
     return count;
 }

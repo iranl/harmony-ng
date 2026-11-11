@@ -450,10 +450,11 @@ int main(int argc, char **argv) {
 
         static uint64_t last_progress_render_ms = 0;
         if (g_is_switching_activity) {
-            if (now_ms - g_switching_start_ms > (uint64_t)g_switching_total_ms + 400) {
-                printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)(now_ms - g_switching_start_ms));
+            if (now_ms - g_switching_start_ms >= (uint64_t)g_switching_total_ms + 10000) {
+                printf("[*] Activity switch fallback timeout (+10s after calculated duration), unlocking screen\n");
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
+                strncpy(g_active_activity_id, g_switching_target_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
                 if (strcmp(g_switching_target_id, "-1") != 0) {
                     g_current_view = VIEW_DEVICES;
@@ -709,6 +710,15 @@ int main(int argc, char **argv) {
 
                         if (matched_trig) {
                             if (ev.value == 1) {
+                                if (matched_trig->atype == 0x04) {
+                                    if (strcmp(g_active_activity_id, "-1") != 0 && g_active_activity_id[0]) {
+                                        ui_help_start();
+                                    } else {
+                                        show_notice("No active activity", 2000);
+                                    }
+                                    g_screen_dirty = true;
+                                    continue;
+                                }
                                 const char *target_id = matched_trig->target_act_id;
                                 if (matched_trig->atype == 0x03) target_id = "-1";
 
@@ -869,15 +879,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    flush_activity_usage();  /* init.sh stop sends SIGTERM first, which ends the main loop */
-    printf("[+] Cleaning up hardware resources...\n");
-    remote_wdt_close();
-    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); }
-    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd); }
-    if (g_rf_fd >= 0)    close(g_rf_fd);
-    if (g_btn_fd >= 0)   close(g_btn_fd);
-    if (g_fb_mem)        munmap(g_fb_mem, g_fb_size);
-    if (g_fb_fd >= 0)    close(g_fb_fd);
-
+    remote_hardware_cleanup();
     return 0;
 }

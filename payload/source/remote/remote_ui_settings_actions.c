@@ -28,18 +28,26 @@ static void cycle_touch_sensitivity(void) {
 }
 
 static void execute_remote_reboot(void) {
+    read_remote_battery();
     bool docked = is_remote_docked();
+    bool is_usb = (strcmp(g_battery_info.powersource, "usb") == 0);
+    bool charging = g_battery_info.charging || docked || is_usb;
+
+    if (g_battery_info.percent < 20 && !charging) {
+        show_notice("Battery low (<20%): connect charger to reboot", 4000);
+        render_screen();
+        return;
+    }
+
     show_notice(tr(docked ? STR_NOTICE_REBOOTING : STR_NOTICE_RESTARTING), 4000);
     render_screen();
-    log_power_debug("[*] System reboot initiated from Settings (docked=%d)...\n", docked);
+    log_power_debug("[*] System reboot initiated from Settings (docked=%d, bat=%d%%)...\n",
+                    docked, g_battery_info.percent);
     sync();
-    system("/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || true");
+    system("/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true");
 
     if (docked) {
-        if (g_rf_fd >= 0) {
-            close(g_rf_fd);
-            g_rf_fd = -1;
-        }
+        remote_hardware_cleanup();
         system("touch /tmp/remote_stop 2>/dev/null || true; "
                "rm -f /data/reboot_counter 2>/dev/null || true; "
                "if [ -x /data/safe_reboot.sh ]; then (/data/safe_reboot.sh >/dev/null 2>&1 &); "
@@ -51,15 +59,12 @@ static void execute_remote_reboot(void) {
                "(/sbin/reboot -f 2>/dev/null || reboot -f 2>/dev/null || (sleep 1 && echo b > /proc/sysrq-trigger)) & fi");
         exit(0);
     } else {
-        /* On battery, SoC hardware reset causes PMIC power-off. Restart runtime cleanly via execv. */
-        if (g_rf_fd >= 0) {
-            close(g_rf_fd);
-            g_rf_fd = -1;
-        }
+        /* On battery, SoC hardware reset causes PMIC power-off. Restart runtime cleanly via supervisor reload. */
+        remote_hardware_cleanup();
         usleep(250000);
         char *const args[] = { "/data/remote_ui", NULL };
         execv("/data/remote_ui", args);
-        /* Fallback: exit with 143 so watchdog restarts remote_ui */
+        /* Fallback: exit with 143 so supervisor in init.sh cleanly restarts remote_ui */
         exit(143);
     }
 }

@@ -17,21 +17,11 @@ void trigger_activity_switch(const char *id, const char *name) {
         render_screen();
         return;
     }
-    g_is_switching_activity = true;
-    strncpy(g_switching_target_id, id ? id : "-1", sizeof(g_switching_target_id) - 1);
-    strncpy(g_switching_target_name, name ? name : "Activity", sizeof(g_switching_target_name) - 1);
-    g_switching_start_ms = get_monotonic_ms();
-
-    rf_act_step_t combined_steps[32];
-    uint32_t total_delay = 0;
-    int step_cnt = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
-                                                   combined_steps, 32, &total_delay);
-    g_switching_total_ms = total_delay;
-    printf("[*] Starting activity switch to '%s' (%s): %d combined steps (stop+start), %ums total delay\n",
-           g_switching_target_name, g_switching_target_id, step_cnt, g_switching_total_ms);
-
+    printf("[*] Requesting activity switch to '%s' (%s) from Hub\n", name ? name : "", id ? id : "-1");
     rf_send_activity_start(id ? id : "-1");
     record_activity_start(id);
+    show_notice(tr(STR_PLEASE_WAIT), 1500);
+    g_screen_dirty = true;
     render_screen();
 }
 
@@ -45,11 +35,12 @@ void trigger_activity_switch_external(const char *id, const char *name) {
     uint32_t total_delay = 0;
     int step_cnt = build_combined_activity_sequence(g_active_activity_id, g_switching_target_id,
                                                    combined_steps, 32, &total_delay);
-    g_switching_total_ms = total_delay;
-    printf("[*] External activity switch started for '%s' (%s): %d combined steps (stop+start), %ums total delay\n",
+    g_switching_total_ms = (total_delay > 0) ? total_delay : 2000;
+    printf("[*] Hub activity switch started for '%s' (%s): %d combined steps (stop+start), ~%ums total delay\n",
            g_switching_target_name, g_switching_target_id, step_cnt, g_switching_total_ms);
 
     g_screen_dirty = true;
+    render_screen();
 }
 
 void request_activity_switch_with_confirm(int act_idx) {
@@ -374,8 +365,11 @@ void render_switching_view(void) {
     char time_str[32];
     double cur_sec = (double)elapsed / 1000.0;
     double tot_sec = (double)total_ms / 1000.0;
-    if (cur_sec > tot_sec) cur_sec = tot_sec;
-    snprintf(time_str, sizeof(time_str), "Timing: %.1fs / %.1fs", cur_sec, tot_sec);
+    if (elapsed >= total_ms) {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs (completing...)", tot_sec);
+    } else {
+        snprintf(time_str, sizeof(time_str), "Timing: ~%.1fs / ~%.1fs", cur_sec, tot_sec);
+    }
     fb_draw_text_aa(8, card_y + 126, time_str, RGB_TEXT_MUTED, &g_font_main);
 
     int bar_x = 8;

@@ -35,13 +35,16 @@ int rf_build_button_list(const cJSON *acts_map, rf_button_entry_t *out, int max)
                 int pos = hidx++;
                 if (strcasecmp(name, "PwrOff") == 0 || strcasecmp(name, "PowerOffActivity") == 0) has_pwroff = 1;
                 const cJSON *ja = cJSON_GetObjectItemCaseSensitive(b, "action");
-                const char *action = cJSON_IsString(ja) ? ja->valuestring : "device_cmd";
+                const cJSON *jt = cJSON_GetObjectItemCaseSensitive(b, "type");
+                const char *action = cJSON_IsString(ja) ? ja->valuestring : (cJSON_IsString(jt) ? jt->valuestring : "device_cmd");
                 if (nt >= RF_BUTTON_TRIGGERS_MAX) continue;
                 if (strcmp(action, "activity_start") == 0) {
                     const cJSON *jid = cJSON_GetObjectItemCaseSensitive(b, "activityId");
                     put(&trig[nt++], cJSON_IsString(jid) ? jid->valuestring : ctx, name, 0x00, 0x02, pos);
                 } else if (strcmp(action, "activity_stop") == 0) {
                     put(&trig[nt++], "-1", name, 0x00, 0x03, pos);
+                } else if (strcmp(action, "help") == 0) {
+                    put(&trig[nt++], ctx, name, 0x00, 0x04, pos);
                 }
             }
         }

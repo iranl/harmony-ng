@@ -109,6 +109,7 @@ static bool parse_colour(const char *s, uint16_t *out) {
 }
 
 void theme_load(const char *name) {
+    if (!name || !name[0]) name = "colourful";
     const font_aa_t *main_font = g_theme.font_main, *title_font = g_theme.font_title;
     snprintf(g_theme.name, sizeof(g_theme.name), "classic");
     snprintf(g_theme.label, sizeof(g_theme.label), "Classic");

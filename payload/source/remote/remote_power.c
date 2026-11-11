@@ -9,8 +9,23 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <linux/input.h>
 #include <linux/watchdog.h>
+
+void remote_hardware_cleanup(void) {
+    flush_activity_usage();
+    printf("[+] Cleaning up hardware resources...\n");
+    remote_wdt_close();
+    if (g_touch_fd >= 0) { ioctl(g_touch_fd, EVIOCGRAB, 0); close(g_touch_fd); g_touch_fd = -1; }
+    if (g_gyro_fd >= 0)  { ioctl(g_gyro_fd, EVIOCGRAB, 0);  close(g_gyro_fd);  g_gyro_fd = -1; }
+    if (g_rf_fd >= 0)    { close(g_rf_fd); g_rf_fd = -1; }
+    if (g_btn_fd >= 0)   { close(g_btn_fd); g_btn_fd = -1; }
+    if (g_fb_mem)        { munmap(g_fb_mem, g_fb_size); g_fb_mem = NULL; }
+    if (g_fb_fd >= 0)    { close(g_fb_fd); g_fb_fd = -1; }
+}
 
 volatile sig_atomic_t g_wake_requested = 0;
 char g_timezone_str[64] = TZ_DEFAULT_POSIX;

@@ -71,15 +71,26 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 break;
             }
 
-            /* If remote is currently displaying the switching progress bar, and Hub confirms switch */
-            if (g_is_switching_activity && strcmp(act_id, g_switching_target_id) == 0) {
-                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
-                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+            uint8_t sync_type = f->payload[24];
+
+            /* 1. Hub notifies that activity switch has STARTED (payload[24] == 0x02) */
+            if (sync_type == 0x02) {
+                if (!g_is_switching_activity || strcmp(g_switching_target_id, act_id) != 0) {
+                    printf("[*] Hub notified activity switch STARTING: target=%s (%s)\n", act_name, act_id);
+                    trigger_activity_switch_external(act_id, act_name);
+                }
+                break;
+            }
+
+            /* 2. If remote is currently displaying the switching view, Hub confirmation closes it */
+            if (g_is_switching_activity) {
                 printf("[*] Hub confirmed switch complete to '%s' (%s), unlocking screen\n", act_name, act_id);
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
-                strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
+                strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
+                strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+                strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+                if (strcmp(act_id, "-1") != 0) {
                     g_current_view = VIEW_DEVICES;
                 } else {
                     g_current_view = VIEW_ACTIVITIES;
@@ -87,6 +98,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 g_selected_device_cmd = 0;
                 if (g_screen_on) reset_idle_timer();
                 g_screen_dirty = true;
+                render_screen();
                 break;
             }
 
@@ -94,16 +106,15 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 break;
             }
 
-            uint8_t is_query_reply = f->payload[24];
             uint64_t time_since_wake = (s_last_wake_ms > 0) ? (now_ms - s_last_wake_ms) : 999999;
             uint64_t time_since_reconnect = (s_last_reconnect_ms > 0) ? (now_ms - s_last_reconnect_ms) : 999999;
             bool is_wake_or_reconnect = (time_since_wake < 6000 || time_since_reconnect < 6000);
-            bool is_state_catchup = (!g_initial_sync_received || is_query_reply == 0x01 || is_wake_or_reconnect);
+            bool is_state_catchup = (!g_initial_sync_received || sync_type == 0x01 || is_wake_or_reconnect);
 
             if (is_state_catchup) {
                 g_initial_sync_received = true;
                 printf("[*] Hub Activity Sync (catch-up: wake=%llums rec=%llums qreply=%d): id=%s name=%s (already running, no switch overlay)\n",
-                       (unsigned long long)time_since_wake, (unsigned long long)time_since_reconnect, is_query_reply, act_id, act_name);
+                       (unsigned long long)time_since_wake, (unsigned long long)time_since_reconnect, sync_type, act_id, act_name);
                 strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
                 strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
                 strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
@@ -120,12 +131,15 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             }
 
             printf("[*] Hub Activity Sync (live change): id=%s name=%s\n", act_id, act_name);
-            bool is_recent_same_switch = (strcmp(g_last_switch_target_id, act_id) == 0 && (now_ms - g_last_switch_completed_ms < 20000));
-            if (!g_is_switching_activity && !is_recent_same_switch) {
-                trigger_activity_switch_external(act_id, act_name);
-            }
             strncpy(g_active_activity_id, act_id, sizeof(g_active_activity_id) - 1);
             strncpy(g_active_activity_name, act_name, sizeof(g_active_activity_name) - 1);
+            strncpy(g_last_switch_target_id, act_id, sizeof(g_last_switch_target_id) - 1);
+            g_last_switch_completed_ms = now_ms;
+            if (strcmp(act_id, "-1") != 0) {
+                g_current_view = VIEW_DEVICES;
+            } else {
+                g_current_view = VIEW_ACTIVITIES;
+            }
             g_selected_device_cmd = 0;
             if (g_screen_on) reset_idle_timer();
             g_screen_dirty = true;

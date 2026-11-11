@@ -27,6 +27,7 @@ cJSON *get_remote_direct_map(int slot);
 void dispatch_activity_to_daemon(const char *act_id);
 void dispatch_device_command_to_webui(const char *payload);
 void get_current_activity(char *out, size_t outlen);
+void get_activity_target(char *out, size_t outlen);
 void get_activity_name_by_id(const char *act_id, char *out_name, size_t out_len);
 
 cJSON *rf_get_devices_cache(void);

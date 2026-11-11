@@ -263,12 +263,16 @@ void rf_send_hub_activity_sync_slot(const char *act_id, uint8_t seq, uint8_t slo
 }
 
 void rf_send_hub_activity_sync_seq(const char *act_id, uint8_t seq) {
+    rf_send_hub_activity_sync_state(act_id, seq, RF_ACT_SYNC_COMPLETE);
+}
+
+void rf_send_hub_activity_sync_state(const char *act_id, uint8_t seq, uint8_t state) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
 
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
         if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
             if (is_companion_slot(g_paired_remotes[i].slot)) continue;
-            rf_send_hub_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot, 0x00);
+            rf_send_hub_activity_sync_slot(act_id, seq, g_paired_remotes[i].slot, state);
             usleep(10000);
         }
     }
@@ -620,18 +624,36 @@ void *activity_sync_worker(void *arg) {
 
     /* Seed last_act on startup to prevent unsolicited TX into empty air */
     get_current_activity(last_act, sizeof(last_act));
+    char last_transition_target[32] = "";
+    bool was_transitioning = false;
 
     while (g_running) {
-        char cur_act[32] = "-1";
-        get_current_activity(cur_act, sizeof(cur_act));
-        if (strcmp(cur_act, last_act) != 0) {
-            if (!is_activity_transitioning() && !is_ota_busy()) {
-                strncpy(last_act, cur_act, sizeof(last_act) - 1);
-                last_act[sizeof(last_act) - 1] = '\0';
-                rf_send_hub_activity_sync_seq(cur_act, ++g_tx_seq);
+        if (!is_ota_busy()) {
+            bool transitioning = is_activity_transitioning();
+            if (transitioning) {
+                char target_act[32] = "-1";
+                get_activity_target(target_act, sizeof(target_act));
+                if (!was_transitioning || strcmp(target_act, last_transition_target) != 0) {
+                    was_transitioning = true;
+                    strncpy(last_transition_target, target_act, sizeof(last_transition_target) - 1);
+                    last_transition_target[sizeof(last_transition_target) - 1] = '\0';
+                    printf("[*] RF Hub Activity Switch STARTING: target=%s\n", target_act);
+                    rf_send_hub_activity_sync_state(target_act, ++g_tx_seq, RF_ACT_SYNC_STARTING);
+                }
+            } else {
+                char cur_act[32] = "-1";
+                get_current_activity(cur_act, sizeof(cur_act));
+                if (was_transitioning || strcmp(cur_act, last_act) != 0) {
+                    was_transitioning = false;
+                    last_transition_target[0] = '\0';
+                    strncpy(last_act, cur_act, sizeof(last_act) - 1);
+                    last_act[sizeof(last_act) - 1] = '\0';
+                    printf("[*] RF Hub Activity Switch COMPLETED: active=%s\n", cur_act);
+                    rf_send_hub_activity_sync_state(cur_act, ++g_tx_seq, RF_ACT_SYNC_COMPLETE);
+                }
             }
         }
-        sleep(1);
+        usleep(50000); /* 50ms responsive poll */
     }
     return NULL;
 }

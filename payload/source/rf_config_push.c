@@ -238,6 +238,7 @@ void *config_push_worker(void *arg) {
         char icon_name[64];
         uint16_t icon_id;
         uint8_t icon_type;
+        uint16_t power_on_delay;
     } devs[16];
     cJSON *dev_cmds[16] = {0}; /* each device's "commands" array, owned by dev_root */
     cJSON *dev_root = NULL;
@@ -306,6 +307,9 @@ void *config_push_worker(void *arg) {
                                     devs[dev_count].icon_id = icon_id;
                                     strncpy(devs[dev_count].icon_name, custom_name, sizeof(devs[0].icon_name) - 1);
                                     devs[dev_count].icon_name[sizeof(devs[0].icon_name) - 1] = '\0';
+                                    cJSON *jpod = cJSON_GetObjectItem(d_obj, "powerOnDelay");
+                                    if (!jpod) jpod = cJSON_GetObjectItem(d_obj, "power_on_delay");
+                                    devs[dev_count].power_on_delay = (jpod && cJSON_IsNumber(jpod) && jpod->valueint > 0) ? (uint16_t)jpod->valueint : 0;
 
                                     dev_cmds[dev_count] = cJSON_GetObjectItem(d_obj, "commands");
                                     dev_count++;
@@ -493,15 +497,41 @@ void *config_push_worker(void *arg) {
                             }
                             if (!act_id[0]) continue;
 
-                            struct rf_step_send local_steps[8];
+                            struct rf_step_send local_steps[16];
                             int local_count = 0;
+
+                            /* Device warmup delay (e.g. Shield TV/TV power-on settling time) */
+                            uint16_t max_warmup = 0;
+                            for (int a = 0; a < act_count; a++) {
+                                if (strcmp(acts[a].id, act_id) == 0) {
+                                    for (int k = 0; k < acts[a].dev_id_count; k++) {
+                                        for (int d = 0; d < dev_count; d++) {
+                                            if (strcmp(acts[a].dev_ids[k], devs[d].id) == 0) {
+                                                if (devs[d].power_on_delay > max_warmup) {
+                                                    max_warmup = devs[d].power_on_delay;
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                            if (max_warmup > 0 && strcmp(act_id, "-1") != 0 && local_count < 16) {
+                                strncpy(local_steps[local_count].act_id, act_id, 11);
+                                local_steps[local_count].act_id[11] = '\0';
+                                strncpy(local_steps[local_count].name, "Warmup", 15);
+                                local_steps[local_count].name[15] = '\0';
+                                local_steps[local_count].delay_ms = max_warmup;
+                                local_count++;
+                            }
 
                             /* startSequence -> Modern Harmony format */
                             cJSON *start_seq = cJSON_GetObjectItem(act_obj, "startSequence");
                             if (start_seq && cJSON_IsArray(start_seq)) {
                                 cJSON *sitem = NULL;
                                 cJSON_ArrayForEach(sitem, start_seq) {
-                                    if (local_count >= 8) break;
+                                    if (local_count >= 16) break;
                                     cJSON *cname = cJSON_GetObjectItem(sitem, "command");
                                     cJSON *ctype = cJSON_GetObjectItem(sitem, "type");
                                     cJSON *cdelay = cJSON_GetObjectItem(sitem, "delay");
@@ -529,9 +559,17 @@ void *config_push_worker(void *arg) {
                                         if (d > 20000) d = 20000;
                                         local_steps[local_count].delay_ms = (uint16_t)d;
                                         local_count++;
-                                    } else if (ctype && cJSON_IsString(ctype) && strcmp(ctype->valuestring, "Delay") == 0) {
+                                    } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
                                         if (local_count > 0 && d > 0) {
                                             local_steps[local_count - 1].delay_ms += (uint16_t)d;
+                                        } else if (local_count == 0 && d > 0 && local_count < 16) {
+                                            strncpy(local_steps[local_count].act_id, act_id, 11);
+                                            local_steps[local_count].act_id[11] = '\0';
+                                            strncpy(local_steps[local_count].name, "Delay", 15);
+                                            local_steps[local_count].name[15] = '\0';
+                                            if (d > 20000) d = 20000;
+                                            local_steps[local_count].delay_ms = (uint16_t)d;
+                                            local_count++;
                                         }
                                     }
                                 }
@@ -568,7 +606,7 @@ void *config_push_worker(void *arg) {
                                 if (stop_seq && cJSON_IsArray(stop_seq)) {
                                     cJSON *st_item = NULL;
                                     cJSON_ArrayForEach(st_item, stop_seq) {
-                                        if (total_step_count >= 63 || stop_cnt >= 8) break;
+                                        if (total_step_count >= 63 || stop_cnt >= 16) break;
                                         cJSON *cname = cJSON_GetObjectItem(st_item, "command");
                                         cJSON *ctype = cJSON_GetObjectItem(st_item, "type");
                                         cJSON *cdelay = cJSON_GetObjectItem(st_item, "delay");
@@ -605,6 +643,17 @@ void *config_push_worker(void *arg) {
                                         } else if (ctype && cJSON_IsString(ctype) && strcasecmp(ctype->valuestring, "Delay") == 0) {
                                             if (total_step_count > 0 && stop_cnt > 0 && d > 0) {
                                                 act_steps[total_step_count - 1].delay_ms += (uint16_t)d;
+                                            } else if (stop_cnt == 0 && d > 0 && total_step_count < 63) {
+                                                strncpy(act_steps[total_step_count].act_id, act_id, 11);
+                                                act_steps[total_step_count].act_id[11] = '\0';
+                                                strncpy(act_steps[total_step_count].name, "Delay", 15);
+                                                act_steps[total_step_count].name[15] = '\0';
+                                                if (d > 20000) d = 20000;
+                                                act_steps[total_step_count].delay_ms = (uint16_t)d;
+                                                act_steps[total_step_count].step_idx = 0x80 | (uint8_t)stop_cnt;
+                                                act_steps[total_step_count].total_steps = 1;
+                                                total_step_count++;
+                                                stop_cnt++;
                                             }
                                         }
                                     }
