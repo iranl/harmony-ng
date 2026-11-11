@@ -1,6 +1,7 @@
 {
   "repo_name": "Official Harmony-NG Plugin Repository",
   "repo_version": "1.0.0",
+  "homepage": "https://github.com/iranl/harmony-ng-plugins",
   "plugins": [
     {
       "id": "roku-ecp",
@@ -8,8 +9,29 @@
       "version": "1.0.0",
       "author": "Harmony-NG Community",
       "description": "Control Roku streaming boxes and Roku TVs over local Wi-Fi via External Control Protocol (ECP)",
-      "homepage": "https://github.com/iranl/harmony-ng",
-      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/roku-ecp-plugin.tar.gz"
+      "homepage": "https://github.com/iranl/harmony-ng-plugins/tree/main/plugins/roku-ecp",
+      "download_url": "https://github.com/iranl/harmony-ng-plugins/releases/download/v1.0.0/roku-ecp-plugin.tar.gz",
+      "device_definition": {
+        "device_type": "roku",
+        "display_name": "Roku Player / TV",
+        "config_fields": [
+          { "key": "ip_address", "label": "IP Address", "type": "string", "placeholder": "192.168.1.50" },
+          { "key": "port", "label": "Port", "type": "number", "default": 8060 }
+        ],
+        "default_commands": [
+          { "name": "Home", "keyCode": "PLUGIN:roku-ecp:Home" },
+          { "name": "Back", "keyCode": "PLUGIN:roku-ecp:Back" },
+          { "name": "Select", "keyCode": "PLUGIN:roku-ecp:Select" },
+          { "name": "DirectionUp", "keyCode": "PLUGIN:roku-ecp:Up" },
+          { "name": "DirectionDown", "keyCode": "PLUGIN:roku-ecp:Down" },
+          { "name": "DirectionLeft", "keyCode": "PLUGIN:roku-ecp:Left" },
+          { "name": "DirectionRight", "keyCode": "PLUGIN:roku-ecp:Right" },
+          { "name": "Play", "keyCode": "PLUGIN:roku-ecp:Play" },
+          { "name": "Rev", "keyCode": "PLUGIN:roku-ecp:Rev" },
+          { "name": "Fwd", "keyCode": "PLUGIN:roku-ecp:Fwd" },
+          { "name": "PowerOff", "keyCode": "PLUGIN:roku-ecp:PowerOff" }
+        ]
+      }
     },
     {
       "id": "ps5-wake",
@@ -17,8 +39,19 @@
       "version": "1.0.0",
       "author": "Harmony-NG Community",
       "description": "Wake PlayStation 4 and PlayStation 5 consoles over Bluetooth via DualSense/DualShock controller emulation",
-      "homepage": "https://github.com/deftdawg/pywakepsXonbt",
-      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/ps5-wake-plugin.tar.gz"
+      "homepage": "https://github.com/iranl/harmony-ng-plugins/tree/main/plugins/ps5-wake",
+      "download_url": "https://github.com/iranl/harmony-ng-plugins/releases/download/v1.0.0/ps5-wake-plugin.tar.gz",
+      "device_definition": {
+        "device_type": "ps5",
+        "display_name": "PlayStation 5 (BT Wake)",
+        "config_fields": [
+          { "key": "host_mac", "label": "PS5 Bluetooth MAC Address", "type": "string", "placeholder": "AA:BB:CC:DD:EE:FF" }
+        ],
+        "default_commands": [
+          { "name": "PowerOn", "keyCode": "PLUGIN:ps5-wake:Wake" },
+          { "name": "Wake", "keyCode": "PLUGIN:ps5-wake:Wake" }
+        ]
+      }
     },
     {
       "id": "android-tv",
@@ -26,17 +59,28 @@
       "version": "1.0.0",
       "author": "Harmony-NG Community",
       "description": "Control Android TV and Google TV devices over local network with key and media commands",
-      "homepage": "https://github.com/iranl/harmony-ng",
-      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/android-tv-plugin.tar.gz"
-    },
-    {
-      "id": "ble-adv",
-      "name": "BLE Advertisement Broadcast",
-      "version": "1.0.0",
-      "author": "Harmony-NG Community",
-      "description": "Broadcast custom non-connectable BLE advertisements for devices like Mantra ceiling fans",
-      "homepage": "https://github.com/iranl/harmony-ng",
-      "download_url": "https://github.com/iranl/harmony-ng/releases/download/v1.0.0/ble-adv-plugin.tar.gz"
+      "homepage": "https://github.com/iranl/harmony-ng-plugins/tree/main/plugins/android-tv",
+      "download_url": "https://github.com/iranl/harmony-ng-plugins/releases/download/v1.0.0/android-tv-plugin.tar.gz",
+      "device_definition": {
+        "device_type": "androidtv",
+        "display_name": "Android TV / Google TV",
+        "config_fields": [
+          { "key": "host", "label": "IP Address", "type": "string", "placeholder": "192.168.1.60" },
+          { "key": "port", "label": "Port", "type": "number", "default": 5555 }
+        ],
+        "default_commands": [
+          { "name": "Home", "keyCode": "PLUGIN:android-tv:Home" },
+          { "name": "Back", "keyCode": "PLUGIN:android-tv:Back" },
+          { "name": "Select", "keyCode": "PLUGIN:android-tv:Select" },
+          { "name": "DirectionUp", "keyCode": "PLUGIN:android-tv:Up" },
+          { "name": "DirectionDown", "keyCode": "PLUGIN:android-tv:Down" },
+          { "name": "DirectionLeft", "keyCode": "PLUGIN:android-tv:Left" },
+          { "name": "DirectionRight", "keyCode": "PLUGIN:android-tv:Right" },
+          { "name": "VolumeUp", "keyCode": "PLUGIN:android-tv:VolumeUp" },
+          { "name": "VolumeDown", "keyCode": "PLUGIN:android-tv:VolumeDown" },
+          { "name": "PowerToggle", "keyCode": "PLUGIN:android-tv:Power" }
+        ]
+      }
     }
   ]
 }
