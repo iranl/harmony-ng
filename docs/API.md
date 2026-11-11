@@ -1086,7 +1086,27 @@ Returns remote firmware chunk update progress.
   ```
 
 #### `POST /api/rf/ota-start?slot={1|2}`
-Starts background remote firmware flash update (touchscreen remotes only).
+Starts background remote firmware update (touchscreen remotes only).
+- **Storage & Download Policy**:
+  The Hub does not store remote OTA images on flash storage. If `/tmp/remote_ui.ota.gz` is not already present in RAM, the Hub downloads `manifest.json` and the remote OTA image on-demand from the update repository into `/tmp/remote_ui.ota.gz`.
+  Developers or offline hubs can stage a local image using `python build/deploy_hub.py <IP> --stage-remote-ota`, which uploads the local binary to `/tmp/remote_ui.ota.gz` in RAM without internet access or flash writes.
+  *Note*: Authentication tokens are not forwarded during background OTA fetches; private repositories requiring tokens should stage the remote firmware image using `--stage-remote-ota`.
+- **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
+- **Responses**:
+  - `200 OK`: `{"status":"started","slot":1,"ok":true}` — OTA worker thread started.
+  - `400 Bad Request`: `{"status":"unsupported","slot":1,"error":"Companion remotes do not support OTA","ok":false}` — slot holds a Companion remote (no screen/firmware OTA).
+  - `409 Conflict`: `{"status":"already_in_progress","slot":1,"error":"RF OTA already in progress on slot 1","ok":false}` — an update or download is already running.
+- **Status reporting (`GET /api/rf/ota-status`)**:
+  - `status: 0`: Idle.
+  - `status: 3`: Downloading and verifying OTA image into `/tmp` (RF sync and ACKs remain unblocked).
+  - `status: 1`: RF transmission in progress (`in_progress: true`).
+  - `status: 2`: Successfully transferred; remote is verifying and installing.
+  - `status: -1`: Failed. Specific error conditions include:
+    - `"Failed to download OTA image to /tmp"`: update source unreachable or image missing.
+    - `"Remote OTA version mismatch against Hub"`: manifest version does not match the Hub's version.
+    - `"Remote OTA SHA-256 checksum mismatch"`: downloaded package failed integrity check against manifest.
+    - `"Remote rejected OTA: Low battery (<40%)"`: remote battery is below 40%.
+    - `"Chunk N ACK timeout (can resume)"` / `"Chunk N: no progress for 20 s (can resume)"`: RF communication stalled. The staged file in `/tmp` is preserved so the update can be resumed.
 
 ### 7.6 Physical Remote Key Mappings (Touchscreen Remotes, Companion, Smart Control)
 #### `GET /api/rf-mapping?slot={1|2}`

@@ -774,23 +774,22 @@ void *api_server_worker(void *arg) {
                     int started = 0;
                     int busy_slot = 0;
                     pthread_mutex_lock(&g_ota_lock);
-                if (!g_rf_ota.in_progress) {
-                    g_rf_ota.in_progress = true;
-                    g_rf_ota.target_slot = slot;
-                    g_rf_ota.status_code = 1;
-                    g_rf_ota.error_msg[0] = '\0';
-                    pthread_t ota_th;
-                    if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
-                        pthread_detach(ota_th);
-                        started = 1;
-                    } else {
+                    if (!g_rf_ota.in_progress && g_rf_ota.status_code != 3) {
                         g_rf_ota.in_progress = false;
-                        g_rf_ota.status_code = -1;
+                        g_rf_ota.target_slot = slot;
+                        g_rf_ota.status_code = 3;
+                        snprintf(g_rf_ota.error_msg, sizeof(g_rf_ota.error_msg), "Preparing OTA update...");
+                        pthread_t ota_th;
+                        if (pthread_create(&ota_th, NULL, rf_ota_sender_worker, (void *)(uintptr_t)slot) == 0) {
+                            pthread_detach(ota_th);
+                            started = 1;
+                        } else {
+                            g_rf_ota.status_code = -1;
+                        }
+                    } else {
+                        busy_slot = g_rf_ota.target_slot;
                     }
-                } else {
-                    busy_slot = g_rf_ota.target_slot;
-                }
-                pthread_mutex_unlock(&g_ota_lock);
+                    pthread_mutex_unlock(&g_ota_lock);
                     if (started) {
                         char res[128];
                         int rlen = snprintf(res, sizeof(res),

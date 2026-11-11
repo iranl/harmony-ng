@@ -131,7 +131,7 @@ int is_activity_transitioning(void) {
     return 0;
 }
 
-static cJSON *get_remote_map_unlocked(uint8_t slot) {
+cJSON *get_remote_map_unlocked(uint8_t slot) {
     if (slot < 1 || slot > 2) slot = 1;
     int idx = slot - 1;
 
@@ -159,13 +159,6 @@ static cJSON *get_remote_map_unlocked(uint8_t slot) {
         printf("[+] Loaded remote slot %d map cache (%s)\n", slot, map_file);
     }
     return g_remote_map_cache[idx];
-}
-
-cJSON *get_remote_map(uint8_t slot) {
-    pthread_mutex_lock(&g_map_lock);
-    cJSON *res = get_remote_map_unlocked(slot);
-    pthread_mutex_unlock(&g_map_lock);
-    return res;
 }
 
 bool get_remote_screen_button(uint8_t slot, const char *act_or_dev, int btn_idx, char *out_dev, size_t dev_sz, char *out_cmd, size_t cmd_sz) {
@@ -267,9 +260,12 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
 
     /* If button pressed while browsing a specific device, dispatch to that device */
     if (dev_id && dev_id[0]) {
-        cJSON *map = get_remote_map(slot);
+        char matched_dev[64] = {0};
+        char matched_cmd_buf[64] = {0};
+
+        pthread_mutex_lock(&g_map_lock);
+        cJSON *map = get_remote_map_unlocked(slot);
         if (map) {
-            pthread_mutex_lock(&g_map_lock);
             cJSON *devs_map = cJSON_GetObjectItemCaseSensitive(map, "devices");
             if (devs_map && cJSON_IsObject(devs_map)) {
                 cJSON *d_obj = cJSON_GetObjectItemCaseSensitive(devs_map, dev_id);
@@ -278,21 +274,25 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
                     if (b_cfg && cJSON_IsObject(b_cfg)) {
                         cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(b_cfg, "command");
                         if (j_cmd && cJSON_IsString(j_cmd) && j_cmd->valuestring[0]) {
-                            char body[256];
-                            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                                     dev_id, j_cmd->valuestring, action_state ? action_state : "press");
-                            printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s action=%s\n",
-                                   button_name, dev_id, j_cmd->valuestring, action_state ? action_state : "press");
-                            snprintf(out_dev, out_dev_len, "%s", dev_id);
-                            snprintf(out_cmd, out_cmd_len, "%s", j_cmd->valuestring);
-                            http_post_local(WEBUI_PORT, "/api/ir-send", body);
-                            pthread_mutex_unlock(&g_map_lock);
-                            return;
+                            snprintf(matched_dev, sizeof(matched_dev), "%s", dev_id);
+                            snprintf(matched_cmd_buf, sizeof(matched_cmd_buf), "%s", j_cmd->valuestring);
                         }
                     }
                 }
             }
-            pthread_mutex_unlock(&g_map_lock);
+        }
+        pthread_mutex_unlock(&g_map_lock);
+
+        if (matched_cmd_buf[0]) {
+            char body[256];
+            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                     matched_dev, matched_cmd_buf, action_state ? action_state : "press");
+            printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s action=%s\n",
+                   button_name, matched_dev, matched_cmd_buf, action_state ? action_state : "press");
+            snprintf(out_dev, out_dev_len, "%s", matched_dev);
+            snprintf(out_cmd, out_cmd_len, "%s", matched_cmd_buf);
+            http_post_local(WEBUI_PORT, "/api/ir-send", body);
+            return;
         }
 
         /* Default fallback: auto-match button_name against device commands in cached devices.json */
@@ -318,27 +318,28 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
                     break;
                 }
             }
+            char cmd_copy[64] = {0};
             if (matched_cmd) {
+                strncpy(cmd_copy, matched_cmd, sizeof(cmd_copy) - 1);
+            }
+            pthread_mutex_unlock(&g_rf_devices_lock);
+            if (cmd_copy[0]) {
                 char body[256];
                 snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                         dev_id, matched_cmd, action_state ? action_state : "press");
+                         dev_id, cmd_copy, action_state ? action_state : "press");
                 printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
-                       button_name, dev_id, matched_cmd, action_state ? action_state : "press");
+                       button_name, dev_id, cmd_copy, action_state ? action_state : "press");
                 snprintf(out_dev, out_dev_len, "%s", dev_id);
-                snprintf(out_cmd, out_cmd_len, "%s", matched_cmd);
+                snprintf(out_cmd, out_cmd_len, "%s", cmd_copy);
                 http_post_local(WEBUI_PORT, "/api/ir-send", body);
-                pthread_mutex_unlock(&g_rf_devices_lock);
-                return;
             }
+            return;
         }
         pthread_mutex_unlock(&g_rf_devices_lock);
         return;
     }
 
     /* Standard Activity-Based mapping */
-    cJSON *map = get_remote_map(slot);
-    if (!map) return;
-
     char act_id[32] = "-1";
     get_current_activity(act_id, sizeof(act_id));
 
@@ -348,6 +349,12 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     char target_act_id_buf[64] = {0};
 
     pthread_mutex_lock(&g_map_lock);
+    cJSON *map = get_remote_map_unlocked(slot);
+    if (!map) {
+        pthread_mutex_unlock(&g_map_lock);
+        return;
+    }
+
     cJSON *acts = cJSON_GetObjectItemCaseSensitive(map, "activities");
     if (!acts || !cJSON_IsObject(acts)) acts = map;
 

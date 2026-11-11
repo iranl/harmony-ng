@@ -430,9 +430,9 @@ void *config_push_worker(void *arg) {
              * activity (rf_button_list.c says why nothing else is sent) */
             rf_button_entry_t *entries = (rf_button_entry_t *)calloc(RF_BUTTON_LIST_MAX, sizeof(rf_button_entry_t));
             int n = 0;
-            cJSON *map = get_remote_map(1);
             if (entries) {
                 pthread_mutex_lock(&g_map_lock);
+                cJSON *map = get_remote_map_unlocked(target_slot);
                 n = rf_build_button_list(map ? cJSON_GetObjectItemCaseSensitive(map, "activities") : NULL,
                                          entries, RF_BUTTON_LIST_MAX);
                 pthread_mutex_unlock(&g_map_lock);

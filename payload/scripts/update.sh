@@ -33,10 +33,26 @@ MD5SUM="$BB md5sum"
 TAR="$BB tar"
 
 CMD="${1:-apply}"
-REPO_ARG="${2:-}"
-TOKEN_ARG="${3:-}"
+SLOT_ARG="1"
+if [ "$CMD" = "remote" ] || [ "$CMD" = "elite" ]; then
+  if [ -n "${2:-}" ] && [ "$2" = "1" -o "$2" = "2" ]; then
+    SLOT_ARG="$2"
+    REPO_ARG="${3:-}"
+    TOKEN_ARG="${4:-}"
+  else
+    REPO_ARG="${2:-}"
+    TOKEN_ARG="${3:-}"
+  fi
+else
+  REPO_ARG="${2:-}"
+  TOKEN_ARG="${3:-}"
+fi
 
 DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
+if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
+  CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
+  [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
+fi
 REPO="${REPO_ARG:-$DEFAULT_OTA}"
 REPO="${REPO%/}"
 REPO="${REPO%/bin/mips}"
@@ -350,31 +366,21 @@ do_apply() {
     done
   fi
 
-  # 4. Update remote OTA image (store on /data/harmony)
-  echo "[*] Checking remote OTA package..."
-  # elite_ui.ota.gz: the name before the elite -> remote rename, on an OTA branch not yet republished
-  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3 ||
-     download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "$TMPDIR/remote_ui.ota.gz" 35 3; then
-    cp -f "$TMPDIR/remote_ui.ota.gz" /data/harmony/remote_ui.ota.gz 2>/dev/null || true
-    echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
-    rm -f /cache/remote_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
-    rm -f "$TMPDIR/remote_ui.ota.gz"
-    echo "[+] Remote OTA package cached (/data/harmony/remote_ui.ota.gz)."
-  fi
-
   # 5. Check if update succeeded before recording version
   if [ "$OTA_BUNDLE_OK" != "1" ] && [ "$OTA_FALLBACK_OK" != "1" ]; then
     echo "[-] Software update failed: could not download packages."
     return 1
   fi
 
-  # 6. Record new version
+  # 6. Record new version (Hub and remote version metadata)
   echo "$NEW_VER" > /data/harmony/VERSION
   echo "$NEW_VER" > /etc/harmony_version 2>/dev/null || true
   echo "$NEW_VER" > /data/harmony/latest_version
-  rm -f /data/harmony/update_available.flag 2>/dev/null || true
+  echo "$NEW_VER" > /data/harmony/remote_ui.version 2>/dev/null || true
+  rm -f /data/harmony/update_available.flag /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz \
+        /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version /cache/elite_ui.ota.gz 2>/dev/null || true
 
-  # 6. Clean up temporary directory
+  # 7. Clean up temporary directory
   rm -rf "$TMPDIR" 2>/dev/null
 
   # 7. Sync filesystem
@@ -396,28 +402,34 @@ do_apply() {
   fi
 }
 
+do_fetch_remote_ota() {
+  local target="/tmp/remote_ui.ota.gz"
+  local manifest="/tmp/remote_manifest.json"
+  echo "[*] Downloading remote OTA package from ${REPO} to ${target}..."
+  rm -f "${target}" "${manifest}"
+
+  # Fetch manifest with 1 attempt and short timeout (10s)
+  download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "${manifest}" 10 1 || true
+
+  # Fetch OTA image with 1 attempt and short timeout (20s)
+  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 ||
+     download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1; then
+    echo "[+] Remote OTA package downloaded to ${target}."
+    return 0
+  fi
+  echo "[-] Failed to download remote OTA package."
+  rm -f "${target}" "${manifest}"
+  return 1
+}
+
 do_remote_ota() {
   local slot="${1:-1}"
   echo "[*] Triggering RF OTA firmware update for the remote on Slot ${slot}..."
-  
-  if [ ! -f /cache/remote_ui.ota.gz ] && [ ! -f /data/harmony/remote_ui.ota.gz ] && [ ! -f /tmp/remote_ui.ota.gz ]; then
-    echo "[*] OTA image missing on hub. Downloading from ${REPO}..."
-    download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3 ||
-      download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" /cache/remote_ui.ota.gz 35 3
-    ln -sf /cache/remote_ui.ota.gz /data/harmony/remote_ui.ota.gz 2>/dev/null || true
-  fi
 
-  OTA_FILE=""
-  for f in /cache/remote_ui.ota.gz /data/harmony/remote_ui.ota.gz /tmp/remote_ui.ota.gz; do
-    if [ -f "$f" ]; then OTA_FILE="$f"; break; fi
-  done
+  # Purge any stale flash copies
+  rm -f /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz /data/harmony/elite_ui.ota.gz /cache/elite_ui.ota.gz 2>/dev/null || true
 
-  if [ -z "$OTA_FILE" ]; then
-    echo "[-] Error: remote_ui.ota.gz not found and could not be downloaded."
-    return 1
-  fi
-
-  # Trigger hub_rf OTA endpoint on port 8092
+  # Trigger hub_rf OTA endpoint on port 8092 (hub_rf downloads, verifies manifest, and streams)
   res=$($WGET -qO- --post-data '' "http://127.0.0.1:8092/api/rf/ota-start?slot=${slot}" 2>/dev/null || true)
   echo "Response: $res"
   
@@ -426,7 +438,9 @@ do_remote_ota() {
     while true; do
       sleep 2
       st=$($WGET -qO- "http://127.0.0.1:8092/api/rf/ota-status" 2>/dev/null || true)
-      if echo "$st" | grep -q '"in_progress":true'; then
+      if echo "$st" | grep -q '"status":3'; then
+        echo "    Preparing / downloading remote firmware..."
+      elif echo "$st" | grep -q '"in_progress":true'; then
         sent=$(echo "$st" | grep -o '"sent_bytes":[0-9]*' | cut -d':' -f2)
         total=$(echo "$st" | grep -o '"total_bytes":[0-9]*' | cut -d':' -f2)
         echo "    Progress: ${sent}/${total} bytes..."
@@ -454,8 +468,11 @@ case "$CMD" in
   apply)
     do_apply
     ;;
+  fetch-remote|fetch-remote-ota)
+    do_fetch_remote_ota
+    ;;
   elite|remote)
-    do_remote_ota "${2:-1}"
+    do_remote_ota "$SLOT_ARG"
     ;;
   status)
     if [ -f /data/harmony/update_state.conf ]; then

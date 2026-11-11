@@ -65,6 +65,7 @@ class HubDeployer:
         reboot_hub: bool = False,
         dry_run: bool = False,
         no_backup: bool = False,
+        stage_remote_ota: bool = False,
     ):
         self.hub_host = hub_host
         self.hub_user = hub_user
@@ -74,6 +75,7 @@ class HubDeployer:
         self.reboot_hub = reboot_hub
         self.dry_run = dry_run
         self.no_backup = no_backup
+        self.stage_remote_ota = stage_remote_ota
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
@@ -343,7 +345,7 @@ class HubDeployer:
             self.query_remote_hashes(
                 "/data/harmony/bin/* /data/harmony/* /data/harmony/config/* /cache/www/* "
                 "/cache/www/assets/* /cache/www/assets/themes/* /cache/modules/* /cache/bin/busybox "
-                "/data/harmony/remote_ui.ota.gz /cache/icons.tar.gz /etc/init.d/rcS.local"
+                "/cache/icons.tar.gz /etc/init.d/rcS.local"
             )
 
             # Deploy core binaries
@@ -410,22 +412,36 @@ class HubDeployer:
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
 
-            # Deploy the remote's RF OTA image. elite/bin/elite_ui.ota.gz: a release bundle or a
-            # tree from before the elite -> remote rename.
-            remote_ota = None
-            for cand in (self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
-                         self.repo_root / "build" / "output" / "remote" / "remote_ui.ota.gz",
-                         self.repo_root / "elite" / "bin" / "elite_ui.ota.gz",
-                         self.repo_root / "build" / "output" / "elite" / "elite_ui.ota.gz"):
-                if cand.is_file():
-                    remote_ota = cand
-                    break
-            if remote_ota:
-                print("[*] Syncing the remote's RF OTA image (/data/harmony/remote_ui.ota.gz)...")
-                self.deploy_file_if_changed(remote_ota, "/data/harmony/remote_ui.ota.gz", "644")
-                if not self.dry_skip("copy /data/harmony/VERSION to /data/harmony/remote_ui.version"):
-                    self.run_ssh("rm -f /cache/remote_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
-                                 "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
+            # Remote OTA: Do not deploy remote_ui.ota.gz to flash storage on Hub.
+            # Only record remote version metadata and clean up any legacy flash OTA binaries.
+            print("[*] Recording remote version metadata and cleaning flash OTA cache...")
+            if not self.dry_skip("clean flash OTA images and sync remote_ui.version"):
+                self.run_ssh("rm -f /data/harmony/remote_ui.ota.gz /cache/remote_ui.ota.gz "
+                             "/data/harmony/elite_ui.ota.gz /cache/elite_ui.ota.gz /data/harmony/elite_ui.version 2>/dev/null || true; "
+                             "cmp -s /data/harmony/VERSION /data/harmony/remote_ui.version || "
+                             "cp -f /data/harmony/VERSION /data/harmony/remote_ui.version 2>/dev/null || true")
+
+            # Stage local remote OTA image into /tmp (RAM only, no flash wear) if requested
+            if self.stage_remote_ota:
+                candidates = [
+                    self.repo_root / "remote" / "bin" / "remote_ui.ota.gz",
+                    self.bin_dir / "remote_ui.ota.gz",
+                    self.repo_root / "remote" / "remote_ui.ota.gz",
+                ]
+                staged = False
+                for cand in candidates:
+                    if cand.is_file():
+                        print(f"[*] Staging local {cand} to Hub /tmp/remote_ui.ota.gz (RAM tmpfs)...")
+                        if not self.dry_run:
+                            self.deploy_file_if_changed(cand, "/tmp/remote_ui.ota.gz", "644")
+                            self.run_ssh("rm -f /tmp/remote_manifest.json 2>/dev/null || true")
+                        staged = True
+                        break
+                if not staged:
+                    print("[-] Warning: --stage-remote-ota requested but no remote_ui.ota.gz found locally", file=sys.stderr)
+            else:
+                if not self.dry_run:
+                    self.run_ssh("rm -f /tmp/remote_ui.ota.gz /tmp/remote_manifest.json 2>/dev/null || true")
 
             # Deploy configs
             if self.config_dir.is_dir():
@@ -621,6 +637,7 @@ def main() -> None:
     parser.add_argument("--reboot", action="store_true", help="Reboot Hub safely after deployment (default: hot restart)")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
+    parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
@@ -644,6 +661,7 @@ def main() -> None:
         reboot_hub=args.reboot,
         dry_run=args.dry_run,
         no_backup=args.no_backup,
+        stage_remote_ota=args.stage_remote_ota,
     )
     success = deployer.deploy()
     sys.exit(0 if success else 1)

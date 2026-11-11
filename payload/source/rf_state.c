@@ -75,16 +75,21 @@ int rf_migrate_legacy_names_in(const char *harmony_dir, const char *cache_dir) {
             moved += rf_migrate_one(o, n);
         }
     }
-    static const char *const staged[] = { "elite_ui.ota.gz", "elite_ui.version", NULL };
-    for (int k = 0; staged[k]; k++) {
-        snprintf(o, sizeof(o), "%s/%s", harmony_dir, staged[k]);
-        snprintf(n, sizeof(n), "%s/remote_%s", harmony_dir, staged[k] + strlen("elite_"));
-        moved += rf_migrate_one(o, n);
-    }
+    /* Migrate version metadata */
+    snprintf(o, sizeof(o), "%s/elite_ui.version", harmony_dir);
+    snprintf(n, sizeof(n), "%s/remote_ui.version", harmony_dir);
+    moved += rf_migrate_one(o, n);
+
+    /* Purge legacy OTA binaries from flash storage (OTA images reside only in /tmp RAM) */
+    snprintf(o, sizeof(o), "%s/elite_ui.ota.gz", harmony_dir);
+    unlink(o);
+    snprintf(o, sizeof(o), "%s/remote_ui.ota.gz", harmony_dir);
+    unlink(o);
     if (cache_dir) {
         snprintf(o, sizeof(o), "%s/elite_ui.ota.gz", cache_dir);
-        snprintf(n, sizeof(n), "%s/remote_ui.ota.gz", cache_dir);
-        moved += rf_migrate_one(o, n);
+        unlink(o);
+        snprintf(o, sizeof(o), "%s/remote_ui.ota.gz", cache_dir);
+        unlink(o);
     }
     if (moved) sync();
     return moved;
