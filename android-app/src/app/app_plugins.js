@@ -268,7 +268,22 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     try {
       container.innerHTML = '<div class="muted mini" style="padding: 16px; text-align: center;">Fetching marketplace catalog from repositories...</div>';
       const res = await this.client.getPluginMarketplace();
-      this.marketplaceCatalog = Array.isArray(res) ? res : (res?.plugins || []);
+      this.marketplaceCatalog = Array.isArray(res) ? res : (res?.marketplace || res?.plugins || []);
+
+      if (!this.marketplaceCatalog || this.marketplaceCatalog.length === 0) {
+        try {
+          const directRes = await fetch('https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json');
+          if (directRes.ok) {
+            const data = await directRes.json();
+            if (data && Array.isArray(data.plugins)) {
+              this.marketplaceCatalog = data.plugins;
+            }
+          }
+        } catch (_) {
+          /* ignore fallback error */
+        }
+      }
+
       this.renderMarketplaceCatalog();
     } catch (err) {
       container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">Failed to load marketplace catalog: ${escapeHtml(err.message)}</div>`;
@@ -420,7 +435,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
     try {
       const res = await this.client.getPluginRepositories();
-      this.pluginRepositories = Array.isArray(res) ? res : [];
+      this.pluginRepositories = Array.isArray(res) ? res : (res?.repositories || []);
       this.renderRepositories();
     } catch (err) {
       container.innerHTML = `<div class="card error" style="padding: 12px; color: var(--danger);">Failed to load repositories: ${escapeHtml(err.message)}</div>`;
