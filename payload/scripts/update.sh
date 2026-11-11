@@ -49,7 +49,7 @@ else
 fi
 
 DEFAULT_OTA="https://raw.githubusercontent.com/iranl/harmony-ng/ota"
-if [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
+if [ "$CMD" = "remote" -o "$CMD" = "elite" -o "$CMD" = "fetch-remote" -o "$CMD" = "fetch-remote-ota" ] && [ -z "$REPO_ARG" ] && [ -f /data/harmony/update_state.conf ]; then
   CONF_REPO=$(grep '^source=' /data/harmony/update_state.conf 2>/dev/null | cut -d= -f2- | tr -d '\r\n ')
   [ -n "$CONF_REPO" ] && REPO_ARG="$CONF_REPO"
 fi
@@ -440,11 +440,6 @@ do_remote_ota() {
     return 1
   fi
 
-  cleanup_ota() {
-    rm -f /tmp/remote_ui.ota.gz 2>/dev/null || true
-  }
-  trap cleanup_ota EXIT INT TERM
-
   # Trigger hub_rf OTA endpoint on port 8092
   res=$($WGET -qO- --post-data '' "http://127.0.0.1:8092/api/rf/ota-start?slot=${slot}" 2>/dev/null || true)
   echo "Response: $res"
@@ -454,7 +449,9 @@ do_remote_ota() {
     while true; do
       sleep 2
       st=$($WGET -qO- "http://127.0.0.1:8092/api/rf/ota-status" 2>/dev/null || true)
-      if echo "$st" | grep -q '"in_progress":true'; then
+      if echo "$st" | grep -q '"status":3'; then
+        echo "    Preparing / downloading remote firmware..."
+      elif echo "$st" | grep -q '"in_progress":true'; then
         sent=$(echo "$st" | grep -o '"sent_bytes":[0-9]*' | cut -d':' -f2)
         total=$(echo "$st" | grep -o '"total_bytes":[0-9]*' | cut -d':' -f2)
         echo "    Progress: ${sent}/${total} bytes..."

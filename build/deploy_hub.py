@@ -439,6 +439,7 @@ class HubDeployer:
                         print(f"[*] Staging local {cand} to Hub /tmp/remote_ui.ota.gz (RAM tmpfs)...")
                         if not self.dry_run:
                             self.deploy_file_if_changed(cand, "/tmp/remote_ui.ota.gz", "644")
+                            self.run_ssh("rm -f /tmp/remote_manifest.json 2>/dev/null || true")
                         staged = True
                         break
                 if not staged:

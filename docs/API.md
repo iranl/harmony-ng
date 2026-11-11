@@ -1090,6 +1090,7 @@ Starts background remote firmware update (touchscreen remotes only).
 - **Storage & Download Policy**:
   The Hub does not store remote OTA images on flash storage. If `/tmp/remote_ui.ota.gz` is not already present in RAM, the Hub downloads `manifest.json` and the remote OTA image on-demand from the update repository into `/tmp/remote_ui.ota.gz`.
   Developers or offline hubs can stage a local image using `python build/deploy_hub.py <IP> --stage-remote-ota`, which uploads the local binary to `/tmp/remote_ui.ota.gz` in RAM without internet access or flash writes.
+  *Note*: Authentication tokens are not forwarded during background OTA fetches; private repositories requiring tokens should stage the remote firmware image using `--stage-remote-ota`.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 - **Responses**:
   - `200 OK`: `{"status":"started","slot":1,"ok":true}` — OTA worker thread started.

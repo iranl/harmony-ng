@@ -180,6 +180,96 @@ static void get_hub_version(char *out_ver, size_t sz) {
     }
 }
 
+bool rf_ota_verify_manifest(const uint8_t *digest, char *err_buf, size_t err_sz) {
+    const char *manifest_path = "/tmp/remote_manifest.json";
+    if (err_buf && err_sz > 0) {
+        snprintf(err_buf, err_sz, "Remote OTA manifest missing or invalid");
+    }
+
+    if (access(manifest_path, R_OK) != 0) {
+        return false;
+    }
+
+    FILE *mf = fopen(manifest_path, "r");
+    if (!mf) {
+        unlink(manifest_path);
+        return false;
+    }
+
+    fseek(mf, 0, SEEK_END);
+    long msz = ftell(mf);
+    fseek(mf, 0, SEEK_SET);
+    if (msz <= 0 || msz >= 200000) {
+        fclose(mf);
+        unlink(manifest_path);
+        return false;
+    }
+
+    char *mbuf = malloc(msz + 1);
+    if (!mbuf) {
+        fclose(mf);
+        unlink(manifest_path);
+        return false;
+    }
+
+    size_t n = fread(mbuf, 1, msz, mf);
+    mbuf[n] = '\0';
+    fclose(mf);
+
+    cJSON *mroot = cJSON_Parse(mbuf);
+    free(mbuf);
+    if (!mroot) {
+        unlink(manifest_path);
+        return false;
+    }
+
+    bool ok = false;
+    cJSON *j_ver = cJSON_GetObjectItemCaseSensitive(mroot, "version");
+    if (j_ver && cJSON_IsString(j_ver) && j_ver->valuestring) {
+        const char *mver = j_ver->valuestring;
+        while (*mver == 'v' || *mver == 'V') mver++;
+        char hub_ver[64];
+        get_hub_version(hub_ver, sizeof(hub_ver));
+        if (strcmp(mver, hub_ver) != 0) {
+            printf("[-] Remote OTA version mismatch: manifest %s vs Hub %s\n", mver, hub_ver);
+            if (err_buf && err_sz > 0) {
+                snprintf(err_buf, err_sz, "Remote OTA version mismatch against Hub");
+            }
+            cJSON_Delete(mroot);
+            unlink(manifest_path);
+            return false;
+        }
+
+        cJSON *files = cJSON_GetObjectItemCaseSensitive(mroot, "files");
+        if (files && cJSON_IsObject(files)) {
+            cJSON *file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/remote_ui.ota.gz");
+            if (!file_obj) file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/elite_ui.ota.gz");
+            if (file_obj && cJSON_IsObject(file_obj)) {
+                cJSON *j_sha = cJSON_GetObjectItemCaseSensitive(file_obj, "sha256");
+                if (j_sha && cJSON_IsString(j_sha) && j_sha->valuestring) {
+                    char computed_sha_hex[65];
+                    for (int i = 0; i < 32; i++) {
+                        snprintf(computed_sha_hex + (i * 2), 3, "%02x", digest[i]);
+                    }
+                    if (strcasecmp(j_sha->valuestring, computed_sha_hex) != 0) {
+                        printf("[-] Remote OTA SHA-256 mismatch: manifest %s vs file %s\n",
+                               j_sha->valuestring, computed_sha_hex);
+                        if (err_buf && err_sz > 0) {
+                            snprintf(err_buf, err_sz, "Remote OTA SHA-256 checksum mismatch");
+                        }
+                    } else {
+                        ok = true;
+                    }
+                }
+            }
+        }
+    }
+
+    cJSON_Delete(mroot);
+    unlink(manifest_path);
+    return ok;
+}
+
 void *rf_ota_sender_worker(void *arg) {
     uint8_t target_slot = (uint8_t)(uintptr_t)arg;
     if (target_slot < 1 || target_slot > 2) target_slot = g_remote_slot ? g_remote_slot : 1;
@@ -202,6 +292,11 @@ void *rf_ota_sender_worker(void *arg) {
     pthread_mutex_unlock(&g_ota_lock);
 
     const char *ota_path = "/tmp/remote_ui.ota.gz";
+    bool was_staged = (access(ota_path, R_OK) == 0);
+    if (was_staged) {
+        unlink("/tmp/remote_manifest.json");
+    }
+
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
         printf("[*] Remote OTA image not found in /tmp. Downloading to %s...\n", ota_path);
@@ -272,72 +367,15 @@ void *rf_ota_sender_worker(void *arg) {
         fseek(f, 0, SEEK_SET);
     }
 
-    /* Verify manifest if present */
-    if (access("/tmp/remote_manifest.json", R_OK) == 0) {
-        FILE *mf = fopen("/tmp/remote_manifest.json", "r");
-        if (mf) {
-            fseek(mf, 0, SEEK_END);
-            long msz = ftell(mf);
-            fseek(mf, 0, SEEK_SET);
-            if (msz > 0 && msz < 200000) {
-                char *mbuf = malloc(msz + 1);
-                if (mbuf) {
-                    size_t n = fread(mbuf, 1, msz, mf);
-                    mbuf[n] = '\0';
-                    cJSON *mroot = cJSON_Parse(mbuf);
-                    if (mroot) {
-                        cJSON *j_ver = cJSON_GetObjectItemCaseSensitive(mroot, "version");
-                        if (j_ver && cJSON_IsString(j_ver) && j_ver->valuestring) {
-                            const char *mver = j_ver->valuestring;
-                            while (*mver == 'v' || *mver == 'V') mver++;
-                            char hub_ver[64];
-                            get_hub_version(hub_ver, sizeof(hub_ver));
-                            if (strcmp(mver, hub_ver) != 0) {
-                                printf("[-] Remote OTA version mismatch: manifest %s vs Hub %s\n", mver, hub_ver);
-                                cJSON_Delete(mroot);
-                                free(mbuf);
-                                fclose(mf);
-                                fclose(f);
-                                unlink(ota_path);
-                                unlink("/tmp/remote_manifest.json");
-                                ota_set_status(-1, false, "Remote OTA version mismatch against Hub");
-                                return NULL;
-                            }
-                        }
-                        cJSON *files = cJSON_GetObjectItemCaseSensitive(mroot, "files");
-                        if (files && cJSON_IsObject(files)) {
-                            cJSON *file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/remote_ui.ota.gz");
-                            if (!file_obj) file_obj = cJSON_GetObjectItemCaseSensitive(files, "bin/arm/elite_ui.ota.gz");
-                            if (file_obj && cJSON_IsObject(file_obj)) {
-                                cJSON *j_sha = cJSON_GetObjectItemCaseSensitive(file_obj, "sha256");
-                                if (j_sha && cJSON_IsString(j_sha) && j_sha->valuestring) {
-                                    char computed_sha_hex[65];
-                                    for (int i = 0; i < 32; i++) {
-                                        snprintf(computed_sha_hex + (i * 2), 3, "%02x", ota_digest[i]);
-                                    }
-                                    if (strcasecmp(j_sha->valuestring, computed_sha_hex) != 0) {
-                                        printf("[-] Remote OTA SHA-256 mismatch: manifest %s vs file %s\n",
-                                               j_sha->valuestring, computed_sha_hex);
-                                        cJSON_Delete(mroot);
-                                        free(mbuf);
-                                        fclose(mf);
-                                        fclose(f);
-                                        unlink(ota_path);
-                                        unlink("/tmp/remote_manifest.json");
-                                        ota_set_status(-1, false, "Remote OTA SHA-256 checksum mismatch");
-                                        return NULL;
-                                    }
-                                }
-                            }
-                        }
-                        cJSON_Delete(mroot);
-                    }
-                    free(mbuf);
-                }
-            }
-            fclose(mf);
+    /* Verify manifest: required when worker downloaded the image itself, skipped for staged builds */
+    if (!was_staged) {
+        char manifest_err[128];
+        if (!rf_ota_verify_manifest(ota_digest, manifest_err, sizeof(manifest_err))) {
+            fclose(f);
+            unlink(ota_path);
+            ota_set_status(-1, false, manifest_err);
+            return NULL;
         }
-        unlink("/tmp/remote_manifest.json");
     }
 
     pthread_mutex_lock(&g_ota_lock);
@@ -390,13 +428,11 @@ void *rf_ota_sender_worker(void *arg) {
 
     if (ack_res != 0) {
         fclose(f);
-        unlink(ota_path);
         ota_set_status(-1, false, "Remote failed to ACK OTA_START (timeout - wake remote)");
         return NULL;
     }
     if (g_ack_status != 0x00) {
         fclose(f);
-        unlink(ota_path);
         char err[128];
         if (g_ack_status == 0x02) {
             snprintf(err, sizeof(err), "Remote rejected OTA: Low battery (<40%%)");
@@ -504,15 +540,14 @@ void *rf_ota_sender_worker(void *arg) {
     memcpy(&end_payload[1], ota_digest, 20);
     rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 21);
     if (rf_send_frame_acked(&frame, 6000) != 0) {
-        unlink(ota_path);
         ota_set_status(-1, false, "OTA_END ACK timeout");
         return NULL;
     }
 
     if (g_ack_status != 0x00) {
-        unlink(ota_path);
         char err[128];
         if (g_ack_status == 0x06) {
+            unlink(ota_path);
             snprintf(err, sizeof(err), "Remote rejected OTA: SHA-256 integrity check failed");
         } else {
             snprintf(err, sizeof(err), "Remote verification failed (status 0x%02X)", g_ack_status);
