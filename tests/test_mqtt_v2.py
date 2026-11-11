@@ -243,6 +243,9 @@ def main():
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c7", "action": "send_command", "deviceId": "1", "command": "VolumeUp"}), qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7")
             check(m is not None and jload(m[1]).get("ok") is True, "send_command ok (dry run)", str(m))
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7b", "action": "send_command", "deviceId": "1", "command": ["VolumeUp", "VolumeDown"], "delay_secs": 0.05}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7b")
+            check(m is not None and jload(m[1]).get("ok") is True, "send_command multi array ok", str(m))
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c8", "action": "rf_wake", "slot": 1}), qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c8")
             r = jload(m[1]) if m else {}
@@ -264,6 +267,7 @@ def main():
             st, a = hub.http_get("/api/test/ir-raw-last")
             sub.drain()
             cmd.publish(BASE + "/send_command", json.dumps({"device": "Living Room TV", "command": "VolumeUp"}), qos=1)
+            cmd.publish(BASE + "/send_command", json.dumps({"device": "Living Room TV", "command": ["VolumeUp", "VolumeDown"], "num_repeats": 2, "delay_secs": 0.05}), qos=1)
             cmd.publish(BASE + "/command/1/VolumeDown", "1", qos=1)
             time.sleep(1.0)
             st, s_after = hub.http_get("/api/status")
