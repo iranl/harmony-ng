@@ -33,6 +33,7 @@ Setting up HarmonyNG takes just a few minutes. Pre-built release bundles contain
 | **Android Companion App** | [Download APK from Releases](https://github.com/iranl/harmony-ng/releases) | Android phone or tablet (Android 10+) |
 | **Web UI** | Pre-installed on Hub at `http://<hub-ip>:8089` | Modern web browser |
 | **Ethernet Setup** | [**Ethernet & Network Guide**](docs/ETHERNET_AND_NETWORK_SETUP.md) | Native onboard RJ45/PoE (Pro 2400) or OTG Micro-USB Ethernet Adapter (Standard Hub) |
+| **Plugins & Marketplace** | [**Plugin Architecture & Guide**](docs/PLUGINS.md) | Community drivers (Roku ECP, PS5 Wake, Android TV) via 1-click marketplace |
 
 ---
 
@@ -91,6 +92,7 @@ The table below details every major functional component for both the **Harmony 
 | **Activity Orchestration** | **Rigid Cloud Sequences**: Static power macros compiled in the cloud. Out-of-sync devices require stepping through the mobile "Fix It" wizard. | **Stateful C Orchestrator**: `orchestrator.c` tracks discrete device power states, interlocks, step queues, and delays, with live WebSocket and MQTT progress feeds. |
 | **Smart Home & Automation** | **Cloud Skill & Deprecated XMPP**: Local XMPP blocked in firmware v4.15.206. Cloud skills face deprecation. | **Native Bidirectional MQTT**: Built-in MQTT client with Home Assistant MQTT Auto-Discovery (activity `select`, plus `sensor` and `button` entities; Home Assistant's MQTT integration has no `remote` platform). Full REST & WebSocket API. |
 | **Flash & Safe Recovery** | **Flash Wear & Brick Risk**: Unmonitored writes to JFFS2 flash. Bricked units require factory wipe. | **RAM-Isolated & Panic Protected**: All runtime logs/PIDs in tmpfs (`/tmp`). Automatic reboot loop counter resets Hub into Safe Recovery mode if 5 boot crashes occur. |
+| **Extensibility & Plugins** | **Zero / Closed**: No plugin or custom driver support. Restricted to stock cloud code sets. | **Plugin System & Marketplace**: Supervised community micro-daemons with zero flash wear (sockets/logs in RAM tmpfs), non-blocking UNIX domain socket IPC, 1-click marketplace catalog, and custom repository support. See [Plugin Guide](docs/PLUGINS.md). |
 
 ### Harmony Touchscreen Remotes
 
@@ -135,8 +137,8 @@ HarmonyNG supports all major Logitech Harmony physical remotes:
 While HarmonyNG restores complete local independence and dramatically reduces memory and CPU usage, note the following architectural difference from stock Logitech firmware:
 
 1. **No Direct Local Network / IP Control (e.g. Roku ECP, Hue Direct, Sony IP)**:
-   - Stock Logitech software relied on closed-source Lua plugins to control local IP devices. HarmonyNG focuses purely on native hardware-direct IR (I2S DMA register pulsing), Bluetooth HID, and 2.4 GHz RF remotes.
-   - **Mitigation via Home Assistant / MQTT**: This is easily handled by connecting HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**. Home Assistant natively supports thousands of IP-controlled devices (Roku, Apple TV, Philips Hue, Android TV) and can be triggered seamlessly by Harmony activities and remote button presses.
+   - **Community Plugins & Add-ons**: HarmonyNG includes a dedicated **Plugin Architecture & Community Marketplace** for direct local control of IP and Bluetooth devices without cloud mediation. Lightweight community micro-daemons (e.g. **Roku ECP**, **PlayStation 5 BT Wake**, **Android TV**) run directly on the Hub with zero flash wear. See [Plugin Architecture & Guide](docs/PLUGINS.md) and the [harmony-ng-plugins repository](https://github.com/iranl/harmony-ng-plugins).
+   - **Home Assistant & MQTT Integration**: For thousands of other smart home devices (Hue, Sonos, custom lights), connect HarmonyNG to **Home Assistant via the built-in bidirectional MQTT bridge**.
 
 ---
 
@@ -154,6 +156,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │   └── deploy_hub.py       # Hub deployment script (cross-platform Python)
 ├── docs/                   # Technical documentation
 │   ├── API.md              # Complete REST & WebSocket API specification
+│   ├── PLUGINS.md          # Plugin architecture, marketplace, and developer guide
 │   ├── BLUETOOTH_HID_CODES.md # Bluetooth HID keycodes and mappings
 │   ├── REMOTE.md            # Remote hardware, RF protocol, and display specs
 │   ├── REMOTE_BATTERY_OPTIMIZATION.md # Power management & battery life guide

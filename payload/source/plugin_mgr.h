@@ -7,7 +7,7 @@
 #define HARMONY_PLUGINS_DIR         "/data/harmony/plugins"
 #define HARMONY_PLUGINS_RUN_DIR     "/tmp/plugins"
 #define HARMONY_REPOSITORIES_FILE   "/data/harmony/config/repositories.json"
-#define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng/main/plugins/repository.json"
+#define HARMONY_DEFAULT_REPO_URL    "https://raw.githubusercontent.com/iranl/harmony-ng-plugins/main/repository.json"
 
 #ifdef __cplusplus
 extern "C" {
