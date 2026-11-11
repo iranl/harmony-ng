@@ -453,4 +453,35 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
       method: 'DELETE'
     });
   }
+
+  async getPlugins() {
+    return this.request('/api/plugins');
+  }
+
+  async getPluginMarketplace() {
+    return this.request('/api/plugins/marketplace');
+  }
+
+  async getPluginRepositories() {
+    return this.request('/api/plugins/repositories');
+  }
+
+  async updatePluginRepositories(action, url) {
+    return this.postJson('/api/plugins/repositories', { action, url });
+  }
+
+  async installPlugin(urlOrBase64) {
+    if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
+      return this.postJson('/api/plugins/install', { url: urlOrBase64 });
+    }
+    return this.postJson('/api/plugins/install', { archive_base64: urlOrBase64 });
+  }
+
+  async pluginAction(id, action) {
+    return this.postJson('/api/plugins/action', { id, action });
+  }
+
+  async uninstallPlugin(id) {
+    return this.postJson('/api/plugins/uninstall', { id });
+  }
 }

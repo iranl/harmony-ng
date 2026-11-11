@@ -337,10 +337,25 @@ export function createView() {
     });
   }
 
-  function openAddDeviceModal() {
+  async function openAddDeviceModal() {
+    let plugins = [];
+    try {
+      const pRes = await api.getPlugins();
+      plugins = (pRes?.plugins || []).filter(p => p.device_definition);
+    } catch {}
+
     const nameInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung TV' });
     const mfgInput = h('input', { type: 'text', className: 'form-input', placeholder: 'Samsung' });
     const modelInput = h('input', { type: 'text', className: 'form-input', placeholder: 'QN90A' });
+
+    const typeSelect = h('select', { className: 'form-select' }, [
+      h('option', { value: 'IR', text: 'Infrared (IR)' }),
+      ...plugins.map(p => h('option', {
+        value: `plugin:${p.id}`,
+        text: `🧩 ${p.device_definition.display_name || p.name} (Plugin)`
+      }))
+    ]);
+
     const portSelect = h('select', { className: 'form-select' }, [
       h('option', { value: 7, text: 'All IR Ports (7)' }),
       h('option', { value: 1, text: 'Port 1 (Internal)' }),
@@ -348,16 +363,64 @@ export function createView() {
       h('option', { value: 3, text: 'Port 3 (Blaster 2)' }),
     ]);
 
+    const portGroup = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+      h('label', { className: 'form-label', text: 'IR Control Port' }),
+      portSelect,
+    ]);
+
+    const dynamicConfigContainer = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
+    const dynamicFieldInputs = {};
+
+    function updateTypeVisibility() {
+      const selectedType = typeSelect.value;
+      if (selectedType === 'IR') {
+        portGroup.style.display = 'flex';
+        dynamicConfigContainer.style.display = 'none';
+        dynamicConfigContainer.innerHTML = '';
+      } else {
+        portGroup.style.display = 'none';
+        dynamicConfigContainer.style.display = 'flex';
+        dynamicConfigContainer.innerHTML = '';
+        const plugId = selectedType.replace('plugin:', '');
+        const plug = plugins.find(p => p.id === plugId);
+        if (plug?.device_definition) {
+          mfgInput.value = plug.device_definition.display_name || plug.name;
+          modelInput.value = 'Plugin';
+          if (plug.device_definition.config_fields) {
+            plug.device_definition.config_fields.forEach(f => {
+              const inp = h('input', {
+                type: f.type === 'number' ? 'number' : 'text',
+                className: 'form-input',
+                placeholder: f.placeholder || (f.default !== undefined ? String(f.default) : '')
+              });
+              if (f.default !== undefined) inp.value = f.default;
+              dynamicFieldInputs[f.key] = inp;
+              dynamicConfigContainer.appendChild(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+                h('label', { className: 'form-label', text: f.label || f.key }),
+                inp
+              ]));
+            });
+          }
+        }
+      }
+    }
+
+    typeSelect.onchange = updateTypeVisibility;
+
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+      h('label', { className: 'form-label', text: 'Device Type' }),
+      typeSelect,
       h('label', { className: 'form-label', text: 'Device Name' }),
       nameInput,
       h('label', { className: 'form-label', text: 'Manufacturer' }),
       mfgInput,
       h('label', { className: 'form-label', text: 'Model' }),
       modelInput,
-      h('label', { className: 'form-label', text: 'IR Control Port' }),
-      portSelect,
+      portGroup,
+      dynamicConfigContainer,
     ]);
+
+    updateTypeVisibility();
 
     createModal({
       title: t('add_device', 'Add New Device'),
@@ -374,13 +437,38 @@ export function createView() {
               return false;
             }
             try {
-              await api.saveNewDevice({
-                name,
-                manufacturer: mfgInput.value.trim(),
-                model: modelInput.value.trim(),
-                controlPort: Number(portSelect.value) || 7,
-                type: 'IR',
-              });
+              const selectedType = typeSelect.value;
+              if (selectedType === 'IR') {
+                await api.saveNewDevice({
+                  name,
+                  manufacturer: mfgInput.value.trim(),
+                  model: modelInput.value.trim(),
+                  controlPort: Number(portSelect.value) || 7,
+                  type: 'IR',
+                });
+              } else {
+                const plugId = selectedType.replace('plugin:', '');
+                const plug = plugins.find(p => p.id === plugId);
+                const configVals = {};
+                if (plug?.device_definition?.config_fields) {
+                  plug.device_definition.config_fields.forEach(f => {
+                    const inp = dynamicFieldInputs[f.key];
+                    if (inp) {
+                      configVals[f.key] = f.type === 'number' ? Number(inp.value) : inp.value.trim();
+                    }
+                  });
+                }
+                const defaultCmds = plug?.device_definition?.default_commands || [];
+                await api.saveNewDevice({
+                  name,
+                  manufacturer: mfgInput.value.trim(),
+                  model: modelInput.value.trim(),
+                  type: selectedType,
+                  plugin: plugId,
+                  config: configVals,
+                  commands: defaultCmds,
+                });
+              }
               toast.success(`Device ${name} added!`);
               await refreshInventory();
               renderDeviceSelector();

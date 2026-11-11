@@ -76,7 +76,6 @@ LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" \
 
 # 4. Run Core Component Unit Tests
 echo "[-] Running core component unit tests..."
-<<<<<<< HEAD
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_activity_icons" "$SCRIPT_DIR/test_activity_icons.c" && "$BUILD_DIR/test_activity_icons"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_remote_i18n" "$SCRIPT_DIR/test_remote_i18n.c" "$REPO_ROOT/payload/source/remote/remote_i18n.c" && "$BUILD_DIR/test_remote_i18n"
 sh "$SCRIPT_DIR/test_remote_migrate.sh"
@@ -115,6 +114,8 @@ gcc -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_tx_s
 # 4c. hub_btstack reconnect queue and connected-hosts file
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_reconnect_queue" "$SCRIPT_DIR/test_bt_reconnect_queue.c" "$REPO_ROOT/payload/source/hub_btstack/bt_reconnect_queue.c" && "$BUILD_DIR/test_bt_reconnect_queue"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ble_adv_payload" "$SCRIPT_DIR/test_ble_adv_payload.c" && "$BUILD_DIR/test_ble_adv_payload"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_plugin_mgr" "$SCRIPT_DIR/test_plugin_mgr.c" "$REPO_ROOT/payload/source/plugin_mgr.c" "$REPO_ROOT/payload/source/http_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_plugin_mgr"
+python3 "$SCRIPT_DIR/test_plugin_manifest.py"
 
 # 5. Run Hub & Remote Full Co-Simulation
 echo "[-] Launching Full Hub & Remote Co-Simulation..."

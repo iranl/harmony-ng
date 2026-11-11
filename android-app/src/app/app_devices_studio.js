@@ -230,14 +230,23 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const portEl = document.getElementById('curDevPortSelect');
     const mqttTopicInput = document.getElementById('devMqttTopic');
     if (nameEl) nameEl.textContent = dev.name || 'Device ' + dev.id;
-    if (detailsEl) detailsEl.textContent = `Type: ${dev.type || 'Appliance'} • Brand: ${dev.manufacturer || 'Unknown'} • Model: ${dev.model || 'Unknown'}`;
+    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
+    const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+    if (detailsEl) {
+      if (isPlugin) {
+        const cfgSummary = dev.config ? Object.entries(dev.config).map(([k, v]) => `${k}: ${v}`).join(', ') : '';
+        detailsEl.textContent = `Plugin: ${pluginId} ${cfgSummary ? '• (' + cfgSummary + ')' : ''} • Name: ${dev.name || dev.id}`;
+      } else {
+        detailsEl.textContent = `Type: ${dev.type || 'Appliance'} • Brand: ${dev.manufacturer || 'Unknown'} • Model: ${dev.model || 'Unknown'}`;
+      }
+    }
     if (countEl) countEl.textContent = (dev.commands || []).length;
     if (portEl) {
       const p = (dev.controlPort !== undefined) ? dev.controlPort : 7;
       portEl.value = String(p);
     }
 
-    const isIr = (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
+    const isIr = !isPlugin && (dev.type === 'IR' || !dev.type || dev.type === 'Television' || dev.type === 'Amplifier' || dev.type === 'Media Player' || dev.type === 'HomeAppliance');
     const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
 
@@ -582,6 +591,22 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         model,
         icon
       };
+      let pluginId = null;
+      let pluginDef = null;
+      if (type.startsWith('plugin:')) {
+        pluginId = type.substring(7);
+        devPayload.type = type;
+        devPayload.plugin = pluginId;
+        pluginDef = (this.installedPlugins || []).find(p => p.id === pluginId);
+        const cfg = {};
+        if (pluginDef?.device_definition?.config_fields) {
+          for (const f of pluginDef.device_definition.config_fields) {
+            const val = document.getElementById(`plug_cfg_${f.key}`)?.value;
+            cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val || f.default || '');
+          }
+        }
+        devPayload.config = cfg;
+      }
       if (type === 'MQTT') {
         devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
         devPayload.mqttEnabled = 1;
@@ -622,6 +647,16 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           ];
           for (const m of mqttButtons) {
             await this.client.saveLearnedCommand({ deviceId: newDevId, name: m, raw: `G:MQTT:${m}`, mode: 'raw' }).catch(() => { });
+          }
+        } else if (type.startsWith('plugin:')) {
+          const defaultCmds = pluginDef?.device_definition?.default_commands || [];
+          for (const cmd of defaultCmds) {
+            await this.client.saveLearnedCommand({
+              deviceId: newDevId,
+              name: cmd.name,
+              raw: cmd.keyCode || `PLUGIN:${pluginId}:${cmd.name}`,
+              mode: 'raw'
+            }).catch(() => { });
           }
         }
       }

@@ -16,6 +16,7 @@ export const SETUP_ITEMS = [
   { id: 'network', icon: '📶', label: 'Network (WiFi / Eth)', desc: 'Wi-Fi scanner, Ethernet configuration & IP', module: () => import('./network.js') },
   { id: 'backup', icon: '💾', label: 'Backup & Restore', desc: 'Export / import full hub configurations', module: () => import('./backup.js') },
   { id: 'system', icon: '⚙️', label: 'System Admin', desc: 'Dashboard, disk space, services, logs & update', module: () => import('./system.js') },
+  { id: 'plugins', icon: '🧩', label: 'Plugins & Marketplace', desc: 'Install and manage hardware device integrations', module: () => import('./plugins.js') },
   { id: 'users', icon: '👤', label: 'Users & Auth', desc: 'User accounts, passwords & API tokens', module: () => import('./users.js') },
   { id: 'hubs', icon: '🏠', label: 'Hub Management', desc: 'Discover and switch between multiple Hubs', module: () => import('./hubs.js') },
 ];

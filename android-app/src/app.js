@@ -2,9 +2,9 @@
  * Harmony Hub Web & Android App - Modular Index
  */
 export * from './app/app_icons_ui.js';
-import { HarmonyAppHubsNetwork } from './app/app_hubs_network.js';
+import { HarmonyAppPlugins } from './app/app_plugins.js';
 
-export class HarmonyApp extends HarmonyAppHubsNetwork {}
+export class HarmonyApp extends HarmonyAppPlugins {}
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = new HarmonyApp();

@@ -89,6 +89,8 @@ build_daemon() {
         payload/source/http_api_ota.c \
         payload/source/http_api_backup.c \
         payload/source/http_api_system.c \
+        payload/source/http_api_plugins.c \
+        payload/source/plugin_mgr.c \
         payload/source/config_store.c \
         payload/source/bt_migrate.c \
         payload/source/config_sanitize.c \

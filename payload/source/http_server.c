@@ -11,6 +11,7 @@
 #include "http_api_ota.h"
 #include "http_api_backup.h"
 #include "http_api_system.h"
+#include "http_api_plugins.h"
 #include "hub_ws.h"
 #include "ws_server.h"
 #include "cJSON.h"
@@ -469,6 +470,7 @@ static void http_process_request(int client_fd, const char *req) {
     if (http_api_remotes_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_ota_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_backup_handle(client_fd, method, clean_path, query, body, req)) return;
+    if (http_api_plugins_handle(client_fd, method, clean_path, query, body, req)) return;
     if (http_api_system_handle(client_fd, method, clean_path, query, body, req, auth_role, auth_user)) return;
 
     /* Unmatched route: 404 */

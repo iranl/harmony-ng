@@ -289,6 +289,37 @@ export function createSystemApi(client) {
         localStorage.removeItem('harmony_auth_role');
       }
       client.connectWebSocket(true);
+    },
+
+    async getPlugins() {
+      return client.request('/api/plugins');
+    },
+
+    async getPluginMarketplace() {
+      return client.request('/api/plugins/marketplace');
+    },
+
+    async getPluginRepositories() {
+      return client.request('/api/plugins/repositories');
+    },
+
+    async updatePluginRepositories(action, url) {
+      return client.postJson('/api/plugins/repositories', { action, url });
+    },
+
+    async installPlugin(urlOrBase64) {
+      if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
+        return client.postJson('/api/plugins/install', { url: urlOrBase64 });
+      }
+      return client.postJson('/api/plugins/install', { archive_base64: urlOrBase64 });
+    },
+
+    async pluginAction(id, action) {
+      return client.postJson('/api/plugins/action', { id, action });
+    },
+
+    async uninstallPlugin(id) {
+      return client.postJson('/api/plugins/uninstall', { id });
     }
   };
 }

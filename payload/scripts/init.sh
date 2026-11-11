@@ -28,6 +28,20 @@ case "$1" in
     for _p in $(ps | grep 'init\.sh' | grep -v 'grep' | sed 's/^[ ]*//' | cut -d' ' -f1 2>/dev/null); do
       [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
+    # Stop all plugin daemons cleanly (Rule 1 discipline)
+    for _rsh in /data/harmony/plugins/*/run.sh; do
+      [ -f "$_rsh" ] && sh "$_rsh" stop 2>/dev/null || true
+    done
+    if [ -d /tmp/plugins ]; then
+      for _pidf in /tmp/plugins/*.pid; do
+        [ -f "$_pidf" ] && kill -15 "$(cat "$_pidf" 2>/dev/null)" 2>/dev/null || true
+      done
+      sleep 1
+      for _pidf in /tmp/plugins/*.pid; do
+        [ -f "$_pidf" ] && kill -9 "$(cat "$_pidf" 2>/dev/null)" 2>/dev/null || true
+      done
+      rm -f /tmp/plugins/*.pid /tmp/plugins/*.sock 2>/dev/null || true
+    fi
     # Terminate all daemon processes
     killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
@@ -138,7 +152,7 @@ chmod -x /opt/luaworks/luaworks 2>/dev/null || true
 
 # 3. Shell Profile & Extended BusyBox (Installed strictly into /cache/bin; /bin/sh is NEVER touched)
 rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
-mkdir -p /data/harmony/bin /data/harmony/config 2>/dev/null || true
+mkdir -p /data/harmony/bin /data/harmony/config /data/harmony/plugins /tmp/plugins 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
   ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true

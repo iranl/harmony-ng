@@ -24,7 +24,13 @@ cJSON *get_device_list_cached(void) {
             "{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]},"
             "{\"id\":\"ble_dev\",\"name\":\"BleFan\",\"type\":\"BLE\",\"commands\":["
             "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
-            "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]}]}");
+            "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]},"
+            "{\"id\":\"plug_dev\",\"name\":\"PluginDevice\",\"plugin\":\"roku-ecp\",\"config\":{\"ip\":\"192.168.1.50\"},\"commands\":["
+            "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"}]},"
+            "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
+            "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
+            "{\"id\":\"custom_dev\",\"name\":\"CustomDev\",\"commands\":["
+            "{\"name\":\"Wake\",\"keyCode\":\"PLUGIN:ps5-wake:Boot\"}]}]}");
     }
     return s_mock_device_root;
 }
@@ -135,7 +141,67 @@ int main(void) {
     res = capture_send("ble_dev", "Broken", HW_BTN_ACTION_TAP, out, sizeof(out));
     assert(res == -2);
     assert(strstr(out, "adv ") == NULL);
-    printf("[+] BLE broadcast commands forwarded, releases ignored, bad payloads rejected.\n");
+    /* 6. Plugin commands reach plugin socket with all actions */
+    const struct {
+        int action;
+        const char *expected_action_str;
+    } plugin_action_tests[] = {
+        { HW_BTN_ACTION_TAP, "action=tap" },
+        { HW_BTN_ACTION_PRESS, "action=press" },
+        { HW_BTN_ACTION_REPEAT, "action=repeat" },
+        { HW_BTN_ACTION_RELEASE, "action=release" }
+    };
+    for (size_t i = 0; i < sizeof(plugin_action_tests)/sizeof(plugin_action_tests[0]); i++) {
+        usleep(100000); /* 100ms sleep to exceed 90ms button debounce window */
+        memset(out, 0, sizeof(out));
+        res = capture_send("plug_dev", "Home", plugin_action_tests[i].action, out, sizeof(out));
+        assert(res == 0);
+        assert(strstr(out, "Plugin command simulated: plugin=roku-ecp") != NULL);
+        assert(strstr(out, "cmd=Home") != NULL);
+        assert(strstr(out, plugin_action_tests[i].expected_action_str) != NULL);
+    }
+    printf("[+] Plugin command lifecycle actions (TAP, PRESS, REPEAT, RELEASE) verified.\n");
+
+    /* 6b. Verify 90ms debounce drops duplicate TAP immediately sent */
+    memset(out, 0, sizeof(out));
+    res = capture_send("plug_dev", "Home", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "Plugin command simulated:") == NULL); /* Dropped by debounce */
+    printf("[+] Rapid duplicate button press (<90ms) debounce verified.\n");
+
+    /* 7. Plugin device with 'type: plugin:androidtv' */
+    memset(out, 0, sizeof(out));
+    res = capture_send("plug_typed", "Back", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "Plugin command simulated: plugin=androidtv") != NULL);
+    assert(strstr(out, "cmd=Back") != NULL);
+    printf("[+] Device type 'plugin:androidtv' dispatching verified.\n");
+
+    /* 8. Command with keycode override 'PLUGIN:ps5-wake:Boot' */
+    memset(out, 0, sizeof(out));
+    res = capture_send("custom_dev", "Wake", HW_BTN_ACTION_PRESS, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "Plugin command simulated: plugin=ps5-wake") != NULL);
+    assert(strstr(out, "cmd=Boot") != NULL);
+    assert(strstr(out, "action=press") != NULL);
+    printf("[+] Keycode override 'PLUGIN:ps5-wake:Boot' dispatching verified.\n");
+
+    /* 9. Direct hw_plugin_command_send safety check */
+    assert(hw_plugin_command_send(NULL, "dev", "Dev", "Cmd", 0, 0, NULL) == -1);
+    assert(hw_plugin_command_send("", "dev", "Dev", "Cmd", 0, 0, NULL) == -1);
+    assert(hw_plugin_command_send("plug", "dev", "Dev", NULL, 0, 0, NULL) == -1);
+    assert(hw_plugin_command_send("plug", "dev", "Dev", "", 0, 0, NULL) == -1);
+    printf("[+] Direct hw_plugin_command_send validation verified.\n");
+
+    /* 10. Non-existent device and command error handling */
+    memset(out, 0, sizeof(out));
+    assert(capture_send("non_existent_dev", "PowerToggle", HW_BTN_ACTION_TAP, out, sizeof(out)) == -5);
+    assert(capture_send("mock_dev", "NonExistentCmd", HW_BTN_ACTION_TAP, out, sizeof(out)) == -6);
+    /* Plugins support arbitrary dynamic commands not in the device commands list */
+    res = capture_send("plug_dev", "DynamicArbitraryCommand", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "cmd=DynamicArbitraryCommand") != NULL);
+    printf("[+] Non-existent device (-5), missing IR command (-6), and dynamic plugin command dispatching verified.\n");
 
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);

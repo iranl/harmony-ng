@@ -91,6 +91,11 @@ int hw_device_bt_host(const char *device_id, char *out, size_t outlen);
 /* Closes the Bluetooth link of a device's host (disconnect_host <addr> to hub_btstack), as the
  * stock firmware does after a Bluetooth device's power-off command. 0 when sent, -1 without a host. */
 int hw_device_bt_disconnect(const char *device_id);
+/*
+ * Plugin socket command dispatcher: sends formatted command JSON to /tmp/plugins/<plugin_id>.sock
+ */
+int hw_plugin_command_send(const char *plugin_id, const char *dev_id, const char *dev_name,
+                          const char *command, int action, int value, const cJSON *config);
 
 #ifdef __cplusplus
 }
