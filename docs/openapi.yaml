@@ -1481,12 +1481,27 @@ paths:
               type: object
               properties:
                 deviceId: {type: string}
-                command: {type: string}
+                command:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items: {type: string}
+                  description: Command name or array of command names
                 action:
                   type: string
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
+                num_repeats:
+                  type: integer
+                  default: 1
+                  description: Number of sequence repeats (1-50)
+                delay_secs:
+                  type: number
+                  description: Delay in seconds between successive commands
+                hold_secs:
+                  type: number
+                  description: Button hold duration in seconds
                 pronto: {type: string}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}

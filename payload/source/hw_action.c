@@ -804,6 +804,34 @@ int hw_device_command_send_by_name(const char *device_name, const char *command)
     return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
 }
 
+int hw_device_exists(const char *target, int match_mode) {
+    if (!target || !target[0]) return 0;
+    cJSON *root = get_device_list_cached();
+    if (!root) return 0;
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    if (!devs || !cJSON_IsArray(devs)) return 0;
+    const cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs) {
+        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+        char id_str[64] = {0};
+        if (j_id) {
+            if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
+            else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
+        }
+        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
+        const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
+        if (match_mode == 1) {
+            if (id_str[0] && strcmp(id_str, target) == 0) return 1;
+        } else if (match_mode == 2) {
+            if (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)) return 1;
+        } else {
+            if ((id_str[0] && strcmp(id_str, target) == 0) ||
+                (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0))) return 1;
+        }
+    }
+    return 0;
+}
+
 int hw_bthid_send_report(const uint8_t *report, size_t len) {
     if (!report || len == 0) return -1;
 

@@ -684,7 +684,7 @@ Answers the question for one device of the last Help. `"on": false` sends that d
 
 ### 5.1 Send IR Command
 #### `POST /api/ir-send` or `POST /ir/send`
-Transmits an IR command either by device ID and command name, or raw Pronto hex.
+Transmits an IR command either by device ID and command name (single string or array of strings), or raw Pronto hex.
 - **Request by Device Command**:
   ```json
   {
@@ -692,6 +692,20 @@ Transmits an IR command either by device ID and command name, or raw Pronto hex.
     "command": "PowerToggle"
   }
   ```
+- **Request with Multi-Command Array, Repeats, and Delays**:
+  ```json
+  {
+    "deviceId": "70321456",
+    "command": ["VolumeUp", "VolumeDown"],
+    "num_repeats": 2,
+    "delay_secs": 0.25,
+    "hold_secs": 0.0
+  }
+  ```
+  - `command` / `commands`: Single command name or array of command names (up to 32).
+  - `num_repeats`: Number of times to cycle through the command list (1-50, default: 1).
+  - `delay_secs`: Delay in seconds between successive commands (default: 0.25s for multi-commands, 0s for single).
+  - `hold_secs`: Button press hold duration in seconds before release (0.0 to 10.0s).
 - **Request by Raw Pronto**:
   ```json
   {
@@ -1446,6 +1460,18 @@ Connect via WebSocket to `ws://<hub_ip>:8089/ws` or `ws://<hub_ip>/ws`.
   "action": "send_command",
   "deviceId": "70321456",
   "command": "Mute",
+  "msgId": 3
+}
+```
+Multiple commands or repeats can be queued as an array:
+```json
+{
+  "action": "send_command",
+  "deviceId": "70321456",
+  "command": ["VolumeUp", "VolumeDown"],
+  "num_repeats": 2,
+  "delay_secs": 0.2,
+  "hold_secs": 0.0,
   "msgId": 3
 }
 ```

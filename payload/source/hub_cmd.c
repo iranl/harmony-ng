@@ -485,11 +485,15 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(req, "hold");
         double hold_secs = (j_hold && cJSON_IsNumber(j_hold)) ? j_hold->valuedouble : 0.0;
 
-        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0) {
-            int ok = (hw_device_command_send_action(dev_buf, is_id ? 1 : 0, cmd_list[0], btn_action) == 0);
-            return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && !hub_mqtt_queue_busy()) {
+            int rc = hw_device_command_send_action(dev_buf, is_id ? 1 : 0, cmd_list[0], btn_action);
+            if (rc == -5) return ack(req, action, 0, 404, "Device not found");
+            if (rc == -6) return ack(req, action, 0, 404, "Command not found");
+            return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
         }
         int rc = hub_mqtt_queue_commands(dev_buf, is_id, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
+        if (rc == -5) return ack(req, action, 0, 404, "Device not found");
+        if (rc == -2) return ack(req, action, 0, 409, "Command queue full");
         return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "Failed to queue command sequence");
     }
     if (strcmp(action, "start_activity") == 0) {

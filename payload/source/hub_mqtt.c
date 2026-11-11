@@ -529,8 +529,9 @@ static void handle_activity_set(const char *payload) {
 /* <base>/send_command: {"device"|"deviceId", "command"|"commands"|"cmd" (string or list),
  * "repeats", "delay"/"delay_ms", "hold"/"hold_ms", "action"}; a list, repeats or a hold run
  * from the sequencer in hub_mqtt_tick() */
+#define MQTT_SEQ_QUEUE_MAX 16
+
 typedef struct {
-    int active;
     char dev[128];
     int dev_is_id;
     char cmd_list[32][64];
@@ -539,11 +540,19 @@ typedef struct {
     int cur_repeat;
     int cur_cmd;
     int btn_action;
+    int state; /* 0: ready, 1: holding (press active, awaiting release) */
     uint32_t hold_ms;
     uint32_t delay_ms;
     uint64_t next_exec_ms;
 } mqtt_cmd_seq_t;
-static mqtt_cmd_seq_t g_mqtt_seq;
+
+static mqtt_cmd_seq_t g_mqtt_queue[MQTT_SEQ_QUEUE_MAX];
+static int g_mqtt_q_head = 0;
+static int g_mqtt_q_count = 0;
+
+int hub_mqtt_queue_busy(void) {
+    return g_mqtt_q_count > 0;
+}
 
 static uint64_t mono_ms(void) {
     struct timespec ts;
@@ -551,31 +560,65 @@ static uint64_t mono_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
 
-static void seq_send(const mqtt_cmd_seq_t *q, const char *cmd) {
-    hw_device_command_send_action(q->dev, q->dev_is_id ? 1 : 2, cmd, q->btn_action);
+static void seq_send(const mqtt_cmd_seq_t *q, const char *cmd, int action) {
+    if (!q || !cmd || !cmd[0]) return;
+    hw_device_command_send_action(q->dev, q->dev_is_id ? 1 : 0, cmd, action);
 }
 
 static void seq_tick(void) {
-    if (!g_mqtt_seq.active) return;
+    if (g_mqtt_q_count <= 0) return;
+    mqtt_cmd_seq_t *q = &g_mqtt_queue[g_mqtt_q_head];
     uint64_t now = mono_ms();
-    if (now < g_mqtt_seq.next_exec_ms) return;
-    printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s'\n",
-           g_mqtt_seq.cur_cmd + 1, g_mqtt_seq.cmd_count,
-           g_mqtt_seq.cur_repeat + 1, g_mqtt_seq.num_repeats,
-           g_mqtt_seq.dev, g_mqtt_seq.dev_is_id ? "by ID" : "by Name",
-           g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
-    seq_send(&g_mqtt_seq, g_mqtt_seq.cmd_list[g_mqtt_seq.cur_cmd]);
-    g_mqtt_seq.cur_cmd++;
-    if (g_mqtt_seq.cur_cmd >= g_mqtt_seq.cmd_count) {
-        g_mqtt_seq.cur_cmd = 0;
-        g_mqtt_seq.cur_repeat++;
-    }
-    if (g_mqtt_seq.cur_repeat >= g_mqtt_seq.num_repeats) {
-        g_mqtt_seq.active = 0;
+    if (now < q->next_exec_ms) return;
+
+    const char *cmd = q->cmd_list[q->cur_cmd];
+
+    if (q->hold_ms > 0) {
+        if (q->state == 0) {
+            printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [PRESS]\n",
+                   q->cur_cmd + 1, q->cmd_count,
+                   q->cur_repeat + 1, q->num_repeats,
+                   q->dev, q->dev_is_id ? "by ID" : "by Name",
+                   cmd);
+            seq_send(q, cmd, HW_BTN_ACTION_PRESS);
+            q->state = 1;
+            q->next_exec_ms = mono_ms() + q->hold_ms;
+            return;
+        } else if (q->state == 1) {
+            printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [RELEASE]\n",
+                   q->cur_cmd + 1, q->cmd_count,
+                   q->cur_repeat + 1, q->num_repeats,
+                   q->dev, q->dev_is_id ? "by ID" : "by Name",
+                   cmd);
+            seq_send(q, cmd, HW_BTN_ACTION_RELEASE);
+            q->state = 0;
+        }
     } else {
-        uint32_t wait_ms = g_mqtt_seq.hold_ms + g_mqtt_seq.delay_ms;
+        int action = q->btn_action;
+        if (action == HW_BTN_ACTION_REPEAT) action = HW_BTN_ACTION_TAP;
+        printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s'\n",
+               q->cur_cmd + 1, q->cmd_count,
+               q->cur_repeat + 1, q->num_repeats,
+               q->dev, q->dev_is_id ? "by ID" : "by Name",
+               cmd);
+        seq_send(q, cmd, action);
+    }
+
+    q->cur_cmd++;
+    if (q->cur_cmd >= q->cmd_count) {
+        q->cur_cmd = 0;
+        q->cur_repeat++;
+    }
+    if (q->cur_repeat >= q->num_repeats) {
+        g_mqtt_q_head = (g_mqtt_q_head + 1) % MQTT_SEQ_QUEUE_MAX;
+        g_mqtt_q_count--;
+        if (g_mqtt_q_count > 0) {
+            g_mqtt_queue[g_mqtt_q_head].next_exec_ms = mono_ms() + 100;
+        }
+    } else {
+        uint32_t wait_ms = q->delay_ms;
         if (wait_ms < 100) wait_ms = 100;
-        g_mqtt_seq.next_exec_ms = mono_ms() + wait_ms;
+        q->next_exec_ms = mono_ms() + wait_ms;
     }
 }
 
@@ -589,6 +632,14 @@ static double num_of(const cJSON *root, const char *k1, const char *k2, const ch
 int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][64], int cmd_count,
                             int num_repeats, int btn_action, double delay_secs, double hold_secs) {
     if (!dev || !dev[0] || cmd_count <= 0) return -1;
+    if (!hw_device_exists(dev, is_id ? 1 : 0)) {
+        printf("[-] MQTT send_command: device '%s' not found\n", dev);
+        return -5;
+    }
+    if (g_mqtt_q_count >= MQTT_SEQ_QUEUE_MAX) {
+        printf("[-] MQTT send_command: sequence queue full (%d jobs), rejecting\n", g_mqtt_q_count);
+        return -2;
+    }
     if (num_repeats < 1) num_repeats = 1;
     if (num_repeats > 50) num_repeats = 50;
     int is_multi = (cmd_count > 1) || (num_repeats > 1);
@@ -597,22 +648,29 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     if (hold_secs > 10.0) hold_secs = 10.0;
     if (hold_secs < 0.0) hold_secs = 0.0;
 
-    printf("[*] MQTT send_command: dev='%s' (%s) cmds=%d repeats=%d action=%d delay=%.2fs hold=%.2fs\n",
-           dev, is_id ? "by ID" : "by Name", cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
+    int slot = (g_mqtt_q_head + g_mqtt_q_count) % MQTT_SEQ_QUEUE_MAX;
+    mqtt_cmd_seq_t *q = &g_mqtt_queue[slot];
+    memset(q, 0, sizeof(*q));
+    snprintf(q->dev, sizeof(q->dev), "%s", dev);
+    q->dev_is_id = is_id;
+    q->cmd_count = cmd_count;
+    for (int i = 0; i < cmd_count; i++) snprintf(q->cmd_list[i], 64, "%.63s", cmd_list[i]);
+    q->num_repeats = num_repeats;
+    q->cur_repeat = 0;
+    q->cur_cmd = 0;
+    q->btn_action = btn_action;
+    q->state = 0;
+    q->hold_ms = (uint32_t)(hold_secs * 1000.0);
+    q->delay_ms = (uint32_t)(delay_secs * 1000.0);
+    q->next_exec_ms = 0;
 
-    snprintf(g_mqtt_seq.dev, sizeof(g_mqtt_seq.dev), "%s", dev);
-    g_mqtt_seq.dev_is_id = is_id;
-    g_mqtt_seq.cmd_count = cmd_count;
-    for (int i = 0; i < cmd_count; i++) snprintf(g_mqtt_seq.cmd_list[i], 64, "%.63s", cmd_list[i]);
-    g_mqtt_seq.num_repeats = num_repeats;
-    g_mqtt_seq.cur_repeat = 0;
-    g_mqtt_seq.cur_cmd = 0;
-    g_mqtt_seq.btn_action = btn_action;
-    g_mqtt_seq.hold_ms = (uint32_t)(hold_secs * 1000.0);
-    g_mqtt_seq.delay_ms = (uint32_t)(delay_secs * 1000.0);
-    g_mqtt_seq.next_exec_ms = 0;
-    g_mqtt_seq.active = 1;
-    seq_tick();
+    printf("[*] MQTT send_command (job %d/%d): dev='%s' (%s) cmds=%d repeats=%d action=%d delay=%.2fs hold=%.2fs\n",
+           g_mqtt_q_count + 1, MQTT_SEQ_QUEUE_MAX, dev, is_id ? "by ID" : "by Name", cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
+
+    g_mqtt_q_count++;
+    if (g_mqtt_q_count == 1) {
+        seq_tick();
+    }
     return 0;
 }
 
