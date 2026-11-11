@@ -1154,6 +1154,52 @@
                 </div>
               </div>
 
+              <!-- Bluetooth Auto-Reconnect Settings (BT Devices Only) -->
+              <div id="devEditBtReconnectBox"
+                style="display: none; margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+                <strong
+                  style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);"
+                  data-i18n="bt_auto_reconnect">Bluetooth Auto-Reconnect</strong>
+                <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 4px;">
+                  <div>
+                    <label class="mini muted" for="curDevBtAutoReconnect" data-i18n="bt_auto_reconnect">Bluetooth
+                      Auto-Reconnect</label>
+                    <select id="curDevBtAutoReconnect" class="form-control form-control-sm">
+                      <option value="1">Enabled (Trigger Command or Button Press)</option>
+                      <option value="0" data-i18n="opt_disabled_manual">Disabled (Manual Only)</option>
+                    </select>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
+                    <div>
+                      <label class="mini muted" for="curDevBtDuration" data-i18n="duration_sec">Duration (s)</label>
+                      <input type="number" id="curDevBtDuration" class="form-control form-control-sm" placeholder="30"
+                        min="1" max="120">
+                    </div>
+                    <div>
+                      <label class="mini muted" for="curDevBtDelay" data-i18n="delay_sec">Delay (s)</label>
+                      <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="2" min="0"
+                        max="60">
+                    </div>
+                  </div>
+                  <div style="margin-top: 6px;">
+                    <button type="button" id="btnAutoDetectBtDelay" class="btn btn-xs btn-outline"
+                      style="width: 100%; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 8px;">
+                      <span>⏱</span>
+                      <span data-i18n="auto_detect_bt_delay">Auto-Detect Bluetooth Connect Delay...</span>
+                    </button>
+                  </div>
+                  <div style="margin-top: 6px;">
+                    <label class="mini muted" for="curDevBtTriggerCmd" data-i18n="trigger_reconnect_cmd">Trigger Reconnect
+                      on Command</label>
+                    <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
+                      <option value="" data-i18n="opt_none_fallback">None (Fallback to Button Press)</option>
+                    </select>
+                    <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp;
+                      window whenever this command executes (e.g. smart socket PowerOn).</div>
+                  </div>
+                </div>
+              </div>
+
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
                 <button type="button" id="btnSaveDevDetails" class="btn btn-xs btn-primary"
                   data-i18n="save_changes">Save Changes</button>
@@ -1239,45 +1285,6 @@
                   <span>📖</span>
                   <span data-i18n="view_full_bt_hid_ref_p07_0c">View Full Bluetooth HID Code Reference (Page 0x07 / 0x0C)</span>
                 </a>
-              </div>
-
-              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
-                <div>
-                  <label class="mini muted" for="curDevBtAutoReconnect" data-i18n="bt_auto_reconnect">Bluetooth
-                    Auto-Reconnect</label>
-                  <select id="curDevBtAutoReconnect" class="form-control form-control-sm">
-                    <option value="1">Enabled (Trigger Command or Button Press)</option>
-                    <option value="0" data-i18n="opt_disabled_manual">Disabled (Manual Only)</option>
-                  </select>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px;">
-                  <div>
-                    <label class="mini muted" for="curDevBtDuration" data-i18n="duration_sec">Duration (s)</label>
-                    <input type="number" id="curDevBtDuration" class="form-control form-control-sm" placeholder="30"
-                      min="1" max="120">
-                  </div>
-                  <div>
-                    <label class="mini muted" for="curDevBtDelay" data-i18n="delay_sec">Delay (s)</label>
-                    <input type="number" id="curDevBtDelay" class="form-control form-control-sm" placeholder="2" min="0"
-                      max="60">
-                  </div>
-                </div>
-                <div style="margin-top: 6px;">
-                  <button type="button" id="btnAutoDetectBtDelay" class="btn btn-xs btn-outline"
-                    style="width: 100%; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 8px;">
-                    <span>⏱</span>
-                    <span data-i18n="auto_detect_bt_delay">Auto-Detect Bluetooth Connect Delay...</span>
-                  </button>
-                </div>
-                <div style="margin-top: 6px;">
-                  <label class="mini muted" for="curDevBtTriggerCmd" data-i18n="trigger_reconnect_cmd">Trigger Reconnect
-                    on Command</label>
-                  <select id="curDevBtTriggerCmd" class="form-control form-control-sm">
-                    <option value="" data-i18n="opt_none_fallback">None (Fallback to Button Press)</option>
-                  </select>
-                  <div class="mini subtle" style="margin-top: 2px; font-size: 10px;">Triggers reconnect delay &amp;
-                    window whenever this command executes (e.g. smart socket PowerOn).</div>
-                </div>
               </div>
             </div>
 

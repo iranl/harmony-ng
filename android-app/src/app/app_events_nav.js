@@ -387,6 +387,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         const curId = this.selectedIrDeviceId || sel?.value;
         const dev = (this.inventory.devices || []).find(d => String(d.id) === String(curId));
         if (dev) {
+          const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+          const devEditBtBox = document.getElementById('devEditBtReconnectBox');
+          if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+
           const nameInp = document.getElementById('editDevName');
           const typeInp = document.getElementById('editDevType');
           const mfgInp = document.getElementById('editDevMfg');
@@ -427,6 +431,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           }
         }
       }
+    });
+    document.getElementById('editDevType')?.addEventListener('change', (e) => {
+      const devEditBtBox = document.getElementById('devEditBtReconnectBox');
+      if (devEditBtBox) devEditBtBox.style.display = e.target.value === 'BT' ? 'block' : 'none';
     });
     document.getElementById('btnSaveDevDetails')?.addEventListener('click', async () => {
       const sel = document.getElementById('manageDeviceSelect');

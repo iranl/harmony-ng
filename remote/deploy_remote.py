@@ -200,8 +200,6 @@ def main() -> None:
     parser.add_argument("--ip", default="192.168.2.1", help="Remote IP address (default 192.168.2.1)")
     parser.add_argument("--user", default="root", help="SSH username (default root)")
     parser.add_argument("--key", type=pathlib.Path, help="SSH private key path")
-    parser.add_argument("--debug-busybox", "--dev-mode", dest="debug_busybox", action="store_true",
-                        help="Install modified extended BusyBox build to /data/busybox (default: False)")
     parser.add_argument("--factory-reset", action="store_true",
                         help="Revert the Harmony remote to stock firmware (restores stock scripts & permissions)")
     parser.add_argument("--reboot", action="store_true",
@@ -224,10 +222,8 @@ def main() -> None:
     print(f"  Target: {target}")
     if args.factory_reset:
         print("  Mode: FACTORY RESET & STOCK RESTORATION")
-    elif args.debug_busybox:
-        print("  Mode: Developer / Debug (Extended BusyBox enabled)")
     else:
-        print("  Mode: Standard User (Stock BusyBox; existing installation left untouched)")
+        print("  Mode: Extended BusyBox & Remote Runtime")
     print("=" * 60)
 
     # 1. Test SSH connectivity

@@ -244,6 +244,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const blasterBox = document.getElementById('curDevBlasterBox');
     if (blasterBox) blasterBox.style.display = isIr ? 'flex' : 'none';
 
+    const devEditBtBox = document.getElementById('devEditBtReconnectBox');
+    if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+
     const btBox = document.getElementById('curDevBtBox');
     if (btBox) {
       btBox.style.display = isBt ? 'block' : 'none';

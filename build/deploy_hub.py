@@ -63,7 +63,6 @@ class HubDeployer:
         ui_choice: str = "legacy",
         webui_only: bool = False,
         reboot_hub: bool = False,
-        debug_busybox: bool = False,
         dry_run: bool = False,
         no_backup: bool = False,
     ):
@@ -73,7 +72,6 @@ class HubDeployer:
         self.ui_choice = "legacy" if ui_choice in ("legacy", "old", "android-app") else "new"
         self.webui_only = webui_only
         self.reboot_hub = reboot_hub
-        self.debug_busybox = debug_busybox
         self.dry_run = dry_run
         self.no_backup = no_backup
 
@@ -225,10 +223,7 @@ class HubDeployer:
         print("=== Harmony Hub Firmware Deployment ===")
         print(f"Target Hub: {self.hub_host}")
         print(f"SSH key: {self.ssh_key or '(ssh defaults)'}")
-        if self.debug_busybox:
-            print("Mode: Developer / Debug (Extended BusyBox enabled)")
-        else:
-            print("Mode: Standard User (Stock BusyBox; existing installation left untouched)")
+        print("Mode: Extended BusyBox & Harmony Runtime")
 
         # Connection check
         if self.dry_run:
@@ -588,7 +583,7 @@ class HubDeployer:
                 "ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; "
                 "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; "
                 "rm -f /tmp/harmony_stop 2>/dev/null || true; "
-                "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh start >/dev/null 2>&1 & fi"
+                "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh restart >/dev/null 2>&1 & fi"
             )
             self.run_ssh(restart_cmd)
             time.sleep(3)
@@ -624,7 +619,6 @@ def main() -> None:
     parser.add_argument("--ui-new", "--new-ui", action="store_true", help="Alias for --ui=new")
     parser.add_argument("--webui-only", "--ui-only", action="store_true", help="Deploy Web UI assets only to /cache/www")
     parser.add_argument("--reboot", action="store_true", help="Reboot Hub safely after deployment (default: hot restart)")
-    parser.add_argument("--debug", "--debug-busybox", "--dev", action="store_true", help="Enable developer mode / extended BusyBox")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
 
@@ -648,7 +642,6 @@ def main() -> None:
         ui_choice=ui_choice,
         webui_only=args.webui_only,
         reboot_hub=args.reboot,
-        debug_busybox=args.debug,
         dry_run=args.dry_run,
         no_backup=args.no_backup,
     )
