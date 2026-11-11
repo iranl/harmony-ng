@@ -271,13 +271,16 @@ When present, `hub_daemon` routes the command directly to `<plugin_id>` and sets
 
 ### Target Architecture & Cross-Compilation
 
-The Harmony Hub CPU is an **Atheros AR9344 (MIPS 24Kc, big-endian)** running Linux 3.3.8 with **uClibc 0.9.30.1**.
+The Harmony Hub CPU is an **Atheros AR9344 (MIPS 24Kc, big-endian)** running **Linux 2.6.31** with **uClibc 0.9.30.1**.
 
 #### Cross-Compiler Toolchain
-Use the buildroot toolchain provided in this repository under `build/toolchains/mips32--uclibc--stable`:
+The MIPS Buildroot toolchain (`mips32--uclibc--stable`, uClibc 0.9.30.1 / GCC 5.4.0) is downloaded/extracted automatically when running `build/compile_all.sh`, or can be downloaded from standard Buildroot toolchain archives.
 
 ```bash
+# Add MIPS toolchain to PATH
 export PATH="$(pwd)/build/toolchains/mips32--uclibc--stable/bin:$PATH"
+
+# Compile dynamically linked executable against Hub uClibc
 mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 ```
 
@@ -314,9 +317,19 @@ mips-buildroot-linux-uclibc-gcc -Wall -Os -s -o my_daemon main.c -lm
 
 ---
 
-### Publishing to a Repository
+### Publishing & Distribution
 
-To distribute your plugin via the Marketplace, host a `repository.json` index on GitHub or any HTTP server:
+There are two ways to publish your plugin:
+
+#### Option A: Submit a PR to Official `harmony-ng-plugins` (Recommended)
+To make your plugin visible to all HarmonyNG users out-of-the-box:
+1. Fork [**https://github.com/iranl/harmony-ng-plugins**](https://github.com/iranl/harmony-ng-plugins).
+2. Add your plugin folder under `plugins/<plugin_id>/`.
+3. Add your plugin entry to `repository.json`.
+4. Open a Pull Request. Once reviewed and merged, your driver will be listed in the default Marketplace catalog!
+
+#### Option B: Host Your Own Community Repository
+To distribute your plugin independently, host a `repository.json` index on GitHub or any HTTP server:
 
 ```json
 {
@@ -346,7 +359,7 @@ To distribute your plugin via the Marketplace, host a `repository.json` index on
 }
 ```
 
-Users can add your repository URL in the **Repositories** tab to see your plugin in their Marketplace catalog.
+Users can simply paste your repository URL into the **Repositories** tab in their WebUI or Android App to install your plugin.
 
 ---
 
