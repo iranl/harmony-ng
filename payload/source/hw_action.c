@@ -832,6 +832,86 @@ int hw_device_exists(const char *target, int match_mode) {
     return 0;
 }
 
+int hw_device_command_exists(const char *target, int match_mode, const char *command) {
+    if (!target || !target[0] || !command || !command[0]) return 0;
+    cJSON *root = get_device_list_cached();
+    if (!root) return 0;
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    if (!devs || !cJSON_IsArray(devs)) return 0;
+    const cJSON *target_dev = NULL;
+    const cJSON *dev = NULL;
+    cJSON_ArrayForEach(dev, devs) {
+        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+        char id_str[64] = {0};
+        if (j_id) {
+            if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
+            else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
+        }
+        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
+        const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
+        int matched = 0;
+        if (match_mode == 1) {
+            matched = (id_str[0] && strcmp(id_str, target) == 0);
+        } else if (match_mode == 2) {
+            matched = (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0));
+        } else {
+            matched = ((id_str[0] && strcmp(id_str, target) == 0) ||
+                       (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)));
+        }
+        if (matched) {
+            target_dev = dev;
+            break;
+        }
+    }
+    if (!target_dev) return 0;
+
+    int is_mqtt = 0;
+    cJSON *j_men2 = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttEnabled");
+    if (j_men2) {
+        if (cJSON_IsTrue(j_men2)) is_mqtt = 1;
+        else if (cJSON_IsNumber(j_men2) && j_men2->valueint > 0) is_mqtt = 1;
+        else if (cJSON_IsString(j_men2) && (strcmp(j_men2->valuestring, "1") == 0 || strcasecmp(j_men2->valuestring, "true") == 0)) is_mqtt = 1;
+    }
+    cJSON *j_dtype = cJSON_GetObjectItemCaseSensitive(target_dev, "type");
+    if (j_dtype && cJSON_IsString(j_dtype) && strcasestr(j_dtype->valuestring, "mqtt")) is_mqtt = 1;
+    cJSON *j_dmfg = cJSON_GetObjectItemCaseSensitive(target_dev, "manufacturer");
+    if (j_dmfg && cJSON_IsString(j_dmfg) && strcasestr(j_dmfg->valuestring, "mqtt")) is_mqtt = 1;
+    cJSON *j_mtop = cJSON_GetObjectItemCaseSensitive(target_dev, "mqttTopic");
+    if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
+    if (is_mqtt) return 1;
+
+    if (strcasecmp(command, "Connect") == 0 || strcasecmp(command, "Disconnect") == 0 ||
+        strcasecmp(command, "BT_CONNECT") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
+        return 1;
+    }
+
+    cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
+    if (cmds && cJSON_IsArray(cmds)) {
+        const char *alt = NULL;
+        if (strcasecmp(command, "OK") == 0) alt = "Select";
+        else if (strcasecmp(command, "Select") == 0) alt = "OK";
+        else if (strcasecmp(command, "Enter") == 0) alt = "Select";
+        else if (strcasecmp(command, "Back") == 0) alt = "Return";
+        else if (strcasecmp(command, "Return") == 0) alt = "Back";
+        else if (strcasecmp(command, "Stop") == 0) alt = "Pause";
+        else if (strcasecmp(command, "ChannelUp") == 0) alt = "PageUp";
+        else if (strcasecmp(command, "ChannelDown") == 0) alt = "PageDown";
+
+        const cJSON *c_elem = NULL;
+        cJSON_ArrayForEach(c_elem, cmds) {
+            cJSON *c_name = cJSON_GetObjectItemCaseSensitive(c_elem, "name");
+            if (c_name && cJSON_IsString(c_name) && c_name->valuestring) {
+                if (strcmp(c_name->valuestring, command) == 0 ||
+                    strcasecmp(c_name->valuestring, command) == 0 ||
+                    (alt && (strcmp(c_name->valuestring, alt) == 0 || strcasecmp(c_name->valuestring, alt) == 0))) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int hw_bthid_send_report(const uint8_t *report, size_t len) {
     if (!report || len == 0) return -1;
 

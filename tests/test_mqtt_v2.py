@@ -256,10 +256,22 @@ def main():
             check(m is not None and jload(m[1]).get("ok") is False and jload(m[1]).get("code") == 404, "unknown device returns 404", str(m))
             # back-to-back queueing
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c7e1", "action": "send_command", "deviceId": "1", "command": ["VolumeUp", "VolumeDown"], "delay_secs": 0.05}), qos=1)
-            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7e2", "action": "send_command", "deviceId": "1", "command": "Mute"}), qos=1)
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7e2", "action": "send_command", "deviceId": "1", "command": "PowerOff"}), qos=1)
             m1 = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7e1")
             m2 = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7e2")
             check(m1 is not None and jload(m1[1]).get("ok") is True and m2 is not None and jload(m2[1]).get("ok") is True, "back-to-back queueing ok", str((m1, m2)))
+            # deviceId given as name ok
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7f", "action": "send_command", "deviceId": "Living Room TV", "command": ["VolumeUp", "VolumeDown"]}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7f")
+            check(m is not None and jload(m[1]).get("ok") is True, "deviceId given as name ok", str(m))
+            # unknown command inside array returns 404
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7g", "action": "send_command", "deviceId": "1", "command": ["VolumeUp", "Nope", "VolumeDown"]}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7g")
+            check(m is not None and jload(m[1]).get("ok") is False and jload(m[1]).get("code") == 404, "unknown command in array returns 404", str(m))
+            # multi-command array with cmdAction press ok
+            cmd.publish(BASE + "/cmd", json.dumps({"id": "c7h", "action": "send_command", "deviceId": "1", "command": ["VolumeUp", "VolumeDown"], "cmdAction": "press"}), qos=1)
+            m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c7h")
+            check(m is not None and jload(m[1]).get("ok") is True, "multi-command array with press ok", str(m))
             cmd.publish(BASE + "/cmd", json.dumps({"id": "c8", "action": "rf_wake", "slot": 1}), qos=1)
             m = cmd.wait_for(BASE + "/cmd/response", 5, lambda p: (jload(p) or {}).get("id") == "c8")
             r = jload(m[1]) if m else {}

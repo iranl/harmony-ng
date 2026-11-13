@@ -596,6 +596,7 @@ static void seq_tick(void) {
     } else {
         int action = q->btn_action;
         if (action == HW_BTN_ACTION_REPEAT) action = HW_BTN_ACTION_TAP;
+        if ((q->cmd_count > 1 || q->num_repeats > 1) && action == HW_BTN_ACTION_PRESS) action = HW_BTN_ACTION_TAP;
         printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s'\n",
                q->cur_cmd + 1, q->cmd_count,
                q->cur_repeat + 1, q->num_repeats,
@@ -636,6 +637,12 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
         printf("[-] MQTT send_command: device '%s' not found\n", dev);
         return -5;
     }
+    for (int i = 0; i < cmd_count; i++) {
+        if (!hw_device_command_exists(dev, is_id ? 1 : 0, cmd_list[i])) {
+            printf("[-] MQTT send_command: command '%s' not found for device '%s'\n", cmd_list[i], dev);
+            return -6;
+        }
+    }
     if (g_mqtt_q_count >= MQTT_SEQ_QUEUE_MAX) {
         printf("[-] MQTT send_command: sequence queue full (%d jobs), rejecting\n", g_mqtt_q_count);
         return -2;
@@ -643,6 +650,11 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     if (num_repeats < 1) num_repeats = 1;
     if (num_repeats > 50) num_repeats = 50;
     int is_multi = (cmd_count > 1) || (num_repeats > 1);
+    if (is_multi && hold_secs <= 0.0) {
+        if (btn_action == HW_BTN_ACTION_PRESS || btn_action == HW_BTN_ACTION_REPEAT) {
+            btn_action = HW_BTN_ACTION_TAP;
+        }
+    }
     if (delay_secs < 0) delay_secs = is_multi ? 0.25 : 0.0;
     if (delay_secs > 60.0) delay_secs = 60.0;
     if (hold_secs > 10.0) hold_secs = 10.0;
@@ -689,7 +701,6 @@ static void handle_send_command(const char *payload) {
     int is_id = 0;
     const cJSON *j_dev = j_dev_id ? j_dev_id : j_dev_name;
     if (j_dev) {
-        is_id = (j_dev == j_dev_id);
         if (cJSON_IsString(j_dev) && j_dev->valuestring) snprintf(dev, sizeof(dev), "%s", j_dev->valuestring);
         else if (cJSON_IsNumber(j_dev)) snprintf(dev, sizeof(dev), "%ld", (long)j_dev->valuedouble);
     }
