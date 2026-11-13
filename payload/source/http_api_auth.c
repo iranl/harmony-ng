@@ -14,82 +14,47 @@
 
 #include <pthread.h>
 
-struct auth_rate_limit_entry {
-    char ip[48];
-    int fail_count;
-    time_t lock_until;
-    time_t last_attempt;
-};
+#define MAX_PASSWORD_BYTES 128 /* compute_ha1 hashes "user:realm:password" from a 256-byte buffer */
 
-#define MAX_RATE_LIMIT_ENTRIES 32
-static struct auth_rate_limit_entry g_rate_limits[MAX_RATE_LIMIT_ENTRIES];
-static pthread_mutex_t g_rate_limit_mutex = PTHREAD_MUTEX_INITIALIZER;
+/* Value of one query parameter, decoded (parse_request_params splits at '&'), or "" */
+static void query_param(const char *query, const char *name, char *out, size_t out_sz) {
+    out[0] = '\0';
+    if (!query || !query[0]) return;
+    cJSON *q = parse_request_params(query);
+    if (!q) return;
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(q, name);
+    if (cJSON_IsString(v) && v->valuestring) snprintf(out, out_sz, "%s", v->valuestring);
+    cJSON_Delete(q);
+}
 
-static int auth_check_rate_limit(const char *client_ip) {
-    if (!client_ip || !client_ip[0]) return 0;
-    time_t now = time(NULL);
-    pthread_mutex_lock(&g_rate_limit_mutex);
-    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
-        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
-            if (now < g_rate_limits[i].lock_until) {
-                int remaining = (int)(g_rate_limits[i].lock_until - now);
-                pthread_mutex_unlock(&g_rate_limit_mutex);
-                return remaining > 0 ? remaining : 1;
+/* Delete the personal access tokens created by owner. Returns how many were removed. */
+static int remove_tokens_of(const char *owner) {
+    size_t flen = 0;
+    char *json_txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
+    if (!json_txt) return 0;
+    cJSON *root = cJSON_Parse(json_txt);
+    free(json_txt);
+    if (!root) return 0;
+    int removed = 0;
+    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
+    if (cJSON_IsArray(arr)) {
+        for (int i = cJSON_GetArraySize(arr) - 1; i >= 0; i--) {
+            cJSON *jo = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, i), "owner");
+            if (cJSON_IsString(jo) && strcmp(jo->valuestring, owner) == 0) {
+                cJSON_DeleteItemFromArray(arr, i);
+                removed++;
             }
-            break;
         }
     }
-    pthread_mutex_unlock(&g_rate_limit_mutex);
-    return 0;
-}
-
-static void auth_record_failure(const char *client_ip) {
-    if (!client_ip || !client_ip[0]) return;
-    time_t now = time(NULL);
-    pthread_mutex_lock(&g_rate_limit_mutex);
-    int target_idx = -1;
-    time_t oldest_time = now;
-    int oldest_idx = 0;
-
-    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
-        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
-            target_idx = i;
-            break;
-        }
-        if (!g_rate_limits[i].ip[0] && target_idx < 0) {
-            target_idx = i;
-        }
-        if (g_rate_limits[i].last_attempt < oldest_time) {
-            oldest_time = g_rate_limits[i].last_attempt;
-            oldest_idx = i;
+    if (removed) {
+        char *json_out = cJSON_Print(root);
+        if (json_out) {
+            write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out));
+            free(json_out);
         }
     }
-    if (target_idx < 0) target_idx = oldest_idx;
-
-    strncpy(g_rate_limits[target_idx].ip, client_ip, sizeof(g_rate_limits[target_idx].ip) - 1);
-    g_rate_limits[target_idx].fail_count++;
-    g_rate_limits[target_idx].last_attempt = now;
-    if (g_rate_limits[target_idx].fail_count >= 3) {
-        /* Exponential backoff: 3 fails = 2s, 4 fails = 4s, 5 fails = 8s, max 30s */
-        int shift = g_rate_limits[target_idx].fail_count - 2;
-        int delay_sec = (shift <= 5) ? (1 << shift) : 30;
-        if (delay_sec > 30) delay_sec = 30;
-        g_rate_limits[target_idx].lock_until = now + delay_sec;
-    }
-    pthread_mutex_unlock(&g_rate_limit_mutex);
-}
-
-static void auth_record_success(const char *client_ip) {
-    if (!client_ip || !client_ip[0]) return;
-    pthread_mutex_lock(&g_rate_limit_mutex);
-    for (int i = 0; i < MAX_RATE_LIMIT_ENTRIES; i++) {
-        if (g_rate_limits[i].ip[0] && strcmp(g_rate_limits[i].ip, client_ip) == 0) {
-            g_rate_limits[i].fail_count = 0;
-            g_rate_limits[i].lock_until = 0;
-            break;
-        }
-    }
-    pthread_mutex_unlock(&g_rate_limit_mutex);
+    cJSON_Delete(root);
+    return removed;
 }
 
 int http_api_auth_handle(int client_fd, const char *method, const char *clean_path,
@@ -116,7 +81,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
     /* POST /api/auth/token */
     if (strcmp(clean_path, "/api/auth/token") == 0 && strcmp(method, "POST") == 0) {
-        int lock_secs = auth_check_rate_limit(client_ip);
+        int lock_secs = http_auth_lock_remaining(client_ip);
         if (lock_secs > 0) {
             cJSON *err = cJSON_CreateObject();
             cJSON_AddBoolToObject(err, "ok", 0);
@@ -146,27 +111,17 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         enum http_role found_role = ROLE_NONE;
         char matched_user[MAX_USERNAME_LEN] = {0};
 
-        if (!auth_on || ucnt == 0) {
+        if (!auth_on) {
             found_role = ROLE_ADMIN;
             strncpy(matched_user, (username && username[0]) ? username : "admin", sizeof(matched_user) - 1);
         } else {
             for (int i = 0; i < ucnt; i++) {
                 if (username && strcmp(ulist[i].username, username) == 0) {
-                    int ok = 0;
-                    if (password && ulist[i].ha1[0]) {
-                        char ha1_calc[65];
-                        compute_ha1(username, HARMONY_AUTH_REALM, password, ha1_calc);
-                        if (strcmp(ulist[i].ha1, ha1_calc) == 0) {
-                            ok = 1;
-                        }
-                    } else if (password && ulist[i].password[0] && strcmp(ulist[i].password, password) == 0) {
-                        ok = 1;
-                    }
-                    if (ok) {
+                    if (http_auth_password_matches(&ulist[i], password)) {
                         found_role = ulist[i].role;
                         strncpy(matched_user, ulist[i].username, sizeof(matched_user) - 1);
-                        break;
                     }
+                    break;
                 }
             }
         }
@@ -174,7 +129,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         if (params) cJSON_Delete(params);
 
         if (found_role == ROLE_NONE) {
-            auth_record_failure(client_ip);
+            http_auth_note_failure(client_ip);
             cJSON *err = cJSON_CreateObject();
             cJSON_AddBoolToObject(err, "ok", 0);
             cJSON_AddStringToObject(err, "error", "Invalid username or password");
@@ -184,9 +139,13 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             return 1;
         }
 
-        auth_record_success(client_ip);
+        http_auth_note_success(client_ip);
         char token_buf[68] = {0};
-        create_auth_session(matched_user, found_role, client_ip, token_buf, sizeof(token_buf));
+        if (!create_auth_session(matched_user, found_role, client_ip, token_buf, sizeof(token_buf))) {
+            send_json_error(client_fd, 500, "Cannot create a session token (no random source)");
+            close(client_fd);
+            return 1;
+        }
 
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
@@ -271,6 +230,17 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
     /* POST /api/auth/tokens */
     if (strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "POST") == 0) {
+        /* While authentication is off every client is admin: a token made then would be a
+         * standing admin key that survives turning authentication on. */
+        int auth_now = 0;
+        load_user_accounts(NULL, 0, &auth_now);
+        if (!auth_now) {
+            send_json_error(client_fd, 409, "Turn on authentication before creating access tokens");
+            close(client_fd);
+            return 1;
+        }
+        char owner[MAX_USERNAME_LEN] = {0};
+        http_auth_check_request(req, client_ip, method, owner, sizeof(owner));
         cJSON *params = parse_request_params(body);
         /* Copied: the reply is built after params is freed, and the name pointed into it */
         char tname[64] = "Personal Access Token";
@@ -282,14 +252,19 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             if (jr && cJSON_IsString(jr) && strcasecmp(jr->valuestring, "user") == 0) trole = "user";
         }
 
+        if (current_role == ROLE_USER) trole = "user"; /* never more rights than the creator */
         char hex_rand[33] = {0};
-        generate_random_hex(hex_rand, 16);
+        char id_rand[17] = {0};
+        /* Random id: one from time(NULL) repeats for tokens created in the same second */
+        if (generate_random_hex(hex_rand, 16) != 0 || generate_random_hex(id_rand, 4) != 0) {
+            if (params) cJSON_Delete(params);
+            send_json_error(client_fd, 500, "Cannot create a token (no random source)");
+            close(client_fd);
+            return 1;
+        }
         char raw_token[64];
         snprintf(raw_token, sizeof(raw_token), "pat_%s", hex_rand);
 
-        /* Random id: one from time(NULL) repeats for tokens created in the same second */
-        char id_rand[17] = {0};
-        generate_random_hex(id_rand, 4);
         char tok_id[32];
         snprintf(tok_id, sizeof(tok_id), "tok_%s", id_rand);
 
@@ -314,6 +289,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON_AddStringToObject(new_tok, "name", tname);
         cJSON_AddStringToObject(new_tok, "token_hash", token_hash);
         cJSON_AddStringToObject(new_tok, "role", trole);
+        /* the token ends with this account (loopback callers create unowned tokens) */
+        if (owner[0] && strncmp(owner, "pat:", 4) != 0) cJSON_AddStringToObject(new_tok, "owner", owner);
         cJSON_AddNumberToObject(new_tok, "created_at", (double)time(NULL));
         cJSON_AddNumberToObject(new_tok, "last_used_at", 0);
         cJSON_AddItemToArray(arr, new_tok);
@@ -345,17 +322,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
     if (((strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "DELETE") == 0) ||
          (strcmp(clean_path, "/api/auth/tokens/delete") == 0 && strcmp(method, "POST") == 0))) {
         cJSON *params = parse_request_params(body);
-        const char *del_id = "";
+        char del_id[64] = {0};
         if (params) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(params, "id");
-            if (jid && cJSON_IsString(jid)) del_id = jid->valuestring;
+            if (jid && cJSON_IsString(jid)) snprintf(del_id, sizeof(del_id), "%s", jid->valuestring);
         }
-        if (!del_id[0] && query) {
-            const char *qid = strstr(query, "id=");
-            if (qid) del_id = qid + 3;
-        }
+        if (!del_id[0]) query_param(query, "id", del_id, sizeof(del_id));
 
-        if (!del_id || !del_id[0]) {
+        if (!del_id[0]) {
             if (params) cJSON_Delete(params);
             send_json_error(client_fd, 400, "Token id is required");
             close(client_fd);
@@ -364,6 +338,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         const char *path = HARMONY_TOKENS_JSON;
         size_t flen = 0;
+        int deleted = 0;
         char *json_txt = read_file_text_alloc(path, 65536, &flen);
         if (json_txt) {
             cJSON *root = cJSON_Parse(json_txt);
@@ -377,10 +352,11 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         cJSON *jid = cJSON_GetObjectItemCaseSensitive(it, "id");
                         if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, del_id) == 0) {
                             cJSON_DeleteItemFromArray(arr, i);
+                            deleted = 1;
                             break;
                         }
                     }
-                    char *json_out = cJSON_Print(root);
+                    char *json_out = deleted ? cJSON_Print(root) : NULL;
                     if (json_out) {
                         write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out));
                         free(json_out);
@@ -391,6 +367,11 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         }
 
         if (params) cJSON_Delete(params);
+        if (!deleted) {
+            send_json_error(client_fd, 404, "Token not found");
+            close(client_fd);
+            return 1;
+        }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "message", "Token deleted");
@@ -443,6 +424,18 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             close(client_fd);
             return 1;
         }
+        if (strlen(new_user) >= MAX_USERNAME_LEN || strchr(new_user, ':') || strchr(new_user, '\n')) {
+            cJSON_Delete(params);
+            send_json_error(client_fd, 400, "Username must be shorter than 32 bytes, without ':' or line breaks");
+            close(client_fd);
+            return 1;
+        }
+        if (strlen(new_pass) > MAX_PASSWORD_BYTES) {
+            cJSON_Delete(params);
+            send_json_error(client_fd, 400, "Password longer than 128 bytes");
+            close(client_fd);
+            return 1;
+        }
 
         struct user_account ulist[MAX_HTTP_USERS];
         int auth_on = 0;
@@ -456,13 +449,17 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             }
         }
 
+        int ends_sessions = 0;
         if (found_idx >= 0) {
             if (new_pass[0]) {
                 ulist[found_idx].password[0] = '\0';
                 compute_ha1(ulist[found_idx].username, HARMONY_AUTH_REALM, new_pass, ulist[found_idx].ha1);
+                ends_sessions = 1;
             }
             if (jr && cJSON_IsString(jr)) {
-                ulist[found_idx].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
+                enum http_role nr = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
+                if (nr != ulist[found_idx].role) ends_sessions = 1;
+                ulist[found_idx].role = nr;
             }
         } else {
             if (ucnt >= MAX_HTTP_USERS) {
@@ -477,9 +474,9 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                 close(client_fd);
                 return 1;
             }
+            memset(&ulist[ucnt], 0, sizeof(ulist[ucnt]));
             strncpy(ulist[ucnt].username, new_user, sizeof(ulist[ucnt].username) - 1);
-            ulist[ucnt].password[0] = '\0';
-            compute_ha1(new_user, HARMONY_AUTH_REALM, new_pass, ulist[ucnt].ha1);
+            compute_ha1(ulist[ucnt].username, HARMONY_AUTH_REALM, new_pass, ulist[ucnt].ha1);
             ulist[ucnt].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
             ucnt++;
         }
@@ -490,19 +487,24 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             else if (cJSON_IsNumber(j_en)) auth_on = j_en->valueint != 0;
         }
 
+        /* Never invent an account with a known password: refuse a change that leaves no admin */
         int admin_count = 0;
         for (int i = 0; i < ucnt; i++) {
             if (ulist[i].role == ROLE_ADMIN) admin_count++;
         }
-        if (admin_count == 0 && ucnt < MAX_HTTP_USERS) {
-            strncpy(ulist[ucnt].username, "admin", sizeof(ulist[ucnt].username) - 1);
-            ulist[ucnt].password[0] = '\0';
-            compute_ha1("admin", HARMONY_AUTH_REALM, "admin", ulist[ucnt].ha1);
-            ulist[ucnt].role = ROLE_ADMIN;
-            ucnt++;
+        if (admin_count == 0) {
+            cJSON_Delete(params);
+            send_json_error(client_fd, 400, found_idx >= 0 ? "Cannot demote the last admin account"
+                                                           : "Create an admin account first");
+            close(client_fd);
+            return 1;
         }
 
+        int was_on = 0;
+        load_user_accounts(NULL, 0, &was_on);
         save_user_accounts(ulist, ucnt, auth_on);
+        if (ends_sessions) http_auth_drop_user_sessions(new_user);
+        if (was_on != auth_on) http_auth_drop_all_sessions();
         cJSON_Delete(params);
 
         cJSON *resp = cJSON_CreateObject();
@@ -518,17 +520,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
     if (((strcmp(clean_path, "/api/users") == 0 && strcmp(method, "DELETE") == 0) ||
          (strcmp(clean_path, "/api/users/delete") == 0 && strcmp(method, "POST") == 0))) {
         cJSON *params = parse_request_params(body);
-        const char *del_user = "";
+        char del_user[MAX_USERNAME_LEN + 8] = {0};
         if (params) {
             cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "username");
-            if (ju && cJSON_IsString(ju)) del_user = ju->valuestring;
+            if (ju && cJSON_IsString(ju)) snprintf(del_user, sizeof(del_user), "%s", ju->valuestring);
         }
-        if (!del_user[0] && query) {
-            const char *qu = strstr(query, "username=");
-            if (qu) del_user = qu + 9;
-        }
+        if (!del_user[0]) query_param(query, "username", del_user, sizeof(del_user));
 
-        if (!del_user || !del_user[0]) {
+        if (!del_user[0]) {
             if (params) cJSON_Delete(params);
             send_json_error(client_fd, 400, "Username is required");
             close(client_fd);
@@ -567,6 +566,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         }
         ucnt--;
         save_user_accounts(ulist, ucnt, ucnt > 0 ? auth_on : 0);
+        http_auth_drop_user_sessions(del_user);
+        remove_tokens_of(del_user);
 
         if (params) cJSON_Delete(params);
         cJSON *resp = cJSON_CreateObject();

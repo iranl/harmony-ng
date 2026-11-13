@@ -8,6 +8,7 @@
 #include "cJSON.h"
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -935,6 +936,17 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             cJSON *j_tgt = cJSON_GetObjectItem(params, "target");
             if (j_tgt && cJSON_IsString(j_tgt)) strncpy(target, j_tgt->valuestring, sizeof(target) - 1);
             cJSON_Delete(params);
+        }
+        /* target and button go into the hub_btstack command channel, one command per line:
+         * only a Bluetooth address and a plain button name are accepted */
+        int bad = (target[0] && !hub_valid_bdaddr(target));
+        for (const char *c = button; *c && !bad; c++) {
+            if (!isalpha((unsigned char)*c)) bad = 1;
+        }
+        if (bad) {
+            send_json_error(client_fd, 400, "target must be a Bluetooth address and button a name");
+            close(client_fd);
+            return 1;
         }
         int ok = 0;
         int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);

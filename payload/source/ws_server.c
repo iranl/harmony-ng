@@ -18,6 +18,10 @@ static int g_client_roles[WS_MAX_CLIENTS];
 /* 1 until the main loop sent the client its snapshot: broadcasts skip it meanwhile, so the
  * snapshot is the first frame the client receives */
 static int g_client_pending[WS_MAX_CLIENTS];
+#define WS_SLOT_FREE (-1)
+#define WS_SLOT_RESERVED (-2) /* taken during the handshake, not yet visible to anyone */
+static unsigned int g_client_gen[WS_MAX_CLIENTS]; /* changes with every client in the slot */
+static unsigned int g_next_gen = 1;
 static int g_client_legacy[WS_MAX_CLIENTS];
 /* Keepalive state: monotonic seconds of the last frame from the client, and of the ping we
  * sent and still wait to be answered (0 = none outstanding) */
@@ -152,7 +156,7 @@ static void base64_encode(const uint8_t *src, size_t len, char *out) {
 
 int ws_server_init(void) {
     pthread_mutex_lock(&g_clients_lock);
-    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) g_clients[i] = -1;
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) g_clients[i] = WS_SLOT_FREE;
     g_client_count = 0;
     pthread_mutex_unlock(&g_clients_lock);
     return 0;
@@ -164,37 +168,41 @@ int ws_is_upgrade_req(const char *http_req) {
             strcasestr(http_req, "Upgrade: WebSocket") != NULL);
 }
 
-/* Returns 0, or -1 when all WS_MAX_CLIENTS slots are taken */
-static int add_client(int fd) {
-    int rc = -1;
+/* Reserve a slot before the 101 is sent. Returns the slot index, or -1 when all
+ * WS_MAX_CLIENTS slots are taken. A reserved slot is skipped by every reader (fd < 0). */
+static int reserve_slot(void) {
+    int slot = -1;
     pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] < 0) {
-            g_clients[i] = fd;
-            g_client_roles[i] = 2; /* admin until the upgrade records the token's role */
-            g_client_pending[i] = 1;
-            g_client_legacy[i] = 0;
-            g_client_last_rx[i] = mono_now();
-            g_client_ping_sent[i] = 0;
-            g_client_count++;
-            rc = 0;
+        if (g_clients[i] == WS_SLOT_FREE) {
+            g_clients[i] = WS_SLOT_RESERVED;
+            slot = (int)i;
             break;
         }
     }
     pthread_mutex_unlock(&g_clients_lock);
-    return rc;
+    return slot;
 }
 
-/* Unregister without closing (the caller still owns the socket) */
-static void drop_client(int fd) {
+static void release_slot(int slot) {
     pthread_mutex_lock(&g_clients_lock);
-    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] == fd) {
-            g_clients[i] = -1;
-            if (g_client_count > 0) g_client_count--;
-            break;
-        }
-    }
+    if (g_clients[slot] == WS_SLOT_RESERVED) g_clients[slot] = WS_SLOT_FREE;
+    pthread_mutex_unlock(&g_clients_lock);
+}
+
+/* Publish the client with its final role and legacy flag in one step, after the 101 went
+ * out: the main loop, broadcasts and the snapshot see it only from here on. */
+static void commit_slot(int slot, int fd, int role, int legacy) {
+    pthread_mutex_lock(&g_clients_lock);
+    g_client_roles[slot] = role;
+    g_client_legacy[slot] = legacy ? 1 : 0;
+    g_client_pending[slot] = legacy ? 0 : 1; /* no 8089 snapshot for a legacy client */
+    g_client_last_rx[slot] = mono_now();
+    g_client_ping_sent[slot] = 0;
+    g_client_gen[slot] = g_next_gen++;
+    if (g_next_gen == 0) g_next_gen = 1;
+    g_clients[slot] = fd;
+    g_client_count++;
     pthread_mutex_unlock(&g_clients_lock);
 }
 
@@ -238,7 +246,7 @@ void ws_close_all(void) {
     pthread_mutex_unlock(&g_clients_lock);
 }
 
-int ws_handle_upgrade(int client_fd, const char *http_req) {
+int ws_handle_upgrade(int client_fd, const char *http_req, int role, int legacy) {
     const char *key_hdr = strcasestr(http_req, "Sec-WebSocket-Key: ");
     if (!key_hdr) return -1;
     key_hdr += 19;
@@ -269,17 +277,20 @@ int ws_handle_upgrade(int client_fd, const char *http_req) {
                        "Sec-WebSocket-Accept: %s\r\n\r\n",
                        accept_key);
 
-    /* Take a slot before accepting the upgrade: a client accepted without one would never get
-     * broadcasts or be closed on shutdown */
-    if (add_client(client_fd) != 0) {
+    /* Reserve a slot before accepting the upgrade (a client accepted without one would never
+     * get broadcasts or be closed on shutdown), send the 101, and only then publish the client
+     * with its final role: before that the main loop must not read, answer or close it. */
+    int slot = reserve_slot();
+    if (slot < 0) {
         static const char busy[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         send_all(client_fd, busy, sizeof(busy) - 1);
         return -1;
     }
     if (send_all(client_fd, resp, (size_t)len) != 0) {
-        drop_client(client_fd);
+        release_slot(slot);
         return -1;
     }
+    commit_slot(slot, client_fd, role, legacy);
     return 0;
 }
 
@@ -329,18 +340,6 @@ void ws_broadcast_text(const char *text) {
             ws_remove_client(fds[i]);
         }
     }
-}
-
-void ws_set_client_legacy(int client_fd, int legacy) {
-    pthread_mutex_lock(&g_clients_lock);
-    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] == client_fd) {
-            g_client_legacy[i] = legacy ? 1 : 0;
-            if (legacy) g_client_pending[i] = 0; /* no 8089 snapshot for a legacy client */
-            break;
-        }
-    }
-    pthread_mutex_unlock(&g_clients_lock);
 }
 
 int ws_is_client_legacy(int client_fd) {
@@ -466,17 +465,6 @@ int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode)
     return (int)total;
 }
 
-void ws_set_client_role(int client_fd, int role) {
-    pthread_mutex_lock(&g_clients_lock);
-    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (g_clients[i] == client_fd) {
-            g_client_roles[i] = role;
-            break;
-        }
-    }
-    pthread_mutex_unlock(&g_clients_lock);
-}
-
 int ws_is_client(int client_fd) {
     int found = 0;
     pthread_mutex_lock(&g_clients_lock);
@@ -490,8 +478,23 @@ int ws_is_client(int client_fd) {
     return found;
 }
 
+/* Generation of the client now holding client_fd (0 when none): lets a deferred reply check
+ * that the fd still belongs to the client that asked, not to a later one with the same number. */
+unsigned int ws_client_gen(int client_fd) {
+    unsigned int gen = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            gen = g_client_gen[i];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    return gen;
+}
+
 int ws_get_client_role(int client_fd) {
-    int role = 2;
+    int role = 0; /* unknown client: no rights */
     pthread_mutex_lock(&g_clients_lock);
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i] == client_fd) {

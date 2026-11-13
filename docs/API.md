@@ -292,6 +292,11 @@ default. Port 8088 is never authenticated: the stock protocol has no authenticat
 only on a trusted network. The daemon's own API on 8089 (sections 1 to 11) is unchanged; both
 integrations can be used at the same time.
 
+**Authentication on 8089 does not cover 8088.** With the shim on, any client on the LAN can read the
+inventory, start and stop activities and send any device command through 8088 without credentials,
+even when authentication is enabled for 8089. Leave `legacy_enabled` off unless the core `harmony`
+integration is needed.
+
 - `POST /` on 8088 (body `{"id ":1,"cmd":"setup.account?getProvisionInfo","params":{}}`, the
   trailing space in `id ` is what the client sends) answers the provisioning object:
   `{"id":1,"code":200,"msg":"OK","data":{"activeRemoteId":"<id>","hubSwVersion":"<version>",
@@ -1160,6 +1165,12 @@ payload once, so brokers drop them (marker `/data/harmony/mqtt_v2_migrated`). Th
 discovery entities, the inbound command topics of the first MQTT layer and the pulse of MQTT-type
 devices are kept (below).
 
+**The broker is trusted as admin.** Commands that arrive over MQTT run with the admin role, including
+`update_apply`, and the connection is plain TCP (user name and password in clear text). Anyone who
+can publish to the broker, or read the credentials on the way to it, controls the Hub. Use a broker
+account and ACLs that only the Hub and trusted clients have, on a trusted network. The global topic
+`harmony/ir/pronto` sends any Pronto code it receives.
+
 #### `POST /api/mqtt-save` or `POST /mqtt`
 - **Request Body** (every field optional; `password` is kept when absent or empty):
   ```json
@@ -1183,7 +1194,7 @@ devices are kept (below).
 - **Response `200 OK`**: `{"ok": true, "message": "MQTT settings saved"}`; the client reconnects.
 
 #### `GET /api/mqtt-status`
-`{"ok": true, "connected": true, "broker": "...", "port": 1883, "baseTopic": "harmony/hub", "v2": true, "config": {...}}`
+`{"ok": true, "connected": true, "broker": "...", "port": 1883, "baseTopic": "harmony/hub", "v2": true, "config": {...}}`. `config` is the stored MQTT settings without the password (`has_password` tells whether one is stored; saving with an empty password keeps it).
 
 #### Topics
 `<base>` is `baseTopic` (default `harmony/hub`). Payloads are JSON objects with `type`, `seq` and
@@ -1774,12 +1785,24 @@ still answered with pongs. Capability flag: `ws_keepalive`.
 
 Harmony Hub supports a multi-tier authentication model:
 
-### 11.1 HTTP Digest Authentication (RFC 7616 / RFC 2617)
-Protects credentials on the wire without requiring SSL/TLS overhead on embedded hardware. Nonces are HMAC-SHA256 signed with dynamic expiry.
+### 11.1 Accounts, Basic authentication and rules
+- **Basic** (`Authorization: Basic`) is accepted on every route, under the same failed-login limit as
+  `POST /api/auth/token`: after 3 wrong passwords from one address, that address is locked for 2 s,
+  then 4, 8, 16, up to 30 s, for both. Digest authentication is not offered.
+- Passwords are stored as SHA-256 of `user:Harmony Hub:password`; names must be shorter than 32 bytes
+  (no `:` or line breaks), passwords at most 128 bytes.
+- The account list always keeps at least one admin: `POST /api/users` answers `400` instead of
+  demoting or replacing the last admin (no default account is ever created).
+- Deleting an account, changing its role or password ends its sessions; deleting it also deletes the
+  personal access tokens it created. Turning authentication on or off ends every session.
+- Personal access tokens can be created only while authentication is on (`409` otherwise), carry the
+  creating account as `owner`, end with it, and never have more rights than it.
+- If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
+  account either, every request except from loopback is refused (`401`) until the file is fixed.
+- `GET /api/mqtt-status` never returns the stored broker password (`config.has_password` instead).
 
 ```bash
-# Digest authentication with curl
-curl --digest -u admin:secret123 http://192.168.1.1:8089/api/status
+curl -u admin:secret123 http://192.168.1.1:8089/api/status
 ```
 
 ### 11.2 OAuth2 Bearer Session Tokens (RFC 6749 / RFC 6750)
@@ -1831,7 +1854,7 @@ in the request line:
 `ws://192.168.1.1:8089/ws?token=pat_3f8a9b...`
 
 - Personal access tokens (`pat_...`, 11.3) and session tokens (`hht_...`, 11.2) are both accepted.
-  Digest and Basic credentials are not supported on the upgrade.
+  Basic credentials in an `Authorization` header are accepted on the upgrade as on every route.
 - Missing, unknown or revoked token: `401 Unauthorized` with the usual challenge; the connection is
   closed, never upgraded. Callers on the Hub itself (`127.0.0.1`, `::1`: `hub_rf`, `hub_btstack`)
   need no token, as for every request. With authentication disabled nothing changes.

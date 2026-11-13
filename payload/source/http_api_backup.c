@@ -81,7 +81,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 { "remote_slot2_map", "/data/harmony/remote_slot2_map.json" },
                 { "ui_remote_layout", "/data/harmony/web_remote_layouts.json" },
                 { "auth", "/data/harmony/webui_auth.conf" },
-                { "users", "/data/harmony/users.json" },
+                { "users", HARMONY_USERS_JSON },
                 { "hub_id", "/data/harmony/hub_id" },
                 { NULL, NULL }
             };
@@ -209,7 +209,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
             ctype = "text/plain; charset=utf-8";
             fallback_content = "# WebUI authentication disabled (default)\n";
         } else if (strcmp(tgt, "users") == 0) {
-            file_to_send = config_store_path("users.json");
+            file_to_send = HARMONY_USERS_JSON;
             download_name = "users.json";
             fallback_content = "{\"users\":[]}\n";
         }
@@ -278,7 +278,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                         { "remote_slot2_map", "/data/harmony/remote_slot2_map.json", 0 },
                         { "ui_remote_layout", "/data/harmony/web_remote_layouts.json", 0 },
                         { "auth", "/data/harmony/webui_auth.conf", 0 },
-                        { "users", "/data/harmony/users.json", 0 },
+                        { "users", HARMONY_USERS_JSON, 0 },
                         { "hub_id", "/data/harmony/hub_id", 0 },
                         { NULL, NULL, 0 }
                     };
@@ -333,6 +333,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                     int tmp_en = 0;
                     int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                     if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                    http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                     success = 1;
                 }
                 if (bundle && bundle != p_pay && bundle != params) cJSON_Delete(bundle);
@@ -351,7 +352,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                 else if (strcmp(tgt, "remote_slot2_map") == 0) { file_to_write = "/data/harmony/remote_slot2_map.json"; }
                 else if (strcmp(tgt, "ui-remote-layout") == 0 || strcmp(tgt, "ui_remote_layout") == 0) { file_to_write = "/data/harmony/web_remote_layouts.json"; }
                 else if (strcmp(tgt, "auth") == 0) { file_to_write = "/data/harmony/webui_auth.conf"; }
-                else if (strcmp(tgt, "users") == 0) { file_to_write = "/data/harmony/users.json"; }
+                else if (strcmp(tgt, "users") == 0) { file_to_write = HARMONY_USERS_JSON; }
 
                 if (file_to_write) {
                     if (cJSON_IsString(p_pay)) {
@@ -379,6 +380,7 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                         }
                     }
                 }

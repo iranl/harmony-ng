@@ -336,6 +336,7 @@ static cJSON *update_check_reply(const cJSON *req) {
 /* Replies of slow actions, produced on a thread, delivered by hub_cmd_poll on the main loop */
 typedef struct deferred {
     int origin;
+    unsigned int origin_gen; /* WebSocket client generation (ws_client_gen) when it asked */
     cJSON *req;
     cJSON *reply;
     struct deferred *next;
@@ -366,7 +367,7 @@ void hub_cmd_poll(void) {
         if (d->reply) {
             if (d->origin == HUB_CMD_ORIGIN_MQTT) {
                 hub_mqtt_deliver_reply(d->req, d->reply);
-            } else if (d->origin >= 0 && ws_is_client(d->origin)) {
+            } else if (d->origin >= 0 && d->origin_gen != 0 && ws_client_gen(d->origin) == d->origin_gen) {
                 char *txt = cJSON_PrintUnformatted(d->reply);
                 if (txt) {
                     if (ws_send_text(d->origin, txt) != 0) ws_remove_client(d->origin);
@@ -644,6 +645,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         int started = 0;
         if (d) {
             d->origin = origin;
+            d->origin_gen = origin >= 0 ? ws_client_gen(origin) : 0;
             d->req = cJSON_Duplicate(req, 1);
             started = d->req && pthread_create(&tid, &attr, update_check_thread, d) == 0;
         }
