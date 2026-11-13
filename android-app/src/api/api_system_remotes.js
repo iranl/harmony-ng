@@ -113,6 +113,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
       Object.assign(payload, data.config);
+      payload.config = JSON.stringify(data.config);
     }
     return this.postForm('/ir/new-device', payload);
   }
@@ -121,6 +122,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     const payload = { ...data };
     if (data.config && typeof data.config === 'object') {
       Object.assign(payload, data.config);
+      payload.config = JSON.stringify(data.config);
     }
     return this.postForm('/ir/device', payload);
   }

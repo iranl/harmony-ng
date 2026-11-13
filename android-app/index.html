@@ -1128,7 +1128,7 @@
               </div>
 
               <!-- Device Timings & Power Config -->
-              <div style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
+              <div id="devEditTimingsBox" style="margin-top: 10px; border-top: 1px dotted var(--border); padding-top: 8px;">
                 <strong
                   style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent);" data-i18n="device_timings_power">Device
                   Timings & Power</strong>
@@ -1309,7 +1309,6 @@
               </div>
             </div>
 
-            </div>
           </div>
 
           <!-- Existing Commands Header & List -->
@@ -1356,6 +1355,15 @@
             style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
             <button type="button" id="tabAddMqtt" class="btn btn-sm btn-primary mqtt-add-tab active"
               data-mqtt-mode="mqtt" data-i18n="add_mqtt_command_btn">Add MQTT Command</button>
+          </div>
+
+          <!-- Tabs for Plugin Mode -->
+          <div id="pluginAddTabsRow"
+            style="display: none; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+            <button type="button" id="tabAddPluginPresets" class="btn btn-sm btn-primary plug-add-tab active"
+              data-plug-mode="presets">Plugin Commands</button>
+            <button type="button" id="tabAddPluginCustom" class="btn btn-sm btn-ghost plug-add-tab"
+              data-plug-mode="custom">Custom Command</button>
           </div>
 
           <!-- Mode 1: Learn from Remote -->
@@ -1715,6 +1723,55 @@
                 <button id="btnTestNewMqttCmd" type="button" class="btn btn-sm btn-secondary" data-i18n="test_publish_btn">▶ Test Publish</button>
                 <button id="btnSaveNewMqttCmd" type="button" class="btn btn-sm btn-primary" data-i18n="save_cmd_to_device">Save Command to
                   Device</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Mode 7: Plugin Standard Key Presets -->
+          <div id="addModePluginPresets" class="plug-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong>Plugin Command Catalog.</strong>
+              Commands defined by the plugin for this device. Click "+ Add" on any command or "+ Add All" to import them into your device.
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px;">
+              <input type="text" id="plugPresetsFilter" class="form-control form-control-sm"
+                placeholder="Filter commands..." style="flex: 1; font-size: 11px;">
+              <button type="button" id="btnPlugAddAllPresets" class="btn btn-xs btn-secondary" style="font-size: 11px; white-space: nowrap;">+ Add All</button>
+            </div>
+
+            <div id="plugPresetsContainer"
+              style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+              <!-- Populated dynamically by HarmonyAppDevicesStudio -->
+            </div>
+          </div>
+
+          <!-- Mode 8: Custom Plugin Command -->
+          <div id="addModePluginCustom" class="plug-add-panel" style="display: none;">
+            <div class="callout" style="margin-bottom: 12px;">
+              <strong>Custom Plugin Command.</strong>
+              Add a custom key or endpoint parameter supported by the plugin (e.g. <code>PLUGIN:roku-ecp:KeyPress/Home</code>).
+            </div>
+
+            <form id="plugCustomForm" onsubmit="return false;">
+              <div class="row">
+                <div style="flex: 1;">
+                  <label for="plugCustomCmdName" data-i18n="cmd_name_lbl">Command Name</label>
+                  <input id="plugCustomCmdName" class="form-control" required
+                    placeholder="e.g. Home, Netflix, Hdmi1">
+                </div>
+                <div style="flex: 1;">
+                  <label for="plugCustomCmdCode">Plugin KeyCode / Action</label>
+                  <input id="plugCustomCmdCode" class="form-control" required
+                    placeholder="e.g. PLUGIN:roku-ecp:Home or Home">
+                </div>
+              </div>
+
+              <div id="plugCustomStatus" class="subtle" style="margin-top: 8px;"></div>
+
+              <div class="actions" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;">
+                <button id="btnTestPlugCustom" type="button" class="btn btn-sm btn-secondary">▶ Test Command</button>
+                <button id="btnSavePlugCustom" type="button" class="btn btn-sm btn-primary">Save Command to Device</button>
               </div>
             </form>
           </div>
