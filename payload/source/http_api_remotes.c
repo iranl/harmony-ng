@@ -989,6 +989,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             if (jdly && cJSON_IsNumber(jdly) && jdly->valueint >= 0) dly = jdly->valueint;
             cJSON_Delete(p);
         }
+        /* target goes into a shell command line and into the hub_btstack command channel:
+         * only a Bluetooth address (XX:XX:XX:XX:XX:XX) or nothing is accepted. */
+        if (tgt[0] && !hub_valid_bdaddr(tgt)) {
+            send_json_error(client_fd, 400, "target must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
+        }
+        if (dur > 3600) dur = 3600;
+        if (dly > 3600) dly = 3600;
         char sh_cmd[256];
         if (tgt[0]) {
             snprintf(sh_cmd, sizeof(sh_cmd), "/data/harmony/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &",

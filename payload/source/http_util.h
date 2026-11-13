@@ -22,7 +22,11 @@ uint32_t crc32_simple(const unsigned char *buf, size_t len);
 int is_safe_param(const char *str, const char *allowed_extra);
 int is_safe_ipv4(const char *ip);
 void escape_wpa_str(const char *src, char *dst, size_t dst_len);
-void get_client_ip(int fd, char *ip_buf, size_t buf_len);
+int get_client_ip(int fd, char *ip_buf, size_t buf_len);
+int http_header_value(const char *req, const char *name, char *out, size_t out_len);
+int http_origin_is_allowed(const char *origin, const char *host);
+int http_request_is_cross_site(const char *req);
+int run_argv_wait(char *const argv[]);
 int is_proc_running(const char *proc_name);
 
 #ifdef __cplusplus

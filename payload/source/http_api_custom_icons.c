@@ -430,13 +430,26 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             return 1;
         }
 
-        char cmd[768];
-        snprintf(cmd, sizeof(cmd),
-            "/cache/bin/busybox wget -q --no-check-certificate -T 6 -O /tmp/proxy_icon.tmp '%s' 2>/dev/null || "
-            "/data/harmony/bin/busybox wget -q --no-check-certificate -T 6 -O /tmp/proxy_icon.tmp '%s' 2>/dev/null",
-            decoded_url, decoded_url);
+        /* The URL goes to wget as one argument, never through a shell. Control characters and
+         * blanks have no place in a URL; refuse them instead of passing them on. */
+        for (const unsigned char *c = (const unsigned char *)decoded_url; *c; c++) {
+            if (*c <= 0x20 || *c == 0x7f) {
+                free(decoded_url);
+                send_json_error(client_fd, 400, "Invalid character in url");
+                close(client_fd);
+                return 1;
+            }
+        }
+        unlink("/tmp/proxy_icon.tmp"); /* never serve a file left by an earlier fetch */
+        static const char *const wget_paths[] = { "/cache/bin/busybox", "/data/harmony/bin/busybox" };
+        for (size_t wi = 0; wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
+            char *argv[] = { (char *)wget_paths[wi], "wget", "-q", "--no-check-certificate", "-T", "6",
+                             "-O", "/tmp/proxy_icon.tmp", decoded_url, NULL };
+            if (access(wget_paths[wi], X_OK) != 0) continue;
+            if (run_argv_wait(argv) == 0) break;
+            unlink("/tmp/proxy_icon.tmp");
+        }
         free(decoded_url);
-        system(cmd);
 
         FILE *f = fopen("/tmp/proxy_icon.tmp", "rb");
         if (!f) {

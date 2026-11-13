@@ -10,6 +10,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <errno.h>
 
 void send_cjson_resp(int fd, int code, cJSON *obj) {
     const char *status_str = (code == 200) ? "OK" :
@@ -257,17 +260,128 @@ void escape_wpa_str(const char *src, char *dst, size_t dst_len) {
     dst[j] = '\0';
 }
 
-void get_client_ip(int fd, char *ip_buf, size_t buf_len) {
-    if (!ip_buf || buf_len == 0) return;
+/* Peer address of an accepted connection. Fails closed: when getpeername() fails (for
+ * example the client reset the connection right after sending its request) ip_buf is left
+ * empty and -1 is returned. Never fall back to a loopback address: loopback callers are
+ * admin in http_auth, so a fallback would turn a reset connection into an admin request. */
+int get_client_ip(int fd, char *ip_buf, size_t buf_len) {
+    if (!ip_buf || buf_len == 0) return -1;
     ip_buf[0] = '\0';
-    struct sockaddr_in addr;
+    struct sockaddr_storage addr;
     socklen_t len = sizeof(addr);
-    if (getpeername(fd, (struct sockaddr *)&addr, &len) == 0) {
-        inet_ntop(AF_INET, &addr.sin_addr, ip_buf, (socklen_t)buf_len);
-    } else {
-        strncpy(ip_buf, "127.0.0.1", buf_len - 1);
-        ip_buf[buf_len - 1] = '\0';
+    if (getpeername(fd, (struct sockaddr *)&addr, &len) != 0) return -1;
+    if (addr.ss_family == AF_INET) {
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)&addr)->sin_addr, ip_buf, (socklen_t)buf_len)) {
+            ip_buf[0] = '\0';
+            return -1;
+        }
+        return 0;
     }
+    if (addr.ss_family == AF_INET6) {
+        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)&addr)->sin6_addr, ip_buf, (socklen_t)buf_len)) {
+            ip_buf[0] = '\0';
+            return -1;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+/* Value of request header `name` (case-insensitive, only in the header block, only at the
+ * start of a line), copied into out without leading or trailing blanks. Returns 1 when found. */
+int http_header_value(const char *req, const char *name, char *out, size_t out_len) {
+    if (!req || !name || !out || out_len == 0) return 0;
+    out[0] = '\0';
+    size_t nlen = strlen(name);
+    const char *end = strstr(req, "\r\n\r\n");
+    if (!end) end = req + strlen(req);
+    const char *line = strstr(req, "\r\n"); /* skip the request line */
+    while (line && line < end) {
+        line += 2;
+        if (line >= end) break;
+        if ((size_t)(end - line) > nlen && strncasecmp(line, name, nlen) == 0 && line[nlen] == ':') {
+            const char *v = line + nlen + 1;
+            while (v < end && (*v == ' ' || *v == '\t')) v++;
+            const char *eol = strstr(v, "\r\n");
+            if (!eol || eol > end) eol = end;
+            while (eol > v && (eol[-1] == ' ' || eol[-1] == '\t')) eol--;
+            size_t vlen = (size_t)(eol - v);
+            if (vlen >= out_len) vlen = out_len - 1;
+            memcpy(out, v, vlen);
+            out[vlen] = '\0';
+            return 1;
+        }
+        line = strstr(line, "\r\n");
+    }
+    return 0;
+}
+
+/* Origins the Hub's own clients use: the web UI served by the Hub (same host as the request),
+ * the Android app (Capacitor, http://localhost), and local development servers. */
+int http_origin_is_allowed(const char *origin, const char *host) {
+    if (!origin || !origin[0]) return 0;
+    const char *rest = NULL;
+    if (strncasecmp(origin, "http://", 7) == 0) rest = origin + 7;
+    else if (strncasecmp(origin, "https://", 8) == 0) rest = origin + 8;
+    else if (strcasecmp(origin, "capacitor://localhost") == 0 || strcasecmp(origin, "ionic://localhost") == 0) return 1;
+    else return 0; /* includes "null" (sandboxed frames, file:// pages) */
+    if (strchr(rest, '/')) return 0;
+    if (host && host[0] && strcasecmp(rest, host) == 0) return 1;
+    const char *locals[] = { "localhost", "127.0.0.1", "[::1]" };
+    for (size_t i = 0; i < sizeof(locals) / sizeof(locals[0]); i++) {
+        size_t l = strlen(locals[i]);
+        if (strncasecmp(rest, locals[i], l) == 0 && (rest[l] == '\0' || rest[l] == ':')) return 1;
+    }
+    return 0;
+}
+
+/* Cross-site request check for the Hub API (port 8089). A request is refused when it carries
+ * an Origin that is not one of the Hub's own clients, or, without an Origin, when the browser
+ * marks it as coming from another site (Sec-Fetch-Site: cross-site or same-site, for example an
+ * <img> or a top-level form post from another page). Clients outside a browser send neither
+ * header and are not affected. */
+int http_request_is_cross_site(const char *req) {
+    char origin[160], host[160], site[32];
+    int has_origin = http_header_value(req, "Origin", origin, sizeof(origin));
+    if (!http_header_value(req, "Host", host, sizeof(host))) host[0] = '\0';
+    if (has_origin && origin[0]) {
+        if (http_origin_is_allowed(origin, host)) return 0;
+        /* Behind a reverse proxy the browser's host is in X-Forwarded-Host. A page cannot set
+         * that header on a request that skips the preflight, and the preflight is refused. */
+        char fwd[160];
+        if (http_header_value(req, "X-Forwarded-Host", fwd, sizeof(fwd)) && fwd[0] &&
+            http_origin_is_allowed(origin, fwd)) return 0;
+        return 1;
+    }
+    if (http_header_value(req, "Sec-Fetch-Site", site, sizeof(site)) &&
+        (strcasecmp(site, "cross-site") == 0 || strcasecmp(site, "same-site") == 0)) {
+        return 1;
+    }
+    return 0;
+}
+
+/* Runs argv[0] with the given arguments without a shell, stdin/stdout/stderr on /dev/null, and
+ * waits for it. Returns the exit status, or -1 when it could not be run. */
+int run_argv_wait(char *const argv[]) {
+    if (!argv || !argv[0]) return -1;
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        int nul = open("/dev/null", O_RDWR);
+        if (nul >= 0) {
+            dup2(nul, 0);
+            dup2(nul, 1);
+            dup2(nul, 2);
+            if (nul > 2) close(nul);
+        }
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 int is_proc_running(const char *proc_name) {
