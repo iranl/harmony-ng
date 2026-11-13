@@ -35,6 +35,9 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
                                      const char *topic_in, int req_pulse_ms,
                                      char *out_topic, size_t out_topic_len, int *out_pulse_ms);
 int daemon_mqtt_button_handler(const char *device_id, const char *dev_name, const char *command);
+int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][64], int cmd_count,
+                            int num_repeats, int btn_action, double delay_secs, double hold_secs);
+int hub_mqtt_queue_busy(void);
 
 #ifdef __cplusplus
 }

@@ -447,16 +447,53 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         const cJSON *dev_j = cJSON_GetObjectItemCaseSensitive(req, "deviceId");
         if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(req, "device_id");
         if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(req, "device");
+        if (!dev_j) dev_j = cJSON_GetObjectItemCaseSensitive(req, "dev");
         if (dev_j) {
             if (cJSON_IsString(dev_j) && dev_j->valuestring) snprintf(dev_buf, sizeof(dev_buf), "%s", dev_j->valuestring);
             else if (cJSON_IsNumber(dev_j)) snprintf(dev_buf, sizeof(dev_buf), "%ld", (long)dev_j->valuedouble);
         }
-        const char *cmd = json_str(req, "command", NULL, NULL);
-        if (!dev_buf[0] || !cmd || !cmd[0]) return ack(req, action, 0, 400, "deviceId and command required");
+        char cmd_list[32][64];
+        int cmd_count = 0;
+        const cJSON *j_cmd = cJSON_GetObjectItemCaseSensitive(req, "command");
+        if (!j_cmd) j_cmd = cJSON_GetObjectItemCaseSensitive(req, "commands");
+        if (j_cmd) {
+            if (cJSON_IsString(j_cmd) && j_cmd->valuestring && j_cmd->valuestring[0]) {
+                snprintf(cmd_list[cmd_count++], 64, "%s", j_cmd->valuestring);
+            } else if (cJSON_IsArray(j_cmd)) {
+                const cJSON *item = NULL;
+                cJSON_ArrayForEach(item, j_cmd) {
+                    if (cmd_count >= 32) break;
+                    if (cJSON_IsString(item) && item->valuestring && item->valuestring[0]) {
+                        snprintf(cmd_list[cmd_count++], 64, "%s", item->valuestring);
+                    }
+                }
+            }
+        }
+        if (!dev_buf[0] || cmd_count == 0) return ack(req, action, 0, 400, "deviceId and command required");
         int btn_action = btn_action_from(json_str(req, "cmdAction", "status", "action_type"));
         if (btn_action == HW_BTN_ACTION_TAP) btn_action = btn_action_from(json_str(req, "btnAction", NULL, NULL));
-        int ok = (hw_device_command_send_action(dev_buf, 0, cmd, btn_action) == 0);
-        return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        const cJSON *j_rep = cJSON_GetObjectItemCaseSensitive(req, "num_repeats");
+        if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(req, "repeat");
+        if (!j_rep) j_rep = cJSON_GetObjectItemCaseSensitive(req, "repeats");
+        int num_repeats = (j_rep && cJSON_IsNumber(j_rep)) ? (int)j_rep->valuedouble : 1;
+        const cJSON *j_delay = cJSON_GetObjectItemCaseSensitive(req, "delay_secs");
+        if (!j_delay) j_delay = cJSON_GetObjectItemCaseSensitive(req, "delay");
+        double delay_secs = (j_delay && cJSON_IsNumber(j_delay)) ? j_delay->valuedouble : -1.0;
+        const cJSON *j_hold = cJSON_GetObjectItemCaseSensitive(req, "hold_secs");
+        if (!j_hold) j_hold = cJSON_GetObjectItemCaseSensitive(req, "hold");
+        double hold_secs = (j_hold && cJSON_IsNumber(j_hold)) ? j_hold->valuedouble : 0.0;
+
+        if (cmd_count == 1 && num_repeats <= 1 && hold_secs <= 0.0 && !hub_mqtt_queue_busy()) {
+            int rc = hw_device_command_send_action(dev_buf, 0, cmd_list[0], btn_action);
+            if (rc == -5) return ack(req, action, 0, 404, "Device not found");
+            if (rc == -6) return ack(req, action, 0, 404, "Command not found");
+            return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
+        }
+        int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
+        if (rc == -5) return ack(req, action, 0, 404, "Device not found");
+        if (rc == -6) return ack(req, action, 0, 404, "Command not found");
+        if (rc == -2) return ack(req, action, 0, 409, "Command queue full");
+        return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "Failed to queue command sequence");
     }
     if (strcmp(action, "start_activity") == 0) {
         /* "activity" names the activity. The web UI sends it as "id" (its request id is msgId),

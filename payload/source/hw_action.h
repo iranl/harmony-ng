@@ -68,6 +68,8 @@ int hw_device_command_send_action(const char *target, int match_mode, const char
 int hw_device_command_send(const char *device_id, const char *command);
 int hw_device_command_send_by_id(const char *device_id, const char *command);
 int hw_device_command_send_by_name(const char *device_name, const char *command);
+int hw_device_exists(const char *target, int match_mode);
+int hw_device_command_exists(const char *target, int match_mode, const char *command);
 
 /*
  * In-process handler for commands of MQTT-type devices: hub_mqtt publishes the device's pulse
