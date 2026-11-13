@@ -230,11 +230,6 @@ do_apply() {
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
-  mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
-
-  # Prune redundant/bloated binaries to ensure flash space
-  rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
-
   # 2. Attempt unified RAM bundle update (hub_ota.tar.gz)
   OTA_BUNDLE_OK=0
   echo "[*] Checking for unified Hub package (hub_ota.tar.gz)..."
@@ -251,6 +246,10 @@ do_apply() {
 
     mkdir -p "$TMPDIR/pkg" 2>/dev/null
     if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
+      # Verified: prepare the flash (nothing is touched before this point)
+      mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
+      # Prune redundant/bloated binaries to ensure flash space
+      rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
       echo "[*] Extracting package to flash partitions..."
       # A. Scripts -> /data/harmony/
       if [ -d "$TMPDIR/pkg/scripts" ]; then
@@ -351,6 +350,10 @@ do_apply() {
       rm -rf "$TMPDIR" 2>/dev/null
       return 1
     fi
+    # Verified: prepare the flash (nothing is touched before this point)
+    mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
+    # Prune redundant/bloated binaries to ensure flash space
+    rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
     if [ -f "$TMPDIR/www.tar.gz" ]; then
       mkdir -p /cache/www 2>/dev/null
       [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ] && rm -rf /data/harmony/www 2>/dev/null || true
