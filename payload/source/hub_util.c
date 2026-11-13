@@ -14,6 +14,7 @@
  */
 
 #include <stdio.h>
+#include "ota_verify.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -551,6 +552,49 @@ static const char *get_progname(const char *path) {
     return p ? p + 1 : path;
 }
 
+/* hub_util ota-verify <manifest.json> <manifest.json.sig> [key=path ...]
+ * Verifies the Ed25519 signature of an OTA manifest with the release keys built into the
+ * firmware, then the SHA-256 of each named file against its manifest entry (key = the entry
+ * name, e.g. hub_ota.tar.gz or bin/mips/hub_daemon). Prints the manifest version on success
+ * (exit 0); prints the reason and exits 1 otherwise. update.sh installs nothing without it. */
+static int run_ota_verify(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: hub_util ota-verify <manifest> <signature> [key=path ...]\n");
+        return 2;
+    }
+    char err[160];
+    char *manifest = ota_load_signed_manifest(argv[1], argv[2], err, sizeof(err));
+    if (!manifest) {
+        fprintf(stderr, "ota-verify: %s\n", err);
+        return 1;
+    }
+    char version[32];
+    if (ota_manifest_version(manifest, version, sizeof(version)) != 0) {
+        fprintf(stderr, "ota-verify: manifest has no valid version\n");
+        free(manifest);
+        return 1;
+    }
+    for (int i = 3; i < argc; i++) {
+        char spec[512];
+        snprintf(spec, sizeof(spec), "%s", argv[i]);
+        char *eq = strchr(spec, '=');
+        if (!eq || eq == spec || !eq[1]) {
+            fprintf(stderr, "ota-verify: bad file argument '%s' (want key=path)\n", argv[i]);
+            free(manifest);
+            return 2;
+        }
+        *eq = '\0';
+        if (ota_manifest_check_file(manifest, spec, eq + 1, err, sizeof(err)) != 0) {
+            fprintf(stderr, "ota-verify: %s\n", err);
+            free(manifest);
+            return 1;
+        }
+    }
+    free(manifest);
+    printf("%s\n", version);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = get_progname(argv[0]);
 
@@ -587,6 +631,8 @@ int main(int argc, char **argv) {
             return run_portal(argc - 1, argv + 1);
         if (strcmp(cmd, "sntp") == 0 || strcmp(cmd, "hub_sntp") == 0)
             return run_sntp(argc - 1, argv + 1);
+        if (strcmp(cmd, "ota-verify") == 0)
+            return run_ota_verify(argc - 1, argv + 1);
     }
 
     fprintf(stderr, "Harmony Hub Multi-Call Utility (hub_util)\n");
@@ -599,5 +645,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  dhcpd         Minimal DHCP server for recovery AP\n");
     fprintf(stderr, "  portal        Wi-Fi recovery captive portal\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
+    fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
     return 1;
 }

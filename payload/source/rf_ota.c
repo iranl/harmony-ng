@@ -4,6 +4,7 @@
 #include "rf_pairing.h"
 #include "hub_led.h"
 #include "sha256.h"
+#include "ota_verify.h"
 #include "cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -182,39 +183,29 @@ static void get_hub_version(char *out_ver, size_t sz) {
 
 bool rf_ota_verify_manifest(const uint8_t *digest, char *err_buf, size_t err_sz) {
     const char *manifest_path = "/tmp/remote_manifest.json";
+    const char *sig_path = "/tmp/remote_manifest.json.sig";
     if (err_buf && err_sz > 0) {
         snprintf(err_buf, err_sz, "Remote OTA manifest missing or invalid");
     }
 
     if (access(manifest_path, R_OK) != 0) {
+        unlink(sig_path);
         return false;
     }
 
-    FILE *mf = fopen(manifest_path, "r");
-    if (!mf) {
-        unlink(manifest_path);
-        return false;
-    }
-
-    fseek(mf, 0, SEEK_END);
-    long msz = ftell(mf);
-    fseek(mf, 0, SEEK_SET);
-    if (msz <= 0 || msz >= 200000) {
-        fclose(mf);
-        unlink(manifest_path);
-        return false;
-    }
-
-    char *mbuf = malloc(msz + 1);
+    /* The manifest must carry a valid release signature (ota_verify.c): the download server
+     * and TLS are not trusted, so an unsigned or altered manifest is refused. */
+    char sig_err[160];
+    char *mbuf = ota_load_signed_manifest(manifest_path, sig_path, sig_err, sizeof(sig_err));
+    unlink(sig_path);
     if (!mbuf) {
-        fclose(mf);
+        printf("[-] Remote OTA manifest refused: %s\n", sig_err);
+        if (err_buf && err_sz > 0) {
+            snprintf(err_buf, err_sz, "Remote OTA manifest not signed by a release key");
+        }
         unlink(manifest_path);
         return false;
     }
-
-    size_t n = fread(mbuf, 1, msz, mf);
-    mbuf[n] = '\0';
-    fclose(mf);
 
     cJSON *mroot = cJSON_Parse(mbuf);
     free(mbuf);
@@ -301,6 +292,7 @@ void *rf_ota_sender_worker(void *arg) {
             printf("[*] Remote OTA image in /tmp is older than 2 hours; purging stale cache\n");
             unlink(ota_path);
             unlink(manifest_path);
+            unlink("/tmp/remote_manifest.json.sig");
         }
     }
 
@@ -318,12 +310,13 @@ void *rf_ota_sender_worker(void *arg) {
             rc = system(fetch_cmd);
         }
         if (rc != 0 || access(ota_path, R_OK) != 0) {
-            char wget_cmd[1024];
+            char wget_cmd[1400];
             snprintf(wget_cmd, sizeof(wget_cmd),
                      "/cache/bin/busybox wget -q -T 10 -O /tmp/remote_manifest.json '%s/manifest.json' 2>/dev/null; "
+                     "/cache/bin/busybox wget -q -T 10 -O /tmp/remote_manifest.json.sig '%s/manifest.json.sig' 2>/dev/null; "
                      "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/remote_ui.ota.gz' 2>/dev/null || "
                      "/cache/bin/busybox wget -q -T 20 -O /tmp/remote_ui.ota.gz '%s/bin/arm/elite_ui.ota.gz' 2>/dev/null",
-                     repo, repo, repo);
+                     repo, repo, repo, repo);
             system(wget_cmd);
         }
         f = fopen(ota_path, "rb");

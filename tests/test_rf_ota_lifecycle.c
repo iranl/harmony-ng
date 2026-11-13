@@ -28,6 +28,7 @@
 #include "timezone_db.h"
 #include "hub_led.h"
 #include "cJSON.h"
+#include "tweetnacl.h"
 
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s (line %d)\n", msg, __LINE__); } else { printf("  PASS %s\n", msg); } } while (0)
@@ -70,6 +71,33 @@ static void write_file(const char *path, const char *content) {
     assert(f != NULL);
     fputs(content, f);
     fclose(f);
+}
+
+/* Manifest written together with a signature by the test release key (seed 1..32, built in
+ * with -DOTA_EXTRA_PUBKEY from tests/ota_test_pubkey.txt): the cases below test what
+ * rf_ota_verify_manifest checks after the signature. */
+static void sign_manifest_with(const unsigned char *seed, const unsigned char *pk, const char *content) {
+    unsigned char sk[64];
+    memcpy(sk, seed, 32);
+    memcpy(sk + 32, pk, 32);
+    size_t len = strlen(content);
+    unsigned char *sm = malloc(len + 64);
+    unsigned long long smlen;
+    crypto_sign(sm, &smlen, (const unsigned char *)content, len, sk);
+    FILE *f = fopen("/tmp/remote_manifest.json.sig", "w");
+    for (int i = 0; i < 64; i++) fprintf(f, "%02x", sm[i]);
+    fprintf(f, "\n");
+    fclose(f);
+    free(sm);
+}
+
+static const unsigned char k_test_seed[32] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                                               17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32 };
+static const unsigned char k_test_pk[32] = { OTA_EXTRA_PUBKEY };
+
+static void write_signed_manifest(const char *content) {
+    write_file("/tmp/remote_manifest.json", content);
+    sign_manifest_with(k_test_seed, k_test_pk, content);
 }
 
 int main(void) {
@@ -122,19 +150,19 @@ int main(void) {
     CHECK(strstr(err_buf, "missing or invalid") != NULL, "error message indicates missing or invalid manifest");
 
     /* Case 4B: Truncated / invalid JSON */
-    write_file("/tmp/remote_manifest.json", "{\"version\": \"2.1.0\", \"files\": ");
+    write_signed_manifest( "{\"version\": \"2.1.0\", \"files\": ");
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails on truncated JSON");
     CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "truncated manifest unlinked");
 
     /* Case 4C: HTML error page */
-    write_file("/tmp/remote_manifest.json", "<html><body>502 Bad Gateway</body></html>");
+    write_signed_manifest( "<html><body>502 Bad Gateway</body></html>");
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails on HTML error page");
     CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "HTML manifest unlinked");
 
     /* Case 4D: Missing version and file entry */
-    write_file("/tmp/remote_manifest.json", "{\"status\": \"ok\"}");
+    write_signed_manifest( "{\"status\": \"ok\"}");
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails when version/files missing");
 
@@ -143,13 +171,13 @@ int main(void) {
     snprintf(bad_ver_json, sizeof(bad_ver_json),
              "{\"version\":\"2.5.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"%s\"}}}",
              test_sha_hex);
-    write_file("/tmp/remote_manifest.json", bad_ver_json);
+    write_signed_manifest( bad_ver_json);
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails on version mismatch");
     CHECK(strstr(err_buf, "version mismatch") != NULL, "error message indicates version mismatch");
 
     /* Case 4F: File entry without sha256 */
-    write_file("/tmp/remote_manifest.json", "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{}}}");
+    write_signed_manifest( "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{}}}");
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails when sha256 missing in file entry");
 
@@ -158,24 +186,47 @@ int main(void) {
     snprintf(bad_sha_json, sizeof(bad_sha_json),
              "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"%s\"}}}",
              "0000000000000000000000000000000000000000000000000000000000000000");
-    write_file("/tmp/remote_manifest.json", bad_sha_json);
+    write_signed_manifest( bad_sha_json);
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(!m_res, "rf_ota_verify_manifest fails on SHA-256 mismatch");
     CHECK(strstr(err_buf, "SHA-256 checksum mismatch") != NULL, "error message indicates SHA mismatch");
+
+    /* Case 4I: correct manifest without a signature, or signed with a key that is not a release key */
+    {
+        char good_unsigned[256];
+        snprintf(good_unsigned, sizeof(good_unsigned),
+                 "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"%s\"}}}", test_sha_hex);
+        write_file("/tmp/remote_manifest.json", good_unsigned);
+        unlink("/tmp/remote_manifest.json.sig");
+        m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
+        CHECK(!m_res && strstr(err_buf, "not signed"), "correct manifest without a signature refused");
+        CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "unsigned manifest unlinked");
+        static const unsigned char other_seed[32] = { 0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a,
+            0xf4, 0x92, 0xec, 0x2c, 0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03,
+            0x1c, 0xae, 0x7f, 0x60 };
+        static const unsigned char other_pk[32] = { 0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe,
+            0xd3, 0xc9, 0x64, 0x07, 0x3a, 0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68,
+            0xf7, 0x07, 0x51, 0x1a };
+        write_file("/tmp/remote_manifest.json", good_unsigned);
+        sign_manifest_with(other_seed, other_pk, good_unsigned);
+        m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
+        CHECK(!m_res && strstr(err_buf, "not signed"), "correct manifest signed with another key refused");
+        CHECK(access("/tmp/remote_manifest.json.sig", F_OK) != 0, "signature file unlinked");
+    }
 
     /* Case 4H: Valid manifest with matching version and matching SHA-256 */
     char good_json[512];
     snprintf(good_json, sizeof(good_json),
              "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"%s\"}}}",
              test_sha_hex);
-    write_file("/tmp/remote_manifest.json", good_json);
+    write_signed_manifest( good_json);
     m_res = rf_ota_verify_manifest(test_digest, err_buf, sizeof(err_buf));
     CHECK(m_res, "rf_ota_verify_manifest succeeds on matching version and SHA-256");
     CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "manifest unlinked after verification");
 
     /* 5. Test manifest marker behavior when image is present in /tmp */
     /* Case 5A: Image in /tmp + manifest with version mismatch (9.9.9) */
-    write_file("/tmp/remote_manifest.json", "{\"version\":\"9.9.9\"}");
+    write_signed_manifest( "{\"version\":\"9.9.9\"}");
     FILE *f_mismatch = fopen("/tmp/remote_ui.ota.gz", "wb");
     assert(f_mismatch != NULL);
     uint8_t dummy_mismatch[512];
@@ -188,7 +239,7 @@ int main(void) {
     CHECK(access("/tmp/remote_manifest.json", F_OK) != 0, "mismatched manifest unlinked");
 
     /* Case 5B: Image in /tmp + manifest with SHA mismatch */
-    write_file("/tmp/remote_manifest.json",
+    write_signed_manifest(
                "{\"version\":\"2.1.0\",\"files\":{\"bin/arm/remote_ui.ota.gz\":{\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}}}");
     FILE *f_shamismatch = fopen("/tmp/remote_ui.ota.gz", "wb");
     assert(f_shamismatch != NULL);

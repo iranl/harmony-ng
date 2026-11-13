@@ -479,7 +479,7 @@ When a button is pressed or released on a Companion or Smart Control remote, it 
 
 ## Official Firmware Management & Icon Extraction
 
-The custom firmware environment includes a clean-room HID flashing tool (`tools/harmony_firmware.py`) that queries official Logitech SUS update servers, downloads official signed firmware bundles (`.hfw2`), flashes devices over USB HID without Logitech software, and extracts all remote UI assets.
+The custom firmware environment includes a clean-room HID flashing tool (`tools/harmony_firmware.py`) that queries official Logitech SUS update servers, downloads official firmware bundles (`.hfw2`) over HTTPS with normal certificate checks, flashes devices over USB HID without Logitech software, and extracts all remote UI assets.
 
 ### 1. Check & Flash Official Remote Firmware
 ```bash

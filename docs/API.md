@@ -375,6 +375,7 @@ Checks for newer release bundles.
 ### 2.3 Apply Update
 #### `POST /api/update-apply`
 Executes `/data/harmony/update.sh` in the background and restarts services.
+- **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
 - **Response `200 OK`**:
   ```json
   {
@@ -1102,7 +1103,7 @@ Returns remote firmware chunk update progress.
 #### `POST /api/rf/ota-start?slot={1|2}`
 Starts background remote firmware update (touchscreen remotes only).
 - **Storage & Download Policy**:
-  The Hub does not store remote OTA images on flash storage. If `/tmp/remote_ui.ota.gz` is not already present in RAM, the Hub downloads `manifest.json` and the remote OTA image on-demand from the update repository into `/tmp/remote_ui.ota.gz`.
+  The Hub does not store remote OTA images on flash storage. If `/tmp/remote_ui.ota.gz` is not already present in RAM, the Hub downloads `manifest.json`, `manifest.json.sig` and the remote OTA image on-demand from the update repository into `/tmp`, and sends the image only when the manifest carries a valid release signature and the image matches its SHA-256 (see `POST /api/update-apply`). An image staged by hand without a manifest is sent as is.
   Developers or offline hubs can stage a local image using `python build/deploy_hub.py <IP> --stage-remote-ota`, which uploads the local binary to `/tmp/remote_ui.ota.gz` in RAM without internet access or flash writes.
   *Note*: Authentication tokens are not forwarded during background OTA fetches; private repositories requiring tokens should stage the remote firmware image using `--stage-remote-ota`.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
