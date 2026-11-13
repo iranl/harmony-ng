@@ -110,11 +110,19 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async saveNewDevice(data) {
-    return this.postForm('/ir/new-device', data);
+    const payload = { ...data };
+    if (data.config && typeof data.config === 'object') {
+      Object.assign(payload, data.config);
+    }
+    return this.postForm('/ir/new-device', payload);
   }
 
   async saveDeviceDetails(data) {
-    return this.postForm('/ir/device', data);
+    const payload = { ...data };
+    if (data.config && typeof data.config === 'object') {
+      Object.assign(payload, data.config);
+    }
+    return this.postForm('/ir/device', payload);
   }
 
   async deleteDevice(deviceId) {

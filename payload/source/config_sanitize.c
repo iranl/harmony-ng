@@ -161,6 +161,19 @@ void sanitize_devices_json(cJSON *root) {
             cJSON_AddNumberToObject(cdev, "mqttPulseMs", (jpul && cJSON_IsNumber(jpul)) ? jpul->valueint : 1000);
         }
 
+        /* Plugin */
+        cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(src_d, "plugin");
+        if (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring && j_plug->valuestring[0]) {
+            cJSON_AddStringToObject(cdev, "plugin", j_plug->valuestring);
+        } else if (type_str && strncasecmp(type_str, "plugin:", 7) == 0) {
+            cJSON_AddStringToObject(cdev, "plugin", type_str + 7);
+        }
+
+        cJSON *j_cfg = cJSON_GetObjectItemCaseSensitive(src_d, "config");
+        if (j_cfg && cJSON_IsObject(j_cfg)) {
+            cJSON_AddItemToObject(cdev, "config", cJSON_Duplicate(j_cfg, 1));
+        }
+
         /* Power Sequences */
         cJSON *po = cJSON_GetObjectItemCaseSensitive(src_d, "powerOnSequence");
         if (po && cJSON_IsArray(po)) {

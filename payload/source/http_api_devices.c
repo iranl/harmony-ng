@@ -672,6 +672,52 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddItemToObject(found_dev, "powerOffSequence", pf_copy);
                 }
 
+                /* Plugin identification and settings persistence */
+                cJSON *j_config = cJSON_GetObjectItemCaseSensitive(p, "config");
+                if (j_config) {
+                    if (cJSON_IsObject(j_config)) {
+                        cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
+                        cJSON_AddItemToObject(found_dev, "config", cJSON_Duplicate(j_config, 1));
+                    } else if (cJSON_IsString(j_config) && j_config->valuestring && j_config->valuestring[0]) {
+                        cJSON *parsed_cfg = cJSON_Parse(j_config->valuestring);
+                        if (parsed_cfg && cJSON_IsObject(parsed_cfg)) {
+                            cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
+                            cJSON_AddItemToObject(found_dev, "config", parsed_cfg);
+                        } else if (parsed_cfg) {
+                            cJSON_Delete(parsed_cfg);
+                        }
+                    }
+                }
+
+                cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(p, "plugin");
+                if (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring && j_plug->valuestring[0]) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                    cJSON_AddStringToObject(found_dev, "plugin", j_plug->valuestring);
+                } else if (j_type && cJSON_IsString(j_type) && strncasecmp(j_type->valuestring, "plugin:", 7) == 0) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                    cJSON_AddStringToObject(found_dev, "plugin", j_type->valuestring + 7);
+                }
+
+                /* Also merge flat parameters into found_dev->config if present (e.g. from urlencoded form posts) */
+                const char *flat_fields[] = { "ip_address", "host", "port", "host_mac", "controller_mac", "host_ip", NULL };
+                for (int fi = 0; flat_fields[fi]; fi++) {
+                    cJSON *jf = cJSON_GetObjectItemCaseSensitive(p, flat_fields[fi]);
+                    if (jf) {
+                        cJSON *cur_cfg = cJSON_GetObjectItemCaseSensitive(found_dev, "config");
+                        if (!cur_cfg || !cJSON_IsObject(cur_cfg)) {
+                            cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
+                            cur_cfg = cJSON_CreateObject();
+                            cJSON_AddItemToObject(found_dev, "config", cur_cfg);
+                        }
+                        cJSON_DeleteItemFromObjectCaseSensitive(cur_cfg, flat_fields[fi]);
+                        if (cJSON_IsNumber(jf)) {
+                            cJSON_AddNumberToObject(cur_cfg, flat_fields[fi], jf->valuedouble);
+                        } else if (cJSON_IsString(jf)) {
+                            cJSON_AddStringToObject(cur_cfg, flat_fields[fi], jf->valuestring);
+                        }
+                    }
+                }
+
                 config_store_save_devices(root);
                 success = 1;
             }
