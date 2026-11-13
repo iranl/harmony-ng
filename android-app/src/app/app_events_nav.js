@@ -364,6 +364,110 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         if (pCustom) pCustom.style.display = (mode === 'custom') ? 'block' : 'none';
       });
     });
+    document.querySelectorAll('.plug-add-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const mode = tab.getAttribute('data-plug-mode');
+        document.querySelectorAll('.plug-add-tab').forEach(t => {
+          t.classList.toggle('btn-primary', t === tab);
+          t.classList.toggle('btn-ghost', t !== tab);
+        });
+        const pPresets = document.getElementById('addModePluginPresets');
+        const pCustom = document.getElementById('addModePluginCustom');
+        if (pPresets) pPresets.style.display = (mode === 'presets') ? 'block' : 'none';
+        if (pCustom) pCustom.style.display = (mode === 'custom') ? 'block' : 'none';
+      });
+    });
+    document.getElementById('plugPresetsFilter')?.addEventListener('input', () => {
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
+      if (dev) this.renderPluginPresetsList(dev);
+    });
+    document.getElementById('btnPlugAddAllPresets')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+      if (!dev) return;
+      const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+      const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+      let defCmds = plug?.device_definition?.default_commands || [];
+      if (defCmds.length === 0 && pluginId === 'roku-ecp') {
+        defCmds = [
+          { name: 'Home', keyCode: 'PLUGIN:roku-ecp:Home' },
+          { name: 'Back', keyCode: 'PLUGIN:roku-ecp:Back' },
+          { name: 'Select', keyCode: 'PLUGIN:roku-ecp:Select' },
+          { name: 'DirectionUp', keyCode: 'PLUGIN:roku-ecp:Up' },
+          { name: 'DirectionDown', keyCode: 'PLUGIN:roku-ecp:Down' },
+          { name: 'DirectionLeft', keyCode: 'PLUGIN:roku-ecp:Left' },
+          { name: 'DirectionRight', keyCode: 'PLUGIN:roku-ecp:Right' },
+          { name: 'Play', keyCode: 'PLUGIN:roku-ecp:Play' },
+          { name: 'Rev', keyCode: 'PLUGIN:roku-ecp:Rev' },
+          { name: 'Fwd', keyCode: 'PLUGIN:roku-ecp:Fwd' },
+          { name: 'VolumeUp', keyCode: 'PLUGIN:roku-ecp:VolumeUp' },
+          { name: 'VolumeDown', keyCode: 'PLUGIN:roku-ecp:VolumeDown' },
+          { name: 'VolumeMute', keyCode: 'PLUGIN:roku-ecp:VolumeMute' },
+          { name: 'PowerOff', keyCode: 'PLUGIN:roku-ecp:PowerOff' },
+          { name: 'PowerOn', keyCode: 'PLUGIN:roku-ecp:PowerOn' }
+        ];
+      }
+      const existingNames = new Set((dev.commands || []).map(c => (typeof c === 'string' ? c : c.name || '').toLowerCase()));
+      const toAdd = defCmds.filter(c => !existingNames.has(c.name.toLowerCase()));
+      if (toAdd.length === 0) return alert('All plugin commands are already added to this device.');
+      const btn = document.getElementById('btnPlugAddAllPresets');
+      if (btn) btn.textContent = 'Adding...';
+      try {
+        for (const c of toAdd) {
+          await this.client.saveLearnedCommand({
+            deviceId: dev.id,
+            name: c.name,
+            raw: c.keyCode,
+            mode: 'plugin'
+          });
+        }
+        await this.refreshData();
+        const updatedDev = (this.inventory.devices || []).find(d => String(d.id) === String(dev.id));
+        if (updatedDev) this.updateStudioDeviceView(updatedDev);
+      } catch (err) {
+        alert(t('failed_to_save', 'Failed to save: ') + err.message);
+      } finally {
+        if (btn) btn.textContent = '+ Add All';
+      }
+    });
+    document.getElementById('btnTestPlugCustom')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const name = document.getElementById('plugCustomCmdName')?.value.trim();
+      const code = document.getElementById('plugCustomCmdCode')?.value.trim();
+      if (!code) return alert('Please enter a KeyCode or Action.');
+      const stat = document.getElementById('plugCustomStatus');
+      if (stat) stat.textContent = 'Sending test...';
+      try {
+        await this.client.sendCommand(devId, name || code);
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Test command sent!</span>';
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    });
+    document.getElementById('btnSavePlugCustom')?.addEventListener('click', async () => {
+      const devId = this.selectedIrDeviceId || document.getElementById('manageDeviceSelect')?.value;
+      const name = document.getElementById('plugCustomCmdName')?.value.trim();
+      const code = document.getElementById('plugCustomCmdCode')?.value.trim();
+      if (!name || !code) return alert('Please enter both Command Name and KeyCode/Action.');
+      const stat = document.getElementById('plugCustomStatus');
+      if (stat) stat.textContent = 'Saving command...';
+      try {
+        await this.client.saveLearnedCommand({
+          deviceId: devId,
+          name,
+          raw: code.startsWith('PLUGIN:') ? code : `PLUGIN:${code}`,
+          mode: 'plugin'
+        });
+        if (stat) stat.innerHTML = '<span style="color:var(--success)">✓ Command saved!</span>';
+        document.getElementById('plugCustomCmdName').value = '';
+        document.getElementById('plugCustomCmdCode').value = '';
+        await this.refreshData();
+        const dev = (this.inventory.devices || []).find(d => String(d.id) === String(devId));
+        if (dev) this.updateStudioDeviceView(dev);
+      } catch (err) {
+        if (stat) stat.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    });
     document.getElementById('btPresetsFilter')?.addEventListener('input', () => {
       const dev = (this.inventory.devices || []).find(d => String(d.id) === String(document.getElementById('manageDeviceSelect')?.value));
       if (dev) this.renderBtPresetsList(dev);
@@ -396,9 +500,14 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           if (typeof this.updateDeviceStudioPluginTypes === 'function') {
             this.updateDeviceStudioPluginTypes();
           }
+          const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
           const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
+          const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
+          const isIr = !isPlugin && !isBt && !isMqtt;
           const devEditBtBox = document.getElementById('devEditBtReconnectBox');
           if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+          const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+          if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
 
           const nameInp = document.getElementById('editDevName');
           const typeInp = document.getElementById('editDevType');
@@ -406,10 +515,24 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const mdlInp = document.getElementById('editDevModel');
           const iconInp = document.getElementById('editDevIcon');
           if (nameInp) nameInp.value = dev.name || '';
-          if (typeInp) {
-            typeInp.value = dev.type || '';
+          if (typeInp && dev.type) {
+            let opt = typeInp.querySelector(`option[value="${dev.type}"]`);
+            if (!opt && dev.type.startsWith('plugin:')) {
+              let optgroup = document.getElementById('editDevTypePluginGroup');
+              if (!optgroup) {
+                optgroup = document.createElement('optgroup');
+                optgroup.id = 'editDevTypePluginGroup';
+                optgroup.label = 'Community Plugins';
+                typeInp.appendChild(optgroup);
+              }
+              opt = document.createElement('option');
+              opt.value = dev.type;
+              opt.textContent = `${dev.type.substring(7)} (Plugin)`;
+              optgroup.appendChild(opt);
+            }
+            typeInp.value = dev.type;
             if (typeof this.handleEditDeviceTypeChanged === 'function') {
-              this.handleEditDeviceTypeChanged(dev.type || '', dev.config || dev);
+              this.handleEditDeviceTypeChanged(dev.type, dev.config || dev);
             }
           }
           if (mfgInp) mfgInp.value = dev.manufacturer || '';
@@ -447,8 +570,21 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
     });
     document.getElementById('editDevType')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      const isBt = (val === 'BT');
+      const isPlugin = val.startsWith('plugin:');
+      const isMqtt = (val === 'MQTT');
+      const isIr = !isBt && !isPlugin && !isMqtt;
       const devEditBtBox = document.getElementById('devEditBtReconnectBox');
-      if (devEditBtBox) devEditBtBox.style.display = e.target.value === 'BT' ? 'block' : 'none';
+      if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
+      const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+      if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+      if (typeof this.handleEditDeviceTypeChanged === 'function') {
+        const sel = document.getElementById('manageDeviceSelect');
+        const devId = this.selectedIrDeviceId || sel?.value;
+        const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+        this.handleEditDeviceTypeChanged(val, curDev?.config || curDev);
+      }
     });
     document.getElementById('btnSaveDevDetails')?.addEventListener('click', async () => {
       const sel = document.getElementById('manageDeviceSelect');
@@ -483,12 +619,23 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       let pluginCfg = null;
       if (type && type.startsWith('plugin:')) {
         pluginId = type.substring(7);
+        pluginCfg = {};
+        document.querySelectorAll('[id^="edit_plug_cfg_"]').forEach(inp => {
+          const key = inp.id.replace('edit_plug_cfg_', '');
+          pluginCfg[key] = (inp.type === 'number') ? Number(inp.value) : inp.value;
+        });
         const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
         if (plug?.device_definition?.config_fields) {
-          pluginCfg = {};
           for (const f of plug.device_definition.config_fields) {
-            const val = document.getElementById(`edit_plug_cfg_${f.key}`)?.value;
-            pluginCfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val || f.default || '');
+            if (pluginCfg[f.key] === undefined || pluginCfg[f.key] === '') {
+              const el = document.getElementById(`edit_plug_cfg_${f.key}`);
+              const val = el ? el.value : undefined;
+              if (val !== undefined && val !== '') {
+                pluginCfg[f.key] = (f.type === 'number') ? Number(val) : val;
+              } else if (f.default !== undefined) {
+                pluginCfg[f.key] = f.default;
+              }
+            }
           }
         }
       }

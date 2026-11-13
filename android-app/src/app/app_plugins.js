@@ -615,18 +615,51 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     }
 
     const pluginId = selectedType.substring(7);
+    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
+      this.client.getPlugins().then(res => {
+        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+        this.updateDeviceStudioPluginTypes();
+        this.handleEditDeviceTypeChanged(selectedType, prefillConfig);
+      }).catch(() => {});
+    }
+
     const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-    if (!plug || !plug.device_definition || !plug.device_definition.config_fields) {
+    let fields = plug?.device_definition?.config_fields;
+
+    if (!fields && prefillConfig) {
+      const cfgObj = prefillConfig.config || prefillConfig;
+      const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
+      if (knownKeys.length > 0) {
+        fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : 'string' }));
+      }
+    }
+    if (!fields && pluginId === 'roku-ecp') {
+      fields = [
+        { key: 'ip_address', label: 'IP Address', type: 'string', placeholder: '192.168.1.50' },
+        { key: 'port', label: 'Port', type: 'number', default: 8060 }
+      ];
+    } else if (!fields && pluginId === 'android-tv') {
+      fields = [
+        { key: 'host', label: 'IP Address', type: 'string', placeholder: '192.168.1.60' },
+        { key: 'port', label: 'Port', type: 'number', default: 6467 }
+      ];
+    } else if (!fields && pluginId === 'ps5-wake') {
+      fields = [
+        { key: 'host_mac', label: 'PS5 Bluetooth MAC Address', type: 'string', placeholder: 'AA:BB:CC:DD:EE:FF' }
+      ];
+    }
+
+    if (!fields || fields.length === 0) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
       return;
     }
 
-    const fields = plug.device_definition.config_fields;
+    const displayName = plug?.device_definition?.display_name || plug?.name || pluginId;
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); margin-top: 6px;">
-        <strong style="font-size: 12px; color: var(--accent); margin-bottom: 6px; display: block;">Plugin Settings: ${escapeHtml(plug.device_definition.display_name || plug.name)}</strong>
+        <strong style="font-size: 12px; color: var(--accent); margin-bottom: 6px; display: block;">Plugin Settings: ${escapeHtml(displayName)}</strong>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
           ${fields.map(f => {
             let curVal = '';

@@ -394,7 +394,37 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const editMdl = document.getElementById('editDevModel');
     const editIcn = document.getElementById('editDevIcon');
     if (editName) editName.value = dev.name || '';
-    if (editType) editType.value = isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR');
+    if (editType) {
+      if (isPlugin) {
+        const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : `plugin:${pluginId}`;
+        let opt = editType.querySelector(`option[value="${plugVal}"]`);
+        if (!opt) {
+          let optgroup = document.getElementById('editDevTypePluginGroup');
+          if (!optgroup) {
+            optgroup = document.createElement('optgroup');
+            optgroup.id = 'editDevTypePluginGroup';
+            optgroup.label = 'Community Plugins';
+            editType.appendChild(optgroup);
+          }
+          opt = document.createElement('option');
+          opt.value = plugVal;
+          opt.textContent = `${pluginId} (Plugin)`;
+          optgroup.appendChild(opt);
+        }
+        editType.value = plugVal;
+      } else if (isBt) {
+        editType.value = 'BT';
+      } else if (isMqtt) {
+        editType.value = 'MQTT';
+      } else {
+        editType.value = dev.type || 'IR';
+      }
+    }
+    const devEditTimingsBox = document.getElementById('devEditTimingsBox');
+    if (devEditTimingsBox) devEditTimingsBox.style.display = isIr ? 'block' : 'none';
+    if (typeof this.handleEditDeviceTypeChanged === 'function') {
+      this.handleEditDeviceTypeChanged(editType ? editType.value : (dev.type || 'IR'), dev.config || dev);
+    }
     if (editMfg) editMfg.value = dev.manufacturer || '';
     if (editMdl) editMdl.value = dev.model || '';
     if (editIcn) {
@@ -528,9 +558,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const rawVal = c.raw || c.keyCode || '';
     document.getElementById('editCmdPayload').value = rawVal;
 
+    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')) || (rawVal && rawVal.startsWith('PLUGIN:')));
     const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
-    const isIr = !isBt && !isMqtt;
+    const isIr = !isPlugin && !isBt && !isMqtt;
 
     const typeWrap = document.getElementById('editCmdTypeWrap');
     const btHint = document.getElementById('editCmdBtHint');
@@ -543,7 +574,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (payloadWrap) payloadWrap.style.display = isMqtt ? 'none' : 'block';
 
     let modeVal = 'raw';
-    if (isBt) {
+    if (isPlugin) {
+      modeVal = 'plugin';
+    } else if (isBt) {
       modeVal = 'bt';
     } else if (isMqtt) {
       modeVal = 'mqtt';
@@ -561,7 +594,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const stat = document.getElementById('cmdEditStatus');
     if (stat) stat.textContent = '';
 
-    modal.dataset.deviceType = isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR');
+    modal.dataset.deviceType = isPlugin ? 'PLUGIN' : (isBt ? 'BT' : (isMqtt ? 'MQTT' : 'IR'));
     modal.style.display = 'flex';
   }
 
@@ -730,17 +763,20 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
 
   updateStudioAddPanels(dev) {
     if (!dev) return;
+    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
     const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
-    const isIr = !isBt && !isMqtt;
+    const isIr = !isPlugin && !isBt && !isMqtt;
 
     const irTabsRow = document.getElementById('irAddTabsRow');
     const btTabsRow = document.getElementById('btAddTabsRow');
     const mqttTabsRow = document.getElementById('mqttAddTabsRow');
+    const pluginTabsRow = document.getElementById('pluginAddTabsRow');
 
     if (irTabsRow) irTabsRow.style.display = isIr ? 'flex' : 'none';
     if (btTabsRow) btTabsRow.style.display = isBt ? 'flex' : 'none';
     if (mqttTabsRow) mqttTabsRow.style.display = isMqtt ? 'flex' : 'none';
+    if (pluginTabsRow) pluginTabsRow.style.display = isPlugin ? 'flex' : 'none';
 
     const pLearn = document.getElementById('addModeLearn');
     const pDb = document.getElementById('addModeDb');
@@ -748,11 +784,15 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const pBtPresets = document.getElementById('addModeBtPresets');
     const pBtCustom = document.getElementById('addModeBtCustom');
     const pMqtt = document.getElementById('addModeMqtt');
+    const pPlugPresets = document.getElementById('addModePluginPresets');
+    const pPlugCustom = document.getElementById('addModePluginCustom');
 
     if (isIr) {
       if (pBtPresets) pBtPresets.style.display = 'none';
       if (pBtCustom) pBtCustom.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
 
       const activeTab = document.querySelector('.ir-add-tab.btn-primary')?.getAttribute('data-add-mode') || 'learn';
       if (pLearn) pLearn.style.display = (activeTab === 'learn') ? 'block' : 'none';
@@ -763,6 +803,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (pDb) pDb.style.display = 'none';
       if (pPaste) pPaste.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
 
       const activeBtTab = document.querySelector('.bt-add-tab.btn-primary')?.getAttribute('data-bt-mode') || 'presets';
       if (pBtPresets) pBtPresets.style.display = (activeBtTab === 'presets') ? 'block' : 'none';
@@ -775,10 +817,107 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
       if (pPaste) pPaste.style.display = 'none';
       if (pBtPresets) pBtPresets.style.display = 'none';
       if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pPlugPresets) pPlugPresets.style.display = 'none';
+      if (pPlugCustom) pPlugCustom.style.display = 'none';
       if (pMqtt) pMqtt.style.display = 'block';
 
       this.updateMqttTopicPreview(dev);
+    } else if (isPlugin) {
+      if (pLearn) pLearn.style.display = 'none';
+      if (pDb) pDb.style.display = 'none';
+      if (pPaste) pPaste.style.display = 'none';
+      if (pBtPresets) pBtPresets.style.display = 'none';
+      if (pBtCustom) pBtCustom.style.display = 'none';
+      if (pMqtt) pMqtt.style.display = 'none';
+
+      const activePlugTab = document.querySelector('.plug-add-tab.btn-primary')?.getAttribute('data-plug-mode') || 'presets';
+      if (pPlugPresets) pPlugPresets.style.display = (activePlugTab === 'presets') ? 'block' : 'none';
+      if (pPlugCustom) pPlugCustom.style.display = (activePlugTab === 'custom') ? 'block' : 'none';
+
+      this.renderPluginPresetsList(dev);
     }
+  }
+
+  renderPluginPresetsList(dev) {
+    const cont = document.getElementById('plugPresetsContainer');
+    if (!cont) return;
+    const filter = (document.getElementById('plugPresetsFilter')?.value || '').toLowerCase().trim();
+    const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    let defCmds = plug?.device_definition?.default_commands || [];
+
+    if (defCmds.length === 0 && pluginId === 'roku-ecp') {
+      defCmds = [
+        { name: 'Home', keyCode: 'PLUGIN:roku-ecp:Home' },
+        { name: 'Back', keyCode: 'PLUGIN:roku-ecp:Back' },
+        { name: 'Select', keyCode: 'PLUGIN:roku-ecp:Select' },
+        { name: 'DirectionUp', keyCode: 'PLUGIN:roku-ecp:Up' },
+        { name: 'DirectionDown', keyCode: 'PLUGIN:roku-ecp:Down' },
+        { name: 'DirectionLeft', keyCode: 'PLUGIN:roku-ecp:Left' },
+        { name: 'DirectionRight', keyCode: 'PLUGIN:roku-ecp:Right' },
+        { name: 'Play', keyCode: 'PLUGIN:roku-ecp:Play' },
+        { name: 'Rev', keyCode: 'PLUGIN:roku-ecp:Rev' },
+        { name: 'Fwd', keyCode: 'PLUGIN:roku-ecp:Fwd' },
+        { name: 'VolumeUp', keyCode: 'PLUGIN:roku-ecp:VolumeUp' },
+        { name: 'VolumeDown', keyCode: 'PLUGIN:roku-ecp:VolumeDown' },
+        { name: 'VolumeMute', keyCode: 'PLUGIN:roku-ecp:VolumeMute' },
+        { name: 'PowerOff', keyCode: 'PLUGIN:roku-ecp:PowerOff' },
+        { name: 'PowerOn', keyCode: 'PLUGIN:roku-ecp:PowerOn' }
+      ];
+    } else if (defCmds.length === 0 && pluginId === 'ps5-wake') {
+      defCmds = [
+        { name: 'PowerOn', keyCode: 'PLUGIN:ps5-wake:Wake' },
+        { name: 'Wake', keyCode: 'PLUGIN:ps5-wake:Wake' }
+      ];
+    }
+
+    const existingCmds = dev.commands || [];
+    const existingNames = new Set(existingCmds.map(c => (typeof c === 'string' ? c : (c.name || '')).toLowerCase()));
+
+    const filtered = defCmds.filter(c => !filter || c.name.toLowerCase().includes(filter));
+    if (filtered.length === 0) {
+      cont.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${defCmds.length === 0 ? 'No default commands defined by plugin.' : 'No commands match filter.'}</div>`;
+      return;
+    }
+
+    cont.innerHTML = filtered.map(c => {
+      const isAdded = existingNames.has(c.name.toLowerCase());
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-card); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <div>
+            <strong style="font-size: 12px; color: var(--text-main);">${escapeHtml(c.name)}</strong>
+            <span class="subtle mini" style="margin-left: 6px; font-family: monospace; font-size: 10px;">${escapeHtml(c.keyCode || '')}</span>
+          </div>
+          <div>
+            ${isAdded ? `<span class="badge ok mini">Added</span>` : `<button type="button" class="btn btn-xs btn-primary btn-plug-preset-add" data-name="${escapeHtml(c.name)}" data-code="${escapeHtml(c.keyCode || '')}">+ Add</button>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    cont.querySelectorAll('.btn-plug-preset-add').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const name = btn.getAttribute('data-name');
+        const keyCode = btn.getAttribute('data-code');
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+          await this.client.saveLearnedCommand({
+            deviceId: dev.id,
+            name,
+            raw: keyCode,
+            mode: 'plugin'
+          });
+          await this.refreshData();
+          const updatedDev = (this.inventory.devices || []).find(d => String(d.id) === String(dev.id));
+          if (updatedDev) this.updateStudioDeviceView(updatedDev);
+        } catch (err) {
+          alert(t('failed_to_save', 'Failed to save: ') + err.message);
+          btn.textContent = '+ Add';
+          btn.disabled = false;
+        }
+      });
+    });
   }
 
   renderBtPresetsList(dev) {
