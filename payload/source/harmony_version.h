@@ -8,7 +8,7 @@
  * Breaking changes: No backward compatibility with legacy codex naming.
  * Deployment requires force deploy using updated deploy scripts.
  */
-#define HARMONY_VERSION "2.3.0"
+#define HARMONY_VERSION "2.4.0"
 #define HARMONY_REMOTE_VERSION HARMONY_VERSION
 
 #ifndef HARMONY_COMMIT
