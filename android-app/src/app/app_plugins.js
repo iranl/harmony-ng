@@ -171,6 +171,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
                 ? `<button type="button" class="btn btn-xs btn-outline btn-plugin-stop" data-plugin-id="${escapeHtml(p.id)}">Stop</button>`
                 : `<button type="button" class="btn btn-xs btn-outline btn-plugin-start" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>Start</button>`
               }
+              ${p.device_definition ? `
+                <button type="button" class="btn btn-xs btn-primary btn-plugin-add-dev" data-plugin-id="${escapeHtml(p.id)}" ${!isEnabled ? 'disabled' : ''}>+ Add Device</button>
+              ` : ''}
             </div>
             <button type="button" class="btn btn-xs btn-ghost btn-plugin-uninstall" data-plugin-id="${escapeHtml(p.id)}" style="color: var(--danger);">Uninstall</button>
           </div>
@@ -257,6 +260,13 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         } finally {
           btn.disabled = false;
         }
+      });
+    });
+
+    container.querySelectorAll('.btn-plugin-add-dev').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-plugin-id');
+        this.openAddDeviceForPlugin(id);
       });
     });
   }
@@ -479,6 +489,13 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     const select = document.getElementById('newDeviceType');
     if (!select) return;
 
+    if (!this._deviceTypeListenerAttached) {
+      this._deviceTypeListenerAttached = true;
+      select.addEventListener('change', (e) => {
+        this.handleDeviceTypeChanged(e.target.value);
+      });
+    }
+
     let optgroup = document.getElementById('newDevicePluginGroup');
     if (!optgroup) {
       optgroup = document.createElement('optgroup');
@@ -501,6 +518,28 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       opt.textContent = `${p.device_definition.display_name || p.name} (Plugin)`;
       optgroup.appendChild(opt);
     });
+  }
+
+  openAddDeviceForPlugin(pluginId) {
+    this.switchTab('ir-studio');
+    const box = document.getElementById('studioNewDeviceBox');
+    if (box) box.style.display = 'block';
+    this.updateDeviceStudioPluginTypes();
+    const select = document.getElementById('newDeviceType');
+    if (select) {
+      select.value = `plugin:${pluginId}`;
+      this.handleDeviceTypeChanged(`plugin:${pluginId}`);
+    }
+    const nameInput = document.getElementById('newDeviceName');
+    const mfgInput = document.getElementById('newDeviceManufacturer');
+    const modelInput = document.getElementById('newDeviceModel');
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    if (plug) {
+      if (nameInput) nameInput.value = plug.device_definition?.display_name || plug.name;
+      if (mfgInput && !mfgInput.value) mfgInput.value = plug.author || 'Community';
+      if (modelInput && !modelInput.value) modelInput.value = plug.device_definition?.device_type || plug.id;
+    }
+    nameInput?.focus();
   }
 
   handleDeviceTypeChanged(selectedType) {
