@@ -324,7 +324,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     // IR Studio Actions
     document.getElementById('btnStudioAddDevice')?.addEventListener('click', () => {
       const box = document.getElementById('studioNewDeviceBox');
-      if (box) box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+      if (box) {
+        const isOpening = (box.style.display === 'none');
+        box.style.display = isOpening ? 'block' : 'none';
+        if (isOpening && typeof this.updateDeviceStudioPluginTypes === 'function') {
+          this.updateDeviceStudioPluginTypes();
+        }
+      }
     });
     document.getElementById('btnStudioCancelNewDevice')?.addEventListener('click', () => {
       const box = document.getElementById('studioNewDeviceBox');

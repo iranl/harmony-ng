@@ -196,13 +196,20 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
 
   async refreshData() {
     try {
-      const [inv, acts, stat] = await Promise.all([
+      const [inv, acts, stat, plugins] = await Promise.all([
         this.client.getInventory(),
         this.client.getActivities(),
-        this.client.getStatus().catch(() => null)
+        this.client.getStatus().catch(() => null),
+        (this.client.getPlugins ? this.client.getPlugins().catch(() => null) : Promise.resolve(null))
       ]);
       this.inventory = inv || { devices: [] };
       this.activitiesData = acts || { activities: [], currentId: '-1', currentName: 'PowerOff' };
+      if (plugins) {
+        this.installedPlugins = Array.isArray(plugins) ? plugins : (plugins?.plugins || []);
+        if (typeof this.updateDeviceStudioPluginTypes === 'function') {
+          this.updateDeviceStudioPluginTypes();
+        }
+      }
 
       const hasIcons = Boolean(stat?.has_icons || getCachedIconsCount() > 0);
       const wasAvailable = stockIconsAvailable;
