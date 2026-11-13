@@ -394,6 +394,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         const curId = this.selectedIrDeviceId || sel?.value;
         const dev = (this.inventory.devices || []).find(d => String(d.id) === String(curId));
         if (dev) {
+          if (typeof this.updateDeviceStudioPluginTypes === 'function') {
+            this.updateDeviceStudioPluginTypes();
+          }
           const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
           const devEditBtBox = document.getElementById('devEditBtReconnectBox');
           if (devEditBtBox) devEditBtBox.style.display = isBt ? 'block' : 'none';
@@ -404,7 +407,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const mdlInp = document.getElementById('editDevModel');
           const iconInp = document.getElementById('editDevIcon');
           if (nameInp) nameInp.value = dev.name || '';
-          if (typeInp) typeInp.value = dev.type || '';
+          if (typeInp) {
+            typeInp.value = dev.type || '';
+            if (typeof this.handleEditDeviceTypeChanged === 'function') {
+              this.handleEditDeviceTypeChanged(dev.type || '', dev.config || dev);
+            }
+          }
           if (mfgInp) mfgInp.value = dev.manufacturer || '';
           if (mdlInp) mdlInp.value = dev.model || '';
           if (iconInp) {
@@ -472,6 +480,20 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         btTrigCmdName = parts.slice(1).join(':');
       }
 
+      let pluginId = null;
+      let pluginCfg = null;
+      if (type && type.startsWith('plugin:')) {
+        pluginId = type.substring(7);
+        const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+        if (plug?.device_definition?.config_fields) {
+          pluginCfg = {};
+          for (const f of plug.device_definition.config_fields) {
+            const val = document.getElementById(`edit_plug_cfg_${f.key}`)?.value;
+            pluginCfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val || f.default || '');
+          }
+        }
+      }
+
       const stat = document.getElementById('devEditStatus');
       const delayProblem = deviceDelayError('Inter-device delay', idd) || deviceDelayError('Inter-key delay', ikd) ||
         deviceDelayError('Hold inter-key delay', hikd) || (pod < 0 ? 'Power-on delay must not be negative' : null);
@@ -485,6 +507,8 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           deviceId: devId,
           name: name || undefined,
           type: type || undefined,
+          plugin: pluginId || undefined,
+          config: pluginCfg || undefined,
           manufacturer: mfg || undefined,
           model: model || undefined,
           icon: icon || undefined,

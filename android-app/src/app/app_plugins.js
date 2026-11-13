@@ -486,37 +486,43 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
   // --- Device Studio Integration ---
   updateDeviceStudioPluginTypes() {
-    const select = document.getElementById('newDeviceType');
-    if (!select) return;
+    ['newDeviceType', 'editDevType'].forEach(selectId => {
+      const select = document.getElementById(selectId);
+      if (!select) return;
 
-    if (!this._deviceTypeListenerAttached) {
-      this._deviceTypeListenerAttached = true;
-      select.addEventListener('change', (e) => {
-        this.handleDeviceTypeChanged(e.target.value);
+      if (!select._deviceTypeListenerAttached) {
+        select._deviceTypeListenerAttached = true;
+        select.addEventListener('change', (e) => {
+          if (selectId === 'newDeviceType') {
+            this.handleDeviceTypeChanged(e.target.value);
+          } else {
+            this.handleEditDeviceTypeChanged(e.target.value);
+          }
+        });
+      }
+
+      let optgroup = document.getElementById(`${selectId}PluginGroup`);
+      if (!optgroup) {
+        optgroup = document.createElement('optgroup');
+        optgroup.id = `${selectId}PluginGroup`;
+        optgroup.label = 'Community Plugins';
+        select.appendChild(optgroup);
+      }
+      optgroup.innerHTML = '';
+
+      const pluginsWithDev = (this.installedPlugins || []).filter(p => p.device_definition);
+      if (pluginsWithDev.length === 0) {
+        optgroup.style.display = 'none';
+        return;
+      }
+
+      optgroup.style.display = '';
+      pluginsWithDev.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = `plugin:${p.id}`;
+        opt.textContent = `${p.device_definition.display_name || p.name} (Plugin)`;
+        optgroup.appendChild(opt);
       });
-    }
-
-    let optgroup = document.getElementById('newDevicePluginGroup');
-    if (!optgroup) {
-      optgroup = document.createElement('optgroup');
-      optgroup.id = 'newDevicePluginGroup';
-      optgroup.label = 'Community Plugins';
-      select.appendChild(optgroup);
-    }
-    optgroup.innerHTML = '';
-
-    const pluginsWithDev = (this.installedPlugins || []).filter(p => p.device_definition);
-    if (pluginsWithDev.length === 0) {
-      optgroup.style.display = 'none';
-      return;
-    }
-
-    optgroup.style.display = '';
-    pluginsWithDev.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = `plugin:${p.id}`;
-      opt.textContent = `${p.device_definition.display_name || p.name} (Plugin)`;
-      optgroup.appendChild(opt);
     });
   }
 
@@ -583,6 +589,63 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
                      value="${f.default !== undefined ? escapeHtml(String(f.default)) : ''}" placeholder="${escapeHtml(f.placeholder || '')}">
             </div>
           `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  handleEditDeviceTypeChanged(selectedType, prefillConfig = null) {
+    let wrap = document.getElementById('editDevPluginConfigWrap');
+    if (!wrap) {
+      const row = document.createElement('div');
+      row.id = 'editDevPluginConfigWrap';
+      row.style.marginTop = '8px';
+      row.style.display = 'none';
+      const anchor = document.getElementById('editDevType')?.closest('.row') || document.getElementById('editDevType')?.parentNode?.parentNode;
+      if (anchor && anchor.parentNode) {
+        anchor.parentNode.insertBefore(row, anchor.nextSibling);
+      }
+      wrap = row;
+    }
+
+    if (!selectedType.startsWith('plugin:')) {
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+
+    const pluginId = selectedType.substring(7);
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    if (!plug || !plug.device_definition || !plug.device_definition.config_fields) {
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+
+    const fields = plug.device_definition.config_fields;
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div class="card" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); margin-top: 6px;">
+        <strong style="font-size: 12px; color: var(--accent); margin-bottom: 6px; display: block;">Plugin Settings: ${escapeHtml(plug.device_definition.display_name || plug.name)}</strong>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+          ${fields.map(f => {
+            let curVal = '';
+            if (prefillConfig && prefillConfig[f.key] !== undefined) {
+              curVal = prefillConfig[f.key];
+            } else if (prefillConfig && prefillConfig.config && prefillConfig.config[f.key] !== undefined) {
+              curVal = prefillConfig.config[f.key];
+            } else if (f.default !== undefined) {
+              curVal = f.default;
+            }
+            return `
+            <div>
+              <label for="edit_plug_cfg_${escapeHtml(f.key)}" style="font-size: 11px; margin-bottom: 2px;">${escapeHtml(f.label || f.key)}</label>
+              <input id="edit_plug_cfg_${escapeHtml(f.key)}" class="form-control form-control-sm"
+                     type="${f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text')}"
+                     value="${escapeHtml(String(curVal))}" placeholder="${escapeHtml(f.placeholder || '')}">
+            </div>
+            `;
+          }).join('')}
         </div>
       </div>
     `;
