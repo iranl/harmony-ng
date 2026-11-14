@@ -147,6 +147,11 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT/payload/source/timezone_db.c" \
     -ldl -lpthread -lm -o "$BUILD_DIR/test_remote_wdt_race" && "$BUILD_DIR/test_remote_wdt_race"
 sh "$SCRIPT_DIR/test_remote_migrate.sh"
+# Remote Help: a state stamp from the RF thread newer than the main loop's now_ms
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_help_clock" "$SCRIPT_DIR/test_remote_help_clock.c" \
+    "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
+    "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && \
+    HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_help_clock"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_migrate" "$SCRIPT_DIR/test_remote_migrate.c" "$REPO_ROOT/payload/source/remote/remote_migrate.c" && "$BUILD_DIR/test_remote_migrate"
 sh "$SCRIPT_DIR/test_remote_supervisor.sh"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_battery" "$SCRIPT_DIR/test_remote_battery.c" "$REPO_ROOT/payload/source/remote/remote_battery.c" && "$BUILD_DIR/test_remote_battery"
