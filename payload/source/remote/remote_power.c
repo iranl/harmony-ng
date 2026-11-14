@@ -683,18 +683,35 @@ void init_gyro_interrupt(void) {
            g_gyro_rate_hz > 0 ? g_gyro_rate_hz : 50);
 }
 
+/* The watchdog is opened, fed and closed from the main loop, the power manager thread and the
+ * RF thread (enter_kernel_suspend runs on all three). The driver allows one open: without the
+ * lock two threads could both open it after a resume, the second (EBUSY, -1) overwrite the fd
+ * of the first, and the device stay open with nobody feeding it until the board resets. */
+static pthread_mutex_t s_wdt_lock = PTHREAD_MUTEX_INITIALIZER;
 static int s_wdt_fd = -1;
 static uint64_t s_last_wdt_ping_ms = 0;
 
 #define REMOTE_WDT_TIMEOUT_S 60
 
+static void remote_wdt_ping_locked(void) {
+    if (s_wdt_fd >= 0) {
+        uint64_t now_ms = get_monotonic_ms();
+        if (s_last_wdt_ping_ms == 0 || (now_ms - s_last_wdt_ping_ms >= 5000)) {
+            write(s_wdt_fd, "\0", 1);
+            s_last_wdt_ping_ms = now_ms;
+        }
+    }
+}
+
 void remote_wdt_init(void) {
+    pthread_mutex_lock(&s_wdt_lock);
     if (s_wdt_fd < 0) {
         /* O_CLOEXEC: dropbear and the other helpers started with system() must not inherit the
          * watchdog. A child holding it keeps the device open after remote_ui stops, so nothing
          * else can open it to feed it and the board resets when the timeout runs out. */
-        s_wdt_fd = open("/dev/watchdog", O_WRONLY | O_CLOEXEC);
-        if (s_wdt_fd >= 0) {
+        int fd = open("/dev/watchdog", O_WRONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            s_wdt_fd = fd;
             /* The remote's DaVinci driver resets after 10 s without a write and ignores
              * WDIOC_SETTIMEOUT; remote_wdt_ping writes every 5 s. Ask for more anyway and log the
              * timeout the driver reports. */
@@ -708,28 +725,27 @@ void remote_wdt_init(void) {
             } else {
                 printf("[+] Hardware watchdog (/dev/watchdog) armed (driver default timeout)\n");
             }
-            remote_wdt_ping();
+            remote_wdt_ping_locked();
         } else {
             printf("[!] Hardware watchdog not armed: open(/dev/watchdog) failed: %s\n", strerror(errno));
         }
     }
+    pthread_mutex_unlock(&s_wdt_lock);
 }
 
 void remote_wdt_ping(void) {
-    if (s_wdt_fd >= 0) {
-        uint64_t now_ms = get_monotonic_ms();
-        if (s_last_wdt_ping_ms == 0 || (now_ms - s_last_wdt_ping_ms >= 5000)) {
-            write(s_wdt_fd, "\0", 1);
-            s_last_wdt_ping_ms = now_ms;
-        }
-    }
+    pthread_mutex_lock(&s_wdt_lock);
+    remote_wdt_ping_locked();
+    pthread_mutex_unlock(&s_wdt_lock);
 }
 
 void remote_wdt_close(void) {
+    pthread_mutex_lock(&s_wdt_lock);
     if (s_wdt_fd >= 0) {
         close(s_wdt_fd);
         s_wdt_fd = -1;
         s_last_wdt_ping_ms = 0;
     }
+    pthread_mutex_unlock(&s_wdt_lock);
 }
 
