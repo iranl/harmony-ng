@@ -7,6 +7,9 @@
  *    (the non-blocking send fills the socket buffer)
  *  - a partial packet left from a connection that was closed by mqtt_disconnect() does not
  *    prefix the next connection's packets
+ *  - a received packet larger than the receive buffer (also one with a 4-byte length) is dropped
+ *    whole: its PUBLISH is acknowledged, nothing inside its payload is parsed as a packet, and the
+ *    next packet is delivered; an invalid length field ends the connection
  */
 #include "mqtt_client.h"
 
@@ -153,6 +156,115 @@ static void *broker_partial(void *arg) {
     return NULL;
 }
 
+/* ---- 4. received packets larger than the receive buffer ---- */
+#define MAX_GOT 8
+static char g_got[MAX_GOT][64];
+static int g_ngot;
+static void on_any(const char *topic, const char *payload, size_t len, void *ud) {
+    (void)ud;
+    if (g_ngot < MAX_GOT) snprintf(g_got[g_ngot++], sizeof(g_got[0]), "%s=%.*s", topic, (int)(len < 16 ? len : 16), payload);
+}
+
+static int g_puback_id = -1;
+static volatile int g_big_stage;
+
+/* A QoS 1 PUBLISH on t/x with plen payload bytes from fill(); returns its length */
+static size_t build_publish(uint8_t *out, size_t plen, uint8_t fill) {
+    size_t rem = 2 + 3 + 2 + plen; /* topic length, "t/x", packet id, payload */
+    uint8_t *p = out;
+    *p++ = 0x32;
+    size_t r = rem;
+    do {
+        uint8_t d = (uint8_t)(r % 128);
+        r /= 128;
+        if (r) d |= 0x80;
+        *p++ = d;
+    } while (r);
+    *p++ = 0; *p++ = 3; *p++ = 't'; *p++ = '/'; *p++ = 'x';
+    *p++ = 0x12; *p++ = 0x34; /* packet id 0x1234 */
+    memset(p, fill, plen);
+    return (size_t)(p - out) + plen;
+}
+
+static void send_all_test(int c, const uint8_t *b, size_t n) {
+    while (n > 0) {
+        ssize_t w = send(c, b, n, MSG_NOSIGNAL);
+        if (w <= 0) return;
+        b += w;
+        n -= (size_t)w;
+    }
+}
+
+static void *broker_oversize(void *arg) {
+    size_t plen = *(size_t *)arg;
+    int c = accept_and_connack();
+    if (c < 0) return NULL;
+    uint8_t small[512];
+    read_packet(c, small, sizeof(small)); /* SUBSCRIBE */
+    uint8_t *big = malloc(plen + 16);
+    size_t blen = build_publish(big, plen, 'a');
+    /* a whole PUBLISH (topic t/i) where the 8 KB buffer ends: it is payload, not a packet */
+    const uint8_t inj[] = {0x30, 0x07, 0x00, 0x03, 't', '/', 'i', 'n', 'j'};
+    if (blen > 8192 + sizeof(inj)) memcpy(big + 8192, inj, sizeof(inj));
+    send_all_test(c, big, blen);
+    free(big);
+    const uint8_t ok[] = {0x30, 0x07, 0x00, 0x03, 't', '/', 'x', 'o', 'k'};
+    send_all_test(c, ok, sizeof(ok));
+    struct timeval tv = {0, 300000};
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    for (int i = 0; i < 20 && g_puback_id < 0; i++) {
+        size_t n = read_packet(c, small, sizeof(small));
+        if (n == 4 && small[0] == 0x40) g_puback_id = (small[2] << 8) | small[3];
+    }
+    for (int i = 0; i < 300 && !g_big_stage; i++) usleep(10000);
+    close(c);
+    return NULL;
+}
+
+static void *broker_badlen(void *arg) {
+    (void)arg;
+    int c = accept_and_connack();
+    if (c < 0) return NULL;
+    uint8_t small[512];
+    read_packet(c, small, sizeof(small));
+    const uint8_t bad[] = {0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00};
+    send_all_test(c, bad, sizeof(bad));
+    for (int i = 0; i < 300 && !g_big_stage; i++) usleep(10000);
+    close(c);
+    return NULL;
+}
+
+static void run_oversize(const char *name, size_t plen) {
+    pthread_t t;
+    g_ngot = 0;
+    g_puback_id = -1;
+    g_big_stage = 0;
+    pthread_create(&t, NULL, broker_oversize, &plen);
+    mqtt_init("127.0.0.1", g_port, "io-test", "", "");
+    mqtt_subscribe("t/#", on_any, NULL);
+    mqtt_set_birth("", NULL, 0);
+    mqtt_connect();
+    for (int i = 0; i < 2000 && g_ngot == 0; i++) {
+        if (mqtt_tick() == 0) usleep(1000);
+    }
+    for (int i = 0; i < 20; i++) { /* anything else that would follow */
+        mqtt_tick();
+        usleep(5000);
+    }
+    char what[160];
+    snprintf(what, sizeof(what), "%s: only the next message delivered (got %d: %s)", name, g_ngot,
+             g_ngot ? g_got[0] : "nothing");
+    check(what, g_ngot == 1 && strcmp(g_got[0], "t/x=ok") == 0);
+    snprintf(what, sizeof(what), "%s: dropped QoS 1 publish acknowledged", name);
+    for (int i = 0; i < 100 && g_puback_id < 0; i++) usleep(10000);
+    check(what, g_puback_id == 0x1234);
+    snprintf(what, sizeof(what), "%s: still connected", name);
+    check(what, mqtt_is_connected());
+    g_big_stage = 1;
+    pthread_join(t, NULL);
+    mqtt_disconnect();
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     struct sockaddr_in a;
@@ -219,6 +331,24 @@ int main(void) {
     g_stage = 2;
     pthread_join(t, NULL);
     check("message after a reconnect delivered (no stale bytes in front)", strcmp(g_got_topic, "t/x") == 0);
+    mqtt_disconnect();
+
+    /* 4 */
+    run_oversize("11 KB publish (2048-timing raw IR command)", 11300);
+    run_oversize("2.1 MB publish (4-byte length)", 2100000);
+    g_big_stage = 0;
+    pthread_create(&t, NULL, broker_badlen, NULL);
+    mqtt_init("127.0.0.1", g_port, "io-test", "", "");
+    mqtt_set_birth("", NULL, 0);
+    mqtt_subscribe("t/#", on_any, NULL);
+    mqtt_connect();
+    for (int i = 0; i < 100 && mqtt_is_connected(); i++) {
+        mqtt_tick();
+        usleep(5000);
+    }
+    check("invalid length field ends the connection", !mqtt_is_connected());
+    g_big_stage = 1;
+    pthread_join(t, NULL);
     mqtt_disconnect();
 
     close(g_listen);
