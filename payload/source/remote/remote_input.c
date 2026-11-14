@@ -639,7 +639,8 @@ void handle_navigation_key(int code, int value) {
                     break;
                 }
             }
-            if (g_confirm_pending_idx >= 0 && get_monotonic_ms() < g_confirm_pending_deadline_ms) {
+            if (g_confirm_pending_idx >= 0 && g_confirm_pending_idx < g_activity_count &&
+                get_monotonic_ms() < g_confirm_pending_deadline_ms) {
                 int idx = g_confirm_pending_idx;
                 g_confirm_pending_idx = -1;
                 g_confirm_pending_deadline_ms = 0;

@@ -749,7 +749,25 @@ void load_rf_config(void) {
 
 static void sort_activity_list(void);
 
+/* Index of an activity id in the rebuilt list, -1 if it is gone */
+static int activity_index_of(const char *id) {
+    if (!id[0]) return -1;
+    for (int i = 0; i < g_activity_count; i++) {
+        if (strcmp(g_activities[i].id, id) == 0) return i;
+    }
+    return -1;
+}
+
 void build_activity_list(void) {
+    /* The home selection and a pending confirmation are indexes into this list: keep them on the
+       same activity, since the new list can be shorter or in another order */
+    char sel_id[sizeof(g_activities[0].id)] = "";
+    char pend_id[sizeof(g_activities[0].id)] = "";
+    if (g_selected_activity >= 0 && g_selected_activity < g_activity_count)
+        copy_str(sel_id, sizeof(sel_id), g_activities[g_selected_activity].id);
+    if (g_confirm_pending_idx >= 0 && g_confirm_pending_idx < g_activity_count)
+        copy_str(pend_id, sizeof(pend_id), g_activities[g_confirm_pending_idx].id);
+
     g_activity_count = 0;
     for (int i = 0; i < g_rf_activity_count && g_activity_count < MAX_ACTIVITIES; i++) {
         copy_str(g_activities[g_activity_count].id, sizeof(g_activities[0].id), g_rf_activities[i].id);
@@ -772,6 +790,14 @@ void build_activity_list(void) {
         g_activity_count++;
     }
     sort_activity_list();
+
+    int sel = activity_index_of(sel_id);
+    if (sel >= 0) g_selected_activity = sel;
+    else if (g_selected_activity >= g_activity_count) g_selected_activity = g_activity_count > 0 ? g_activity_count - 1 : 0;
+    if (g_confirm_pending_idx >= 0) {
+        g_confirm_pending_idx = activity_index_of(pend_id);
+        if (g_confirm_pending_idx < 0) g_confirm_pending_deadline_ms = 0;
+    }
 }
 
 /* Activity starts on this remote, for the "most used first" order: id=count lines */
