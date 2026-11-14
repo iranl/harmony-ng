@@ -32,11 +32,15 @@ int ws_is_upgrade_req(const char *http_req);
 
 /*
  * Complete RFC 6455 handshake: computes Sec-WebSocket-Accept and sends 101 Switching Protocols.
- * Registers client_fd for broadcasts.
+ * Registers client_fd for broadcasts only after the 101 went out, with its final role (enum
+ * http_role) and legacy flag (1 = port 8088 Logitech client): from then on the main loop owns
+ * the socket and the caller must not touch it.
  * Returns 0 on success, negative on error (bad request, all WS_MAX_CLIENTS slots taken: a 503 is
  * sent, or send failure); the socket is then not registered and the caller closes it.
  */
-int ws_handle_upgrade(int client_fd, const char *http_req);
+int ws_handle_upgrade(int client_fd, const char *http_req, int role, int legacy);
+/* Generation of the client on client_fd, 0 when none (see ws_server.c) */
+unsigned int ws_client_gen(int client_fd);
 
 /* Send a text frame to a specific client */
 int ws_send_text(int client_fd, const char *text);
@@ -60,7 +64,6 @@ int ws_get_clients(int *out_fds, size_t max_count);
 int ws_take_pending_clients(int *out_fds, size_t max_count);
 /* Legacy (Logitech protocol, port 8088) clients share the table but never receive the 8089
  * broadcasts; hbus_server.c talks to them. */
-void ws_set_client_legacy(int client_fd, int legacy);
 int ws_is_client_legacy(int client_fd);
 /* Text frame to every legacy client */
 void ws_broadcast_legacy_text(const char *text);
@@ -81,8 +84,8 @@ int ws_send_pong(int client_fd);
 void ws_remove_client(int client_fd);
 
 /* Role of the token the client upgraded with (values of enum http_role: 0 none, 1 user,
- * 2 admin). Unknown clients and clients upgraded without auth count as admin. */
-void ws_set_client_role(int client_fd, int role);
+ * 2 admin), recorded at the upgrade. Unknown fds have no rights (0). A client upgraded while
+ * authentication is off gets admin from http_auth like every request. */
 int ws_get_client_role(int client_fd);
 /* 1 while client_fd is a connected WebSocket client */
 int ws_is_client(int client_fd);

@@ -209,6 +209,7 @@ python3 "$SCRIPT_DIR/test_ws_keepalive.py"
 python3 "$SCRIPT_DIR/test_sntp_nonblocking.py"
 python3 "$SCRIPT_DIR/test_ir_raw.py"
 python3 "$SCRIPT_DIR/test_mdns.py"
+python3 "$SCRIPT_DIR/test_auth_hardening.py"
 python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)

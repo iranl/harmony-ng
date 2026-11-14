@@ -696,10 +696,9 @@ void hbus_handle_client(int cfd) {
         if (strcmp(route, "/") != 0) {
             send_http(cfd, 404, "Not Found", "text/plain", "");
             close(cfd);
-        } else if (ws_handle_upgrade(cfd, buf) != 0) {
+        } else if (ws_handle_upgrade(cfd, buf, 0 /* no rights on the 8089 command channel */, 1) != 0) {
             close(cfd);
         } else {
-            ws_set_client_legacy(cfd, 1);
             pthread_mutex_lock(&g_new_lock);
             if (g_new_count < WS_MAX_CLIENTS) g_new_clients[g_new_count++] = cfd;
             pthread_mutex_unlock(&g_new_lock);

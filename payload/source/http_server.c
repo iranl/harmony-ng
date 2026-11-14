@@ -561,11 +561,10 @@ void http_handle_client(int client_fd) {
             }
             /* A failed upgrade (bad request, no free client slot, send error) leaves the socket
              * unregistered: close it here, nobody else will */
-            if (ws_handle_upgrade(client_fd, init_buf) != 0) {
+            if (ws_handle_upgrade(client_fd, init_buf, (int)ws_role, 0) != 0) {
                 close(client_fd);
-            } else {
-                ws_set_client_role(client_fd, (int)ws_role);
             }
+            /* registered with its role: the main loop owns the socket now, do not touch it */
             free(init_buf);
             return;
         }

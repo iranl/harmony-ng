@@ -39,14 +39,27 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
 int save_user_accounts(const struct user_account *users, int count, int auth_enabled);
 int create_auth_session(const char *username, enum http_role role, const char *client_ip, char *out_token, size_t out_len);
 int destroy_auth_session(const char *token);
-void generate_random_hex(char *out, size_t num_bytes);
+/* Random hex from /dev/urandom; 0 on success, -1 when it cannot be read (never a weak fallback) */
+int generate_random_hex(char *out, size_t num_bytes);
+/* Comparison of secrets that does not stop at the first different byte */
+int http_auth_secret_equal(const char *a, const char *b);
+/* Password check for one account */
+int http_auth_password_matches(const struct user_account *u, const char *password);
+/* Failed-password limiter per client address, used by the login route and by Basic auth:
+ * seconds the address is still locked (0 = not locked), and recording of an attempt */
+int http_auth_lock_remaining(const char *client_ip);
+void http_auth_note_failure(const char *client_ip);
+void http_auth_note_success(const char *client_ip);
+/* End the sessions of one account (deleted, renamed, demoted, new password), or all of them */
+void http_auth_drop_user_sessions(const char *username);
+void http_auth_drop_all_sessions(void);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);
 int http_auth_is_user_role_permitted(const char *method, const char *clean_path);
 /* Role for a WebSocket upgrade request: like http_auth_check_request, plus a "?token=<pat_ or
  * hht_ token>" in the request line when there is no Authorization header (browsers cannot set
- * headers on a WebSocket). Digest is not supported on the upgrade. */
+ * headers on a WebSocket). */
 enum http_role http_auth_check_ws_upgrade(const char *req, const char *client_ip,
                                           char *out_user, size_t out_user_len);
 void http_auth_send_challenge(int client_fd, const char *client_ip);

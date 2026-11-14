@@ -182,6 +182,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
 
         cJSON *cfg = config_store_get_mqtt_json();
         if (cfg) {
+            /* never send the stored broker password back: the UI only needs to know there is
+             * one (an empty field on save keeps it) */
+            cJSON *pw = cJSON_GetObjectItemCaseSensitive(cfg, "password");
+            int has_pw = cJSON_IsString(pw) && pw->valuestring && pw->valuestring[0];
+            cJSON_DeleteItemFromObjectCaseSensitive(cfg, "password");
+            cJSON_AddBoolToObject(cfg, "has_password", has_pw);
             cJSON_AddItemToObject(resp, "config", cfg);
         }
         send_cjson_resp(client_fd, 200, resp);
@@ -542,7 +548,24 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 close(client_fd);
                 return 1;
             } else if (p_act && cJSON_IsString(p_act) && strcmp(p_act->valuestring, "auth") == 0) {
-                int new_auth_enabled = 0;
+                cJSON *j_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
+                cJSON *j_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
+                const char *uname = (j_u && cJSON_IsString(j_u)) ? j_u->valuestring : "";
+                const char *pass = (j_p && cJSON_IsString(j_p)) ? j_p->valuestring : "";
+                if (strlen(uname) >= MAX_USERNAME_LEN || strchr(uname, ':') || strchr(uname, '\n') || strlen(pass) > 128) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 400, "Username must be shorter than 32 bytes (no ':' or line breaks), password at most 128 bytes");
+                    close(client_fd);
+                    return 1;
+                }
+
+                struct user_account ulist[MAX_HTTP_USERS];
+                int curr_auth_enabled = 0;
+                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &curr_auth_enabled);
+
+                /* A request without authEnabled keeps the current state (a password change alone
+                 * must not turn authentication off) */
+                int new_auth_enabled = curr_auth_enabled;
                 cJSON *j_en = cJSON_GetObjectItemCaseSensitive(params, "authEnabled");
                 if (j_en) {
                     if (cJSON_IsBool(j_en)) new_auth_enabled = cJSON_IsTrue(j_en) ? 1 : 0;
@@ -553,15 +576,6 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     }
                 }
 
-                cJSON *j_u = cJSON_GetObjectItemCaseSensitive(params, "authUsername");
-                cJSON *j_p = cJSON_GetObjectItemCaseSensitive(params, "authPassword");
-                const char *uname = (j_u && cJSON_IsString(j_u)) ? j_u->valuestring : "";
-                const char *pass = (j_p && cJSON_IsString(j_p)) ? j_p->valuestring : "";
-
-                struct user_account ulist[MAX_HTTP_USERS];
-                int curr_auth_enabled = 0;
-                int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &curr_auth_enabled);
-
                 int admin_idx = -1;
                 for (int i = 0; i < ucnt; i++) {
                     if (ulist[i].role == ROLE_ADMIN) {
@@ -571,42 +585,44 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 }
 
                 if (admin_idx >= 0) {
-                    if (uname[0]) {
-                        strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
-                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
-                    }
-                    if (pass[0]) {
-                        strncpy(ulist[admin_idx].password, pass, sizeof(ulist[admin_idx].password) - 1);
-                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
-                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
-                    } else if (uname[0] && ulist[admin_idx].password[0]) {
-                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, ulist[admin_idx].password, ulist[admin_idx].ha1);
-                    }
-                } else if (!pass[0]) {
-                    /* No admin account yet and no password given: never invent admin/admin (the
-                     * web UI used to save the moment the checkbox was ticked, before the form was
-                     * filled, and locked its owner out). Enabling needs a password first. */
-                    if (new_auth_enabled) {
+                    int renaming = uname[0] && strcmp(uname, ulist[admin_idx].username) != 0;
+                    if (renaming && !pass[0]) {
+                        /* the stored digest covers the name: without the password the account
+                         * could not log in under either name */
                         cJSON_Delete(params);
-                        send_json_error(client_fd, 400, "Set the admin username and password before enabling authentication");
+                        send_json_error(client_fd, 400, "Give the password to rename the admin account");
                         close(client_fd);
                         return 1;
                     }
-                } else {
-                    if (ucnt < MAX_HTTP_USERS) {
-                        admin_idx = ucnt++;
-                        const char *final_user = uname[0] ? uname : "admin";
-                        const char *final_pass = pass;
-                        strncpy(ulist[admin_idx].username, final_user, sizeof(ulist[admin_idx].username) - 1);
-                        ulist[admin_idx].username[sizeof(ulist[admin_idx].username) - 1] = '\0';
-                        strncpy(ulist[admin_idx].password, final_pass, sizeof(ulist[admin_idx].password) - 1);
-                        ulist[admin_idx].password[sizeof(ulist[admin_idx].password) - 1] = '\0';
-                        compute_ha1(final_user, HARMONY_AUTH_REALM, final_pass, ulist[admin_idx].ha1);
-                        ulist[admin_idx].role = ROLE_ADMIN;
+                    if (renaming || pass[0]) http_auth_drop_user_sessions(ulist[admin_idx].username);
+                    if (renaming) {
+                        memset(ulist[admin_idx].username, 0, sizeof(ulist[admin_idx].username));
+                        strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
                     }
+                    if (pass[0]) {
+                        ulist[admin_idx].password[0] = '\0';
+                        compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
+                    }
+                } else if (pass[0] && ucnt < MAX_HTTP_USERS) {
+                    admin_idx = ucnt++;
+                    memset(&ulist[admin_idx], 0, sizeof(ulist[admin_idx]));
+                    strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);
+                    compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
+                    ulist[admin_idx].role = ROLE_ADMIN;
+                }
+
+                /* No admin account and no password given: never invent admin/admin (the web UI
+                 * used to save the moment the checkbox was ticked, before the form was filled).
+                 * Enabling needs an admin account first. */
+                if (new_auth_enabled && admin_idx < 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 400, "Set the admin username and password before enabling authentication");
+                    close(client_fd);
+                    return 1;
                 }
 
                 save_user_accounts(ulist, ucnt, new_auth_enabled);
+                if (new_auth_enabled != curr_auth_enabled) http_auth_drop_all_sessions();
                 cJSON_Delete(params);
 
                 cJSON *resp = cJSON_CreateObject();
