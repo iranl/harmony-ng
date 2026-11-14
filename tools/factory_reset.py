@@ -66,6 +66,25 @@ def run_ssh_cmd(target: str, cmd: str, ssh_opts: list[str]) -> subprocess.Comple
     return subprocess.run(["ssh"] + ssh_opts + [target, cmd], capture_output=True, text=True)
 
 
+# Detached and delayed by a second, so the SSH call returns its exit code before the
+# reboot drops the connection: a non-zero code then means the command did not get there
+REBOOT_CMD = "(sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &"
+
+
+def run_steps(target: str, commands: list[str], ssh_opts: list[str], device: str) -> bool:
+    """Run each reset step in its own SSH call. Every step ends in "|| true", so a non-zero
+    exit code means the SSH call itself failed: stop there, before the reboot."""
+    for i, c in enumerate(commands, 1):
+        res = run_ssh_cmd(target, c, ssh_opts)
+        if res.stdout.strip():
+            print(res.stdout.strip())
+        if res.returncode != 0:
+            print(f"[-] Step {i} of {len(commands)} failed on the {device} (exit code {res.returncode}): {res.stderr.strip()}")
+            print(f"    The factory reset of the {device} is INCOMPLETE and it was not rebooted. Run the tool again.")
+            return False
+    return True
+
+
 def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
     target = f"root@{hub_ip}"
     print(f"\n[*] Probing Harmony Hub at {target}...")
@@ -107,13 +126,13 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
         "sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /data/sync 2>/dev/null || true",
     ]
 
-    for c in commands:
-        res = run_ssh_cmd(target, c, ssh_opts)
-        if res.stdout.strip():
-            print(res.stdout.strip())
+    if not run_steps(target, commands, ssh_opts, "Hub"):
+        return False
 
     print("[*] Rebooting Harmony Hub into stock firmware...")
-    run_ssh_cmd(target, "reboot -f 2>/dev/null &", ssh_opts)
+    if run_ssh_cmd(target, REBOOT_CMD, ssh_opts).returncode != 0:
+        print("[-] The reboot command did not reach the Hub; reboot it by hand (power cycle).")
+        return False
     print("[+] Hub reboot signal delivered. Hub will boot into stock Logitech environment.")
     return True
 
@@ -165,13 +184,13 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
         "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
     ]
 
-    for c in commands:
-        res = run_ssh_cmd(target, c, ssh_opts)
-        if res.stdout.strip():
-            print(res.stdout.strip())
+    if not run_steps(target, commands, ssh_opts, "remote"):
+        return False
 
     print("[*] Rebooting the Harmony remote into stock firmware...")
-    run_ssh_cmd(target, "reboot -f 2>/dev/null &", ssh_opts)
+    if run_ssh_cmd(target, REBOOT_CMD, ssh_opts).returncode != 0:
+        print("[-] The reboot command did not reach the remote; reboot it by hand.")
+        return False
     print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
     return True
 
@@ -227,15 +246,22 @@ def main() -> None:
 
     ssh_opts = get_ssh_opts(args.key)
 
+    failed = []
     if args.target in ("hub", "all"):
         print(f"\n>>> PROCESSING HUB ({args.hub_ip}) <<<")
-        reset_hub(args.hub_ip, ssh_opts)
+        if not reset_hub(args.hub_ip, ssh_opts):
+            failed.append(f"Hub ({args.hub_ip})")
 
     if args.target in ("remote", "elite", "all"):  # elite: the name before the rename
         print(f"\n>>> PROCESSING REMOTE ({args.remote_ip}) <<<")
-        reset_remote(args.remote_ip, ssh_opts)
+        if not reset_remote(args.remote_ip, ssh_opts):
+            failed.append(f"remote ({args.remote_ip})")
 
     print("\n" + "=" * 70)
+    if failed:
+        print(f"[-] Factory reset NOT completed for: {', '.join(failed)}")
+        print("=" * 70 + "\n")
+        sys.exit(1)
     print("[+] Factory reset process completed successfully!")
     print("=" * 70 + "\n")
 
