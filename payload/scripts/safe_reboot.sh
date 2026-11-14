@@ -2,6 +2,14 @@
 # Safe reboot script for Harmony Hub (Atheros AR9344)
 # Prevents warm reset SPI arbiter / NOR flash bus lockups.
 
+# 0. Stop the init.sh supervisor loops first: they restart a killed daemon after 5 s, which would
+#    put hub_rf back on /dev/rfspi inside the reboot window below (same steps as "init.sh stop")
+touch /tmp/harmony_stop 2>/dev/null || true
+for _spid in $(cat /tmp/harmony_supervisors.pid 2>/dev/null); do
+  kill -9 "$_spid" 2>/dev/null || true
+done
+rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
+
 # 1. Terminate RF and background workers immediately to release /dev/rfspi and Bluetooth UART
 killall -9 hub_rf hub_btstack hub_daemon hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
 
