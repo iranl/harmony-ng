@@ -5,6 +5,7 @@
 USERS_JSON="/data/harmony/config/users.json"
 AUTH_CONF="/data/harmony/webui_auth.conf"
 TMP_CONF="/tmp/harmony_auth.tmp"
+ACCOUNTS="/tmp/harmony_auth_accounts.tmp"
 
 mkdir -p /data/harmony/config 2>/dev/null
 
@@ -35,9 +36,58 @@ calc_ha1() {
     printf '%s:%s:%s' "$_u" "Harmony Hub" "$_p" | $SHA256SUM 2>/dev/null | awk '{print $1}'
 }
 
+# Account lines (user:ha1:role) stored in users.json. hub_daemon keeps the
+# accounts there while auth is off and writes "# auth disabled" to
+# webui_auth.conf, so the conf alone cannot tell which accounts exist.
+json_accounts() {
+    [ -f "$USERS_JSON" ] || return 0
+    awk '
+        {
+            line = $0
+            while (match(line, /"(username|ha1|role)"[ \t]*:[ \t]*"[^"]*"/)) {
+                kv = substr(line, RSTART, RLENGTH)
+                line = substr(line, RSTART + RLENGTH)
+                k = kv; sub(/^"/, "", k); sub(/".*/, "", k)
+                v = kv; sub(/^"[^"]*"[ \t]*:[ \t]*"/, "", v); sub(/"$/, "", v)
+                if (k == "username") {
+                    if (u != "" && (length(h) == 64 || length(h) == 32)) print u ":" h ":" r
+                    u = v; h = ""; r = "admin"
+                } else if (k == "ha1") {
+                    h = v
+                } else if (k == "role") {
+                    r = v
+                }
+            }
+        }
+        END { if (u != "" && (length(h) == 64 || length(h) == 32)) print u ":" h ":" r }
+    ' "$USERS_JSON"
+}
+
+# Account lines of webui_auth.conf, comments and blank lines left out
+conf_accounts() {
+    [ -f "$AUTH_CONF" ] || return 0
+    while IFS=: read -r u p r rest; do
+        case "$u" in
+            ''|\#*) continue ;;
+        esac
+        echo "$u:$p:$r"
+    done < "$AUTH_CONF"
+}
+
+# Current accounts into $ACCOUNTS: from webui_auth.conf, or from users.json
+# when the conf has none (auth turned off by this tool or by the web UI)
+load_accounts() {
+    conf_accounts > "$ACCOUNTS"
+    if [ ! -s "$ACCOUNTS" ]; then
+        json_accounts > "$ACCOUNTS"
+    fi
+}
+
 sync_to_json() {
     is_enabled="$1"
     [ -z "$is_enabled" ] && is_enabled=1
+    src="$2"
+    [ -z "$src" ] && src="$AUTH_CONF"
     
     echo "{" > "$USERS_JSON.tmp"
     if [ "$is_enabled" = "1" ]; then
@@ -48,15 +98,15 @@ sync_to_json() {
     echo '  "users": [' >> "$USERS_JSON.tmp"
 
     first=1
-    if [ -f "$AUTH_CONF" ]; then
+    if [ -f "$src" ]; then
         while IFS=: read -r u p r rest; do
             case "$u" in
                 ''|\#*) continue ;;
             esac
             [ -z "$u" ] && continue
             [ -z "$r" ] && r="admin"
-            # If not already 64-char hex hash, compute HA1
-            if [ ${#p} -ne 64 ]; then
+            # If not already a 64 or 32-char hash, compute HA1
+            if [ ${#p} -ne 64 ] && [ ${#p} -ne 32 ]; then
                 p=$(calc_ha1 "$u" "$p")
             fi
             if [ $first -eq 0 ]; then
@@ -64,7 +114,7 @@ sync_to_json() {
             fi
             first=0
             printf '    { "username": "%s", "ha1": "%s", "role": "%s" }' "$u" "$p" "$r" >> "$USERS_JSON.tmp"
-        done < "$AUTH_CONF"
+        done < "$src"
     fi
     echo "" >> "$USERS_JSON.tmp"
     echo '  ]' >> "$USERS_JSON.tmp"
@@ -76,6 +126,9 @@ cmd="$1"
 user="$2"
 pass="$3"
 
+trap 'rm -f "$ACCOUNTS"' EXIT
+load_accounts
+
 case "$cmd" in
     set-admin)
         if [ -z "$user" ] || [ -z "$pass" ]; then
@@ -85,7 +138,7 @@ case "$cmd" in
         ha1=$(calc_ha1 "$user" "$pass")
         rm -f "$TMP_CONF" 2>/dev/null
         found=0
-        if [ -f "$AUTH_CONF" ]; then
+        if [ -f "$ACCOUNTS" ]; then
             while IFS=: read -r u p r rest; do
                 case "$u" in
                     ''|\#*) continue ;;
@@ -98,7 +151,7 @@ case "$cmd" in
                 else
                     echo "$u:$p:$r" >> "$TMP_CONF"
                 fi
-            done < "$AUTH_CONF"
+            done < "$ACCOUNTS"
         fi
         if [ $found -eq 0 ]; then
             echo "$user:$ha1:admin" >> "$TMP_CONF"
@@ -116,7 +169,7 @@ case "$cmd" in
         ha1=$(calc_ha1 "$user" "$pass")
         rm -f "$TMP_CONF" 2>/dev/null
         found=0
-        if [ -f "$AUTH_CONF" ]; then
+        if [ -f "$ACCOUNTS" ]; then
             while IFS=: read -r u p r rest; do
                 case "$u" in
                     ''|\#*) continue ;;
@@ -129,7 +182,7 @@ case "$cmd" in
                 else
                     echo "$u:$p:$r" >> "$TMP_CONF"
                 fi
-            done < "$AUTH_CONF"
+            done < "$ACCOUNTS"
         fi
         if [ $found -eq 0 ]; then
             echo "$user:$ha1:user" >> "$TMP_CONF"
@@ -146,7 +199,7 @@ case "$cmd" in
         fi
         admin_count=0
         target_role=""
-        if [ -f "$AUTH_CONF" ]; then
+        if [ -f "$ACCOUNTS" ]; then
             while IFS=: read -r u p r rest; do
                 case "$u" in
                     ''|\#*) continue ;;
@@ -154,7 +207,7 @@ case "$cmd" in
                 [ -z "$r" ] && r="admin"
                 [ "$r" = "admin" ] && admin_count=$((admin_count + 1))
                 [ "$u" = "$user" ] && target_role="$r"
-            done < "$AUTH_CONF"
+            done < "$ACCOUNTS"
         fi
         if [ -z "$target_role" ]; then
             echo "Error: User '$user' not found"
@@ -165,7 +218,7 @@ case "$cmd" in
             exit 1
         fi
         rm -f "$TMP_CONF" 2>/dev/null
-        if [ -f "$AUTH_CONF" ]; then
+        if [ -f "$ACCOUNTS" ]; then
             while IFS=: read -r u p r rest; do
                 case "$u" in
                     ''|\#*) continue ;;
@@ -173,7 +226,7 @@ case "$cmd" in
                 [ "$u" = "$user" ] && continue
                 [ -z "$r" ] && r="admin"
                 echo "$u:$p:$r" >> "$TMP_CONF"
-            done < "$AUTH_CONF"
+            done < "$ACCOUNTS"
         fi
         mv -f "$TMP_CONF" "$AUTH_CONF"
         sync_to_json 1
@@ -182,7 +235,7 @@ case "$cmd" in
 
     list)
         echo "=== Configured User Accounts ==="
-        if [ ! -f "$AUTH_CONF" ] || [ ! -s "$AUTH_CONF" ]; then
+        if [ ! -s "$ACCOUNTS" ]; then
             echo "No user accounts configured. Authentication is DISABLED."
             exit 0
         fi
@@ -195,23 +248,31 @@ case "$cmd" in
             [ -z "$r" ] && r="admin"
             echo " - Username: $u | Role: $r"
             has_users=1
-        done < "$AUTH_CONF"
-        if [ $has_users -eq 0 ]; then
+        done < "$ACCOUNTS"
+        if [ $has_users -eq 0 ] || grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*false' "$USERS_JSON" 2>/dev/null; then
             echo "Authentication is DISABLED."
+        else
+            echo "Authentication is ENABLED."
         fi
         ;;
 
     enable-auth)
-        if [ ! -f "$AUTH_CONF" ] || [ ! -s "$AUTH_CONF" ]; then
+        if [ ! -s "$ACCOUNTS" ]; then
             echo "Error: No user accounts configured. Create an admin account first: $0 set-admin <user> <pass>"
             exit 1
         fi
+        cp -f "$ACCOUNTS" "$TMP_CONF" && mv -f "$TMP_CONF" "$AUTH_CONF"
         sync_to_json 1
+        if [ -z "$(json_accounts)" ]; then
+            echo "Error: $USERS_JSON was not written; authentication state unchanged"
+            exit 1
+        fi
         echo "[+] Authentication ENABLED"
         ;;
 
     disable-auth)
-        sync_to_json 0
+        # Keep the accounts in users.json (as the web UI does); only the flag changes
+        sync_to_json 0 "$ACCOUNTS"
         if [ -f "$AUTH_CONF" ]; then
             echo "# auth disabled" > "$AUTH_CONF"
         fi
