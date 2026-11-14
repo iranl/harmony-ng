@@ -244,6 +244,7 @@ python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
+python3 "$SCRIPT_DIR/test_ethernet_apply.py"
 echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"
 echo "[-] Running OpenAPI Specification Test Suite..."

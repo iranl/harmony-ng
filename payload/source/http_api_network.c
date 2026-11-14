@@ -351,7 +351,10 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
 
             cJSON *p_app = cJSON_GetObjectItemCaseSensitive(params, "apply");
             if (p_app && cJSON_IsString(p_app) && (strcmp(p_app->valuestring, "apply") == 0 || strcmp(p_app->valuestring, "1") == 0 || strcmp(p_app->valuestring, "reconfigure") == 0 || strcmp(p_app->valuestring, "restart") == 0)) {
-                system("/data/harmony/bin/network_manager.sh apply 2>/dev/null &");
+                /* the installers (deploy_hub.py, update.sh) put the scripts in /data/harmony/, as
+                 * init.sh expects: /data/harmony/bin/ holds no network_manager.sh, so the apply
+                 * did nothing while the request answered "saved" */
+                system("/data/harmony/network_manager.sh apply 2>/dev/null &");
             }
             cJSON_Delete(params);
 
