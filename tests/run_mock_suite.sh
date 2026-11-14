@@ -189,6 +189,7 @@ echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
+python3 "$SCRIPT_DIR/test_activity_test_sequence.py"
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
