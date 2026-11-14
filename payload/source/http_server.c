@@ -97,9 +97,19 @@ static void static_cache_release(struct static_cache_entry *e) {
     pthread_mutex_unlock(&g_static_cache_mutex);
 }
 
+/* Only a path that fits the key whole and is the one plain spelling of its file is cached. A
+ * longer path was stored cut, never matched again and took a new slot at every request; "//"
+ * and "/./" spell the same file in endless ways. Either way a client could fill every slot with
+ * copies of one file, which stay allocated until the file changes. */
+static int static_cache_key_ok(const char *rel_path) {
+    return strlen(rel_path) < sizeof(((struct static_cache_entry *)0)->rel_path) &&
+           !strstr(rel_path, "//") && !strstr(rel_path, "/./");
+}
+
 static void static_cache_insert(const char *rel_path, int is_gzip, const char *mime, const char *data, size_t size,
                                 const char *src_path, const struct stat *src) {
     if (!rel_path || !data || size == 0 || size > STATIC_CACHE_MAX_SIZE || !src_path || !src) return;
+    if (!static_cache_key_ok(rel_path)) return;
     pthread_mutex_lock(&g_static_cache_mutex);
     struct static_cache_entry *slot = NULL;
     for (int i = 0; i < g_static_cache_count; i++) {
@@ -114,7 +124,7 @@ static void static_cache_insert(const char *rel_path, int is_gzip, const char *m
     char *copy = slot ? (char *)malloc(size) : NULL;
     if (copy) {
         memcpy(copy, data, size);
-        snprintf(slot->rel_path, sizeof(slot->rel_path), "%s", rel_path);
+        memcpy(slot->rel_path, rel_path, strlen(rel_path) + 1); /* fits: static_cache_key_ok() */
         snprintf(slot->src_path, sizeof(slot->src_path), "%s", src_path);
         slot->is_gzip = is_gzip;
         slot->data = copy;
