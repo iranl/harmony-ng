@@ -286,6 +286,7 @@ python3 "$SCRIPT_DIR/test_deploy_remote_failures.py"
 python3 "$SCRIPT_DIR/test_usb_eth_table.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
+python3 "$SCRIPT_DIR/test_activity_test_sequence.py"
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
 python3 "$SCRIPT_DIR/test_ui_imports.py"
