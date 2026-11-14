@@ -7,6 +7,8 @@
 #include <assert.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
+#include <sys/resource.h>
 
 #include "remote/remote_state.h"
 #include "remote/remote_rf_ota.h"
@@ -205,6 +207,60 @@ int main(void) {
     assert(rd == test_size);
     assert(memcmp(written_data, synthetic_data, test_size) == 0);
     printf("[+] Step 6 passed: Written file matches synthetic test payload 100%% byte-for-byte!\n");
+
+    /* 8. Step 7: installing the binary keeps the old one unless the new one is complete */
+    {
+        char dir[] = "/tmp/remote_ota_install_XXXXXX";
+        assert(mkdtemp(dir) != NULL);
+        char cur[128], neu[128], bak[128], src[128];
+        snprintf(cur, sizeof(cur), "%s/remote_ui", dir);
+        snprintf(neu, sizeof(neu), "%s/remote_ui.new", dir);
+        snprintf(bak, sizeof(bak), "%s/remote_ui.bak", dir);
+        snprintf(src, sizeof(src), "%s/package_remote_ui", dir);
+        FILE *fo = fopen(cur, "wb");
+        assert(fo); fputs("old binary", fo); fclose(fo);
+        FILE *fs = fopen(src, "wb");
+        assert(fs); fwrite(synthetic_data, 1, test_size, fs); fclose(fs);
+        uint8_t back[2200];
+        struct stat st;
+
+        /* not enough free space: refused before anything is written */
+        assert(ota_stage_file(src, neu, (uint64_t)1 << 62) != 0);
+        assert(access(neu, F_OK) != 0);
+
+        /* the copy stops part-way (no space left): refused, nothing left behind */
+        struct rlimit old_lim, lim;
+        getrlimit(RLIMIT_FSIZE, &old_lim);
+        lim = old_lim;
+        lim.rlim_cur = 1024;
+        signal(SIGXFSZ, SIG_IGN);
+        setrlimit(RLIMIT_FSIZE, &lim);
+        int cut_rc = ota_stage_file(src, neu, 0);
+        setrlimit(RLIMIT_FSIZE, &old_lim);
+        assert(cut_rc != 0);
+        assert(access(neu, F_OK) != 0);
+
+        /* nothing to switch to: the current binary stays */
+        assert(ota_replace_file(neu, cur, bak) != 0);
+        FILE *fc = fopen(cur, "rb");
+        assert(fc); size_t n = fread(back, 1, sizeof(back), fc); fclose(fc);
+        assert(n == strlen("old binary") && memcmp(back, "old binary", n) == 0);
+
+        /* a complete copy is switched in with one rename, the old binary kept as the backup */
+        assert(ota_stage_file(src, neu, 0) == 0);
+        assert(stat(neu, &st) == 0 && st.st_size == (off_t)test_size && (st.st_mode & 0111));
+        assert(ota_replace_file(neu, cur, bak) == 0);
+        fc = fopen(cur, "rb");
+        assert(fc); n = fread(back, 1, sizeof(back), fc); fclose(fc);
+        assert(n == test_size && memcmp(back, synthetic_data, test_size) == 0);
+        fc = fopen(bak, "rb");
+        assert(fc); n = fread(back, 1, sizeof(back), fc); fclose(fc);
+        assert(n == strlen("old binary") && memcmp(back, "old binary", n) == 0);
+        assert(access(neu, F_OK) != 0);
+
+        unlink(cur); unlink(bak); unlink(src); rmdir(dir);
+        printf("[+] Step 7 passed: binary install is refused without space or on a cut copy, and switched by rename\n");
+    }
 
     /* Clean up */
     unlink("/tmp/remote_ui.ota.gz");
