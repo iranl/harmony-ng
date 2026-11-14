@@ -20,6 +20,8 @@ run_monitor() {
   while true; do
     sleep 3
     load_config
+    check_recovery_ap_fallback
+
 
     cur_eth=$(find_eth_interface)
     if [ -n "$cur_eth" ]; then
@@ -95,9 +97,11 @@ run_monitor() {
             fi
             ;;
           *)
-            # If ETH_FALLBACK_WIFI=1 and static IP configured, ensure ath0 has the fallback IP
+            # If ETH_FALLBACK_WIFI=1 and static IP configured, ensure ath0 has the fallback IP.
+            # Not while the recovery AP runs: it has taken the radio, and migrate_to_wifi would
+            # stop it again without a link.
             target_ip="${ETH_IP:-$canonical_ip}"
-            if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$target_ip" ]; then
+            if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$target_ip" ] && [ ! -f /var/run/hub-recovery-ap.pid ]; then
               cur_wifi_ip=$(ifconfig ath0 2>/dev/null | grep 'inet addr' | awk -F: '{print $2}' | awk '{print $1}')
               if [ "$cur_wifi_ip" != "$target_ip" ]; then
                 log "Ethernet carrier 0: migrating ath0 ($cur_wifi_ip) to fallback IP $target_ip..."

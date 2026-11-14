@@ -215,6 +215,16 @@ if [ -n "$_net_mgr" ]; then
   "$_net_mgr" boot >> "$LOG" 2>&1 &
 fi
 
+# 5.3 Recovery AP button monitor (holding the button 5 s starts the recovery AP)
+_rec_ap=""
+for _s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
+  if [ -x "$_s" ]; then _rec_ap="$_s"; break; fi
+done
+if [ -n "$_rec_ap" ]; then
+  "$_rec_ap" monitor >> "$LOG" 2>&1 &
+  echo "$!" >> /tmp/harmony_supervisors.pid
+fi
+
 # 6. Unified Hub Daemon (WebUI & API on 8089)
 (
   _delay=5

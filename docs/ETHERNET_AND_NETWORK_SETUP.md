@@ -126,7 +126,15 @@ This is automatically handled by `start_usb_eth.sh` and `network_manager.sh`.
 
 ## 6. Recovery Access Point (Fail-safe Mode)
 
-If neither Ethernet nor configured Wi-Fi networks can associate after failover attempts, `recovery_ap.sh` automatically launches a standalone Wi-Fi hotspot on interface `ath1`:
+The Hub starts a standalone Wi-Fi hotspot on interface `ath1` (`recovery_ap.sh`):
+
+- at boot (`network_manager.sh`), when no Wi-Fi network is saved and Ethernet has no link;
+- 3 minutes after boot (the `network_manager.sh` monitor), when a Wi-Fi network is saved but has not associated (`wpa_state` is not `COMPLETED`) and no Ethernet interface has carrier: a wrong or changed pass phrase, a replaced router or a Hub moved to another home. A link seen before then ends the check for that boot: a network that dropped after working (router restarting) is retried, not replaced by the hotspot;
+- when `/sys/class/input/input0/tde` changes to `1` and stays there for 5 seconds (`recovery_ap.sh monitor`, started by `init.sh`; meant for a held button, a value of `1` from the start is ignored).
+
+The hotspot uses the Hub's only radio, so the Wi-Fi client (`wpa_supplicant`, DHCP) is stopped while it runs and the saved network is not retried. It stops when Ethernet comes up with an address. Saving Wi-Fi values in the portal reboots the Hub, which retries the saved network for 3 minutes again; so does power cycling the Hub (for example after the router was off longer than the Hub).
+
+The hotspot settings:
 
 - **SSID**: `Harmony-Recovery-<MAC_SUFFIX>`
 - **IP Address**: `192.168.76.1`

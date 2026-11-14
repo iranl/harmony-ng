@@ -105,12 +105,16 @@ stop_ap() {
 }
 
 monitor() {
+  # Counts only after the node was seen at another value: a node that reads 1 from the start
+  # (a boot mode flag rather than a held button) must not take the radio 5 s after boot.
   count=0
+  armed=0
   while true; do
-    val=$(cat /sys/class/input/input0/tde 2>/dev/null)
+    val=""
+    read -r val 2>/dev/null < /sys/class/input/input0/tde
     case "$val" in
-      1*) count=$(expr "$count" + 1) ;;
-      *) count=0 ;;
+      1*) [ "$armed" = "1" ] && count=$(expr "$count" + 1) ;;
+      *) count=0; armed=1 ;;
     esac
     if [ "$count" -ge 5 ]; then
       start_ap

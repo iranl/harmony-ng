@@ -9,6 +9,10 @@ WPA_CONF=/etc/wpa_supplicant.ath0.conf
 
 LOG=/tmp/harmony-network.log
 STATE_FILE=/tmp/harmony_active_net_state
+# Recovery AP fallback: started by the monitor when no link came up this long after boot.
+# The marker (tmpfs, so cleared at every boot) records that the check was decided.
+RECOVERY_AP_DELAY=180
+RECOVERY_AP_CHECK_FILE=/tmp/harmony_recovery_ap_check
 
 set_state() {
   echo "$1" > "$STATE_FILE"
@@ -613,6 +617,41 @@ stop_recovery_ap() {
   fi
 }
 
+# A link for the recovery AP decision: Wi-Fi associated (wpa_state COMPLETED) or an
+# Ethernet interface with carrier.
+link_is_up() {
+  _l_eth=$(find_eth_interface)
+  if [ -n "$_l_eth" ] && [ "$(cat "/sys/class/net/$_l_eth/carrier" 2>/dev/null)" = "1" ]; then
+    return 0
+  fi
+  [ "$(wpa_cli -i ath0 status 2>/dev/null | grep '^wpa_state=' | cut -d= -f2)" = "COMPLETED" ]
+}
+
+# Called from every monitor cycle until decided, once per boot. A saved Wi-Fi network that
+# never associates (wrong or changed pass phrase, router replaced, Hub moved) used to leave the
+# Hub without any address: the boot path starts the AP only when no network is saved, and the
+# monitor only retried the station. Now the AP starts when neither Wi-Fi nor Ethernet came up
+# within RECOVERY_AP_DELAY seconds of boot. A link seen before that (the saved values work)
+# ends the check for this boot. The AP is stopped, as before, when a link brings an address.
+check_recovery_ap_fallback() {
+  [ -f "$RECOVERY_AP_CHECK_FILE" ] && return 0
+  if link_is_up; then
+    echo link > "$RECOVERY_AP_CHECK_FILE"
+    return 0
+  fi
+  if [ -f /var/run/hub-recovery-ap.pid ]; then
+    echo ap > "$RECOVERY_AP_CHECK_FILE"
+    return 0
+  fi
+  _up=""
+  read -r _up _rest 2>/dev/null < /proc/uptime
+  _up=${_up%%.*}
+  [ -n "$_up" ] && [ "$_up" -ge "$RECOVERY_AP_DELAY" ] 2>/dev/null || return 0
+  echo ap > "$RECOVERY_AP_CHECK_FILE"
+  log "No Wi-Fi association and no Ethernet carrier ${_up}s after boot. Starting recovery AP..."
+  start_recovery_ap
+}
+
 do_boot() {
   log "Boot initialization started..."
   load_config
@@ -664,7 +703,7 @@ do_boot() {
       log "No active network link and no Wi-Fi credentials found on boot. Spawning recovery AP captive portal..."
       start_recovery_ap
     else
-      log "Wi-Fi is configured (association/DHCP pending). Skipping recovery AP; dynamic monitor will maintain link."
+      log "Wi-Fi is configured (association/DHCP pending). Recovery AP only if no link comes up within ${RECOVERY_AP_DELAY}s of boot."
     fi
   fi
 
