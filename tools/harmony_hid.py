@@ -946,23 +946,26 @@ class HarmonyHid:
         packets_per_chunk: int = 5,
         progress_callback=None,
     ) -> bool:
-        """Complete workflow: open -> write chunks -> close."""
+        """Complete workflow: open -> write chunks -> close. False when a report write failed:
+        the file on the device is then cut short."""
         handle_id = self.open_file_write(remote_path, size=len(data))
+        written = False
         try:
-            self.write_file_chunks(handle_id, data, packets_per_chunk, progress_callback=progress_callback)
-            return True
+            written = self.write_file_chunks(handle_id, data, packets_per_chunk, progress_callback=progress_callback)
         finally:
             self.close_file(handle_id)
+        return written
 
     def write_simple(self, remote_path: str, payload: bytes) -> bool:
-        """Write a small single-burst endpoint (e.g. /tde/enable or /sys/reboot)."""
+        """Write a small single-burst endpoint (e.g. /tde/enable or /sys/reboot). False when the
+        data report was not written."""
         handle_id = self.open_file_write(remote_path, size=len(payload))
+        written = False
         try:
-            if payload:
-                self.write_file_chunks(handle_id, payload, packets_per_chunk=1)
-            return True
+            written = self.write_file_chunks(handle_id, payload, packets_per_chunk=1) if payload else True
         finally:
             self.close_file(handle_id)
+        return written
 
     def open_file_read(self, remote_path: str, timeout_ms: int = 15000) -> tuple[int, int]:
         """Open a file for reading via command 0x01 ('R'). Returns (handle_id, file_size)."""

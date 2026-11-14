@@ -471,7 +471,9 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             pct = int(sent / total * 100)
             print(f"\r    Uploaded {sent:,} / {total:,} bytes ({pct}%)", end="", flush=True)
 
-        hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress)
+        if not hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress):
+            print("\n[-] Staging /sys/dropbear failed: the payload on the device is incomplete; not arming the boot trigger or rebooting. Reconnect USB and run the tool again.")
+            return False
         print(f"\n[+] Dropbear staging complete in {time.time() - t0:.1f}s.")
 
         print("[*] Arming boot trigger (/tde/enable -> /etc/tdeenable)...")
