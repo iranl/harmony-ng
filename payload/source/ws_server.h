@@ -42,7 +42,9 @@ int ws_handle_upgrade(int client_fd, const char *http_req, int role, int legacy)
 /* Generation of the client on client_fd, 0 when none (see ws_server.c) */
 unsigned int ws_client_gen(int client_fd);
 
-/* Send a text frame to a specific client */
+/* Send a text frame to a specific client. It never waits: what the socket does not take at once
+ * is queued and sent on by ws_server_tick(). Returns -1 when client_fd is not a client or the
+ * client does not keep up (queue over its limit or older than a few seconds): drop it. */
 int ws_send_text(int client_fd, const char *text);
 
 /* Broadcast a text frame to all active WebSocket clients */
