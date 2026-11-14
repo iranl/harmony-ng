@@ -234,13 +234,18 @@ int load_ir_inventory(struct ir_inventory *inv) {
         const cJSON *d = NULL;
         cJSON_ArrayForEach(d, clean_devs) {
             if (inv->device_count >= MAX_IR_DEVICES) break;
+            /* The id as the rest of the daemon sees it (steps, deviceIds, the dispatcher compare
+             * strings): a device imported from the Harmony database has "d_<number>", which
+             * atol() turned into 0 and the device was left out of the automatic power steps */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
-            long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
-            if (id <= 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
-            if (id <= 0) continue;
+            char id_str[32] = "";
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
+            if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
+            long id = atol(id_str);
 
             struct ir_device *dev = &inv->devices[inv->device_count];
-            snprintf(dev->id, sizeof(dev->id), "%ld", id);
+            snprintf(dev->id, sizeof(dev->id), "%s", id_str);
             if (id > inv->max_device_id) inv->max_device_id = id;
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(d, "name");
@@ -441,13 +446,16 @@ int load_activity_inventory(struct activity_inventory *inv) {
         cJSON_ArrayForEach(a, arr) {
             if (inv->count >= MAX_ACTIVITIES) break;
 
+            /* the id as stored, like activity_known() and the requests see it ("movie", "007") */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
-            long id = (jid && cJSON_IsNumber(jid)) ? (long)jid->valuedouble : 0;
-            if (id == 0 && jid && cJSON_IsString(jid) && jid->valuestring) id = atol(jid->valuestring);
-            if (id == 0) continue;
+            char id_str[32] = "";
+            if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
+            else if (jid && cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
+            if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
+            long id = atol(id_str);
 
             struct activity_item *act = &inv->items[inv->count];
-            snprintf(act->id, sizeof(act->id), "%ld", id);
+            snprintf(act->id, sizeof(act->id), "%s", id_str);
             if (id > 0 && id > inv->max_id) inv->max_id = id;
 
             const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
