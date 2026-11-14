@@ -116,7 +116,7 @@ time_t sntp_sync_time(const char *server, int apply) {
 static time_t g_last_sync_attempt = 0;
 static int g_time_valid = 0;
 
-void sntp_tick(const char *server) {
+int sntp_sync_due(void) {
     time_t now = time(NULL);
 
     /* Check if system time currently appears sane (past 2025-01-01) */
@@ -130,10 +130,18 @@ void sntp_tick(const char *server) {
 
     if (g_last_sync_attempt == 0 || (now - g_last_sync_attempt) >= interval || now < g_last_sync_attempt) {
         g_last_sync_attempt = now;
-        time_t res = sntp_sync_time(server, 1);
-        if (res > 0) {
-            g_time_valid = 1;
-            g_last_sync_attempt = res;
-        }
+        return 1;
     }
+    return 0;
+}
+
+void sntp_sync_done(time_t res) {
+    if (res > 0) {
+        g_time_valid = 1;
+        g_last_sync_attempt = res;
+    }
+}
+
+void sntp_tick(const char *server) {
+    if (sntp_sync_due()) sntp_sync_done(sntp_sync_time(server, 1));
 }

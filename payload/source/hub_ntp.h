@@ -20,6 +20,14 @@ time_t sntp_sync_time(const char *server, int apply);
  */
 void sntp_tick(const char *server);
 
+/*
+ * The two halves of sntp_tick() for a caller that runs the blocking sntp_sync_time() on
+ * another thread: sntp_sync_due() says whether a sync should start now (and counts it as
+ * started), sntp_sync_done() takes its result. Call them from one thread at a time.
+ */
+int sntp_sync_due(void);
+void sntp_sync_done(time_t res);
+
 #ifdef __cplusplus
 }
 #endif
