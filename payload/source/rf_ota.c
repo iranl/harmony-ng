@@ -11,6 +11,8 @@
 #include <strings.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <time.h>
 
 /* Windowed transfer (remotes that put RF_OTA_WINDOWED in their OTA_START ACK): the Hub puts the
  * CC2544 in RF_PM_TRANSFER as Logitech's firmware does for its HOT transfers (the remote's radio
