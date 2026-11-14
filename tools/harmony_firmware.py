@@ -519,8 +519,13 @@ def flash_firmware(
                 )
 
             # Stream chunk burst (burst size 5 packets of 62 bytes each = 310 bytes per burst)
-            hid.write_file_chunks(handle_id, img.data, packets_per_chunk=5, progress_callback=progress_cb)
+            written = hid.write_file_chunks(handle_id, img.data, packets_per_chunk=5, progress_callback=progress_cb)
             print()
+            if not written:
+                # Never hand a partly written image to the device's updater
+                print(f"[-] Writing {img.name} failed; device not reset, its current firmware stays.", file=sys.stderr)
+                hid.close_file(handle_id)
+                return False
 
             # Verify checksum on handle
             print(f"[*] Verifying checksum ({img.checksum_type}: {img.checksum_expected})...")
@@ -690,7 +695,14 @@ def main():
             # Auto-detect for connected Harmony USB device
             print("[*] Auto-detecting connected Harmony USB device...")
             connected_pid = None
-            for pid in [REMOTE_PID, HUB_PID, HUB_PRO_PID]:
+            # Pick the bundle for the device class that flash_firmware() will open below
+            if args.target == "hub":
+                probe_pids = [HUB_PID, HUB_PRO_PID]
+            elif args.target in ("remote", "elite"):
+                probe_pids = [REMOTE_PID]
+            else:
+                probe_pids = [REMOTE_PID, HUB_PID, HUB_PRO_PID]
+            for pid in probe_pids:
                 test_hid = HarmonyHid(pid=pid)
                 if test_hid.open():
                     connected_pid = pid
