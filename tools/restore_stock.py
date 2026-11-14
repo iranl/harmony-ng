@@ -228,7 +228,8 @@ def gain_root_over_usb(
             pct = int(sent / total * 100)
             print(f"\r    Uploaded {sent:,} / {total:,} bytes ({pct}%)", end="", flush=True)
 
-        hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress)
+        if not hid.write_full_file("/sys/dropbear", payload, packets_per_chunk=5, progress_callback=progress):
+            raise RuntimeError("Staging /sys/dropbear failed: the payload on the device is incomplete; not arming the boot trigger or rebooting. Reconnect USB and run the tool again.")
         print("\n[+] Dropbear staged successfully.")
 
         # Arm persistent boot trigger
