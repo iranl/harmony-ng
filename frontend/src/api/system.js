@@ -155,7 +155,10 @@ export function createSystemApi(client) {
     },
 
     async saveWifi(data) {
-      return client.postForm('/wifi', data);
+      // apply=reconfigure: the Hub joins the network as a test first and changes nothing when
+      // that fails. Without it the values are written untested and used at the next boot.
+      // The test takes up to about 15 s.
+      return client.postForm('/wifi', { apply: 'reconfigure', ...data }, { timeout: 45000 });
     },
 
     /* Backup & Restore */
