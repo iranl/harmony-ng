@@ -729,9 +729,14 @@ bool handle_icon_frame(const rf_frame_t *f) {
             if (ack_status == 0x00) {
                 fb_invalidate_png_cache(g_icon_rx_id);
 
+                /* An icon also belongs to the activities whose custom icon number it is, but only
+                 * when the id is a number: atoi() of a name is 0, the icon number of activities
+                 * without a custom icon. */
+                uint16_t icon_num = 0;
+                if (strspn(g_icon_rx_id, "0123456789") == strlen(g_icon_rx_id)) icon_num = (uint16_t)atoi(g_icon_rx_id);
                 for (int i = 0; i < g_activity_count; i++) {
                     if (strcmp(g_activities[i].id, g_icon_rx_id) == 0 ||
-                        (i < g_rf_activity_count && g_rf_activities[i].icon_id == (uint16_t)atoi(g_icon_rx_id))) {
+                        (icon_num != 0 && i < g_rf_activity_count && g_rf_activities[i].icon_id == icon_num)) {
                         copy_str(g_activities[i].icon_path, sizeof(g_activities[i].icon_path), plain_path);
                     }
                 }

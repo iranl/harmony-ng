@@ -886,6 +886,28 @@ int main(void) {
         assert(g_icon_rx_file == NULL);
         printf("[+] Icon id without a terminator in the frame, or empty, refused\n");
 
+        /* An icon named by text must not land on activities without a custom icon (number 0) */
+        {
+            int sa = g_activity_count, sr = g_rf_activity_count;
+            activity_item_t a0 = g_activities[0];
+            rf_activity_t r0 = g_rf_activities[0];
+            g_activity_count = 1;
+            g_rf_activity_count = 1;
+            snprintf(g_activities[0].id, sizeof(g_activities[0].id), "7");
+            g_activities[0].icon_path[0] = '\0';
+            g_rf_activities[0].icon_id = 0;
+            send_icon("abc", 4, png, sizeof(png), 80);
+            assert(strcmp(g_activities[0].icon_path, "/data/assets/custom/abc.png") != 0);
+            g_rf_activities[0].icon_id = 4242;
+            send_icon("4242", 5, png, sizeof(png), 90);
+            assert(strcmp(g_activities[0].icon_path, "/data/assets/custom/4242.png") == 0);
+            g_activities[0] = a0;
+            g_rf_activities[0] = r0;
+            g_activity_count = sa;
+            g_rf_activity_count = sr;
+            printf("[+] A text icon id does not match activities without a custom icon; a numeric one still does\n");
+        }
+
         static uint8_t big[RF_ICON_MAX_BYTES + 44];
         memset(big, 0x5A, sizeof(big));
         send_icon("big", 4, big, sizeof(big), 70);
