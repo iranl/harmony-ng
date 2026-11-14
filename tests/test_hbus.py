@@ -308,6 +308,10 @@ def main():
         check(fin is not None and fin["data"].get("activityId") == "11", "finished for 11 after a REST switch")
         check(not any(f.get("cmd") for f in frames), "no startActivity frames without a legacy request", str([f.get("cmd") for f in frames if f.get("cmd")]))
         recv_until(ws, lambda m: m.get("type") == "connect.stateDigest?notify" and m["data"].get("activityStatus") == 2, 3.0)
+        # The orchestrator publishes running again when the last command went out (sending true to
+        # false). That is no new transition: no second "finished" for the legacy clients.
+        again, _ = recv_until(ws, lambda m: m.get("type") == "harmony.engine?startActivityFinished", 6.0)
+        check(again is None, "one finished per switch (a sending update is not a second one)", str(again))
 
         print("[-] config change bumps configVersion")
         recv_until(ws, lambda m: False, 0.5)  # drain
