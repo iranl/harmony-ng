@@ -21,6 +21,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tarfile
 
 
 def find_default_ssh_key() -> str | None:
@@ -54,6 +55,41 @@ def get_ssh_cmd(host: str, user: str = "root", key_path: str | None = None) -> l
         cmd.extend(["-i", key_path])
     cmd.append(f"{user}@{host}")
     return cmd
+
+
+def tar_is_complete(path: pathlib.Path) -> bool:
+    """True when every member can be read and the archive ends with tar's end-of-archive
+    blocks. A stream cut by a dropped connection fails one of the two, also when the cut
+    falls on a block boundary, which tarfile alone reads as a shorter, valid archive."""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            for member in tf:
+                if member.isfile():
+                    f = tf.extractfile(member)
+                    while f and f.read(65536):
+                        pass
+            end = tf.offset
+        with open(path, "rb") as f:
+            f.seek(end)
+            trailer = f.read(1024)
+        return len(trailer) == 1024 and trailer == bytes(1024)
+    except (tarfile.TarError, OSError, EOFError):
+        return False
+
+
+def save_archive(ssh_base: list[str], remote_cmd: str, dest: pathlib.Path) -> bool:
+    """Stream a tar from the Hub into dest. The file is written under a temporary name and
+    gets its final name only when ssh succeeded and the archive is complete."""
+    part = dest.with_name(dest.name + ".part")
+    with open(part, "wb") as f_out:
+        res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
+    if res.returncode != 0 or not tar_is_complete(part):
+        reason = f"ssh exit code {res.returncode}" if res.returncode != 0 else "archive incomplete or unreadable"
+        print(f"[!] Backup to {dest.name} failed ({reason}); nothing was saved.")
+        part.unlink(missing_ok=True)
+        return False
+    part.replace(dest)
+    return True
 
 
 def backup_hub(
@@ -143,14 +179,11 @@ def backup_hub(
                 print(f"    [dry-run] would save golden backup to {golden_file}")
             else:
                 remote_cmd = f"{tar_cmd} -cf - /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true"
-                with open(golden_file, "wb") as f_out:
-                    res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
-                if golden_file.stat().st_size > 0:
+                if save_archive(ssh_base, remote_cmd, golden_file):
                     sz_kb = golden_file.stat().st_size // 1024
                     print(f"[+] Golden backup saved to {golden_file.name} ({sz_kb} KB)")
                 else:
-                    print("[!] Golden backup failed or empty, removing empty file.")
-                    golden_file.unlink(missing_ok=True)
+                    print("[!] Golden backup failed; it will be tried again on the next run.")
         else:
             print(f"[+] Golden backup already exists: {golden_file.name}")
 
@@ -160,14 +193,11 @@ def backup_hub(
             print(f"    [dry-run] would save rolling backup to {rolling_file}")
         else:
             remote_cmd = f"{tar_cmd} -cf - /data/harmony /data/resources /etc/passwd /etc/network /etc/TZ 2>/dev/null || true"
-            with open(rolling_file, "wb") as f_out:
-                res = subprocess.run(ssh_base + [remote_cmd], stdout=f_out, stderr=subprocess.PIPE)
-            if rolling_file.stat().st_size > 0:
+            if save_archive(ssh_base, remote_cmd, rolling_file):
                 sz_kb = rolling_file.stat().st_size // 1024
                 print(f"[+] Rolling backup saved: {rolling_file.name} ({sz_kb} KB)")
             else:
-                print("[!] Rolling backup failed or empty.")
-                rolling_file.unlink(missing_ok=True)
+                print("[!] Rolling backup failed; older backups were kept.")
                 return False
 
         # 3. Rotate rolling backups (keep newest 5)
