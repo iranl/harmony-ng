@@ -62,6 +62,22 @@ static void config_store_migrate_log(const char *msg) {
     printf("[*] %s\n", msg);
 }
 
+/* A configuration file that is there but could not be read or parsed (cut by a full flash, empty,
+ * too large) loads as an empty configuration, and the first save then printed that over it. The
+ * file is moved aside instead, so a person can still repair it. */
+static void keep_unreadable_config(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return; /* no file: a first start, nothing to keep */
+    char aside[256];
+    snprintf(aside, sizeof(aside), "%s.corrupt-%ld", path, (long)time(NULL));
+    if (rename(path, aside) == 0) {
+        fprintf(stderr, "[!] %s could not be read (%ld bytes): kept as %s, starting with an empty list\n",
+                path, (long)st.st_size, aside);
+    } else {
+        fprintf(stderr, "[!] %s could not be read (%ld bytes), starting with an empty list\n", path, (long)st.st_size);
+    }
+}
+
 int config_store_init(void) {
     mkdir(HARMONY_DIR, 0755);
     mkdir(HARMONY_CONFIG_DIR, 0755);
@@ -86,6 +102,7 @@ int config_store_init(void) {
         }
     }
     if (!g_devices_json_cache) {
+        keep_unreadable_config(dev_path);
         g_devices_json_cache = cJSON_CreateObject();
         cJSON_AddArrayToObject(g_devices_json_cache, "devices");
     }
@@ -100,6 +117,7 @@ int config_store_init(void) {
         }
     }
     if (!g_activities_json_cache) {
+        keep_unreadable_config(act_path);
         g_activities_json_cache = cJSON_CreateObject();
         cJSON_AddArrayToObject(g_activities_json_cache, "activities");
     }
