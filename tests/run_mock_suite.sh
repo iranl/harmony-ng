@@ -232,6 +232,8 @@ python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_cmd_actions.py"
+# Host tool with a fake USB device (tools/harmony_firmware.py flash flow)
+python3 "$SCRIPT_DIR/test_harmony_firmware_flash.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
 python3 "$SCRIPT_DIR/test_hbus.py"
