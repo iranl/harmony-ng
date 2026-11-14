@@ -215,8 +215,10 @@ int parse_hex_bytes(const char *hex, uint8_t *out, int max_len) {
     while (*hex && len < max_len) {
         while (*hex == ' ') hex++;
         if (!*hex || *hex == '|' || *hex == '\r' || *hex == '\n') break;
+        /* Two digits per byte: "%02x" also takes a single digit, and stepping 2 from there went
+           past the end of the string */
         unsigned int b = 0;
-        if (sscanf(hex, "%02x", &b) == 1) {
+        if (isxdigit((unsigned char)hex[0]) && isxdigit((unsigned char)hex[1]) && sscanf(hex, "%02x", &b) == 1) {
             out[len++] = (uint8_t)b;
             hex += 2;
         } else {
@@ -337,10 +339,15 @@ bool send_host_named_key(const char *name) {
     if (strlen(name) == 1 && name[0] >= 'a' && name[0] <= 'z') { send_host_keyboard_report(mod, 0x04 + (name[0] - 'a')); return true; }
     if (strlen(name) == 1 && name[0] >= 'A' && name[0] <= 'Z') { send_host_keyboard_report(mod | 0x02, 0x04 + (name[0] - 'A')); return true; }
 
-    unsigned int hex = 0;
-    if (sscanf(name, "0x%x", &hex) == 1 || sscanf(name, "%x", &hex) == 1) {
-        send_host_consumer_report((uint16_t)hex);
-        return true;
+    /* A consumer usage given as a number: only a complete "0x..." value. "%x" alone took any name
+       that starts with a hex digit ("Eject", "Connect") as a usage and reported it as handled. */
+    if (name[0] == '0' && (name[1] == 'x' || name[1] == 'X') && isxdigit((unsigned char)name[2])) {
+        char *end = NULL;
+        unsigned long usage = strtoul(name + 2, &end, 16);
+        if (end && *end == '\0' && usage <= 0xFFFF) {
+            send_host_consumer_report((uint16_t)usage);
+            return true;
+        }
     }
     return false;
 }
