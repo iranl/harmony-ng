@@ -73,8 +73,10 @@ def test_activity_switch(hub):
     st, resp = hub.http_post("/api/poweroff", {})
     check(st == 200, "POST /api/poweroff", "%s %s" % (st, resp))
     idle, frames = ws.wait_for("activity_state", 10, lambda m: m.get("state") == 0)
-    sts = states_of(frames)
-    check(sts and sts[0] == (3, "10"), "stopping with activity 10 first", str(sts))
+    # running updates for 10 that are still in flight from the start (sending true to false) may
+    # come first; the first transition state must be stopping with activity 10
+    sts = [x for x in states_of(frames) if x != (2, "10")]
+    check(sts and sts[0] == (3, "10"), "stopping with activity 10 first", str(states_of(frames)))
     check(idle is not None and idle.get("activity") == "-1" and idle.get("stateName") == "idle",
           "idle with activity -1 last", str(idle))
 

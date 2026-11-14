@@ -9,6 +9,8 @@ Activity requests while a transition runs are queued, not refused (orchestrator)
 - the WebSocket command channel answers ok with state "queued" (and names the action it was called by)
 - the activity_state event carries the queued id: one event when the power off is queued (state
   still starting, queued "-1"), none before, queued null again from the event of the queued stop on
+- the starting event says sending true, the last event of a transition says sending false (also in
+  the snapshot), and a queued request that cannot start (deleted meanwhile) is dropped with an event
 The daemon runs with --dry-run; the start sequence of the test activity has a 1.5 s delay.
 """
 
@@ -98,9 +100,10 @@ def main():
             names = [(x.get("stateName"), x.get("queued")) for x in seen if x.get("type") == "activity_state"]
             check(m is not None and m.get("queued") is None, "activity_state idle, queued null", str(names))
             # the repeated power off (same queued id) sent no event; the completion of 12 carries the
-            # queued id, then the queued stop starts: stopping and idle with queued null
-            check(names == [("running", "-1"), ("stopping", None), ("idle", None)],
-                  "event sequence: running (queued -1), stopping, idle; no event for the repeated request", str(names))
+            # queued id (at the Switched marker with sending true, then sending false when its last
+            # step went out), then the queued stop starts: stopping and idle with queued null
+            check(names == [("running", "-1"), ("running", "-1"), ("stopping", None), ("idle", None)],
+                  "event sequence: running (queued -1, sending true then false), stopping, idle; no event for the repeated request", str(names))
             ev.close()
             # the queued power off starts the instant the start completes, so "12 running" is not
             # observable over REST: the order of the steps in the log shows the start finished first
@@ -143,6 +146,41 @@ def main():
             s = wait_for(hub, lambda s: str(s.get("activity")) == "10" and s.get("state") == 2 and not s.get("busy"))
             check(s is not None, "the queued start runs after the power off (10 running)", str(state_of(hub)))
             ws.close()
+
+            print("[-] the sending flag and the queued id of the last activity_state event")
+            ev = hub.ws()
+            ev.recv_json(5)  # snapshot
+            st, r = hub.http_post("/api/activity", {"activity": "12"})
+            m, seen = ev.wait_for("activity_state", 8, lambda m: m.get("stateName") == "running" and m.get("activity") == "12"
+                                  and m.get("sending") is False)
+            states = [(x.get("stateName"), x.get("activity"), x.get("sending")) for x in seen if x.get("type") == "activity_state"]
+            check(m is not None, "an event 'running, sending false' ends the start of 12", str(states))
+            starting = [x for x in seen if x.get("type") == "activity_state" and x.get("stateName") == "starting"]
+            check(len(starting) > 0 and all(x.get("sending") is True for x in starting),
+                  "the starting event says sending true (its steps are queued)", str(states))
+            snap_ws = hub.ws()
+            snap = snap_ws.recv_json(5)
+            snap_ws.close()
+            check(snap is not None and snap.get("activity_state", {}).get("sending") is False,
+                  "the snapshot after the transition says sending false", str(snap.get("activity_state") if snap else snap))
+            st, r = hub.http_post("/api/poweroff", {})
+            check(wait_for(hub, lambda s: str(s.get("activity")) == "-1" and s.get("state") == 0 and not s.get("busy")) is not None,
+                  "power off before the queue case")
+            ev.drain(0.5)
+            st, r = hub.http_post("/api/activity", {"activity": "12"})
+            time.sleep(0.2)
+            st, r = hub.http_post("/api/activity", {"activity": "11"})
+            check(st == 200 and r.get("state") == "queued", "start 11 during the start of 12: queued", "%s %s" % (st, r))
+            st, r = hub.http_post("/api/activity-delete", {"id": "11"})
+            check(st == 200 and r.get("ok") is True, "activity 11 deleted while it is queued", "%s %s" % (st, r))
+            s = wait_for(hub, lambda s: str(s.get("activity")) == "12" and s.get("state") == 2 and not s.get("busy"), 20)
+            check(s is not None and s.get("queued") is None, "12 running, the dropped request is not queued", str(state_of(hub)))
+            time.sleep(0.3)
+            last = [x for x in ev.drain(0.5) if x.get("type") == "activity_state"]
+            seen_states = [(x.get("stateName"), x.get("queued"), x.get("sending")) for x in last]
+            check(len(last) > 0 and last[-1].get("queued") is None and last[-1].get("sending") is False,
+                  "the last event drops the queued id that could not start and says sending false", str(seen_states))
+            ev.close()
 
         log = open(log_path, errors="replace").read()
         check("requested while switching to" in log and "starting the queued request" in log, "the queue is logged")

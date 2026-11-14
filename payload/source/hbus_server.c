@@ -564,8 +564,18 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
         const cJSON *sj = cJSON_GetObjectItemCaseSensitive(p, "state");
         const cJSON *aj = cJSON_GetObjectItemCaseSensitive(p, "activity");
         int state = (sj && cJSON_IsNumber(sj)) ? sj->valueint : 0;
-        if (state != ORCH_STATE_RUNNING && state != ORCH_STATE_IDLE) return;
         const char *cur = (aj && cJSON_IsString(aj)) ? aj->valuestring : ORCH_POWEROFF_ID;
+        /* A running or idle event that follows another one for the same activity only reports a
+         * change of the sending flag or of the queued request: no transition finished, so the
+         * legacy clients get no second "finished". */
+        static int s_prev_state = -1;
+        static char s_prev_act[32] = "";
+        int settled_before = (s_prev_state == ORCH_STATE_RUNNING || s_prev_state == ORCH_STATE_IDLE) &&
+                             strcmp(s_prev_act, cur) == 0;
+        s_prev_state = state;
+        snprintf(s_prev_act, sizeof(s_prev_act), "%s", cur);
+        if (state != ORCH_STATE_RUNNING && state != ORCH_STATE_IDLE) return;
+        if (settled_before) return;
         char num[32];
         if (strcmp(cur, ORCH_POWEROFF_ID) == 0) snprintf(num, sizeof(num), "-1");
         else hbus_numeric_id(cur, num, sizeof(num));
