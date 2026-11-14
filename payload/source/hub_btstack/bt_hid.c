@@ -30,10 +30,21 @@ static uint16_t release_cid(void) {
     return get_target_host_hid_cid();
 }
 
+/* The consumer and mouse release timers carry the channel they were armed for and leave
+ * g_host_pending_cid alone: a press made while one of them is armed sets that to its own channel,
+ * and clearing it here would send that press's release to the current target instead. */
+static uint16_t s_crelease_cid = 0;
+static uint16_t s_mrelease_cid = 0;
+
+static uint16_t timer_release_cid(uint16_t armed_cid) {
+    if (cid_connected(armed_cid)) return armed_cid;
+    return get_target_host_hid_cid();
+}
+
 static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
-    uint16_t cid = release_cid();
-    g_host_pending_cid = 0; /* consumed: a later release must not resolve to this host */
+    uint16_t cid = timer_release_cid(s_crelease_cid);
+    s_crelease_cid = 0;
     if (cid != 0) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
         hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
@@ -42,8 +53,8 @@ static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
 
 static void host_mrelease_timer_handler(btstack_timer_source_t *ts) {
     UNUSED(ts);
-    uint16_t cid = release_cid();
-    g_host_pending_cid = 0;
+    uint16_t cid = timer_release_cid(s_mrelease_cid);
+    s_mrelease_cid = 0;
     if (cid != 0) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
         hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
@@ -94,7 +105,7 @@ void send_host_release_all(void) {
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
         hid_device_send_interrupt_message(cid, release, sizeof(release));
         if (prev_type != 1) {
-            g_host_pending_cid = cid;
+            s_crelease_cid = cid;
             btstack_run_loop_remove_timer(&g_host_crelease_timer);
             btstack_run_loop_set_timer_handler(&g_host_crelease_timer, host_crelease_timer_handler);
             btstack_run_loop_set_timer(&g_host_crelease_timer, 20);
@@ -102,7 +113,7 @@ void send_host_release_all(void) {
         }
     }
     if (g_host_mouse_buttons != 0) {
-        g_host_pending_cid = cid;
+        s_mrelease_cid = cid;
         btstack_run_loop_remove_timer(&g_host_mrelease_timer);
         btstack_run_loop_set_timer_handler(&g_host_mrelease_timer, host_mrelease_timer_handler);
         btstack_run_loop_set_timer(&g_host_mrelease_timer, 40);
