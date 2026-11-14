@@ -22,6 +22,8 @@
 
 #define PRIMARY_CURRENT_ACT_FILE "/data/harmony/current_activity"
 
+static int activity_known(const char *id);
+
 static orch_state_t g_state = ORCH_STATE_IDLE;
 static char g_current_act[32] = ORCH_POWEROFF_ID;
 static char g_target_act[32] = ORCH_POWEROFF_ID;
@@ -163,6 +165,12 @@ int orch_init(void) {
     memset(g_bg_queue, 0, sizeof(g_bg_queue));
     pthread_mutex_lock(&g_act_lock);
     load_current_activity();
+    /* The saved activity may no longer exist (deleted, or a restored configuration without it):
+     * staying "running" in it left a power off with nothing to send */
+    if (!activity_known(g_current_act)) {
+        printf("[!] Orch: saved activity %s is not configured, starting as PowerOff\n", g_current_act);
+        snprintf(g_current_act, sizeof(g_current_act), "%s", ORCH_POWEROFF_ID);
+    }
     write_activity_mirror(g_current_act);
     clear_activity_target();
     /* Emits the baseline activity_state event */
