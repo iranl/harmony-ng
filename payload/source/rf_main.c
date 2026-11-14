@@ -76,6 +76,18 @@ static void enqueue_browsed_device_cmd(const uint8_t *payload) {
 }
 
 void handle_rf_frame(const rf_frame_t *f) {
+    /* hub_rf keeps state for slots 1 and 2 only; the handlers below map any other slot to 1, so
+       a frame from a device in another CC2544 slot (a third paired device) would be applied to
+       the remote in slot 1: its version, battery, keys, and an unpair notice that unpairs it */
+    uint8_t fslot = f->dev_slot & 0x0F;
+    if (fslot > MAX_PAIRED_REMOTES) {
+        static uint16_t s_logged; /* one line per slot */
+        if (!(s_logged & (1u << fslot))) {
+            s_logged |= (uint16_t)(1u << fslot);
+            printf("[-] RF frame type 0x%02X from slot %u ignored: only slots 1 and 2 hold a remote\n", f->msg_type, fslot);
+        }
+        return;
+    }
     if (f->dev_slot == 1 || f->dev_slot == 2) {
         mark_remote_slot_active(f->dev_slot);
         rf_slot_saw_protocol_frame(f->dev_slot);
