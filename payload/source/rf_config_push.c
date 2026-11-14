@@ -83,10 +83,12 @@ void *config_push_worker(void *arg) {
         }
     }
     if (num_targets == 0) {
-        if (g_remote_slot != 0 && !is_companion_slot(g_remote_slot)) {
+        /* g_remote_slot follows any CC2544 report (slots 1..15), but only slots 1 and 2 hold a
+           remote and the two arrays above have room for two targets */
+        if (g_remote_slot >= 1 && g_remote_slot <= MAX_PAIRED_REMOTES && !is_companion_slot(g_remote_slot)) {
             target_slots[num_targets++] = g_remote_slot;
         }
-        for (uint8_t s = 1; s <= 2; s++) {
+        for (uint8_t s = 1; s <= 2 && num_targets < 2; s++) {
             if (!is_companion_slot(s)) {
                 bool already = false;
                 for (int j = 0; j < num_targets; j++) {
