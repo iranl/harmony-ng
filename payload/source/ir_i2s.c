@@ -74,6 +74,11 @@ void ir_i2s_shutdown(void) {
     }
 }
 
+/* Largest bit stream one send may build: 10 s of IR at a 60 kHz carrier fits (about 900 KB),
+ * real frames need a few KB. Without a limit a high carrier or long durations built one of
+ * tens of MB (or GB) on the Hub's 64 MB, one bit at a time. */
+#define IR_I2S_MAX_STREAM_BYTES (1024 * 1024)
+
 static inline uint32_t get_spp(uint32_t period_ns) {
     if (period_ns >= 12000) return 12;
     if (period_ns >= 3000)  return 10;
@@ -158,6 +163,7 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
     if (duty > 50) duty = 50;
 
     uint32_t period_ns = 1000000000U / carrier_hz;
+    if (period_ns == 0) return -1; /* above 1 GHz */
     uint32_t spp = get_spp(period_ns);
     uint32_t pulse_bclk_ns = (period_ns + spp - 1) / spp;
     uint32_t stereo_clk = (uint32_t)(((uint64_t)pulse_bclk_ns * 65536ULL) / 40ULL);
@@ -165,8 +171,17 @@ int ir_i2s_blast_words(uint32_t carrier_hz, uint8_t duty,
     uint32_t on_bits = ((uint32_t)duty * spp + 99) / 100;
     uint32_t off_bits = spp - on_bits;
 
+    /* Size the stream first: refuse one over the limit, allocate the rest in one go */
+    uint64_t total_bits = (uint64_t)spp * 500;
+    for (size_t i = 0; i < num_words; i++) {
+        uint64_t us = words[i] & 0x7FFF;
+        total_bits += ((us * 1000ULL + period_ns / 2ULL) / period_ns) * spp;
+    }
+    uint64_t total_bytes = total_bits / 8 + 2;
+    if (total_bytes > IR_I2S_MAX_STREAM_BYTES) return -E2BIG;
+
     bit_stream_t bs;
-    if (bs_init(&bs, 8192) != 0) return -2;
+    if (bs_init(&bs, (size_t)total_bytes) != 0) return -2;
 
     for (size_t i = 0; i < num_words; i++) {
         uint16_t w = words[i];
