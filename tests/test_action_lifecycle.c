@@ -18,11 +18,11 @@ static cJSON *s_mock_device_root = NULL;
 orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
 
-cJSON *get_device_list_cached(void) {
+cJSON *get_device_list_copy(void) {
     if (!s_mock_device_root) {
         s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]}]}");
     }
-    return s_mock_device_root;
+    return cJSON_Duplicate(s_mock_device_root, 1);
 }
 
 int ir_encode_pronto(const char *pronto, uint8_t repeats, uint32_t gap, uint8_t **out_bin, size_t *out_len) {

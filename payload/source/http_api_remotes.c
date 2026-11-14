@@ -880,7 +880,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         }
         int success = 0;
         if (dev_id[0]) {
-            cJSON *root = config_store_get_devices_json();
+            config_store_lock();
+            cJSON *root = config_store_devices_copy();
             if (root) {
                 cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                 if (devs && cJSON_IsArray(devs)) {
@@ -896,13 +897,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             if (bdaddr[0]) {
                                 cJSON_AddStringToObject(dev_item, "bdaddr", bdaddr);
                             }
-                            config_store_save_devices(root);
+                            if (config_store_save_devices(root) == 0) root = NULL;
                             success = 1;
                             break;
                         }
                     }
                 }
+                cJSON_Delete(root); /* NULL once the store took it */
             }
+            config_store_unlock();
         }
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", success);

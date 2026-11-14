@@ -182,7 +182,7 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
 
 static void device_name(const char *id, char *out, size_t len) {
     snprintf(out, len, "%s", id);
-    cJSON *root = config_store_get_devices_json();
+    cJSON *root = config_store_devices_copy();
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     cJSON *d = NULL;
     cJSON_ArrayForEach(d, devs) {
@@ -193,9 +193,10 @@ static void device_name(const char *id, char *out, size_t len) {
         else if (cJSON_IsString(jid)) snprintf(d_id, sizeof(d_id), "%s", jid->valuestring);
         if (strcmp(d_id, id) == 0 && cJSON_IsString(jname)) {
             snprintf(out, len, "%s", jname->valuestring);
-            return;
+            break;
         }
     }
+    cJSON_Delete(root);
 }
 
 /* The "error" string of a Help reply, or a plain text when the reply has none (out of memory) */
@@ -211,17 +212,14 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
 
     /* Route: GET /api/activities */
     if (strcmp(clean_path, "/api/activities") == 0 && strcmp(method, "GET") == 0) {
-        cJSON *act_j = config_store_get_activities_json();
-        if (act_j) {
-            cJSON *resp = cJSON_Duplicate(act_j, 1);
-            if (resp) {
-                cJSON_AddStringToObject(resp, "currentId", orch_get_current_activity());
-                cJSON_AddNumberToObject(resp, "state", (int)orch_get_state());
-                send_cjson_resp(client_fd, 200, resp);
-                cJSON_Delete(resp);
-                close(client_fd);
-                return 1;
-            }
+        cJSON *resp = config_store_activities_copy();
+        if (resp) {
+            cJSON_AddStringToObject(resp, "currentId", orch_get_current_activity());
+            cJSON_AddNumberToObject(resp, "state", (int)orch_get_state());
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+            close(client_fd);
+            return 1;
         }
         send_json_error(client_fd, 404, "Activities not found");
         close(client_fd);
@@ -496,8 +494,9 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 }
             }
 
-            cJSON *cached = config_store_get_activities_json();
-            cJSON *root = cached ? cJSON_Duplicate(cached, 1) : cJSON_CreateObject();
+            /* held until the new list is saved: another save cannot slip in between */
+            config_store_lock();
+            cJSON *root = config_store_activities_copy(); /* NULL only when out of memory */
             if (root) {
                 cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
                 if (!acts) acts = cJSON_AddArrayToObject(root, "activities");
@@ -597,6 +596,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 cJSON_Delete(enter_steps);
                 cJSON_Delete(leave_steps);
             }
+            config_store_unlock();
 
             cJSON_Delete(params);
         }
@@ -681,7 +681,8 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     snprintf(id_buf, sizeof(id_buf), "%ld", (long)p_id->valuedouble);
                     act_id_str = id_buf;
                 }
-                cJSON *root = config_store_get_activities_json();
+                config_store_lock();
+                cJSON *root = config_store_activities_copy();
                 if (root) {
                     cJSON *acts = cJSON_GetObjectItemCaseSensitive(root, "activities");
                     if (acts && cJSON_IsArray(acts)) {
@@ -694,13 +695,15 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                             else if (jid && cJSON_IsString(jid)) strncpy(item_id, jid->valuestring, sizeof(item_id) - 1);
                             if (strcmp(item_id, act_id_str) == 0) {
                                 cJSON_DeleteItemFromArray(acts, i);
-                                config_store_save_activities(root);
+                                if (config_store_save_activities(root) == 0) root = NULL;
                                 success = 1;
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(params);
         }

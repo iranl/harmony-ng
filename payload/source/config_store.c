@@ -22,6 +22,10 @@ extern int g_dry_run;
 static cJSON *g_devices_json_cache = NULL;
 static cJSON *g_activities_json_cache = NULL;
 static pthread_mutex_t g_cfg_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+static int g_cfg_depth = 0;        /* nesting of config_store_lock() by the thread holding it */
+static unsigned g_cfg_changed = 0; /* change notices to send at the outermost unlock */
+#define CFG_CHANGED_DEVICES 1u
+#define CFG_CHANGED_ACTIVITIES 2u
 
 char *read_file_text(const char *path, size_t max_bytes) {
     if (!path) return NULL;
@@ -107,64 +111,71 @@ int config_store_init(void) {
     return 0;
 }
 
-cJSON *config_store_get_devices_json(void) {
+void config_store_lock(void) {
     pthread_mutex_lock(&g_cfg_lock);
-    if (!g_devices_json_cache) {
-        pthread_mutex_unlock(&g_cfg_lock);
-        config_store_init();
-        pthread_mutex_lock(&g_cfg_lock);
+    g_cfg_depth++;
+}
+
+void config_store_unlock(void) {
+    unsigned changed = 0;
+    if (--g_cfg_depth == 0) {
+        changed = g_cfg_changed;
+        g_cfg_changed = 0;
     }
-    cJSON *res = g_devices_json_cache;
     pthread_mutex_unlock(&g_cfg_lock);
+    /* sent with the lock released: the event sinks may read the configuration themselves */
+    if (changed) notify_rf_push_config();
+    if (changed & CFG_CHANGED_DEVICES) state_watch_notify_config_changed("devices");
+    if (changed & CFG_CHANGED_ACTIVITIES) state_watch_notify_config_changed("activities");
+}
+
+/* A deep copy of one cached tree, made under the lock; loads the files after an invalidation */
+static cJSON *config_store_copy(cJSON **cache) {
+    config_store_lock();
+    if (!*cache) config_store_init();
+    cJSON *res = *cache ? cJSON_Duplicate(*cache, 1) : NULL;
+    config_store_unlock();
     return res;
 }
 
-cJSON *config_store_get_activities_json(void) {
-    pthread_mutex_lock(&g_cfg_lock);
-    if (!g_activities_json_cache) {
-        pthread_mutex_unlock(&g_cfg_lock);
-        config_store_init();
-        pthread_mutex_lock(&g_cfg_lock);
+cJSON *config_store_devices_copy(void) {
+    return config_store_copy(&g_devices_json_cache);
+}
+
+cJSON *config_store_activities_copy(void) {
+    return config_store_copy(&g_activities_json_cache);
+}
+
+/* Sanitize, print, write and swap in one locked step: a reader never sees the tree half changed */
+static int config_store_save(cJSON **cache, cJSON *tree, void (*sanitize)(cJSON *),
+                             const char *path, unsigned changed) {
+    if (!tree) return -1;
+    config_store_lock();
+    sanitize(tree);
+    char *out = cJSON_Print(tree);
+    if (!out) {
+        config_store_unlock();
+        return -1;
     }
-    cJSON *res = g_activities_json_cache;
-    pthread_mutex_unlock(&g_cfg_lock);
-    return res;
+    write_file_atomic(path, out);
+    free(out);
+    if (*cache && *cache != tree) {
+        cJSON_Delete(*cache);
+    }
+    *cache = tree;
+    g_cfg_changed |= changed;
+    config_store_unlock();
+    return 0;
 }
 
 int config_store_save_devices(cJSON *devices_json) {
-    if (!devices_json) return -1;
-    sanitize_devices_json(devices_json);
-    char *out = cJSON_Print(devices_json);
-    if (!out) return -1;
-    pthread_mutex_lock(&g_cfg_lock);
-    write_file_atomic(HARMONY_DEVICES_FILE, out);
-    free(out);
-    if (g_devices_json_cache && g_devices_json_cache != devices_json) {
-        cJSON_Delete(g_devices_json_cache);
-    }
-    g_devices_json_cache = devices_json;
-    pthread_mutex_unlock(&g_cfg_lock);
-    notify_rf_push_config();
-    state_watch_notify_config_changed("devices");
-    return 0;
+    return config_store_save(&g_devices_json_cache, devices_json, sanitize_devices_json,
+                             HARMONY_DEVICES_FILE, CFG_CHANGED_DEVICES);
 }
 
 int config_store_save_activities(cJSON *activities_json) {
-    if (!activities_json) return -1;
-    sanitize_activities_json(activities_json);
-    char *out = cJSON_Print(activities_json);
-    if (!out) return -1;
-    pthread_mutex_lock(&g_cfg_lock);
-    write_file_atomic(HARMONY_ACTIVITIES_FILE, out);
-    free(out);
-    if (g_activities_json_cache && g_activities_json_cache != activities_json) {
-        cJSON_Delete(g_activities_json_cache);
-    }
-    g_activities_json_cache = activities_json;
-    pthread_mutex_unlock(&g_cfg_lock);
-    notify_rf_push_config();
-    state_watch_notify_config_changed("activities");
-    return 0;
+    return config_store_save(&g_activities_json_cache, activities_json, sanitize_activities_json,
+                             HARMONY_ACTIVITIES_FILE, CFG_CHANGED_ACTIVITIES);
 }
 
 void notify_rf_push_config(void) {
@@ -225,7 +236,7 @@ int load_ir_inventory(struct ir_inventory *inv) {
     if (!inv) return -1;
     memset(inv, 0, sizeof(*inv));
 
-    cJSON *root = config_store_get_devices_json();
+    cJSON *root = config_store_devices_copy();
     if (!root) return -1;
 
     /* Check clean format: { "devices": [ ... ] } */
@@ -357,9 +368,11 @@ int load_ir_inventory(struct ir_inventory *inv) {
 
             inv->device_count++;
         }
+        cJSON_Delete(root);
         return 0;
     }
 
+    cJSON_Delete(root);
     return 0;
 }
 
@@ -432,7 +445,7 @@ int load_activity_inventory(struct activity_inventory *inv) {
         fclose(cf);
     }
 
-    cJSON *root = config_store_get_activities_json();
+    cJSON *root = config_store_activities_copy();
     if (!root) return -1;
 
     cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "activities");
@@ -498,6 +511,7 @@ int load_activity_inventory(struct activity_inventory *inv) {
             inv->count++;
         }
     }
+    cJSON_Delete(root);
     return 0;
 }
 

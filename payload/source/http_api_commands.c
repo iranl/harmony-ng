@@ -51,7 +51,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             int port = (j_port && cJSON_IsNumber(j_port)) ? (int)j_port->valuedouble : 0;
 
             if (dev_id[0] && name[0]) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -129,13 +130,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     cJSON_AddItemToArray(cmds, new_cmd);
                                 }
-                                config_store_save_devices(root);
+                                if (config_store_save_devices(root) == 0) root = NULL;
                                 success = 1;
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
@@ -165,7 +168,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             }
 
             if (dev_id[0] && j_cmds && cJSON_IsArray(j_cmds)) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -228,13 +232,15 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     saved_count++;
                                 }
-                                config_store_save_devices(root);
+                                if (config_store_save_devices(root) == 0) root = NULL;
                                 success = 1;
                                 break;
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
@@ -267,7 +273,8 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
             const char *cmd_name = (j_cmd && cJSON_IsString(j_cmd)) ? j_cmd->valuestring : "";
 
             if (dev_id[0] && cmd_name[0]) {
-                cJSON *root = config_store_get_devices_json();
+                config_store_lock();
+                cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                     if (devs && cJSON_IsArray(devs)) {
@@ -286,7 +293,7 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON *cn = cJSON_GetObjectItemCaseSensitive(c_item, "name");
                                         if (cn && cJSON_IsString(cn) && strcmp(cn->valuestring, cmd_name) == 0) {
                                             cJSON_DeleteItemFromArray(cmds, ci);
-                                            config_store_save_devices(root);
+                                            if (config_store_save_devices(root) == 0) root = NULL;
                                             success = 1;
                                             break;
                                         }
@@ -296,7 +303,9 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                             }
                         }
                     }
+                    cJSON_Delete(root); /* NULL once the store took it */
                 }
+                config_store_unlock();
             }
             cJSON_Delete(p);
         }
