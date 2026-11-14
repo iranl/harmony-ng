@@ -240,9 +240,7 @@ void poll_bthid_fifo(void) {
                         g_host_custom_release_len = rel_len;
                         g_host_pending_cid = cur_cid;
                         g_host_pending_release_type = 3;
-                        btstack_run_loop_remove_timer(&g_host_key_release_timer);
-                        btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
-                        btstack_run_loop_add_timer(&g_host_key_release_timer);
+                        arm_host_key_release_timer(30);
                     }
                     g_keys_sent++;
                     update_bthid_status();
@@ -281,19 +279,13 @@ void poll_bthid_fifo(void) {
                     g_host_pending_cid = cur_cid;
                     if (rep[1] == 0x01 && (rlen > 4 && rep[4] != 0)) {
                         g_host_pending_release_type = 1;
-                        btstack_run_loop_remove_timer(&g_host_key_release_timer);
-                        btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
-                        btstack_run_loop_add_timer(&g_host_key_release_timer);
+                        arm_host_key_release_timer(30);
                     } else if (rep[1] == 0x02 && (rep[2] != 0 || rep[3] != 0)) {
                         g_host_pending_release_type = 2;
-                        btstack_run_loop_remove_timer(&g_host_key_release_timer);
-                        btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
-                        btstack_run_loop_add_timer(&g_host_key_release_timer);
+                        arm_host_key_release_timer(30);
                     } else if (rep[1] == 0x03 && rlen > 2 && rep[2] != 0) {
                         g_host_pending_release_type = 4;
-                        btstack_run_loop_remove_timer(&g_host_key_release_timer);
-                        btstack_run_loop_set_timer(&g_host_key_release_timer, 30);
-                        btstack_run_loop_add_timer(&g_host_key_release_timer);
+                        arm_host_key_release_timer(30);
                     }
                     g_keys_sent++;
                     update_bthid_status();

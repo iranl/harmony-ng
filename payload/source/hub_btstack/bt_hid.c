@@ -56,6 +56,16 @@ static void host_key_release_timer_handler(btstack_timer_source_t *ts) {
     send_host_release_all();
 }
 
+/* (Re)arms the key release timer, always with its handler: a raw report from the FIFO can be
+ * the first key since start, before any other path set the handler, and BTstack calls the
+ * handler of a due timer without checking it */
+void arm_host_key_release_timer(uint32_t timeout_ms) {
+    btstack_run_loop_remove_timer(&g_host_key_release_timer);
+    btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
+    btstack_run_loop_set_timer(&g_host_key_release_timer, timeout_ms);
+    btstack_run_loop_add_timer(&g_host_key_release_timer);
+}
+
 void send_host_release_all(void) {
     uint8_t prev_type = g_host_pending_release_type;
     if (g_host_pending_release_type != 0) {
@@ -133,10 +143,7 @@ void send_host_mouse_click(uint8_t button) {
     send_host_mouse_report(g_host_mouse_buttons, 0, 0, 0);
     g_host_pending_cid = cid;
     g_host_pending_release_type = 4;
-    btstack_run_loop_remove_timer(&g_host_key_release_timer);
-    btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
-    btstack_run_loop_set_timer(&g_host_key_release_timer, 40);
-    btstack_run_loop_add_timer(&g_host_key_release_timer);
+    arm_host_key_release_timer(40);
 }
 
 void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
@@ -166,10 +173,7 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
     hid_device_send_interrupt_message(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 1;
-    btstack_run_loop_remove_timer(&g_host_key_release_timer);
-    btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
-    btstack_run_loop_set_timer(&g_host_key_release_timer, g_host_send_hold_mode ? 10000 : 40);
-    btstack_run_loop_add_timer(&g_host_key_release_timer);
+    arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);
     g_keys_sent++;
     update_bthid_status();
 }
@@ -201,10 +205,7 @@ void send_host_consumer_report(uint16_t usage_id) {
     hid_device_send_interrupt_message(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 2;
-    btstack_run_loop_remove_timer(&g_host_key_release_timer);
-    btstack_run_loop_set_timer_handler(&g_host_key_release_timer, host_key_release_timer_handler);
-    btstack_run_loop_set_timer(&g_host_key_release_timer, g_host_send_hold_mode ? 10000 : 40);
-    btstack_run_loop_add_timer(&g_host_key_release_timer);
+    arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);
     g_keys_sent++;
     update_bthid_status();
 }

@@ -16,6 +16,7 @@ extern int g_host_send_hold_mode;
 extern uint8_t g_host_mouse_buttons;
 
 void send_host_release_all(void);
+void arm_host_key_release_timer(uint32_t timeout_ms);
 void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
 void send_host_mouse_click(uint8_t button);
 void send_host_keyboard_report(uint8_t modifier, uint8_t keycode);
