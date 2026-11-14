@@ -67,22 +67,31 @@ def get_file_md5(path: pathlib.Path) -> str:
     return h.hexdigest().lower()
 
 
-def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp_opts: list[str], ssh_opts: list[str], remote_hashes: dict[str, str], perm: str = "755") -> bool:
+# Results of deploy_file_if_changed()
+UNCHANGED, INSTALLED, FAILED = "unchanged", "installed", "failed"
+
+
+def deploy_file_if_changed(src: pathlib.Path, remote_path: str, target: str, scp_opts: list[str], ssh_opts: list[str], remote_hashes: dict[str, str], perm: str = "755") -> str:
     if not src.is_file():
-        return False
+        return UNCHANGED
     local_md5 = get_file_md5(src)
     remote_md5 = remote_hashes.get(remote_path)
     if remote_md5 and remote_md5 == local_md5:
         print(f"    -> {src.name} (MD5 match: {local_md5} - skipped)")
-        return False
+        return UNCHANGED
     print(f"    -> Uploading {src.name} (local: {local_md5} != remote: {remote_md5 or 'missing'})...")
     tmp_path = f"{remote_path}.new"
     res = run_cmd(["scp"] + scp_opts + [str(src), f"{target}:{tmp_path}"])
     if res.returncode != 0:
         print(f"[-] Failed uploading {src.name}: {res.stderr.strip()}")
-        return False
-    run_cmd(["ssh"] + ssh_opts + [target, f"chmod {perm} {tmp_path} 2>/dev/null; mv -f {tmp_path} {remote_path} 2>/dev/null || true"])
-    return True
+        return FAILED
+    # Move it into place and read back what is installed under the final name
+    res = run_cmd(["ssh"] + ssh_opts + [target, f"chmod {perm} {tmp_path} && mv -f {tmp_path} {remote_path} && md5sum {remote_path}"])
+    installed = res.stdout.split()[0].lower() if res.returncode == 0 and res.stdout.split() else ""
+    if installed != local_md5:
+        print(f"[-] Failed installing {src.name} as {remote_path} (MD5 after install: {installed or 'none'}): {res.stderr.strip()}")
+        return FAILED
+    return INSTALLED
 
 
 def kb(n: int) -> int:
@@ -304,8 +313,10 @@ def main() -> None:
 
     # 3. Upload binaries and scripts (only when MD5 differs)
     print("[*] Syncing binaries and scripts to /data/ (MD5 check)...")
+    failed: list[str] = []
     for src in DEPLOY_FILES:
-        deploy_file_if_changed(src, f"/data/{src.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        if deploy_file_if_changed(src, f"/data/{src.name}", target, scp_opts, ssh_opts, remote_hashes, perm="755") == FAILED:
+            failed.append(src.name)
         if src.name == "busybox" and theme_dirs():
             # The check found a working tar; stop here, before any other file changes, if the upload lost it
             ok = subprocess.run(["ssh"] + ssh_opts + [target, "/data/busybox tar -t 2>/dev/null | grep -q ready_to_go && echo ok"],
@@ -327,11 +338,20 @@ def main() -> None:
                              input=tar, capture_output=True)
         if res.returncode != 0:
             print(f"[-] Failed syncing theme {theme.name}: {res.stderr.decode(errors='replace').strip()}")
+            failed.append(f"theme {theme.name}")
 
     # 4. Upload recovery boot script (only when MD5 differs)
     if RCS_LOCAL_FILE.is_file():
         print("[*] Syncing /etc/init.d/rcS.local (MD5 check)...")
-        deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755")
+        if deploy_file_if_changed(RCS_LOCAL_FILE, "/etc/init.d/rcS.local", target, scp_opts, ssh_opts, remote_hashes, perm="755") == FAILED:
+            failed.append("rcS.local")
+
+    # Do not restart on a partial install: the running remote_ui keeps the remote working and
+    # feeds the watchdog; a second run uploads only what still differs
+    if failed:
+        print(f"[-] Deployment incomplete, {len(failed)} item(s) failed: {', '.join(failed)}")
+        print("    remote_ui was NOT restarted. Fix the cause (USB link, free space on /data) and run the deployment again.")
+        sys.exit(1)
 
     # 5. Set permissions and finalize
     print("[*] Verifying permissions and flushing NAND flash buffers...")
