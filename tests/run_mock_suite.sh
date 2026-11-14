@@ -186,6 +186,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 
 # 5. Run Hub & Remote Full Co-Simulation
 echo "[-] Launching Full Hub & Remote Co-Simulation..."
+python3 "$SCRIPT_DIR/test_config_unreadable.py"
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
