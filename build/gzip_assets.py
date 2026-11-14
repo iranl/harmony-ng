@@ -32,7 +32,9 @@ def main():
     for target in targets:
         with open(target, "rb") as f_in:
             data = f_in.read()
-        gz_data = gzip.compress(data, 9)
+        # mtime=0: the same input gives the same .gz, so deploy_hub.py (MD5 compare) uploads only
+        # what changed (before Python 3.14 the default puts the build time in the header)
+        gz_data = gzip.compress(data, 9, mtime=0)
         gz_path = target + ".gz"
         with open(gz_path, "wb") as f_out:
             f_out.write(gz_data)
