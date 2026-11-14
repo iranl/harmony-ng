@@ -151,11 +151,14 @@ fi
 
 # 2. Supervisor loop for remote_ui in background
 (
+    _fails=0
     while [ ! -f /tmp/remote_stop ]; do
         if [ -x /data/remote_ui ]; then
             echo "$(date) Starting /data/remote_ui..." >> "$LOG"
+            _t0=0; read _t0 _rest < /proc/uptime 2>/dev/null; _t0=${_t0%%.*}
             /data/remote_ui > /tmp/remote_ui.log 2>&1
             EXIT_CODE=$?
+            _t1=0; read _t1 _rest < /proc/uptime 2>/dev/null; _t1=${_t1%%.*}
             if [ -f /tmp/remote_stop ]; then
                 turn_off_lights
                 break
@@ -171,6 +174,9 @@ fi
                 sleep 1
                 continue
             fi
+            # Failures right after the start (a binary that does not run, a crash at start-up) are
+            # counted; a run of a minute or more starts the count again
+            if [ $((${_t1:-0} - ${_t0:-0})) -lt 60 ]; then _fails=$((_fails + 1)); else _fails=1; fi
             if [ -f /data/debug_logging.conf ] || grep -q 'debug_logging=1' /data/remote_settings.conf 2>/dev/null; then
                 echo "$(date) remote_ui died with exit code $EXIT_CODE. Restarting..." >> /data/harmony_crash.log
                 dmesg > /data/last_kmsg.log 2>/dev/null || true
@@ -181,7 +187,18 @@ fi
                 dmesg > /tmp/last_kmsg.log 2>/dev/null || true
                 turn_off_lights
             fi
-            sleep 1
+            # Back off instead of restarting once a second for ever: every round keeps the
+            # processor awake on battery and, with debug logging, writes the flash three times
+            case "$_fails" in
+                1|2|3) _delay=1 ;;
+                4) _delay=5 ;;
+                5) _delay=30 ;;
+                *) _delay=300 ;;
+            esac
+            if [ "$_delay" -gt 1 ]; then
+                echo "$(date) remote_ui failed $_fails times in a row right after start, next start in ${_delay}s" >> "$LOG"
+            fi
+            sleep "$_delay"
         else
             sleep 2
         fi
