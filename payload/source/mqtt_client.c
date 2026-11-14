@@ -60,6 +60,10 @@ static size_t g_sub_count = 0;
  * connection: emptied whenever the connection ends. */
 static uint8_t g_rxbuf[MQTT_BUF_SIZE * 2];
 static size_t g_rxlen = 0;
+/* Bytes of a packet too large for g_rxbuf still to come: they are dropped as they arrive, so the
+ * next packet is parsed from its own first byte (parsing them as packets put the stream out of
+ * step and lost the commands after it) */
+static size_t g_rx_skip = 0;
 
 /* Writes the whole buffer on the non-blocking socket, waiting up to 2 s for room each time the
  * send buffer is full (a large packet does not fit at once). -1 when the connection failed. */
@@ -91,15 +95,16 @@ static uint8_t *encode_remaining_len(uint8_t *p, size_t len) {
     return p;
 }
 
+/* The remaining length (1 to 4 bytes). 0 when the field is incomplete, or invalid (a 5th byte):
+ * the caller tells the two apart by the bytes it has. */
 static size_t decode_remaining_len(const uint8_t *buf, size_t buf_len, size_t *out_val) {
     size_t multiplier = 1, value = 0, idx = 0;
     uint8_t encoded_byte;
     do {
-        if (idx >= buf_len) return 0;
+        if (idx >= buf_len || idx >= 4) return 0;
         encoded_byte = buf[idx++];
         value += (encoded_byte & 127) * multiplier;
         multiplier *= 128;
-        if (multiplier > 128 * 128 * 128) return 0;
     } while ((encoded_byte & 128) != 0);
 
     *out_val = value;
@@ -124,6 +129,7 @@ int mqtt_init(const char *host, int port, const char *client_id, const char *use
     g_connected = 0;
     g_fd = -1;
     g_rxlen = 0;
+    g_rx_skip = 0;
     return 0;
 }
 
@@ -162,6 +168,7 @@ void mqtt_disconnect(void) {
     g_connected = 0;
     g_fd = -1;
     g_rxlen = 0; /* a partial packet of this connection must not prefix the next one */
+    g_rx_skip = 0;
     if (fd >= 0) {
         uint8_t disc[2] = {0xE0, 0x00};
         send(fd, disc, 2, MSG_NOSIGNAL);
@@ -351,6 +358,7 @@ int mqtt_connect(void) {
     fcntl(sock, F_SETFL, f | O_NONBLOCK);
 
     g_rxlen = 0;
+    g_rx_skip = 0;
     g_fd = sock;
     g_last_ping = time(NULL);
 
@@ -568,18 +576,39 @@ int mqtt_tick(void) {
         return -1;
     }
     g_rxlen += (size_t)n;
+    if (g_rx_skip > 0) { /* the rest of a packet too large to hold */
+        size_t d = g_rx_skip < g_rxlen ? g_rx_skip : g_rxlen;
+        memmove(rxbuf, rxbuf + d, g_rxlen - d);
+        g_rxlen -= d;
+        g_rx_skip -= d;
+    }
     size_t pos = 0;
     while (pos + 2 <= g_rxlen) {
         size_t rem_len = 0;
         size_t rlen_bytes = decode_remaining_len(rxbuf + pos + 1, g_rxlen - pos - 1, &rem_len);
         if (rlen_bytes == 0) {
             if (g_rxlen - pos < 5) break; /* the length field is not complete yet */
-            g_rxlen = 0;                   /* garbage: drop the buffer */
-            return 0;
+            /* Not MQTT: nothing after it can be trusted, start a new connection */
+            fprintf(stderr, "[!] MQTT: invalid packet length from the broker, reconnecting\n");
+            mqtt_disconnect();
+            return -1;
         }
         size_t pkt_len = 1 + rlen_bytes + rem_len;
         if (pkt_len > sizeof(g_rxbuf)) {
-            g_rxlen = 0; /* larger than we can ever hold */
+            /* Larger than we can ever hold: drop it whole. A QoS 1 PUBLISH is acknowledged
+             * anyway, or the broker would send it again and again. */
+            const uint8_t *pkt = rxbuf + pos;
+            const uint8_t *p = pkt + 1 + rlen_bytes;
+            if ((pkt[0] & 0xF0) == 0x30 && ((pkt[0] >> 1) & 0x03) > 0 && p + 2 <= rxbuf + g_rxlen) {
+                size_t tlen = ((size_t)p[0] << 8) | p[1];
+                if (p + 2 + tlen + 2 <= rxbuf + g_rxlen) {
+                    uint8_t ack[4] = { 0x40, 0x02, p[2 + tlen], p[3 + tlen] };
+                    send_all(g_fd, ack, 4);
+                }
+            }
+            fprintf(stderr, "[!] MQTT: dropped a %zu-byte packet (limit %zu)\n", pkt_len, sizeof(g_rxbuf));
+            g_rx_skip = pkt_len - (g_rxlen - pos);
+            g_rxlen = 0;
             return 0;
         }
         if (pos + pkt_len > g_rxlen) break; /* incomplete: wait for the rest */
