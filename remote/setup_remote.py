@@ -819,8 +819,14 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if no_screen:
-        print("[*] Configuring No-Screen mode in /data/remote_ui.conf...")
-        subprocess.run(["ssh"] + ssh_opts + [target, "touch /data/remote_ui.conf; sed -i '/no_screen=/d' /data/remote_ui.conf 2>/dev/null; echo 'no_screen=1' >> /data/remote_ui.conf"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # remote_ui reads its settings from /data/remote_settings.conf (SETTINGS_CONFIG_FILE)
+        print("[*] Configuring No-Screen mode in /data/remote_settings.conf...")
+        conf = "/data/remote_settings.conf"
+        res = subprocess.run(["ssh"] + ssh_opts + [target,
+                             f"touch {conf} && sed -i '/^no_screen=/d' {conf} && echo 'no_screen=1' >> {conf} && grep -q '^no_screen=1' {conf}"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode != 0:
+            print(f"[-] Warning: could not write no_screen=1 to {conf}; remote_ui starts in normal screen mode.")
 
     # Finalize permissions, symlinks, and launch runtime (via watchdog if present)
     print("[*] Finalizing permissions and starting remote supervisor...")
