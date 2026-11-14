@@ -54,6 +54,22 @@ def get_file_md5(path: pathlib.Path) -> str:
     return h.hexdigest().lower()
 
 
+def parse_space_reply(reply: str) -> tuple[int | None, int]:
+    """Parse the "<avail> <total> <old>" reply of the free space check.
+
+    Returns (free KB or None when unknown, KB the old copy frees). A filesystem
+    reporting 0 KB in total (a tmpfs mounted without size= on the Hub's 2.6.31
+    kernel, e.g. /tmp) has no usable figure, so its free space is unknown.
+    """
+    parts = reply.strip().split()
+    avail_kb = int(parts[0]) if parts and parts[0].isdigit() else None
+    total_kb = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    old_kb = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    if total_kb == 0:
+        avail_kb = None
+    return avail_kb, old_kb
+
+
 class HubDeployer:
     def __init__(
         self,
@@ -152,15 +168,12 @@ class HubDeployer:
         size_kb = (src.stat().st_size + 1023) // 1024
         space_check = (
             f"mkdir -p '{ddir}' 2>/dev/null; rm -f '{dst}.new' 2>/dev/null; "
-            f"a=$(df -k '{ddir}' 2>/dev/null | awk 'END {{print $(NF-2)}}'); o=0; "
+            f"a=$(df -k '{ddir}' 2>/dev/null | awk 'END {{print $(NF-2), $(NF-4)}}'); o=0; "
             f"[ -f '{dst}' ] && o=$(ls -l '{dst}' 2>/dev/null | awk '{{print int(($5+1023)/1024)}}'); "
-            f'echo "${{a:-unknown}} ${{o:-0}}"'
+            f'echo "${{a:-unknown unknown}} ${{o:-0}}"'
         )
         res = self.run_ssh(space_check)
-        parts = res.stdout.strip().split()
-        avail_kb_str = parts[0] if parts else ""
-        old_kb = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        avail_kb = int(avail_kb_str) if avail_kb_str.isdigit() else None
+        avail_kb, old_kb = parse_space_reply(res.stdout)
 
         need_kb = size_kb + 32  # flash headroom
         if avail_kb is None or avail_kb >= need_kb:

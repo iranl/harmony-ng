@@ -140,6 +140,9 @@ python3 "$SCRIPT_DIR/test_hbus.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 
+# 5c. Host tools (no device contact)
+python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
+
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"
