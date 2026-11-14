@@ -1260,7 +1260,8 @@ paths:
       summary: Answer help power toggle prompt
       description: |
         Answers the question for one device of the last Help. "on": false sends that device's
-        power toggle; "on": true sends nothing. Each device takes one answer.
+        power toggle; "on": true sends nothing. Each device takes one answer. The questions are
+        void once the Hub left the Help's activity or after 5 minutes (409).
       requestBody:
         required: true
         content:
@@ -1288,6 +1289,8 @@ paths:
                 sent: true
         '404':
           description: Device is not waiting for a Help answer
+        '409':
+          description: The Help question is no longer valid (the Hub left the Help's activity, or it is older than 5 minutes)
 
   /api/poweroff:
     post:
