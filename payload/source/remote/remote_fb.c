@@ -1,4 +1,9 @@
 #define STBI_ONLY_PNG
+/* Refuse images wider or taller than this before decoding them. A custom icon is limited in
+   bytes only (16 KB) and a flat PNG compresses about 700:1, so a small file could declare
+   thousands of pixels per side and be decoded (and cached) at that size: 34 MB for 3000x3000.
+   The largest image drawn is the 240x320 wallpaper; icons are drawn at 70 px at most. */
+#define STBI_MAX_DIMENSIONS 512
 #define STBI_NO_FAILURE_STRINGS
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
