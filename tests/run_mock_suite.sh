@@ -213,6 +213,8 @@ python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_cmd_actions.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
+# Web UI packaging (build/gzip_assets.py output does not change between builds of the same input)
+python3 "$SCRIPT_DIR/test_gzip_assets_reproducible.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
 python3 "$SCRIPT_DIR/test_hbus.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
