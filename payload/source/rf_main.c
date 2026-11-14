@@ -179,7 +179,7 @@ void handle_rf_frame(const rf_frame_t *f) {
                 char dev_id[13] = {0};
                 char cmd[17] = {0};
                 memcpy(dev_id, f->payload, 12);
-                memcpy(cmd, &f->payload[12], 16);
+                memcpy(cmd, &f->payload[12], sizeof(f->payload) - 12); /* 13 bytes: the rest of the frame */
                 printf("[*] DEVICE_CMD direct: dev=%s cmd=%s\n", dev_id, cmd);
                 enqueue_remote_device_cmd(dev_id, cmd);
             }
