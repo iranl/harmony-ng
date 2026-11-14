@@ -57,6 +57,38 @@ static void learned_stats(const char *raw, int *pulses, unsigned long *total_us)
     }
 }
 
+/* A timing field of the device save body as an int: a JSON number or a numeric string.
+ * Returns 0 for any other type (null, bool, array, object), whose valuestring is NULL. */
+static int device_int_field(const cJSON *j, int *out) {
+    if (cJSON_IsNumber(j)) {
+        double d = j->valuedouble;
+        if (d != d) return 0;
+        if (d > 2147483647.0) d = 2147483647.0;
+        if (d < -2147483648.0) d = -2147483648.0;
+        *out = (int)d;
+        return 1;
+    }
+    if (cJSON_IsString(j) && j->valuestring) {
+        *out = atoi(j->valuestring);
+        return 1;
+    }
+    return 0;
+}
+
+/* Every timing field present in the body has a usable type */
+static int device_int_fields_valid(const cJSON *p) {
+    static const char *const keys[] = {
+        "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay", "powerOnDelay",
+        "btReconnectDurationSec", "btReconnectDelaySec"
+    };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        int v;
+        if (j && !device_int_field(j, &v)) return 0;
+    }
+    return 1;
+}
+
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
@@ -437,6 +469,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
          strcmp(clean_path, "/ir/device-mqtt") == 0 || strcmp(clean_path, "/ir/device-power") == 0 ||
          strcmp(clean_path, "/ir/new-device") == 0 || strcmp(clean_path, "/api/new-device") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
+        if (p && !device_int_fields_valid(p)) {
+            /* A timing field of the wrong type: refuse the whole save (400) */
+            cJSON_Delete(p);
+            p = NULL;
+        }
         int success = 0;
         char dev_id_out[32] = {0};
         if (p) {
@@ -575,28 +612,32 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
                 cJSON *j_idd = cJSON_GetObjectItemCaseSensitive(p, "interDeviceDelay");
                 if (j_idd) {
-                    int val = cJSON_IsNumber(j_idd) ? (int)j_idd->valuedouble : atoi(j_idd->valuestring);
+                    int val = 0;
+                    device_int_field(j_idd, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "interDeviceDelay");
                     cJSON_AddNumberToObject(found_dev, "interDeviceDelay", val);
                 }
 
                 cJSON *j_ikd = cJSON_GetObjectItemCaseSensitive(p, "interKeyDelay");
                 if (j_ikd) {
-                    int val = cJSON_IsNumber(j_ikd) ? (int)j_ikd->valuedouble : atoi(j_ikd->valuestring);
+                    int val = 0;
+                    device_int_field(j_ikd, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "interKeyDelay");
                     cJSON_AddNumberToObject(found_dev, "interKeyDelay", val);
                 }
 
                 cJSON *j_hikd = cJSON_GetObjectItemCaseSensitive(p, "holdInterKeyDelay");
                 if (j_hikd) {
-                    int val = cJSON_IsNumber(j_hikd) ? (int)j_hikd->valuedouble : atoi(j_hikd->valuestring);
+                    int val = 0;
+                    device_int_field(j_hikd, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "holdInterKeyDelay");
                     cJSON_AddNumberToObject(found_dev, "holdInterKeyDelay", val);
                 }
 
                 cJSON *j_pod = cJSON_GetObjectItemCaseSensitive(p, "powerOnDelay");
                 if (j_pod) {
-                    int val = cJSON_IsNumber(j_pod) ? (int)j_pod->valuedouble : atoi(j_pod->valuestring);
+                    int val = 0;
+                    device_int_field(j_pod, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "powerOnDelay");
                     cJSON_AddNumberToObject(found_dev, "powerOnDelay", val);
                 }
@@ -628,14 +669,16 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
                 cJSON *j_btdur = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDurationSec");
                 if (j_btdur) {
-                    int val = cJSON_IsNumber(j_btdur) ? (int)j_btdur->valuedouble : atoi(j_btdur->valuestring);
+                    int val = 0;
+                    device_int_field(j_btdur, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDurationSec");
                     cJSON_AddNumberToObject(found_dev, "btReconnectDurationSec", val);
                 }
 
                 cJSON *j_btdly = cJSON_GetObjectItemCaseSensitive(p, "btReconnectDelaySec");
                 if (j_btdly) {
-                    int val = cJSON_IsNumber(j_btdly) ? (int)j_btdly->valuedouble : atoi(j_btdly->valuestring);
+                    int val = 0;
+                    device_int_field(j_btdly, &val);
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "btReconnectDelaySec");
                     cJSON_AddNumberToObject(found_dev, "btReconnectDelaySec", val);
                 }

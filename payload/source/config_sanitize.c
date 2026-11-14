@@ -267,14 +267,23 @@ void sanitize_activity_steps(cJSON *steps) {
     cJSON_ArrayForEach(s, steps) {
         if (!s || !cJSON_IsObject(s)) continue;
 
-        cJSON *type_item = cJSON_GetObjectItemCaseSensitive(s, "type");
-        const char *tstr = type_item ? type_item->valuestring : "";
+        /* cJSON_GetStringValue() is NULL for a missing key and for any type but a string
+         * (null, a number, a bool...), whose valuestring is NULL too */
+        const char *tstr = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(s, "type"));
+        if (!tstr) tstr = "";
 
-        cJSON *cmd_item = cJSON_GetObjectItemCaseSensitive(s, "command");
-        const char *cmd = cmd_item ? cmd_item->valuestring : "";
+        const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(s, "command"));
+        if (!cmd) cmd = "";
 
         cJSON *dev_item = cJSON_GetObjectItemCaseSensitive(s, "deviceId");
-        const char *dev_id = dev_item ? dev_item->valuestring : "";
+        const char *dev_id = cJSON_GetStringValue(dev_item);
+        char dev_num[32];
+        if (!dev_id && cJSON_IsNumber(dev_item)) {
+            /* A numeric device id is a valid id: keep it instead of dropping it to "0" */
+            snprintf(dev_num, sizeof(dev_num), "%ld", (long)dev_item->valuedouble);
+            dev_id = dev_num;
+        }
+        if (!dev_id) dev_id = "";
 
         cJSON *delay_item = cJSON_GetObjectItemCaseSensitive(s, "delay");
         int delay_val = 0;

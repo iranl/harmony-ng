@@ -77,6 +77,26 @@ int main(void) {
     assert(cJSON_GetObjectItemCaseSensitive(s0, "delay_ms") == NULL);
     cJSON_Delete(steps5);
 
+    /* 6. Non-string type/command (null, number, array): no crash, step without a command dropped */
+    cJSON *steps6 = cJSON_Parse("[{\"command\":2},{\"type\":null},{\"type\":[],\"command\":{}},"
+                                "{\"type\":null,\"command\":\"Mute\",\"deviceId\":\"4\"}]");
+    assert(steps6 != NULL);
+    sanitize_activity_steps(steps6);
+    assert(cJSON_GetArraySize(steps6) == 1);
+    s0 = cJSON_GetArrayItem(steps6, 0);
+    cmd0 = cJSON_GetObjectItemCaseSensitive(s0, "command");
+    assert(cmd0 && strcmp(cmd0->valuestring, "Mute") == 0);
+    cJSON_Delete(steps6);
+
+    /* 7. Numeric deviceId is kept as its string form, not replaced by "0" */
+    cJSON *steps7 = cJSON_Parse("[{\"type\":\"Command\",\"command\":\"PowerOn\",\"deviceId\":3}]");
+    assert(steps7 != NULL);
+    sanitize_activity_steps(steps7);
+    s0 = cJSON_GetArrayItem(steps7, 0);
+    dev0 = cJSON_GetObjectItemCaseSensitive(s0, "deviceId");
+    assert(dev0 && cJSON_IsString(dev0) && strcmp(dev0->valuestring, "3") == 0);
+    cJSON_Delete(steps7);
+
     printf("[+] ALL sanitize_activity_steps tests passed (100%% canonical, zero duplicate keys)!\n");
     return 0;
 }
