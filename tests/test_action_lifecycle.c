@@ -21,11 +21,11 @@ const char *orch_get_current_activity(void) { return "1"; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 
-cJSON *get_device_list_cached(void) {
+cJSON *get_device_list_copy(void) {
     if (!s_mock_device_root) {
         s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"},{\"name\":\"VolumeUp\",\"raw\":\"0000 006d 0022 0003\"}]}]}");
     }
-    return s_mock_device_root;
+    return cJSON_Duplicate(s_mock_device_root, 1);
 }
 
 int ir_encode_pronto(const char *pronto, uint8_t repeats, uint32_t gap, uint8_t **out_bin, size_t *out_len) {

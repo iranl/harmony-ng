@@ -124,8 +124,27 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
                         int gap_ms, char *out, size_t outlen);
 
 int config_store_init(void);
-cJSON *config_store_get_devices_json(void);
-cJSON *config_store_get_activities_json(void);
+/*
+ * devices.json and activities.json are kept in memory as cJSON trees owned by the config store.
+ * Up to 8 HTTP workers and the main loop use them at the same time, so the trees themselves are
+ * never handed out:
+ *  - a reader gets a deep copy made under the store lock and frees it with cJSON_Delete();
+ *  - a writer holds the lock for the whole change, so no other save can slip in between:
+ *        config_store_lock();
+ *        cJSON *root = config_store_devices_copy();
+ *        ... change root ...
+ *        if (config_store_save_devices(root) == 0) root = NULL;  (the store now owns it)
+ *        cJSON_Delete(root);
+ *        config_store_unlock();
+ * The lock is recursive. Change notices (remote sync flag, config_changed event) go out at the
+ * outermost unlock, with the lock released.
+ */
+void config_store_lock(void);
+void config_store_unlock(void);
+cJSON *config_store_devices_copy(void);
+cJSON *config_store_activities_copy(void);
+/* Sanitizes and writes the tree and makes it the cached one. Returns 0 when the store took the
+ * tree (the caller must not use or free it any more), -1 when the caller still owns it. */
 int config_store_save_devices(cJSON *devices_json);
 int config_store_save_activities(cJSON *activities_json);
 int config_store_get_settings(struct hub_settings *settings);

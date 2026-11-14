@@ -56,8 +56,9 @@ static cJSON *list_of(cJSON *root, const char *key) {
 int hbus_resolve_id(const char *numeric, char *out, size_t cap) {
     if (!numeric) return 0;
     const char *keys[2] = { "devices", "activities" };
-    cJSON *roots[2] = { config_store_get_devices_json(), config_store_get_activities_json() };
-    for (int r = 0; r < 2; r++) {
+    cJSON *roots[2] = { config_store_devices_copy(), config_store_activities_copy() };
+    int found = 0;
+    for (int r = 0; r < 2 && !found; r++) {
         cJSON *list = list_of(roots[r], keys[r]);
         cJSON *it = NULL;
         cJSON_ArrayForEach(it, list) {
@@ -67,12 +68,15 @@ int hbus_resolve_id(const char *numeric, char *out, size_t cap) {
             hbus_numeric_id(id, num, sizeof(num));
             if (strcmp(num, numeric) == 0) {
                 snprintf(out, cap, "%s", id);
-                return 1;
+                found = 1;
+                break;
             }
         }
     }
-    snprintf(out, cap, "%s", numeric);
-    return 0;
+    cJSON_Delete(roots[0]);
+    cJSON_Delete(roots[1]);
+    if (!found) snprintf(out, cap, "%s", numeric);
+    return found;
 }
 
 static char *read_text(const char *path, size_t *len_out) {
@@ -265,8 +269,10 @@ static cJSON *make_activity(const cJSON *act, cJSON *devs, int is_power_off) {
 }
 
 cJSON *hbus_build_config(const char *remote_id, const char *inventory_version) {
-    cJSON *devs = list_of(config_store_get_devices_json(), "devices");
-    cJSON *acts = list_of(config_store_get_activities_json(), "activities");
+    cJSON *droot = config_store_devices_copy();
+    cJSON *aroot = config_store_activities_copy();
+    cJSON *devs = list_of(droot, "devices");
+    cJSON *acts = list_of(aroot, "activities");
     cJSON *root = cJSON_CreateObject();
     cJSON *activity = cJSON_AddArrayToObject(root, "activity");
     cJSON *a = NULL;
@@ -308,5 +314,7 @@ cJSON *hbus_build_config(const char *remote_id, const char *inventory_version) {
     cJSON_AddStringToObject(global, "locale", "en-US");
     cJSON_AddObjectToObject(root, "content");
     cJSON_AddArrayToObject(root, "sequence");
+    cJSON_Delete(droot);
+    cJSON_Delete(aroot);
     return root;
 }
