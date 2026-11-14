@@ -157,6 +157,18 @@ int main(void) {
     assert(ir_encode_harmony_keycode("20DF10EF", 3, &buf, &len) == 0 && len > 0);
     ir_free_encoded(buf);
     buf = NULL;
+    assert(ir_encode_harmony_keycode("0x20DF10EF", 3, &buf, &len) == 0 && len > 0);
+    ir_free_encoded(buf);
+    buf = NULL;
+    /* a string that is no code at all is not understood (it used to become an NEC frame of its
+     * hex letters): command names that reach this as a fallback, short or long hex, junk */
+    assert(ir_encode_harmony_keycode("FastForward", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("Favorite", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("hello", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("zzz", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("20DF10", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("20DF10EF00", 3, &buf, &len) == -2 && buf == NULL);
+    assert(ir_encode_harmony_keycode("20DF 10EF", 3, &buf, &len) == -2 && buf == NULL);
     assert(ir_encode_harmony_keycode("G:HID 16 Bit:()(07000027)():1", 1, &buf, &len) != 0);
     assert(ir_encode_harmony_keycode("G:Unknown 24 Bit:()(0x123456)():3", 3, &buf, &len) != 0);
     assert(ir_encode_harmony_keycode("G:Roku IP:()(Home)():1", 1, &buf, &len) == -5);
