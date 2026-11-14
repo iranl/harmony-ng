@@ -25,7 +25,11 @@ DEVICE_DIRS = "data|tmp|etc|var|sys|proc|cache|usr|sbin"
 
 STUBS = {
     # wpa_state comes from <root>/ctl/wpa_state
-    "wpa_cli": 'case "$*" in *status*) echo "wpa_state=$(cat "$R/ctl/wpa_state")";; esac; exit 0',
+    # station retries (reconnect, reassociate) are recorded with the simulated time
+    "wpa_cli": """case "$*" in
+  *status*) echo "wpa_state=$(cat "$R/ctl/wpa_state")";;
+  *reconnect*|*reassociate*) echo "$(cat "$R/clock")" >> "$R/station_retries";;
+esac; exit 0""",
     # interface queries: ath0 never has an address; an Ethernet interface has one while it has carrier
     "ifconfig": """if [ "$#" -eq 1 ]; then
   echo "$1      Link encap:Ethernet  HWaddr 00:11:22:33:44:55"
@@ -55,6 +59,7 @@ exit 0""",
 AP_STUB = """case "$1" in
   start) echo "start $(cat "$R/clock")" >> "$R/ap_calls"; echo 999 > "$R/var/run/hub-recovery-ap.pid" ;;
   stop) echo "stop $(cat "$R/clock")" >> "$R/ap_calls"; rm -f "$R/var/run/hub-recovery-ap.pid" ;;
+  clients) cat "$R/ctl/clients" 2>/dev/null || echo 0 ;;
   *) echo "$1" >> "$R/ap_calls" ;;
 esac"""
 
@@ -151,11 +156,47 @@ class NetworkFallback(unittest.TestCase):
         eth2.mkdir()
         (eth2 / "carrier").write_text(carrier + "\n")
 
+    def assertCalls(self, expected: list[tuple[str, int]]) -> None:
+        """Recovery AP calls in order, each within one monitor cycle (6 s) after its due time."""
+        calls = self.calls()
+        self.assertEqual([c[0] for c in calls], [e[0] for e in expected], f"recovery AP calls: {calls}")
+        for (name, at), (_, due) in zip(calls, expected):
+            self.assertTrue(due <= at <= due + 6, f"{name} at {at} s, expected at {due}-{due + 6} s ({calls})")
+
     def test_saved_network_that_never_associates_starts_the_ap(self):
         self.monitor(300)
+        self.assertCalls([("start", 180)])
+
+    def test_ap_and_station_alternate_until_a_link(self):
+        # AP 180-780 s, station 780-960 s, AP again 960-1560 s, station again
+        self.monitor(1600)
         calls = self.calls()
-        self.assertEqual([c[0] for c in calls], ["start"], f"recovery AP calls: {calls}")
-        self.assertTrue(180 <= calls[0][1] <= 186, f"started at {calls[0][1]} s, expected just after 180 s")
+        self.assertCalls([("start", 180), ("stop", 780), ("start", calls[1][1] + 180),
+                          ("stop", calls[2][1] + 600)])
+        retries = [int(x) for x in (self.sb.root / "station_retries").read_text().split()]
+        self.assertFalse([t for t in retries if calls[0][1] + 6 < t < calls[1][1]],
+                         "no station retries while the AP runs")
+        self.assertTrue([t for t in retries if calls[1][1] < t < calls[2][1]],
+                        "the saved network is retried in the station window")
+
+    def test_link_in_a_station_window_ends_the_cycle(self):
+        self.sb.events('[ "$c" -ge 840 ] && echo COMPLETED > "$R/ctl/wpa_state"')
+        self.monitor(1200)
+        self.assertCalls([("start", 180), ("stop", 780)])
+        self.assertEqual((self.sb.root / "tmp/harmony_recovery_ap_check").read_text().strip(), "link")
+
+    def test_client_on_the_ap_extends_it(self):
+        # a client from 700 s to 900 s: the switch at 780 s waits until it has left
+        self.sb.events('if [ "$c" -ge 700 ] && [ "$c" -lt 900 ]; then echo 1; else echo 0; fi > "$R/ctl/clients"')
+        self.monitor(1200)
+        calls = self.calls()
+        self.assertCalls([("start", 180), ("stop", 900), ("start", calls[1][1] + 180)])
+
+    def test_ap_started_elsewhere_is_left_alone(self):
+        # the boot path without a saved network or the button started the AP: no cycle
+        self.sb.events('[ "$c" -ge 60 ] && echo 1 > "$R/var/run/hub-recovery-ap.pid"')
+        self.monitor(1200)
+        self.assertEqual(self.calls(), [])
 
     def test_associated_wifi_never_starts_the_ap(self):
         (self.sb.root / "ctl/wpa_state").write_text("COMPLETED\n")
@@ -171,7 +212,7 @@ class NetworkFallback(unittest.TestCase):
     def test_ethernet_link_stops_the_ap(self):
         self.add_usb_adapter("0")
         self.sb.events('[ "$c" -ge 240 ] && echo 1 > "$R/sys/class/net/eth2/carrier"')
-        self.monitor(300)
+        self.monitor(1200)
         calls = self.calls()
         self.assertEqual([c[0] for c in calls], ["start", "stop"], f"recovery AP calls: {calls}")
         self.assertTrue(180 <= calls[0][1] <= 186)

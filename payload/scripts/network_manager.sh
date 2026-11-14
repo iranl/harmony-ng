@@ -9,9 +9,13 @@ WPA_CONF=/etc/wpa_supplicant.ath0.conf
 
 LOG=/tmp/harmony-network.log
 STATE_FILE=/tmp/harmony_active_net_state
-# Recovery AP fallback: started by the monitor when no link came up this long after boot.
-# The marker (tmpfs, so cleared at every boot) records that the check was decided.
+# Recovery AP fallback: started by the monitor when no link came up this long after boot,
+# then alternated with the station (AP_ON seconds of AP, STATION seconds of saved Wi-Fi) until
+# a link comes up. The state file (tmpfs, so cleared at every boot) holds the cycle state.
 RECOVERY_AP_DELAY=180
+RECOVERY_AP_ON=600
+RECOVERY_AP_STATION=180
+RECOVERY_AP_EXTEND=60
 RECOVERY_AP_CHECK_FILE=/tmp/harmony_recovery_ap_check
 
 set_state() {
@@ -627,29 +631,93 @@ link_is_up() {
   [ "$(wpa_cli -i ath0 status 2>/dev/null | grep '^wpa_state=' | cut -d= -f2)" = "COMPLETED" ]
 }
 
-# Called from every monitor cycle until decided, once per boot. A saved Wi-Fi network that
-# never associates (wrong or changed pass phrase, router replaced, Hub moved) used to leave the
-# Hub without any address: the boot path starts the AP only when no network is saved, and the
-# monitor only retried the station. Now the AP starts when neither Wi-Fi nor Ethernet came up
-# within RECOVERY_AP_DELAY seconds of boot. A link seen before that (the saved values work)
-# ends the check for this boot. The AP is stopped, as before, when a link brings an address.
+# Stations associated to the recovery AP (0 when unknown), from recovery_ap.sh clients
+recovery_ap_clients() {
+  for s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
+    if [ -x "$s" ]; then
+      _n=$("$s" clients 2>/dev/null)
+      case "$_n" in ''|*[!0-9]*) echo 0 ;; *) echo "$_n" ;; esac
+      return 0
+    fi
+  done
+  echo 0
+}
+
+# Called from every monitor cycle until the fallback is over for this boot. A saved Wi-Fi
+# network that never associates (wrong or changed pass phrase, router replaced, Hub moved)
+# used to leave the Hub without any address: the boot path starts the AP only when no
+# network is saved, and the monitor only retried the station. Now:
+# - no link (Wi-Fi COMPLETED or Ethernet carrier) RECOVERY_AP_DELAY s after boot: start the AP;
+#   a link seen before that (the saved values work) ends the check for this boot;
+# - the AP runs RECOVERY_AP_ON s, longer while a client is associated (checked again every
+#   RECOVERY_AP_EXTEND s), then it is stopped and the station (saved Wi-Fi; Ethernet as
+#   always) gets RECOVERY_AP_STATION s; the monitor's Wi-Fi checks bring ath0 and
+#   wpa_supplicant back, as they skip only while the AP runs;
+# - a link in a station window ends the cycle; otherwise the AP starts again, and so on.
+#   This covers a router that comes up later than the Hub after a power cut.
+# An AP started elsewhere (boot path without a saved network, the button) is left alone, as
+# before; the AP is still stopped when Ethernet comes up with an address.
+# State file: "link" / "done" (over), "ap <until>", "station <until>" (uptime seconds).
 check_recovery_ap_fallback() {
-  [ -f "$RECOVERY_AP_CHECK_FILE" ] && return 0
-  if link_is_up; then
-    echo link > "$RECOVERY_AP_CHECK_FILE"
-    return 0
-  fi
-  if [ -f /var/run/hub-recovery-ap.pid ]; then
-    echo ap > "$RECOVERY_AP_CHECK_FILE"
-    return 0
-  fi
+  _st=""
+  _until=0
+  [ -f "$RECOVERY_AP_CHECK_FILE" ] && read -r _st _until 2>/dev/null < "$RECOVERY_AP_CHECK_FILE"
+  case "$_st" in link|done) return 0 ;; esac
   _up=""
   read -r _up _rest 2>/dev/null < /proc/uptime
   _up=${_up%%.*}
-  [ -n "$_up" ] && [ "$_up" -ge "$RECOVERY_AP_DELAY" ] 2>/dev/null || return 0
-  echo ap > "$RECOVERY_AP_CHECK_FILE"
-  log "No Wi-Fi association and no Ethernet carrier ${_up}s after boot. Starting recovery AP..."
-  start_recovery_ap
+  case "$_up" in ''|*[!0-9]*) return 0 ;; esac
+  case "$_until" in ''|*[!0-9]*) _until=0 ;; esac
+
+  case "$_st" in
+    ap)
+      if [ ! -f /var/run/hub-recovery-ap.pid ] && link_is_up; then
+        echo link > "$RECOVERY_AP_CHECK_FILE"
+        log "Network link up while the recovery AP ran; recovery AP fallback ended for this boot."
+        return 0
+      fi
+      [ "$_up" -ge "$_until" ] || return 0
+      _n=$(recovery_ap_clients)
+      if [ "$_n" -gt 0 ] 2>/dev/null; then
+        echo "ap $((_up + RECOVERY_AP_EXTEND))" > "$RECOVERY_AP_CHECK_FILE"
+        log "Recovery AP has $_n client(s); keeping it ${RECOVERY_AP_EXTEND}s more."
+        return 0
+      fi
+      echo "station $((_up + RECOVERY_AP_STATION))" > "$RECOVERY_AP_CHECK_FILE"
+      log "No link yet; stopping the recovery AP and retrying the saved network for ${RECOVERY_AP_STATION}s..."
+      stop_recovery_ap
+      ;;
+    station)
+      if link_is_up; then
+        echo link > "$RECOVERY_AP_CHECK_FILE"
+        log "Network link up; recovery AP fallback ended for this boot."
+        return 0
+      fi
+      if [ -f /var/run/hub-recovery-ap.pid ]; then
+        # started by the button meanwhile: it stays, as before
+        echo "done" > "$RECOVERY_AP_CHECK_FILE"
+        return 0
+      fi
+      [ "$_up" -ge "$_until" ] || return 0
+      echo "ap $((_up + RECOVERY_AP_ON))" > "$RECOVERY_AP_CHECK_FILE"
+      log "No Wi-Fi association and no Ethernet carrier after ${RECOVERY_AP_STATION}s. Starting recovery AP again..."
+      start_recovery_ap
+      ;;
+    *)
+      if link_is_up; then
+        echo link > "$RECOVERY_AP_CHECK_FILE"
+        return 0
+      fi
+      if [ -f /var/run/hub-recovery-ap.pid ]; then
+        echo "done" > "$RECOVERY_AP_CHECK_FILE"
+        return 0
+      fi
+      [ "$_up" -ge "$RECOVERY_AP_DELAY" ] || return 0
+      echo "ap $((_up + RECOVERY_AP_ON))" > "$RECOVERY_AP_CHECK_FILE"
+      log "No Wi-Fi association and no Ethernet carrier ${_up}s after boot. Starting recovery AP..."
+      start_recovery_ap
+      ;;
+  esac
 }
 
 do_boot() {

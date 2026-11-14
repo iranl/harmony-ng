@@ -132,7 +132,13 @@ The Hub starts a standalone Wi-Fi hotspot on interface `ath1` (`recovery_ap.sh`)
 - 3 minutes after boot (the `network_manager.sh` monitor), when a Wi-Fi network is saved but has not associated (`wpa_state` is not `COMPLETED`) and no Ethernet interface has carrier: a wrong or changed pass phrase, a replaced router or a Hub moved to another home. A link seen before then ends the check for that boot: a network that dropped after working (router restarting) is retried, not replaced by the hotspot;
 - when `/sys/class/input/input0/tde` changes to `1` and stays there for 5 seconds (`recovery_ap.sh monitor`, started by `init.sh`; meant for a held button, a value of `1` from the start is ignored).
 
-The hotspot uses the Hub's only radio, so the Wi-Fi client (`wpa_supplicant`, DHCP) is stopped while it runs and the saved network is not retried. It stops when Ethernet comes up with an address. Saving Wi-Fi values in the portal reboots the Hub, which retries the saved network for 3 minutes again; so does power cycling the Hub (for example after the router was off longer than the Hub).
+The hotspot uses the Hub's only radio, so the Wi-Fi client (`wpa_supplicant`, DHCP) is stopped while it runs. A hotspot started 3 minutes after boot therefore alternates with the saved network:
+
+1. hotspot for 10 minutes; while a client is associated to it (`wlanconfig ath1 list sta`), it stays on, checked again every minute;
+2. hotspot off, the saved Wi-Fi network (and Ethernet, as always) gets 3 minutes;
+3. a link in that window (`wpa_state` `COMPLETED` or Ethernet carrier) ends the cycle for this boot; otherwise back to step 1.
+
+So a Hub that boots faster than the router after a power cut joins the router at the next station window, at the latest about 10 minutes after the router is up (longer while a client is on the hotspot). The hotspot also stops when Ethernet comes up with an address. Saving Wi-Fi values in the portal reboots the Hub, which starts again with 3 minutes for the saved network. A hotspot started at boot without a saved network, or by the button, does not alternate: it runs until Ethernet comes up or the Hub reboots, as before.
 
 The hotspot settings:
 

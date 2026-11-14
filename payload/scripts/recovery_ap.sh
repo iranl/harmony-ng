@@ -104,6 +104,12 @@ stop_ap() {
   wlanconfig "$AP_IF" destroy 2>/dev/null
 }
 
+# Stations associated to the AP: madwifi's station list, one line per station starting with
+# its MAC address (0 when the AP is down or the list is not available)
+clients() {
+  wlanconfig "$AP_IF" list sta 2>/dev/null | grep -c -i '^[0-9a-f][0-9a-f]:'
+}
+
 monitor() {
   # Counts only after the node was seen at another value: a node that reads 1 from the start
   # (a boot mode flag rather than a held button) must not take the radio 5 s after boot.
@@ -127,7 +133,8 @@ monitor() {
 
 case "$1" in
   monitor) monitor ;;
+  clients) clients ;;
   stop) stop_ap ;;
   start|boot-tde|"") start_ap ;;
-  *) echo "usage: $0 [start|stop|boot-tde|monitor]" ;;
+  *) echo "usage: $0 [start|stop|boot-tde|monitor|clients]" ;;
 esac
