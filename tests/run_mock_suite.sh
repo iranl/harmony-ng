@@ -220,6 +220,8 @@ python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
 
 # 5c. Host tools (no device contact)
+# setup_remote.py SSH key pair names (ssh-keygen replaced)
+python3 "$SCRIPT_DIR/test_host_tools_ssh.py"
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)

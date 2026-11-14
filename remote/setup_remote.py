@@ -587,8 +587,21 @@ def ensure_ssh_key(key_path: pathlib.Path | None = None) -> pathlib.Path:
     if key_path is None:
         key_path = resolve_default_key_path()
 
-    pub_path = key_path.with_suffix(".pub")
-    if key_path.exists() and pub_path.exists():
+    # <key>.pub, as ssh-keygen names it (with_suffix would turn "hub.key" into "hub.pub")
+    pub_path = key_path.with_name(key_path.name + ".pub")
+    if key_path.exists():
+        if not pub_path.exists():
+            # Never run ssh-keygen -f on an existing private key: it asks whether to overwrite it
+            print(f"[*] Deriving the missing public key {pub_path.name} from {key_path}...")
+            try:
+                res = subprocess.run(["ssh-keygen", "-y", "-f", str(key_path)], capture_output=True, text=True)
+            except FileNotFoundError:
+                print("[-] Error: ssh-keygen not found in system PATH.")
+                sys.exit(1)
+            if res.returncode != 0 or not res.stdout.strip():
+                print(f"[-] Error: cannot read the public key from {key_path}: {res.stderr.strip()}")
+                sys.exit(1)
+            pub_path.write_text(res.stdout.strip() + "\n")
         print(f"[*] Reusing existing Harmony owner key: {key_path}")
         return pub_path
 
