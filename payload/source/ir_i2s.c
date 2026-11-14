@@ -741,7 +741,7 @@ static void *ir_mode_thread(void *arg) {
     return NULL;
 }
 
-int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
+static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
     if (err && errlen) err[0] = '\0';
     pthread_mutex_lock(&s_rx_lock);
     if (!enable) {
@@ -793,6 +793,18 @@ int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     pthread_mutex_unlock(&s_rx_lock);
     ir_mode_notify();
     return 0;
+}
+
+/* Requests to change the mode run one after the other (HTTP workers, the main loop, shutdown).
+ * A stop drops s_rx_lock while it waits for the thread: a start asked meanwhile saw the mode
+ * still on and returned, then the stop marked it off, and two stops joined the same thread. */
+static pthread_mutex_t s_mode_set_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int ir_i2s_capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
+    pthread_mutex_lock(&s_mode_set_lock);
+    int rc = capture_mode_set(enable, cb, user, err, errlen);
+    pthread_mutex_unlock(&s_mode_set_lock);
+    return rc;
 }
 
 int ir_i2s_capture_mode_enabled(void) {
