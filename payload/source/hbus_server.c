@@ -656,6 +656,39 @@ static cJSON *provision_reply(const cJSON *req) {
     return r;
 }
 
+/* Value of header `name` (case-insensitive) in the request head; 0 when absent */
+static int hbus_header(const char *req, const char *name, char *out, size_t out_len) {
+    size_t nl = strlen(name);
+    const char *line = strstr(req, "\r\n");
+    while (line && line[2] != '\r' && line[2] != '\0') {
+        line += 2;
+        if (strncasecmp(line, name, nl) == 0 && line[nl] == ':') {
+            const char *v = line + nl + 1;
+            while (*v == ' ' || *v == '\t') v++;
+            size_t n = strcspn(v, "\r\n");
+            if (n >= out_len) n = out_len - 1;
+            memcpy(out, v, n);
+            out[n] = '\0';
+            return 1;
+        }
+        line = strstr(line, "\r\n");
+    }
+    return 0;
+}
+
+/* Browsers send Origin with a WebSocket upgrade but do not apply the same-origin policy to it, so
+ * without this check any web page could drive the shim (cross-site WebSocket hijacking). Clients
+ * outside a browser (aioharmony / Home Assistant, scripts) send no Origin and are not affected;
+ * a page served from this host and port itself is allowed. */
+static int hbus_origin_allowed(const char *req) {
+    char origin[256], host[256];
+    if (!hbus_header(req, "Origin", origin, sizeof(origin))) return 1;
+    if (!hbus_header(req, "Host", host, sizeof(host))) return 0;
+    const char *o = strstr(origin, "://");
+    o = o ? o + 3 : origin;
+    return strcasecmp(o, host) == 0;
+}
+
 void hbus_handle_client(int cfd) {
     struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -695,6 +728,10 @@ void hbus_handle_client(int cfd) {
     if (ws_is_upgrade_req(buf)) {
         if (strcmp(route, "/") != 0) {
             send_http(cfd, 404, "Not Found", "text/plain", "");
+            close(cfd);
+        } else if (!hbus_origin_allowed(buf)) {
+            printf("[-] HBUS: WebSocket upgrade from another web origin refused\n");
+            send_http(cfd, 403, "Forbidden", "text/plain", "");
             close(cfd);
         } else if (ws_handle_upgrade(cfd, buf, 0 /* no rights on the 8089 command channel */, 1) != 0) {
             close(cfd);

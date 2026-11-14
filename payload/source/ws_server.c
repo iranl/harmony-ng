@@ -185,6 +185,7 @@ static int reserve_slot(void) {
 }
 
 static void release_slot(int slot) {
+    if (slot < 0 || slot >= WS_MAX_CLIENTS) return;
     pthread_mutex_lock(&g_clients_lock);
     if (g_clients[slot] == WS_SLOT_RESERVED) g_clients[slot] = WS_SLOT_FREE;
     pthread_mutex_unlock(&g_clients_lock);

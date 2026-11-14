@@ -31,7 +31,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness, MOCK_LIB  # noqa: E402
+from hub_harness import HubHarness, MOCK_LIB, SAMPLE_CONFIG  # noqa: E402
 
 PORT = 8943
 HOST = "127.0.0.2"
@@ -339,12 +339,64 @@ def test_fail_closed():
         check(st == 401 or (isinstance(r, dict) and r.get("authenticated") is False), "auth/me not admin", str(r))
 
 
+def test_legacy_conf_counts():
+    """Accounts only in the legacy webui_auth.conf (no users.json yet): authentication is on, also
+    where the count is asked for without a buffer (load_user_accounts(NULL, 0, ...))."""
+    print("[-] legacy webui_auth.conf without users.json")
+    import hashlib
+    ha1 = hashlib.sha256(b"legacy:Harmony Hub:legacypass").hexdigest()
+    with HubHarness(port=PORT, host=HOST, extra_data_files={"webui_auth.conf": "legacy:%s:admin\n" % ha1}) as hub:
+        assert not os.path.exists(os.path.join(hub.data_dir, "config", "users.json"))
+        st, _ = call("GET", "/api/users")
+        check(st == 401, "auth on from the legacy file: anonymous refused", str(st))
+        tok = login("legacy", "legacypass")
+        check(tok is not None, "legacy account logs in")
+        st, r = call("POST", "/api/auth/tokens", {"name": "t"}, headers=bearer(tok) if tok else None)
+        check(st in (200, 201), "token creation sees authentication on (not 409)", "%s %s" % (st, r))
+
+
+LEGACY_PORT = 8946
+
+
+def shim_upgrade(origin):
+    s = socket.create_connection(("127.0.0.1", LEGACY_PORT), timeout=3.0)
+    req = ("GET / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+           "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" % LEGACY_PORT)
+    if origin:
+        req += "Origin: %s\r\n" % origin
+    s.sendall((req + "\r\n").encode())
+    try:
+        line = s.recv(256).split(b"\r\n", 1)[0].decode(errors="replace")
+    except OSError:
+        line = ""
+    s.close()
+    return line
+
+
+def test_shim_origin():
+    """5.8 on port 8088: a web page from another origin must not open the Logitech shim"""
+    print("[-] 5.8 Logitech shim WebSocket upgrade and Origin")
+    with open(os.path.join(SAMPLE_CONFIG, "settings.json")) as f:
+        st_json = json.load(f)
+    st_json["legacy_enabled"] = True
+    with HubHarness(port=PORT, host=HOST, args=["--legacy-port", str(LEGACY_PORT), "--ssdp-port", "0"],
+                    extra_config_files={"settings.json": st_json}):
+        check(" 101 " in shim_upgrade(None), "no Origin (aioharmony, scripts): accepted")
+        check(" 101 " in shim_upgrade("http://127.0.0.1:%d" % LEGACY_PORT), "Origin of the shim itself: accepted")
+        r = shim_upgrade("http://evil.example")
+        check(" 403 " in r, "Origin of another site: refused", r)
+        r = shim_upgrade("null")
+        check(" 403 " in r, "Origin null (sandboxed page): refused", r)
+
+
 def main():
     test_ws_role_race()
     test_basic_limit()
     test_operator_and_accounts()
     test_tokens_while_off()
     test_fail_closed()
+    test_legacy_conf_counts()
+    test_shim_origin()
     if failed:
         print("[-] %d check(s) failed" % failed)
         sys.exit(1)
