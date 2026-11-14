@@ -437,10 +437,20 @@ Creates or updates a device definition.
     "controlPort": 0,
     "mqttTopic": "home/livingroom/tv",
     "mqttEnabled": true,
-    "mqttPulse": 100
+    "mqttPulse": 100,
+    "interDeviceDelay": 500,
+    "interKeyDelay": 100,
+    "holdInterKeyDelay": 200
   }
   ```
+- `interDeviceDelay` (wait before a command to this device when the previous one went to another
+  device), `interKeyDelay` (between two different commands to it) and `holdInterKeyDelay` (between
+  repeats of the same command) are milliseconds from 0 to 10000. The sender waits them out before
+  the command, so a save with a value outside that range is refused with `400` and nothing is
+  changed; a larger value already in `devices.json` is lowered to 10000 when the file is loaded.
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `400`**: `{"ok": false}` when a timing field is not a number (or numeric string) or a
+  delay is out of range.
 
 ### 3.3 Delete Device
 #### `POST /api/device-delete` or `POST /ir/delete-device`

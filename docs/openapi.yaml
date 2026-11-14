@@ -951,6 +951,9 @@ paths:
                 mqttTopic: {type: string}
                 mqttEnabled: {type: boolean}
                 mqttPulse: {type: integer}
+                interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
+                interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
+                holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
                 bt_auto_reconnect: {type: boolean, description: "Auto-reconnect Bluetooth device on activity start"}
                 bt_reconnect_duration_sec: {type: integer, default: 30, description: "Bluetooth reconnect attempt timeout"}
                 bt_reconnect_delay_sec: {type: integer, default: 0, description: "Delay in seconds before attempting Bluetooth reconnection"}

@@ -104,14 +104,17 @@ void sanitize_devices_json(cJSON *root) {
         /* Timings */
         cJSON *jidd = cJSON_GetObjectItemCaseSensitive(src_d, "interDeviceDelay");
         int idd = (jidd && cJSON_IsNumber(jidd)) ? jidd->valueint : (jidd && cJSON_IsString(jidd) ? atoi(jidd->valuestring) : 500);
+        if (idd > DEVICE_DELAY_MAX_MS) idd = DEVICE_DELAY_MAX_MS;
         cJSON_AddNumberToObject(cdev, "interDeviceDelay", idd >= 0 ? idd : 500);
 
         cJSON *jikd = cJSON_GetObjectItemCaseSensitive(src_d, "interKeyDelay");
         int ikd = (jikd && cJSON_IsNumber(jikd)) ? jikd->valueint : (jikd && cJSON_IsString(jikd) ? atoi(jikd->valuestring) : 100);
+        if (ikd > DEVICE_DELAY_MAX_MS) ikd = DEVICE_DELAY_MAX_MS;
         cJSON_AddNumberToObject(cdev, "interKeyDelay", ikd >= 0 ? ikd : 100);
 
         cJSON *jhikd = cJSON_GetObjectItemCaseSensitive(src_d, "holdInterKeyDelay");
         int hikd = (jhikd && cJSON_IsNumber(jhikd)) ? jhikd->valueint : (jhikd && cJSON_IsString(jhikd) ? atoi(jhikd->valuestring) : 200);
+        if (hikd > DEVICE_DELAY_MAX_MS) hikd = DEVICE_DELAY_MAX_MS;
         cJSON_AddNumberToObject(cdev, "holdInterKeyDelay", hikd >= 0 ? hikd : 200);
 
         cJSON *jdidd = cJSON_GetObjectItemCaseSensitive(src_d, "defaultInterDeviceDelay");
