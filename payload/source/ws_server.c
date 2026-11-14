@@ -415,54 +415,101 @@ static void note_client_rx(int client_fd) {
     pthread_mutex_unlock(&g_clients_lock);
 }
 
+/* The frame each client is in the middle of sending. ws_read_frame() runs on the main loop and
+ * takes only the bytes that are there: it used to wait in recv() for the rest of a frame, so a
+ * client sending one byte every few seconds stopped the Hub (no HTTP accept, no other client,
+ * no mDNS) for hours. Only the main loop touches these; a slot's buffer is dropped when a new
+ * client takes the slot (generation) or when its frame is complete. */
+#define WS_FRAME_HDR_MAX 14 /* 2 + 8-byte length + 4-byte mask */
+static struct {
+    unsigned int gen;
+    uint8_t *buf;
+    size_t len;
+} g_client_rx[WS_MAX_CLIENTS];
+
+/* Bytes the frame in buf needs in total, as far as the first have bytes tell; 0 when the
+ * announced payload does not fit max_payload */
+static size_t ws_frame_need(const uint8_t *buf, size_t have, size_t max_payload) {
+    if (have < 2) return 2;
+    size_t ext = (buf[1] & 0x7F) == 126 ? 2 : (buf[1] & 0x7F) == 127 ? 8 : 0;
+    size_t hlen = 2 + ext + ((buf[1] & 0x80) ? 4 : 0);
+    if (have < hlen) return hlen;
+    uint64_t payload_len = buf[1] & 0x7F;
+    if (ext) {
+        payload_len = 0;
+        for (size_t i = 0; i < ext; i++) payload_len = (payload_len << 8) | buf[2 + i];
+    }
+    if (payload_len > max_payload) return 0;
+    return hlen + (size_t)payload_len;
+}
+
 int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode) {
     if (client_fd < 0 || !out_buf || max_len == 0) return -1;
 
-    uint8_t hdr[2];
-    ssize_t n = recv(client_fd, hdr, 2, MSG_DONTWAIT);
-    if (n < 0) {
-        /* select() said readable but nothing is there (or a signal came in): not an error */
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return WS_READ_AGAIN;
-        return -1;
+    int slot = -1;
+    unsigned int gen = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == client_fd) {
+            slot = (int)i;
+            gen = g_client_gen[i];
+            break;
+        }
     }
-    /* 0 bytes = the peer closed: report it as an error, so that an empty frame (a pong or a
-     * ping without payload, which returns 0) is not mistaken for a closed connection */
-    if (n == 0) return -1;
+    pthread_mutex_unlock(&g_clients_lock);
+    if (slot < 0) return -1;
+    if (g_client_rx[slot].gen != gen) { /* a new client in the slot: forget the old one's bytes */
+        free(g_client_rx[slot].buf);
+        g_client_rx[slot].buf = NULL;
+        g_client_rx[slot].len = 0;
+        g_client_rx[slot].gen = gen;
+    }
+    if (!g_client_rx[slot].buf) {
+        g_client_rx[slot].buf = (uint8_t *)malloc(WS_FRAME_HDR_MAX + max_len);
+        if (!g_client_rx[slot].buf) return -1;
+        g_client_rx[slot].len = 0;
+    }
+    uint8_t *fb = g_client_rx[slot].buf;
+    size_t *have = &g_client_rx[slot].len;
+
+    /* Read up to the end of this frame only: bytes of the next one stay in the socket, where
+     * select() sees them */
+    size_t need;
+    while ((need = ws_frame_need(fb, *have, max_len - 1)) > *have) {
+        ssize_t n = recv(client_fd, fb + *have, need - *have, MSG_DONTWAIT);
+        if (n < 0) {
+            /* nothing more there yet (or a signal): keep the client and the bytes so far */
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return WS_READ_AGAIN;
+            return -1;
+        }
+        /* 0 bytes = the peer closed: report it as an error, so that an empty frame (a pong or a
+         * ping without payload, which returns 0) is not mistaken for a closed connection */
+        if (n == 0) return -1;
+        *have += (size_t)n;
+    }
+    /* A frame larger than the caller's buffer used to be cut, and its rest was parsed as the
+     * next frame header: drop the client instead */
+    if (need == 0) return -1;
+
     note_client_rx(client_fd);
-
-    uint8_t opcode = hdr[0] & 0x0F;
+    uint8_t opcode = fb[0] & 0x0F;
     if (out_opcode) *out_opcode = opcode;
-
-    int masked = (hdr[1] & 0x80) != 0;
-    uint64_t payload_len = hdr[1] & 0x7F;
-
-    if (payload_len == 126) {
-        uint8_t ext[2];
-        if (recv(client_fd, ext, 2, 0) != 2) return -1;
-        payload_len = ((uint64_t)ext[0] << 8) | ext[1];
-    }
-
-    uint8_t mask[4] = {0};
-    if (masked) {
-        if (recv(client_fd, mask, 4, 0) != 4) return -1;
-    }
-
-    if (payload_len >= max_len) payload_len = max_len - 1;
-
-    size_t total = 0;
-    while (total < payload_len) {
-        ssize_t r = recv(client_fd, out_buf + total, payload_len - total, 0);
-        if (r <= 0) return -1;
-        total += (size_t)r;
-    }
+    int masked = (fb[1] & 0x80) != 0;
+    size_t ext = (fb[1] & 0x7F) == 126 ? 2 : (fb[1] & 0x7F) == 127 ? 8 : 0;
+    size_t hlen = 2 + ext + (masked ? 4 : 0);
+    size_t total = need - hlen;
+    memcpy(out_buf, fb + hlen, total);
     out_buf[total] = '\0';
-
     if (masked) {
+        const uint8_t *mask = fb + 2 + ext;
         for (size_t i = 0; i < total; i++) {
             out_buf[i] ^= mask[i % 4];
         }
     }
 
+    free(g_client_rx[slot].buf); /* frame complete: no memory kept for an idle client */
+    g_client_rx[slot].buf = NULL;
+    g_client_rx[slot].len = 0;
     return (int)total;
 }
 

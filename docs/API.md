@@ -1450,6 +1450,8 @@ Imports and atomically applies configuration files or full bundle.
 
 Connect via WebSocket to `ws://<hub_ip>:8089/ws` or `ws://<hub_ip>/ws`.
 
+A client frame may arrive in several pieces; the Hub acts on it once it is complete. A frame longer than 4095 bytes (65535 on port 8088) closes the connection, and only complete frames count as traffic for the keepalive (10.15).
+
 ### Client-to-Server Messages
 
 #### 10.1 Ping / Heartbeat

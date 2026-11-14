@@ -49,10 +49,11 @@ int ws_send_text(int client_fd, const char *text);
 void ws_broadcast_text(const char *text);
 
 /*
- * Non-blocking read and unmask of an incoming WebSocket frame.
- * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when there was
- * nothing to read after all (spurious wakeup, EINTR: keep the client), -1 on error or when the
- * peer closed the connection.
+ * Non-blocking read and unmask of an incoming WebSocket frame (main loop only). Takes the bytes
+ * that are there and keeps a partial frame for the next call.
+ * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when the frame
+ * is not complete yet or there was nothing to read (keep the client), -1 on error, when the
+ * peer closed the connection, or for a frame longer than max_len - 1.
  */
 #define WS_READ_AGAIN (-2)
 int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode);
