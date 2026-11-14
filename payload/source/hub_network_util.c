@@ -19,9 +19,12 @@
 void net_get_local_ip(int sock_fd, char *buf, size_t max_len) {
     struct sockaddr_in sin;
     socklen_t len = sizeof(sin);
-    if (getsockname(sock_fd, (struct sockaddr *)&sin, &len) == 0) {
-        char *ip = inet_ntoa(sin.sin_addr);
-        if (ip && strcmp(ip, "0.0.0.0") != 0) {
+    /* inet_ntop into a local buffer: inet_ntoa formats into one static buffer, shared by the
+     * request threads and the main loop (mDNS, SSDP) */
+    char ip[INET_ADDRSTRLEN];
+    if (getsockname(sock_fd, (struct sockaddr *)&sin, &len) == 0 &&
+        inet_ntop(AF_INET, &sin.sin_addr, ip, sizeof(ip)) != NULL) {
+        if (strcmp(ip, "0.0.0.0") != 0) {
             strncpy(buf, ip, max_len - 1);
             buf[max_len - 1] = '\0';
             return;
@@ -103,11 +106,13 @@ void net_get_iface_ip_mask_mac(const char *ifname,
 
     if (ip_out && ip_len && ioctl(sock, SIOCGIFADDR, &ifr) == 0) {
         struct sockaddr_in *sin = (struct sockaddr_in *)&ifr.ifr_addr;
-        strncpy(ip_out, inet_ntoa(sin->sin_addr), ip_len - 1);
+        char a[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &sin->sin_addr, a, sizeof(a))) strncpy(ip_out, a, ip_len - 1);
     }
     if (mask_out && mask_len && ioctl(sock, SIOCGIFNETMASK, &ifr) == 0) {
         struct sockaddr_in *sin = (struct sockaddr_in *)&ifr.ifr_netmask;
-        strncpy(mask_out, inet_ntoa(sin->sin_addr), mask_len - 1);
+        char a[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &sin->sin_addr, a, sizeof(a))) strncpy(mask_out, a, mask_len - 1);
     }
     if (mac_out && mac_len && ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
         unsigned char *hw = (unsigned char *)ifr.ifr_hwaddr.sa_data;
