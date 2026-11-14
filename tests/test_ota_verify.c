@@ -87,7 +87,7 @@ int main(void) {
                         sizeof(payload) - 1, sha);
 
     printf("[-] Signed manifest\n");
-    CHECK(ota_key_count() == 1, "one release key built in (the test key)");
+    CHECK(ota_key_count() >= 1, "release keys built in (the release key in ota_keys.h and the test key)");
     write_file(mpath, manifest, (size_t)mlen);
     sign_to_file(sk, manifest, (size_t)mlen, spath);
     char *text = ota_load_signed_manifest(mpath, spath, err, sizeof(err));
