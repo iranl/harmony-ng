@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <strings.h>
 #include <pthread.h>
+#include <time.h>
 
 static cJSON *build_activity_steps_cjson(const char *seq_text) {
     cJSON *arr = cJSON_CreateArray();
@@ -86,10 +87,23 @@ static cJSON *build_activity_steps_cjson(const char *seq_text) {
     return arr;
 }
 
-/* Help: the devices the last Help asked about, so answers toggle only those */
+/* Help: the devices the last Help asked about, so answers toggle only those; the activity it
+ * ran in and when, so a late answer cannot toggle a device after the Hub moved on */
 static orch_toggle_t s_help_toggles[16];
 static size_t s_help_toggle_count;
+static char s_help_activity[32];
+static time_t s_help_started;
 static pthread_mutex_t s_help_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* hub_rf waits up to 120 s for the re-send, then asks one question per device: an answer
+ * later than this does not belong to that Help */
+#define HELP_ANSWER_MAX_AGE_SEC 300
+
+static time_t help_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
 
 static void device_name(const char *id, char *out, size_t cap);
 
@@ -127,6 +141,8 @@ int activity_help_start(const cJSON *req, cJSON **out) {
         pthread_mutex_lock(&s_help_lock);
         memcpy(s_help_toggles, toggles, n * sizeof(toggles[0]));
         s_help_toggle_count = n;
+        snprintf(s_help_activity, sizeof(s_help_activity), "%s", act_id);
+        s_help_started = help_now();
         pthread_mutex_unlock(&s_help_lock);
     }
     cJSON *resp = cJSON_CreateObject();
@@ -159,7 +175,19 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
     if (cJSON_IsFalse(jon) || (cJSON_IsNumber(jon) && jon->valuedouble == 0)) on = 0;
 
     char cmd[64] = {0};
+    char current[32];
+    snprintf(current, sizeof(current), "%s", orch_get_current_activity());
     pthread_mutex_lock(&s_help_lock);
+    /* The questions are void once the Hub left the activity of that Help (a power off, another
+     * activity) or when they are too old: the toggle would switch a device the user no longer
+     * means */
+    if (s_help_toggle_count > 0 &&
+        (strcmp(current, s_help_activity) != 0 || help_now() - s_help_started > HELP_ANSWER_MAX_AGE_SEC)) {
+        s_help_toggle_count = 0;
+        pthread_mutex_unlock(&s_help_lock);
+        *out = help_error("The Help question is no longer valid");
+        return 409;
+    }
     for (size_t i = 0; i < s_help_toggle_count; i++) {
         if (strcmp(s_help_toggles[i].device_id, dev_id) != 0) continue;
         /* One answer per device, so a repeated "No" cannot toggle it back off */
