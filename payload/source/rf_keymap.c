@@ -545,22 +545,24 @@ void check_companion_timeouts(void) {
     uint64_t now_ms = get_monotonic_ms();
     for (int s = 0; s < MAX_PAIRED_REMOTES; s++) {
         if (s_companion_state[s].current_key != 0) {
-            /* Trigger continuous HOLD repeat pulses (initial hold >= 350ms, then every 140ms) */
-            if (now_ms - s_companion_state[s].press_start_ms >= 350) {
-                if (now_ms - s_companion_state[s].last_repeat_ms >= 140) {
-                    s_companion_state[s].last_repeat_ms = now_ms;
-                    s_companion_state[s].hold_sent = true;
-                    enqueue_remote_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
-                }
-            }
-            /* Safety timeout: only release if link lost or stuck for >30 seconds */
-            else if (now_ms - s_companion_state[s].press_start_ms > 30000) {
+            uint64_t held_ms = now_ms - s_companion_state[s].press_start_ms;
+            /* Safety timeout: release if the key-up was lost (link lost or stuck for >30 seconds).
+             * Tested before the repeat branch, which covers every hold longer than 350 ms. */
+            if (held_ms > 30000) {
                 printf("[*] Companion button AUTO-RELEASE (safety timeout): slot=%d name=%s\n",
                        s + 1, s_companion_state[s].current_name);
                 enqueue_remote_button(s + 1, s_companion_state[s].current_name, "release", NULL);
                 s_companion_state[s].current_key = 0;
                 s_companion_state[s].current_name[0] = '\0';
                 s_companion_state[s].hold_sent = false;
+            }
+            /* Trigger continuous HOLD repeat pulses (initial hold >= 350ms, then every 140ms) */
+            else if (held_ms >= 350) {
+                if (now_ms - s_companion_state[s].last_repeat_ms >= 140) {
+                    s_companion_state[s].last_repeat_ms = now_ms;
+                    s_companion_state[s].hold_sent = true;
+                    enqueue_remote_button(s + 1, s_companion_state[s].current_name, "hold", NULL);
+                }
             }
         }
     }
