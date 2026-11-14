@@ -342,6 +342,8 @@ python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 # setup_remote.py SSH key pair names (ssh-keygen replaced)
 python3 "$SCRIPT_DIR/test_host_tools_ssh.py"
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
+# Web UI log viewers offer only sources GET /api/logs serves
+python3 "$SCRIPT_DIR/test_webui_log_sources.py"
 
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 python3 "$SCRIPT_DIR/test_ethernet_apply.py"
