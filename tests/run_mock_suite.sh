@@ -216,6 +216,8 @@ python3 "$SCRIPT_DIR/test_rf_status_push.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
 python3 "$SCRIPT_DIR/test_hbus.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
+# New web UI dialogs with a failing Hub call (Node, stand-in DOM, no Hub)
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_modal_errors.mjs"; else echo "    (node not found, test_frontend_modal_errors.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
 
