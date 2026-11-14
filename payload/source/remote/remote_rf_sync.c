@@ -50,16 +50,18 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[24] == 1) link_note_reply(f->seq, get_monotonic_ms()); /* answer to a sync query */
             char act_id[13] = {0};
             char act_name[24] = {0};
+            /* The name ends before payload[24], the query-reply flag (rf_send_hub_activity_sync_slot()
+               writes at most 21 name bytes after a short id and 14 after a long one) */
             if (f->payload[1] == '\0' || f->payload[2] == '\0' || f->payload[0] == '-') {
-                /* Short ID format (1-2 byte ID, up to 22 byte name) */
+                /* Short ID format (1-2 byte ID, up to 21 byte name) */
                 strncpy(act_id, (const char *)&f->payload[0], sizeof(act_id) - 1);
-                strncpy(act_name, (const char *)&f->payload[3], sizeof(act_name) - 1);
+                memcpy(act_name, &f->payload[3], 21);
             } else if (f->payload[10] >= 0x20) {
                 memcpy(act_id, f->payload, 10);
-                memcpy(act_name, &f->payload[10], 15);
+                memcpy(act_name, &f->payload[10], 14);
             } else {
                 memcpy(act_id, f->payload, 12);
-                memcpy(act_name, &f->payload[12], 14);
+                memcpy(act_name, &f->payload[12], 12);
             }
 
             uint64_t now_ms = get_monotonic_ms();
