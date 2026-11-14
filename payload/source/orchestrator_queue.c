@@ -94,6 +94,13 @@ int orch_build_steps(const char *current_id, const char *target_id,
         if (strcmp(act_inv->items[i].id, entering_id) == 0) entering_act = &act_inv->items[i];
     }
 
+    /* For the power steps (sections 2 and 3) PowerOff means "no device is on". A configured
+     * PowerOff activity ("-1", e.g. a migrated stock config) has devices and steps of its own:
+     * counting them as on made a start skip their power on, and a power off switch on the
+     * devices it lists and leave the running activity's shared devices on. */
+    struct activity_item *leaving_devs = strcmp(leaving_id, ORCH_POWEROFF_ID) == 0 ? NULL : leaving_act;
+    struct activity_item *entering_devs = strcmp(entering_id, ORCH_POWEROFF_ID) == 0 ? NULL : entering_act;
+
     size_t main_count = 0;
     size_t bg_count = 0;
     uint32_t t_sim = 0;
@@ -148,11 +155,11 @@ int orch_build_steps(const char *current_id, const char *target_id,
     }
 
     /* 2. Power OFF departing devices (in leaving_act, but not in entering_act) */
-    if (has_ir && leaving_act) {
+    if (has_ir && leaving_devs) {
         for (int i = 0; i < leaving_act->device_count && main_count < max_main; i++) {
             const char *dev_id = leaving_act->device_ids[i];
             int in_new = 0;
-            if (entering_act) {
+            if (entering_devs) {
                 for (int j = 0; j < entering_act->device_count; j++) {
                     if (strcmp(entering_act->device_ids[j], dev_id) == 0) { in_new = 1; break; }
                 }
@@ -250,12 +257,12 @@ int orch_build_steps(const char *current_id, const char *target_id,
     }
 
     /* 3. Power ON arriving devices (in entering_act, but not in leaving_act) */
-    if (has_ir && entering_act) {
+    if (has_ir && entering_devs) {
         int max_warmup = 0;
         for (int i = 0; i < entering_act->device_count && main_count < max_main; i++) {
             const char *dev_id = entering_act->device_ids[i];
             int in_old = 0;
-            if (leaving_act) {
+            if (leaving_devs) {
                 for (int j = 0; j < leaving_act->device_count; j++) {
                     if (strcmp(leaving_act->device_ids[j], dev_id) == 0) { in_old = 1; break; }
                 }
