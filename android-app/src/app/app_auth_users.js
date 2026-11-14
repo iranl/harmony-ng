@@ -84,10 +84,10 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         html += `
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
             <div>
-              <span style="font-weight: 600; font-size: 13px;">${u.username}</span>
+              <span style="font-weight: 600; font-size: 13px;">${escapeHtml(u.username)}</span>
               <span class="badge" style="margin-left: 8px; font-size: 10px; background: rgba(59, 130, 246, 0.15); color: var(--accent);">Restricted User</span>
             </div>
-            <button type="button" class="btn btn-xs btn-danger btn-del-user" data-username="${u.username}">Delete</button>
+            <button type="button" class="btn btn-xs btn-danger btn-del-user" data-username="${escapeHtml(u.username)}">Delete</button>
           </div>`;
       }
       html += '</div>';
@@ -196,12 +196,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         html += `
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
             <div>
-              <div style="font-weight: 600; font-size: 13px;">${t.name || 'Unnamed Token'}</div>
+              <div style="font-weight: 600; font-size: 13px;">${escapeHtml(t.name || 'Unnamed Token')}</div>
               <div class="mini muted" style="font-size: 10px; margin-top: 2px;">
                 <span>ID: ${t.id}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
               </div>
             </div>
-            <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${t.id}" data-name="${t.name || t.id}">Revoke</button>
+            <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name || t.id)}">Revoke</button>
           </div>`;
       }
       html += '</div>';

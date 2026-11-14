@@ -151,8 +151,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       <div id="irdbCheckboxesList">
         ${rows.map((r, i) => `
           <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 4px; cursor: pointer;">
-            <input type="checkbox" class="irdb-cmd-cb" data-name="${r.name}" data-keycode="${r.keycode || ''}" data-raw="${r.raw || ''}" checked>
-            <span><strong>${r.name}</strong> (${r.meta})</span>
+            <input type="checkbox" class="irdb-cmd-cb" data-name="${escapeHtml(r.name)}" data-keycode="${escapeHtml(r.keycode || '')}" data-raw="${escapeHtml(r.raw || '')}" checked>
+            <span><strong>${escapeHtml(r.name)}</strong> (${escapeHtml(r.meta)})</span>
           </label>
         `).join('')}
       </div>
@@ -330,12 +330,12 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         <div class="card" style="margin-bottom: 12px;">
           <h3 style="font-size: 15px; margin-bottom: 8px;">${t('device_details_card', 'Device Details')}</h3>
           <div class="row">
-            <div><label>${t('name_lbl', 'Name')}</label><input id="mgrDevName" class="form-control" value="${dev.name || ''}"></div>
+            <div><label>${t('name_lbl', 'Name')}</label><input id="mgrDevName" class="form-control" value="${escapeHtml(dev.name || '')}"></div>
             <div><label>${t('type_lbl', 'Type')}</label><input id="mgrDevType" class="form-control" value="${dev.type || ''}"></div>
           </div>
           <div class="row" style="margin-top: 8px;">
-            <div><label>${t('manufacturer_lbl', 'Manufacturer')}</label><input id="mgrDevMan" class="form-control" value="${dev.manufacturer || ''}"></div>
-            <div><label>${t('model_lbl', 'Model')}</label><input id="mgrDevMod" class="form-control" value="${dev.model || ''}"></div>
+            <div><label>${t('manufacturer_lbl', 'Manufacturer')}</label><input id="mgrDevMan" class="form-control" value="${escapeHtml(dev.manufacturer || '')}"></div>
+            <div><label>${t('model_lbl', 'Model')}</label><input id="mgrDevMod" class="form-control" value="${escapeHtml(dev.model || '')}"></div>
           </div>
           <div style="margin-top: 10px;">
             <label>${t('ir_blaster_assignment_lbl', 'IR Blaster Assignment')}</label>
@@ -375,7 +375,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
           <div class="row" style="margin-top: 8px;">
             <div>
               <label>${t('topic_template_lbl', 'Topic Template')}</label>
-              <input id="mgrDevMqttTopic" class="form-control" value="${dev.mqttTopic || '{root}/button/{device}/{command}'}">
+              <input id="mgrDevMqttTopic" class="form-control" value="${escapeHtml(dev.mqttTopic || '{root}/button/{device}/{command}')}">
               <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{root}">{root}</button>
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{device}">{device}</button>
@@ -394,7 +394,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <h3 style="font-size: 15px; margin: 0;">Saved Commands (<span id="mgrCmdCount">${(dev.commands || []).length}</span>)</h3>
-            <span class="muted mini">Device: ${dev.name || dev.id}</span>
+            <span class="muted mini">Device: ${escapeHtml(dev.name || dev.id)}</span>
           </div>
           <div style="margin-bottom: 8px;">
             <input type="text" id="mgrCmdSearch" class="form-control" placeholder="${t('ph_search_cmds')}">

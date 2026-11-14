@@ -360,7 +360,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
             <div style="display:flex;align-items:center;gap:8px;">
               <span style="font-size:14px;">⚡</span>
               <strong style="font-size:12px;color:#22c55e;letter-spacing:0.5px;">ACTIVITY SWITCHED</strong>
-              <span style="font-size:12px;color:var(--text-muted);">&bull; Remote UI & App switch to "${toAct ? toAct.name : 'PowerOff'}"</span>
+              <span style="font-size:12px;color:var(--text-muted);">&bull; Remote UI & App switch to "${escapeHtml(toAct ? toAct.name : 'PowerOff')}"</span>
             </div>
             <span class="badge ok" style="font-weight:700;font-size:11px;">T: ${switchedSec}s (${switchedAtMs.toLocaleString()} ms)</span>
           </div>
@@ -392,7 +392,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
 
       return `
         <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;">
-          <span style="font-size:12px;">${actionCount}. [${st.phase}] Send <strong>${st.command}</strong> to ${devName} (${st.delay} ms, T: ${startSec}s)</span>
+          <span style="font-size:12px;">${actionCount}. [${st.phase}] Send <strong>${escapeHtml(st.command)}</strong> to ${escapeHtml(devName)} (${st.delay} ms, T: ${startSec}s)</span>
           <span class="badge ok">${st.type}</span>
         </div>
       `;
@@ -414,7 +414,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
         const devName = dev ? (dev.name || dev.model || `Device ${bg.deviceId}`) : (bg.deviceId && bg.deviceId !== '0' ? `Device ${bg.deviceId}` : '');
         return `
           <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-bottom:4px;background:rgba(255,255,255,0.02);">
-            <span style="font-size:12px;">${actionCount}. [${bg.source}] Send <strong>${bg.command}</strong> to ${devName} (T: ${targetSec}s, ${bg.targetMs.toLocaleString()} ms)</span>
+            <span style="font-size:12px;">${actionCount}. [${bg.source}] Send <strong>${escapeHtml(bg.command)}</strong> to ${escapeHtml(devName)} (T: ${targetSec}s, ${bg.targetMs.toLocaleString()} ms)</span>
             <span class="badge" style="background:rgba(147,51,234,0.25);color:#d8b4fe;border:1px solid rgba(147,51,234,0.4);">Deferred</span>
           </div>
         `;
@@ -425,7 +425,7 @@ export class HarmonyAppActivitiesSim extends HarmonyAppActivitiesEditor {
     const trueEndSec = (trueEndMs / 1000).toFixed(1);
 
     summaryEl.innerHTML = `
-      <strong>${fromAct ? fromAct.name : 'PowerOff'} &rarr; ${toAct ? toAct.name : 'PowerOff'}</strong>: 
+      <strong>${escapeHtml(fromAct ? fromAct.name : 'PowerOff')} &rarr; ${escapeHtml(toAct ? toAct.name : 'PowerOff')}</strong>: 
       ${actionCount} steps &bull; 
       <span style="color:#22c55e;font-weight:700;">Activity Switched at: ${switchedSec}s (${switchedAtMs.toLocaleString()} ms)</span> &bull; 
       <span style="color:var(--text);font-weight:600;">True End: ${trueEndSec}s (${trueEndMs.toLocaleString()} ms) (all enqueued sent)</span>

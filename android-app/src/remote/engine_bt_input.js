@@ -1,5 +1,6 @@
 import { RemoteEngineBase } from './engine_base.js';
 import { t } from '../i18n.js';
+import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineBtInput extends RemoteEngineBase {
   renderKeyboardView() {
@@ -14,7 +15,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
       <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
         <div class="keyboard-device-badge">
           <span class="bt-dot"></span>
-          <span>Target: <strong>${devName}</strong></span>
+          <span>Target: <strong>${escapeHtml(devName)}</strong></span>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
@@ -271,7 +272,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
       <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
         <div class="keyboard-device-badge">
           <span class="bt-dot"></span>
-          <span>Target: <strong>${devName}</strong></span>
+          <span>Target: <strong>${escapeHtml(devName)}</strong></span>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">

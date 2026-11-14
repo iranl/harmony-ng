@@ -10,6 +10,20 @@
 #include <ctype.h>
 #include <strings.h>
 
+/* Names end up in HTML (both web UIs, Home Assistant cards, other clients): keep '<', '>'
+ * and control characters out of them, so a name can never become markup. Every other
+ * character is kept. Returns out. */
+static const char *clean_display_name(const char *in, char *out, size_t out_sz) {
+    size_t j = 0;
+    if (!out || out_sz == 0) return "";
+    for (const unsigned char *p = (const unsigned char *)(in ? in : ""); *p && j + 1 < out_sz; p++) {
+        if (*p == '<' || *p == '>' || *p < 0x20 || *p == 0x7f) continue;
+        out[j++] = (char)*p;
+    }
+    out[j] = '\0';
+    return out;
+}
+
 /* Sanitize devices JSON:
  * 1. Ensure canonical {"devices": [...]} structure
  * 2. Normalize and validate fields to clean camelCase canonical schema
@@ -37,15 +51,19 @@ void sanitize_devices_json(cJSON *root) {
         cJSON_AddStringToObject(cdev, "id", id_str);
 
         cJSON *jname = cJSON_GetObjectItemCaseSensitive(src_d, "name");
+        char name_buf[256];
         const char *name_str = (jname && jname->valuestring && jname->valuestring[0]) ? jname->valuestring : "Device";
-        cJSON_AddStringToObject(cdev, "name", name_str);
+        name_str = clean_display_name(name_str, name_buf, sizeof(name_buf));
+        cJSON_AddStringToObject(cdev, "name", name_str[0] ? name_str : "Device");
 
         cJSON *jmfg = cJSON_GetObjectItemCaseSensitive(src_d, "manufacturer");
-        const char *mfg_str = (jmfg && jmfg->valuestring) ? jmfg->valuestring : "";
+        char mfg_buf[256];
+        const char *mfg_str = clean_display_name((jmfg && jmfg->valuestring) ? jmfg->valuestring : "", mfg_buf, sizeof(mfg_buf));
         cJSON_AddStringToObject(cdev, "manufacturer", mfg_str);
 
         cJSON *jmdl = cJSON_GetObjectItemCaseSensitive(src_d, "model");
-        const char *mdl_str = (jmdl && jmdl->valuestring) ? jmdl->valuestring : "";
+        char mdl_buf[256];
+        const char *mdl_str = clean_display_name((jmdl && jmdl->valuestring) ? jmdl->valuestring : "", mdl_buf, sizeof(mdl_buf));
         cJSON_AddStringToObject(cdev, "model", mdl_str);
 
         cJSON *jtype = cJSON_GetObjectItemCaseSensitive(src_d, "type");
@@ -194,8 +212,11 @@ void sanitize_devices_json(cJSON *root) {
                 if (strcasecmp(cname->valuestring, "Connect") == 0) has_connect = 1;
                 if (strcasecmp(cname->valuestring, "Disconnect") == 0) has_disconnect = 1;
 
+                char cmd_name[128];
+                clean_display_name(cname->valuestring, cmd_name, sizeof(cmd_name));
+                if (!cmd_name[0]) continue;
                 cJSON *ccmd = cJSON_CreateObject();
-                cJSON_AddStringToObject(ccmd, "name", cname->valuestring);
+                cJSON_AddStringToObject(ccmd, "name", cmd_name);
 
                 cJSON *ckc = cJSON_GetObjectItemCaseSensitive(c, "keyCode");
                 const char *kc_str = (ckc && ckc->valuestring) ? ckc->valuestring : "";
@@ -341,6 +362,15 @@ void sanitize_activities_json(cJSON *root) {
     cJSON *a = NULL;
     cJSON_ArrayForEach(a, acts) {
         if (!a || !cJSON_IsObject(a)) continue;
+
+        cJSON *aname = cJSON_GetObjectItemCaseSensitive(a, "name");
+        if (cJSON_IsString(aname) && aname->valuestring) {
+            char clean[256];
+            clean_display_name(aname->valuestring, clean, sizeof(clean));
+            if (strcmp(clean, aname->valuestring) != 0) {
+                cJSON_ReplaceItemInObjectCaseSensitive(a, "name", cJSON_CreateString(clean[0] ? clean : "Activity"));
+            }
+        }
 
         cJSON *start_seq = cJSON_GetObjectItemCaseSensitive(a, "startSequence");
         if (start_seq) sanitize_activity_steps(start_seq);

@@ -562,11 +562,11 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     modal.innerHTML = `
       <div class="card" style="width:100%;max-width:380px;">
         <h3 style="font-size:16px;margin-bottom:12px;">${isEdit ? 'Edit Hub Profile' : 'Add New Harmony Hub'}</h3>
-        <label>${t('hub_name', 'Hub Name')}</label><input id="hubFormName" class="form-control" value="${h.name || ''}">
-        <label>${t('ip_address_host_lbl', 'IP Address / Host')}</label><input id="hubFormHost" class="form-control" value="${h.host || ''}">
-        <label>${t('http_port_lbl', 'HTTP Port')}</label><input id="hubFormPort" type="number" class="form-control" value="${h.port || 8089}">
-        <label>${t('user_optional_lbl', 'Username (Optional)')}</label><input id="hubFormUser" class="form-control" value="${h.username || ''}">
-        <label>${t('pwd_optional_lbl', 'Password (Optional)')}</label><input id="hubFormPass" type="password" class="form-control" value="${h.password || ''}">
+        <label>${t('hub_name', 'Hub Name')}</label><input id="hubFormName" class="form-control" value="${escapeHtml(h.name || '')}">
+        <label>${t('ip_address_host_lbl', 'IP Address / Host')}</label><input id="hubFormHost" class="form-control" value="${escapeHtml(h.host || '')}">
+        <label>${t('http_port_lbl', 'HTTP Port')}</label><input id="hubFormPort" type="number" class="form-control" value="${escapeHtml(h.port || 8089)}">
+        <label>${t('user_optional_lbl', 'Username (Optional)')}</label><input id="hubFormUser" class="form-control" value="${escapeHtml(h.username || '')}">
+        <label>${t('pwd_optional_lbl', 'Password (Optional)')}</label><input id="hubFormPass" type="password" class="form-control" value="${escapeHtml(h.password || '')}">
         <div id="hubTestStatus" class="subtle" style="margin-top:8px;"></div>
         <div class="actions" style="margin-top:14px;display:flex;justify-content:space-between;">
           <div style="display:flex;gap:6px;">

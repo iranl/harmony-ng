@@ -388,6 +388,8 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
 
 ## 3. Inventory & Device Management
 
+Device, command and activity names (and a device's manufacturer and model) never contain `<`, `>` or control characters: the Hub drops them when it loads or saves the configuration, so a name cannot become markup in a client that shows it without escaping. Every other character is kept.
+
 ### 3.1 Get Inventory
 #### `GET /api/inventory`
 Returns all registered devices and basic commands from `/data/harmony/config/devices.json`.

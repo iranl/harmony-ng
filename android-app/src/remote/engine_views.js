@@ -1,5 +1,6 @@
 import { RemoteEngineBtInput } from './engine_bt_input.js';
 import { t } from '../i18n.js';
+import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineViews extends RemoteEngineBtInput {
   renderRemoteGrid() {
@@ -36,7 +37,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     el.setAttribute('data-slot', slotIndex);
 
     el.innerHTML = `
-      <span class="btn-label">${btn.label || btn.command || 'Btn'}</span>
+      <span class="btn-label">${escapeHtml(btn.label || btn.command || 'Btn')}</span>
       ${this.editMode ? `<span class="btn-edit-badge">✎</span>` : ''}
     `;
 
@@ -204,7 +205,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
       selectBar.innerHTML = `
         <label class="keypad-select-label">${t('target_device')}</label>
         <select class="form-control keypad-dev-select">
-          ${numDevs.map(d => `<option value="${d.id}" ${String(d.id) === String(currentDev.id) ? 'selected' : ''}>${d.name || d.label} (${d.model || d.id})</option>`).join('')}
+          ${numDevs.map(d => `<option value="${escapeHtml(d.id)}" ${String(d.id) === String(currentDev.id) ? 'selected' : ''}>${escapeHtml(d.name || d.label)} (${escapeHtml(d.model || d.id)})</option>`).join('')}
         </select>
       `;
 
@@ -275,14 +276,14 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
     }
 
     const devOptions = allowedDevices.map(d =>
-      `<option value="${d.id}" ${String(d.id) === String(initialDevId) ? 'selected' : ''}>${d.name || d.label} (${d.model || d.id})</option>`
+      `<option value="${escapeHtml(d.id)}" ${String(d.id) === String(initialDevId) ? 'selected' : ''}>${escapeHtml(d.name || d.label)} (${escapeHtml(d.model || d.id)})</option>`
     ).join('');
 
     const cmds = this.deviceCommandsMap[initialDevId] || [];
     const currentCmd = isEdit ? btn.command : '';
     const cmdOptions = cmds.map(c => {
       const name = c.name || c;
-      return `<option value="${name}" ${name === currentCmd ? 'selected' : ''}>${name}</option>`;
+      return `<option value="${escapeHtml(name)}" ${name === currentCmd ? 'selected' : ''}>${escapeHtml(name)}</option>`;
     }).join('');
 
     const row = Math.floor(slotIndex / 5) + 1;
@@ -309,7 +310,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
           </div>
           <div class="form-group">
             <label>${t('button_label')}</label>
-            <input type="text" id="editBtnLabel" class="form-control" value="${isEdit ? (btn.label || '') : ''}" placeholder="${t('placeholder_btn_label')}">
+            <input type="text" id="editBtnLabel" class="form-control" value="${escapeHtml(isEdit ? (btn.label || '') : '')}" placeholder="${t('placeholder_btn_label')}">
           </div>
           <div class="form-group">
             <label>${t('color_accent')}</label>
@@ -364,7 +365,7 @@ export class RemoteEngineViews extends RemoteEngineBtInput {
       const newCmds = this.deviceCommandsMap[newDevId] || [];
       cmdSelect.innerHTML = newCmds.map(c => {
         const name = c.name || c;
-        return `<option value="${name}">${name}</option>`;
+        return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
       }).join('') || '<option value="">(No commands available)</option>';
       if (cmdSelect.value) {
         labelInput.value = cmdSelect.value;
