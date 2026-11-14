@@ -202,6 +202,7 @@ python3 "$SCRIPT_DIR/test_activity_save_match.py"
 
 # Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
 python3 "$SCRIPT_DIR/test_hub_boot_counter.py"
+python3 "$SCRIPT_DIR/test_recovery_ap_fallback.py"
 
 # 5b. WebSocket event bus tests against hub_daemon_test on the mock root
 echo "[-] Running WebSocket event tests..."
