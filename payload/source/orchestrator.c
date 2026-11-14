@@ -191,17 +191,22 @@ int orch_get_queued_activity(char *buf, size_t len) {
 /* True when id names a configured activity (PowerOff's "-1" included) */
 static int activity_known(const char *id) {
     if (strcmp(id, ORCH_POWEROFF_ID) == 0) return 1;
-    cJSON *root = config_store_get_activities_json();
+    cJSON *root = config_store_activities_copy();
     const cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
     const cJSON *a = NULL;
+    int found = 0;
     cJSON_ArrayForEach(a, list) {
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
         char aid[32] = "";
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
         else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
-        if (strcmp(aid, id) == 0) return 1;
+        if (strcmp(aid, id) == 0) {
+            found = 1;
+            break;
+        }
     }
-    return 0;
+    cJSON_Delete(root);
+    return found;
 }
 
 /* After a transition completed: start the queued request, if any */

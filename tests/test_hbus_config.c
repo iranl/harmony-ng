@@ -29,8 +29,8 @@ static char *slurp(const char *p) {
     fclose(f);
     return b;
 }
-cJSON *config_store_get_devices_json(void) { return g_devs; }
-cJSON *config_store_get_activities_json(void) { return g_acts; }
+cJSON *config_store_devices_copy(void) { return g_devs ? cJSON_Duplicate(g_devs, 1) : NULL; }
+cJSON *config_store_activities_copy(void) { return g_acts ? cJSON_Duplicate(g_acts, 1) : NULL; }
 
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s (line %d)\n", msg, __LINE__); } } while (0)

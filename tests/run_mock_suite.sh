@@ -199,6 +199,7 @@ python3 "$SCRIPT_DIR/test_bt_power_link.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 python3 "$SCRIPT_DIR/test_activity_save_match.py"
+python3 "$SCRIPT_DIR/test_config_cache_race.py"
 
 # Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
 python3 "$SCRIPT_DIR/test_hub_boot_counter.py"

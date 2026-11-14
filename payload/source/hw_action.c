@@ -369,13 +369,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
     }
 }
 
-static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
-    if (!target || !command) return -1;
-
-    /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
-    cJSON *root = get_device_list_cached();
-    if (!root) return -4;
-
+static int send_match_in(cJSON *root, const char *target, int match_mode, const char *command, int action) {
     int ret = -1;
 
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
@@ -788,6 +782,17 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     return ret;
 }
 
+static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
+    if (!target || !command) return -1;
+
+    /* A copy of the device list, freed here: the cached tree may be replaced by a save meanwhile */
+    cJSON *root = get_device_list_copy();
+    if (!root) return -4;
+    int ret = send_match_in(root, target, match_mode, command, action);
+    cJSON_Delete(root);
+    return ret;
+}
+
 int hw_device_command_send_action(const char *target, int match_mode, const char *command, int action) {
     return hw_device_command_send_match(target, match_mode, command, action);
 }
@@ -804,10 +809,7 @@ int hw_device_command_send_by_name(const char *device_name, const char *command)
     return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
 }
 
-int hw_device_exists(const char *target, int match_mode) {
-    if (!target || !target[0]) return 0;
-    cJSON *root = get_device_list_cached();
-    if (!root) return 0;
+static int device_exists_in(cJSON *root, const char *target, int match_mode) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
     const cJSON *dev = NULL;
@@ -832,10 +834,16 @@ int hw_device_exists(const char *target, int match_mode) {
     return 0;
 }
 
-int hw_device_command_exists(const char *target, int match_mode, const char *command) {
-    if (!target || !target[0] || !command || !command[0]) return 0;
-    cJSON *root = get_device_list_cached();
+int hw_device_exists(const char *target, int match_mode) {
+    if (!target || !target[0]) return 0;
+    cJSON *root = get_device_list_copy();
     if (!root) return 0;
+    int found = device_exists_in(root, target, match_mode);
+    cJSON_Delete(root);
+    return found;
+}
+
+static int device_command_exists_in(cJSON *root, const char *target, int match_mode, const char *command) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
     const cJSON *target_dev = NULL;
@@ -912,6 +920,15 @@ int hw_device_command_exists(const char *target, int match_mode, const char *com
     return 0;
 }
 
+int hw_device_command_exists(const char *target, int match_mode, const char *command) {
+    if (!target || !target[0] || !command || !command[0]) return 0;
+    cJSON *root = get_device_list_copy();
+    if (!root) return 0;
+    int found = device_command_exists_in(root, target, match_mode, command);
+    cJSON_Delete(root);
+    return found;
+}
+
 int hw_bthid_send_report(const uint8_t *report, size_t len) {
     if (!report || len == 0) return -1;
 
@@ -932,11 +949,7 @@ int hw_bthid_send_report(const uint8_t *report, size_t len) {
     return -1;
 }
 
-int hw_device_bt_host(const char *device_id, char *out, size_t outlen) {
-    if (!device_id || !device_id[0] || !out || outlen < 18) return 0;
-    out[0] = '\0';
-    /* BORROWED from resource_cache - DO NOT free or cJSON_Delete */
-    cJSON *root = get_device_list_cached();
+static int device_bt_host_in(cJSON *root, const char *device_id, char *out, size_t outlen) {
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     if (!devs || !cJSON_IsArray(devs)) return 0;
     cJSON *dev = NULL;
@@ -970,6 +983,15 @@ int hw_device_bt_host(const char *device_id, char *out, size_t outlen) {
         return 1;
     }
     return 0;
+}
+
+int hw_device_bt_host(const char *device_id, char *out, size_t outlen) {
+    if (!device_id || !device_id[0] || !out || outlen < 18) return 0;
+    out[0] = '\0';
+    cJSON *root = get_device_list_copy();
+    int found = device_bt_host_in(root, device_id, out, outlen);
+    cJSON_Delete(root);
+    return found;
 }
 
 int hw_device_bt_disconnect(const char *device_id) {

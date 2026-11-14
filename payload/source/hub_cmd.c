@@ -44,9 +44,10 @@ static const char *json_str(const cJSON *o, const char *k1, const char *k2, cons
 static int activity_id_known(const char *id) {
     if (!id || !id[0]) return 0;
     if (strcmp(id, "-1") == 0) return 1;
-    cJSON *root = config_store_get_activities_json();
+    cJSON *root = config_store_activities_copy();
     const cJSON *arr = root ? cJSON_GetObjectItemCaseSensitive(root, "activities") : NULL;
     const cJSON *a = NULL;
+    int found = 0;
     cJSON_ArrayForEach(a, arr) {
         const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
         char buf[32];
@@ -56,9 +57,13 @@ static int activity_id_known(const char *id) {
             snprintf(buf, sizeof(buf), "%ld", (long)jid->valuedouble);
             aid = buf;
         }
-        if (aid && strcmp(aid, id) == 0) return 1;
+        if (aid && strcmp(aid, id) == 0) {
+            found = 1;
+            break;
+        }
     }
-    return 0;
+    cJSON_Delete(root);
+    return found;
 }
 
 static cJSON *reply_base(const cJSON *req, const char *type, const char *action) {
