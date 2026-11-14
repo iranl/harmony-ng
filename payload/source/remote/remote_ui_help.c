@@ -132,7 +132,7 @@ void ui_help_on_status(const rf_frame_t *f) {
 void ui_help_tick(uint64_t now) {
     static uint64_t last_frame_ms;
     pthread_mutex_lock(&s_help_lock);
-    uint64_t age = now - s_help.since_ms;
+    uint64_t age = ms_since(now, s_help.since_ms); /* since_ms can be newer: the RF thread stamps it */
     if ((s_help.state == HELP_REQUESTING || s_help.state == HELP_RESENDING) && now - last_frame_ms >= 250) {
         last_frame_ms = now;
         g_screen_dirty = true; /* animate the bar */

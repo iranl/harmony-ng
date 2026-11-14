@@ -460,8 +460,9 @@ int main(int argc, char **argv) {
 
         static uint64_t last_progress_render_ms = 0;
         if (g_is_switching_activity) {
-            if (now_ms - g_switching_start_ms > (uint64_t)g_switching_total_ms + 400) {
-                printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)(now_ms - g_switching_start_ms));
+            /* g_switching_start_ms can be newer than now_ms: the RF thread starts the overlay */
+            if (ms_since(now_ms, g_switching_start_ms) > (uint64_t)g_switching_total_ms + 400) {
+                printf("[*] Activity switch complete (elapsed %llums), unlocking screen\n", (unsigned long long)ms_since(now_ms, g_switching_start_ms));
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
