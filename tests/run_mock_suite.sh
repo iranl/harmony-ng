@@ -227,6 +227,7 @@ echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"
 echo "[-] Running OpenAPI Specification Test Suite..."
 python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
+python3 "$SCRIPT_DIR/test_mqtt_ha_template.py"
 
 # 7. Device shell scripts run on the host (paths moved to a temp dir)
 python3 "$SCRIPT_DIR/test_hub_user_sh.py"
