@@ -225,6 +225,8 @@ python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"
+# Every C file in payload/source is built by a build script or a test
+python3 "$SCRIPT_DIR/test_source_orphans.py"
 echo "[-] Running OpenAPI Specification Test Suite..."
 python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
 
