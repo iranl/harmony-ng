@@ -24,6 +24,10 @@ from typing import Optional, Tuple
 
 HARMONY_VID = 0x046D
 HUB_PID = 0xC129
+# 046D:C132 is the Harmony Pro 2400 Hub in the docs, but remote/setup_remote.py and
+# tools/usb_state.py also accept it for a remote, and which Pro device enumerates with it is not
+# verified on hardware. So the USB id is not trusted to tell the model: the firmware flasher checks
+# the skin the device reports, and the scripts the root tools stage exit on the wrong uname -m.
 HUB_PRO_PID = 0xC132
 REMOTE_PID = 0xC12B
 ALL_HUB_PIDS = (HUB_PID, HUB_PRO_PID)
