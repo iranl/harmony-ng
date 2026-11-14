@@ -237,6 +237,8 @@ python3 "$SCRIPT_DIR/test_cmd_actions.py"
 # Host tool with a fake USB device (tools/harmony_firmware.py flash flow)
 python3 "$SCRIPT_DIR/test_harmony_firmware_flash.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
+# Web UI packaging (build/gzip_assets.py output does not change between builds of the same input)
+python3 "$SCRIPT_DIR/test_gzip_assets_reproducible.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
 # USB root boot scripts in a host sandbox (refuse the other device class)
 python3 "$SCRIPT_DIR/test_root_boot_scripts.py"
