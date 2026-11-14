@@ -95,7 +95,8 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             }
 
             uint8_t is_query_reply = f->payload[24];
-            uint64_t time_since_wake = (s_last_wake_ms > 0) ? (now_ms - s_last_wake_ms) : 999999;
+            /* The wake is stamped with get_boot_ms() (fb_set_blank), which counts the time suspended */
+            uint64_t time_since_wake = (s_last_wake_ms > 0) ? ms_since(get_boot_ms(), s_last_wake_ms) : 999999;
             uint64_t time_since_reconnect = (s_last_reconnect_ms > 0) ? (now_ms - s_last_reconnect_ms) : 999999;
             bool is_wake_or_reconnect = (time_since_wake < 6000 || time_since_reconnect < 6000);
             bool is_state_catchup = (!g_initial_sync_received || is_query_reply == 0x01 || is_wake_or_reconnect);
