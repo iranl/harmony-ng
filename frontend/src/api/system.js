@@ -308,9 +308,9 @@ export function createSystemApi(client) {
       return client.postJson('/api/plugins/repositories', { action, url });
     },
 
-    async installPlugin(urlOrBase64) {
+    async installPlugin(urlOrBase64, isDev = false) {
       if (typeof urlOrBase64 === 'string' && urlOrBase64.startsWith('http')) {
-        return client.postJson('/api/plugins/install', { url: urlOrBase64 });
+        return client.postJson('/api/plugins/install', { url: urlOrBase64, dev: !!isDev });
       }
       return client.postJson('/api/plugins/install', { archive_base64: urlOrBase64 });
     },

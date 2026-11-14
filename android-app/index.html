@@ -3988,8 +3988,9 @@ harmony_send_command:
           <h2>Plugins & Marketplace</h2>
           <div class="section-lead">Community drivers and integrations (Roku, Android TV, PS5 Wake, BLE Adv).</div>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <input type="file" id="pluginArchiveFileInput" accept=".tar.gz,.tgz" style="display: none;">
+          <button type="button" class="btn btn-sm btn-outline" id="btnDevDownloadPlugin">📥 Dev Download</button>
           <button type="button" class="btn btn-sm btn-outline" id="btnUploadPluginArchive">Upload Archive (.tar.gz)</button>
           <button type="button" class="btn btn-sm btn-secondary" id="btnRefreshPlugins">↻ Refresh</button>
         </div>
@@ -4010,6 +4011,15 @@ harmony_send_command:
 
       <!-- Tab 1: Installed Plugins -->
       <div id="pluginPanelInstalled">
+        <div id="pluginStorageBanner" class="card" style="display: none; margin-bottom: 12px; padding: 10px 14px; background: var(--bg-card); border: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px;">
+            <span>💾 <strong>Hub Storage (/data):</strong> <span id="pluginStorageFreeText">-- free</span> of <span id="pluginStorageTotalText">-- total</span></span>
+            <span id="pluginStoragePctText" class="muted mini">--% used</span>
+          </div>
+          <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
+            <div id="pluginStorageProgressBar" style="width: 0%; height: 100%; background: var(--primary);"></div>
+          </div>
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <h3 style="font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Installed Daemons</h3>
           <span id="pluginsStatusBadge" class="badge">Loading...</span>

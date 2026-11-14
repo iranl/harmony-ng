@@ -24,6 +24,8 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON *plugs = plugin_mgr_get_installed_json();
         cJSON_AddItemToObject(resp, "plugins", plugs ? plugs : cJSON_CreateArray());
+        cJSON *storage = plugin_mgr_get_storage_json();
+        if (storage) cJSON_AddItemToObject(resp, "storage", storage);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);
@@ -97,9 +99,21 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         if (json) {
             cJSON *j_url = cJSON_GetObjectItemCaseSensitive(json, "url");
             cJSON *j_b64 = cJSON_GetObjectItemCaseSensitive(json, "archive_base64");
+            cJSON *j_dev = cJSON_GetObjectItemCaseSensitive(json, "dev");
+            int is_dev = (j_dev && (cJSON_IsTrue(j_dev) || (cJSON_IsNumber(j_dev) && j_dev->valueint == 1)));
 
             if (j_url && cJSON_IsString(j_url) && j_url->valuestring[0]) {
-                rc = plugin_mgr_install_from_url(j_url->valuestring, err, sizeof(err));
+                const char *u = j_url->valuestring;
+                if (!is_dev && (strstr(u, "manifest.json") != NULL || strstr(u, "raw.githubusercontent.com") != NULL)) {
+                    if (!strstr(u, ".tar.gz") && !strstr(u, ".tgz")) {
+                        is_dev = 1;
+                    }
+                }
+                if (is_dev) {
+                    rc = plugin_mgr_install_dev_raw(u, err, sizeof(err));
+                } else {
+                    rc = plugin_mgr_install_from_url(u, err, sizeof(err));
+                }
             } else if (j_b64 && cJSON_IsString(j_b64)) {
                 size_t out_len = 0;
                 unsigned char *data = b64_decode(j_b64->valuestring, &out_len);
@@ -201,6 +215,18 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
         if (!target_id[0] && query) {
             const char *qid = strstr(query, "id=");
             if (qid) sscanf(qid + 3, "%63[^&]", target_id);
+        }
+
+        if (target_id[0]) {
+            char in_use_dev[64] = {0};
+            if (plugin_mgr_is_in_use_by_device(target_id, in_use_dev, sizeof(in_use_dev))) {
+                char err_buf[160];
+                snprintf(err_buf, sizeof(err_buf), "Cannot delete plugin '%s': currently in use by device '%s'",
+                         target_id, in_use_dev[0] ? in_use_dev : "configured device");
+                send_json_error(client_fd, 400, err_buf);
+                close(client_fd);
+                return 1;
+            }
         }
 
         if (target_id[0] && plugin_mgr_uninstall(target_id) == 0) {

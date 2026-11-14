@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
 #include "plugin_mgr.h"
 #include "http_util.h"
+#include "config_store.h"
 #include "cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -13,7 +15,42 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/statvfs.h>
 #include <time.h>
+
+static uint64_t compute_dir_size_bytes(const char *dir_path) {
+    uint64_t total = 0;
+    DIR *d = opendir(dir_path);
+    if (!d) return 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        char subpath[512];
+        snprintf(subpath, sizeof(subpath), "%s/%s", dir_path, de->d_name);
+        struct stat st;
+        if (lstat(subpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                total += compute_dir_size_bytes(subpath);
+            } else if (S_ISREG(st.st_mode)) {
+                total += (uint64_t)st.st_size;
+            }
+        }
+    }
+    closedir(d);
+    return total;
+}
+
+static void format_bytes(uint64_t bytes, char *out, size_t out_sz) {
+    if (bytes < 1024) {
+        snprintf(out, out_sz, "%llu B", (unsigned long long)bytes);
+    } else if (bytes < 1024 * 1024) {
+        snprintf(out, out_sz, "%.1f KB", (double)bytes / 1024.0);
+    } else if (bytes < 1024ULL * 1024 * 1024) {
+        snprintf(out, out_sz, "%.1f MB", (double)bytes / (1024.0 * 1024.0));
+    } else {
+        snprintf(out, out_sz, "%.2f GB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
+    }
+}
 
 static int is_safe_plugin_id(const char *id) {
     if (!id || !id[0] || strlen(id) > 63) return 0;
@@ -158,12 +195,77 @@ int plugin_mgr_restart(const char *plugin_id) {
     return plugin_mgr_start(plugin_id);
 }
 
+static void delete_dir_recursive(const char *dir_path) {
+    if (!dir_path || !dir_path[0]) return;
+    DIR *d = opendir(dir_path);
+    if (!d) {
+        unlink(dir_path);
+        rmdir(dir_path);
+        return;
+    }
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        char subpath[512];
+        snprintf(subpath, sizeof(subpath), "%s/%s", dir_path, de->d_name);
+        struct stat st;
+        if (lstat(subpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                delete_dir_recursive(subpath);
+            } else {
+                unlink(subpath);
+            }
+        }
+    }
+    closedir(d);
+    rmdir(dir_path);
+}
+
+static void copy_dir_recursive(const char *src_dir, const char *dst_dir) {
+    if (!src_dir || !dst_dir) return;
+    mkdir(dst_dir, 0755);
+    DIR *d = opendir(src_dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        char s_path[512], d_path[512];
+        snprintf(s_path, sizeof(s_path), "%s/%s", src_dir, de->d_name);
+        snprintf(d_path, sizeof(d_path), "%s/%s", dst_dir, de->d_name);
+        struct stat st;
+        if (lstat(s_path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                copy_dir_recursive(s_path, d_path);
+            } else if (S_ISREG(st.st_mode)) {
+                FILE *sf = fopen(s_path, "rb");
+                if (sf) {
+                    FILE *df = fopen(d_path, "wb");
+                    if (df) {
+                        char buf[4096];
+                        size_t n;
+                        while ((n = fread(buf, 1, sizeof(buf), sf)) > 0) {
+                            fwrite(buf, 1, n, df);
+                        }
+                        fclose(df);
+                    }
+                    fclose(sf);
+                    mode_t m = (st.st_mode & 0777);
+                    if (strstr(d_path, ".sh") != NULL) m |= 0755;
+                    chmod(d_path, m);
+                }
+            }
+        }
+    }
+    closedir(d);
+}
+
 int plugin_mgr_uninstall(const char *plugin_id) {
     if (!is_safe_plugin_id(plugin_id)) return -1;
     plugin_mgr_stop(plugin_id);
 
     char plug_dir[256];
     snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, plugin_id);
+    delete_dir_recursive(plug_dir);
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", plug_dir);
     system(cmd);
@@ -267,6 +369,14 @@ cJSON *plugin_mgr_get_installed_json(void) {
         }
         cJSON_AddItemToObject(p_obj, "manifest", manifest);
 
+        char plug_dir[256];
+        snprintf(plug_dir, sizeof(plug_dir), "%s/%s", HARMONY_PLUGINS_DIR, de->d_name);
+        uint64_t sz_b = compute_dir_size_bytes(plug_dir);
+        cJSON_AddNumberToObject(p_obj, "size_bytes", (double)sz_b);
+        char sz_fmt[32];
+        format_bytes(sz_b, sz_fmt, sizeof(sz_fmt));
+        cJSON_AddStringToObject(p_obj, "size_formatted", sz_fmt);
+
         cJSON_AddItemToArray(arr, p_obj);
     }
     closedir(d);
@@ -343,7 +453,8 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
         return -1;
     }
 
-    const char *plug_id = j_id->valuestring;
+    char plug_id[64] = {0};
+    snprintf(plug_id, sizeof(plug_id), "%s", j_id->valuestring);
     plugin_mgr_stop(plug_id);
 
     char dest_dir[256];
@@ -351,8 +462,8 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
     system(cmd);
 
-    mkdir(HARMONY_PLUGINS_DIR, 0755);
-    mkdir(dest_dir, 0755);
+    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
+    system(cmd);
 
     /* Move unpacked files */
     char src_dir[256];
@@ -360,7 +471,8 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
     if (last_slash) *last_slash = '\0';
     snprintf(src_dir, sizeof(src_dir), "%s", mpath);
 
-    snprintf(cmd, sizeof(cmd), "cp -a \"%s\"/* \"%s\"/ 2>/dev/null; chmod -R 755 \"%s\"", src_dir, dest_dir, dest_dir);
+    copy_dir_recursive(src_dir, dest_dir);
+    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
     system(cmd);
 
     /* Clean up temp dir */
@@ -400,6 +512,277 @@ int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_s
     int res = plugin_mgr_install_archive(tmp_tar, err_msg, err_msg_sz);
     unlink(tmp_tar);
     return res;
+}
+
+int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz) {
+    if (!url || strncmp(url, "http", 4) != 0) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid URL scheme");
+        return -1;
+    }
+
+    char manifest_url[512] = {0};
+    char base_url[512] = {0};
+
+    size_t ulen = strlen(url);
+    if (ulen > sizeof(manifest_url) - 32) {
+        if (err_msg) snprintf(err_msg, err_msg_sz, "URL too long");
+        return -1;
+    }
+
+    if (strstr(url, "manifest.json") != NULL) {
+        snprintf(manifest_url, sizeof(manifest_url), "%s", url);
+        snprintf(base_url, sizeof(base_url), "%s", url);
+        char *slash = strrchr(base_url, '/');
+        if (slash) *slash = '\0';
+    } else {
+        if (url[ulen - 1] == '/') {
+            snprintf(manifest_url, sizeof(manifest_url), "%smanifest.json", url);
+            snprintf(base_url, sizeof(base_url), "%s", url);
+            base_url[ulen - 1] = '\0';
+        } else {
+            snprintf(manifest_url, sizeof(manifest_url), "%s/manifest.json", url);
+            snprintf(base_url, sizeof(base_url), "%s", url);
+        }
+    }
+
+    char tmp_dev[128];
+    snprintf(tmp_dev, sizeof(tmp_dev), "/tmp/p_dev_%ld", (long)time(NULL));
+    mkdir(tmp_dev, 0755);
+
+    /* 1. Download manifest.json */
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
+             "wget --no-check-certificate -q -O \"%s/manifest.json\" \"%s\"",
+             tmp_dev, manifest_url);
+    int rc = system(cmd);
+
+    char mpath[256];
+    snprintf(mpath, sizeof(mpath), "%s/manifest.json", tmp_dev);
+    if (rc != 0 || access(mpath, R_OK) != 0) {
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+        system(cmd);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Failed to download manifest.json from URL");
+        return -1;
+    }
+
+    size_t flen = 0;
+    char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
+    if (!mtxt || flen < 2) {
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+        system(cmd);
+        if (mtxt) free(mtxt);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Downloaded manifest.json is empty");
+        return -1;
+    }
+
+    cJSON *manifest = cJSON_Parse(mtxt);
+    free(mtxt);
+    if (!manifest) {
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+        system(cmd);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Invalid manifest.json syntax");
+        return -1;
+    }
+
+    cJSON *j_id = cJSON_GetObjectItemCaseSensitive(manifest, "id");
+    if (!j_id || !cJSON_IsString(j_id) || !is_safe_plugin_id(j_id->valuestring)) {
+        cJSON_Delete(manifest);
+        snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+        system(cmd);
+        if (err_msg) snprintf(err_msg, err_msg_sz, "Manifest missing valid alphanumeric plugin id");
+        return -1;
+    }
+
+    char plug_id[64] = {0};
+    snprintf(plug_id, sizeof(plug_id), "%s", j_id->valuestring);
+
+    /* 2. Download files declared in manifest */
+    cJSON *j_files = cJSON_GetObjectItemCaseSensitive(manifest, "files");
+    if (!j_files || !cJSON_IsArray(j_files)) {
+        j_files = cJSON_GetObjectItemCaseSensitive(manifest, "dev_files");
+    }
+
+    if (j_files && cJSON_IsArray(j_files) && cJSON_GetArraySize(j_files) > 0) {
+        cJSON *f_item = NULL;
+        cJSON_ArrayForEach(f_item, j_files) {
+            if (!f_item || !cJSON_IsString(f_item) || !f_item->valuestring[0]) continue;
+            const char *fname = f_item->valuestring;
+            if (strcmp(fname, "manifest.json") == 0) continue;
+            if (strstr(fname, "..") || fname[0] == '/') continue;
+
+            char local_path[384];
+            snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
+            char *last_slash = strrchr(local_path, '/');
+            if (last_slash) {
+                *last_slash = '\0';
+                snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", local_path);
+                system(cmd);
+                *last_slash = '/';
+            }
+
+            snprintf(cmd, sizeof(cmd),
+                     "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
+                     "wget --no-check-certificate -q -O \"%s\" \"%s/%s\"",
+                     local_path, base_url, fname);
+            system(cmd);
+            if (strstr(fname, ".sh") != NULL) {
+                chmod(local_path, 0755);
+            }
+        }
+    } else {
+        cJSON *j_entry = cJSON_GetObjectItemCaseSensitive(manifest, "entrypoint");
+        const char *entry = (j_entry && cJSON_IsString(j_entry)) ? j_entry->valuestring : NULL;
+        if (!entry) {
+            cJSON *j_drv = cJSON_GetObjectItemCaseSensitive(manifest, "driver");
+            entry = (j_drv && cJSON_IsString(j_drv)) ? j_drv->valuestring : NULL;
+        }
+
+        const char *defaults[4] = { "run.sh", NULL, NULL, NULL };
+        int d_count = 1;
+        if (entry && strcmp(entry, "run.sh") != 0 && strcmp(entry, "manifest.json") != 0 && !strstr(entry, "..") && entry[0] != '/') {
+            defaults[d_count++] = entry;
+        }
+
+        for (int i = 0; i < d_count; i++) {
+            const char *fname = defaults[i];
+            char local_path[384];
+            snprintf(local_path, sizeof(local_path), "%s/%s", tmp_dev, fname);
+            snprintf(cmd, sizeof(cmd),
+                     "export PATH=/cache/bin:/data/harmony/bin:$PATH; "
+                     "wget --no-check-certificate -q -O \"%s\" \"%s/%s\"",
+                     local_path, base_url, fname);
+            system(cmd);
+            if (strstr(fname, ".sh") != NULL || (entry && strcmp(fname, entry) == 0)) {
+                chmod(local_path, 0755);
+            }
+        }
+    }
+
+    cJSON_Delete(manifest);
+
+    /* 3. Stop running plugin, install into /data/harmony/plugins/<plug_id> */
+    plugin_mgr_stop(plug_id);
+
+    char dest_dir[256];
+    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", HARMONY_PLUGINS_DIR, plug_id);
+    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", dest_dir);
+    system(cmd);
+
+    snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", dest_dir);
+    system(cmd);
+
+    copy_dir_recursive(tmp_dev, dest_dir);
+    snprintf(cmd, sizeof(cmd), "chmod -R 755 \"%s\"", dest_dir);
+    system(cmd);
+
+    snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", tmp_dev);
+    system(cmd);
+
+    if (is_plugin_enabled(plug_id)) {
+        plugin_mgr_start(plug_id);
+    }
+
+    return 0;
+}
+
+int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out, size_t dev_name_sz) {
+    if (!plugin_id || !plugin_id[0]) return 0;
+    if (device_name_out && dev_name_sz > 0) device_name_out[0] = '\0';
+
+    cJSON *root = config_store_devices_copy();
+    if (!root) return 0;
+
+    int in_use = 0;
+    cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
+    if (devs && cJSON_IsArray(devs)) {
+        cJSON *dev = NULL;
+        cJSON_ArrayForEach(dev, devs) {
+            cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(dev, "plugin");
+            cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
+            const char *t_str = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "";
+            const char *p_str = (j_plug && cJSON_IsString(j_plug)) ? j_plug->valuestring : "";
+
+            int match = 0;
+            if (p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
+            else if (strncasecmp(t_str, "plugin:", 7) == 0 && strcasecmp(t_str + 7, plugin_id) == 0) match = 1;
+            else if (strcasecmp(t_str, "plugin") == 0 && p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
+
+            if (!match) {
+                cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev, "commands");
+                if (cmds && cJSON_IsArray(cmds)) {
+                    cJSON *cmd = NULL;
+                    cJSON_ArrayForEach(cmd, cmds) {
+                        cJSON *raw = cJSON_GetObjectItemCaseSensitive(cmd, "raw");
+                        cJSON *kc = cJSON_GetObjectItemCaseSensitive(cmd, "keyCode");
+                        const char *r_str = (raw && cJSON_IsString(raw)) ? raw->valuestring : "";
+                        const char *k_str = (kc && cJSON_IsString(kc)) ? kc->valuestring : "";
+
+                        char prefix[128];
+                        snprintf(prefix, sizeof(prefix), "PLUGIN:%s:", plugin_id);
+                        if (strncasecmp(r_str, prefix, strlen(prefix)) == 0 ||
+                            strncasecmp(k_str, prefix, strlen(prefix)) == 0) {
+                            match = 1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (match) {
+                in_use = 1;
+                if (device_name_out && dev_name_sz > 0) {
+                    cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
+                    const char *n_str = (j_name && cJSON_IsString(j_name) && j_name->valuestring[0]) ?
+                                        j_name->valuestring : NULL;
+                    if (!n_str) {
+                        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+                        n_str = (j_id && cJSON_IsString(j_id)) ? j_id->valuestring : "Device";
+                    }
+                    snprintf(device_name_out, dev_name_sz, "%s", n_str);
+                }
+                break;
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+    return in_use;
+}
+
+cJSON *plugin_mgr_get_storage_json(void) {
+    cJSON *obj = cJSON_CreateObject();
+    if (!obj) return NULL;
+
+    struct statvfs vfs;
+    const char *check_path = HARMONY_PLUGINS_DIR;
+    if (statvfs(check_path, &vfs) != 0) {
+        check_path = "/data";
+        if (statvfs(check_path, &vfs) != 0) {
+            check_path = "/";
+            if (statvfs(check_path, &vfs) != 0) {
+                memset(&vfs, 0, sizeof(vfs));
+            }
+        }
+    }
+
+    uint64_t total_bytes = (uint64_t)vfs.f_blocks * vfs.f_frsize;
+    uint64_t free_bytes = (uint64_t)vfs.f_bavail * vfs.f_frsize;
+    uint64_t used_bytes = (total_bytes >= free_bytes) ? (total_bytes - free_bytes) : 0;
+
+    cJSON_AddNumberToObject(obj, "total_bytes", (double)total_bytes);
+    cJSON_AddNumberToObject(obj, "free_bytes", (double)free_bytes);
+    cJSON_AddNumberToObject(obj, "used_bytes", (double)used_bytes);
+
+    char fmt[32];
+    format_bytes(total_bytes, fmt, sizeof(fmt));
+    cJSON_AddStringToObject(obj, "total_formatted", fmt);
+    format_bytes(free_bytes, fmt, sizeof(fmt));
+    cJSON_AddStringToObject(obj, "free_formatted", fmt);
+    format_bytes(used_bytes, fmt, sizeof(fmt));
+    cJSON_AddStringToObject(obj, "used_formatted", fmt);
+
+    return obj;
 }
 
 cJSON *plugin_mgr_get_repositories(void) {

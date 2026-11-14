@@ -45,6 +45,15 @@ int plugin_mgr_install_archive(const char *archive_path, char *err_msg, size_t e
 /* Install a plugin by downloading from URL */
 int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_sz);
 
+/* Install a dev version of a plugin by downloading raw files from repository URL */
+int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz);
+
+/* Check if a plugin is currently in use by any configured device */
+int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out, size_t dev_name_sz);
+
+/* Get storage space metrics for the plugins partition (/data) */
+cJSON *plugin_mgr_get_storage_json(void);
+
 /* Get configured repositories as cJSON array */
 cJSON *plugin_mgr_get_repositories(void);
 

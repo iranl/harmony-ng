@@ -121,11 +121,27 @@ export function createDevicesApi(client) {
     },
 
     async saveNewDevice(data) {
-      return client.postForm('/ir/new-device', data);
+      const payload = { ...data };
+      if (data.config && typeof data.config === 'object') {
+        Object.assign(payload, data.config);
+        payload.config = JSON.stringify(data.config);
+      }
+      if (Array.isArray(data.commands)) {
+        payload.commands = JSON.stringify(data.commands);
+      }
+      return client.postForm('/ir/new-device', payload);
     },
 
     async saveDeviceDetails(data) {
-      return client.postForm('/ir/device', data);
+      const payload = { ...data };
+      if (data.config && typeof data.config === 'object') {
+        Object.assign(payload, data.config);
+        payload.config = JSON.stringify(data.config);
+      }
+      if (Array.isArray(data.commands)) {
+        payload.commands = JSON.stringify(data.commands);
+      }
+      return client.postForm('/ir/device', payload);
     },
 
     async deleteDevice(deviceId) {

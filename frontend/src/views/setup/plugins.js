@@ -13,6 +13,7 @@ export function createView() {
   let installedPlugins = [];
   let marketplacePlugins = [];
   let repositories = [];
+  let storageInfo = null;
 
   const tabContainer = h('div', {
     style: {
@@ -52,8 +53,10 @@ export function createView() {
     try {
       const plugRes = await api.getPlugins();
       installedPlugins = plugRes?.plugins || [];
+      storageInfo = plugRes?.storage || null;
     } catch (e) {
       installedPlugins = [];
+      storageInfo = null;
     }
 
     if (activeTab === 'marketplace') {
@@ -98,13 +101,46 @@ export function createView() {
           h('h3', { className: 'card-title', text: 'Installed Hardware Plugins' }),
           h('div', { className: 'text-dim', style: { fontSize: '12px' }, text: 'Installed dynamic device drivers & daemons' }),
         ]),
-        h('button', {
-          className: 'btn btn-primary btn-sm',
-          text: '+ Upload Plugin (.tar.gz)',
-          onclick: () => openUploadModal(),
-        }),
+        h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+          h('button', {
+            className: 'btn btn-secondary btn-sm',
+            text: '📥 Dev Download (GitHub Raw)',
+            onclick: () => openDevDownloadModal(),
+          }),
+          h('button', {
+            className: 'btn btn-primary btn-sm',
+            text: '+ Upload Plugin (.tar.gz)',
+            onclick: () => openUploadModal(),
+          }),
+        ]),
       ]),
     ]);
+
+    if (storageInfo) {
+      const pct = storageInfo.total_bytes > 0
+        ? Math.round((storageInfo.used_bytes / storageInfo.total_bytes) * 100)
+        : 0;
+      card.appendChild(h('div', {
+        style: {
+          margin: '10px 16px 14px',
+          padding: '10px 14px',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px'
+        }
+      }, [
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '12px' } }, [
+          h('span', { text: `💾 Hub Storage (/data): ${storageInfo.free_formatted || '0 B'} free of ${storageInfo.total_formatted || '0 B'}` }),
+          h('span', { className: 'text-dim', text: `${pct}% used` })
+        ]),
+        h('div', { style: { width: '100%', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' } }, [
+          h('div', { style: { width: `${pct}%`, height: '100%', background: pct > 90 ? 'var(--danger)' : 'var(--primary)' } })
+        ])
+      ]));
+    }
 
     const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
 
@@ -134,6 +170,7 @@ export function createView() {
               h('span', { style: { fontWeight: 'bold', fontSize: '15px' }, text: p.name || p.id }),
               h('span', { className: 'text-dim', style: { fontSize: '12px' }, text: `v${p.version || '1.0'}` }),
               h('span', { className: `badge ${badgeClass}`, text: badgeText }),
+              h('span', { className: 'badge badge-secondary', style: { fontSize: '11px' }, text: `💾 ${p.size_formatted || '0 B'}` }),
             ]),
             h('div', { className: 'text-dim', style: { fontSize: '13px' }, text: p.description || 'No description provided' }),
             h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `ID: ${p.id} | Socket: /tmp/plugins/${p.id}.sock` }),
@@ -168,9 +205,17 @@ export function createView() {
                   danger: true
                 });
                 if (ok) {
-                  await api.uninstallPlugin(p.id);
-                  toast.success(`Uninstalled ${p.name || p.id}`);
-                  renderContent();
+                  try {
+                    const res = await api.uninstallPlugin(p.id);
+                    if (res && res.error) {
+                      toast.error(`Cannot uninstall: ${res.error}`);
+                    } else {
+                      toast.success(`Uninstalled ${p.name || p.id}`);
+                      renderContent();
+                    }
+                  } catch (err) {
+                    toast.error(`Cannot uninstall: ${err.message}`);
+                  }
                 }
               }
             }),
@@ -344,6 +389,53 @@ export function createView() {
         toast.error(`Failed to install plugin: ${proxyErr.message}`);
       }
     }
+  }
+
+  function openDevDownloadModal() {
+    const urlInput = h('input', {
+      type: 'text',
+      className: 'form-input',
+      placeholder: 'https://raw.githubusercontent.com/user/repo/main/plugins/my-plugin/manifest.json'
+    });
+    const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+      h('div', { className: 'text-dim', text: 'Enter a direct link to a raw GitHub manifest.json file or folder. All files listed in manifest will be downloaded directly to the Hub without packaging.' }),
+      h('label', { className: 'form-label', text: 'Raw GitHub Manifest URL' }),
+      urlInput,
+    ]);
+
+    createModal({
+      title: 'Download Dev Plugin from GitHub',
+      content,
+      actions: [
+        { label: 'Cancel' },
+        {
+          label: 'Download & Install',
+          variant: 'primary',
+          onClick: async () => {
+            const url = urlInput.value.trim();
+            if (!url) {
+              toast.warn('Please enter a valid URL');
+              return false;
+            }
+            toast.info('Downloading plugin files directly from repository...');
+            try {
+              const res = await api.installPlugin(url, true);
+              if (res && res.ok) {
+                toast.success('Dev plugin installed successfully!');
+                renderContent();
+                return true;
+              } else {
+                toast.error(`Install error: ${res?.error || res?.message || 'Failed'}`);
+                return false;
+              }
+            } catch (err) {
+              toast.error(err.message);
+              return false;
+            }
+          }
+        }
+      ]
+    });
   }
 
   function openUploadModal() {

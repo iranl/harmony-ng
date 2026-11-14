@@ -45,6 +45,21 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       fileInput?.click();
     });
 
+    // Dev direct download from raw GitHub
+    document.getElementById('btnDevDownloadPlugin')?.addEventListener('click', async () => {
+      const url = prompt('Enter direct raw GitHub manifest.json URL (e.g. https://raw.githubusercontent.com/user/repo/main/plugins/my-plugin/manifest.json):');
+      if (!url || !url.trim()) return;
+      showToast('Downloading dev plugin from repository...', 'info');
+      try {
+        const res = await this.client.installPlugin(url.trim(), true);
+        if (res && res.error) throw new Error(res.error);
+        showToast('Dev plugin installed successfully!', 'success');
+        await this.refreshPluginsList();
+      } catch (err) {
+        showToast(`Dev install failed: ${err.message}`, 'error');
+      }
+    });
+
     fileInput?.addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -104,6 +119,26 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       if (statusEl) statusEl.textContent = 'Loading...';
       const res = await this.client.getPlugins();
       this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+      this.storage = res?.storage || null;
+
+      if (this.storage) {
+        const banner = document.getElementById('pluginStorageBanner');
+        const freeText = document.getElementById('pluginStorageFreeText');
+        const totalText = document.getElementById('pluginStorageTotalText');
+        const pctText = document.getElementById('pluginStoragePctText');
+        const bar = document.getElementById('pluginStorageProgressBar');
+        if (banner && freeText && totalText && pctText && bar) {
+          freeText.textContent = `${this.storage.free_formatted || '0 B'} free`;
+          totalText.textContent = `${this.storage.total_formatted || '0 B'} total`;
+          const pct = this.storage.total_bytes > 0
+            ? Math.round((this.storage.used_bytes / this.storage.total_bytes) * 100)
+            : 0;
+          pctText.textContent = `${pct}% used`;
+          bar.style.width = `${pct}%`;
+          bar.style.background = pct > 90 ? 'var(--danger)' : 'var(--primary)';
+          banner.style.display = 'block';
+        }
+      }
 
       if (statusEl) {
         const runningCount = this.installedPlugins.filter(p => p.running).length;
@@ -148,6 +183,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
                 <strong style="font-size: 15px; color: var(--text-main);">${escapeHtml(p.name || p.id)}</strong>
                 <span class="badge" style="font-size: 11px; border: 1px solid ${badgeColor}; color: ${badgeColor}; background: transparent;">${escapeHtml(badgeText)}</span>
                 <span class="muted mini">v${escapeHtml(p.version || '1.0.0')}</span>
+                <span class="badge" style="font-size: 11px; border: 1px solid var(--border); color: var(--text-muted); background: transparent;">💾 ${escapeHtml(p.size_formatted || '0 B')}</span>
               </div>
               <div class="muted mini" style="margin-top: 4px;">${escapeHtml(p.description || 'Community driver plugin')}</div>
             </div>

@@ -796,6 +796,35 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
+                /* If commands are provided in payload (e.g. plugin default_commands or batch list) */
+                cJSON *j_cmds = cJSON_GetObjectItemCaseSensitive(p, "commands");
+                if (j_cmds) {
+                    cJSON *arr = NULL;
+                    if (cJSON_IsArray(j_cmds) && cJSON_GetArraySize(j_cmds) > 0) {
+                        arr = cJSON_Duplicate(j_cmds, 1);
+                    } else if (cJSON_IsString(j_cmds) && j_cmds->valuestring && j_cmds->valuestring[0]) {
+                        cJSON *parsed = cJSON_Parse(j_cmds->valuestring);
+                        if (parsed && cJSON_IsArray(parsed)) {
+                            arr = parsed;
+                        } else if (parsed) {
+                            cJSON_Delete(parsed);
+                        }
+                    }
+                    if (arr) {
+                        cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
+                        cJSON_AddItemToObject(found_dev, "commands", arr);
+                    }
+                }
+
+                /* Plugin devices do not use IR controlPort */
+                cJSON *chk_plug = cJSON_GetObjectItemCaseSensitive(found_dev, "plugin");
+                cJSON *chk_type = cJSON_GetObjectItemCaseSensitive(found_dev, "type");
+                int is_dev_plugin = (chk_plug && cJSON_IsString(chk_plug) && chk_plug->valuestring[0]) ||
+                                    (chk_type && cJSON_IsString(chk_type) && (strncasecmp(chk_type->valuestring, "plugin:", 7) == 0 || strcasecmp(chk_type->valuestring, "plugin") == 0));
+                if (is_dev_plugin) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
+                }
+
                 if (config_store_save_devices(root) == 0) {
                     root = NULL;
                     success = 1;
