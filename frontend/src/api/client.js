@@ -183,7 +183,7 @@ export class HarmonyClientCore {
     }
   }
 
-  async postForm(path, data = {}) {
+  async postForm(path, data = {}, extraOpts = {}) {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(data)) {
       if (v !== undefined && v !== null) {
@@ -197,7 +197,8 @@ export class HarmonyClientCore {
         'Accept': 'application/json, text/plain, */*',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: params.toString()
+      body: params.toString(),
+      ...extraOpts
     });
   }
 

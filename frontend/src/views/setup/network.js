@@ -4,6 +4,14 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 
+// WPA pass phrase: 8 to 63 characters, or 64 hex digits. wpa_supplicant refuses anything else.
+export function wifiPassphraseError(password) {
+  if (!password) return null;
+  if (password.length >= 8 && password.length <= 63) return null;
+  if (/^[0-9a-fA-F]{64}$/.test(password)) return null;
+  return 'Wi-Fi password must be 8 to 63 characters (or 64 hex digits)';
+}
+
 export function createView() {
   const container = h('div', { className: 'setup-subview-network', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
@@ -118,11 +126,13 @@ export function createView() {
     const ssid = container.querySelector('#wifi-ssid-input')?.value.trim();
     const password = container.querySelector('#wifi-pass-input')?.value;
     if (!ssid) return toast.warn('Enter Wi-Fi SSID');
+    const passError = wifiPassphraseError(password);
+    if (passError) return toast.warn(passError);
 
     try {
-      toast.info('Applying Wi-Fi configuration...');
-      await api.saveWifi({ ssid, password });
-      toast.success('Wi-Fi configuration applied!');
+      toast.info('Testing the Wi-Fi connection before switching (up to 15 s)...');
+      const res = await api.saveWifi({ ssid, password });
+      toast.success(res?.message || 'Wi-Fi settings verified and applied');
     } catch (err) {
       toast.error(err.message);
     }

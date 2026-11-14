@@ -133,6 +133,8 @@ python3 "$SCRIPT_DIR/test_ir_raw.py"
 python3 "$SCRIPT_DIR/test_mdns.py"
 python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 python3 "$SCRIPT_DIR/test_mqtt_v2.py"
+# New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_cmd_actions.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
