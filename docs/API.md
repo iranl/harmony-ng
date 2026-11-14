@@ -1442,7 +1442,17 @@ Imports and atomically applies configuration files or full bundle.
     }
   }
   ```
-- **Response `200 OK`**: `{"ok": true}`
+- Every section is checked before anything is written: `devices` must be an object with a `devices`
+  array, `activities` an object with an `activities` array, and `settings`, `mqtt`, `bluetooth`,
+  `bt_remote_map`, `remote_slot1_map`, `remote_slot2_map`, `ui_remote_layout` and `users` JSON objects
+  (sent as objects, or as strings that parse completely). `network`, `wifi`, `auth` and `hub_id` are
+  text files and are written as sent. An empty `devices` or `activities` list in a bundle (what an
+  export holds when the file could not be read) is skipped.
+- The new files are written under temporary names first and then renamed into place.
+- **Response `200 OK`**: `{"ok": true, "message": "Restored successfully"}`
+- **Response `400`**: a section is not valid; nothing was written:
+  `{"ok": false, "error": "Import refused, nothing was changed: 'devices' is not valid"}`
+- **Response `500`**: a file could not be written.
 
 ---
 
