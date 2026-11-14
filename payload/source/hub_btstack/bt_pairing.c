@@ -1,3 +1,4 @@
+#include "bt_le_pair_window.h"
 #include "bt_pairing.h"
 #include "bt_remote.h"
 #include "bt_status_json.h"
@@ -861,6 +862,7 @@ void forget_ble_remote(void) {
         have = true;
     }
     g_user_scan_active = false;
+    le_pair_window_close();
     btstack_run_loop_remove_timer(&reconnect_timer);
     gap_stop_scan();
     unlink(TARGET_FILE);
@@ -935,8 +937,9 @@ void start_user_pair(const char *addr_str) {
         return;
     }
     char msg[128];
-    snprintf(msg, sizeof(msg), "User pair requested for %s", addr_str);
+    snprintf(msg, sizeof(msg), "User pair requested for %s (LE pairing window open for %d s)", addr_str, LE_PAIR_WINDOW_SEC);
     log_msg(msg);
+    le_pair_window_open(new_addr, le_pair_now_s());
 
     FILE *tf = fopen(TARGET_FILE, "w");
     if (tf) {

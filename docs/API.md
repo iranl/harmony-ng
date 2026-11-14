@@ -919,6 +919,12 @@ The Hub connects only to the remote paired this way (the scan lists the remotes 
 request pins one). With no remote pinned it does not scan and does not connect to any BLE device on
 its own; older builds bonded with any discoverable BLE HID device in range.
 
+The pair request also opens a pairing window of 120 s for that address. A new LE pairing (bonding)
+is accepted only inside it; outside it the Hub declines every pairing request, also from a device
+that advertises with the pinned remote's address. When the pinned remote reconnects without a key
+for this Hub (it was reset or paired elsewhere), the stored bond is kept and the link is closed:
+pair the remote again with this request. Remote buttons count only on an encrypted link.
+
 #### `POST /api/remote-unpair`
 Forgets the pinned BLE remote: removes its address from `bt_remote_map.json`, and `hub_btstack`
 disconnects it, deletes its target file, its LE bond and its stored HOGD record, then stays idle.
