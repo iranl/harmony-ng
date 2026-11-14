@@ -663,6 +663,10 @@ int main(int argc, char **argv) {
             while (read(g_btn_fd, &ev, sizeof(ev)) == sizeof(ev)) {
                 if (ev.type == EV_KEY) {
                     reset_idle_timer();
+                    /* The release of the key held over RF always goes out: an overlay, a view
+                     * change or a blank screen would drop it below, and the hold repeats would
+                     * go on until the next key */
+                    if (ev.value == 0 && remote_release_held_rf_key(ev.code)) continue;
                     if (!g_screen_on) {
                         fb_set_blank(false);
                         render_screen();

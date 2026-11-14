@@ -74,6 +74,41 @@ HARMONY_MOCK_DIR="/tmp/harmony_mock" \
 LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" \
     "$BUILD_DIR/test_remote_mock_ui"
 
+# Release of a key held over RF while an overlay is up
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" \
+    "$SCRIPT_DIR/test_remote_key_release.c" \
+    "$REPO_ROOT/payload/source/remote/remote_config.c" \
+    "$REPO_ROOT/payload/source/remote/remote_fb.c" \
+    "$REPO_ROOT/payload/source/remote/remote_i18n.c" \
+    "$REPO_ROOT/payload/source/remote/remote_input.c" \
+    "$REPO_ROOT/payload/source/remote/remote_power.c" \
+    "$REPO_ROOT/payload/source/remote/remote_battery.c" \
+    "$REPO_ROOT/payload/source/remote/remote_flightlog.c" \
+    "$REPO_ROOT/payload/source/remote/remote_present.c" \
+    "$REPO_ROOT/payload/source/remote/remote_rf.c" \
+    "$REPO_ROOT/payload/source/remote/remote_rf_ota.c" \
+    "$REPO_ROOT/payload/source/remote/remote_rf_sync.c" \
+    "$REPO_ROOT/payload/source/remote/remote_state.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_activities.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_devices.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_pairing.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_menu.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_help.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_activity.c" \
+    "$REPO_ROOT/payload/source/remote/remote_link.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_settings.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_settings_actions.c" \
+    "$REPO_ROOT/payload/source/remote/remote_theme.c" \
+    "$REPO_ROOT/payload/source/remote/remote_ui_scroll.c" \
+    "$REPO_ROOT/payload/source/remote/remote_transition.c" \
+    "$REPO_ROOT/payload/source/remote/remote_nav.c" \
+    "$REPO_ROOT/payload/source/remote_stock_icons.c" \
+    "$REPO_ROOT/payload/source/cJSON.c" \
+    "$REPO_ROOT/payload/source/sha256.c" \
+    "$REPO_ROOT/payload/source/timezone_db.c" \
+    -lpthread -lm -o "$BUILD_DIR/test_remote_key_release" && "$BUILD_DIR/test_remote_key_release"
+
 # 4. Run Core Component Unit Tests
 echo "[-] Running core component unit tests..."
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_activity_icons" "$SCRIPT_DIR/test_activity_icons.c" && "$BUILD_DIR/test_activity_icons"
