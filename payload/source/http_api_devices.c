@@ -89,6 +89,18 @@ static int device_int_fields_valid(const cJSON *p) {
     return 1;
 }
 
+/* The send delays present in the body are within 0..DEVICE_DELAY_MAX_MS: the sender sleeps them
+ * out before the next command, and hw_action.c holds its command lock meanwhile */
+static int device_delay_fields_in_range(const cJSON *p) {
+    static const char *const keys[] = { "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay" };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const cJSON *j = cJSON_GetObjectItemCaseSensitive(p, keys[i]);
+        int v;
+        if (j && device_int_field(j, &v) && (v < 0 || v > DEVICE_DELAY_MAX_MS)) return 0;
+    }
+    return 1;
+}
+
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
@@ -469,8 +481,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
          strcmp(clean_path, "/ir/device-mqtt") == 0 || strcmp(clean_path, "/ir/device-power") == 0 ||
          strcmp(clean_path, "/ir/new-device") == 0 || strcmp(clean_path, "/api/new-device") == 0) && strcmp(method, "POST") == 0) {
         cJSON *p = parse_request_params(body);
-        if (p && !device_int_fields_valid(p)) {
-            /* A timing field of the wrong type: refuse the whole save (400) */
+        if (p && (!device_int_fields_valid(p) || !device_delay_fields_in_range(p))) {
+            /* A timing field of the wrong type, or a send delay out of range: refuse the whole save (400) */
             cJSON_Delete(p);
             p = NULL;
         }
