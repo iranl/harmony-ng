@@ -332,7 +332,8 @@ def restore_stock_configuration(
             stderr=subprocess.PIPE,
         )
         shutil.copyfileobj(f_in, proc.stdin)
-        proc.stdin.close()
+        # communicate() flushes and closes stdin itself; closing it here first makes Python
+        # 3.11 and older raise "flush of closed file"
         stdout, stderr = proc.communicate(timeout=180)
         if proc.returncode != 0:
             raise RuntimeError(
