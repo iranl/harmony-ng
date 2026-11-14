@@ -20,7 +20,7 @@ const char *orch_get_current_activity(void) { return "1"; }
 
 cJSON *get_device_list_cached(void) {
     if (!s_mock_device_root) {
-        s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"}]}]}");
+        s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"},{\"name\":\"VolumeUp\",\"raw\":\"0000 006d 0022 0003\"}]}]}");
     }
     return s_mock_device_root;
 }
@@ -38,12 +38,16 @@ int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count, ui
 }
 
 int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **out_bin, size_t *out_len) {
-    (void)keycode; (void)repeats; (void)out_bin; (void)out_len;
+    (void)keycode; (void)repeats;
+    *out_bin = (uint8_t *)malloc(16);
+    *out_len = 16;
     return 0;
 }
 
+static int s_blasts = 0; /* IR sends that reached the blaster */
 int ir_i2s_blast_blob(const uint8_t *blob, size_t len, uint8_t port_mask) {
     (void)blob; (void)len; (void)port_mask;
+    s_blasts++;
     return 0;
 }
 
@@ -97,6 +101,24 @@ int main(void) {
     int res = hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_RELEASE);
     assert(res == 0);
     printf("[+] RELEASE action cleanly handled by hw_device_command_send_action().\n");
+
+    /* 5. Same-button filter (the mock device has no key delays, so each call returns at once): a
+     * duplicate press within 90 ms of the last accepted one is dropped, a real second press after
+     * a release is not (the window used to restart at the release) */
+    int before = s_blasts;
+    assert(hw_device_command_send_action("mock_dev", 0, "VolumeUp", HW_BTN_ACTION_TAP) == 0);
+    usleep(30 * 1000);
+    assert(hw_device_command_send_action("mock_dev", 0, "VolumeUp", HW_BTN_ACTION_TAP) == 0);
+    assert(s_blasts == before + 1);
+    printf("[+] duplicate tap 30 ms after the first dropped.\n");
+    before = s_blasts;
+    assert(hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_PRESS) == 0);
+    usleep(60 * 1000);
+    assert(hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_RELEASE) == 0);
+    usleep(70 * 1000);
+    assert(hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_PRESS) == 0);
+    assert(s_blasts == before + 2);
+    printf("[+] press, release, press 70 ms after the release: both presses sent.\n");
 
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);

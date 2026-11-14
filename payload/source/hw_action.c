@@ -561,23 +561,36 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     static uint64_t s_last_cmd_time_ms = 0;
     static char s_last_device_id[64] = {0};
     static char s_last_cmd_name[64] = {0};
+    /* the last accepted press or tap, for the duplicate filter below */
+    static uint64_t s_last_press_ms = 0;
+    static char s_last_press_dev[64] = {0};
+    static char s_last_press_cmd[64] = {0};
 
-    pthread_mutex_lock(&s_hw_cmd_lock);
     struct timespec ts;
+    /* when the request came in, before it waits for a send in progress */
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t arrival_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    pthread_mutex_lock(&s_hw_cmd_lock);
     clock_gettime(CLOCK_MONOTONIC, &ts);
     uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
     const char *actual_dev_id = target_id_str[0] ? target_id_str : target;
 
-    /* 90ms debounce rejection: drop rapid duplicate press/tap pulses on the same button */
-    if ((action == HW_BTN_ACTION_TAP || action == HW_BTN_ACTION_PRESS) &&
-        s_last_cmd_time_ms > 0 &&
-        strcmp(s_last_device_id, actual_dev_id) == 0 &&
-        strcmp(s_last_cmd_name, command) == 0) {
-        uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
-        if (elapsed < 90) {
-            pthread_mutex_unlock(&s_hw_cmd_lock);
-            return 0;
+    /* 90ms debounce rejection: drop rapid duplicate press/tap pulses on the same button. The
+     * window runs from the arrival of the previous accepted press or tap: it used to run from
+     * the end of the last send or release, which dropped a real quick second press. */
+    if (action == HW_BTN_ACTION_TAP || action == HW_BTN_ACTION_PRESS) {
+        if (s_last_press_ms > 0 &&
+            strcmp(s_last_press_dev, actual_dev_id) == 0 &&
+            strcmp(s_last_press_cmd, command) == 0) {
+            uint64_t elapsed = (arrival_ms > s_last_press_ms) ? (arrival_ms - s_last_press_ms) : 0;
+            if (elapsed < 90) {
+                pthread_mutex_unlock(&s_hw_cmd_lock);
+                return 0;
+            }
         }
+        s_last_press_ms = arrival_ms;
+        snprintf(s_last_press_dev, sizeof(s_last_press_dev), "%s", actual_dev_id);
+        snprintf(s_last_press_cmd, sizeof(s_last_press_cmd), "%s", command);
     }
 
     if (action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
