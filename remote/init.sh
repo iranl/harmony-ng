@@ -152,11 +152,27 @@ fi
 # 2. Supervisor loop for remote_ui in background
 (
     _fails=0
+    _onbak=0
     while [ ! -f /tmp/remote_stop ]; do
-        if [ -x /data/remote_ui ]; then
-            echo "$(date) Starting /data/remote_ui..." >> "$LOG"
+        # The previous version, kept by an update as /data/remote_ui.bak, is started when
+        # /data/remote_ui is missing or failed 3 times in a row right after start. It runs through
+        # a link named remote_ui, so killall, pidof and the stop paths find it under that name.
+        # A run of a minute or more resets the count, and the next start tries /data/remote_ui.
+        _prog=/data/remote_ui
+        if [ -x /data/remote_ui.bak ] && { [ ! -x /data/remote_ui ] || [ "$_fails" -ge 3 ]; } &&
+           mkdir -p /tmp/remote_ui_fallback && ln -sf /data/remote_ui.bak /tmp/remote_ui_fallback/remote_ui; then
+            _prog=/tmp/remote_ui_fallback/remote_ui
+            if [ "$_onbak" = 0 ]; then
+                echo "$(date) /data/remote_ui is missing or failed $_fails times in a row right after start: starting the previous version /data/remote_ui.bak" >> "$LOG"
+            fi
+            _onbak=1
+        else
+            _onbak=0
+        fi
+        if [ -x "$_prog" ]; then
+            echo "$(date) Starting $_prog..." >> "$LOG"
             _t0=0; read _t0 _rest < /proc/uptime 2>/dev/null; _t0=${_t0%%.*}
-            /data/remote_ui > /tmp/remote_ui.log 2>&1
+            "$_prog" > /tmp/remote_ui.log 2>&1
             EXIT_CODE=$?
             _t1=0; read _t1 _rest < /proc/uptime 2>/dev/null; _t1=${_t1%%.*}
             if [ -f /tmp/remote_stop ]; then

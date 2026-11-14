@@ -15,9 +15,17 @@ turn_off_lights() {
 
 trap 'killall -9 remote_ui elite_ui 2>/dev/null; turn_off_lights; exit 0' INT TERM
 
+COUNT=0
 while true; do
     PROG=""
-    if [ -x /data/remote_ui ]; then
+    # The previous version, kept by an update as /data/remote_ui.bak, is started when no binary
+    # is there or after 3 crashes within CRASH_WINDOW, through a link named remote_ui (killall and
+    # pidof find it under that name). Once the crashes age out, /data/remote_ui is tried again.
+    if [ -x /data/remote_ui.bak ] && { { [ ! -x /data/remote_ui ] && [ ! -x /data/elite_ui ]; } || [ "$COUNT" -ge 3 ]; } &&
+       mkdir -p /tmp/remote_ui_fallback && ln -sf /data/remote_ui.bak /tmp/remote_ui_fallback/remote_ui; then
+        PROG="/tmp/remote_ui_fallback/remote_ui"
+        echo "$(date) [WATCHDOG] /data/remote_ui is missing or crashed $COUNT times in ${CRASH_WINDOW}s: starting the previous version /data/remote_ui.bak" >> /tmp/remote_watchdog.log 2>/dev/null
+    elif [ -x /data/remote_ui ]; then
         PROG="/data/remote_ui"
     elif [ -x /data/elite_ui ]; then
         PROG="/data/elite_ui" # not migrated yet: the binary runs init.sh migrate itself
