@@ -791,22 +791,29 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
             print(f"    -> {b}")
             subprocess.run(["scp"] + scp_opts + [str(src), f"{target}:/data/{b}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Upload remote_watchdog.sh supervisor script
+    # Upload remote_watchdog.sh supervisor script. In the release bundle this tool is
+    # tools/setup_remote.py and the scripts are in the bundle root (REPO_DIR)
     watchdog_src = find_candidate([
         REPO_DIR / "remote" / "remote_watchdog.sh",
+        REPO_DIR / "remote_watchdog.sh",
         SCRIPT_DIR / "remote_watchdog.sh",
     ])
     if watchdog_src.is_file():
         print(f"[*] Uploading /data/{watchdog_src.name} supervisor script...")
         subprocess.run(["scp"] + scp_opts + [str(watchdog_src), f"{target}:/data/{watchdog_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print(f"[-] Warning: remote_watchdog.sh not found (looked for {watchdog_src}); not uploaded.")
 
     init_src = find_candidate([
         REPO_DIR / "remote" / "init.sh",
+        REPO_DIR / "init.sh",
         SCRIPT_DIR / "init.sh",
     ])
     if init_src.is_file():
         print(f"[*] Uploading /data/{init_src.name} supervisor script...")
         subprocess.run(["scp"] + scp_opts + [str(init_src), f"{target}:/data/{init_src.name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print(f"[-] Warning: init.sh not found (looked for {init_src}); remote_ui will run without its supervisor.")
 
     # Upload rcS.local recovery script
     rcs_file = find_candidate([
