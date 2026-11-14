@@ -10,7 +10,7 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 - **Harmony Hub**: Standard Hub (Model O-R0004, USB `046D:C129`) or Harmony Pro 2400 (PoE/RJ45, USB `046D:C132`).
 - **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
-- **Python 3**: Installed on host PC (no external libraries needed; uses standard library).
+- **Python 3.11 or newer**: Installed on host PC (no external libraries needed; uses standard library).
 - **Local Network**: 2.4 GHz 802.11b/g/n Wi-Fi, or direct RJ45 Ethernet cable (Pro 2400).
 
 ### Choose Your Installation Method
