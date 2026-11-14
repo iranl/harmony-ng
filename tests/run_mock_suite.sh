@@ -222,6 +222,9 @@ python3 "$SCRIPT_DIR/test_save_json_types.py"
 # 5c. Host tools (no device contact)
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 
+# Host tools stop with a clear message on Python older than 3.11 (docs/FIRST_INSTALL_*.md)
+python3 "$SCRIPT_DIR/test_python_minimum.py"
+
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"

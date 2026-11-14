@@ -1278,4 +1278,6 @@ def main() -> None:
         print(f"[!] {w}")
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 11):
+        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
     main()

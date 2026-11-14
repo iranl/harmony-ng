@@ -105,14 +105,20 @@ jobs:
           ls -lh payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod
 
   test-mock-system:
-    name: Full User-Space Mocking & Integration Tests
+    # The host tools run on the user's own Python: test the oldest supported version (see
+    # docs/FIRST_INSTALL_*.md) and a current one.
+    name: Full User-Space Mocking & Integration Tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
       - name: Install PyYAML (docs/openapi.yaml validation) and aioharmony (Logitech shim test)
         run: python -m pip install pyyaml aioharmony==1.0.8
       - name: Run Full Automated Mock Test Suite
