@@ -137,6 +137,8 @@ python3 "$SCRIPT_DIR/test_cmd_actions.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
 python3 "$SCRIPT_DIR/test_hbus.py"
+# Host tool against a fake Hub root (tools/restore_stock.py, no network)
+python3 "$SCRIPT_DIR/test_restore_stock.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 

@@ -285,6 +285,18 @@ def restore_stock_configuration(
     bb_bin = bb_res.stdout.strip()
     uploaded_temp_bb = False
 
+    # /cache is emptied before the extraction and the archive overwrites /data: run tar from a
+    # copy in /tmp, not from /cache/bin or /data/harmony/bin
+    if bb_bin and bb_bin != "/tmp/busybox":
+        cp_res = run_ssh_cmd(
+            target, f"cp -f {bb_bin} /tmp/busybox && chmod 755 /tmp/busybox && echo copied", ssh_opts
+        )
+        if cp_res.stdout.strip() == "copied":
+            print(f"    + Copied {bb_bin} to /tmp/busybox for the extraction.")
+            bb_bin = "/tmp/busybox"
+        else:
+            bb_bin = ""
+
     if not bb_bin:
         local_bb = find_busybox_binary()
         if not local_bb:
@@ -323,7 +335,12 @@ def restore_stock_configuration(
         proc.stdin.close()
         stdout, stderr = proc.communicate(timeout=180)
         if proc.returncode != 0:
-            print(f"[-] Warning: Tar exited with code {proc.returncode}: {stderr.decode('utf-8', errors='ignore').strip()}")
+            raise RuntimeError(
+                f"Extracting the backup failed (tar exit code {proc.returncode}: "
+                f"{stderr.decode('utf-8', errors='ignore').strip()}). /cache was emptied; the Hub was not "
+                "rebooted and Dropbear SSH is still running. Fix the cause and run the restore again with "
+                f"--skip-usb-root --hub-ip {hub_ip}."
+            )
 
     print(f"    + Partitions /cache and /data restored successfully in {time.time() - t0:.1f}s.")
 
