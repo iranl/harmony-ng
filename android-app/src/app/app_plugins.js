@@ -160,7 +160,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
           ${p.device_definition ? `
             <div style="font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 8px 0;">
               <span class="muted">Device Support:</span> <strong>${escapeHtml(p.device_definition.display_name || p.device_definition.device_type)}</strong>
-              ${p.device_definition.config_fields ? `<span class="muted mini" style="margin-left: 6px;">(${p.device_definition.config_fields.map(f => f.label || f.key).join(', ')})</span>` : ''}
+              ${p.device_definition.config_fields ? `<span class="muted mini" style="margin-left: 6px;">(${escapeHtml(p.device_definition.config_fields.map(f => f.label || f.key).join(', '))})</span>` : ''}
             </div>
           ` : ''}
 

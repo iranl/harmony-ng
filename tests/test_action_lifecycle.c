@@ -34,7 +34,7 @@ const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
             "{\"id\":\"ble_dev\",\"name\":\"BleFan\",\"type\":\"BLE\",\"commands\":["
             "{\"name\":\"LightOff\",\"keyCode\":\"BLEADV:02011A19054E6F720E0438064C2E561510D42DEB8C15D3B51804030201\"},"
             "{\"name\":\"Broken\",\"keyCode\":\"BLEADV:030106\"}]},"
-            "{\"id\":\"plug_dev\",\"name\":\"PluginDevice\",\"plugin\":\"roku-ecp\",\"config\":{\"ip\":\"192.168.1.50\"},\"commands\":["
+            "{\"id\":\"plug_dev\",\"name\":\"PluginDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"plugin\":\"roku-ecp\",\"config\":{\"ip\":\"192.168.1.50\"},\"commands\":["
             "{\"name\":\"Home\",\"keyCode\":\"PLUGIN:roku-ecp:Home\"}]},"
             "{\"id\":\"plug_typed\",\"name\":\"AndroidTV\",\"type\":\"plugin:androidtv\",\"config\":{\"host\":\"192.168.1.60\"},\"commands\":["
             "{\"name\":\"Back\",\"keyCode\":\"Back\"}]},"
@@ -273,6 +273,10 @@ int main(void) {
     printf("[+] Plugin command lifecycle actions (TAP, PRESS, REPEAT, RELEASE) verified.\n");
 
     /* 6b. Verify 90ms debounce drops duplicate TAP immediately sent */
+    memset(out, 0, sizeof(out));
+    res = capture_send("plug_dev", "Home", HW_BTN_ACTION_TAP, out, sizeof(out));
+    assert(res == 0);
+    assert(strstr(out, "Plugin command simulated:") != NULL);
     memset(out, 0, sizeof(out));
     res = capture_send("plug_dev", "Home", HW_BTN_ACTION_TAP, out, sizeof(out));
     assert(res == 0);
