@@ -47,13 +47,15 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
 fi
 
 CFLAGS="-Wall -Os -static -s -DNDEBUG"
+# Extra OTA release key for test builds only, e.g. OTA_KEY_CFLAGS=-DOTA_EXTRA_PUBKEY=0x12,0x34,... (32 bytes)
+OTA_KEY_CFLAGS="${OTA_KEY_CFLAGS:-}"
 COMPAT_SRC=""
 
 TARGET="${1:-all}"
 
 build_util() {
     echo "[-] Building hub_util..."
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c $COMPAT_SRC
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c $COMPAT_SRC -lm
     for app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
         ln -sf hub_util "$BIN/$app"
     done
@@ -144,8 +146,8 @@ build_sync() {
 
 build_rf() {
     echo "[-] Building hub_rf..."
-    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_button_list.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/remote_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c"
-    "$CC" $CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
+    RF_SRCS="payload/source/rf_state.c payload/source/rf_spi.c payload/source/rf_keymap.c payload/source/rf_ota.c payload/source/rf_sync.c payload/source/rf_pairing.c payload/source/rf_config_push.c payload/source/rf_button_list.c payload/source/rf_push_queue.c payload/source/rf_help.c payload/source/rf_api.c payload/source/rf_main.c payload/source/remote_stock_icons.c payload/source/custom_icon_registry.c payload/source/timezone_db.c payload/source/sha256.c payload/source/ota_verify.c payload/source/tweetnacl.c"
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_rf" $RF_SRCS payload/source/cJSON.c payload/source/uclibc_static_locks.c $COMPAT_SRC -lpthread -lm
 }
 
 build_remote() {

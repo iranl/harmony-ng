@@ -10,26 +10,11 @@ else
   BB="busybox"
 fi
 
-CA_BUNDLE=""
-for c in /data/harmony/cacert.pem /opt/luaworks/cacert.pem /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt; do
-  if [ -s "$c" ]; then
-    CA_BUNDLE="$c"
-    break
-  fi
-done
-
-if [ -n "$CA_BUNDLE" ]; then
-  export SSL_CERT_FILE="$CA_BUNDLE"
-  export SSL_CERT_DIR="$(dirname "$CA_BUNDLE")"
-  if $BB wget --help 2>&1 | grep -q 'ca-certificate'; then
-    WGET="$BB wget --ca-certificate=$CA_BUNDLE"
-  else
-    WGET="$BB wget"
-  fi
-else
-  WGET="$BB wget --no-check-certificate"
-fi
-MD5SUM="$BB md5sum"
+# busybox wget does not verify TLS certificates, so nothing downloaded here is trusted until
+# hub_util ota-verify has checked it: the Ed25519 signature of manifest.json against the release
+# keys built into the firmware, then the SHA-256 of every file against the signed manifest.
+WGET="$BB wget"
+HUB_UTIL=/data/harmony/bin/hub_util
 TAR="$BB tar"
 
 CMD="${1:-apply}"
@@ -82,6 +67,31 @@ download_retry() {
     i=$((i + 1))
   done
   return 1
+}
+
+# Download manifest.json and manifest.json.sig into $1 and verify the signature; prints the
+# release version. Fails when either is missing or the signature does not match a release key.
+fetch_signed_manifest() {
+  local dir="$1"
+  rm -f "$dir/manifest.json" "$dir/manifest.json.sig"
+  if ! download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "$dir/manifest.json" 10 3; then
+    echo "[-] Release manifest (manifest.json) missing from ${REPO}." >&2
+    return 1
+  fi
+  if ! download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "$dir/manifest.json.sig" 10 3; then
+    echo "[-] Release signature (manifest.json.sig) missing from ${REPO}." >&2
+    return 1
+  fi
+  if [ ! -x "$HUB_UTIL" ]; then
+    echo "[-] $HUB_UTIL missing: cannot check the release signature." >&2
+    return 1
+  fi
+  "$HUB_UTIL" ota-verify "$dir/manifest.json" "$dir/manifest.json.sig"
+}
+
+# Check downloaded files (key=path ...) against the signed manifest in $TMPDIR.
+verify_files() {
+  "$HUB_UTIL" ota-verify "$TMPDIR/manifest.json" "$TMPDIR/manifest.json.sig" "$@" >/dev/null
 }
 
 get_local_version() {
@@ -190,15 +200,13 @@ do_apply() {
   rm -rf "$TMPDIR" 2>/dev/null
   mkdir -p "$TMPDIR"
 
-  # 1. Fetch remote version
-  NEW_VER=""
-  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 2 || \
-     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 2 || \
-     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" "$TMPDIR/VERSION" 8 3; then
-    NEW_VER=$(cat "$TMPDIR/VERSION" | tr -d '\r\n v')
+  # 1. Fetch and verify the signed release manifest; its version is the version installed
+  NEW_VER=$(fetch_signed_manifest "$TMPDIR")
+  if [ $? -ne 0 ] || [ -z "$NEW_VER" ]; then
+    echo "[-] Update refused: no valid release signature from ${REPO}. Nothing was changed."
+    return 1
   fi
-  [ -z "$NEW_VER" ] && [ -f /data/harmony/latest_version ] && NEW_VER=$(cat /data/harmony/latest_version 2>/dev/null | tr -d '\r\n v')
-  [ -z "$NEW_VER" ] && NEW_VER="2.0.0"
+  echo "[+] Release manifest v${NEW_VER} signed by a release key."
 
   # Major version guard
   LOCAL_MAJOR=$(echo "$LOCAL_VER" | cut -d. -f1)
@@ -222,43 +230,26 @@ do_apply() {
 
   echo "[*] Updating Hub from v${LOCAL_VER} to v${NEW_VER}..."
 
-  mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
-
-  # Prune redundant/bloated binaries to ensure flash space
-  rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
-
   # 2. Attempt unified RAM bundle update (hub_ota.tar.gz)
   OTA_BUNDLE_OK=0
   echo "[*] Checking for unified Hub package (hub_ota.tar.gz)..."
   if download_retry "${REPO}/hub_ota.tar.gz?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz" 35 3; then
     echo "[+] Downloaded unified OTA package to RAM ($TMPDIR/hub_ota.tar.gz)."
 
-    # Verify MD5 checksum (MANDATORY)
-    echo "[*] Fetching and verifying mandatory MD5 checksum..."
-    if ! download_retry "${REPO}/hub_ota.tar.gz.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2 && \
-       ! download_retry "${REPO}/hub_ota.md5?_=${TIMESTAMP}" "$TMPDIR/hub_ota.tar.gz.md5" 8 2; then
-      echo "[-] Mandatory checksum file (.md5) missing or unreachable from ${REPO}. Aborting update."
+    # The package must match the SHA-256 in the signed manifest
+    if ! verify_files "hub_ota.tar.gz=$TMPDIR/hub_ota.tar.gz"; then
+      echo "[-] hub_ota.tar.gz does not match the signed manifest. Aborting update, nothing was changed."
       rm -rf "$TMPDIR" 2>/dev/null
       return 1
     fi
-
-    EXPECTED_MD5=$(awk '{print $1}' "$TMPDIR/hub_ota.tar.gz.md5" | tr -d '\r\n ')
-    if [ -z "$EXPECTED_MD5" ]; then
-      echo "[-] Invalid or empty MD5 checksum file. Aborting update."
-      rm -rf "$TMPDIR" 2>/dev/null
-      return 1
-    fi
-
-    ACTUAL_MD5=$($MD5SUM "$TMPDIR/hub_ota.tar.gz" 2>/dev/null | awk '{print $1}')
-    if [ "$EXPECTED_MD5" != "$ACTUAL_MD5" ]; then
-      echo "[-] Checksum mismatch for hub_ota.tar.gz (expected $EXPECTED_MD5, got $ACTUAL_MD5). Aborting."
-      rm -rf "$TMPDIR" 2>/dev/null
-      return 1
-    fi
-    echo "[+] MD5 checksum verified successfully ($ACTUAL_MD5)."
+    echo "[+] hub_ota.tar.gz matches the signed manifest."
 
     mkdir -p "$TMPDIR/pkg" 2>/dev/null
     if $TAR -xzf "$TMPDIR/hub_ota.tar.gz" -C "$TMPDIR/pkg/" 2>/dev/null; then
+      # Verified: prepare the flash (nothing is touched before this point)
+      mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
+      # Prune redundant/bloated binaries to ensure flash space
+      rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
       echo "[*] Extracting package to flash partitions..."
       # A. Scripts -> /data/harmony/
       if [ -d "$TMPDIR/pkg/scripts" ]; then
@@ -341,7 +332,29 @@ do_apply() {
   OTA_FALLBACK_OK=0
   if [ "$OTA_BUNDLE_OK" != "1" ]; then
     echo "[*] Falling back to modular asset download..."
+    FB_FILES=""
     if download_retry "${REPO}/www.tar.gz?_=${TIMESTAMP}" "$TMPDIR/www.tar.gz" 30 3; then
+      FB_FILES="$FB_FILES www.tar.gz=$TMPDIR/www.tar.gz"
+    fi
+    FB_BINS=""
+    for b in hub_util hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
+      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
+        FB_FILES="$FB_FILES bin/mips/$b=$TMPDIR/$b"
+        FB_BINS="$FB_BINS $b"
+      fi
+    done
+    # Every downloaded file must match the signed manifest before any of them is installed
+    # shellcheck disable=SC2086
+    if [ -z "$FB_FILES" ] || ! verify_files $FB_FILES; then
+      echo "[-] Downloaded files missing or not matching the signed manifest. Aborting update, nothing was changed."
+      rm -rf "$TMPDIR" 2>/dev/null
+      return 1
+    fi
+    # Verified: prepare the flash (nothing is touched before this point)
+    mkdir -p /data/harmony/bin /cache/bin /cache/www 2>/dev/null
+    # Prune redundant/bloated binaries to ensure flash space
+    rm -f /cache/bin/hub_portal /cache/bin/hub_dhcpd /cache/bin/hub_sntp /data/harmony/bin/mknod 2>/dev/null || true
+    if [ -f "$TMPDIR/www.tar.gz" ]; then
       mkdir -p /cache/www 2>/dev/null
       [ -d /data/harmony/www ] && [ ! -L /data/harmony/www ] && rm -rf /data/harmony/www 2>/dev/null || true
       ln -sfn /cache/www /data/harmony/www 2>/dev/null || true
@@ -349,19 +362,16 @@ do_apply() {
       rm -f "$TMPDIR/www.tar.gz"
       echo "[+] WebUI bundle updated in /cache/www."
     fi
-
-    for b in hub_util hub_daemon hub_rf hub_btstack register_ehci eth_fix hub_sync; do
-      if download_retry "${REPO}/bin/mips/${b}?_=${TIMESTAMP}" "$TMPDIR/$b" 30 3; then
-        chmod 755 "$TMPDIR/$b"
-        mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
-        rm -f "/cache/bin/$b" 2>/dev/null || true
-        [ "$b" = "hub_daemon" ] && OTA_FALLBACK_OK=1
-        if [ "$b" = "hub_util" ]; then
-          for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
-            [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
-            ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
-          done
-        fi
+    for b in $FB_BINS; do
+      chmod 755 "$TMPDIR/$b"
+      mv -f "$TMPDIR/$b" "/data/harmony/bin/$b"
+      rm -f "/cache/bin/$b" 2>/dev/null || true
+      [ "$b" = "hub_daemon" ] && OTA_FALLBACK_OK=1
+      if [ "$b" = "hub_util" ]; then
+        for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+          [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
+          ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
+        done
       fi
     done
   fi
@@ -405,20 +415,22 @@ do_apply() {
 do_fetch_remote_ota() {
   local target="/tmp/remote_ui.ota.gz"
   local manifest="/tmp/remote_manifest.json"
+  local sig="/tmp/remote_manifest.json.sig"
   echo "[*] Downloading remote OTA package from ${REPO} to ${target}..."
-  rm -f "${target}" "${manifest}"
+  rm -f "${target}" "${manifest}" "${sig}"
 
-  # Fetch manifest with 1 attempt and short timeout (10s)
-  download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "${manifest}" 10 1 || true
-
-  # Fetch OTA image with 1 attempt and short timeout (20s)
-  if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 ||
-     download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1; then
-    echo "[+] Remote OTA package downloaded to ${target}."
-    return 0
+  # The image is kept only together with its manifest and signature: hub_rf verifies them before
+  # it sends anything to the remote, and treats an image without a manifest as staged by hand.
+  if download_retry "${REPO}/manifest.json?_=${TIMESTAMP}" "${manifest}" 10 1 &&
+     download_retry "${REPO}/manifest.json.sig?_=${TIMESTAMP}" "${sig}" 10 1; then
+    if download_retry "${REPO}/bin/arm/remote_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1 ||
+       download_retry "${REPO}/bin/arm/elite_ui.ota.gz?_=${TIMESTAMP}" "${target}" 20 1; then
+      echo "[+] Remote OTA package downloaded to ${target}."
+      return 0
+    fi
   fi
-  echo "[-] Failed to download remote OTA package."
-  rm -f "${target}" "${manifest}"
+  echo "[-] Failed to download the remote OTA package with its signed manifest."
+  rm -f "${target}" "${manifest}" "${sig}"
   return 1
 }
 

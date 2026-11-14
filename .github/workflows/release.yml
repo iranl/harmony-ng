@@ -351,8 +351,10 @@ jobs:
       - name: Publish to OTA Branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Ed25519 release key (64 hex characters): signs manifest.json, Hubs refuse unsigned updates
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           VERSION="${{ needs.prepare-version.outputs.version }}"
-          python scripts/publish_ota.py --version "$VERSION" --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota
+          python scripts/publish_ota.py --version "$VERSION" --require-signature --push --remote "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" --branch ota

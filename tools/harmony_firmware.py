@@ -98,10 +98,10 @@ REMOTE_FALLBACK_SKINS = [111, 112, 102, 105, 99]
 # ==============================================================================
 
 def get_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+    """Normal certificate and host name checks. Both the update service and the download host
+    (CloudFront) have valid public certificates; with checks off, anyone on the path could hand
+    the tool a firmware image to flash, together with its MD5 values."""
+    return ssl.create_default_context()
 
 
 def query_latest_firmware(skin_id: int, silent_on_empty: bool = False) -> Optional[dict[str, Any]]:
