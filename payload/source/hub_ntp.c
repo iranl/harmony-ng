@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -35,6 +36,22 @@ struct ntp_packet {
     uint32_t txTm_f;
 };
 
+/* Request transmit timestamp: random, so a reply must echo it (RFC 4330 section 5) and a
+ * forged one cannot be guessed */
+static void sntp_request_nonce(uint32_t *s, uint32_t *f) {
+    uint32_t v[2] = { 0, 0 };
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0 || read(fd, v, sizeof(v)) != (ssize_t)sizeof(v)) {
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        v[0] = (uint32_t)now.tv_sec ^ ((uint32_t)getpid() << 16);
+        v[1] = (uint32_t)now.tv_usec ^ (uint32_t)(uintptr_t)&now;
+    }
+    if (fd >= 0) close(fd);
+    *s = v[0];
+    *f = v[1] ? v[1] : 1;
+}
+
 static time_t sntp_query_single(const char *host, int apply) {
     if (!host || !host[0]) return 0;
 
@@ -55,21 +72,43 @@ static time_t sntp_query_single(const char *host, int apply) {
         return 0;
     }
 
-    struct ntp_packet packet;
-    memset(&packet, 0, sizeof(packet));
-    packet.li_vn_mode = (0 << 6) | (4 << 3) | 3; /* LI=0, VN=4, Mode=3 (client) */
-
-    if (sendto(sockfd, &packet, sizeof(packet), 0, res->ai_addr, res->ai_addrlen) < 0) {
+    /* A connected socket only receives datagrams from the server it asked; an unconnected one
+     * took a reply from any address and port. */
+    if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
         freeaddrinfo(res);
         close(sockfd);
         return 0;
     }
     freeaddrinfo(res);
 
-    ssize_t n = recv(sockfd, &packet, sizeof(packet), 0);
-    close(sockfd);
+    struct ntp_packet packet;
+    memset(&packet, 0, sizeof(packet));
+    packet.li_vn_mode = (0 << 6) | (4 << 3) | 3; /* LI=0, VN=4, Mode=3 (client) */
+    uint32_t nonce_s, nonce_f;
+    sntp_request_nonce(&nonce_s, &nonce_f);
+    packet.txTm_s = nonce_s;
+    packet.txTm_f = nonce_f;
 
-    if (n < (ssize_t)sizeof(packet)) return 0;
+    if (send(sockfd, &packet, sizeof(packet), 0) < 0) {
+        close(sockfd);
+        return 0;
+    }
+
+    /* RFC 4330 section 5: the reply must echo our transmit timestamp as its origin, come from a
+     * synchronized server (LI not 3, stratum 1 to 15) in server mode, and carry a transmit time.
+     * Anything else is skipped; a few stray datagrams are read before giving up. */
+    int valid = 0;
+    for (int tries = 0; tries < 4 && !valid; tries++) {
+        ssize_t n = recv(sockfd, &packet, sizeof(packet), 0);
+        if (n < 0) break; /* timeout or error */
+        if (n < (ssize_t)sizeof(packet)) continue;
+        int li = packet.li_vn_mode >> 6, mode = packet.li_vn_mode & 0x07;
+        if (packet.origTm_s != nonce_s || packet.origTm_f != nonce_f) continue;
+        if (mode != 4 || li == 3 || packet.stratum == 0 || packet.stratum > 15) continue;
+        valid = 1;
+    }
+    close(sockfd);
+    if (!valid) return 0;
 
     uint32_t txTm = ntohl(packet.txTm_s);
     if (txTm < NTP_TIMESTAMP_DELTA) return 0;

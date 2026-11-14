@@ -179,6 +179,7 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sanitize_
 # Host tool with the device calls replaced (remote/setup_remote.py --no-screen writes remote_settings.conf)
 python3 "$SCRIPT_DIR/test_setup_remote_no_screen.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sha256" "$SCRIPT_DIR/test_sha256.c" "$REPO_ROOT/payload/source/sha256.c" && "$BUILD_DIR/test_sha256"
+build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sntp_reply" "$SCRIPT_DIR/test_sntp_reply.c" "$REPO_ROOT/payload/source/hub_ntp.c" && "$BUILD_DIR/test_sntp_reply"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mqtt_connect_flags" "$SCRIPT_DIR/test_mqtt_connect_flags.c" "$REPO_ROOT/payload/source/mqtt_client.c" && "$BUILD_DIR/test_mqtt_connect_flags"
 # Host tool in the release bundle layout (remote/setup_remote.py finds init.sh and remote_watchdog.sh)
 python3 "$SCRIPT_DIR/test_setup_remote_bundle.py"
