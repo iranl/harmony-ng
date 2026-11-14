@@ -4,6 +4,8 @@
 
 **Requests from web pages.** Port 8089 refuses requests and WebSocket upgrades that a browser sends on behalf of another web site: an `Origin` header that is not the Hub's own clients answers `403`, and so does a request without `Origin` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site`. Allowed origins: the Hub itself (the `Origin` host matches the request's `Host`, or `X-Forwarded-Host` behind a reverse proxy), `http://localhost` and `https://localhost` on any port (the Android app, local development servers), `http://127.0.0.1`, `capacitor://localhost` and `ionic://localhost`. Clients outside a browser (the Home Assistant integration, scripts, `curl`) send neither header and are not affected. A CORS preflight (`OPTIONS`) from any other origin is answered `403`. Port 8088 (Logitech protocol) is not affected.
 
+**Request size.** A request body may be at most 64 KB, except `POST /api/rf-mapping-save`, `POST /api/remote-mapping-save` and `POST /api/ui-remote-layout` (a whole button map or the web remote layouts, up to 256 KB), and `POST /import` and `POST /api/custom-icons` (up to 2 MB). A larger `Content-Length` is answered `413` before the body is read.
+
 ---
 
 ## 1. System, Status & Diagnostics
@@ -1427,6 +1429,7 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `ui_remote_layout`
   - `auth`
   - `hub_id`
+- Only one export or import runs at a time: another one meanwhile is answered `409`.
 
 ### 9.2 Import Configuration
 #### `POST /import`
