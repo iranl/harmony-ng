@@ -62,6 +62,11 @@ int orch_build_steps(const char *current_id, const char *target_id,
     if (switched_at_ms) *switched_at_ms = 0;
     if (true_end_ms) *true_end_ms = 0;
     if (!main_steps || max_main == 0) return -1;
+    /* The last main slot is kept for the "Activity switched" marker: when the stop and start
+     * sequences filled the queue, the marker was left out, the start tail (anchored to it) never
+     * ran and the Hub kept reporting that commands were still being sent. */
+    const size_t max_with_marker = max_main;
+    max_main = max_with_marker - 1;
     if (!target_id || !target_id[0]) target_id = ORCH_POWEROFF_ID;
 
     const char *leaving_id = (current_id && current_id[0]) ? current_id : ORCH_POWEROFF_ID;
@@ -368,7 +373,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
         }
 
         t_sw4 = t_sim;
-        if (main_count < max_main) {
+        if (main_count < max_with_marker) {
             memset(&main_steps[main_count], 0, sizeof(orch_step_t));
             main_steps[main_count].type = STEP_ACT_SWITCHED;
             main_steps[main_count].delay_ms = 0;
@@ -397,7 +402,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
         }
     } else {
         t_sw4 = t_sim;
-        if (main_count < max_main) {
+        if (main_count < max_with_marker) {
             memset(&main_steps[main_count], 0, sizeof(orch_step_t));
             main_steps[main_count].type = STEP_ACT_SWITCHED;
             main_steps[main_count].delay_ms = 0;
