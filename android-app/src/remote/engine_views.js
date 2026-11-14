@@ -1,3 +1,4 @@
+import { saveRemoteLayout } from '../storage.js';
 import { RemoteEngineBtInput } from './engine_bt_input.js';
 import { t } from '../i18n.js';
 
