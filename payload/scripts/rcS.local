@@ -24,6 +24,12 @@ sync_fs
 if [ "$COUNT" -gt 5 ]; then
 	echo "$(date) EMERGENCY RECOVERY MODE: $COUNT failed boots. WiFi and Dropbear SSH only." > /tmp/emergency_recovery.log
 
+	# init.sh, whose timer resets the counter, does not run in this mode: without this the
+	# counter only grows and every later boot is an emergency boot. One emergency boot at a
+	# time, then two normal tries before the next one.
+	echo 3 > "$REBOOT_FILE"
+	sync_fs
+
 	# Initialize WLAN, wpa_supplicant, and background DHCP
 	load_modules /etc/modules.wlan 2>/dev/null || true
 	/sbin/wlanconfig ath0 create wlandev wifi0 wlanmode sta 2>/dev/null || true
