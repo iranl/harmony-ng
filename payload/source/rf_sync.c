@@ -481,6 +481,10 @@ void rf_send_hub_time_sync(void) {
 int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str) {
     if (target_slot < 1 || target_slot > 2) target_slot = 1;
     if (!id_str || !id_str[0] || !file_path || !file_path[0]) return -1;
+    if (!rf_icon_id_valid(id_str)) {
+        printf("[-] Icon push: id refused (only A-Z a-z 0-9 _ -, 1..%d characters)\n", RF_ICON_ID_MAX);
+        return -1;
+    }
     if (access(file_path, R_OK) != 0) {
         printf("[-] Icon push: file not found %s\n", file_path);
         return -1;
@@ -492,7 +496,7 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
     long fsz = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (fsz <= 0 || fsz > 16384) {
+    if (fsz <= 0 || fsz > RF_ICON_MAX_BYTES) {
         fclose(f);
         printf("[-] Icon push: invalid file size %ld for %s\n", fsz, file_path);
         return -1;
@@ -543,6 +547,11 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
         printf("[*] Remote in slot %d already has custom icon %s (skip stream)\n", target_slot, id_str);
         free(img_buf);
         return 0;
+    }
+    if (g_ack_status != RF_ICON_STATUS_OK) {
+        printf("[-] Remote in slot %d refused ICON_START for %s (status=0x%02X)\n", target_slot, id_str, g_ack_status);
+        free(img_buf);
+        return -1;
     }
 
     /* 2. Stream chunks */
@@ -604,6 +613,10 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
 
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {
     if (!type_str || !type_str[0]) type_str = "activity";
+    if (!rf_icon_id_valid(type_str) || !rf_icon_id_valid(id_str)) {
+        printf("[-] Icon push: type or id refused (only A-Z a-z 0-9 _ -, 1..%d characters)\n", RF_ICON_ID_MAX);
+        return -1;
+    }
     char file_path[256];
     snprintf(file_path, sizeof(file_path), "/data/harmony/custom_icons/%s_%s.png", type_str, id_str ? id_str : "");
     return rf_push_custom_icon_file(target_slot, file_path, id_str);

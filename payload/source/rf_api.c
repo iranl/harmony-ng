@@ -392,18 +392,24 @@ void *api_server_worker(void *arg) {
                         char *amp = strpbrk(type_str, "& \r\n");
                         if (amp) *amp = '\0';
                     }
-                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
-                    int pushed = 0;
-                    for (int s = 1; s <= 2; s++) {
-                        if (slot != 0 && slot != s) continue;
-                        if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
-                        if (rf_push_custom_icon(s, type_str, id_str) == 0) pushed++;
+                    if (!rf_icon_id_valid(id_str) || !rf_icon_id_valid(type_str)) {
+                        const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                                          "{\"error\":\"id and type: only A-Z a-z 0-9 _ -, 1..19 characters\",\"ok\":false}";
+                        write(cli, res, strlen(res));
+                    } else {
+                        int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                        int pushed = 0;
+                        for (int s = 1; s <= 2; s++) {
+                            if (slot != 0 && slot != s) continue;
+                            if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
+                            if (rf_push_custom_icon(s, type_str, id_str) == 0) pushed++;
+                        }
+                        char res[160];
+                        int rlen = snprintf(res, sizeof(res),
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"icon_pushed\",\"id\":\"%s\",\"pushed\":%d,\"ok\":true}",
+                            id_str, pushed);
+                        write(cli, res, rlen);
                     }
-                    char res[160];
-                    int rlen = snprintf(res, sizeof(res),
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"icon_pushed\",\"id\":\"%s\",\"pushed\":%d,\"ok\":true}",
-                        id_str, pushed);
-                    write(cli, res, rlen);
                 }
             } else if (strstr(buf, "GET /api/rf/push-config") == buf || strstr(buf, "POST /api/rf/push-config") == buf) {
                 if (is_ota_busy()) {

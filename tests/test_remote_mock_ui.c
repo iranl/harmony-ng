@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "remote/remote_state.h"
 #include "remote/remote_ui.h"
@@ -20,6 +21,45 @@ static void tap(int x, int y) {
     g_touch_down_x = x;
     g_touch_down_y = y;
     handle_screen_touch_tap(x, y);
+}
+
+/* Send one custom icon over RF the way the Hub does: ICON_START with the raw id bytes
+ * (id_len bytes copied into payload[5..24], no terminator added), chunks of 22 bytes, ICON_END
+ * with the CRC16 of the data. */
+static void send_icon(const char *id, size_t id_len, const uint8_t *data, size_t n, uint8_t seq) {
+    rf_frame_t rf;
+    uint8_t p[25] = {0};
+    uint16_t chunks = (uint16_t)((n + 21) / 22);
+    p[0] = 0;
+    p[1] = (uint8_t)(n & 0xFF);
+    p[2] = (uint8_t)(n >> 8);
+    p[3] = (uint8_t)(chunks & 0xFF);
+    p[4] = (uint8_t)(chunks >> 8);
+    memcpy(&p[5], id, id_len > 20 ? 20 : id_len);
+    rf_build_frame(&rf, 1, RF_MSG_ICON_START, seq++, RF_FLAG_ACK_REQ, p, 25);
+    handle_hub_frame_remote(&rf);
+    for (uint16_t c = 0; c < chunks; c++) {
+        size_t off = (size_t)c * 22;
+        uint8_t len = (uint8_t)(n - off > 22 ? 22 : n - off);
+        memset(p, 0, sizeof(p));
+        p[0] = (uint8_t)(c & 0xFF);
+        p[1] = (uint8_t)(c >> 8);
+        p[2] = len;
+        memcpy(&p[3], data + off, len);
+        rf_build_frame(&rf, 1, RF_MSG_ICON_CHUNK, seq++, 0, p, (uint8_t)(3 + len));
+        handle_hub_frame_remote(&rf);
+    }
+    uint16_t crc = rf_crc16(data, n);
+    memset(p, 0, sizeof(p));
+    p[0] = (uint8_t)(crc & 0xFF);
+    p[1] = (uint8_t)(crc >> 8);
+    rf_build_frame(&rf, 1, RF_MSG_ICON_END, seq, RF_FLAG_ACK_REQ, p, 2);
+    handle_hub_frame_remote(&rf);
+}
+
+static int file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
 }
 
 int main(void) {
@@ -808,6 +848,74 @@ int main(void) {
         g_screen_on = saved_screen;
         s_last_blank_time_ms = saved_blank;
         printf("[+] A screen blank and wake do not change the processor frequency\n");
+    }
+
+    /* Custom icons over RF: the id becomes part of file names, so only [A-Za-z0-9_-] (1..19)
+     * passes, and the file is copied without a shell. */
+    {
+        int rc = system("rm -rf /tmp/harmony_mock/data/assets /tmp/harmony_mock/data/etc /tmp/hng_m; "
+                        "mkdir -p /tmp/harmony_mock/data/assets/custom /tmp/harmony_mock/data/etc");
+        assert(rc == 0);
+        uint8_t png[50];
+        for (size_t i = 0; i < sizeof(png); i++) png[i] = (uint8_t)(i * 7 + 1);
+
+        send_icon("42", 3, png, sizeof(png), 10);
+        FILE *ic = fopen("/data/assets/custom/activity_42.png", "rb");
+        assert(ic);
+        uint8_t back[64];
+        assert(fread(back, 1, sizeof(back), ic) == sizeof(png) && memcmp(back, png, sizeof(png)) == 0);
+        fclose(ic);
+        assert(file_exists("/data/assets/custom/42.png"));
+        assert(!file_exists("/data/assets/custom/42.png.tmp"));
+        printf("[+] Custom icon with a plain id saved (activity_42.png and 42.png)\n");
+
+        const char *shell_id = ";touch /tmp/hng_m;#"; /* 19 characters, as in the advisory */
+        send_icon(shell_id, strlen(shell_id) + 1, png, sizeof(png), 30);
+        assert(!file_exists("/tmp/hng_m"));
+        assert(g_icon_rx_file == NULL);
+        printf("[+] Icon id with shell characters refused, nothing run\n");
+
+        send_icon("../../etc/x", 12, png, sizeof(png), 40);
+        assert(!file_exists("/tmp/harmony_mock/data/etc/x.png") && !file_exists("/data/etc/x.png"));
+        assert(g_icon_rx_file == NULL);
+        printf("[+] Icon id with a path refused, nothing written outside assets/custom\n");
+
+        send_icon("ABCDEFGHIJKLMNOPQRST", 20, png, sizeof(png), 50); /* 20 bytes, no terminator */
+        assert(g_icon_rx_file == NULL && !file_exists("/data/assets/custom/ABCDEFGHIJKLMNOPQRST.png"));
+        send_icon("", 1, png, sizeof(png), 60);
+        assert(g_icon_rx_file == NULL);
+        printf("[+] Icon id without a terminator in the frame, or empty, refused\n");
+
+        /* An icon named by text must not land on activities without a custom icon (number 0) */
+        {
+            int sa = g_activity_count, sr = g_rf_activity_count;
+            activity_item_t a0 = g_activities[0];
+            rf_activity_t r0 = g_rf_activities[0];
+            g_activity_count = 1;
+            g_rf_activity_count = 1;
+            snprintf(g_activities[0].id, sizeof(g_activities[0].id), "7");
+            g_activities[0].icon_path[0] = '\0';
+            g_rf_activities[0].icon_id = 0;
+            send_icon("abc", 4, png, sizeof(png), 80);
+            assert(strcmp(g_activities[0].icon_path, "/data/assets/custom/abc.png") != 0);
+            g_rf_activities[0].icon_id = 4242;
+            send_icon("4242", 5, png, sizeof(png), 90);
+            assert(strcmp(g_activities[0].icon_path, "/data/assets/custom/4242.png") == 0);
+            g_activities[0] = a0;
+            g_rf_activities[0] = r0;
+            g_activity_count = sa;
+            g_rf_activity_count = sr;
+            printf("[+] A text icon id does not match activities without a custom icon; a numeric one still does\n");
+        }
+
+        static uint8_t big[RF_ICON_MAX_BYTES + 44];
+        memset(big, 0x5A, sizeof(big));
+        send_icon("big", 4, big, sizeof(big), 70);
+        assert(g_icon_rx_file == NULL && !file_exists("/data/assets/custom/big.png"));
+        assert(!file_exists("/tmp/custom_icon_rx.tmp"));
+        printf("[+] Icon larger than %d bytes dropped while receiving\n", RF_ICON_MAX_BYTES);
+        rc = system("rm -rf /tmp/harmony_mock/data/assets /tmp/harmony_mock/data/etc /tmp/hng_m");
+        (void)rc;
     }
 
     free(g_fb_mem);
