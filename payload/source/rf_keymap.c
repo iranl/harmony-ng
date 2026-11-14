@@ -1,10 +1,15 @@
 #define _GNU_SOURCE
 #include "rf_keymap.h"
+#include "hub_key_channel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/un.h>
 
 static cJSON *g_remote_map_cache[2] = {NULL, NULL};
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -246,8 +251,8 @@ static const char *rf_alias_command(cJSON *cmds, const char *button_name) {
     return NULL;
 }
 
-/* Runs the button through the maps and sends the mapped command (or starts/stops an activity).
- * When a device command was sent, its target is written to out_dev/out_cmd. */
+/* Runs the button through the maps: starts or stops an activity, or, when the key is mapped to a
+ * device command, writes its target to out_dev/out_cmd (dispatch_remote_button_at() sends it). */
 static void run_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id,
                              char *out_dev, size_t out_dev_len, char *out_cmd, size_t out_cmd_len) {
     int is_press = (strcmp(action_state, "release") != 0);
@@ -284,14 +289,10 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
         pthread_mutex_unlock(&g_map_lock);
 
         if (matched_cmd_buf[0]) {
-            char body[256];
-            snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                     matched_dev, matched_cmd_buf, action_state ? action_state : "press");
             printf("[*] RF Dispatch Device Button Map: %s -> dev=%s cmd=%s action=%s\n",
                    button_name, matched_dev, matched_cmd_buf, action_state ? action_state : "press");
             snprintf(out_dev, out_dev_len, "%s", matched_dev);
             snprintf(out_cmd, out_cmd_len, "%s", matched_cmd_buf);
-            http_post_local(WEBUI_PORT, "/api/ir-send", body);
             return;
         }
 
@@ -324,14 +325,10 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
             }
             pthread_mutex_unlock(&g_rf_devices_lock);
             if (cmd_copy[0]) {
-                char body[256];
-                snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                         dev_id, cmd_copy, action_state ? action_state : "press");
                 printf("[*] RF Dispatch Device Button Match: %s -> dev=%s cmd=%s action=%s\n",
                        button_name, dev_id, cmd_copy, action_state ? action_state : "press");
                 snprintf(out_dev, out_dev_len, "%s", dev_id);
                 snprintf(out_cmd, out_cmd_len, "%s", cmd_copy);
-                http_post_local(WEBUI_PORT, "/api/ir-send", body);
             }
             return;
         }
@@ -399,13 +396,9 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     int is_cmd = (strcmp(act_type_buf, "device_cmd") == 0 || strcmp(act_type_buf, "command") == 0 ||
                   (act_type_buf[0] == '\0' && dev_id_buf[0] && cmd_buf[0]));
     if (is_cmd && dev_id_buf[0] && cmd_buf[0]) {
-        char body[256];
-        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                 dev_id_buf, cmd_buf, action_state ? action_state : "press");
         printf("[*] RF Dispatch: IR/BT send -> dev=%s cmd=%s action=%s\n", dev_id_buf, cmd_buf, action_state ? action_state : "press");
         snprintf(out_dev, out_dev_len, "%s", dev_id_buf);
         snprintf(out_cmd, out_cmd_len, "%s", cmd_buf);
-        http_post_local(WEBUI_PORT, "/api/ir-send", body);
     } else if (is_press && (strcmp(act_type_buf, "activity_start") == 0 || strcmp(act_type_buf, "change_activity") == 0) && target_act_id_buf[0]) {
         char body[64];
         snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", target_act_id_buf);
@@ -417,15 +410,90 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
     }
 }
 
-void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
+/* Key channel to hub_daemon (hub_key_channel.h). Tests point it at their own socket. */
+const char *g_rf_key_sock_path = HUB_KEY_SOCK;
+static uint32_t s_key_seq = 0;
+static pthread_mutex_t s_key_seq_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* One datagram to hub_daemon: 1 sent, 0 not taken (its queue stayed full for 200 ms),
+ * -1 nobody reads the socket (an older hub_daemon, or none running) */
+static int key_channel_send(const char *msg, size_t len) {
+    int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return -1;
+    struct sockaddr_un sun;
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    strncpy(sun.sun_path, g_rf_key_sock_path, sizeof(sun.sun_path) - 1);
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 200000 };
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    ssize_t n = sendto(s, msg, len, 0, (struct sockaddr *)&sun, sizeof(sun));
+    int err = errno;
+    close(s);
+    if (n == (ssize_t)len) return 1;
+    if (n < 0 && (err == ENOENT || err == ECONNREFUSED || err == ENOTDIR)) return -1;
+    return 0;
+}
+
+/* Sends one key event over the key channel. Returns 0 when it is done with the event, -1 when
+ * the caller must post it over HTTP (no key channel, or a release hub_daemon did not take
+ * within 2 s). A press or hold that does not fit is dropped: hub_daemon would skip it as stale. */
+static int send_key_event(uint8_t slot, const char *button, const char *action,
+                          const char *dev, const char *cmd, uint64_t ts_ms) {
+    pthread_mutex_lock(&s_key_seq_lock);
+    uint32_t seq = ++s_key_seq;
+    pthread_mutex_unlock(&s_key_seq_lock);
+
+    cJSON *o = cJSON_CreateObject();
+    if (!o) return -1;
+    cJSON_AddNumberToObject(o, "seq", (double)seq);
+    cJSON_AddNumberToObject(o, "ts", (double)ts_ms);
+    cJSON_AddNumberToObject(o, "slot", slot);
+    cJSON_AddStringToObject(o, "button", button);
+    cJSON_AddStringToObject(o, "action", action);
+    if (dev && dev[0] && cmd && cmd[0]) {
+        cJSON_AddStringToObject(o, "deviceId", dev);
+        cJSON_AddStringToObject(o, "command", cmd);
+    }
+    char *msg = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    if (!msg) return -1;
+
+    int is_release = (strcmp(action, "release") == 0);
+    int rc = 0;
+    for (int tries = 0; tries < (is_release ? 10 : 1); tries++) {
+        rc = key_channel_send(msg, strlen(msg));
+        if (rc != 0) break;
+    }
+    free(msg);
+    if (rc == 1) return 0;
+    if (rc == 0 && !is_release) {
+        printf("[-] Key channel full: %s %s #%u dropped\n", button, action, seq);
+        return 0;
+    }
+    return -1;
+}
+
+/* Sends a key: the mapped device command and the button event, as one event on the key
+ * channel. ts_ms is when hub_rf received the key (hub_daemon skips a stale press or hold). */
+static void dispatch_remote_button_at(uint8_t slot, const char *button_name, const char *action_state,
+                                      const char *dev_id, uint64_t ts_ms) {
     char mapped_dev[64] = {0};
     char mapped_cmd[64] = {0};
     const char *action = action_state ? action_state : "press";
     run_remote_button(slot, button_name, action, dev_id, mapped_dev, sizeof(mapped_dev), mapped_cmd, sizeof(mapped_cmd));
 
+    if (send_key_event(slot, button_name, action, mapped_dev, mapped_cmd, ts_ms) == 0) return;
+
+    /* No key channel (an older hub_daemon): the HTTP routes, the device command first */
+    char body[320];
+    if (mapped_dev[0] && mapped_cmd[0]) {
+        snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
+                 mapped_dev, mapped_cmd, action);
+        http_post_local(WEBUI_PORT, "/api/ir-send", body);
+    }
+
     /* Report the physical key to the daemon (button event on its bus, MQTT mirror): the key
      * name as the keymap knows it, and the mapped device command when one was sent */
-    char body[320];
     if (mapped_dev[0] && mapped_cmd[0]) {
         snprintf(body, sizeof(body),
                  "{\"button\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d,\"deviceId\":\"%s\",\"command\":\"%s\"}",
@@ -436,6 +504,10 @@ void dispatch_remote_button(uint8_t slot, const char *button_name, const char *a
                  button_name, action, slot);
     }
     http_post_local(DAEMON_PORT, "/api/button-press", body);
+}
+
+void dispatch_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id) {
+    dispatch_remote_button_at(slot, button_name, action_state, dev_id, get_monotonic_ms());
 }
 
 typedef enum {
@@ -451,6 +523,7 @@ typedef struct {
     char param1[64];
     char param2[64];
     char param3[16];
+    uint64_t ts_ms; /* when the key came in (RF_EV_BUTTON) */
 } rf_event_t;
 
 #define RF_QUEUE_SIZE 64
@@ -488,6 +561,7 @@ void enqueue_remote_button(uint8_t slot, const char *name, const char *action, c
         g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
         strncpy(g_rf_queue[g_rf_q_head].param3, dev_id ? dev_id : "", sizeof(g_rf_queue[0].param3) - 1);
         g_rf_queue[g_rf_q_head].param3[sizeof(g_rf_queue[0].param3) - 1] = '\0';
+        g_rf_queue[g_rf_q_head].ts_ms = get_monotonic_ms();
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
     } else {
@@ -667,7 +741,7 @@ void *dispatch_worker(void *arg) {
         } else if (ev.kind == RF_EV_ACTIVITY) {
             dispatch_activity_to_daemon(ev.param1);
         } else {
-            dispatch_remote_button(ev.slot, ev.param1, ev.param2, ev.param3);
+            dispatch_remote_button_at(ev.slot, ev.param1, ev.param2, ev.param3, ev.ts_ms);
         }
     }
     return NULL;
