@@ -1,6 +1,7 @@
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { getRemoteLayout, saveRemoteLayout, resetRemoteLayout } from '../storage.js';
 import { t } from '../i18n.js';
+import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineBase {
   constructor(client) {
@@ -751,8 +752,8 @@ export class RemoteEngineBase {
             <span style="display:inline-flex; align-items:center; color:var(--accent); flex-shrink:0;">${this.targetIconSvg}</span>
             <select class="remote-device-select form-control" style="font-size:14px; font-weight:700; background:transparent; border:none; color:var(--text-main); cursor:pointer; padding:2px 6px; flex:1; min-width:0; box-shadow:none;">
               ${this.selectableDevices.map(d => `
-                <option value="${d.id}" ${String(d.id) === String(this.currentTarget?.id) ? 'selected' : ''} style="background:var(--bg-card); color:var(--text-main); font-weight:normal;">
-                  ${d.name || d.model || d.id}
+                <option value="${escapeHtml(d.id)}" ${String(d.id) === String(this.currentTarget?.id) ? 'selected' : ''} style="background:var(--bg-card); color:var(--text-main); font-weight:normal;">
+                  ${escapeHtml(d.name || d.model || d.id)}
                 </option>
               `).join('')}
             </select>
@@ -769,7 +770,7 @@ export class RemoteEngineBase {
         infoHeader.innerHTML = `
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="display:inline-flex; align-items:center; color:var(--accent);">${this.targetIconSvg}</span>
-            <strong style="font-size:14px;">${this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || 'Remote'}</strong>
+            <strong style="font-size:14px;">${escapeHtml(this.currentTarget?.name || this.currentTarget?.label || this.currentTarget?.model || 'Remote')}</strong>
           </div>
           <span class="badge subtle" style="font-size:10px;">${this.currentScope === 'activity' ? 'Activity' : (this.currentTarget?.type || 'Device')}</span>
         `;

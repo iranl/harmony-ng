@@ -432,7 +432,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected (${devType} Link Up)${ifStr}</span>${ipStr}`;
           } else {
             const devLabel = st.eth_onboard ? 'Onboard RJ45 Port' : 'Adapter Detected';
-            ethEl.innerHTML = `<span style="color:var(--warning);">${devLabel}${ifStr} (Cable Unplugged)</span>`;
+            ethEl.innerHTML = `<span style="color:var(--warning);">${escapeHtml(devLabel)}${escapeHtml(ifStr)} (Cable Unplugged)</span>`;
           }
         } else {
           ethEl.innerHTML = '<span style="color:var(--text-muted);">Not Detected</span>';

@@ -58,7 +58,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     const sel = document.getElementById('labDevice');
     if (sel) {
       sel.innerHTML = '<option value="__auto_lab__">Temporary test device</option>' +
-        (this.inventory.devices || []).map(d => `<option value="${d.id}">${d.name || d.id}</option>`).join('');
+        (this.inventory.devices || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
     }
   }
 
@@ -77,8 +77,8 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
         box.style.display = matches.length ? 'block' : 'none';
         box.innerHTML = matches.slice(0, 30).map(m => `
           <div class="queue-row" style="padding: 4px 8px;">
-            <span>${m.path}</span>
-            <span class="badge">${m.source}</span>
+            <span>${escapeHtml(m.path)}</span>
+            <span class="badge">${escapeHtml(m.source)}</span>
           </div>
         `).join('');
       }
@@ -141,7 +141,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
       <div class="queue-row" style="padding: 4px 8px;">
         <label style="display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; margin: 0;">
           <input type="checkbox" class="lab-pick" data-index="${i}" checked>
-          <span><strong>${c.name}</strong> <span class="muted mini">(${c.meta})</span></span>
+          <span><strong>${escapeHtml(c.name)}</strong> <span class="muted mini">(${escapeHtml(c.meta)})</span></span>
         </label>
         <span class="badge ${c.raw ? 'ok' : 'primary'}">${c.raw ? 'Raw' : 'Code'}</span>
       </div>

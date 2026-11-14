@@ -190,7 +190,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     });
     if (sel) {
       sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
-        filteredActs.map(a => `<option value="${a.id}">${a.name || a.label}</option>`).join('');
+        filteredActs.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
       if (prevActVal && (prevActVal === '-1' || filteredActs.some(a => String(a.id) === String(prevActVal)))) {
         sel.value = prevActVal;
       }
@@ -742,7 +742,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
             const text = sbtns[idx].label || `Btn ${idx + 1}`;
             tiles[idx].innerHTML = `
               ${getScreenBtnIconSvg(sbtns[idx].icon, sbtns[idx].label, 11)}
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${text}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(text)}</span>
             `;
             tiles[idx].setAttribute('title', text);
           }
@@ -783,7 +783,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         sbtns[idx].deviceId = newDevId;
         const d = devs.find(x => String(x.id) === String(newDevId));
         if (cmdSel && d) {
-          cmdSel.innerHTML = (d.commands || []).map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+          cmdSel.innerHTML = (d.commands || []).map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
           sbtns[idx].command = d.commands?.[0]?.name || '';
         }
       });
