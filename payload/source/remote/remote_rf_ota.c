@@ -13,6 +13,7 @@
 #include <sys/reboot.h>
 #include <time.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
@@ -550,14 +551,81 @@ bool handle_ota_frame(const rf_frame_t *f) {
     }
 }
 
+#define ICON_RX_TMP "/tmp/custom_icon_rx.tmp"
+
+static void icon_rx_drop(void) {
+    if (g_icon_rx_file) {
+        fclose(g_icon_rx_file);
+        g_icon_rx_file = NULL;
+    }
+    unlink(ICON_RX_TMP);
+    g_icon_rx_id[0] = '\0';
+    g_icon_rx_bytes = 0;
+    g_icon_rx_chunks = 0;
+}
+
+/* Copy src to dst through a temporary file in dst's directory and rename(): no shell, and
+ * dst is either the old file or the complete new one. */
+static int icon_install(const char *src, const char *dst) {
+    char tmp[160];
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", dst) >= (int)sizeof(tmp)) return -1;
+    int in = open(src, O_RDONLY);
+    if (in < 0) return -1;
+    int out = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out < 0) {
+        close(in);
+        return -1;
+    }
+    char buf[1024];
+    ssize_t r;
+    int rc = 0;
+    while (rc == 0 && (r = read(in, buf, sizeof(buf))) != 0) {
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            rc = -1;
+            break;
+        }
+        for (ssize_t off = 0; off < r;) {
+            ssize_t w = write(out, buf + off, (size_t)(r - off));
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) {
+                rc = -1;
+                break;
+            }
+            off += w;
+        }
+    }
+    if (rc == 0 && fsync(out) != 0) rc = -1;
+    if (close(out) != 0) rc = -1;
+    close(in);
+    if (rc == 0 && rename(tmp, dst) != 0) rc = -1;
+    if (rc != 0) unlink(tmp);
+    return rc;
+}
+
 bool handle_icon_frame(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_ICON_START: {
+            /* The id ends at a zero byte inside payload[5..24] and must pass rf_icon_id_valid():
+             * it becomes part of file names below. Anything else ends the transfer. */
+            const uint8_t *id_raw = &f->payload[5];
+            const uint8_t *id_end = memchr(id_raw, 0, sizeof(f->payload) - 5);
+            char id[RF_ICON_ID_MAX + 1] = {0};
+            if (id_end && (size_t)(id_end - id_raw) <= RF_ICON_ID_MAX) memcpy(id, id_raw, (size_t)(id_end - id_raw));
+            if (!id_end || !rf_icon_id_valid(id)) {
+                printf("[-] Remote RF ICON_START: icon id refused (only A-Z a-z 0-9 _ -, 1..%d characters)\n",
+                       RF_ICON_ID_MAX);
+                icon_rx_drop();
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, RF_ICON_STATUS_BAD_ID);
+                rf_send_frame(&ack);
+                return true;
+            }
             g_icon_rx_type = f->payload[0];
             g_icon_rx_tot_bytes = (uint32_t)f->payload[1] | ((uint32_t)f->payload[2] << 8);
             uint16_t tot_c = (uint16_t)f->payload[3] | ((uint16_t)f->payload[4] << 8);
             memset(g_icon_rx_id, 0, sizeof(g_icon_rx_id));
-            strncpy(g_icon_rx_id, (const char *)&f->payload[5], sizeof(g_icon_rx_id) - 1);
+            memcpy(g_icon_rx_id, id, strlen(id));
             g_icon_rx_bytes = 0;
             g_icon_rx_chunks = 0;
 
@@ -580,7 +648,7 @@ bool handle_icon_frame(const rf_frame_t *f) {
                 fclose(g_icon_rx_file);
                 g_icon_rx_file = NULL;
             }
-            g_icon_rx_file = fopen("/tmp/custom_icon_rx.tmp", "wb");
+            g_icon_rx_file = fopen(ICON_RX_TMP, "wb");
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, g_icon_rx_file ? RF_ICON_STATUS_OK : 0x03);
             rf_send_frame(&ack);
@@ -593,6 +661,11 @@ bool handle_icon_frame(const rf_frame_t *f) {
             uint8_t d_len = f->payload[2];
             if (d_len > 22) d_len = 22;
 
+            if (g_icon_rx_bytes + d_len > RF_ICON_MAX_BYTES) {
+                printf("[-] Remote RF ICON_CHUNK: icon larger than %d bytes, transfer dropped\n", RF_ICON_MAX_BYTES);
+                icon_rx_drop();
+                return true;
+            }
             if (d_len > 0) {
                 fwrite(&f->payload[3], 1, d_len, g_icon_rx_file);
                 g_icon_rx_bytes += d_len;
@@ -615,13 +688,13 @@ bool handle_icon_frame(const rf_frame_t *f) {
             uint16_t expected_crc = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
 
             /* Verify file integrity via CRC16 */
-            FILE *v = fopen("/tmp/custom_icon_rx.tmp", "rb");
+            FILE *v = fopen(ICON_RX_TMP, "rb");
             uint8_t ack_status = 0x01;
             if (v) {
                 fseek(v, 0, SEEK_END);
                 long sz = ftell(v);
                 fseek(v, 0, SEEK_SET);
-                if (sz > 0 && sz <= 16384) {
+                if (sz > 0 && sz <= RF_ICON_MAX_BYTES) {
                     uint8_t *tmp_buf = (uint8_t *)malloc((size_t)sz);
                     if (tmp_buf) {
                         if (fread(tmp_buf, 1, (size_t)sz, v) == (size_t)sz) {
@@ -639,27 +712,27 @@ bool handle_icon_frame(const rf_frame_t *f) {
                 fclose(v);
             }
 
+            const char *t_prefix = (g_icon_rx_type == 1) ? "device" : (g_icon_rx_type == 2 ? "button" : "activity");
+            char dst_path[128], plain_path[128];
+            snprintf(dst_path, sizeof(dst_path), "/data/assets/custom/%s_%s.png", t_prefix, g_icon_rx_id);
+            snprintf(plain_path, sizeof(plain_path), "/data/assets/custom/%s.png", g_icon_rx_id);
             if (ack_status == 0x00) {
                 mkdir("/data/assets", 0755);
                 mkdir("/data/assets/custom", 0755);
-                const char *t_prefix = (g_icon_rx_type == 1) ? "device" : (g_icon_rx_type == 2 ? "button" : "activity");
-                char dst_path[128];
-                snprintf(dst_path, sizeof(dst_path), "/data/assets/custom/%s_%s.png", t_prefix, g_icon_rx_id);
+                if (icon_install(ICON_RX_TMP, dst_path) != 0 || icon_install(ICON_RX_TMP, plain_path) != 0) {
+                    printf("[-] Custom icon %s could not be saved: %s\n", g_icon_rx_id, strerror(errno));
+                    ack_status = 0x03;
+                }
+            }
+            unlink(ICON_RX_TMP);
 
-                char cmd[300];
-                snprintf(cmd, sizeof(cmd), "cp -f /tmp/custom_icon_rx.tmp %s && cp -f /tmp/custom_icon_rx.tmp /data/assets/custom/%s.png",
-                         dst_path, g_icon_rx_id);
-                system(cmd);
-                unlink("/tmp/custom_icon_rx.tmp");
-
+            if (ack_status == 0x00) {
                 fb_invalidate_png_cache(g_icon_rx_id);
 
                 for (int i = 0; i < g_activity_count; i++) {
                     if (strcmp(g_activities[i].id, g_icon_rx_id) == 0 ||
                         (i < g_rf_activity_count && g_rf_activities[i].icon_id == (uint16_t)atoi(g_icon_rx_id))) {
-                        char cpath[128];
-                        snprintf(cpath, sizeof(cpath), "/data/assets/custom/%s.png", g_icon_rx_id);
-                        copy_str(g_activities[i].icon_path, sizeof(g_activities[i].icon_path), cpath);
+                        copy_str(g_activities[i].icon_path, sizeof(g_activities[i].icon_path), plain_path);
                     }
                 }
                 g_screen_dirty = true;

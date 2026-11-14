@@ -227,7 +227,7 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | 24-byte binary payload chunk |
 | `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | OTA block completion ACK |
 | `0x25` | `RF_MSG_OTA_END` | Hub -> Remote | OTA transfer complete and checksum verify |
-| `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate (target_type, size, md5) |
+| `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate: type (byte 0), size (1-2), chunks (3-4), id (5-24, zero-terminated). The id must be 1-19 characters of `A-Z a-z 0-9 _ -` (`rf_icon_id_valid()`); otherwise the remote answers status `0x05` and drops the transfer. Icons are at most 16384 bytes |
 | `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk (23 bytes payload) |
 | `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
 | `0x2B` | `RF_MSG_ACT_DEVICES_CHUNK` | Hub -> Remote | Devices one activity uses (ACK'd); sent only to remotes that report `RF_CAP_ACT_DEVICES` |

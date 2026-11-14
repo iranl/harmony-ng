@@ -78,6 +78,9 @@
 #define RF_MSG_ICON_END            0x28  /* Hub -> Remote: complete / CRC16 verification */
 #define RF_ICON_STATUS_OK              0x00  /* Ready for chunk streaming */
 #define RF_ICON_STATUS_ALREADY_EXISTS  0x04  /* Remote already possesses exact icon */
+#define RF_ICON_STATUS_BAD_ID         0x05  /* Remote refused the icon id (see rf_icon_id_valid) */
+#define RF_ICON_ID_MAX                 19    /* ICON_START payload[5..24]: id + terminating zero */
+#define RF_ICON_MAX_BYTES              16384 /* largest icon file either side accepts */
 
 /* Update Management */
 #define RF_MSG_OTA_REQUEST         0x29  /* Remote -> Hub: request Hub to start binary OTA */
@@ -204,6 +207,20 @@ static inline uint32_t rf_crc32(const uint8_t *data, size_t len) {
 }
 
 /* Helper: build ACK frame */
+/* A custom icon id becomes part of file names on the remote (/data/assets/custom/<id>.png),
+ * so both sides accept only [A-Za-z0-9_-] and 1..RF_ICON_ID_MAX characters. The same rule is
+ * used for the icon type. */
+static inline int rf_icon_id_valid(const char *id) {
+    if (!id || !id[0]) return 0;
+    for (size_t n = 0; id[n]; n++) {
+        char c = id[n];
+        if (n >= RF_ICON_ID_MAX) return 0;
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+            return 0;
+    }
+    return 1;
+}
+
 static inline void rf_build_ack(rf_frame_t *f, uint8_t dev_slot, uint8_t acked_seq, uint8_t status) {
     memset(f, 0, sizeof(*f));
     f->report_id = RF_REPORT_ID;
