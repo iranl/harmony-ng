@@ -345,7 +345,16 @@ void mdns_make_info(mdns_info_t *info, const struct hub_settings *settings, cons
     char safe[64];
     label_safe(raw, safe, sizeof(safe));
     if (name_suffix && name_suffix[0]) {
-        snprintf(info->instance, sizeof(info->instance), "%s %s.%s", safe, name_suffix, MDNS_SERVICE);
+        /* The instance label is "<name> <suffix>" and a DNS label holds at most 63 bytes: with a
+         * longer one no probe or answer could be built and the Hub went silent after a conflict.
+         * Shorten the name and keep the suffix (label_safe() output is ASCII, any cut is safe). */
+        size_t sl = strlen(name_suffix);
+        size_t room = (sl + 1 < 63) ? 63 - sl - 1 : 0;
+        if (strlen(safe) > room) safe[room] = '\0';
+        size_t n = strlen(safe);
+        while (n > 0 && safe[n - 1] == ' ') safe[--n] = '\0';
+        if (n > 0) snprintf(info->instance, sizeof(info->instance), "%s %s.%s", safe, name_suffix, MDNS_SERVICE);
+        else snprintf(info->instance, sizeof(info->instance), "%s.%s", name_suffix, MDNS_SERVICE);
     } else {
         snprintf(info->instance, sizeof(info->instance), "%s.%s", safe, MDNS_SERVICE);
     }
@@ -411,15 +420,25 @@ static void send_to(const uint8_t *pkt, int len, const struct sockaddr_in *dst) 
     sendto(g_fd, pkt, (size_t)len, MSG_NOSIGNAL, (const struct sockaddr *)&to, sizeof(to));
 }
 
+/* A record set that cannot be built (send_to() drops it) is logged once per instance name */
+static void note_build_failure(int n) {
+    static char s_logged[sizeof(g_info.instance)];
+    if (n > 0 || strcmp(s_logged, g_info.instance) == 0) return;
+    snprintf(s_logged, sizeof(s_logged), "%s", g_info.instance);
+    fprintf(stderr, "[!] mDNS: cannot build the records for \"%s\", nothing is announced\n", g_info.instance);
+}
+
 static void send_announce(int ttl_zero) {
     uint8_t pkt[MDNS_MAX_PACKET];
     int n = mdns_build_response(&g_info, MDNS_R_ALL | MDNS_R_ENUM, 0, ttl_zero, 0, pkt, sizeof(pkt));
+    note_build_failure(n);
     send_to(pkt, n, NULL);
 }
 
 static void send_probe(void) {
     uint8_t pkt[MDNS_MAX_PACKET];
     int n = mdns_build_probe(&g_info, pkt, sizeof(pkt));
+    note_build_failure(n);
     send_to(pkt, n, NULL);
 }
 
