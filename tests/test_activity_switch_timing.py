@@ -4,6 +4,7 @@ Test activity switch timing, Switched marker, tail execution, and activity mirro
 - Tail steps after Switched / Stop Switched marker execute
 - While switching, /tmp/current_activity stays at the current activity until Switched marker
 - /tmp/activity_target holds the target during transition and is unlinked upon completion
+- a step's delay runs from the end of its send: equal commands in a row are all sent
 """
 
 import json
@@ -47,6 +48,60 @@ def config_dir():
         if os.path.exists(src):
             shutil.copy(src, os.path.join(d, name))
     return d
+
+
+def repeat_config_dir():
+    """Activity 14 sends VolumeUp four times, 150 ms apart; the TV is always on, so the builder
+    adds no power steps and the bit stream holds only the four frames."""
+    d = tempfile.mkdtemp(prefix="act_repeat_")
+    devices = json.load(open(os.path.join(SAMPLE_CONFIG, "devices.json")))
+    for dev in devices["devices"]:
+        if str(dev.get("id")) == "1":
+            dev["isPowerAlwaysOn"] = True
+    acts = json.load(open(os.path.join(SAMPLE_CONFIG, "activities.json")))
+    acts["activities"].append({
+        "id": "14", "name": "VolumeRamp", "type": "Custom", "order": 4, "deviceIds": ["1"],
+        "startSequence": [{"type": "Command", "deviceId": "1", "command": "VolumeUp", "delay": 150}] * 4,
+        "stopSequence": [],
+    })
+    json.dump(devices, open(os.path.join(d, "devices.json"), "w"))
+    json.dump(acts, open(os.path.join(d, "activities.json"), "w"))
+    for name in ("settings.json", "remote_slot1_map.json"):
+        src = os.path.join(SAMPLE_CONFIG, name)
+        if os.path.exists(src):
+            shutil.copy(src, os.path.join(d, name))
+    return d
+
+
+def tx_size(hub):
+    try:
+        return os.path.getsize(os.path.join(hub.mock_dir, "i2s_tx"))
+    except OSError:
+        return 0
+
+
+def check_step_delay_after_send(check):
+    """A step's delay runs from the end of its send. Each send takes 200 ms here (the mock's
+    drain wait), longer than the 150 ms delay: counted from before the send, the next equal
+    command came at once and the dispatcher's 90 ms same-button filter dropped it."""
+    cfg = repeat_config_dir()
+    try:
+        with HubHarness(port=PORT, config_dir=cfg) as hub:
+            st, r = hub.http_post("/api/settings", {"dry_run": False})
+            check(st == 200 and r.get("dry_run") is False, "dry run off (real sends to the mock /dev/i2s)", "%s %s" % (st, r))
+            with open(os.path.join(hub.mock_dir, "i2s_tx_ms"), "w") as f:
+                f.write("200\n")
+            st, r = hub.http_post("/api/ir-send", {"deviceId": "1", "command": "VolumeUp"}, timeout=5)
+            one = tx_size(hub)
+            check(st == 200 and one > 0, "one VolumeUp frame sent", "%s %s size %d" % (st, r, one))
+            time.sleep(0.3)
+            st, _ = hub.http_post("/api/activity", {"activity": "14"})
+            check(st == 200, "start activity 14 (VolumeUp x4, 150 ms apart)")
+            check(wait_state(hub, "14", timeout=10), "activity 14 reaches running")
+            frames = (tx_size(hub) - one) // one if one else 0
+            check(frames == 4, "all four VolumeUp steps were sent", "%d of 4 (bit stream %d bytes, one frame %d)" % (frames, tx_size(hub), one))
+    finally:
+        shutil.rmtree(cfg, ignore_errors=True)
 
 
 def read_file(path):
@@ -117,6 +172,9 @@ def main():
         log = open(log_path, errors="replace").read()
         check("InputHdmi1" in log, "start tail step executed")
         check("InputHdmi2" in log, "stop tail step executed (STEP_ACT_STOP_SWITCHED)")
+
+        print("[-] step delay counted from the end of the send")
+        check_step_delay_after_send(check)
 
     finally:
         shutil.rmtree(cfg, ignore_errors=True)
