@@ -98,8 +98,12 @@ export function createView() {
                 danger: true,
               });
               if (!ok) return;
-              await api.deleteUser(uname);
-              toast.info('User deleted');
+              try {
+                await api.deleteUser(uname);
+                toast.info('User deleted');
+              } catch (e) {
+                toast.error(e.message);
+              }
               loadUsers();
             },
           }) : null,
@@ -143,8 +147,12 @@ export function createView() {
                 danger: true,
               });
               if (!ok) return;
-              await api.deleteToken(tok.id);
-              toast.info('Token revoked');
+              try {
+                await api.deleteToken(tok.id);
+                toast.info('Token revoked');
+              } catch (e) {
+                toast.error(e.message);
+              }
               loadTokens();
             },
           }),

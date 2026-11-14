@@ -331,6 +331,8 @@ python3 "$SCRIPT_DIR/test_hbus.py"
 # Host tool against a fake Hub root (tools/restore_stock.py, no network)
 python3 "$SCRIPT_DIR/test_restore_stock.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
+# New web UI dialogs with a failing Hub call (Node, stand-in DOM, no Hub)
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_modal_errors.mjs"; else echo "    (node not found, test_frontend_modal_errors.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
 python3 "$SCRIPT_DIR/test_device_delay_limits.py"

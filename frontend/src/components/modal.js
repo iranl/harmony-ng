@@ -1,5 +1,6 @@
 // Reusable Modal Component
 import { h } from '../utils/dom.js';
+import { toast } from './toast.js';
 
 export function createModal({ title = '', content, actions = [] }) {
   let backdrop = null;
@@ -17,7 +18,14 @@ export function createModal({ title = '', content, actions = [] }) {
       text: act.label,
       onclick: async () => {
         if (act.onClick) {
-          const res = await act.onClick(close);
+          let res;
+          try {
+            res = await act.onClick(close);
+          } catch (e) {
+            // A failed Hub call (403, 409, timeout): show it and keep the dialog open
+            toast.error(e?.message || String(e));
+            return;
+          }
           if (res !== false) close();
         } else {
           close();
