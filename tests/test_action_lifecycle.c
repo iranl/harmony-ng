@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "../payload/source/cJSON.h"
 #include "../payload/source/hw_action.h"
+#include "../payload/source/resource_cache.h"
 #include "../payload/source/orchestrator.h"
 #include "../payload/source/hub_events.h"
 
@@ -21,11 +22,22 @@ const char *orch_get_current_activity(void) { return "1"; }
 /* the MQTT-type device path puts a button event on the daemon's bus */
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 
-cJSON *get_device_list_copy(void) {
+/* The shared device list (resource_cache.h): every acquire must be released */
+static int s_list_held = 0;
+static char s_list_handle;
+const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
     if (!s_mock_device_root) {
         s_mock_device_root = cJSON_Parse("{\"devices\":[{\"id\":\"mock_dev\",\"name\":\"MockDevice\",\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,\"commands\":[{\"name\":\"PowerToggle\",\"raw\":\"0000 006d 0022 0002\"},{\"name\":\"VolumeUp\",\"raw\":\"0000 006d 0022 0003\"}]}]}");
     }
-    return cJSON_Duplicate(s_mock_device_root, 1);
+    *snap = (struct cfg_snap *)&s_list_handle;
+    s_list_held++;
+    return s_mock_device_root;
+}
+
+void release_device_list(struct cfg_snap **snap) {
+    if (!*snap) return;
+    *snap = NULL;
+    s_list_held--;
 }
 
 int ir_encode_pronto(const char *pronto, uint8_t repeats, uint32_t gap, uint8_t **out_bin, size_t *out_len) {
@@ -122,6 +134,9 @@ int main(void) {
     assert(hw_device_command_send_action("mock_dev", 0, "PowerToggle", HW_BTN_ACTION_PRESS) == 0);
     assert(s_blasts == before + 2);
     printf("[+] press, release, press 70 ms after the release: both presses sent.\n");
+
+    assert(s_list_held == 0);
+    printf("[+] every use of the shared device list was released.\n");
 
     if (s_mock_device_root) {
         cJSON_Delete(s_mock_device_root);

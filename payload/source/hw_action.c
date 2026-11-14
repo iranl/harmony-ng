@@ -340,7 +340,7 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
     }
 }
 
-static int send_match_in(cJSON *root, const char *target, int match_mode, const char *command, int action) {
+static int send_match_in(const cJSON *root, const char *target, int match_mode, const char *command, int action) {
     int ret = -1;
 
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
@@ -756,11 +756,13 @@ static int send_match_in(cJSON *root, const char *target, int match_mode, const 
 static int hw_device_command_send_match(const char *target, int match_mode, const char *command, int action) {
     if (!target || !command) return -1;
 
-    /* A copy of the device list, freed here: the cached tree may be replaced by a save meanwhile */
-    cJSON *root = get_device_list_copy();
+    /* The shared device list (no copy per key): a save meanwhile publishes a new one and leaves
+     * this one alone until it is released */
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
     if (!root) return -4;
     int ret = send_match_in(root, target, match_mode, command, action);
-    cJSON_Delete(root);
+    release_device_list(&snap);
     return ret;
 }
 
@@ -780,7 +782,7 @@ int hw_device_command_send_by_name(const char *device_name, const char *command)
     return hw_device_command_send_match(device_name, 2, command, HW_BTN_ACTION_TAP);
 }
 
-static int device_exists_in(cJSON *root, const char *target, int match_mode) {
+static int device_exists_in(const cJSON *root, const char *target, int match_mode) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
     const cJSON *dev = NULL;
@@ -807,14 +809,15 @@ static int device_exists_in(cJSON *root, const char *target, int match_mode) {
 
 int hw_device_exists(const char *target, int match_mode) {
     if (!target || !target[0]) return 0;
-    cJSON *root = get_device_list_copy();
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
     if (!root) return 0;
     int found = device_exists_in(root, target, match_mode);
-    cJSON_Delete(root);
+    release_device_list(&snap);
     return found;
 }
 
-static int device_command_exists_in(cJSON *root, const char *target, int match_mode, const char *command) {
+static int device_command_exists_in(const cJSON *root, const char *target, int match_mode, const char *command) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
     const cJSON *target_dev = NULL;
@@ -893,10 +896,11 @@ static int device_command_exists_in(cJSON *root, const char *target, int match_m
 
 int hw_device_command_exists(const char *target, int match_mode, const char *command) {
     if (!target || !target[0] || !command || !command[0]) return 0;
-    cJSON *root = get_device_list_copy();
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
     if (!root) return 0;
     int found = device_command_exists_in(root, target, match_mode, command);
-    cJSON_Delete(root);
+    release_device_list(&snap);
     return found;
 }
 
@@ -920,7 +924,7 @@ int hw_bthid_send_report(const uint8_t *report, size_t len) {
     return -1;
 }
 
-static int device_bt_host_in(cJSON *root, const char *device_id, char *out, size_t outlen) {
+static int device_bt_host_in(const cJSON *root, const char *device_id, char *out, size_t outlen) {
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     if (!devs || !cJSON_IsArray(devs)) return 0;
     cJSON *dev = NULL;
@@ -959,9 +963,10 @@ static int device_bt_host_in(cJSON *root, const char *device_id, char *out, size
 int hw_device_bt_host(const char *device_id, char *out, size_t outlen) {
     if (!device_id || !device_id[0] || !out || outlen < 18) return 0;
     out[0] = '\0';
-    cJSON *root = get_device_list_copy();
+    struct cfg_snap *snap = NULL;
+    const cJSON *root = get_device_list_acquire(&snap);
     int found = device_bt_host_in(root, device_id, out, outlen);
-    cJSON_Delete(root);
+    release_device_list(&snap);
     return found;
 }
 

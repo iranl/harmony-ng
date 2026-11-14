@@ -893,7 +893,8 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
     if (topic_in && topic_in[0]) {
         snprintf(topic_pattern, sizeof(topic_pattern), "%s", topic_in);
     } else if (dev_id && dev_id[0]) {
-        cJSON *droot = config_store_devices_copy();
+        cfg_snap_t *dsnap = NULL;
+        const cJSON *droot = config_store_devices_acquire(&dsnap);
         cJSON *darr = droot ? cJSON_GetObjectItemCaseSensitive(droot, "devices") : NULL;
         const cJSON *di;
         if (darr) cJSON_ArrayForEach(di, darr) {
@@ -909,7 +910,7 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
                 break;
             }
         }
-        cJSON_Delete(droot);
+        config_store_release(&dsnap);
     }
     if (req_pulse_ms > 0) pulse_ms = req_pulse_ms;
 

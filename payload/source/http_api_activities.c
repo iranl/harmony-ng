@@ -210,7 +210,8 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
 
 static void device_name(const char *id, char *out, size_t len) {
     snprintf(out, len, "%s", id);
-    cJSON *root = config_store_devices_copy();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_devices_acquire(&snap);
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     cJSON *d = NULL;
     cJSON_ArrayForEach(d, devs) {
@@ -224,7 +225,7 @@ static void device_name(const char *id, char *out, size_t len) {
             break;
         }
     }
-    cJSON_Delete(root);
+    config_store_release(&snap);
 }
 
 /* The "error" string of a Help reply, or a plain text when the reply has none (out of memory) */
