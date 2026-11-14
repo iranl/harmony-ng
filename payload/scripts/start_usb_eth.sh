@@ -53,7 +53,7 @@ if [ -f /sys/bus/usb/devices/1-1/idVendor ]; then
   pid=$(cat /sys/bus/usb/devices/1-1/idProduct 2>/dev/null)
   echo "[USB_ETH] Detected USB device $vid:$pid"
   case "$vid:$pid" in
-    0bda:8152|0bda:8153)
+    0bda:8152|0bda:8153|2357:0601)
       echo "[USB_ETH] Loading Realtek native driver (r8152.ko)..."
       load_mod r8152.ko
       ;;

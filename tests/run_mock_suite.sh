@@ -281,6 +281,9 @@ python3 "$SCRIPT_DIR/test_co_simulation.py"
 # Host tool with a fake remote (remote/deploy_remote.py stops before the restart when an upload fails)
 python3 "$SCRIPT_DIR/test_deploy_remote_failures.py"
 
+# USB Ethernet adapters listed in the network guide reach a driver that binds them (start_usb_eth.sh in a host sandbox)
+python3 "$SCRIPT_DIR/test_usb_eth_table.py"
+
 # 5a. Bluetooth links around activity power on and off (orchestrator, daemon in --dry-run)
 python3 "$SCRIPT_DIR/test_bt_power_link.py"
 # Legacy web UI modules import the functions they call (no build step reports a missing import)
