@@ -470,12 +470,15 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 char dev_buf[512];
                 strncpy(dev_buf, p_devs->valuestring, sizeof(dev_buf) - 1);
                 dev_buf[sizeof(dev_buf) - 1] = '\0';
-                char *tok = strtok(dev_buf, ",; ");
+                /* strtok_r: strtok keeps its position in one static pointer, shared by every
+                 * request thread */
+                char *save = NULL;
+                char *tok = strtok_r(dev_buf, ",; ", &save);
                 while (tok) {
                     if (tok[0] && strcmp(tok, "0") != 0) {
                         cJSON_AddItemToArray(dev_ids_arr, cJSON_CreateString(tok));
                     }
-                    tok = strtok(NULL, ",; ");
+                    tok = strtok_r(NULL, ",; ", &save);
                 }
             }
             if (!dev_ids_provided && cJSON_GetArraySize(dev_ids_arr) == 0) {

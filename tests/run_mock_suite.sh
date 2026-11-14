@@ -200,6 +200,7 @@ python3 "$SCRIPT_DIR/test_hub_boot_counter.py"
 # 5b. WebSocket event bus tests against hub_daemon_test on the mock root
 echo "[-] Running WebSocket event tests..."
 python3 "$SCRIPT_DIR/test_ws_events.py"
+python3 "$SCRIPT_DIR/test_reentrant_libc.py"
 python3 "$SCRIPT_DIR/test_status.py"
 python3 "$SCRIPT_DIR/test_static_cache_key.py"
 python3 "$SCRIPT_DIR/test_ws_auth.py"
