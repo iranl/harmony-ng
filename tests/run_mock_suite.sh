@@ -218,6 +218,7 @@ python3 "$SCRIPT_DIR/test_hbus.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
+python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 
 # 5c. Host tools (no device contact)
 python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
