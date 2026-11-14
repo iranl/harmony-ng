@@ -80,6 +80,7 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_activity_
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_remote_i18n" "$SCRIPT_DIR/test_remote_i18n.c" "$REPO_ROOT/payload/source/remote/remote_i18n.c" && "$BUILD_DIR/test_remote_i18n"
 sh "$SCRIPT_DIR/test_remote_migrate.sh"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_migrate" "$SCRIPT_DIR/test_remote_migrate.c" "$REPO_ROOT/payload/source/remote/remote_migrate.c" && "$BUILD_DIR/test_remote_migrate"
+sh "$SCRIPT_DIR/test_remote_supervisor.sh"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_battery" "$SCRIPT_DIR/test_remote_battery.c" "$REPO_ROOT/payload/source/remote/remote_battery.c" && "$BUILD_DIR/test_remote_battery"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_flightlog" "$SCRIPT_DIR/test_remote_flightlog.c" "$REPO_ROOT/payload/source/remote/remote_flightlog.c" && "$BUILD_DIR/test_remote_flightlog"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_icon_registry" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry"
