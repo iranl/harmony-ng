@@ -416,8 +416,11 @@ int orch_tick(void) {
             execute_step(step);
         }
 
+        /* The delay runs from the end of the step: a send blocks for the length of its signal,
+         * and counting from before it shortened the gap to the next step (two equal commands
+         * then fell under the dispatcher's same-button filter and the second was dropped). */
         uint32_t delay = step->delay_ms ? step->delay_ms : 50;
-        g_next_deadline_ms = now + delay;
+        g_next_deadline_ms = get_now_ms() + delay;
 
         if (g_progress_cb) {
             g_progress_cb(g_target_act, g_state, (int)g_current_step + 1,
