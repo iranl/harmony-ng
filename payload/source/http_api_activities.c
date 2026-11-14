@@ -512,9 +512,12 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                         cJSON *jname = cJSON_GetObjectItemCaseSensitive(ai, "name");
                         const char *cur_name = (jname && cJSON_IsString(jname)) ? jname->valuestring : "";
 
+                        /* The id is the key: a request with an id changes that activity only, a
+                         * request without one creates a new activity. Matching the name as well
+                         * overwrote another activity whose name was the same (a second "New
+                         * Activity", or a rename to an existing name). */
                         if ((act_id_str[0] && strcmp(cur_id, act_id_str) == 0) ||
-                            (strcmp(act_id_str, "-1") == 0 && strcasecmp(cur_name, "PowerOff") == 0) ||
-                            (name_str[0] && strcasecmp(cur_name, name_str) == 0)) {
+                            (strcmp(act_id_str, "-1") == 0 && strcasecmp(cur_name, "PowerOff") == 0)) {
                             matched = ai;
                             break;
                         }
