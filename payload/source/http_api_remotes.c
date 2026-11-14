@@ -17,6 +17,13 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <pthread.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include "hw_action.h"
+#include "hub_key_channel.h"
 
 int http_api_remotes_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
@@ -481,17 +488,10 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         /* Button event on the bus, before any MQTT work: the first press and the release of a
          * key (hub_rf reports a held key as "hold" repeats, which are not events) */
         if (!req_action[0] || strcmp(req_action, "press") == 0 || strcmp(req_action, "release") == 0) {
-            cJSON *ev = cJSON_CreateObject();
-            if (ev) {
-                if (has_slot || req_source[0]) cJSON_AddNumberToObject(ev, "slot", req_slot);
-                cJSON_AddStringToObject(ev, "button", cmd_name);
-                cJSON_AddStringToObject(ev, "action", req_action[0] ? req_action : "press");
-                cJSON_AddStringToObject(ev, "source", req_source[0] ? req_source : "api");
-                if (dev_id[0]) cJSON_AddStringToObject(ev, "deviceId", dev_id);
-                if (mapped_cmd[0]) cJSON_AddStringToObject(ev, "command", mapped_cmd);
-                else if (dev_id[0] && !req_source[0]) cJSON_AddStringToObject(ev, "command", cmd_name);
-                hub_events_emit(HUB_EV_BUTTON, ev);
-            }
+            const char *ev_cmd = mapped_cmd[0] ? mapped_cmd : ((dev_id[0] && !req_source[0]) ? cmd_name : "");
+            http_api_remotes_button_event((has_slot || req_source[0]) ? req_slot : 0, cmd_name,
+                                          req_action[0] ? req_action : "press",
+                                          req_source[0] ? req_source : "api", dev_id, ev_cmd);
         }
 
         /* The MQTT mirror of the old layer is gone: the bus event above reaches MQTT through
@@ -1013,5 +1013,130 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
+    return 0;
+}
+
+void http_api_remotes_button_event(int slot, const char *button, const char *action, const char *source,
+                                   const char *device_id, const char *command) {
+    cJSON *ev = cJSON_CreateObject();
+    if (!ev) return;
+    if (slot > 0) cJSON_AddNumberToObject(ev, "slot", slot);
+    cJSON_AddStringToObject(ev, "button", button);
+    cJSON_AddStringToObject(ev, "action", action);
+    cJSON_AddStringToObject(ev, "source", source);
+    if (device_id && device_id[0]) cJSON_AddStringToObject(ev, "deviceId", device_id);
+    if (command && command[0]) cJSON_AddStringToObject(ev, "command", command);
+    hub_events_emit(HUB_EV_BUTTON, ev);
+}
+
+/* ---- Key channel from hub_rf (hub_key_channel.h) ----
+ * One thread reads the datagrams in the order hub_rf sent them and runs each to the end before
+ * the next: a release can no longer pass its press, and a stall of the main loop or a full HTTP
+ * worker pool no longer loses or delays keys. */
+static int s_key_fd = -1;
+
+static uint64_t key_monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+static void key_copy_str(cJSON *o, const char *name, char *out, size_t len) {
+    cJSON *j = cJSON_GetObjectItemCaseSensitive(o, name);
+    if (j && cJSON_IsString(j) && j->valuestring) snprintf(out, len, "%s", j->valuestring);
+}
+
+static void key_channel_handle(const char *msg) {
+    static uint32_t s_last_seq = 0;
+    cJSON *o = cJSON_Parse(msg);
+    if (!o) return;
+    char button[64] = {0}, action[16] = {0}, dev[64] = {0}, cmd[128] = {0};
+    key_copy_str(o, "button", button, sizeof(button));
+    key_copy_str(o, "action", action, sizeof(action));
+    key_copy_str(o, "deviceId", dev, sizeof(dev));
+    key_copy_str(o, "command", cmd, sizeof(cmd));
+    cJSON *j = cJSON_GetObjectItemCaseSensitive(o, "seq");
+    uint32_t seq = (j && cJSON_IsNumber(j)) ? (uint32_t)j->valuedouble : 0;
+    j = cJSON_GetObjectItemCaseSensitive(o, "ts");
+    uint64_t ts = (j && cJSON_IsNumber(j) && j->valuedouble > 0) ? (uint64_t)j->valuedouble : 0;
+    j = cJSON_GetObjectItemCaseSensitive(o, "slot");
+    int slot = (j && cJSON_IsNumber(j) && j->valueint >= 1 && j->valueint <= 2) ? j->valueint : 1;
+    cJSON_Delete(o);
+    if (!button[0] || !action[0]) return;
+
+    if (s_last_seq && seq > s_last_seq + 1) {
+        printf("[!] Key channel: %u key event(s) before #%u never arrived\n", seq - s_last_seq - 1, seq);
+    }
+    s_last_seq = seq;
+
+    int is_release = (strcmp(action, "release") == 0);
+    uint64_t now = key_monotonic_ms();
+    uint64_t age = (ts && now > ts) ? now - ts : 0;
+    if (!is_release && age > HUB_KEY_STALE_MS) {
+        printf("[*] Key channel: #%u %s %s skipped, %llu ms old\n", seq, button, action, (unsigned long long)age);
+        return;
+    }
+
+    /* The device command, as POST /api/ir-send with this action */
+    if (dev[0] && cmd[0]) {
+        int btn_action = HW_BTN_ACTION_TAP;
+        if (strcmp(action, "press") == 0) btn_action = HW_BTN_ACTION_PRESS;
+        else if (strcmp(action, "hold") == 0) btn_action = HW_BTN_ACTION_REPEAT;
+        else if (is_release) btn_action = HW_BTN_ACTION_RELEASE;
+        hw_device_command_send_action(dev, 0, cmd, btn_action);
+    }
+    /* The button event, as POST /api/button-press: the first press and the release */
+    if (strcmp(action, "press") == 0 || is_release) {
+        http_api_remotes_button_event(slot, button, action, "remote_rf", dev, cmd);
+    }
+}
+
+static void *key_channel_thread(void *arg) {
+    (void)arg;
+    char buf[HUB_KEY_MAX_DGRAM + 1];
+    for (;;) {
+        ssize_t n = recv(s_key_fd, buf, HUB_KEY_MAX_DGRAM, 0);
+        if (n < 0) {
+            if (errno != EINTR) usleep(100000);
+            continue;
+        }
+        buf[n] = '\0';
+        key_channel_handle(buf);
+    }
+    return NULL;
+}
+
+int http_api_remotes_key_channel_start(const char *path) {
+    if (!path || !path[0] || strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) return -1;
+    unlink(path);
+    int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    struct sockaddr_un sun;
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
+    if (bind(fd, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
+        fprintf(stderr, "[-] Key channel: cannot bind %s: %s\n", path, strerror(errno));
+        close(fd);
+        return -1;
+    }
+    chmod(path, 0600);
+    s_key_fd = fd;
+
+    pthread_t th;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 512 * 1024); /* runs the same send path as an HTTP worker */
+    int rc = pthread_create(&th, &attr, key_channel_thread, NULL);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        close(fd);
+        unlink(path);
+        s_key_fd = -1;
+        return -1;
+    }
+    printf("[+] Key channel from hub_rf on %s\n", path);
     return 0;
 }

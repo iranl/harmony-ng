@@ -752,9 +752,19 @@ Sends a captured code once through the IR ports of a device (its `controlPort`, 
 #### `POST /api/button-press` or `POST /api/mqtt-publish`
 Reports a physical key. Every call gives a `button` event on the WebSocket (10.13) and on MQTT
 (`<base>/remote/<slot>/button`, 8.1) for `action` `press` (the default) and `release`; `hold`
-repeats give nothing (they are sent to the device by `hub_rf` itself). `hub_rf` posts physical keys as `{"button": <key name>,
-"action", "source": "remote_rf", "slot"}` plus `deviceId` and `command` when the key was mapped to
-a device command; other callers may keep posting the key as `command`.
+repeats give nothing (they are sent to the device by `hub_rf` itself). `hub_rf` sends physical
+keys on its own local key channel (below) and posts here only when `hub_daemon` has none (an
+older `hub_daemon`): `{"button": <key name>, "action", "source": "remote_rf", "slot"}` plus
+`deviceId` and `command` when the key was mapped to a device command; other callers may keep
+posting the key as `command`.
+
+**Key channel from `hub_rf`.** One UNIX datagram per press, hold and release on
+`/tmp/hub_daemon_keys.sock`, read in order by one thread of `hub_daemon` (no HTTP worker, no
+main loop): `{"seq", "ts", "slot", "button", "action", "deviceId", "command"}`, `ts` being
+`CLOCK_MONOTONIC` in ms when `hub_rf` received the key. `hub_daemon` sends the device command as
+`POST /api/ir-send` with that `action` does and gives the same button event as this route. A
+press or hold older than 300 ms is skipped (logged), a release always runs. Not an API for other
+callers: format in `payload/source/hub_key_channel.h`.
 - **Request Body**:
   ```json
   {

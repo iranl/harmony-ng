@@ -16,6 +16,8 @@
 #include "hub_cmd.h"
 #include "hub_ntp.h"
 #include "http_api_system.h"
+#include "http_api_remotes.h"
+#include "hub_key_channel.h"
 #include "harmony_version.h"
 
 #include <stdio.h>
@@ -171,6 +173,11 @@ int main(int argc, char **argv) {
     int mdns_port = MDNS_PORT;   /* test harness: --mdns-port N */
     int legacy_port = HBUS_PORT; /* test harness: --legacy-port N */
     int ssdp_port = SSDP_PORT;   /* test harness: --ssdp-port N */
+#ifdef TEST_HARNESS
+    const char *key_sock = NULL; /* test harness: off unless --key-socket PATH */
+#else
+    const char *key_sock = HUB_KEY_SOCK;
+#endif
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dry-run") == 0) {
             g_dry_run = 1;
@@ -184,6 +191,8 @@ int main(int argc, char **argv) {
             legacy_port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--ssdp-port") == 0 && i + 1 < argc) {
             ssdp_port = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--key-socket") == 0 && i + 1 < argc) {
+            key_sock = argv[++i];
         } else if (isdigit((unsigned char)argv[i][0])) {
             port = atoi(argv[i]);
         }
@@ -247,6 +256,11 @@ int main(int argc, char **argv) {
     }
     if (state_watch_start() != 0) {
         fprintf(stderr, "[-] Could not start the state watcher: web UIs will not update live\n");
+    }
+    /* Keys from hub_rf, in order on their own thread (hub_key_channel.h); without it hub_rf
+     * falls back to POST /api/ir-send and /api/button-press */
+    if (key_sock && http_api_remotes_key_channel_start(key_sock) != 0) {
+        fprintf(stderr, "[-] Key channel not started: hub_rf keys go over HTTP\n");
     }
     int srv_fd = http_server_init(port);
     if (srv_fd < 0) {
