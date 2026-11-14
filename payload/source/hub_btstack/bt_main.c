@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "bt_le_pair_window.h"
 #include "bt_state.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
@@ -618,6 +619,28 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
     }
 }
 
+/* A new LE pairing is confirmed only inside the window the user opened from the web UI for that
+ * address (bt_le_pair_window.h). Anything else is declined: a device advertising with the pinned
+ * remote's address must not get a bond without the user asking for it. */
+static void le_pairing_request(hci_con_handle_t handle, bd_addr_t addr, bool numeric) {
+    char msg[160];
+    if (le_pair_window_allows(addr, le_pair_now_s())) {
+        snprintf(msg, sizeof(msg), "SM: Confirming %s pairing request from %s (pairing window open)",
+                 numeric ? "numeric comparison" : "Just Works", bd_addr_to_str(addr));
+        log_msg(msg);
+        if (numeric) {
+            sm_numeric_comparison_confirm(handle);
+        } else {
+            sm_just_works_confirm(handle);
+        }
+        return;
+    }
+    snprintf(msg, sizeof(msg), "SM: LE pairing request from %s declined: no pairing window (pair the remote from the web UI)",
+             bd_addr_to_str(addr));
+    log_msg(msg);
+    sm_bonding_decline(handle);
+}
+
 static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     UNUSED(channel);
     UNUSED(size);
@@ -628,15 +651,29 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
     switch (hci_event_packet_get_type(packet)) {
         case SM_EVENT_JUST_WORKS_REQUEST:
-            log_msg("SM: Confirming Just Works pairing request");
-            sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+            sm_event_just_works_request_get_address(packet, addr);
+            le_pairing_request(sm_event_just_works_request_get_handle(packet), addr, false);
             break;
         case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
-            sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+            sm_event_numeric_comparison_request_get_address(packet, addr);
+            le_pairing_request(sm_event_numeric_comparison_request_get_handle(packet), addr, true);
             break;
         case SM_EVENT_PAIRING_COMPLETE: {
             uint8_t status = sm_event_pairing_complete_get_status(packet);
+            sm_event_pairing_complete_get_address(packet, addr);
+            if (status == ERROR_CODE_SUCCESS && !le_pair_window_allows(addr, le_pair_now_s())) {
+                /* Not confirmed by le_pairing_request(): never keep or use such a bond. */
+                char msg[128];
+                snprintf(msg, sizeof(msg), "SMP pairing with %s completed outside the pairing window: bond removed",
+                         bd_addr_to_str(addr));
+                log_msg(msg);
+                gap_delete_bonding((bd_addr_type_t)sm_event_pairing_complete_get_addr_type(packet), addr);
+                gap_disconnect(connection_handle);
+                schedule_reconnect(30000);
+                break;
+            }
             if (status == ERROR_CODE_SUCCESS) {
+                le_pair_window_close();
                 log_msg("SMP pairing & bonding complete! Connecting HIDS...");
                 FILE *tf = fopen(TARGET_FILE, "w");
                 if (tf) {
@@ -671,11 +708,23 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 update_status("ready");
                 gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
             } else if (status == ERROR_CODE_PIN_OR_KEY_MISSING) {
-                log_msg("Re-encryption failed: key missing on remote. Deleting local bond and re-pairing...");
                 sm_event_reencryption_complete_get_address(packet, addr);
-                addr_type = sm_event_reencryption_complete_get_addr_type(packet);
-                gap_delete_bonding(addr_type, addr);
-                sm_request_pairing(sm_event_reencryption_complete_get_handle(packet));
+                if (le_pair_window_allows(addr, le_pair_now_s())) {
+                    log_msg("Re-encryption failed: key missing on remote. Pairing window open: deleting local bond and re-pairing...");
+                    addr_type = sm_event_reencryption_complete_get_addr_type(packet);
+                    gap_delete_bonding(addr_type, addr);
+                    sm_request_pairing(sm_event_reencryption_complete_get_handle(packet));
+                } else {
+                    /* The bond stays: a device that only claims the remote's address must not be
+                     * able to replace it. A remote that really lost its key is paired again from
+                     * the web UI (scan, pair), which opens the window. */
+                    char msg[160];
+                    snprintf(msg, sizeof(msg), "Re-encryption failed: %s has no key for this Hub. Bond kept; pair the remote again from the web UI",
+                             bd_addr_to_str(addr));
+                    log_msg(msg);
+                    gap_disconnect(connection_handle);
+                    schedule_reconnect(30000);
+                }
             } else {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "Re-encryption failed (status=0x%02x)", status);
