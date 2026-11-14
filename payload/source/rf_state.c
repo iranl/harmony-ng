@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -326,7 +327,10 @@ int rf_slot_apply_unit_id(uint8_t slot, const uint8_t *payload) {
     size_t k = 0;
     for (size_t i = 0; i < n; i++) {
         uint8_t c = payload[1 + i];
-        if (c < 0x21 || c > 0x7E) break; /* printable ASCII only, no blanks */
+        /* letters, digits and - _ . only (a factory id is digits and a dash): the id goes into
+           JSON built with "%s" (the version file, the RF status object), where a quote or a
+           backslash made the whole object invalid */
+        if (!isalnum(c) && c != '-' && c != '_' && c != '.') break;
         id[k++] = (char)c;
     }
     id[k] = '\0';

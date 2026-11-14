@@ -129,6 +129,20 @@ int main(void) {
     p[0] = 24;
     rf_slot_apply_unit_id(1, p);
     CHECK(g_remote_versions[0].skin == 0, "no skin read behind a 24-character id");
+    /* a unit id with characters that need escaping in JSON: kept up to the first of them, so the
+     * status object and the version file stay valid JSON */
+    reset();
+    g_paired_remotes[0].active = true;
+    g_paired_remotes[0].equad_id = RF_EQUAD_JUNIPER;
+    unit_id_payload(p, "AB\"CD\\EF", 0x64);
+    rf_slot_apply_unit_id(1, p);
+    CHECK_STR(g_remote_versions[0].remote_id, "AB", "unit id cut at the quote");
+    {
+        static char body[4096];
+        cJSON *root = rf_build_status_json(body, sizeof(body), RF_STATUS_STABLE_ONLY) > 0 ? cJSON_Parse(body) : NULL;
+        CHECK(root != NULL, "the RF status object is valid JSON with that unit id");
+        cJSON_Delete(root);
+    }
 
     /* 3. a Sprite slot by EquadID: a protocol frame or a skin does not turn it into a Juniper */
     reset();
