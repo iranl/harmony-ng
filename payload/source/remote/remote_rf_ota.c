@@ -10,6 +10,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <fcntl.h>
 #include <sys/reboot.h>
 #include <time.h>
 #include <errno.h>
@@ -243,6 +245,116 @@ void handle_ota_data_frame(const uint8_t *pkt) {
     ota_mark_progress_render();
 }
 
+/* Free space kept on /data besides the new binary when it is staged */
+#define OTA_INSTALL_FREE_MARGIN (64 * 1024)
+/* ACK status of OTA_END when the image was good but could not be installed (old binary kept) */
+#define OTA_STATUS_INSTALL_FAILED 0x07
+
+int ota_sync_file(const char *path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return -1;
+    int rc = fsync(fd);
+    close(fd);
+    return rc;
+}
+
+int ota_stage_file(const char *src, const char *dst, uint64_t free_margin) {
+    struct stat st;
+    if (stat(src, &st) != 0 || st.st_size <= 0) {
+        printf("[-] OTA install: cannot read %s\n", src);
+        return -1;
+    }
+    char dir[160];
+    snprintf(dir, sizeof(dir), "%s", dst);
+    char *slash = strrchr(dir, '/');
+    if (slash && slash != dir) *slash = '\0';
+    else snprintf(dir, sizeof(dir), "%s", slash ? "/" : ".");
+    struct statvfs vfs;
+    if (statvfs(dir, &vfs) == 0) {
+        uint64_t avail = (uint64_t)vfs.f_bavail * (uint64_t)vfs.f_frsize;
+        if (avail < (uint64_t)st.st_size + free_margin) {
+            printf("[-] OTA install: %llu bytes free in %s, %llu needed\n", (unsigned long long)avail, dir,
+                   (unsigned long long)st.st_size + (unsigned long long)free_margin);
+            return -1;
+        }
+    }
+
+    int in = open(src, O_RDONLY);
+    if (in < 0) return -1;
+    int out = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if (out < 0) {
+        printf("[-] OTA install: cannot create %s: %s\n", dst, strerror(errno));
+        close(in);
+        return -1;
+    }
+    uint8_t buf[8192];
+    off_t total = 0;
+    int ok = 1;
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof(buf));
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { ok = 0; break; }
+        if (n == 0) break;
+        ssize_t off = 0;
+        while (off < n) {
+            ssize_t w = write(out, buf + off, (size_t)(n - off));
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) { ok = 0; break; }
+            off += w;
+            total += w;
+        }
+        if (!ok) break;
+    }
+    if (ok && fsync(out) != 0) ok = 0;
+    if (close(out) != 0) ok = 0;
+    close(in);
+    if (!ok || total != st.st_size) {
+        printf("[-] OTA install: copy to %s failed (%lld of %lld bytes): %s\n", dst, (long long)total,
+               (long long)st.st_size, strerror(errno));
+        unlink(dst);
+        return -1;
+    }
+    chmod(dst, 0755);
+    return 0;
+}
+
+int ota_replace_file(const char *new_path, const char *path, const char *bak_path) {
+    if (bak_path) {
+        /* The backup is a second name of the current file: no copy, no extra space */
+        unlink(bak_path);
+        if (link(path, bak_path) != 0) {
+            /* A file system without hard links (or a union mount refusing them): copy as before */
+            printf("[!] OTA install: hard link %s -> %s failed (%s), copying\n", path, bak_path, strerror(errno));
+            char cmd[400];
+            snprintf(cmd, sizeof(cmd), "cp -f '%s' '%s' 2>/dev/null", path, bak_path);
+            if (system(cmd) != 0) printf("[!] OTA install: no backup of %s\n", path);
+        }
+    }
+    /* Same file system: path is the old file or the complete new one, never a part of it */
+    if (rename(new_path, path) != 0) {
+        printf("[-] OTA install: rename %s -> %s failed: %s\n", new_path, path, strerror(errno));
+        return -1;
+    }
+    char dir[160];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash && slash != dir) {
+        *slash = '\0';
+        ota_sync_file(dir); /* the rename itself on flash */
+    }
+    return 0;
+}
+
+static void ota_install_failed(uint8_t seq) {
+    printf("[-] OTA install failed: the current binary is kept\n");
+    system("rm -rf /tmp/remote_ota_pkg /data/remote_ui.new /tmp/remote_ui.ota.gz 2>/dev/null || true");
+    rf_frame_t ack;
+    rf_build_ack(&ack, g_remote_slot, seq, OTA_STATUS_INSTALL_FAILED);
+    rf_send_frame(&ack);
+    ota_set_updating(false);
+    g_screen_dirty = true;
+}
+
 bool handle_ota_frame(const rf_frame_t *f) {
     switch (f->msg_type) {
         case RF_MSG_OTA_START: {
@@ -467,8 +579,17 @@ bool handle_ota_frame(const rf_frame_t *f) {
 
             rf_frame_t ack;
             if (valid_elf) {
+                /* The new binary is written to /data first, next to its target, and checked: the
+                 * switch below is then a single rename, so /data/remote_ui is always the old
+                 * binary or the whole new one, and a copy that fails (no space left) keeps the old
+                 * one in place and tells the Hub */
+                int staged = is_pkg ? ota_stage_file(bin_path, "/data/remote_ui.new", OTA_INSTALL_FREE_MARGIN)
+                                    : ota_sync_file("/data/remote_ui.new");
+                if (staged != 0) {
+                    ota_install_failed(f->seq);
+                    return true;
+                }
                 printf("[+] ELF header verified! Replacing binary and installing scripts...\n");
-                system("cp -f /data/remote_ui /data/remote_ui.bak 2>/dev/null");
 
                 if (is_pkg) {
                     if (access("/tmp/remote_ota_pkg/rcS.local", F_OK) == 0) {
@@ -490,11 +611,10 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     if (access("/tmp/remote_ota_pkg/remote_sync", F_OK) == 0) {
                         system("cp -f /tmp/remote_ota_pkg/remote_sync /data/remote_sync && chmod 755 /data/remote_sync");
                     }
-                    char cp_cmd[384];
-                    snprintf(cp_cmd, sizeof(cp_cmd), "mv -f %s /data/remote_ui && chmod 755 /data/remote_ui", bin_path);
-                    system(cp_cmd);
-                } else {
-                    system("mv -f /data/remote_ui.new /data/remote_ui && chmod 755 /data/remote_ui");
+                }
+                if (ota_replace_file("/data/remote_ui.new", "/data/remote_ui", "/data/remote_ui.bak") != 0) {
+                    ota_install_failed(f->seq);
+                    return true;
                 }
 
                 system("rm -rf /tmp/remote_ota_pkg /tmp/remote_ui.ota.gz /data/remote_ui.new 2>/dev/null || true");
