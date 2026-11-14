@@ -10,6 +10,7 @@
 #include "../payload/source/cJSON.h"
 #include "../payload/source/hw_action.h"
 #include "../payload/source/orchestrator.h"
+#include "../payload/source/hub_events.h"
 
 /* Mock device database */
 static cJSON *s_mock_device_root = NULL;
@@ -17,6 +18,8 @@ static cJSON *s_mock_device_root = NULL;
  * powered off): an activity is running here */
 orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
+/* the MQTT-type device path puts a button event on the daemon's bus */
+void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
 
 cJSON *get_device_list_cached(void) {
     if (!s_mock_device_root) {

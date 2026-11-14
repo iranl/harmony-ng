@@ -268,7 +268,6 @@ int main(int argc, char **argv) {
     }
 
     /* 3. MQTT Client */
-    hw_set_local_api_port(port);
     hub_mqtt_init();
 
     printf("[+] Entering master non-blocking event loop...\n");
