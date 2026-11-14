@@ -123,6 +123,9 @@ python3 "$SCRIPT_DIR/test_bt_power_link.py"
 python3 "$SCRIPT_DIR/test_activity_queue.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 
+# Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
+python3 "$SCRIPT_DIR/test_hub_boot_counter.py"
+
 # 5b. WebSocket event bus tests against hub_daemon_test on the mock root
 echo "[-] Running WebSocket event tests..."
 python3 "$SCRIPT_DIR/test_ws_events.py"
