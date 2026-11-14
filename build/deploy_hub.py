@@ -95,6 +95,8 @@ class HubDeployer:
 
         self.deploy_failures: list[str] = []
         self.remote_hashes: dict[str, str] = {}
+        # Set once the Hub's services were stopped, cleared when the last step started them again
+        self.services_stopped = False
 
         # Resolve paths
         self.script_dir = pathlib.Path(__file__).resolve().parent
@@ -235,6 +237,41 @@ class HubDeployer:
                 self.remote_hashes[parts[1]] = parts[0].lower()
 
     def deploy(self) -> bool:
+        """Run the deployment. Whatever ends it early after the services were stopped (a failed
+        web UI build, a missing npm, Ctrl+C, an exception), the services are started again."""
+        try:
+            return self._deploy()
+        finally:
+            if self.services_stopped:
+                print("[!] Deployment ended early: starting the Hub services again...", file=sys.stderr)
+                self.run_ssh(self.RESTART_CMD)
+                procs = self.wait_for_services()
+                if procs:
+                    print(f"[!] Hub services running again (PIDs: {procs}), with the files deployed so far.", file=sys.stderr)
+                else:
+                    print(f"[-] Hub services are NOT running. Start them with: ssh {self.hub_user}@{self.hub_host} /data/harmony/init.sh start", file=sys.stderr)
+
+    def wait_for_services(self) -> str:
+        """PIDs of the Hub daemons once they run (up to about 11 s), or "" """
+        for attempt in range(5):
+            time.sleep(3 if attempt == 0 else 2)
+            procs = self.run_ssh("pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true").stdout.strip()
+            if procs:
+                return procs
+        return ""
+
+    RESTART_CMD = (
+        "chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true; "
+        "mkdir -p /data/harmony/scripts 2>/dev/null || true; "
+        "ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true; "
+        "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
+        "ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; "
+        "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; "
+        "rm -f /tmp/harmony_stop 2>/dev/null || true; "
+        "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh restart >/dev/null 2>&1 & fi"
+    )
+
+    def _deploy(self) -> bool:
         print("=== Harmony Hub Firmware Deployment ===")
         print(f"Target Hub: {self.hub_host}")
         print(f"SSH key: {self.ssh_key or '(ssh defaults)'}")
@@ -289,6 +326,7 @@ class HubDeployer:
                 "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true"
             )
             if not self.dry_skip("stop hub services (init.sh stop)"):
+                self.services_stopped = True
                 self.run_ssh(stop_cmd)
 
             # 3. Migrate legacy codex paths
@@ -600,28 +638,20 @@ class HubDeployer:
                 "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
                 "(sleep 2 && /data/harmony/safe_reboot.sh) >/dev/null 2>&1 &"
             )
+            self.services_stopped = False
             self.run_ssh(reboot_cmd)
             print(f"=== Deployment to {self.hub_host} Complete! Hub is rebooting safely. ===")
         else:
             print("[5/5] Flushing NOR flash buffers and hot-restarting services (no reboot)...")
-            restart_cmd = (
-                "chmod +x /data/harmony/bin/* /data/harmony/*.sh /data/harmony/init.sh 2>/dev/null || true; "
-                "mkdir -p /data/harmony/scripts 2>/dev/null || true; "
-                "ln -sf /data/harmony/init.sh /data/harmony/scripts/init.sh 2>/dev/null || true; "
-                "ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true; "
-                "ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true; "
-                "/data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true; "
-                "rm -f /tmp/harmony_stop 2>/dev/null || true; "
-                "if [ -x /data/harmony/init.sh ]; then /data/harmony/init.sh restart >/dev/null 2>&1 & fi"
-            )
-            self.run_ssh(restart_cmd)
-            time.sleep(3)
-            procs_res = self.run_ssh("pidof hub_daemon hub_rf hub_btstack 2>/dev/null || true")
-            procs = procs_res.stdout.strip()
+            self.services_stopped = False
+            self.run_ssh(self.RESTART_CMD)
+            procs = self.wait_for_services()
             if procs:
                 print(f"=== Deployment to {self.hub_host} Complete! Hub services running (PIDs: {procs}). ===")
             else:
-                print(f"=== Deployment to {self.hub_host} Complete! Services started. ===")
+                print(f"[-] Deployment to {self.hub_host}: files copied, but no Hub service is running "
+                      f"(pidof found none). Check /tmp/harmony-init.log on the Hub.", file=sys.stderr)
+                return False
 
         if self.deploy_failures:
             print("[-] These files were not deployed; Hub runs with old copies:", file=sys.stderr)
