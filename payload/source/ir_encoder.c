@@ -444,7 +444,13 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
             if (r > 0 && min_repeats == 0) parsed_repeats = (uint8_t)r;
         }
     } else {
-        /* Raw hex or unknown format, fallback */
+        /* A bare NEC code: an optional 0x and exactly 8 hex digits. Anything else (a command
+         * name such as "FastForward", a cut code) used to become an NEC frame of whatever hex
+         * letters it held, sent to every emitter; it is not understood instead. */
+        const char *h = keycode;
+        if (h[0] == '0' && (h[1] == 'x' || h[1] == 'X')) h += 2;
+        size_t nd = strspn(h, "0123456789abcdefABCDEF");
+        if (nd != 8 || h[nd] != '\0') return -2;
         strncpy(hex, keycode, sizeof(hex) - 1);
         strncpy(proto, "NEC", sizeof(proto) - 1);
     }
