@@ -1238,11 +1238,19 @@ def migrate(src_path: str, dest_dir: str) -> Dict[str, Any]:
     if src.is_file() and src.name.endswith(".tar.gz"):
         import tempfile
         tmp = tempfile.mkdtemp(prefix="harmony_tar_")
+        base = os.path.realpath(tmp)
+        # Python before 3.14 extracts without a filter: refuse member names that leave tmp
+        # ("../x", or an absolute name after the leading "/" of a Hub archive is removed)
+        extract_args = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
         try:
             with tarfile.open(src, "r:gz") as tar:
                 for m in tar.getmembers():
                     if m.isfile() or m.isdir():
-                        tar.extract(m, tmp)
+                        m.name = m.name.lstrip("/")
+                        target = os.path.realpath(os.path.join(base, m.name))
+                        if target != base and not target.startswith(base + os.sep):
+                            raise ValueError(f"Refusing archive member outside the extraction folder: {m.name}")
+                        tar.extract(m, tmp, **extract_args)
             return migrate_directory(tmp, str(dest))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
