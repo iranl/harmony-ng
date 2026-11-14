@@ -553,6 +553,24 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         }
         return 1;
     }
+    /* The activity the Hub is already in, and no transition runs: nothing to do. Going on cleared
+     * the background queue below, so a second press right after the Switched marker dropped the
+     * tail of the sequence that had just run (the input selection after a start, the devices the
+     * stop tail switches off), and a power off while off sent stop_reconnect again. */
+    if (!dry_run && strcmp(target_activity_id, g_current_act) == 0) {
+        /* The events stay those of an empty transition (starting or stopping, then running or
+         * idle): the Logitech shim answers a runactivity on them. */
+        int off = (strcmp(target_activity_id, ORCH_POWEROFF_ID) == 0);
+        set_state(off ? ORCH_STATE_STOPPING : ORCH_STATE_STARTING);
+        set_state(off ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
+        pthread_mutex_unlock(&g_act_lock);
+        printf("[*] Orch: %s is the current activity, nothing to do\n", target_activity_id);
+        fflush(stdout);
+        if (g_progress_cb) {
+            g_progress_cb(target_activity_id, g_state, 0, 0, "Transition completed", g_cb_user_data);
+        }
+        return 0;
+    }
     pthread_mutex_unlock(&g_act_lock);
 
     if (dry_run) {
