@@ -78,8 +78,6 @@ int hw_device_command_exists(const char *target, int match_mode, const char *com
  */
 typedef int (*hw_mqtt_button_handler_t)(const char *device_id, const char *dev_name, const char *command);
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler);
-/* The port hub_daemon listens on (the MQTT device path posts /api/button-press to itself) */
-void hw_set_local_api_port(int port);
 
 /*
  * Sends a BT HID report directly via BTstack FIFO (/tmp/bthid_input).
