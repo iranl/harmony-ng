@@ -31,6 +31,10 @@ HARMONY_MOCK_DIR="/tmp/harmony_mock" \
 LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" \
     "$BUILD_DIR/test_mock_hardware"
 
+# 2b. Names never become markup (web UI escaping; the sanitizer at load and save)
+python3 "$SCRIPT_DIR/test_ui_escape_scan.py"
+python3 "$SCRIPT_DIR/test_name_sanitize.py"
+
 # 3. Run Headless Remote UI Engine Mock Test
 echo "[-] Compiling & running test_remote_mock_ui..."
 gcc -Wall -O2 \
@@ -132,8 +136,6 @@ python3 "$SCRIPT_DIR/test_ws_keepalive.py"
 python3 "$SCRIPT_DIR/test_ir_raw.py"
 python3 "$SCRIPT_DIR/test_mdns.py"
 python3 "$SCRIPT_DIR/test_no_lan_responders.py"
-python3 "$SCRIPT_DIR/test_name_sanitize.py"
-python3 "$SCRIPT_DIR/test_ui_escape_scan.py"
 python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 python3 "$SCRIPT_DIR/test_cmd_actions.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
