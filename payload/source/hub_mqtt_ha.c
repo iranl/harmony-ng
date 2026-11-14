@@ -213,20 +213,33 @@ static void template_safe(char *s) {
     }
 }
 
+/* Worst case: 32 activities with an id of 31 and a name of 63 bytes, about 3.4 KB. Whole entries
+ * only: when the buffer is full the rest is left out, and the closing part is always written, so
+ * the template stays valid Jinja (it used to end in the middle of an entry). */
+#define ACT_TEMPLATE_MAX 4096
+
 static void build_activity_value_template(const struct daemon_activity_list *acts, char *out, size_t cap) {
-    size_t n = 0;
-    n += (size_t)snprintf(out + n, cap - n, "{%% set m = {'-1': 'PowerOff'");
-    for (int i = 0; i < acts->count && n < cap; i++) {
+    static const char closing[] = "} %}{{ m.get(value_json.activity | string, 'PowerOff') }}";
+    if (cap < sizeof(closing) + 32) {
+        if (cap) out[0] = '\0';
+        return;
+    }
+    size_t limit = cap - sizeof(closing); /* room kept for the closing part and the NUL */
+    size_t n = (size_t)snprintf(out, cap, "{%% set m = {'-1': 'PowerOff'");
+    for (int i = 0; i < acts->count; i++) {
         /* names and ids come from the Hub's own config; quotes, braces, backslashes and control
          * characters would break the template's strings, replace them */
-        char name[64], id[32];
+        char name[64], id[32], entry[128];
         snprintf(name, sizeof(name), "%s", acts->items[i].name);
         snprintf(id, sizeof(id), "%s", acts->items[i].id);
         template_safe(name);
         template_safe(id);
-        n += (size_t)snprintf(out + n, cap - n, ", '%s': '%s'", id, name);
+        int el = snprintf(entry, sizeof(entry), ", '%s': '%s'", id, name);
+        if (el < 0 || n + (size_t)el > limit) break;
+        memcpy(out + n, entry, (size_t)el);
+        n += (size_t)el;
     }
-    if (n < cap) snprintf(out + n, cap - n, "} %%}{{ m.get(value_json.activity | string, 'PowerOff') }}");
+    memcpy(out + n, closing, sizeof(closing));
 }
 
 static const char *const k_discovery_objects[] = {
@@ -267,7 +280,7 @@ void publish_ha_discovery(const char *cid, const char *name, const char *hub_id,
     char act_state_topic[160], hub_topic[160];
     snprintf(act_state_topic, sizeof(act_state_topic), "%s/activity_state", base_topic);
     snprintf(hub_topic, sizeof(hub_topic), "%s/hub", base_topic);
-    char act_tpl[2048];
+    char act_tpl[ACT_TEMPLATE_MAX];
     build_activity_value_template(&act_list, act_tpl, sizeof(act_tpl));
 
     char top[256];
