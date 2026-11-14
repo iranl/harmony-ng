@@ -7,6 +7,11 @@
 
 #define IR_HEADER_SIZE 16
 
+/* Longest sequence the encoder accepts: real frames last well under a second. Longer input
+ * (durations up to 0x7FFFFFFF us, or 65535 Pronto cycles per word) made the blaster build a
+ * bit stream of tens of MB, and wrapped the 16-bit word count of the sequence. */
+#define IR_MAX_SEQUENCE_US 10000000ULL
+
 static inline void write_be16(uint8_t *p, uint16_t v) {
     p[0] = (uint8_t)((v >> 8) & 0xFF);
     p[1] = (uint8_t)(v & 0xFF);
@@ -153,6 +158,16 @@ int ir_encode_pronto(const char *pronto_hex, uint8_t min_repeats, uint16_t pre_s
         repeat_pairs = available_pairs - once_pairs;
     }
 
+    /* Each sequence (once, repeat) must stay within IR_MAX_SEQUENCE_US */
+    uint64_t seq_ns[2] = {0, 0};
+    for (size_t i = 0; i < (once_pairs + repeat_pairs) * 2; i++) {
+        seq_ns[i < once_pairs * 2 ? 0 : 1] += (uint64_t)words[4 + i] * period_ns;
+    }
+    if (seq_ns[0] > IR_MAX_SEQUENCE_US * 1000ULL || seq_ns[1] > IR_MAX_SEQUENCE_US * 1000ULL) {
+        free(words);
+        return -6;
+    }
+
     byte_builder_t bb;
     if (bb_init(&bb, 512) != 0) {
         free(words);
@@ -291,7 +306,13 @@ static int ir_encode_sequences(uint32_t freq_hz, const uint32_t *start_us, size_
     uint32_t period_ns = 26316; /* 38 kHz */
     if (freq_hz > 0) {
         period_ns = (uint32_t)(1000000000ULL / freq_hz);
+        if (period_ns == 0) return -1; /* above 1 GHz */
     }
+
+    uint64_t start_total = 0, repeat_total = 0;
+    for (size_t i = 0; i < start_count; i++) start_total += start_us[i];
+    for (size_t i = 0; i < repeat_count; i++) repeat_total += repeat_us[i];
+    if (start_total > IR_MAX_SEQUENCE_US || repeat_total > IR_MAX_SEQUENCE_US) return -1;
 
     byte_builder_t bb;
     if (bb_init(&bb, (start_count + repeat_count) * 2 + IR_HEADER_SIZE + 32) != 0) return -1;
