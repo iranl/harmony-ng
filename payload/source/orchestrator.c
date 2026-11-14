@@ -321,17 +321,21 @@ static void execute_step(const orch_step_t *step) {
             if (strcasecmp(step->command_name, "CONNECT") == 0 ||
                 strcasecmp(step->command_name, "RECONNECT") == 0 ||
                 strcasecmp(step->command_name, "bt_connect") == 0) {
-                if (step->device_id[0] && strncmp(step->device_id, "bt_", 3) != 0) {
-                    char cmd[128];
-                    snprintf(cmd, sizeof(cmd), "CONNECT %s", step->device_id);
+                /* hub_btstack's commands are connect_host / disconnect_host [<bdaddr>]; it has no
+                   CONNECT or DISCONNECT and dropped them */
+                char addr[32];
+                if (step->device_id[0] && strncmp(step->device_id, "bt_", 3) != 0 &&
+                    hw_device_bt_host(step->device_id, addr, sizeof(addr))) {
+                    char cmd[64];
+                    snprintf(cmd, sizeof(cmd), "connect_host %s", addr);
                     hub_send_btstack_cmd(cmd);
                 } else {
-                    hub_send_btstack_cmd("CONNECT");
+                    hub_send_btstack_cmd("connect_host");
                 }
             } else if (strcasecmp(step->command_name, "DISCONNECT") == 0) {
                 /* With a device: close that device's host link (power off, see orchestrator_queue.c) */
                 if (step->device_id[0]) hw_device_bt_disconnect(step->device_id);
-                else hub_send_btstack_cmd("DISCONNECT");
+                else hub_send_btstack_cmd("disconnect_host");
             } else {
                 char bt_reply[256];
                 run_bt_saved_script("btkeyboard", "", step->command_name, 50, bt_reply, sizeof(bt_reply));

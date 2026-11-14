@@ -193,6 +193,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_le_pair_window" "$SCRIPT_DIR/test_bt_le_pair_window.c" "$REPO_ROOT/payload/source/hub_btstack/bt_le_pair_window.c" && "$BUILD_DIR/test_bt_le_pair_window"
 
 # 5. Run Hub & Remote Full Co-Simulation
+python3 "$SCRIPT_DIR/test_bt_connect_commands.py"
 echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_co_simulation.py"
 

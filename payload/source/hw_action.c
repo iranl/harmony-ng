@@ -609,10 +609,18 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
         char pipe_cmd[128] = {0};
         unsigned int page = 0, usage = 0;
 
-        if (strcasecmp(command, "Connect") == 0 || strcasecmp(command, "BT_CONNECT") == 0) {
-            snprintf(pipe_cmd, sizeof(pipe_cmd), "CONNECT %s\n", bdaddr);
-        } else if (strcasecmp(command, "Disconnect") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
-            snprintf(pipe_cmd, sizeof(pipe_cmd), "DISCONNECT\n");
+        if (strcasecmp(command, "Connect") == 0 || strcasecmp(command, "BT_CONNECT") == 0 ||
+            strcasecmp(command, "Disconnect") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
+            /* A command to hub_btstack, not a key: on the key pipe "CONNECT" / "DISCONNECT" were
+               taken for key names and sent as consumer usages 0x0C / 0x0D */
+            int is_connect = strcasecmp(command, "Connect") == 0 || strcasecmp(command, "BT_CONNECT") == 0;
+            if (action == HW_BTN_ACTION_RELEASE || action == HW_BTN_ACTION_REPEAT) {
+                ret = 0; /* once per tap or press: a held key's repeats and its release send nothing */
+            } else {
+                char bt_cmd[64];
+                snprintf(bt_cmd, sizeof(bt_cmd), "%s %s\n", is_connect ? "connect_host" : "disconnect_host", bdaddr);
+                ret = hub_send_btstack_cmd(bt_cmd) == 0 ? 0 : -1;
+            }
         } else {
             int hid_parsed = 0;
             if (sscanf(keycode_str, "HID:%x:%x", &page, &usage) == 2 ||
