@@ -6,6 +6,7 @@
 #include "config_store.h"
 #include "bt_common.h"
 #include "orchestrator.h"
+#include "hub_events.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -24,39 +25,9 @@
 
 
 static hw_mqtt_button_handler_t g_mqtt_button_handler = NULL;
-static int g_local_api_port = 8089;
 
 void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
     g_mqtt_button_handler = handler;
-}
-
-void hw_set_local_api_port(int port) {
-    if (port > 0) g_local_api_port = port;
-}
-
-/* Blocking socket: send until everything is out */
-static int send_all_fd(int fd, const char *buf, size_t len) {
-    while (len > 0) {
-        ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) return -1;
-        buf += n;
-        len -= (size_t)n;
-    }
-    return 0;
-}
-
-static char *build_button_press_json(const char *device_id, const char *dev_name, const char *command, int action) {
-    cJSON *j = cJSON_CreateObject();
-    if (!j) return NULL;
-    cJSON_AddStringToObject(j, "deviceId", device_id ? device_id : "");
-    cJSON_AddStringToObject(j, "device", (dev_name && dev_name[0]) ? dev_name : "Dummy");
-    cJSON_AddStringToObject(j, "command", command ? command : "");
-    const char *act_str = (action == HW_BTN_ACTION_RELEASE) ? "release" : ((action == HW_BTN_ACTION_REPEAT) ? "hold" : "press");
-    cJSON_AddStringToObject(j, "action", act_str);
-    char *out = cJSON_PrintUnformatted(j);
-    cJSON_Delete(j);
-    return out;
 }
 
 int g_dry_run = 0;
@@ -721,48 +692,27 @@ static int hw_device_command_send_match(const char *target, int match_mode, cons
     } else if (is_mqtt || strncmp(keycode_str, "G:MQTT", 6) == 0) {
         const char *actual_dev_id_str = target_id_str[0] ? target_id_str : target;
         /* MQTT-type devices: the pulse on the device's own topic (handler registered by
-         * hub_mqtt), plus the button event on the daemon's bus through /api/button-press */
+         * hub_mqtt), plus the button event on the daemon's bus */
         if (g_mqtt_button_handler && action != HW_BTN_ACTION_RELEASE) {
-            if (g_mqtt_button_handler(actual_dev_id_str, dev_name, command) == 0) ret = 0;
+            g_mqtt_button_handler(actual_dev_id_str, dev_name, command);
         }
-        {
-            /* Dispatch MQTT button to hub_daemon on 127.0.0.1:<its port> */
-            int mfd = socket(AF_INET, SOCK_STREAM, 0);
-            if (mfd >= 0) {
-                struct sockaddr_in sin;
-                memset(&sin, 0, sizeof(sin));
-                sin.sin_family = AF_INET;
-                sin.sin_port = htons((uint16_t)g_local_api_port);
-                sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-                struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
-                setsockopt(mfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-                setsockopt(mfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-                if (connect(mfd, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-                    char *body = build_button_press_json(actual_dev_id_str, dev_name, command, action);
-                    size_t blen = body ? strlen(body) : 0;
-                    /* headers and body sent separately: a body built into a fixed buffer was cut
-                     * for long device or command names while Content-Length gave its full size */
-                    char hdr[192];
-                    int hl = snprintf(hdr, sizeof(hdr),
-                                      "POST /api/button-press HTTP/1.1\r\n"
-                                      "Host: 127.0.0.1:%d\r\n"
-                                      "Content-Length: %zu\r\n"
-                                      "Content-Type: application/json\r\n"
-                                      "Connection: close\r\n\r\n",
-                                      g_local_api_port, blen);
-                    if (hl > 0 && (size_t)hl < sizeof(hdr) && send_all_fd(mfd, hdr, (size_t)hl) == 0 && blen) {
-                        send_all_fd(mfd, body, blen);
-                    }
-                    if (body) free(body);
-                    char resp[256] = {0};
-                    recv(mfd, resp, sizeof(resp) - 1, 0);
-                    if (strstr(resp, "200 OK") != NULL || strstr(resp, "\"ok\":true") != NULL) {
-                        ret = 0;
-                    }
-                }
-                close(mfd);
+        /* The event as POST /api/button-press emits it for this request (press and release only:
+         * a held key's repeats are not events). It used to be an HTTP request to the daemon's own
+         * port: called from the main loop (WebSocket and MQTT commands, activity steps) nobody
+         * accepted it, so the main loop waited 2 s for every command and reported it as failed
+         * when no broker was connected. */
+        if (action != HW_BTN_ACTION_REPEAT) {
+            cJSON *ev = cJSON_CreateObject();
+            if (ev) {
+                cJSON_AddStringToObject(ev, "button", command);
+                cJSON_AddStringToObject(ev, "action", action == HW_BTN_ACTION_RELEASE ? "release" : "press");
+                cJSON_AddStringToObject(ev, "source", "api");
+                cJSON_AddStringToObject(ev, "deviceId", actual_dev_id_str);
+                cJSON_AddStringToObject(ev, "command", command);
+                hub_events_emit(HUB_EV_BUTTON, ev);
             }
         }
+        ret = 0;
     } else if (keycode_str[0]) {
         if (action == HW_BTN_ACTION_RELEASE) {
             hw_ir_cancel(ir_ports);
