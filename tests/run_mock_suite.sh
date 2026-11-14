@@ -322,6 +322,8 @@ python3 "$SCRIPT_DIR/test_ethernet_apply.py"
 echo "[-] Validating docs/openapi.yaml with PyYAML..."
 python3 "$SCRIPT_DIR/test_mqtt_device_command.py"
 python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml')); print('    openapi.yaml parses')"
+# Every C file in payload/source is built by a build script or a test
+python3 "$SCRIPT_DIR/test_source_orphans.py"
 echo "[-] Running OpenAPI Specification Test Suite..."
 python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
 python3 "$SCRIPT_DIR/test_mqtt_ha_template.py"
