@@ -106,11 +106,12 @@ export function createView() {
           style: { padding: '4px 8px', fontSize: '12px' },
           onchange: (e) => loadLogs(e.target.value),
         }, [
+          // The sources GET /api/logs knows (same list as the legacy UI); MQTT logs to hub_daemon
           h('option', { value: 'daemon', text: 'hub_daemon' }),
-          h('option', { value: 'rf', text: 'codex_rf' }),
-          h('option', { value: 'bt', text: 'codex_btstack' }),
-          h('option', { value: 'mqtt', text: 'codex_mqtt' }),
-          h('option', { value: 'dmesg', text: 'dmesg (kernel)' }),
+          h('option', { value: 'btstack', text: 'hub_btstack' }),
+          h('option', { value: 'rf', text: 'hub_rf' }),
+          h('option', { value: 'network', text: 'Network Manager' }),
+          h('option', { value: 'system', text: 'System / Kernel (logread)' }),
         ]),
         h('button', {
           className: 'btn btn-secondary btn-sm',
