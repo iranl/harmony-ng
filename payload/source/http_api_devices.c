@@ -728,8 +728,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddItemToObject(found_dev, "powerOffSequence", pf_copy);
                 }
 
-                if (config_store_save_devices(root) == 0) root = NULL;
-                success = 1;
+                if (config_store_save_devices(root) == 0) {
+                    root = NULL;
+                    success = 1;
+                }
             }
             cJSON_Delete(root); /* NULL once the store took it */
             config_store_unlock();
@@ -788,8 +790,10 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                             else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
                             if (strcmp(d_id_str, dev_id) == 0) {
                                 cJSON_DeleteItemFromArray(devs, di);
-                                if (config_store_save_devices(root) == 0) root = NULL;
-                                success = 1;
+                                if (config_store_save_devices(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }

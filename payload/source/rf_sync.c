@@ -5,6 +5,7 @@
 #include "rf_ota.h"
 #include "timezone_db.h"
 #include "harmony_version.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,16 +92,12 @@ void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
         snprintf(diff, sizeof(diff), "Remote Slot %d settings modified", slot);
     }
 
-    FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-    if (df) {
-        fprintf(df, "{\"slot\":%d,\"diff\":\"%s\"}\n", slot, diff);
-        fclose(df);
-    }
-    FILE *flag = fopen("/data/harmony/rf_sync_pending.flag", "w");
-    if (flag) {
-        fprintf(flag, "%ld\n", (long)time(NULL));
-        fclose(flag);
-    }
+    char details[sizeof(diff) + 32];
+    snprintf(details, sizeof(details), "{\"slot\":%d,\"diff\":\"%s\"}\n", slot, diff);
+    atomic_file_write_str("/data/harmony/rf_sync_pending_details.json", details);
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%ld\n", (long)time(NULL));
+    atomic_file_write_str("/data/harmony/rf_sync_pending.flag", ts);
 }
 
 void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
@@ -181,11 +178,10 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
             fclose(ef);
         }
         if (need_write) {
-            FILE *f = fopen(path, "w");
-            if (f) {
-                fputs(txt, f);
-                fclose(f);
+            if (atomic_file_write_str(path, txt) == 0) {
                 printf("[*] Saved remote config backup to %s\n", path);
+            } else {
+                fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
             }
         }
         free(txt);

@@ -4,6 +4,7 @@
 #include "hw_action.h"
 #include "cJSON.h"
 #include "config_store.h"
+#include "atomic_file.h"
 #include "resource_cache.h"
 #include "bt_common.h"
 
@@ -64,13 +65,9 @@ static void save_current_activity(const char *act_id) {
     }
     if (strcmp(s_last_persisted_act, act_id) == 0) return;
 
-    char tmp[64];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", PRIMARY_CURRENT_ACT_FILE);
-    FILE *f = fopen(tmp, "w");
-    if (!f) return;
-    fprintf(f, "%s\n", act_id);
-    fclose(f);
-    rename(tmp, PRIMARY_CURRENT_ACT_FILE);
+    char line[72];
+    snprintf(line, sizeof(line), "%s\n", act_id);
+    if (atomic_file_write_str(PRIMARY_CURRENT_ACT_FILE, line) != 0) return; /* retried at the next save */
     strncpy(s_last_persisted_act, act_id, sizeof(s_last_persisted_act) - 1);
 }
 

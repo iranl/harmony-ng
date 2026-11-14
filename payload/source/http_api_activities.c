@@ -738,8 +738,10 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                             else if (jid && cJSON_IsString(jid)) strncpy(item_id, jid->valuestring, sizeof(item_id) - 1);
                             if (strcmp(item_id, act_id_str) == 0) {
                                 cJSON_DeleteItemFromArray(acts, i);
-                                if (config_store_save_activities(root) == 0) root = NULL;
-                                success = 1;
+                                if (config_store_save_activities(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }

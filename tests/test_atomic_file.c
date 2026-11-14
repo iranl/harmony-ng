@@ -1,0 +1,102 @@
+/* atomic_file.h: the file is the old or the new content, never cut, and failures are reported.
+ * A file size limit (RLIMIT_FSIZE, SIGXFSZ ignored) stands in for a full flash. */
+#include "atomic_file.h"
+
+#include <dirent.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+
+static int failed;
+
+#define CHECK(cond, name)                                         \
+    do {                                                          \
+        if (cond) {                                               \
+            printf("  PASS %s\n", name);                          \
+        } else {                                                  \
+            printf("  FAIL %s (line %d)\n", name, __LINE__);      \
+            failed++;                                             \
+        }                                                         \
+    } while (0)
+
+static long file_size(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 ? (long)st.st_size : -1;
+}
+
+static int read_eq(const char *path, const char *want) {
+    char buf[256] = {0};
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    return n == strlen(want) && memcmp(buf, want, n) == 0;
+}
+
+static int entries(const char *dir) {
+    int n = 0;
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    if (!d) return -1;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) n++;
+    }
+    closedir(d);
+    return n;
+}
+
+int main(void) {
+    char dir[] = "/tmp/atomic_file_testXXXXXX";
+    char path[128];
+    printf("[-] atomic_file_write\n");
+    if (!mkdtemp(dir)) return 1;
+    snprintf(path, sizeof(path), "%s/devices.json", dir);
+
+    CHECK(atomic_file_write_str(path, "old content\n") == 0, "new file written");
+    CHECK(read_eq(path, "old content\n"), "new file content");
+    struct stat st;
+    CHECK(stat(path, &st) == 0 && (st.st_mode & 0777) == 0644, "new file mode 0644");
+
+    chmod(path, 0600);
+    CHECK(atomic_file_write_str(path, "second\n") == 0 && read_eq(path, "second\n"), "replaced");
+    CHECK(stat(path, &st) == 0 && (st.st_mode & 0777) == 0600, "old file mode kept");
+
+    /* Full flash: writes past 1000 bytes fail with EFBIG. Soft limit only, raised again below:
+     * stdout may be a log file larger than the limit. */
+    fflush(stdout);
+    signal(SIGXFSZ, SIG_IGN);
+    struct rlimit saved, rl;
+    getrlimit(RLIMIT_FSIZE, &saved);
+    rl = saved;
+    rl.rlim_cur = 1000;
+    setrlimit(RLIMIT_FSIZE, &rl);
+    char *big = malloc(5000);
+    memset(big, 'x', 4999);
+    big[4999] = '\0';
+    int past = atomic_file_write_str(path, big) == -1;
+    int kept = read_eq(path, "second\n") && file_size(path) == 7;
+    int no_tmp = entries(dir) == 1;
+    int within = atomic_file_write(path, big, 900) == 0 && file_size(path) == 900;
+    setrlimit(RLIMIT_FSIZE, &saved);
+    free(big);
+    CHECK(past, "write past the limit fails");
+    CHECK(kept, "old file kept on failure");
+    CHECK(no_tmp, "temporary file removed on failure");
+    CHECK(within, "write within the limit");
+
+    CHECK(atomic_file_write_str(NULL, "x") == -1 && atomic_file_write_str(path, NULL) == -1, "NULL refused");
+    snprintf(path, sizeof(path), "%s/missing_dir/file", dir);
+    CHECK(atomic_file_write_str(path, "x") == -1, "missing directory reported");
+
+    snprintf(path, sizeof(path), "rm -rf %s", dir);
+    if (system(path) != 0) return 1;
+    if (failed) {
+        printf("atomic_file: %d FAILED\n", failed);
+        return 1;
+    }
+    printf("[+] atomic_file: all passed\n");
+    return 0;
+}

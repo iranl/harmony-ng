@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include "ota_verify.h"
+#include "atomic_file.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -426,25 +427,23 @@ static void portal_extract_param(const char *body, const char *name, char *out, 
     }
 }
 
+/* Written to a synced temporary file and renamed: a power cut never leaves an empty config */
 static int portal_save_wifi_config(const char *ssid, const char *psk, int hidden) {
-    FILE *f = fopen(WPA_CONF, "w");
-    if (!f) return -1;
-
-    fprintf(f, "ctrl_interface=/var/run/wpa_supplicant\n");
-    fprintf(f, "update_config=1\n\n");
-    fprintf(f, "network={\n");
-    fprintf(f, "    ssid=\"%s\"\n", ssid);
+    char conf[512];
+    int n;
     if (psk && psk[0]) {
-        fprintf(f, "    psk=\"%s\"\n", psk);
+        n = snprintf(conf, sizeof(conf),
+                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
+                     "    ssid=\"%s\"\n    psk=\"%s\"\n%s}\n",
+                     ssid, psk, hidden ? "    scan_ssid=1\n" : "");
     } else {
-        fprintf(f, "    key_mgmt=NONE\n");
+        n = snprintf(conf, sizeof(conf),
+                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
+                     "    ssid=\"%s\"\n    key_mgmt=NONE\n%s}\n",
+                     ssid, hidden ? "    scan_ssid=1\n" : "");
     }
-    if (hidden) {
-        fprintf(f, "    scan_ssid=1\n");
-    }
-    fprintf(f, "}\n");
-    fclose(f);
-    return 0;
+    if (n < 0 || (size_t)n >= sizeof(conf)) return -1;
+    return atomic_file_write(WPA_CONF, conf, (size_t)n);
 }
 
 static int run_portal(int argc, char **argv) {
@@ -501,9 +500,10 @@ static int run_portal(int argc, char **argv) {
             portal_extract_param(body, "psk", psk, sizeof(psk));
             portal_extract_param(body, "hidden", hid_str, sizeof(hid_str));
 
-            if (ssid[0]) {
+            if (ssid[0] && portal_save_wifi_config(ssid, psk, hid_str[0] == '1') != 0) {
+                printf("[-] Could not save the Wi-Fi configuration to %s\n", WPA_CONF);
+            } else if (ssid[0]) {
                 printf("[+] Received Wi-Fi credentials for SSID: '%s'\n", ssid);
-                portal_save_wifi_config(ssid, psk, hid_str[0] == '1');
                 send(cfd, HTML_SAVED, strlen(HTML_SAVED), 0);
                 close(cfd);
 

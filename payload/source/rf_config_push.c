@@ -8,6 +8,7 @@
 #include "rf_button_list.h"
 #include "remote_stock_icons.h"
 #include "custom_icon_registry.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -821,12 +822,10 @@ void *config_push_worker(void *arg) {
             uint8_t target_slot = target_slots[t];
             int idx = target_slot - 1;
             if (idx >= 0 && idx < 2 && g_remote_versions[idx].config_version != config_ver) {
-                FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-                if (df) {
-                    fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
-                            target_slot, target_slot);
-                    fclose(df);
-                }
+                char details[128];
+                snprintf(details, sizeof(details), "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
+                         target_slot, target_slot);
+                atomic_file_write_str("/data/harmony/rf_sync_pending_details.json", details);
                 break;
             }
         }

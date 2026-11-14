@@ -446,8 +446,16 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
             hidden ? "\tscan_ssid=1\n" : "");
     }
 
-    write_file_content("/etc/wpa_supplicant.conf", test_wpa);
-    write_file_content("/etc/wpa_supplicant.ath0.conf", test_wpa);
+    if (write_file_content("/etc/wpa_supplicant.conf", test_wpa) != 0 ||
+        write_file_content("/etc/wpa_supplicant.ath0.conf", test_wpa) != 0) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "Could not write the Wi-Fi configuration (flash full?)");
+        if (orig_conf) {
+            write_file_content("/etc/wpa_supplicant.conf", orig_conf);
+            write_file_content("/etc/wpa_supplicant.ath0.conf", orig_conf);
+            free(orig_conf);
+        }
+        return -1;
+    }
 
     system("/usr/sbin/wpa_cli -i ath0 reconfigure >/dev/null 2>&1");
 

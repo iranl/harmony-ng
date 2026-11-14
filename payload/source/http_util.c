@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "http_util.h"
+#include "atomic_file.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,33 +101,15 @@ cJSON *parse_request_params(const char *body) {
     return obj;
 }
 
+/* Both writers replace the file through a synced temporary file (atomic_file.h): a power cut or a
+ * full flash leaves the old file, never an empty or cut one, and the caller gets -1. */
 int write_file_content(const char *filepath, const char *content) {
-    if (!filepath || !content) return -1;
-    FILE *f = fopen(filepath, "w");
-    if (!f) return -1;
-    fputs(content, f);
-    fclose(f);
-    return 0;
+    return atomic_file_write_str(filepath, content);
 }
 
 int write_file_atomic_sized(const char *filepath, const char *content, size_t len) {
-    if (!filepath || !content) return -1;
-    /* Unique per call: two threads of the daemon may write the same file at once */
-    static unsigned int s_seq;
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "%s.tmp.%d.%u", filepath, (int)getpid(), __sync_fetch_and_add(&s_seq, 1));
-    FILE *f = fopen(tmp, "wb");
-    if (!f) return -1;
-    size_t written = fwrite(content, 1, len, f);
-    /* Data on flash before the rename: otherwise a power cut or a full partition can leave
-     * the new name pointing at an empty or cut file */
-    int failed = (written != len) || fflush(f) != 0 || fsync(fileno(f)) != 0;
-    if (fclose(f) != 0) failed = 1;
-    if (failed) {
-        unlink(tmp);
-        return -1;
-    }
-    return rename(tmp, filepath);
+    if (!content) return -1;
+    return atomic_file_write(filepath, content, len);
 }
 
 char *read_file_text_alloc(const char *path, size_t max_sz, size_t *out_len) {

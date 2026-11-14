@@ -2,6 +2,7 @@
 #include "bt_pairing.h"
 #include "bt_remote.h"
 #include "bt_status_json.h"
+#include "../atomic_file.h"
 
 /* Hosts connected right now, kept in /tmp: after a hub_btstack restart (deploy, crash) the same
  * hosts are reconnected, not only the activity's. Gone after a reboot. */
@@ -392,15 +393,7 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
                                 cJSON_AddStringToObject(ditem, "bdaddr", addr_str);
                                 char *dout = cJSON_Print(droot);
                                 if (dout) {
-                                    char tmp_dpath[128];
-                                    snprintf(tmp_dpath, sizeof(tmp_dpath), "%s.tmp", dpath);
-                                    FILE *dwf = fopen(tmp_dpath, "w");
-                                    if (dwf) {
-                                        fputs(dout, dwf);
-                                        fputc('\n', dwf);
-                                        fclose(dwf);
-                                        linked = (rename(tmp_dpath, dpath) == 0);
-                                    }
+                                    linked = (atomic_file_write_str(dpath, dout) == 0);
                                     free(dout);
                                 }
                                 break;
@@ -941,11 +934,9 @@ void start_user_pair(const char *addr_str) {
     log_msg(msg);
     le_pair_window_open(new_addr, le_pair_now_s());
 
-    FILE *tf = fopen(TARGET_FILE, "w");
-    if (tf) {
-        fprintf(tf, "%s\n", addr_str);
-        fclose(tf);
-    }
+    char tline[32];
+    snprintf(tline, sizeof(tline), "%s\n", addr_str);
+    if (atomic_file_write_str(TARGET_FILE, tline) != 0) log_msg("Could not save " TARGET_FILE);
 
     g_user_scan_active = false;
     btstack_run_loop_remove_timer(&reconnect_timer);

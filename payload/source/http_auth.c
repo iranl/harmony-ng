@@ -486,15 +486,18 @@ int save_user_accounts(const struct user_account *users, int count, int auth_ena
 
     char *json_out = cJSON_Print(root);
     cJSON_Delete(root);
-    if (json_out) {
-        mkdir("/data/harmony", 0755);
-        mkdir("/data/harmony/config", 0755);
-        write_file_atomic_sized(HARMONY_USERS_JSON, json_out, strlen(json_out));
-        free(json_out);
+    if (!json_out) return 0;
+    mkdir("/data/harmony", 0755);
+    mkdir("/data/harmony/config", 0755);
+    int rc = write_file_atomic_sized(HARMONY_USERS_JSON, json_out, strlen(json_out));
+    free(json_out);
+    if (rc != 0) {
+        fprintf(stderr, "[-] AUTH: could not save %s (flash full?)\n", HARMONY_USERS_JSON);
+        return 0;
     }
 
     if (!auth_enabled || count == 0) {
-        write_file_atomic_sized(HARMONY_AUTH_CONF, "# auth disabled\n", 16);
+        rc = write_file_atomic_sized(HARMONY_AUTH_CONF, "# auth disabled\n", 16);
     } else {
         char conf_buf[2048] = {0};
         int offset = 0;
@@ -512,7 +515,11 @@ int save_user_accounts(const struct user_account *users, int count, int auth_ena
                 offset += written;
             }
         }
-        write_file_atomic_sized(HARMONY_AUTH_CONF, conf_buf, (size_t)offset);
+        rc = write_file_atomic_sized(HARMONY_AUTH_CONF, conf_buf, (size_t)offset);
+    }
+    if (rc != 0) {
+        fprintf(stderr, "[-] AUTH: could not save %s (flash full?)\n", HARMONY_AUTH_CONF);
+        return 0;
     }
     return 1;
 }

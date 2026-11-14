@@ -49,7 +49,9 @@ static int remove_tokens_of(const char *owner) {
     if (removed) {
         char *json_out = cJSON_Print(root);
         if (json_out) {
-            write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out));
+            if (write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) != 0) {
+                fprintf(stderr, "[-] AUTH: could not save %s (flash full?)\n", HARMONY_TOKENS_JSON);
+            }
             free(json_out);
         }
     }
@@ -297,14 +299,20 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         char *json_out = cJSON_Print(root);
         cJSON_Delete(root);
+        int saved = 0;
         if (json_out) {
             mkdir("/data/harmony", 0755);
             mkdir("/data/harmony/config", 0755);
-            write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out));
+            saved = (write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) == 0);
             free(json_out);
         }
 
         if (params) cJSON_Delete(params);
+        if (!saved) {
+            send_json_error(client_fd, 500, "Could not save the token (flash full?)");
+            close(client_fd);
+            return 1;
+        }
 
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
@@ -338,7 +346,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         const char *path = HARMONY_TOKENS_JSON;
         size_t flen = 0;
-        int deleted = 0;
+        int deleted = 0, save_failed = 0;
         char *json_txt = read_file_text_alloc(path, 65536, &flen);
         if (json_txt) {
             cJSON *root = cJSON_Parse(json_txt);
@@ -357,16 +365,21 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         }
                     }
                     char *json_out = deleted ? cJSON_Print(root) : NULL;
-                    if (json_out) {
-                        write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out));
-                        free(json_out);
+                    if (deleted && (!json_out || write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) != 0)) {
+                        save_failed = 1;
                     }
+                    free(json_out);
                 }
                 cJSON_Delete(root);
             }
         }
 
         if (params) cJSON_Delete(params);
+        if (save_failed) {
+            send_json_error(client_fd, 500, "Could not save the token list (flash full?)");
+            close(client_fd);
+            return 1;
+        }
         if (!deleted) {
             send_json_error(client_fd, 404, "Token not found");
             close(client_fd);
@@ -502,7 +515,12 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         int was_on = 0;
         load_user_accounts(NULL, 0, &was_on);
-        save_user_accounts(ulist, ucnt, auth_on);
+        if (!save_user_accounts(ulist, ucnt, auth_on)) {
+            cJSON_Delete(params);
+            send_json_error(client_fd, 500, "Could not save the user accounts (flash full?)");
+            close(client_fd);
+            return 1;
+        }
         if (ends_sessions) http_auth_drop_user_sessions(new_user);
         if (was_on != auth_on) http_auth_drop_all_sessions();
         cJSON_Delete(params);
@@ -565,7 +583,12 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             ulist[i] = ulist[i + 1];
         }
         ucnt--;
-        save_user_accounts(ulist, ucnt, ucnt > 0 ? auth_on : 0);
+        if (!save_user_accounts(ulist, ucnt, ucnt > 0 ? auth_on : 0)) {
+            if (params) cJSON_Delete(params);
+            send_json_error(client_fd, 500, "Could not save the user accounts (flash full?)");
+            close(client_fd);
+            return 1;
+        }
         http_auth_drop_user_sessions(del_user);
         remove_tokens_of(del_user);
 

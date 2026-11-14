@@ -130,8 +130,10 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     cJSON_AddItemToArray(cmds, new_cmd);
                                 }
-                                if (config_store_save_devices(root) == 0) root = NULL;
-                                success = 1;
+                                if (config_store_save_devices(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }
@@ -232,8 +234,10 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                     }
                                     saved_count++;
                                 }
-                                if (config_store_save_devices(root) == 0) root = NULL;
-                                success = 1;
+                                if (config_store_save_devices(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }
@@ -293,8 +297,10 @@ int http_api_commands_handle(int client_fd, const char *method, const char *clea
                                         cJSON *cn = cJSON_GetObjectItemCaseSensitive(c_item, "name");
                                         if (cn && cJSON_IsString(cn) && strcmp(cn->valuestring, cmd_name) == 0) {
                                             cJSON_DeleteItemFromArray(cmds, ci);
-                                            if (config_store_save_devices(root) == 0) root = NULL;
-                                            success = 1;
+                                            if (config_store_save_devices(root) == 0) {
+                                                root = NULL;
+                                                success = 1;
+                                            }
                                             break;
                                         }
                                     }

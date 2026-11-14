@@ -288,16 +288,14 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
         snprintf(p_cache, sizeof(p_cache), "/cache/www/assets/icons/%s", main_name);
         snprintf(p_tmp, sizeof(p_tmp), "/tmp/www/assets/icons/%s", main_name);
 
-        FILE *f = fopen(p_data, "wb");
-        if (!f) {
+        if (write_file_atomic_sized(p_data, (const char *)png_data, png_len) != 0) {
             send_json_error(client_fd, 500, "Failed to write custom icon to flash storage");
             close(client_fd);
             return 1;
         }
-        fwrite(png_data, 1, png_len, f);
-        fclose(f);
-        FILE *fc = fopen(p_cache, "wb");
-        if (fc) { fwrite(png_data, 1, png_len, fc); fclose(fc); }
+        if (write_file_atomic_sized(p_cache, (const char *)png_data, png_len) != 0) {
+            fprintf(stderr, "[-] Could not copy custom icon to %s\n", p_cache);
+        }
         FILE *ft = fopen(p_tmp, "wb");
         if (ft) { fwrite(png_data, 1, png_len, ft); fclose(ft); }
 

@@ -2,6 +2,7 @@
 #include "custom_icon_registry.h"
 #include "rf_sync.h"
 #include "cJSON.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,13 +68,8 @@ static void save_json_file_atomic(const char *path, cJSON *root) {
     if (!path || !root) return;
     char *txt = cJSON_PrintUnformatted(root);
     if (!txt) return;
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
-    if (f) {
-        fputs(txt, f);
-        fclose(f);
-        rename(tmp, path);
+    if (atomic_file_write_str(path, txt) != 0) {
+        fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
     }
     free(txt);
 }

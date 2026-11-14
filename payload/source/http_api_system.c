@@ -55,6 +55,17 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+/* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
+static void write_file_if_changed(const char *path, const char *text) {
+    size_t len = 0;
+    char *cur = read_file_text_alloc(path, 4096, &len);
+    int same = cur && len == strlen(text) && memcmp(cur, text, len) == 0;
+    free(cur);
+    if (!same && write_file_content(path, text) != 0) {
+        fprintf(stderr, "[-] Could not write %s\n", path);
+    }
+}
+
 void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
     hub_mdns_apply_settings(s);
@@ -64,20 +75,16 @@ void apply_hub_settings(const struct hub_settings *s) {
     if (s->timezone[0]) {
         char posix_tz[64];
         timezone_to_posix(s->timezone, posix_tz, sizeof(posix_tz));
-        FILE *tzf = fopen("/etc/TZ", "w");
-        if (tzf) {
-            fprintf(tzf, "%s\n", posix_tz);
-            fclose(tzf);
-        }
+        char line[80];
+        snprintf(line, sizeof(line), "%s\n", posix_tz);
+        write_file_if_changed("/etc/TZ", line);
         setenv("TZ", posix_tz, 1);
         tzset();
     }
     if (s->ntp_server[0] && !g_dry_run) {
-        FILE *ntpf = fopen("/etc/ntp.conf", "w");
-        if (ntpf) {
-            fprintf(ntpf, "server %s\n", s->ntp_server);
-            fclose(ntpf);
-        }
+        char line[160];
+        snprintf(line, sizeof(line), "server %s\n", s->ntp_server);
+        write_file_if_changed("/etc/ntp.conf", line);
     }
 }
 
@@ -473,9 +480,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");
 
-            config_store_save_mqtt_json(cfg);
+            int save_rc = config_store_save_mqtt_json(cfg);
             cJSON_Delete(cfg);
             cJSON_Delete(params);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the MQTT settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
 
             daemon_sync_mqtt();
 
@@ -621,7 +633,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     return 1;
                 }
 
-                save_user_accounts(ulist, ucnt, new_auth_enabled);
+                if (!save_user_accounts(ulist, ucnt, new_auth_enabled)) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 500, "Could not save the user accounts (flash full?)");
+                    close(client_fd);
+                    return 1;
+                }
                 if (new_auth_enabled != curr_auth_enabled) http_auth_drop_all_sessions();
                 cJSON_Delete(params);
 
@@ -705,9 +722,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 if (cJSON_IsBool(item)) s.legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.legacy_enabled = item->valueint ? 1 : 0;
             }
-            config_store_save_settings(&s);
-            apply_hub_settings(&s);
+            int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
+            apply_hub_settings(&s);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
