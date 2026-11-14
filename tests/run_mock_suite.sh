@@ -155,6 +155,8 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_ic
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sanitize_activity_steps" "$SCRIPT_DIR/test_sanitize_activity_steps.c" "$REPO_ROOT/payload/source/config_sanitize.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_sanitize_activity_steps"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sha256" "$SCRIPT_DIR/test_sha256.c" "$REPO_ROOT/payload/source/sha256.c" && "$BUILD_DIR/test_sha256"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mqtt_connect_flags" "$SCRIPT_DIR/test_mqtt_connect_flags.c" "$REPO_ROOT/payload/source/mqtt_client.c" && "$BUILD_DIR/test_mqtt_connect_flags"
+# Host tool in the release bundle layout (remote/setup_remote.py finds init.sh and remote_watchdog.sh)
+python3 "$SCRIPT_DIR/test_setup_remote_bundle.py"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_encoder" "$SCRIPT_DIR/test_ir_encoder.c" "$REPO_ROOT/payload/source/ir_encoder.c" "$REPO_ROOT/payload/source/ir_i2s.c" && "$BUILD_DIR/test_ir_encoder"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_button_list" "$SCRIPT_DIR/test_rf_button_list.c" "$REPO_ROOT/payload/source/rf_button_list.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_rf_button_list"
 build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_keymap_lock" "$SCRIPT_DIR/test_rf_keymap_lock.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
