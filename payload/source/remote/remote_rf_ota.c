@@ -15,7 +15,7 @@
 #include <sys/reboot.h>
 #include <time.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <dirent.h>
 
 #define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
@@ -320,7 +320,7 @@ int ota_stage_file(const char *src, const char *dst, uint64_t free_margin) {
 }
 
 int ota_replace_file(const char *new_path, const char *path, const char *bak_path) {
-    if (bak_path) {
+    if (bak_path && access(path, F_OK) == 0) {
         /* The backup is a second name of the current file: no copy, no extra space */
         unlink(bak_path);
         if (link(path, bak_path) != 0) {
@@ -342,6 +342,89 @@ int ota_replace_file(const char *new_path, const char *path, const char *bak_pat
     if (slash && slash != dir) {
         *slash = '\0';
         ota_sync_file(dir); /* the rename itself on flash */
+    }
+    return 0;
+}
+
+int ota_install_binary(const char *new_path, const char *path, const char *bak_path, const char *self_exe) {
+    /* The previous version is started by the supervisor when the installed one keeps failing.
+     * If that previous version is what runs now, the installed binary is the failing one: keep
+     * the backup instead of replacing it with it. Decided from the running file itself (same
+     * inode), whatever name or link it was started through. */
+    struct stat run_st, bak_st;
+    if (bak_path && self_exe && stat(self_exe, &run_st) == 0 && stat(bak_path, &bak_st) == 0 &&
+        run_st.st_dev == bak_st.st_dev && run_st.st_ino == bak_st.st_ino) {
+        printf("[*] OTA install: running the backup %s, it is kept (the replaced %s is not backed up)\n",
+               bak_path, path);
+        bak_path = NULL;
+    }
+    return ota_replace_file(new_path, path, bak_path);
+}
+
+static int ota_file_add(ota_file_t *files, int max, int n, const char *src, const char *dir, const char *name) {
+    if (n < 0 || n >= max) return -1;
+    if (snprintf(files[n].src, sizeof(files[n].src), "%s", src) >= (int)sizeof(files[n].src) ||
+        snprintf(files[n].dst, sizeof(files[n].dst), "%s/%s", dir, name) >= (int)sizeof(files[n].dst)) {
+        printf("[-] OTA install: path too long for %s\n", name);
+        return -1;
+    }
+    return n + 1;
+}
+
+int ota_package_files(const char *pkg_dir, const char *data_dir, const char *initd_dir, ota_file_t *files, int max) {
+    char src[OTA_PATH_MAX];
+    int n = 0;
+    snprintf(src, sizeof(src), "%s/rcS.local", pkg_dir);
+    if (access(src, F_OK) == 0) {
+        n = ota_file_add(files, max, n, src, initd_dir, "rcS.local");
+        n = ota_file_add(files, max, n, src, data_dir, "rcS.local");
+    }
+    DIR *d = opendir(pkg_dir);
+    if (!d) return -1;
+    struct dirent *e;
+    while (n >= 0 && (e = readdir(d)) != NULL) {
+        size_t len = strlen(e->d_name);
+        if (len <= 3 || e->d_name[0] == '.' || strcmp(e->d_name + len - 3, ".sh") != 0) continue;
+        if (snprintf(src, sizeof(src), "%s/%s", pkg_dir, e->d_name) >= (int)sizeof(src)) { n = -1; break; }
+        struct stat st;
+        if (stat(src, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        n = ota_file_add(files, max, n, src, data_dir, e->d_name);
+    }
+    closedir(d);
+    snprintf(src, sizeof(src), "%s/remote_sync", pkg_dir);
+    if (n >= 0 && access(src, F_OK) == 0) n = ota_file_add(files, max, n, src, data_dir, "remote_sync");
+    return n;
+}
+
+static void ota_drop_staged(const ota_file_t *files, int from, int to) {
+    char neu[OTA_PATH_MAX + 8];
+    for (int i = from; i < to; i++) {
+        snprintf(neu, sizeof(neu), "%s.new", files[i].dst);
+        unlink(neu);
+    }
+}
+
+int ota_stage_files(const ota_file_t *files, int n, uint64_t free_margin) {
+    char neu[OTA_PATH_MAX + 8];
+    for (int i = 0; i < n; i++) {
+        snprintf(neu, sizeof(neu), "%s.new", files[i].dst);
+        if (ota_stage_file(files[i].src, neu, free_margin) != 0) {
+            ota_drop_staged(files, 0, i);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int ota_commit_files(const ota_file_t *files, int n) {
+    char neu[OTA_PATH_MAX + 8], bak[OTA_PATH_MAX + 8];
+    for (int i = 0; i < n; i++) {
+        snprintf(neu, sizeof(neu), "%s.new", files[i].dst);
+        snprintf(bak, sizeof(bak), "%s.bak", files[i].dst);
+        if (ota_replace_file(neu, files[i].dst, bak) != 0) {
+            ota_drop_staged(files, i, n);
+            return -1;
+        }
     }
     return 0;
 }
@@ -586,6 +669,18 @@ bool handle_ota_frame(const rf_frame_t *f) {
                  * one in place and tells the Hub */
                 int staged = is_pkg ? ota_stage_file(bin_path, "/data/remote_ui.new", OTA_INSTALL_FREE_MARGIN)
                                     : ota_sync_file("/data/remote_ui.new");
+                /* The boot hook, the scripts and remote_sync of a package are staged the same way,
+                 * each as <target>.new next to its target, before any of them replaces a file: a
+                 * copy that fails leaves every installed file as it was */
+                ota_file_t pkg_files[OTA_MAX_PKG_FILES];
+                int pkg_count = is_pkg ? ota_package_files("/tmp/remote_ota_pkg", "/data", "/etc/init.d",
+                                                           pkg_files, OTA_MAX_PKG_FILES) : 0;
+                if (staged == 0 && pkg_count < 0) {
+                    printf("[-] OTA install: cannot list the files of the package\n");
+                    staged = -1;
+                }
+                if (staged == 0 && pkg_count > 0 && ota_stage_files(pkg_files, pkg_count, OTA_INSTALL_FREE_MARGIN) != 0)
+                    staged = -1;
                 if (staged != 0) {
                     ota_install_failed(f->seq);
                     return true;
@@ -593,27 +688,16 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 printf("[+] ELF header verified! Replacing binary and installing scripts...\n");
 
                 if (is_pkg) {
-                    if (access("/tmp/remote_ota_pkg/rcS.local", F_OK) == 0) {
-                        system("cp -f /tmp/remote_ota_pkg/rcS.local /etc/init.d/rcS.local && chmod 755 /etc/init.d/rcS.local");
-                        system("cp -f /tmp/remote_ota_pkg/rcS.local /data/rcS.local 2>/dev/null && chmod 755 /data/rcS.local 2>/dev/null || true");
-                    }
-                    if (access("/tmp/remote_ota_pkg/remote_watchdog.sh", F_OK) == 0) {
-                        system("cp -f /tmp/remote_ota_pkg/remote_watchdog.sh /data/remote_watchdog.sh && chmod 755 /data/remote_watchdog.sh");
-                    }
-                    if (access("/tmp/remote_ota_pkg/factory_reset.sh", F_OK) == 0) {
-                        system("cp -f /tmp/remote_ota_pkg/factory_reset.sh /data/factory_reset.sh && chmod 755 /data/factory_reset.sh");
-                    }
-                    system("for s in /tmp/remote_ota_pkg/*.sh; do [ -f \"$s\" ] && cp -f \"$s\" /data/ && chmod 755 \"/data/${s##*/}\"; done 2>/dev/null || true");
                     /* Built-in themes replace their older versions; other themes stay.
                        No basename: the stock BusyBox has none, and an empty name made
                        older builds wipe /data/themes and leave the last theme's files
                        at its top level; those stray files are removed here. */
                     system("mkdir -p /data/themes && rm -f /data/themes/* 2>/dev/null; for t in /tmp/remote_ota_pkg/themes/*; do [ -d \"$t\" ] && rm -rf \"/data/themes/${t##*/}\" && cp -r \"$t\" /data/themes/; done 2>/dev/null || true");
-                    if (access("/tmp/remote_ota_pkg/remote_sync", F_OK) == 0) {
-                        system("cp -f /tmp/remote_ota_pkg/remote_sync /data/remote_sync && chmod 755 /data/remote_sync");
-                    }
                 }
-                if (ota_replace_file("/data/remote_ui.new", "/data/remote_ui", "/data/remote_ui.bak") != 0) {
+                /* One rename per file, the previous version kept as <target>.bak. A script that
+                 * is running (init.sh) keeps reading its old copy. */
+                if (ota_commit_files(pkg_files, pkg_count) != 0 ||
+                    ota_install_binary("/data/remote_ui.new", "/data/remote_ui", "/data/remote_ui.bak", "/proc/self/exe") != 0) {
                     ota_install_failed(f->seq);
                     return true;
                 }
