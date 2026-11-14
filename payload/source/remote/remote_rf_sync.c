@@ -744,10 +744,15 @@ void *rf_rx_worker(void *arg) {
             continue;
         }
 
-        /* Windowed OTA data frames have no message type (header 0x60, see rf_proto.h) */
-        if (g_is_ota_updating && n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x12 && (pkt[4] & 0xE0) == RF_OTA_HDR_DATA) {
-            g_last_hub_frame_ms = get_monotonic_ms();
-            handle_ota_data_frame(pkt);
+        /* Windowed OTA data frames have no message type (header 0x60, see rf_proto.h). Outside OTA
+           mode (remote_ui restarted while the Hub still sends a transfer) one is dropped: the byte
+           where a typed frame has its type is part of the chunk index, and rf_is_valid_frame()
+           below would take it for an unpair notice, a settings push or a sleep request. */
+        if (n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x12 && (pkt[4] & 0xE0) == RF_OTA_HDR_DATA) {
+            if (g_is_ota_updating) {
+                g_last_hub_frame_ms = get_monotonic_ms();
+                handle_ota_data_frame(pkt);
+            }
             continue;
         }
 
