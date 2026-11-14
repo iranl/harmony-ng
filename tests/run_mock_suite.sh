@@ -146,6 +146,9 @@ python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml'
 echo "[-] Running OpenAPI Specification Test Suite..."
 python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
 
+# 7. Device shell scripts run on the host (paths moved to a temp dir)
+python3 "$SCRIPT_DIR/test_hub_user_sh.py"
+
 echo "==========================================================="
 echo "  ALL MOCKING & AUTOMATED TESTS COMPLETED WITH 100% PASS   "
 echo "==========================================================="
