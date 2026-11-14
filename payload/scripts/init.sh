@@ -335,26 +335,32 @@ echo "$!" >> /tmp/harmony_supervisors.pid
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
 
-# 9. Log cap: $LOG lives in tmpfs, which is RAM on a 32 MB Hub. Unbounded, it starved the
-# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press). Every
-# writer appends (>>), so truncating in place is safe; the last 64 KB are kept in $LOG.1.
+# 9. Log cap: the logs live in tmpfs, which is RAM on a 32 MB Hub. Unbounded, $LOG starved the
+# kernel (12 MB of log, 1 MB free, OOM kills of hub_rf and hub_daemon mid key press), and the
+# network monitor writes its log every few seconds while the network is down. Every writer
+# appends (>>), so truncating in place is safe; the last 64 KB are kept in <log>.1.
+cap_log() {
+  # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
+  _sz=$(ls -l "$1" 2>/dev/null | awk '{print $5}')
+  [ -n "$_sz" ] || _sz=0
+  if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
+    # keep the last 64 KB in <log>.1 (whole file if dd is missing), then truncate in place
+    if command -v dd >/dev/null 2>&1; then
+      dd if="$1" of="$1.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$1" "$1.1" 2>/dev/null
+    else
+      cp "$1" "$1.1" 2>/dev/null
+    fi
+    : > "$1"
+    echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $1.1" >> "$1"
+  fi
+}
 (
   while true; do
-    sleep 300
+    sleep 60
     [ -f /tmp/harmony_stop ] && exit 0
-    # stock applets only (ls, awk): /cache and its extended BusyBox may not be there
-    _sz=$(ls -l "$LOG" 2>/dev/null | awk '{print $5}')
-    [ -n "$_sz" ] || _sz=0
-    if [ "$_sz" -gt 1048576 ] 2>/dev/null; then
-      # keep the last 64 KB in $LOG.1 (whole file if dd is missing), then truncate in place
-      if command -v dd >/dev/null 2>&1; then
-        dd if="$LOG" of="$LOG.1" bs=1024 skip=$(expr "$_sz" / 1024 - 64) 2>/dev/null || cp "$LOG" "$LOG.1" 2>/dev/null
-      else
-        cp "$LOG" "$LOG.1" 2>/dev/null
-      fi
-      : > "$LOG"
-      echo "$(date) log capped: was ${_sz} bytes, last 64 KB in $LOG.1" >> "$LOG"
-    fi
+    for _log in "$LOG" /tmp/harmony-network.log /tmp/harmony-recovery.log; do
+      cap_log "$_log"
+    done
   done
 ) &
 echo "$!" >> /tmp/harmony_supervisors.pid
