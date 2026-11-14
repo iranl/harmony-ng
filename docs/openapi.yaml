@@ -1427,6 +1427,7 @@ paths:
       tags:
         - Activities
       summary: Test sequence execution
+      description: Runs the steps one after the other before answering. Each step waits its delay, at most 3 s; at most 64 steps.
       requestBody:
         required: true
         content:
@@ -1452,6 +1453,13 @@ paths:
               example:
                 ok: true
                 executed: 2
+        '400':
+          description: More than 64 steps (the most a saved sequence can hold)
+          content:
+            application/json:
+              example:
+                ok: false
+                error: Too many steps (limit 64)
 
   /api/sync:
     post:

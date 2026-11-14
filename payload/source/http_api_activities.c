@@ -621,6 +621,18 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
             if (p_steps && cJSON_IsArray(p_steps)) step_arr = p_steps;
             else if (p_steps && cJSON_IsString(p_steps)) step_arr = build_activity_steps_cjson(p_steps->valuestring);
 
+            /* The steps run on this request's thread, up to 3 s each: without a limit one request
+             * held an HTTP worker for steps x 3 s. A sequence can hold no more steps than the
+             * configuration keeps (MAX_ACTIVITY_STEPS), so a longer one is refused. */
+            if (step_arr && cJSON_IsArray(step_arr) && cJSON_GetArraySize(step_arr) > MAX_ACTIVITY_STEPS) {
+                if (step_arr != p_steps) cJSON_Delete(step_arr);
+                cJSON_Delete(params);
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Too many steps (limit %d)", MAX_ACTIVITY_STEPS);
+                send_json_error(client_fd, 400, msg);
+                close(client_fd);
+                return 1;
+            }
             if (step_arr && cJSON_IsArray(step_arr)) {
                 cJSON *st = NULL;
                 cJSON_ArrayForEach(st, step_arr) {
