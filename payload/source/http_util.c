@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <signal.h>
 #include <errno.h>
 
 void send_cjson_resp(int fd, int code, cJSON *obj) {
@@ -365,9 +367,15 @@ int http_request_is_cross_site(const char *req) {
     return 0;
 }
 
+static uint64_t run_ms_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
+}
+
 /* Runs argv[0] with the given arguments without a shell, stdin/stdout/stderr on /dev/null, and
- * waits for it. Returns the exit status, or -1 when it could not be run. */
-int run_argv_wait(char *const argv[]) {
+ * waits for it, looking at the size of watch_path every 50 ms. */
+int run_argv_limited(char *const argv[], const char *watch_path, long max_bytes, unsigned int max_ms) {
     if (!argv || !argv[0]) return -1;
     pid_t pid = fork();
     if (pid < 0) return -1;
@@ -382,11 +390,26 @@ int run_argv_wait(char *const argv[]) {
         execv(argv[0], argv);
         _exit(127);
     }
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return -1;
+    uint64_t start = run_ms_now();
+    for (;;) {
+        int status = 0;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r < 0 && errno != EINTR) return -1;
+        struct stat st;
+        int too_big = watch_path && stat(watch_path, &st) == 0 && st.st_size > max_bytes;
+        if (r == pid) {
+            if (too_big) return RUN_TOO_BIG;
+            return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        }
+        int verdict = too_big ? RUN_TOO_BIG : (run_ms_now() - start > max_ms) ? RUN_TOO_SLOW : 0;
+        if (verdict) {
+            kill(pid, SIGKILL);
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+            }
+            return verdict;
+        }
+        usleep(50000);
     }
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 int is_proc_running(const char *proc_name) {

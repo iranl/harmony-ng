@@ -95,6 +95,14 @@ void http_ensure_icons_extracted(void) {
     }
 }
 
+/* Limits of the icon proxy download. wget's -T only ends a stalled transfer, and the size was
+ * looked at after the download: a server that keeps sending filled /tmp (RAM) and kept the
+ * worker for as long as it sent. */
+#define PROXY_FETCH_MAX_BYTES (2 * 1024 * 1024)
+#ifndef PROXY_FETCH_MAX_MS
+#define PROXY_FETCH_MAX_MS 20000 /* the whole download */
+#endif
+
 int http_api_custom_icons_handle(int client_fd, const char *method, const char *clean_path,
                                  const char *query, const char *body, const char *req) {
     (void)req;
@@ -440,20 +448,38 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
                 return 1;
             }
         }
-        unlink("/tmp/proxy_icon.tmp"); /* never serve a file left by an earlier fetch */
+        /* A file of its own for each request: two fetches at once used to write, send and
+         * delete the same /tmp/proxy_icon.tmp */
+        char tmp_path[] = "/tmp/proxy_icon.XXXXXX";
+        int tmp_fd = mkstemp(tmp_path);
+        if (tmp_fd < 0) {
+            free(decoded_url);
+            send_json_error(client_fd, 500, "No room for the downloaded image");
+            close(client_fd);
+            return 1;
+        }
+        close(tmp_fd);
+        int fetched = -1;
         static const char *const wget_paths[] = { "/cache/bin/busybox", "/data/harmony/bin/busybox" };
         for (size_t wi = 0; wi < sizeof(wget_paths) / sizeof(wget_paths[0]); wi++) {
             char *argv[] = { (char *)wget_paths[wi], "wget", "-q", "--no-check-certificate", "-T", "6",
-                             "-O", "/tmp/proxy_icon.tmp", decoded_url, NULL };
+                             "-O", tmp_path, decoded_url, NULL };
             if (access(wget_paths[wi], X_OK) != 0) continue;
-            if (run_argv_wait(argv) == 0) break;
-            unlink("/tmp/proxy_icon.tmp");
+            fetched = run_argv_limited(argv, tmp_path, PROXY_FETCH_MAX_BYTES, PROXY_FETCH_MAX_MS);
+            if (fetched == 0 || fetched == RUN_TOO_BIG || fetched == RUN_TOO_SLOW) break;
         }
         free(decoded_url);
 
-        FILE *f = fopen("/tmp/proxy_icon.tmp", "rb");
+        FILE *f = (fetched == 0) ? fopen(tmp_path, "rb") : NULL;
         if (!f) {
-            send_json_error(client_fd, 502, "Failed to download image from external URL");
+            unlink(tmp_path);
+            if (fetched == RUN_TOO_BIG) {
+                send_json_error(client_fd, 413, "Image file empty or exceeds 2 MB limit");
+            } else if (fetched == RUN_TOO_SLOW) {
+                send_json_error(client_fd, 502, "Image download took too long");
+            } else {
+                send_json_error(client_fd, 502, "Failed to download image from external URL");
+            }
             close(client_fd);
             return 1;
         }
@@ -461,9 +487,9 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
         long fsz = ftell(f);
         fseek(f, 0, SEEK_SET);
 
-        if (fsz <= 0 || fsz > 2 * 1024 * 1024) {
+        if (fsz <= 0 || fsz > PROXY_FETCH_MAX_BYTES) {
             fclose(f);
-            unlink("/tmp/proxy_icon.tmp");
+            unlink(tmp_path);
             send_json_error(client_fd, 413, "Image file empty or exceeds 2 MB limit");
             close(client_fd);
             return 1;
@@ -486,7 +512,7 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             if (send(client_fd, buf, nr, 0) < 0) break;
         }
         fclose(f);
-        unlink("/tmp/proxy_icon.tmp");
+        unlink(tmp_path);
         close(client_fd);
         return 1;
     }
