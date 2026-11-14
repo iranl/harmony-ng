@@ -281,7 +281,9 @@ int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
     uint8_t duty = blob[5];
     uint16_t pre_silence_us = ((uint16_t)blob[6] << 8) | (uint16_t)blob[7];
     uint16_t start_loc = ((uint16_t)blob[10] << 8) | (uint16_t)blob[11];
-    if (start_loc < 16 || start_loc + 2 > blob_len) start_loc = 16;
+    if (start_loc < 16 || (size_t)start_loc + 2 > blob_len) start_loc = 16;
+    /* the word count at start_loc must be inside the blob (a 16- or 17-byte blob has none) */
+    if ((size_t)start_loc + 2 > blob_len) return -2;
     uint16_t word_count = ((uint16_t)blob[start_loc] << 8) | (uint16_t)blob[start_loc + 1];
 
     size_t words_offset = start_loc + 2;
