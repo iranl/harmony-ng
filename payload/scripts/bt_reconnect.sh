@@ -18,10 +18,12 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
 }
 
-# Single instance check: kill previous instance to restart retry window
+# Single instance check: kill previous instance to restart retry window. The file is left
+# behind when an instance is killed with -9 (its trap does not run), and pids are reused:
+# kill only a process that still is a bt_reconnect.sh.
 if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    if [ -n "$OLD_PID" ] && [ "$OLD_PID" != "$$" ] && grep -q 'bt_reconnect' "/proc/$OLD_PID/cmdline" 2>/dev/null; then
         kill -9 "$OLD_PID" 2>/dev/null
     fi
 fi
