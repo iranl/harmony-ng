@@ -156,7 +156,10 @@ Enables or disables the RF CC2544 daemon `hub_rf`.
 - **Response `200 OK`**: `{"ok": true, "rf_enabled": true}`
 
 #### `POST /api/services/bt-toggle` or `POST /api/bt-toggle`
-Enables or disables the Bluetooth stack `hub_btstack`.
+Enables or disables the Bluetooth stack `hub_btstack`. Off writes `/data/harmony/bt_disabled.conf`
+and stops `hub_btstack`; the supervisor in `init.sh` keeps it stopped while the file exists. On
+removes the file and the supervisor starts it again within about 5 s. `GET /api/services` reports
+`bt_enabled` from the file and `bt_running` from the process list.
 - **Request Body**: `{"enable": true}`
 - **Response `200 OK`**: `{"ok": true, "bt_running": true}`
 
@@ -776,7 +779,9 @@ repeats give nothing (they are sent to the device by `hub_rf` itself). `hub_rf` 
 keys on its own local key channel (below) and posts here only when `hub_daemon` has none (an
 older `hub_daemon`): `{"button": <key name>, "action", "source": "remote_rf", "slot"}` plus
 `deviceId` and `command` when the key was mapped to a device command; other callers may keep
-posting the key as `command`.
+posting the key as `command`. Only a request with a `slot` gives an event with a slot: the
+Bluetooth remote's keys (`source` `"bt_remote"`, posted by `hub_btstack`) and other calls without
+one go to `<base>/button`.
 
 **Key channel from `hub_rf`.** One UNIX datagram per press, hold and release on
 `/tmp/hub_daemon_keys.sock`, read in order by one thread of `hub_daemon` (no HTTP worker, no
@@ -901,6 +906,8 @@ Puts hub HID keyboard emulator into pairing/discoverable mode for target device.
 Connects to a paired Bluetooth host MAC address.
 - **Request Body**: `{"bdaddr": "AA:BB:CC:DD:EE:FF"}`
 - **Response `200 OK`**: `{"ok": true}`
+- **Errors**: `400` when `bdaddr` is given and is not `XX:XX:XX:XX:XX:XX` (the same holds for
+  `POST /api/bt-disconnect`, `POST /api/bt-link-device` and `POST /api/remote-pair`).
 
 ### 6.4 Disconnect Host
 #### `POST /api/bt-disconnect`
@@ -1646,9 +1653,12 @@ then arrive as `ir_received` (10.13b).
   "msgId": 7
 }
 ```
-- `keyAction`: `"tap"`, `"down"`, `"up"`, or `"release_all"`.
-- `key`: Key name or `"release_all"`.
-- `target`: Optional Bluetooth host MAC address.
+- `keyAction`: `"tap"`, `"down"`, `"up"`, or `"release_all"` (releases every key, as `key`
+  `"release_all"` does).
+- `key`: Key name or `"release_all"`; no control characters (`400`).
+- `target`: Optional Bluetooth host MAC address, `XX:XX:XX:XX:XX:XX` (`400` otherwise; the same
+  for `bt_text` and `bt_mouse`). `bt_text` takes at most 240 characters, and the `bt_mouse`
+  `button` is a name without control characters.
 **Response**:
 ```json
 {

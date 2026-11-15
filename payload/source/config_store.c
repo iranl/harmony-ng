@@ -566,9 +566,13 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
         return -1;
     }
 
+    /* With a host address, the TARGET line goes in the same write as the key: the key reaches
+     * that host, and no other writer's line can come between the two */
     char buf[1024];
-    int len = snprintf(buf, sizeof(buf), "KEY %s\n", script);
-    write(fd, buf, (size_t)len);
+    int len;
+    if (bdaddr && hub_valid_bdaddr(bdaddr)) len = snprintf(buf, sizeof(buf), "TARGET %s\nKEY %s\n", bdaddr, script);
+    else len = snprintf(buf, sizeof(buf), "KEY %s\n", script);
+    if (len > 0 && len < (int)sizeof(buf)) write(fd, buf, (size_t)len);
     close(fd);
 
     if (gap_ms > 0) usleep((useconds_t)gap_ms * 1000);

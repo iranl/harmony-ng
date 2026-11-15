@@ -972,6 +972,14 @@ int hw_device_bt_disconnect(const char *device_id) {
     snprintf(cmd, sizeof(cmd), "disconnect_host %s\n", addr);
     printf("[*] BT: closing the link of device %s (host %s) after its power off\n", device_id, addr);
     fflush(stdout);
+    /* Through the key pipe, behind the device's power-off key: over the command socket the
+     * close could overtake the key still waiting in the pipe, and the device stayed on */
+    int fd = g_dry_run ? -1 : open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
+    if (fd >= 0) {
+        ssize_t w = write(fd, cmd, strlen(cmd));
+        close(fd);
+        if (w == (ssize_t)strlen(cmd)) return 0;
+    }
     return hub_send_btstack_cmd(cmd);
 }
 

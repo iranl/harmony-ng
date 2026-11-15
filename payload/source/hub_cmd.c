@@ -16,6 +16,7 @@
 #include "hub_mqtt.h"
 #include "ws_server.h"
 #include "hub_info.h"
+#include "bt_common.h"
 #include <pthread.h>
 
 #include <stdio.h>
@@ -533,10 +534,16 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         const char *ka = json_str(req, "keyAction", NULL, NULL);
         const char *tgt = json_str(req, "target", "bdaddr", NULL);
         if (!k || !k[0]) return ack(req, action, 0, 400, "key required");
+        /* key and target become lines of the hub_btstack pipe: a line break in them ran any
+         * hub_btstack command (pairing mode, disconnect) */
+        if (!hub_bt_pipe_value_ok(k) || strlen(k) > 64) return ack(req, action, 0, 400, "key: a key name");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         if (!ka) ka = "tap";
         char line[160];
-        if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "up") == 0 || strcasecmp(ka, "release") == 0) {
-            if (strcasecmp(k, "release_all") == 0) snprintf(line, sizeof(line), "RELEASE\n");
+        if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "release_all") == 0 ||
+            strcasecmp(ka, "up") == 0 || strcasecmp(ka, "release") == 0) {
+            /* keyAction "release_all" (documented) used to fall through to a tap of the key */
+            if (strcasecmp(k, "release_all") == 0 || strcasecmp(ka, "release_all") == 0) snprintf(line, sizeof(line), "RELEASE\n");
             else snprintf(line, sizeof(line), "KEYUP %s\n", k);
         } else if (strcasecmp(ka, "down") == 0 || strcasecmp(ka, "press") == 0) {
             snprintf(line, sizeof(line), "KEYDOWN %s\n", k);
@@ -550,6 +557,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         const char *t = json_str(req, "text", NULL, NULL);
         const char *tgt = json_str(req, "target", "bdaddr", NULL);
         if (!t || !t[0]) return ack(req, action, 0, 400, "text required");
+        if (strlen(t) > HUB_BT_TEXT_MAX) return ack(req, action, 0, 400, "text: too long");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         char *line = (char *)malloc(strlen(t) + 8);
         if (!line) return ack(req, action, 0, 500, "out of memory");
         sprintf(line, "TEXT %s\n", t);
@@ -573,6 +582,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         int wheel = (wh_j && cJSON_IsNumber(wh_j)) ? wh_j->valueint : 0;
         if (!act) act = "";
         if (!bname || !bname[0]) bname = "left";
+        if (!hub_bt_pipe_value_ok(bname) || strlen(bname) > 16) return ack(req, action, 0, 400, "button: a button name");
+        if (tgt && tgt[0] && !hub_valid_bdaddr(tgt)) return ack(req, action, 0, 400, "target: a Bluetooth address");
         char pipe_cmd[128];
         if (strcasecmp(act, "click") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", bname);
         else if (strcasecmp(act, "down") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", bname);

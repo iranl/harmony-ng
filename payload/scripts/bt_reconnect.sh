@@ -82,7 +82,8 @@ log "BT reconnect supervision started for $TARGET (window=${DURATION}s, attempts
 
 # Trigger BTstack connection once
 if pidof hub_btstack >/dev/null 2>&1; then
-    echo "connect_host $TARGET $DURATION" > "$CMD_FILE"
+    # written whole, then renamed: hub_btstack polls this file and must never read it half written
+    echo "connect_host $TARGET $DURATION" > "$CMD_FILE.new.$$" && mv -f "$CMD_FILE.new.$$" "$CMD_FILE"
 fi
 
 ATTEMPT=1
