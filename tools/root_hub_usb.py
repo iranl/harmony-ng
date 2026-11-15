@@ -287,7 +287,7 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
 
     ssh_opts = [
         "-o", "BatchMode=yes",  # never wait at a password prompt the user cannot see
-        *ssh_hostkeys.ssh_options(),
+        *ssh_hostkeys.ssh_options(hub_ip),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]

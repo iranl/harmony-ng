@@ -72,7 +72,6 @@ def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
         # Never wait for a password prompt the user cannot see (output is captured)
         "-o", "BatchMode=yes",
-        *ssh_hostkeys.ssh_options(),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=5",
     ]
@@ -83,7 +82,9 @@ def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
 
 
 def run_ssh_cmd(target: str, cmd: str, ssh_opts: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["ssh"] + ssh_opts + [target, cmd], capture_output=True, text=True)
+    # Host key options per target: the Hub and the remote are recorded under their own names
+    return subprocess.run(["ssh"] + ssh_hostkeys.ssh_options(target) + ssh_opts + [target, cmd],
+                          capture_output=True, text=True)
 
 
 # Detached and delayed by a second, so the SSH call returns its exit code before the

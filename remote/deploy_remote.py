@@ -276,7 +276,7 @@ def main() -> None:
 
     target = f"{args.user}@{args.ip}"
     # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
-    ssh_opts = ["-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(), "-o", "LogLevel=ERROR",
+    ssh_opts = ["-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(args.ip), "-o", "LogLevel=ERROR",
                 "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
     key = args.key if args.key and args.key.is_file() else default_ssh_key()
     if key:

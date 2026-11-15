@@ -60,7 +60,7 @@ def find_default_ssh_key() -> str | None:
 
 def get_ssh_cmd(host: str, user: str = "root", key_path: str | None = None) -> list[str]:
     # LogLevel=ERROR, not -q: a host key failure must still be printed
-    cmd = ["ssh", "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
+    cmd = ["ssh", "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(host)]
     if key_path and os.path.isfile(key_path):
         cmd.extend(["-i", key_path])
     cmd.append(f"{user}@{host}")

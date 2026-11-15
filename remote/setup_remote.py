@@ -270,7 +270,7 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = 22, timeout_s: int = 60) -> bo
 def remote_ssh_cmd(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> list[str]:
     return [
         "ssh",
-        *ssh_hostkeys.ssh_options(),
+        *ssh_hostkeys.ssh_options(ip),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
         "-o", "LogLevel=ERROR",
@@ -670,6 +670,8 @@ def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
         f"    IdentityFile {key_path}\n"
         f"    StrictHostKeyChecking accept-new\n"
         f"    UserKnownHostsFile {ssh_hostkeys.known_hosts_value()}\n"
+        f"    HostKeyAlias {ssh_hostkeys.entry_name(REMOTE_IP)}\n"
+        f"    CheckHostIP no\n"
     )
     try:
         existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
@@ -816,7 +818,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     print("[*] Verifying SSH connectivity...")
     test_cmd = [
         "ssh",
-        *ssh_hostkeys.ssh_options(),
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", str(pub_path.with_suffix("")),
@@ -841,7 +843,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     print("=" * 70)
     priv_path = pub_path.with_suffix("")
     ssh_opts = [
-        *ssh_hostkeys.ssh_options(),
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-i", str(priv_path),
     ]

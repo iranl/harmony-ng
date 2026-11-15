@@ -60,10 +60,10 @@ if str(SCRIPT_DIR) not in sys.path:
 import ssh_hostkeys  # noqa: E402
 
 
-def get_ssh_opts(priv_key_path: pathlib.Path | None = None) -> list[str]:
+def get_ssh_opts(priv_key_path: pathlib.Path | None, host: str) -> list[str]:
     opts = [
         "-o", "BatchMode=yes",  # never wait at a password prompt the user cannot see
-        *ssh_hostkeys.ssh_options(),
+        *ssh_hostkeys.ssh_options(host),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]
@@ -268,7 +268,7 @@ def restore_stock_configuration(
     backup_file: pathlib.Path,
     pure_stock: bool = False,
 ) -> None:
-    ssh_opts = get_ssh_opts(priv_key_path)
+    ssh_opts = get_ssh_opts(priv_key_path, hub_ip)
     target = f"root@{hub_ip}"
 
     # The Hub is a MIPS board; the remote (ARM) answers at 192.168.2.1 with the same key

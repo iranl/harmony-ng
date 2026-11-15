@@ -6,8 +6,12 @@ Every tool that runs ssh or scp takes its host key options from ssh_options():
 - StrictHostKeyChecking=accept-new: the first key a device shows is recorded, and a later
   connection with a different key is refused (no silent connection to whatever answers at
   the address).
+- HostKeyAlias=<host as the tool was given it, lower case> and CheckHostIP=no: the key is
+  recorded under exactly that name (no port, no address from an ssh_config HostName, no
+  second line for the IP), so --reset-host-key always finds it.
 - One project known_hosts file, ~/.ssh/harmony_ng_known_hosts ($HARMONY_KNOWN_HOSTS
-  overrides it). It is kept apart from the user's own known_hosts because every rooted
+  overrides it). The file is per account (Windows and WSL, a user and root each have
+  their own). It is kept apart from the user's own known_hosts because every rooted
   remote answers at 192.168.2.1 and gets a new key when it is rooted again: resetting that
   entry must not touch anything else. ~/.ssh is where OpenSSH keeps its files on Linux,
   macOS and Windows, and the tools already keep the owner key there.
@@ -54,23 +58,58 @@ def known_hosts_value() -> str:
     return '"' + text + '"'
 
 
-def ssh_options() -> list[str]:
-    """Host key options for ssh and scp (both take -o)."""
+_checked_files: set[str] = set()
+
+
+def known_hosts_problem() -> str | None:
+    """Why the known_hosts file cannot be written, or None. Creates its folder (0700).
+
+    ssh with accept-new that cannot write the file only logs that at INFO level (hidden by
+    the LogLevel=ERROR the tools use) and connects anyway: no key would ever be recorded or
+    checked. So the tools check the file themselves."""
     path = known_hosts_file()
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    except OSError:
-        pass  # ssh reports the problem when it cannot write the file
+    except OSError as e:
+        return f"cannot create {path.parent}: {e.strerror or e}"
+    if not os.access(path.parent, os.W_OK | os.X_OK):
+        return f"{path.parent} is not writable"
+    if path.exists() and (not path.is_file() or not os.access(path, os.R_OK | os.W_OK)):
+        return f"{path} is not a readable and writable file"
+    return None
+
+
+def require_known_hosts() -> None:
+    """Stop the tool when the known_hosts file cannot be written (checked once per file)."""
+    key = str(known_hosts_file())
+    if key in _checked_files:
+        return
+    problem = known_hosts_problem()
+    if problem:
+        sys.exit(f"[-] SSH host keys cannot be recorded: {problem}.\n"
+                 f"    Fix the owner or the permissions (for example after a run with sudo), or set "
+                 f"{KNOWN_HOSTS_ENV} to a file this account can write. Nothing was changed.")
+    _checked_files.add(key)
+
+
+def entry_name(host: str) -> str:
+    """The name the key of host is recorded under (the HostKeyAlias the tools pass)."""
+    host = host.rsplit("@", 1)[-1].strip().lower()
+    return host
+
+
+def ssh_options(host: str) -> list[str]:
+    """Host key options for ssh and scp (both take -o) to host. Stops the tool when the
+    known_hosts file cannot be written (require_known_hosts())."""
+    require_known_hosts()
     return [
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "UserKnownHostsFile=" + known_hosts_value(),
+        "-o", "HostKeyAlias=" + entry_name(host),
+        "-o", "CheckHostIP=no",
         # Plain host names in the file, so forget_host() and the user can find an entry
         "-o", "HashKnownHosts=no",
     ]
-
-
-def _entry_name(host: str, port: int = 22) -> str:
-    return host if port == 22 else f"[{host}]:{port}"
 
 
 def _hashed_match(pattern: str, name: str) -> bool:
@@ -86,31 +125,36 @@ def _hashed_match(pattern: str, name: str) -> bool:
     return hmac.compare_digest(hmac.new(salt, name.encode(), hashlib.sha1).digest(), digest)
 
 
-def _line_matches(line: str, name: str) -> bool:
+def _line_matches(line: bytes, names: set[str]) -> bool:
     fields = line.split()
-    if not fields or line.lstrip().startswith("#") or fields[0].startswith("@"):
+    if not fields or line.lstrip().startswith(b"#") or fields[0].startswith(b"@"):
         return False
-    for pattern in fields[0].split(","):
-        if pattern == name or _hashed_match(pattern, name):
+    for pattern in fields[0].decode("utf-8", errors="replace").split(","):
+        if pattern.lower() in names or any(_hashed_match(pattern, n) for n in names):
             return True
     return False
 
 
 def forget_host(host: str, port: int = 22, path: pathlib.Path | None = None) -> int:
-    """Remove the recorded keys of host (all key types). Returns how many lines were removed."""
+    """Remove the recorded keys of host (all key types): the entry the tools write (its
+    HostKeyAlias) and, for files written otherwise, the host and [host]:port forms. The file's
+    other bytes and line ends are kept. Returns how many lines were removed."""
     path = path or known_hosts_file()
     try:
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        data = path.read_bytes()
     except FileNotFoundError:
         return 0
-    name = _entry_name(host, port)
-    keep = [ln for ln in lines if not _line_matches(ln, name)]
+    name = entry_name(host)
+    names = {name, f"[{name}]:{port}"}
+    # Split on LF only: a CRLF line keeps its CR (split() treats it as white space)
+    lines = data.split(b"\n")
+    keep = [ln for ln in lines if not _line_matches(ln, names)]
     removed = len(lines) - len(keep)
     if removed:
         fd, tmp = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.writelines(keep)
+            with os.fdopen(fd, "wb") as f:
+                f.write(b"\n".join(keep))
             os.replace(tmp, path)
         except OSError:
             os.unlink(tmp)
@@ -120,6 +164,7 @@ def forget_host(host: str, port: int = 22, path: pathlib.Path | None = None) -> 
 
 def reset_host(host: str, port: int = 22) -> None:
     """--reset-host-key: forget the recorded key and say so."""
+    require_known_hosts()
     removed = forget_host(host, port)
     if removed:
         print(f"[*] Removed the recorded SSH host key of {host} from {known_hosts_file()}; "

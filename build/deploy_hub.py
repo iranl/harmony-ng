@@ -166,7 +166,7 @@ class HubDeployer:
         cmd = [
             "ssh",
             "-o", "BatchMode=yes",
-            *ssh_hostkeys.ssh_options(),
+            *ssh_hostkeys.ssh_options(self.hub_host),
             "-o", "ConnectTimeout=5",
         ]
         if self.ssh_key and os.path.isfile(self.ssh_key):
@@ -229,7 +229,7 @@ class HubDeployer:
             return False
 
         # SCP upload
-        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
+        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
         if self.ssh_key and os.path.isfile(self.ssh_key):
             scp_cmd.extend(["-i", self.ssh_key])
         scp_cmd.extend([str(src), f"{self.hub_user}@{self.hub_host}:{stage}"])
@@ -422,7 +422,7 @@ class HubDeployer:
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
                         # Pull /data/resources
-                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
+                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                         if self.ssh_key and os.path.isfile(self.ssh_key):
                             scp_pull.extend(["-i", self.ssh_key])
                         scp_pull.extend([f"{self.hub_user}@{self.hub_host}:/data/resources", str(tmp_p / "resources")])
@@ -431,7 +431,7 @@ class HubDeployer:
                         out_dir = tmp_p / "out"
                         mig_res = subprocess.run([sys.executable, str(mig_script), "--src", str(tmp_p / "resources"), "--dest", str(out_dir)], capture_output=True, text=True)
                         if (out_dir / "config" / "devices.json").is_file():
-                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
+                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(self.hub_host)]
                             if self.ssh_key and os.path.isfile(self.ssh_key):
                                 scp_push.extend(["-i", self.ssh_key])
                             # Push config/*.json
