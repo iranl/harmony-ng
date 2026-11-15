@@ -76,6 +76,13 @@ Harmony Hub also accepts built-in connection keywords:
 | **Connect** | `Connect` or `BT_CONNECT` | Connects or reconnects to the paired Bluetooth host |
 | **Disconnect** | `Disconnect` or `BT_DISCONNECT` | Disconnects the active Bluetooth HID session |
 
+### Removing a paired host
+**Forget** next to a host in the web UI's Bluetooth host list (or `POST /api/bt-forget-host`,
+admin only, see [API.md](API.md)) removes the host for good: its link key, its link, its entry in the
+host list, and the link of every device that used it. Bluetooth must be on. A forgotten host can
+only come back through a new pairing in pairing mode. Disconnect only closes the link; the host stays
+paired and reconnects.
+
 ---
 
 ## 4. Mouse & Pointer Controls (Report ID `0x03`)

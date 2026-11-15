@@ -160,7 +160,7 @@ Not imported; the migration prints a warning for each:
 - Commands of a second transport on the same device, e.g. the Bluetooth keyboard commands of an IR TV.
 - Screen buttons beyond the config push limit of 240 per remote, which is shared out between the activities.
 
-**Bluetooth devices** (e.g. an NVIDIA Shield) have to be paired again: HarmonyNG uses its own Bluetooth stack, so the stock pairings are not carried over.
+**Bluetooth devices** (e.g. an NVIDIA Shield) have to be paired again: HarmonyNG uses its own Bluetooth stack, so the stock pairings are not carried over. A host paired by mistake, or one you no longer use, can be removed with **Forget** in the Bluetooth host list of the web UI.
 
 The deploy only imports when the Hub has no configuration yet. To run the import again, for example to read its warnings, on a machine with this repository:
 

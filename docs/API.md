@@ -988,7 +988,33 @@ Associates a logical device ID with a paired Bluetooth MAC address.
     "bdaddr": "AA:BB:CC:DD:EE:FF"
   }
   ```
-- **Response `200 OK`**: `{"ok": true}`
+- **Response `200 OK`**: `{"ok": true}`; `{"ok": false}` when there is no device with that id.
+
+`hub_daemon` is the only writer of `devices.json`. When a new pairing links a device, `hub_btstack`
+sends this request on loopback; when `hub_daemon` does not answer (restarting, busy), `hub_btstack`
+keeps the link and sends it again after 1 s, then with a pause that doubles up to 60 s, until it
+answers. It never writes the file itself. A link refused with `{"ok": false}` is dropped.
+
+### 6.5a Forget Host
+#### `POST /api/bt-forget-host`
+Removes a paired Bluetooth host for good (a TV or box that was sold, or a device that paired by
+mistake). Admin only.
+- **Request Body**: `{"addr": "AA:BB:CC:DD:EE:FF"}` (`bdaddr` is accepted too)
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "addr": "AA:BB:CC:DD:EE:FF", "devices_cleared": 1, "default_host_cleared": true}
+  ```
+- **Errors**: `400` when `addr` is not `XX:XX:XX:XX:XX:XX`; `503` when `hub_btstack` is not running
+  (Bluetooth off): nothing is changed, since the link key lives there; `500` when `devices.json`
+  could not be saved.
+
+In order: every device linked to the host loses its `bdaddr` in `devices.json` (`devices_cleared`
+counts them; they go to the default host until linked again), `bthid_host_target` is removed when
+it names the host (`default_host_cleared`), then `hub_btstack` gets `forget_host <addr>`: it drops
+the host's link key, closes its HID channels and its link, removes it from the host list, stops
+reconnecting to it, and drops a key kept for it and a device link waiting for it. Keys that were
+going to it go nowhere until the next activity picks a host. Afterwards the host can only come
+back through a new pairing (pairing mode); outside pairing mode its pairing requests are refused.
 
 ### 6.6 Bluetooth Remote (B25) Status & Pairing
 #### `GET /api/remote-status` or `GET /api/remote-pair-status`

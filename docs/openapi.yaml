@@ -1977,6 +1977,41 @@ paths:
               example:
                 ok: true
 
+  /api/bt-forget-host:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Forget a paired Bluetooth host
+      description: >-
+        Admin only. Clears the bdaddr of the devices linked to the host, removes the default host
+        file when it names it, then hub_btstack drops the host's link key, closes its link and
+        removes it from the host list. The host can only come back through a new pairing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addr: {type: string, description: "XX:XX:XX:XX:XX:XX (bdaddr is accepted too)"}
+              required: [addr]
+            example:
+              addr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Host forgotten
+          content:
+            application/json:
+              example:
+                ok: true
+                addr: "AA:BB:CC:DD:EE:FF"
+                devices_cleared: 1
+                default_host_cleared: true
+        '400':
+          description: addr is not a Bluetooth address
+        '503':
+          description: hub_btstack is not running (Bluetooth off); nothing was changed
+
   /api/remote-status:
     get:
       tags:
