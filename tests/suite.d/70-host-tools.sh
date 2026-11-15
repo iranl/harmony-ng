@@ -18,3 +18,6 @@ python3 "$SCRIPT_DIR/test_serve_dropbear.py"
 sh "$SCRIPT_DIR/test_build_btstack_patch.sh"
 # scripts/bump_version.py: missing files are errors, lockfile root version, --next for the release
 python3 "$SCRIPT_DIR/test_bump_version.py"
+# Build downloads checked by SHA-256 (fake curl), theme download cache keyed by URL
+sh "$SCRIPT_DIR/test_build_downloads.sh"
+python3 "$SCRIPT_DIR/test_build_theme_cache.py"
