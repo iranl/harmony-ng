@@ -37,6 +37,8 @@ void update_bthid_status(void);
 void update_status(const char *state_str);
 int get_pinned_target(bd_addr_t addr);
 int get_pinned_host_target(bd_addr_t addr);
+/* Hand a device-to-host link to hub_daemon (it owns devices.json); kept and sent again until it
+ * answers */
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str);
 void init_known_hosts(void);
 void try_connect_host_addr(const bd_addr_t addr);

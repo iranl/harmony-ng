@@ -323,39 +323,239 @@ static void device_name_for_id(const char *dev_id, char *out, size_t out_len) {
     fclose(f);
 }
 
-/* Ask hub_daemon to link the device (POST /api/bt-link-device on loopback, which it trusts).
- * hub_daemon owns devices.json and keeps it cached: a file written behind its back is not seen
- * by its command sending and is overwritten by the next device edit in the web UI. */
-static bool link_via_daemon(const char *dev_id, const char *addr_str) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return false;
-    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+/* ---- Device links handed to hub_daemon ----
+ * hub_daemon owns devices.json and keeps it cached: a file written behind its back (the fallback
+ * this replaces) was not seen by its command sending and was undone by the next device edit.
+ * A link is sent with POST /api/bt-link-device on loopback (trusted). The exchange runs on the
+ * run loop (non-blocking socket, a data source and a timeout timer): keys keep flowing while it
+ * waits. A link hub_daemon did not answer is kept and sent again after a pause that doubles from
+ * 1 s up to 60 s, until it answers. A link it refused (no such device) is dropped. */
+#define LINK_PENDING_MAX 8
+#define LINK_RETRY_FIRST_MS 1000
+#define LINK_RETRY_MAX_MS 60000
+#define LINK_EXCHANGE_TIMEOUT_MS 3000
+
+typedef struct {
+    char dev_id[64];
+    char addr[18];
+} link_job_t;
+
+typedef enum { LINK_OK = 0, LINK_REFUSED, LINK_NO_ANSWER } link_result_t;
+typedef enum { LINK_IDLE = 0, LINK_CONNECTING, LINK_READING } link_phase_t;
+
+static link_job_t s_links[LINK_PENDING_MAX];
+static int s_links_n;
+static uint32_t s_link_retry_ms = LINK_RETRY_FIRST_MS;
+static unsigned s_link_failures; /* tries in a row hub_daemon did not answer */
+static btstack_timer_source_t s_link_retry_timer;
+static bool s_link_pause; /* the retry timer is running */
+static btstack_timer_source_t s_link_timeout_timer;
+static btstack_data_source_t s_link_ds;
+static int s_link_fd = -1;
+static link_phase_t s_link_phase = LINK_IDLE;
+static char s_link_req[512];
+static size_t s_link_req_len, s_link_req_sent;
+static char s_link_resp[512];
+static size_t s_link_resp_len;
+
+static void link_try_next(void);
+static void link_retry_handler(btstack_timer_source_t *ts);
+
+static void link_pop_front(void) {
+    if (s_links_n <= 0) return;
+    memmove(&s_links[0], &s_links[1], sizeof(s_links[0]) * (size_t)(s_links_n - 1));
+    s_links_n--;
+}
+
+/* "HTTP/1.1 200 ... {"ok":true}" links it; another full answer below 500 refuses it; anything
+ * else (nothing, a cut answer, 5xx) is no answer */
+static link_result_t link_parse_answer(const char *resp) {
+    int code = 0;
+    if (strncmp(resp, "HTTP/1.", 7) != 0 || sscanf(resp + 8, " %d", &code) != 1) return LINK_NO_ANSWER;
+    if (code >= 500) return LINK_NO_ANSWER;
+    const char *body = strstr(resp, "\r\n\r\n");
+    if (code == 200 && body && strstr(body, "\"ok\":true")) return LINK_OK;
+    return LINK_REFUSED;
+}
+
+static void link_exchange_end(link_result_t r) {
+    if (s_link_fd >= 0) {
+        btstack_run_loop_remove_data_source(&s_link_ds);
+        close(s_link_fd);
+        s_link_fd = -1;
+    }
+    btstack_run_loop_remove_timer(&s_link_timeout_timer);
+    s_link_phase = LINK_IDLE;
+    if (s_links_n <= 0) return;
+    char msg[192];
+    if (r == LINK_OK || r == LINK_REFUSED) {
+        if (r == LINK_OK) {
+            snprintf(msg, sizeof(msg), "Device %s linked to host %s by hub_daemon%s", s_links[0].dev_id, s_links[0].addr,
+                     s_link_failures ? " (after waiting for it)" : "");
+        } else {
+            snprintf(msg, sizeof(msg), "hub_daemon refused the link of device %s to host %s: not kept", s_links[0].dev_id, s_links[0].addr);
+        }
+        log_msg(msg);
+        link_pop_front();
+        s_link_failures = 0;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+        link_try_next();
+        return;
+    }
+    s_link_failures++;
+    /* the first miss, then once the pause is at its longest (about once a minute) */
+    if (s_link_failures == 1 || s_link_retry_ms >= LINK_RETRY_MAX_MS) {
+        snprintf(msg, sizeof(msg), "hub_daemon did not answer the link of device %s to host %s: trying again in %u s",
+                 s_links[0].dev_id, s_links[0].addr, (unsigned)(s_link_retry_ms / 1000));
+        log_msg(msg);
+    }
+    btstack_run_loop_remove_timer(&s_link_retry_timer);
+    btstack_run_loop_set_timer_handler(&s_link_retry_timer, link_retry_handler);
+    btstack_run_loop_set_timer(&s_link_retry_timer, s_link_retry_ms);
+    btstack_run_loop_add_timer(&s_link_retry_timer);
+    s_link_pause = true;
+    s_link_retry_ms = s_link_retry_ms * 2 > LINK_RETRY_MAX_MS ? LINK_RETRY_MAX_MS : s_link_retry_ms * 2;
+}
+
+static void link_timeout_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    link_exchange_end(LINK_NO_ANSWER);
+}
+
+static void link_retry_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    s_link_pause = false;
+    link_try_next();
+}
+
+static void link_ds_process(btstack_data_source_t *ds, btstack_data_source_callback_type_t type) {
+    UNUSED(ds);
+    if (s_link_phase == LINK_CONNECTING && (type & DATA_SOURCE_CALLBACK_WRITE)) {
+        int err = 0;
+        socklen_t elen = sizeof(err);
+        if (getsockopt(s_link_fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0 || err != 0) {
+            link_exchange_end(LINK_NO_ANSWER);
+            return;
+        }
+        while (s_link_req_sent < s_link_req_len) {
+            ssize_t n = send(s_link_fd, s_link_req + s_link_req_sent, s_link_req_len - s_link_req_sent, MSG_NOSIGNAL);
+            if (n > 0) {
+                s_link_req_sent += (size_t)n;
+            } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                return; /* the rest on the next write callback */
+            } else {
+                link_exchange_end(LINK_NO_ANSWER);
+                return;
+            }
+        }
+        btstack_run_loop_disable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_WRITE);
+        btstack_run_loop_enable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_READ);
+        s_link_phase = LINK_READING;
+        return;
+    }
+    if (s_link_phase == LINK_READING && (type & DATA_SOURCE_CALLBACK_READ)) {
+        for (;;) {
+            if (s_link_resp_len >= sizeof(s_link_resp) - 1) break; /* enough to judge */
+            ssize_t n = recv(s_link_fd, s_link_resp + s_link_resp_len, sizeof(s_link_resp) - 1 - s_link_resp_len, 0);
+            if (n > 0) {
+                s_link_resp_len += (size_t)n;
+                s_link_resp[s_link_resp_len] = '\0';
+                continue;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return; /* more later */
+            break; /* the end of the answer (Connection: close), or an error */
+        }
+        s_link_resp[s_link_resp_len] = '\0';
+        link_exchange_end(link_parse_answer(s_link_resp));
+    }
+}
+
+/* Send the oldest waiting link, unless an exchange or a pause is running */
+static void link_try_next(void) {
+    if (s_link_phase != LINK_IDLE || s_links_n <= 0) return;
+    btstack_run_loop_remove_timer(&s_link_retry_timer);
+    s_link_pause = false;
+    cJSON *b = cJSON_CreateObject();
+    cJSON_AddStringToObject(b, "deviceId", s_links[0].dev_id);
+    cJSON_AddStringToObject(b, "bdaddr", s_links[0].addr);
+    char *body = cJSON_PrintUnformatted(b);
+    cJSON_Delete(b);
+    int rlen = body ? snprintf(s_link_req, sizeof(s_link_req),
+                               "POST /api/bt-link-device HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                               "Content-Length: %u\r\nConnection: close\r\n\r\n%s", (unsigned)strlen(body), body) : -1;
+    free(body);
+    if (rlen <= 0 || rlen >= (int)sizeof(s_link_req)) {
+        link_exchange_end(LINK_REFUSED); /* cannot be sent: drop it */
+        return;
+    }
+    s_link_req_len = (size_t)rlen;
+    s_link_req_sent = 0;
+    s_link_resp_len = 0;
+    s_link_resp[0] = '\0';
+
+    s_link_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (s_link_fd < 0) {
+        link_exchange_end(LINK_NO_ANSWER);
+        return;
+    }
+    int fl = fcntl(s_link_fd, F_GETFL, 0);
+    fcntl(s_link_fd, F_SETFL, (fl < 0 ? 0 : fl) | O_NONBLOCK);
+    fcntl(s_link_fd, F_SETFD, FD_CLOEXEC);
     struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
     sin.sin_family = AF_INET;
     sin.sin_port = htons(DAEMON_PORT);
     sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    bool ok = false;
-    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-        char body[160], req[400];
-        int blen = snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"bdaddr\":\"%s\"}", dev_id, addr_str);
-        int rlen = snprintf(req, sizeof(req),
-                            "POST /api/bt-link-device HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
-                            "Content-Length: %d\r\nConnection: close\r\n\r\n%s", blen, body);
-        if (blen > 0 && blen < (int)sizeof(body) && rlen > 0 && rlen < (int)sizeof(req) &&
-            send(s, req, (size_t)rlen, MSG_NOSIGNAL) == rlen) {
-            char resp[512];
-            size_t got = 0;
-            ssize_t n;
-            while (got < sizeof(resp) - 1 && (n = recv(s, resp + got, sizeof(resp) - 1 - got, 0)) > 0) got += (size_t)n;
-            resp[got] = '\0';
-            ok = strncmp(resp, "HTTP/1.1 200", 12) == 0 && strstr(resp, "\"ok\":true") != NULL;
+    if (connect(s_link_fd, (struct sockaddr *)&sin, sizeof(sin)) != 0 && errno != EINPROGRESS) {
+        close(s_link_fd);
+        s_link_fd = -1;
+        link_exchange_end(LINK_NO_ANSWER); /* hub_daemon not listening (restarting) */
+        return;
+    }
+    s_link_phase = LINK_CONNECTING;
+    memset(&s_link_ds, 0, sizeof(s_link_ds));
+    btstack_run_loop_set_data_source_fd(&s_link_ds, s_link_fd);
+    btstack_run_loop_set_data_source_handler(&s_link_ds, link_ds_process);
+    btstack_run_loop_enable_data_source_callbacks(&s_link_ds, DATA_SOURCE_CALLBACK_WRITE);
+    btstack_run_loop_add_data_source(&s_link_ds);
+    btstack_run_loop_set_timer_handler(&s_link_timeout_timer, link_timeout_handler);
+    btstack_run_loop_remove_timer(&s_link_timeout_timer);
+    btstack_run_loop_set_timer(&s_link_timeout_timer, LINK_EXCHANGE_TIMEOUT_MS);
+    btstack_run_loop_add_timer(&s_link_timeout_timer);
+}
+
+/* Queue a link and send it as soon as nothing else is being sent. A newer link of the same device
+ * replaces a waiting one. */
+static void link_queue(const char *dev_id, const char *addr_str) {
+    int i;
+    for (i = 0; i < s_links_n; i++) {
+        if (strcmp(s_links[i].dev_id, dev_id) == 0) break;
+    }
+    if (i == s_links_n) {
+        if (s_links_n == LINK_PENDING_MAX) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Too many device links waiting: link of device %s dropped", s_links[s_links_n - 1].dev_id);
+            log_msg(msg);
+            i = s_links_n - 1; /* the front may be in flight: replace the newest */
+        } else {
+            s_links_n++;
         }
     }
-    close(s);
-    return ok;
+    if (i == 0 && s_link_phase != LINK_IDLE) {
+        /* that link is being sent with the old address: abandon the exchange, send the new one */
+        if (s_link_fd >= 0) {
+            btstack_run_loop_remove_data_source(&s_link_ds);
+            close(s_link_fd);
+            s_link_fd = -1;
+        }
+        btstack_run_loop_remove_timer(&s_link_timeout_timer);
+        s_link_phase = LINK_IDLE;
+    }
+    snprintf(s_links[i].dev_id, sizeof(s_links[i].dev_id), "%s", dev_id);
+    snprintf(s_links[i].addr, sizeof(s_links[i].addr), "%s", addr_str);
+    /* a new link does not wait for the pause of an older one */
+    s_link_retry_ms = LINK_RETRY_FIRST_MS;
+    link_try_next();
 }
 
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
@@ -368,58 +568,8 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
 
     /* config/devices.json is the only device-to-host mapping; bt-devices.json, which used to
      * hold a second copy, is no longer written (hub_daemon folds old copies in, bt_migrate.c).
-     * hub_daemon writes it; editing the file directly is the fallback when it does not answer. */
-    bool linked = link_via_daemon(dev_id, addr_str);
-    if (linked) {
-        log_msg("Device link saved by hub_daemon");
-    } else {
-        log_msg("hub_daemon did not confirm the device link, writing devices.json directly");
-    }
-    const char *dpath = "/data/harmony/config/devices.json";
-    FILE *df = linked ? NULL : fopen(dpath, "r");
-    if (df) {
-        fseek(df, 0, SEEK_END);
-        long dsz = ftell(df);
-        fseek(df, 0, SEEK_SET);
-        if (dsz > 0 && dsz < 1000000) {
-            char *dbuf = (char *)malloc(dsz + 1);
-            if (dbuf) {
-                size_t dr = fread(dbuf, 1, dsz, df);
-                dbuf[dr] = 0;
-                cJSON *droot = cJSON_Parse(dbuf);
-                free(dbuf);
-                if (droot) {
-                    cJSON *ddevs = cJSON_GetObjectItemCaseSensitive(droot, "devices");
-                    if (ddevs && cJSON_IsArray(ddevs)) {
-                        cJSON *ditem = NULL;
-                        cJSON_ArrayForEach(ditem, ddevs) {
-                            cJSON *jid = cJSON_GetObjectItemCaseSensitive(ditem, "id");
-                            char d_id_str[32] = {0};
-                            if (jid && cJSON_IsNumber(jid)) snprintf(d_id_str, sizeof(d_id_str), "%ld", (long)jid->valuedouble);
-                            else if (jid && cJSON_IsString(jid)) strncpy(d_id_str, jid->valuestring, sizeof(d_id_str) - 1);
-                            if (strcmp(d_id_str, dev_id) == 0) {
-                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "btHost");
-                                cJSON_DeleteItemFromObjectCaseSensitive(ditem, "bdaddr");
-                                cJSON_AddStringToObject(ditem, "bdaddr", addr_str);
-                                char *dout = cJSON_Print(droot);
-                                if (dout) {
-                                    linked = (atomic_file_write_str(dpath, dout) == 0);
-                                    free(dout);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    cJSON_Delete(droot);
-                }
-            }
-        }
-        fclose(df);
-    }
-    if (!linked) {
-        snprintf(msg, sizeof(msg), "Device %s not saved in devices.json: host %s not linked", dev_id, addr_str);
-        log_msg(msg);
-    }
+     * Only hub_daemon writes it: the link waits here until hub_daemon has taken it. */
+    link_queue(dev_id, addr_str);
 
     /* Show the linked device's name for the host right away; until hub_btstack restarted, a
      * host paired from the web UI was listed as "Host <bdaddr>" */
