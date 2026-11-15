@@ -10,3 +10,5 @@ python3 "$SCRIPT_DIR/test_remote_tools_options.py"
 python3 "$SCRIPT_DIR/test_sync_remote_to_hub.py"
 # remote/bootstrap_serial.py against a fake serial console (stock shell without base64)
 python3 "$SCRIPT_DIR/test_bootstrap_serial.py"
+# tools/usb_state.py picks the remote's network adapter by its USB ids (not a phone or a dongle)
+python3 "$SCRIPT_DIR/test_usb_state_adapter.py"
