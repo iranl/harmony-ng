@@ -74,10 +74,11 @@ class HubUserMarks(unittest.TestCase):
         r = self.run_cmd("enable-auth")
         self.assertEqual(self.marks(), {"alex": True, "planted": False})
         toks = {t["id"]: t.get("confirmed") for t in json.loads(self.tokens_json.read_text())["tokens"]}
-        self.assertEqual(toks, {"tok_old": False, "tok_ok": True})
+        self.assertEqual(toks, {"tok_old": False, "tok_ok": False})  # every token waits again at a switch
         self.assertIn("planted", r.stdout)
         self.assertIn("token tok_old", r.stdout)
-        self.assertNotIn("alex", r.stdout.split("not kept yet:")[1])
+        self.assertIn("token tok_ok", r.stdout)
+        self.assertNotIn("alex", r.stdout.split("Waiting to be kept")[1])
 
     def test_set_admin_keeps_its_account(self):
         self.users_json.write_text(daemon_users(False, [
@@ -87,6 +88,44 @@ class HubUserMarks(unittest.TestCase):
         r = self.run_cmd("set-admin", "boss", "new-pw")
         self.assertEqual(self.marks(), {"boss": True, "kid": False})
         self.assertIn("kid", r.stdout)
+
+    def test_enable_auth_keeps_the_only_admin_of_an_unmarked_file(self):
+        self.users_json.write_text(daemon_users(False, [
+            {"username": "alex", "ha1": "a" * 64, "role": "admin"},
+            {"username": "kid", "ha1": "b" * 64, "role": "user"},
+        ]))
+        r = self.run_cmd("enable-auth")
+        self.assertEqual(self.marks(), {"alex": True, "kid": False})
+        self.assertNotIn("alex", r.stdout.split("Waiting to be kept")[1])
+
+    def test_single_line_tokens_file_stays_valid(self):
+        self.users_json.write_text(daemon_users(False, [{"username": "alex", "ha1": "a" * 64, "role": "admin"}]))
+        compact = '{"tokens":[{"id":"tok_a","name":"a","token_hash":"%s","role":"admin"}]}' % ("0" * 64)
+        self.tokens_json.write_text(compact)
+        r = self.run_cmd("enable-auth")
+        self.assertEqual(self.tokens_json.read_text(), compact, "left as it is")
+        json.loads(self.tokens_json.read_text())
+        self.assertIn("not in hub_daemon's layout", r.stdout)
+
+    def test_marks_are_in_the_file_before_it_replaces_users_json(self):
+        """the marks go into sync_to_json's file before its rename: no moment without them"""
+        self.users_json.write_text(daemon_users(True, [
+            {"username": "alex", "ha1": "a" * 64, "role": "admin", "confirmed": True},
+            {"username": "kid", "ha1": "b" * 64, "role": "user", "confirmed": False},
+        ]))
+        log = self.root / "mv.log"
+        fake = self.root / "fakebin"
+        fake.mkdir()
+        (fake / "mv").write_text('#!/bin/sh\nfor a; do last="$a"; done\n'
+                                 f'[ "$last" = "{self.users_json}" ] && cat "$2" >> "{log}"\nexec /usr/bin/mv "$@"\n')
+        (fake / "mv").chmod(0o755)
+        text = self.script.read_text().replace("/bin/mv", str(fake / "mv"))
+        self.script.write_text(text)
+        self.run_cmd("add-user", "guest", "pw")
+        written = log.read_text()
+        self.assertEqual(written.count('"auth_enabled"'), 1, "users.json replaced once")
+        self.assertIn('"confirmed": false', written)
+        self.assertEqual(self.marks(), {"alex": True, "kid": False, "guest": True})
 
 
 if __name__ == "__main__":

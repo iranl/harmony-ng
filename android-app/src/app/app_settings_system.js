@@ -729,10 +729,15 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (!await showConfirm(confirmMsg, { title: t('title_restore_backup'), okText: t('btn_restore') })) return;
     try {
       if (status) status.textContent = t('restoring_status');
-      await this.client.restoreBackup(target, payload, restoreNet);
+      const reply = await this.client.restoreBackup(target, payload, restoreNet);
       if (status) status.innerHTML = `<span style="color:var(--success)">${t('restored_status')}</span>`;
       alert(t("backup_restore_complete"));
       await this.refreshData();
+      // an import that turned authentication on answers the accounts and tokens waiting to be kept
+      if (reply?.unconfirmed && typeof this.showPendingUnconfirmed === 'function') {
+        this.pendingUnconfirmed = reply.unconfirmed;
+        await this.showPendingUnconfirmed();
+      }
     } catch (err) {
       if (status) status.innerHTML = `<span style="color:var(--danger)">${t('restore_failed_status')}${err.message}</span>`;
     }

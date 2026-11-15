@@ -665,9 +665,10 @@ paths:
         - Authentication & Users
       summary: Keep accounts and tokens made while authentication was off (Admin only)
       description: >-
-        When authentication is turned on, the reply lists the accounts and personal access tokens
-        not confirmed (made while it was off, or older files) under "unconfirmed". This route keeps
-        the named ones (or all); deleting uses DELETE /api/users and DELETE /api/auth/tokens.
+        At every switch of authentication from off to on, every account but the one the switch
+        names and every token wait again, and the reply lists them under "unconfirmed" (also
+        accounts made or changed while it was off). This route keeps the named ones (or all);
+        deleting uses DELETE /api/users and DELETE /api/auth/tokens.
       requestBody:
         required: true
         content:
@@ -695,7 +696,7 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden (Admin role required)
+          description: Forbidden (Admin role required, or the caller's own account or token is waiting itself)
         '409':
           description: Authentication is off (anybody could keep them then)
         '500':

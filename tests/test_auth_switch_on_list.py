@@ -76,9 +76,9 @@ def run_users_route():
         check(st == 200 and isinstance(unc, dict), "turning auth on answers the list", "%s %s" % (st, r))
         check(unc is not None and names(unc.get("users"), "username") == ["ghost", "spy"],
               "the other accounts are listed, not the owner's", str(unc))
-        check(unc is not None and names(unc.get("tokens"), "id") == ["tok_legacy01"]
-              and unc["tokens"][0].get("role") == "admin" and "token_hash" not in unc["tokens"][0],
-              "the token without the confirmed mark is listed (no hash)", str(unc))
+        check(unc is not None and names(unc.get("tokens"), "id") == ["tok_kept0001", "tok_legacy01"]
+              and all("token_hash" not in tk for tk in unc["tokens"]),
+              "every token is listed at the switch (no hash)", str(unc))
 
         st, _ = hub.http_get("/api/users")
         check(st == 401, "authentication is on", str(st))
@@ -112,8 +112,9 @@ def run_users_route():
         st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": False}, headers=owner)
         check(st == 200 and "unconfirmed" not in r, "auth off again", "%s %s" % (st, r))
         st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": True})
-        unc = r.get("unconfirmed") if isinstance(r, dict) else None
-        check(st == 200 and unc == {"users": [], "tokens": []}, "on again: nothing left to ask about", "%s %s" % (st, r))
+        unc = (r.get("unconfirmed") if isinstance(r, dict) else None) or {}
+        check(st == 200 and names(unc.get("users"), "username") == ["later", "spy"] and len(unc.get("tokens", [])) == 3,
+              "on again: every account but the owner's and every token wait again", "%s %s" % (st, r))
 
 
 def run_system_action():
@@ -128,12 +129,13 @@ def run_system_action():
                                                      "authPassword": "pw-boss", "authEnabled": 1})
         unc = r.get("unconfirmed") if isinstance(r, dict) else None
         check(st == 200 and unc is not None and names(unc.get("users"), "username") == ["spy"]
-              and names(unc.get("tokens"), "id") == ["tok_legacy01"], "list in the auth action's reply", "%s %s" % (st, r))
+              and names(unc.get("tokens"), "id") == ["tok_kept0001", "tok_legacy01"], "list in the auth action's reply",
+              "%s %s" % (st, r))
         us = users_by_name(hub, basic("boss", "pw-boss"))
         check(us.get("boss", {}).get("confirmed") is True and us.get("spy", {}).get("confirmed") is False,
               "the admin of the switch is confirmed, the other is not", str(us))
         st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=basic("boss", "pw-boss"))
-        check(st == 200 and r.get("users") == 1 and r.get("tokens") == 1, "keep all", "%s %s" % (st, r))
+        check(st == 200 and r.get("users") == 1 and r.get("tokens") == 2, "keep all", "%s %s" % (st, r))
         with open(os.path.join(hub.data_dir, "config", "tokens.json")) as f:
             saved = json.load(f)
         check(all(t.get("confirmed") is True for t in saved.get("tokens", [])), "tokens.json keeps the mark", str(saved))
@@ -165,7 +167,7 @@ def run_marks_only_from_the_owner():
         check(st == 200, "kid promoted with a new password while off", "%s %s" % (st, r))
         st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": True})
         unc = (r or {}).get("unconfirmed") or {}
-        check(names(unc.get("users"), "username") == ["kid"], "the changed account is listed, the owner's is not", str(r))
+        check(names(unc.get("users"), "username") == ["evil", "kid"], "the changed account is listed, the owner's is not", str(r))
 
     print("[-] the auth action: a change of the first admin while off, a switch without password")
     with HubHarness(port=PORT, host=HOST) as hub:
@@ -204,7 +206,8 @@ def run_imports():
         st, r = hub.http_post("/import", {"target": "users", "payload": payload})
         unc = (r or {}).get("unconfirmed") or {}
         check(st == 200 and r.get("auth_enabled") is True and names(unc.get("users"), "username") == ["a1", "u1"]
-              and names(unc.get("tokens"), "id") == ["tok_legacy01"], "import reply lists accounts and tokens", "%s %s" % (st, r))
+              and names(unc.get("tokens"), "id") == ["tok_kept0001", "tok_legacy01"], "import reply lists accounts and tokens",
+              "%s %s" % (st, r))
 
 
 def run_older_files():
@@ -222,11 +225,55 @@ def run_older_files():
         st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 0}, headers=alex)
         st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 1})
         unc = (r or {}).get("unconfirmed") or {}
-        check(names(unc.get("users"), "username") == ["wife"] and names(unc.get("tokens"), "id") == ["tok_legacy01"],
+        check(names(unc.get("users"), "username") == ["wife"] and names(unc.get("tokens"), "id") == ["tok_kept0001", "tok_legacy01"],
               "at the next switch: listed once, the admin of the switch not", str(r))
         us = users_by_name(hub, alex)
         check(us.get("wife", {}).get("confirmed") is False and us.get("alex", {}).get("confirmed") is True,
               "still waiting until kept or deleted", str(us))
+
+
+def run_off_period_voids_keeps():
+    print("[-] an off period voids every earlier keep (turn on and off again by somebody else)")
+    with HubHarness(port=PORT, host=HOST) as hub:
+        st, r = hub.http_post("/api/users", {"username": "owner", "password": "pw-owner", "role": "admin", "auth_enabled": True})
+        owner = basic("owner", "pw-owner")
+        st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": False}, headers=owner)
+        check(st == 200, "auth off", "%s %s" % (st, r))
+        # anybody: an admin of their own, kept by turning auth on with it, then off again
+        st, r = hub.http_post("/api/users", {"username": "evil", "password": "pw-evil", "role": "admin", "auth_enabled": True})
+        check(st == 200 and users_by_name(hub, basic("evil", "pw-evil")).get("evil", {}).get("confirmed") is True,
+              "evil kept as the account of its own switch", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/auth/tokens", {"name": "planted"}, headers=basic("evil", "pw-evil"))
+        check(st == 201, "evil makes a token", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 0}, headers=basic("evil", "pw-evil"))
+        check(st == 200, "evil turns auth off again", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 1})
+        unc = (r or {}).get("unconfirmed") or {}
+        # the owner's own account waits too: evil's switch put it there, and this one sets no password
+        check(names(unc.get("users"), "username") == ["evil", "owner"] and [tk.get("name") for tk in unc.get("tokens", [])] == ["planted"],
+              "the owner's switch lists evil and its token", str(r))
+        st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=basic("evil", "pw-evil"))
+        check(st == 403, "a waiting account cannot keep itself: 403", "%s %s" % (st, r))
+
+    print("[-] a waiting token cannot keep itself; repeating the same role is not a change")
+    with HubHarness(port=PORT, host=HOST) as hub:
+        st, r = hub.http_post("/api/users", {"username": "owner", "password": "pw-owner", "role": "admin", "auth_enabled": True})
+        owner = basic("owner", "pw-owner")
+        st, r = hub.http_post("/api/auth/tokens", {"name": "script"}, headers=owner)
+        pat = {"Authorization": "Bearer " + (r or {}).get("token", "")}
+        st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=pat)
+        check(st == 200, "a kept token may keep", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": False}, headers=owner)
+        st, r = hub.http_post("/api/users", {"username": "owner", "role": "admin"})
+        check(st == 200, "same role saved while off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 1})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(names(unc.get("users"), "username") == [] and [tk.get("name") for tk in unc.get("tokens", [])] == ["script"],
+              "the owner's unchanged account is kept, the token waits", str(r))
+        st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=pat)
+        check(st == 403, "the waiting token cannot keep itself: 403", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=owner)
+        check(st == 200 and r.get("tokens") == 1, "the owner keeps it", "%s %s" % (st, r))
 
 
 def main():
@@ -235,6 +282,7 @@ def main():
     run_marks_only_from_the_owner()
     run_imports()
     run_older_files()
+    run_off_period_voids_keeps()
     if failures:
         print("FAILED: %d check(s)" % len(failures))
         sys.exit(1)

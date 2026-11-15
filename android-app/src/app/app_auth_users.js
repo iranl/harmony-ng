@@ -116,6 +116,17 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
   async showPendingUnconfirmed() {
     const pending = this.pendingUnconfirmed;
     if (!pending || !this.client?.token) return;
+    // the switch ended every session: only a login made after it can keep or delete anything
+    let session = null;
+    try {
+      session = await this.client.getAuthMe();
+    } catch {
+      session = null;
+    }
+    if (!session?.authenticated || session.role !== 'admin') {
+      this.showLoginModal(); /* the list stays pending until the login succeeds */
+      return;
+    }
     this.pendingUnconfirmed = null;
     const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
     await askUnconfirmed(this.client, pending, me);
@@ -133,6 +144,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       box.style.cssText = 'margin: 6px 0;';
       listEl.parentNode.insertBefore(box, listEl);
     }
+    const gen = (this.unconfirmedNoticeGen = (this.unconfirmedNoticeGen || 0) + 1);
     box.replaceChildren();
     if (!usersData?.auth_enabled) return;
     const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
@@ -142,6 +154,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     } catch {
       tokens = [];
     }
+    if (gen !== this.unconfirmedNoticeGen) return; /* a newer call draws it */
+    box.replaceChildren();
     const unconfirmed = { users: (usersData.users || []).filter((u) => u.confirmed === false), tokens };
     const n = unconfirmedItems(unconfirmed, me).length;
     if (!n) return;

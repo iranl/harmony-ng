@@ -27,10 +27,12 @@ struct user_account {
     char password[MAX_PASSWORD_LEN];
     char ha1[65];
     enum http_role role;
-    /* AUTH_MARK_YES: made or last changed while authentication was on, or kept by an admin.
-     * AUTH_MARK_NO: made or changed while it was off (anybody could), listed until kept or deleted.
+    /* AUTH_MARK_YES: made while authentication was on, or kept since the last switch from off
+     * to on (by an admin, or as the account that switch named).
+     * AUTH_MARK_NO: waiting: every account but the switch's own after each switch from off to on,
+     * and accounts made or changed while authentication is off; listed until kept or deleted.
      * AUTH_MARK_UNKNOWN: no mark in the file (older firmware): counts as kept while authentication
-     * stays on, becomes AUTH_MARK_NO when authentication is turned on. */
+     * stays on, like any other at the next switch. */
     int confirmed;
 };
 
@@ -63,11 +65,14 @@ void http_auth_note_success(const char *client_ip);
 void http_auth_drop_user_sessions(const char *username);
 void http_auth_drop_all_sessions(void);
 /* Authentication goes from off to on (in memory; the caller saves the accounts): the owner's
- * account (index owner, -1 for none) is kept when the request sets its password, or when it has no
- * mark and was not changed while authentication was off; every other account without a mark is
- * marked AUTH_MARK_NO so the owner is asked about it. */
+ * account (index owner, -1 for none) is kept when the request sets its password, or when it was not
+ * changed while authentication was off; every other account goes back to waiting (an off period
+ * voids earlier keeps: anybody was admin then). */
 void http_auth_switch_on_accounts(struct user_account *users, int count, int owner, int owner_password_set);
-/* At the same switch, after the accounts were saved: tokens without a mark get "confirmed": false,
+/* 1 when the caller (an account or a personal access token) is itself waiting: it may not keep
+ * anything (it could keep itself) */
+int http_auth_caller_waiting(const char *req, const char *client_ip);
+/* At the same switch, after the accounts were saved: every token gets "confirmed": false,
  * and the reply gets "unconfirmed": {"users": [...], "tokens": [...]} (every account and token
  * marked false), so the UIs can ask to keep or delete each. */
 void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, int count);

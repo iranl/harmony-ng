@@ -130,11 +130,12 @@ trap 'rm -f "$ACCOUNTS"' EXIT
 load_accounts
 
 # Account marks of hub_daemon ("confirmed": true or false in users.json; tokens.json the same).
-# The rewrites below keep username, ha1 and role only, so the marks are put back on exit: root over
-# SSH is the owner, so the account this command sets (set-admin, add-user) is kept; every other
-# account keeps the mark it had. When the command turns authentication on, accounts and tokens
-# without a mark are marked false, as hub_daemon does at that switch, and set-admin and
-# enable-auth print the ones still waiting: keep or delete them in the web UI.
+# sync_to_json writes username, ha1 and role only: the marks are put into its file before it
+# replaces users.json (the mv below), so users.json is written once and never without them. Root
+# over SSH is the owner: the account this command sets (set-admin, add-user) is kept, every other
+# one keeps its mark. When the command turns authentication on, it does what hub_daemon does at
+# that switch: the switch's own account (the one set, else the first admin unless it waits) is
+# kept, every other account and every token waits again, and the waiting ones are printed.
 MARKS="/tmp/harmony_auth_marks.tmp"
 json_marks() {
     [ -f "$1" ] || return 0
@@ -151,61 +152,72 @@ json_marks() {
         }
     ' "$1"
 }
-auth_on_in_file() {
-    grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null
-}
 json_marks "$USERS_JSON" > "$MARKS"
-cp -f "$USERS_JSON" "$MARKS.orig" 2>/dev/null || : > "$MARKS.orig"
 MARKS_WAS_ON=0
-auth_on_in_file && MARKS_WAS_ON=1
+grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null && MARKS_WAS_ON=1
 MARKS_OWNER=""
 case "$1" in set-admin|add-user) MARKS_OWNER="$2" ;; esac
 
-restore_marks() {
-    [ -f "$USERS_JSON" ] || return 0
-    cmp -s "$USERS_JSON" "$MARKS.orig" && return 0
+# $1: the new users.json (sync_to_json's layout, one account per line); marks it in place
+apply_marks() {
     switching=0
-    if [ "$MARKS_WAS_ON" = "0" ] && auth_on_in_file; then switching=1; fi
+    if [ "$MARKS_WAS_ON" = "0" ] && grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$1"; then switching=1; fi
     awk -v owner="$MARKS_OWNER" -v sw="$switching" -v marks="$MARKS" '
         BEGIN { while ((getline l < marks) > 0) { i = index(l, ":"); m[substr(l, 1, i - 1)] = substr(l, i + 1) } }
         /"username"[ \t]*:[ \t]*"/ && !/"confirmed"/ {
             u = $0; sub(/.*"username"[ \t]*:[ \t]*"/, "", u); sub(/".*/, "", u)
-            v = (u == owner && owner != "") ? "true" : ((u in m) ? m[u] : (sw == 1 ? "false" : ""))
+            r = $0; sub(/.*"role"[ \t]*:[ \t]*"/, "", r); sub(/".*/, "", r)
+            if (owner == "" && sw == 1 && r == "admin" && m[u] != "false") owner = u
+            if (u == owner) v = "true"
+            else if (sw == 1) v = "false"
+            else v = (u in m) ? m[u] : ""
             if (v != "") sub(/[ \t]*}[ \t]*,?[ \t]*$/, ", \"confirmed\": " v "&", $0)
         }
         { print }
-    ' "$USERS_JSON" > "$USERS_JSON.marks" && mv -f "$USERS_JSON.marks" "$USERS_JSON"
+    ' "$1" > "$1.m" && /bin/mv -f "$1.m" "$1" || return 1
     tokens_json="${USERS_JSON%/*}/tokens.json"
     if [ "$switching" = "1" ] && [ -f "$tokens_json" ]; then
-        json_marks "$tokens_json" > "$MARKS.tok"
-        awk -v marks="$MARKS.tok" '
-            BEGIN { while ((getline l < marks) > 0) { i = index(l, ":"); has[substr(l, 1, i - 1)] = 1 } }
-            /"id"[ \t]*:[ \t]*"/ {
-                id = $0; sub(/.*"id"[ \t]*:[ \t]*"/, "", id); sub(/".*/, "", id)
-                if (!(id in has)) {
+        # one key per line (hub_daemon's layout); a file in another layout is left as it is
+        if grep -q '"id"[[:space:]]*:' "$tokens_json" && \
+           ! awk '/"id"[ \t]*:/ && !/^[ \t]*"id"[ \t]*:[ \t]*"[^"]*",?[ \t]*$/ { bad = 1 } END { exit bad ? 0 : 1 }' "$tokens_json"; then
+            json_marks "$tokens_json" > "$MARKS.tok"
+            awk -v marks="$MARKS.tok" '
+                BEGIN { while ((getline l < marks) > 0) { i = index(l, ":"); has[substr(l, 1, i - 1)] = 1 } }
+                /^[ \t]*"confirmed"[ \t]*:[ \t]*true/ { sub(/true/, "false"); print; next }
+                /^[ \t]*"id"[ \t]*:[ \t]*"[^"]*",?[ \t]*$/ {
+                    id = $0; sub(/.*"id"[ \t]*:[ \t]*"/, "", id); sub(/".*/, "", id)
+                    if (id in has) { print; next }
                     ind = $0; sub(/[^ \t].*/, "", ind)
                     if ($0 ~ /,[ \t]*$/) { print; print ind "\"confirmed\": false,"; next }
                     print $0 ","; print ind "\"confirmed\": false"; next
                 }
-            }
-            { print }
-        ' "$tokens_json" > "$tokens_json.marks" && mv -f "$tokens_json.marks" "$tokens_json"
+                { print }
+            ' "$tokens_json" > "$tokens_json.m" && /bin/mv -f "$tokens_json.m" "$tokens_json"
+            rm -f "$MARKS.tok"
+        elif grep -q '"id"' "$tokens_json"; then
+            echo "[!] $tokens_json is not in hub_daemon's layout: its tokens were not marked. Keep or delete them in the web UI."
+        fi
     fi
-    case "$cmd" in
-        set-admin|enable-auth)
-            json_marks "$USERS_JSON" | grep ':false$' | sed 's/:false$//' > "$MARKS.list"
-            [ -f "$tokens_json" ] && json_marks "$tokens_json" | grep ':false$' | sed 's/:false$//;s/^/token /' >> "$MARKS.list"
-            if [ -s "$MARKS.list" ]; then
-                echo "[!] Made or changed while authentication was off (anybody on the network could), not kept yet:"
-                while read -r item; do echo "    $item"; done < "$MARKS.list"
-                echo "    Keep or delete them in the web UI (Users page) or with POST /api/auth/confirm."
-            fi
-            ;;
-    esac
-    rm -f "$MARKS.tok" "$MARKS.list" 2>/dev/null
+    if [ "$switching" = "1" ] || [ "$cmd" = "set-admin" ] || [ "$cmd" = "enable-auth" ]; then
+        json_marks "$1" | grep ':false$' | sed 's/:false$//' > "$MARKS.list"
+        [ -f "$tokens_json" ] && json_marks "$tokens_json" | grep ':false$' | sed 's/:false$//;s/^/token /' >> "$MARKS.list"
+        if [ -s "$MARKS.list" ]; then
+            echo "[!] Waiting to be kept (made or changed while authentication was off, or from before this switch):"
+            while read -r item; do echo "    $item"; done < "$MARKS.list"
+            echo "    Keep or delete them in the web UI (Users page) or with POST /api/auth/confirm."
+        fi
+        rm -f "$MARKS.list"
+    fi
     return 0
 }
-trap 'rc=$?; [ "$rc" = "0" ] && restore_marks; rm -f "$ACCOUNTS" "$MARKS" "$MARKS.orig"; exit $rc' EXIT
+mv() {
+    if [ "$1" = "-f" ] && [ "$2" = "$USERS_JSON.tmp" ] && [ "$3" = "$USERS_JSON" ]; then
+        apply_marks "$2" || return 1
+    fi
+    /bin/mv "$@"
+}
+trap 'rm -f "$ACCOUNTS" "$MARKS" "$MARKS.list" "$MARKS.tok" "$USERS_JSON.tmp.m"' EXIT
+trap 'rm -f "$ACCOUNTS" "$MARKS" "$MARKS.list" "$MARKS.tok" "$USERS_JSON.tmp.m"; exit 1' INT TERM HUP
 
 case "$cmd" in
     set-admin)

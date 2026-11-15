@@ -72,6 +72,11 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             close(client_fd);
             return 1;
         }
+        if (http_auth_caller_waiting(req, client_ip)) {
+            send_json_error(client_fd, 403, "This account or token is waiting to be kept itself: log in with another admin account");
+            close(client_fd);
+            return 1;
+        }
         cJSON *params = body ? cJSON_Parse(body) : NULL;
         const cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "users");
         const cJSON *jt = cJSON_GetObjectItemCaseSensitive(params, "tokens");
@@ -511,13 +516,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                 compute_ha1(ulist[found_idx].username, HARMONY_AUTH_REALM, new_pass, ulist[found_idx].ha1);
                 ends_sessions = 1;
             }
+            int role_changed = 0;
             if (jr && cJSON_IsString(jr)) {
                 enum http_role nr = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
-                if (nr != ulist[found_idx].role) ends_sessions = 1;
+                if (nr != ulist[found_idx].role) ends_sessions = role_changed = 1;
                 ulist[found_idx].role = nr;
             }
             /* changed while authentication is off: anybody could have, so it is asked about again */
-            if (!auth_on && (new_pass[0] || (jr && cJSON_IsString(jr)))) ulist[found_idx].confirmed = AUTH_MARK_NO;
+            if (!auth_on && (new_pass[0] || role_changed)) ulist[found_idx].confirmed = AUTH_MARK_NO;
         } else {
             if (ucnt >= MAX_HTTP_USERS) {
                 cJSON_Delete(params);

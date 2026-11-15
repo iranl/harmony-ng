@@ -701,12 +701,11 @@ void http_auth_send_challenge(int client_fd, const char *client_ip) {
  * admin, so one made then is a key anybody on the network could have planted. When it is turned
  * on, the reply lists them and the UIs ask the owner to keep or delete each. */
 void http_auth_switch_on_accounts(struct user_account *users, int count, int owner, int owner_password_set) {
+    /* Every switch: an off period voids every earlier keep (anybody was admin then, and could
+     * have kept a planted account by turning authentication on and off again) */
     for (int i = 0; users && i < count; i++) {
-        if (i == owner) {
-            if (owner_password_set || users[i].confirmed == AUTH_MARK_UNKNOWN) users[i].confirmed = AUTH_MARK_YES;
-        } else if (users[i].confirmed == AUTH_MARK_UNKNOWN) {
-            users[i].confirmed = AUTH_MARK_NO;
-        }
+        if (i == owner && (owner_password_set || users[i].confirmed != AUTH_MARK_NO)) users[i].confirmed = AUTH_MARK_YES;
+        else users[i].confirmed = AUTH_MARK_NO;
     }
 }
 
@@ -748,12 +747,11 @@ void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, i
     int marked = 0;
     cJSON *it;
     cJSON_ArrayForEach(it, toks) {
+        /* every token waits again at a switch, like the accounts */
         const cJSON *jc = cJSON_GetObjectItemCaseSensitive(it, "confirmed");
-        if (!cJSON_IsBool(jc)) {
-            set_token_mark(it, 0); /* older file: asked about now */
+        if (!cJSON_IsBool(jc) || cJSON_IsTrue(jc)) {
+            set_token_mark(it, 0);
             marked++;
-        } else if (cJSON_IsTrue(jc)) {
-            continue;
         }
         cJSON *tk = cJSON_CreateObject();
         static const char *const keys[] = { "id", "name", "role", "owner" };
@@ -844,4 +842,51 @@ cJSON *http_auth_after_import(const struct user_account *before, int before_coun
     cJSON *unc = cJSON_DetachItemFromObjectCaseSensitive(holder, "unconfirmed");
     cJSON_Delete(holder);
     return unc;
+}
+
+int http_auth_caller_waiting(const char *req, const char *client_ip) {
+    if (client_ip && (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0)) return 0;
+    char token[128] = {0};
+    const char *h = req ? strcasestr(req, "Authorization:") : NULL;
+    if (h) {
+        h += 14;
+        while (*h == ' ' || *h == '\t') h++;
+        if (strncasecmp(h, "Bearer ", 7) == 0) {
+            h += 7;
+            while (*h == ' ' || *h == '\t') h++;
+            size_t k = 0;
+            while (h[k] && h[k] != '\r' && h[k] != '\n' && h[k] != ' ' && k < sizeof(token) - 1) {
+                token[k] = h[k];
+                k++;
+            }
+        }
+    }
+    if (strncmp(token, "pat_", 4) == 0) {
+        /* a personal access token: find it by its hash */
+        char hash[65];
+        sha256_hex((const uint8_t *)token, strlen(token), hash);
+        cJSON *root = load_tokens_root();
+        cJSON *toks = root ? cJSON_GetObjectItemCaseSensitive(root, "tokens") : (cJSON *)0;
+        int waiting = 0;
+        const cJSON *it;
+        cJSON_ArrayForEach(it, toks) {
+            const cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
+            const cJSON *jc = cJSON_GetObjectItemCaseSensitive(it, "confirmed");
+            if (cJSON_IsString(jh) && http_auth_secret_equal(jh->valuestring, hash)) {
+                waiting = cJSON_IsBool(jc) && !cJSON_IsTrue(jc);
+                break;
+            }
+        }
+        cJSON_Delete(root);
+        return waiting;
+    }
+    char who[MAX_USERNAME_LEN + 72] = {0};
+    http_auth_check_request(req, client_ip, "POST", who, sizeof(who));
+    struct user_account ulist[MAX_HTTP_USERS];
+    int on = 0;
+    int n = load_user_accounts(ulist, MAX_HTTP_USERS, &on);
+    for (int i = 0; i < n; i++) {
+        if (strcmp(ulist[i].username, who) == 0) return ulist[i].confirmed == AUTH_MARK_NO;
+    }
+    return 0;
 }
