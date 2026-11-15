@@ -1,5 +1,5 @@
 import { createAppToken, revokeAppToken, loginFields } from '../app_token.js';
-import { saveHub } from '../storage.js';
+import { saveHub, getSavedHubs } from '../storage.js';
 import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 
 export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
@@ -409,27 +409,31 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   // App: trade the password for an access token, keep only the token in the Hub profile
   async loginApp(username, password) {
     const r = await createAppToken(this.baseUrl, username, password);
-    const old = this.hub;
-    if (r.token && old && old.token && old.token !== r.token) {
-      await revokeAppToken(this.baseUrl, old);
-    }
+    // the profile as stored now (the client's copy can be older)
+    const old = (this.hub.id && (await getSavedHubs()).find(h => h.id === this.hub.id)) || this.hub;
+    // the previous login is dropped: delete it on the Hub too
+    let oldKept = false;
+    if (old && old.token && old.token !== r.token) oldKept = !(await revokeAppToken(this.baseUrl, old));
     const hub = { ...this.hub, username: r.username, ...loginFields(r) };
     if (hub.id) await saveHub(hub);
     this.hub = hub;
     this.token = r.token || null;
     this.authHeader = this.token ? `Bearer ${this.token}` : null;
     this.connectWebSocket(true);
-    return { ok: true, username: r.username, role: r.role || 'admin', auth_off: Boolean(r.authOff) };
+    return { ok: true, username: r.username, role: r.role || 'admin', auth_off: Boolean(r.authOff), old_token_kept: oldKept };
   }
 
+  // Returns { revoked }: false when the Hub could not delete the token (it then stays valid on
+  // the Hub until an admin deletes it in the token list)
   async logoutApp() {
-    await revokeAppToken(this.baseUrl, this.hub);
+    const revoked = !this.hub.token || await revokeAppToken(this.baseUrl, this.hub);
     const hub = { ...this.hub, token: null, tokenId: null };
     if (hub.id) await saveHub(hub);
     this.hub = hub;
     this.token = null;
     this.authHeader = null;
     this.connectWebSocket(true);
+    return { revoked };
   }
 
   async logout() {

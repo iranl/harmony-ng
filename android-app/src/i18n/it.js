@@ -880,6 +880,8 @@ export default {
     "hub_login_kept_placeholder": "Accesso eseguito: lascia vuoto per mantenerlo",
     "hub_password_not_saved": "La password non viene salvata: l'app conserva invece un token di accesso.",
     "hub_logging_in": "Accesso in corso...",
+    "app_token_not_deleted": "Non è stato possibile eliminare l'accesso precedente sull'Hub: un admin può eliminarlo nell'elenco dei token.",
+    "hub_password_for_user": "Inserisci la password per accedere come nuovo utente.",
     "quick_map_nav_vol_desc": "Mappa rapidamente i pulsanti standard di navigazione e volume sul dispositivo selezionato.",
     "quick_shortcuts": "Scorciatoie rapide",
     "quick_suggestions_lbl": "Suggerimenti rapidi:",

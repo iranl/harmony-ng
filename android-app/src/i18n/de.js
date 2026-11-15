@@ -880,6 +880,8 @@ export default {
     "hub_login_kept_placeholder": "Angemeldet: leer lassen, um die Anmeldung zu behalten",
     "hub_password_not_saved": "Das Passwort wird nicht gespeichert: Die App behält stattdessen ein Zugriffstoken.",
     "hub_logging_in": "Anmeldung...",
+    "app_token_not_deleted": "Die vorherige Anmeldung konnte auf dem Hub nicht gelöscht werden: Ein Admin kann sie in der Token-Liste löschen.",
+    "hub_password_for_user": "Geben Sie das Passwort ein, um sich als neuer Benutzer anzumelden.",
     "quick_map_nav_vol_desc": "Schnelle Zuweisung von Standard-Navigations- und Lautstärketasten zu einem ausgewählten Gerät.",
     "quick_shortcuts": "Schnellzugriffe",
     "quick_suggestions_lbl": "Schnellvorschläge:",

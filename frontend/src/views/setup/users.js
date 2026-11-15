@@ -152,7 +152,7 @@ export function createView() {
         }, [
           h('div', {}, [
             h('div', { style: { fontWeight: 'bold' }, text: tok.name }),
-            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `Role: ${tok.role} | Created: ${tok.created_at || 'Recently'}` }),
+            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `Owner: ${tok.owner || '-'} | Role: ${tok.role} | Created: ${tok.created_at || 'Recently'}` }),
           ]),
           h('button', {
             className: 'btn btn-danger btn-sm',

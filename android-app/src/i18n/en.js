@@ -880,6 +880,8 @@ export default {
     "hub_login_kept_placeholder": "Logged in: leave empty to keep",
     "hub_password_not_saved": "The password is not saved: the app keeps an access token instead.",
     "hub_logging_in": "Logging in...",
+    "app_token_not_deleted": "The previous login could not be deleted on the Hub: an admin can delete it in the token list.",
+    "hub_password_for_user": "Type the password to log in as the new user.",
     "quick_map_nav_vol_desc": "Quickly map standard navigation and volume buttons to a selected device.",
     "quick_shortcuts": "Quick Shortcuts",
     "quick_suggestions_lbl": "Quick suggestions:",

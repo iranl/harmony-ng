@@ -17,8 +17,8 @@ const native = on => { globalThis.Capacitor = on ? { isNativePlatform: () => tru
 // Fake Hubs by address: 192.168.1.20 answers, 192.168.1.21 is unreachable
 let calls = [];
 let hubState;
-function resetHub({ tokensStatus = 201 } = {}) {
-  hubState = { tokensStatus, next: 1, pats: new Map(), sessions: new Set() };
+function resetHub({ tokensStatus = 201, authOn = true, tokensError = 'refused' } = {}) {
+  hubState = { tokensStatus, authOn, tokensError, next: 1, pats: new Map(), sessions: new Set(), names: [] };
 }
 resetHub();
 globalThis.fetch = async (url, opts = {}) => {
@@ -29,6 +29,11 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.hostname === '192.168.1.21') throw new TypeError('Failed to fetch');
   const reply = (status, obj) => new Response(JSON.stringify(obj), { status });
   const bearer = auth.replace(/^Bearer /, '');
+  if (u.pathname === '/api/auth/me') {
+    if (hubState.authOn && !bearer) return reply(401, { ok: false, error: 'Unauthorized' });
+    return reply(200, { ok: true, auth_enabled: hubState.authOn });
+  }
+  if (u.pathname === '/health') return reply(200, { status: 'ok' });
   if (u.pathname === '/api/auth/token') {
     const b = JSON.parse(opts.body);
     if (b.password !== 'secret') return reply(401, { ok: false, error: 'Invalid username or password' });
@@ -38,16 +43,19 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (u.pathname === '/api/auth/tokens' && call.method === 'POST') {
     if (!hubState.sessions.has(bearer)) return reply(401, { ok: false });
-    if (hubState.tokensStatus !== 201) return reply(hubState.tokensStatus, { ok: false, error: 'refused' });
+    if (!hubState.authOn) return reply(409, { ok: false, error: 'Turn on authentication before creating access tokens' });
+    if (hubState.tokensStatus !== 201) return reply(hubState.tokensStatus, { ok: false, error: hubState.tokensError });
     const id = `tok_${hubState.next}`;
     const tok = `pat_${hubState.next++}`;
     hubState.pats.set(id, tok);
     const b = JSON.parse(opts.body);
+    hubState.names.push(b.name);
     return reply(201, { ok: true, id, name: b.name, role: 'user', token: tok });
   }
   if (u.pathname === '/api/auth/tokens' && call.method === 'DELETE') {
     const id = u.searchParams.get('id');
-    if (hubState.pats.get(id) !== bearer) return reply(404, { ok: false });
+    if (hubState.authOn && hubState.pats.get(id) !== bearer) return reply(404, { ok: false });
+    if (!hubState.pats.has(id)) return reply(404, { ok: false });
     hubState.pats.delete(id);
     return reply(200, { ok: true });
   }
@@ -59,7 +67,8 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const storage = await import('../android-app/src/storage.js');
-const { migrateStoredPasswords, APP_TOKEN_NAME } = await import('../android-app/src/app_token.js');
+const appToken = await import('../android-app/src/app_token.js');
+const { migrateStoredPasswords, APP_TOKEN_NAME } = appToken;
 const { HarmonyClient } = await import('../android-app/src/api.js');
 const { HarmonyAppHubsNetwork } = await import('../android-app/src/app/app_hubs_network.js');
 
@@ -87,14 +96,14 @@ await t.check('start: a saved password becomes a token, no password is left', as
   assert.equal(h1.username, 'alice');
   assert.equal(stored('hub_2').token, undefined, 'unreachable Hub got a token');
   const seq = calls.filter(c => c.host === '192.168.1.20').map(c => `${c.method} ${c.path}`);
-  assert.deepEqual(seq, ['POST /api/auth/token', 'POST /api/auth/tokens', 'POST /api/auth/logout']);
+  assert.deepEqual(seq, ['GET /api/auth/me', 'POST /api/auth/token', 'POST /api/auth/tokens', 'POST /api/auth/logout']);
   const made = calls.find(c => c.path === '/api/auth/tokens');
-  assert.equal(JSON.parse(made.body).name, APP_TOKEN_NAME);
+  assert.ok(JSON.parse(made.body).name.startsWith(`${APP_TOKEN_NAME} (`), JSON.parse(made.body).name);
   assert.equal(hubState.sessions.size, 0, 'the login session was not ended');
   assert.equal(localStorage.getItem('harmony_auth_token'), null, 'old session token kept');
 });
 
-await t.check('the app sends its token, never Basic, and ignores the browser session token', async () => {
+await t.check('the app sends its token, no password, and ignores the browser session token', async () => {
   native(true);
   localStorage.setItem('harmony_auth_token', 'hht_browser');
   const c = new HarmonyClient(stored('hub_1'));
@@ -104,6 +113,11 @@ await t.check('the app sends its token, never Basic, and ignores the browser ses
   const c2 = new HarmonyClient(stored('hub_2'));
   calls = [];
   await c2.request('/api/status').catch(() => {});
+  assert.equal(calls[0].auth, '', `sent ${calls[0].auth}`);
+  // a profile that still had a password (start-up update failed): not sent either
+  const c3 = new HarmonyClient({ id: 'x', host: '192.168.1.20', username: 'alice', password: 'secret' });
+  calls = [];
+  await c3.request('/api/status');
   assert.equal(calls[0].auth, '', `sent ${calls[0].auth}`);
   localStorage.removeItem('harmony_auth_token');
 });
@@ -153,19 +167,52 @@ await t.check('logout with the Hub unreachable still forgets the token', async (
   storage.saveHub({ id: 'hub_2', host: '192.168.1.21', token: 'pat_far', tokenId: 'tok_far' });
   await tick();
   const c = new HarmonyClient(stored('hub_2'));
-  await c.logout();
+  const out = await c.logout();
+  assert.equal(out.revoked, false, 'the app must be able to tell the user the token stays on the Hub');
   assert.equal(stored('hub_2').token, null);
 });
 
-await t.check('a Hub without authentication: login keeps nothing', async () => {
+await t.check('a Hub without authentication: login keeps nothing and deletes the old token', async () => {
   native(true);
-  resetHub({ tokensStatus: 409 });
+  resetHub();
   const c = new HarmonyClient(stored('hub_1'));
+  await c.login('alice', 'secret');
+  const oldId = stored('hub_1').tokenId;
+  assert.ok(hubState.pats.has(oldId));
+  hubState.authOn = false;
+  calls = [];
   const r = await c.login('alice', 'secret');
   assert.equal(r.auth_off, true);
   assert.equal(stored('hub_1').token, null);
-  assert.equal(hubState.sessions.size, 0);
+  assert.ok(!hubState.pats.has(oldId), 'old token left on the Hub (valid again when authentication is back)');
+  assert.ok(!calls.some(x => x.path === '/api/auth/token' || x.path === '/api/auth/tokens' && x.method === 'POST'),
+    'logged in or made a token while authentication is off');
   assert.ok(!rawHubs().includes('secret'));
+  resetHub();
+});
+
+await t.check('a token limit on the Hub: the reason is shown, nothing changes', async () => {
+  native(true);
+  resetHub();
+  const c = new HarmonyClient(stored('hub_1'));
+  await c.login('alice', 'secret');
+  const before = rawHubs();
+  hubState.tokensStatus = 409;
+  hubState.tokensError = 'This account already has 10 access tokens: delete one first';
+  await assert.rejects(c.login('alice', 'secret'), /10 access tokens/);
+  assert.equal(rawHubs(), before);
+  assert.equal(hubState.sessions.size, 0, 'session left open');
+  resetHub();
+});
+
+await t.check('token name tells the phones apart', async () => {
+  const { appTokenName } = appToken;
+  assert.equal(typeof appTokenName, 'function', 'no appTokenName()');
+  const ua = 'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.004; wv) AppleWebKit/537.36';
+  assert.equal(appTokenName(ua, new Date('2026-11-15T10:00:00Z')), 'Android app (Pixel 7, 2026-11-15)');
+  assert.equal(appTokenName('', new Date('2026-11-15T10:00:00Z')), 'Android app (2026-11-15)');
+  const long = 'Mozilla/5.0 (Linux; Android 13; A very long phone model name that goes on; wv)';
+  assert.ok(Buffer.byteLength(appTokenName(long)) <= 63);
 });
 
 await t.check('a Hub that refuses tokens to operators: the session token is kept, logout ends it', async () => {
@@ -178,7 +225,8 @@ await t.check('a Hub that refuses tokens to operators: the session token is kept
   assert.equal(h.tokenId, null);
   assert.ok(hubState.sessions.has(h.token), 'session ended right away');
   calls = [];
-  await c.logout();
+  const out = await c.logout();
+  assert.equal(out.revoked, true);
   assert.deepEqual(calls.map(x => `${x.method} ${x.path}`), ['POST /api/auth/logout']);
   assert.equal(hubState.sessions.size, 0);
   resetHub();
@@ -272,6 +320,93 @@ await t.check('profile dialog: saving without a password keeps the current token
   await modal.querySelector('#btnHubSave').onclick();
   assert.equal(stored('hub_1').token, before.token);
   assert.equal(stored('hub_1').name, 'Renamed');
+});
+
+await t.check('profile dialog: a login made since the dialog opened is kept (stale copy)', async () => {
+  native(true);
+  resetHub();
+  const modal = hubDialog();
+  const stale = { ...stored('hub_1') };
+  // log in again through the login dialog while the Hubs page keeps the old copy
+  const c = new HarmonyClient(stored('hub_1'));
+  await c.login('alice', 'secret');
+  const fresh = stored('hub_1').token;
+  hubApp().openEditHubModal(stale);
+  modal.querySelector('#hubFormName').value = 'Living';
+  modal.querySelector('#hubFormHost').value = '192.168.1.20';
+  modal.querySelector('#hubFormPort').value = '8089';
+  modal.querySelector('#hubFormUser').value = 'alice';
+  modal.querySelector('#hubFormPass').value = '';
+  await modal.querySelector('#btnHubSave').onclick();
+  assert.equal(stored('hub_1').token, fresh);
+});
+
+await t.check('profile dialog: a second profile for the same Hub deletes the replaced token', async () => {
+  native(true);
+  const modal = hubDialog();
+  const oldId = stored('hub_1').tokenId;
+  hubApp().openEditHubModal({ id: 'hub_new', name: 'Again', host: '', port: 8089 }, false);
+  modal.querySelector('#hubFormName').value = 'Again';
+  modal.querySelector('#hubFormHost').value = '192.168.1.20';
+  modal.querySelector('#hubFormPort').value = '8089';
+  modal.querySelector('#hubFormUser').value = 'alice';
+  modal.querySelector('#hubFormPass').value = 'secret';
+  await modal.querySelector('#btnHubSave').onclick();
+  assert.ok(!hubState.pats.has(oldId), 'replaced token still on the Hub');
+  assert.equal(hubState.pats.size, 1);
+});
+
+await t.check('profile dialog: another user name without a password is refused', async () => {
+  native(true);
+  const modal = hubDialog();
+  const before = rawHubs();
+  hubApp().openEditHubModal({ ...stored('hub_1') });
+  modal.querySelector('#hubFormName').value = 'Living';
+  modal.querySelector('#hubFormHost').value = '192.168.1.20';
+  modal.querySelector('#hubFormPort').value = '8089';
+  modal.querySelector('#hubFormUser').value = 'bob';
+  modal.querySelector('#hubFormPass').value = '';
+  await modal.querySelector('#btnHubSave').onclick();
+  assert.equal(rawHubs(), before);
+  assert.match(modal.querySelector('#hubTestStatus').innerHTML, /password/i);
+});
+
+await t.check('profile dialog: Test sends no password with requests, checks the login once', async () => {
+  native(true);
+  const modal = hubDialog();
+  hubApp().openEditHubModal({ ...stored('hub_1') });
+  modal.querySelector('#hubFormHost').value = '192.168.1.20';
+  modal.querySelector('#hubFormPort').value = '8089';
+  modal.querySelector('#hubFormUser').value = 'alice';
+  modal.querySelector('#hubFormPass').value = 'secret';
+  const before = rawHubs();
+  calls = [];
+  await modal.querySelector('#btnHubTest').onclick();
+  assert.ok(!calls.some(x => x.auth.startsWith('Basic')), 'Basic sent');
+  assert.ok(calls.some(x => x.path === '/api/auth/token'), 'login not checked');
+  assert.equal(hubState.sessions.size, 0, 'test session left open');
+  assert.match(modal.querySelector('#hubTestStatus').innerHTML, /Connected/);
+  assert.equal(rawHubs(), before);
+  modal.querySelector('#hubFormPass').value = 'wrong';
+  await modal.querySelector('#btnHubTest').onclick();
+  assert.match(modal.querySelector('#hubTestStatus').innerHTML, /Invalid username or password/);
+});
+
+await t.check('header badge shows the account, not the token name', async () => {
+  native(true);
+  const { HarmonyAppActivitiesState } = await import('../android-app/src/app/app_activities_state.js');
+  const a = Object.create(HarmonyAppActivitiesState.prototype);
+  a.client = new HarmonyClient({ id: 'hub_1', host: '192.168.1.20', username: 'alice', token: 'pat_x' });
+  a.client.getInventory = async () => ({ devices: [] });
+  a.client.getActivities = async () => ({ activities: [] });
+  a.client.getStatus = async () => ({ user: 'pat:Android app (Pixel 7, 2026-11-15)', role: 'user', auth_enabled: true });
+  a.applyRoleRestrictions = () => {};
+  a.updateIconCacheUI = () => {};
+  a.updateActivityBanner = () => {};
+  a.loadAvailableIcons = () => {};
+  a.currentTab = 'none';
+  await a.refreshData().catch(() => {});
+  assert.equal(a.currentUser, 'alice');
 });
 
 t.finish();

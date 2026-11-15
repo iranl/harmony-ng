@@ -880,6 +880,8 @@ export default {
     "hub_login_kept_placeholder": "Aangemeld: leeg laten om aangemeld te blijven",
     "hub_password_not_saved": "Het wachtwoord wordt niet opgeslagen: de app bewaart in plaats daarvan een toegangstoken.",
     "hub_logging_in": "Aanmelden...",
+    "app_token_not_deleted": "De vorige aanmelding kon niet op de Hub worden verwijderd: een beheerder kan deze in de tokenlijst verwijderen.",
+    "hub_password_for_user": "Typ het wachtwoord om aan te melden als de nieuwe gebruiker.",
     "quick_map_nav_vol_desc": "Wijs snel standaard navigatie- en volumeknoppen toe aan een geselecteerd apparaat.",
     "quick_shortcuts": "Snelle sneltoetsen",
     "quick_suggestions_lbl": "Snelle suggesties:",

@@ -880,6 +880,8 @@ export default {
     "hub_login_kept_placeholder": "Connecté : laisser vide pour garder la connexion",
     "hub_password_not_saved": "Le mot de passe n'est pas enregistré : l'app garde un jeton d'accès à la place.",
     "hub_logging_in": "Connexion...",
+    "app_token_not_deleted": "La connexion précédente n'a pas pu être supprimée sur le Hub : un admin peut la supprimer dans la liste des jetons.",
+    "hub_password_for_user": "Saisissez le mot de passe pour vous connecter avec le nouvel utilisateur.",
     "quick_map_nav_vol_desc": "Assignez rapidement les boutons standard de navigation et de volume à l'appareil sélectionné.",
     "quick_shortcuts": "Raccourcis rapides",
     "quick_suggestions_lbl": "Suggestions rapides :",

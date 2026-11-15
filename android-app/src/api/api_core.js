@@ -35,7 +35,8 @@ export class HarmonyClientCore {
 
     if (this.token) {
       this.authHeader = this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`;
-    } else if (this.hub.username && this.hub.password) {
+    } else if (!this.isNativeApp && this.hub.username && this.hub.password) {
+      // the app never sends a password with its requests: it logs in once (app_token.js)
       this.authHeader = `Basic ${btoa(`${this.hub.username}:${this.hub.password}`)}`;
     } else {
       this.authHeader = null;

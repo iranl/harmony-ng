@@ -4,6 +4,15 @@
 import { getSavedHubs, saveHub, forgetStoredPasswords } from './storage.js';
 
 export const APP_TOKEN_NAME = 'Android app';
+
+// "Android app (<phone model>, <date>)": an admin can tell the phones apart in the token list.
+// The Hub keeps names of up to 63 bytes.
+export function appTokenName(userAgent = (typeof navigator !== 'undefined' ? navigator.userAgent : ''), now = new Date()) {
+  const m = /Android [\d.]+; ([^;)]+?)(?: Build\/|\)|;)/.exec(userAgent || '');
+  const model = m ? m[1].trim().slice(0, 24) : '';
+  const date = now.toISOString().slice(0, 10);
+  return `${APP_TOKEN_NAME} (${model ? `${model}, ` : ''}${date})`;
+}
 const SESSION_KEYS = ['harmony_auth_token', 'harmony_auth_user', 'harmony_auth_role'];
 
 export function isNativeApp() {
@@ -42,7 +51,11 @@ async function hubCall(baseUrl, path, { method = 'GET', token = null, body, time
 // Log in with the password, create the app's token, end the session. Returns
 // { token, tokenId, username, role }, or { authOff: true, username } when the Hub has no
 // authentication (then nothing needs to be kept). Throws when the Hub refuses the login.
-export async function createAppToken(baseUrl, username, password, { timeout = 6000 } = {}) {
+export async function createAppToken(baseUrl, username, password, { timeout = 6000, name = appTokenName() } = {}) {
+  // Authentication off: nothing to keep. Asked first, because firmware before 2.4.1 would make
+  // a standing admin token while authentication is off.
+  const me = await hubCall(baseUrl, '/api/auth/me', { timeout });
+  if (me.status === 200 && me.data.auth_enabled === false) return { authOff: true, username };
   const login = await hubCall(baseUrl, '/api/auth/token', {
     method: 'POST', body: { username, password }, timeout
   });
@@ -54,9 +67,9 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
   let keepSession = false;
   try {
     const made = await hubCall(baseUrl, '/api/auth/tokens', {
-      method: 'POST', token: session, body: { name: APP_TOKEN_NAME, role: login.data.role || 'user' }, timeout
+      method: 'POST', token: session, body: { name, role: login.data.role || 'user' }, timeout
     });
-    if (made.status === 409) return { authOff: true, username: user };
+    if (made.status === 409 && /authentication/i.test(made.data.error || '')) return { authOff: true, username: user };
     if (made.status === 403) {
       // A Hub that lets only admins create tokens: keep the session token instead (it ends when
       // the Hub restarts or after a day, then the app asks for the login again)
@@ -73,6 +86,19 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
       await hubCall(baseUrl, '/api/auth/logout', { method: 'POST', token: session, timeout }).catch(() => {});
     }
   }
+}
+
+// Test button: does the Hub accept this user name and password? Logs in and out again, keeps
+// nothing. Resolves to { ok, authOff, error }.
+export async function checkLogin(baseUrl, username, password, { timeout = 4000 } = {}) {
+  const me = await hubCall(baseUrl, '/api/auth/me', { timeout });
+  if (me.status === 200 && me.data.auth_enabled === false) return { ok: true, authOff: true };
+  const login = await hubCall(baseUrl, '/api/auth/token', { method: 'POST', body: { username, password }, timeout });
+  if (login.status !== 200 || !login.data.access_token) {
+    return { ok: false, error: login.data.error || `Login failed (HTTP ${login.status})` };
+  }
+  await hubCall(baseUrl, '/api/auth/logout', { method: 'POST', token: login.data.access_token, timeout }).catch(() => {});
+  return { ok: true };
 }
 
 // Delete the profile's token on the Hub. False when the Hub could not be reached or refused;

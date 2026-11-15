@@ -264,7 +264,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
             <div>
               <div style="font-weight: 600; font-size: 13px;">${escapeHtml(t.name || 'Unnamed Token')}</div>
               <div class="mini muted" style="font-size: 10px; margin-top: 2px;">
-                <span>ID: ${t.id}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
+                <span>ID: ${t.id}</span> • <span>Owner: ${escapeHtml(t.owner || '-')}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
               </div>
             </div>
             <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name || t.id)}">Revoke</button>
@@ -342,8 +342,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         const p = document.getElementById('loginPassword')?.value;
         if (errBox) errBox.style.display = 'none';
         try {
-          await this.client.login(u, p);
+          const res = await this.client.login(u, p);
           if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
+          if (res && res.old_token_kept) showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
           if (modal) modal.style.display = 'none';
           const pInp = document.getElementById('loginPassword');
           if (pInp) pInp.value = '';
@@ -368,8 +369,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       btnSession.addEventListener('click', async () => {
         if (this.client?.token) {
           if (await showConfirm(t('logout_confirm'), { title: t('logout'), okText: t('logout'), danger: false })) {
-            await this.client.logout();
+            const res = await this.client.logout();
             if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
+            if (res && res.revoked === false) showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
             this.checkAuthStatus();
             await this.refreshData();
             this.showLoginModal();
