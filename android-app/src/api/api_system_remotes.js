@@ -1,6 +1,6 @@
+import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 import { createAppToken, revokeAppToken, loginFields, finishReplace } from '../app_token.js';
 import { saveHub, getSavedHubs } from '../storage.js';
-import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 
 export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   /* Homatics B25 / Physical BT Remote Mapping */
