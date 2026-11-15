@@ -25,3 +25,5 @@ python3 "$SCRIPT_DIR/test_build_theme_cache.py"
 sh "$SCRIPT_DIR/test_prebuilt_hashes.sh"
 # build/build_webui.py, build_apk.py, deploy_hub.py: one web UI packaging step, results checked
 python3 "$SCRIPT_DIR/test_webui_sync.py"
+# tools/remote_render: --select kept inside the activity list (UBSan), unreadable input files
+sh "$SCRIPT_DIR/test_remote_render_select.sh"
