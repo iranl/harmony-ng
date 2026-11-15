@@ -357,6 +357,13 @@ uint64_t get_monotonic_ms(void);
  * get_monotonic_ms(). */
 uint64_t get_boot_ms(void);
 uint64_t get_wall_ms(void);
+/* remote_ui's output file (the supervisor starts it with stdout and stderr there; /tmp is RAM)
+ * and its size limit: past it the file is renamed to <path>.1 (replacing the older one) and a new
+ * one is started, so the two never hold more than twice the limit */
+#define REMOTE_UI_LOG "/tmp/remote_ui.log"
+#define REMOTE_UI_LOG_MAX (512L * 1024L)
+/* Rotates path as above when stdout is that file and it is past max_bytes; true when rotated */
+bool remote_log_rotate(const char *path, long max_bytes);
 extern volatile uint64_t g_suspended_ms;
 #define REMOTE_SUSPEND_GAP_MAX_MS (14ULL * 24 * 3600 * 1000)
 /* The time a suspend lasted, from the wall and monotonic clocks read before and after it;

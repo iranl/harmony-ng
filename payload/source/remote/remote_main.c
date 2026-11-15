@@ -693,6 +693,11 @@ int main(int argc, char **argv) {
         }
 
         frame_timing_poll();
+        static uint64_t last_log_check_ms = 0;
+        if (now_ms - last_log_check_ms >= 60000) {
+            last_log_check_ms = now_ms;
+            remote_log_rotate(REMOTE_UI_LOG, REMOTE_UI_LOG_MAX);
+        }
         if (access("/tmp/trigger_rf_pair", F_OK) == 0) {
             unlink("/tmp/trigger_rf_pair");
             printf("[*] External trigger: starting RF pairing...\n");

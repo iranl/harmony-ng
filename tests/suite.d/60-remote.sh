@@ -63,3 +63,8 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
 SHARED_STATE_DIR="$(mktemp -d /tmp/hng_shared_state.XXXXXX)"
 HARMONY_MOCK_DIR="$SHARED_STATE_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_shared_state"
 rm -rf "$SHARED_STATE_DIR"
+
+# remote_ui's log in RAM: no line per sync query by default, rotation past the limit
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_log" \
+    "$SCRIPT_DIR/test_remote_log.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
+"$BUILD_DIR/test_remote_log"

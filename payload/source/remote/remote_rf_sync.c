@@ -830,8 +830,9 @@ void *rf_rx_worker(void *arg) {
                     memcpy(f.payload, &pkt[4], sizeof(f.payload));
                 }
             }
-            /* Not for every chunk: a windowed OTA brings about 250 a second */
-            if (!(g_is_ota_updating && f.msg_type == RF_MSG_OTA_CHUNK)) {
+            /* One line per frame (every sync query is answered) only with debug logging: the log
+               lives in RAM until remote_ui restarts */
+            if (g_log_level >= LOG_LEVEL_DEBUG && !(g_is_ota_updating && f.msg_type == RF_MSG_OTA_CHUNK)) {
                 printf("[*] RF RX -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
                 fflush(stdout);
             }
@@ -839,7 +840,7 @@ void *rf_rx_worker(void *arg) {
         } else {
             /* Not a standard frame — check if it's a 0x42 container with embedded data */
             if (n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x42) {
-                printf("[*] RF RX eQuad container (0x42): parsing payload at offset 3\n");
+                if (g_log_level >= LOG_LEVEL_DEBUG) printf("[*] RF RX eQuad container (0x42): parsing payload at offset 3\n");
                 rf_frame_t f;
                 memset(&f, 0, sizeof(f));
                 f.report_id = 0x20;
@@ -866,8 +867,10 @@ void *rf_rx_worker(void *arg) {
                         g_rf_link_connected = true;
                         g_screen_dirty = true;
                     }
-                    printf("[*] RF RX 0x42 -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
-                    fflush(stdout);
+                    if (g_log_level >= LOG_LEVEL_DEBUG) {
+                        printf("[*] RF RX 0x42 -> Hub frame type=0x%02X seq=%d\n", f.msg_type, f.seq);
+                        fflush(stdout);
+                    }
                     handle_hub_frame_remote(&f);
                 }
             }
