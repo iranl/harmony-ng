@@ -721,8 +721,10 @@ void hbus_handle_client(int cfd) {
     }
     size_t total = 0;
     char *hdr_end = NULL;
+    /* Same time limits as port 8089: the two ports share the worker pool */
+    uint64_t hdr_deadline = http_mono_ms() + HTTP_HEADER_DEADLINE_MS;
     while (total < HBUS_REQ_MAX) {
-        ssize_t n = recv(cfd, buf + total, HBUS_REQ_MAX - total, 0);
+        ssize_t n = http_recv_until(cfd, buf + total, HBUS_REQ_MAX - total, hdr_deadline);
         if (n <= 0) break;
         total += (size_t)n;
         buf[total] = '\0';
@@ -773,8 +775,9 @@ void hbus_handle_client(int cfd) {
         char *clp = strcasestr(buf, "Content-Length:");
         if (clp && clp < hdr_end) cl = atol(clp + 15);
         if (cl > 0 && (size_t)cl < HBUS_REQ_MAX - hdr_len) {
+            uint64_t body_deadline = http_mono_ms() + HTTP_BODY_DEADLINE_MS;
             while (total < hdr_len + (size_t)cl) {
-                ssize_t n = recv(cfd, buf + total, hdr_len + (size_t)cl - total, 0);
+                ssize_t n = http_recv_until(cfd, buf + total, hdr_len + (size_t)cl - total, body_deadline);
                 if (n <= 0) break;
                 total += (size_t)n;
             }

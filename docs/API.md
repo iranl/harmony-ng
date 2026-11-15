@@ -2,6 +2,8 @@
 
 `hub_daemon` provides an ultra-lightweight REST and WebSocket interface running natively on port 8089 (HTTP / WebSocket). RF hardware calls are transparently proxied to `hub_rf` on port 8092 via `/api/rf/*`.
 
+**Time limits.** A request's line and headers must arrive within 10 s and its body within 20 s, with no gap longer than 5 s; a keep-alive connection takes no new request after 30 s. A client that is slower is disconnected, so it cannot hold one of the Hub's 8 request workers (the same limits apply on port 8088).
+
 **Requests from web pages.** Port 8089 refuses requests and WebSocket upgrades that a browser sends on behalf of another web site: an `Origin` header that is not the Hub's own clients answers `403`, and so does a request without `Origin` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site`. Allowed origins: the Hub itself (the `Origin` host matches the request's `Host`, or `X-Forwarded-Host` behind a reverse proxy), `http://localhost` and `https://localhost` on any port (the Android app, local development servers), `http://127.0.0.1`, `capacitor://localhost` and `ionic://localhost`. Clients outside a browser (the Home Assistant integration, scripts, `curl`) send neither header and are not affected. A CORS preflight (`OPTIONS`) from any other origin is answered `403`. Port 8088 (Logitech protocol) is not affected.
 
 ---
