@@ -105,6 +105,12 @@ void poll_bthid_fifo(void) {
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            if (strncmp(line, "TS ", 3) == 0) {
+                /* Key trace: the times of the next command, sent by hub_daemon with debug logging on */
+                bt_hid_trace_begin(line + 3);
+                line = strtok_r(NULL, "\r\n", &save);
+                continue;
+            }
             if (strncmp(line, "TARGET ", 7) == 0) {
                 bd_addr_t t_addr;
                 if (parse_bd_addr(line + 7, t_addr)) {
@@ -126,6 +132,7 @@ void poll_bthid_fifo(void) {
                 line = strtok_r(NULL, "\r\n", &save);
                 continue;
             }
+            bt_hid_trace_command(line);
             uint16_t cur_cid = get_target_host_hid_cid();
             if (cur_cid == 0) {
                 if (!g_host_reconnect_active) {

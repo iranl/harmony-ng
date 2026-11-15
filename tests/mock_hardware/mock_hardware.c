@@ -149,6 +149,11 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         snprintf(resolved, max_len, "%s/bthid_input", md);
         return resolved;
     }
+    /* and hub_daemon's Bluetooth send log (debug logging) */
+    if (strcmp(pathname, "/tmp/bt_sent.log") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
+        snprintf(resolved, max_len, "%s/bt_sent.log", md);
+        return resolved;
+    }
 
     /* 5. Sysfs Power, Backlight, Display */
     if (strcmp(pathname, "/sys/class/graphics/fb0/blank") == 0) {

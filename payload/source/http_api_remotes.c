@@ -1108,7 +1108,11 @@ static void key_channel_handle(const char *msg) {
         else if (strcmp(action, "hold") == 0) btn_action = HW_BTN_ACTION_REPEAT;
         else if (is_release) btn_action = HW_BTN_ACTION_RELEASE;
         g_live_remote_key = 1; /* no interKeyDelay / interDeviceDelay before a key from a remote */
+        g_key_trace_rx_ms = ts; /* key trace: used only with debug logging on */
+        g_key_trace_daemon_ms = now;
         hw_device_command_send_action(dev, 0, cmd, btn_action);
+        g_key_trace_rx_ms = 0;
+        g_key_trace_daemon_ms = 0;
         g_live_remote_key = 0;
     }
     /* The button event, as POST /api/button-press: the first press and the release */

@@ -278,6 +278,9 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -Wl,--wrap=open -o "$BUILD_DI
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_queue" "$SCRIPT_DIR/test_rf_key_queue.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_key_queue"
 # hub_daemon: a key from a remote goes out without the gaps between commands (daemon in --dry-run, mock key pipe)
 python3 "$SCRIPT_DIR/test_live_key_gaps.py"
+# Key trace (debug logging): the TS line from hub_daemon, and hub_btstack's line per key
+python3 "$SCRIPT_DIR/test_key_trace.py"
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_trace" "$SCRIPT_DIR/test_bt_key_trace.c" && "$BUILD_DIR/test_bt_key_trace"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"

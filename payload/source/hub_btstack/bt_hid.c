@@ -1,4 +1,7 @@
 #include "bt_hid.h"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
 #include "bt_hid_queue.h"
 #include "bt_pairing.h"
 
@@ -37,10 +40,73 @@ void bt_hid_queue_init(void) {
     s_hidq_ready = true;
 }
 
+/* ---- Key trace (debug logging) ----
+ * hub_daemon sends "TS <rx> <daemon> <write>" before the command of a key from a remote: when
+ * hub_rf received the key, when hub_daemon took it from the key channel and when it wrote it to
+ * the pipe, all CLOCK_MONOTONIC in ms. Without that line nothing here runs. */
+#ifndef KEY_TRACE_LOG
+#define KEY_TRACE_LOG "/tmp/key_trace.log"
+#endif
+#define KEY_TRACE_MAX_BYTES 262144
+static unsigned long long s_trace_rx_ms, s_trace_daemon_ms, s_trace_write_ms, s_trace_read_ms;
+static char s_trace_cmd[32];
+
+static unsigned long long trace_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long)ts.tv_sec * 1000ULL + (unsigned long long)ts.tv_nsec / 1000000ULL;
+}
+
+static unsigned long long trace_span(unsigned long long from, unsigned long long to) {
+    return to > from ? to - from : 0;
+}
+
+void bt_hid_trace_begin(const char *times) {
+    s_trace_rx_ms = s_trace_daemon_ms = s_trace_write_ms = 0;
+    s_trace_cmd[0] = '\0';
+    if (!times || sscanf(times, "%llu %llu %llu", &s_trace_rx_ms, &s_trace_daemon_ms, &s_trace_write_ms) != 3) {
+        s_trace_rx_ms = 0;
+    }
+}
+
+void bt_hid_trace_command(const char *cmd) {
+    if (!s_trace_rx_ms || s_trace_cmd[0]) return;
+    snprintf(s_trace_cmd, sizeof(s_trace_cmd), "%s", cmd ? cmd : "");
+    s_trace_read_ms = trace_now_ms();
+}
+
+/* One line per key from a remote: where its time went between hub_rf and the Bluetooth stack.
+ *   rf>daemon  hub_rf's queue and the key channel, until hub_daemon took the key
+ *   daemon     hub_daemon, until it wrote the command to the pipe
+ *   pipe       until hub_btstack read the command
+ *   bt         hub_btstack, until the report was handed to the stack (or queued behind another) */
+static void trace_report_sent(uint16_t cid) {
+    if (!s_trace_rx_ms || !s_trace_cmd[0]) return;
+    unsigned long long now = trace_now_ms();
+    struct stat st;
+    if (stat(KEY_TRACE_LOG, &st) == 0 && st.st_size > KEY_TRACE_MAX_BYTES) rename(KEY_TRACE_LOG, KEY_TRACE_LOG ".1");
+    FILE *f = fopen(KEY_TRACE_LOG, "a");
+    if (f) {
+        struct timespec wall;
+        clock_gettime(CLOCK_REALTIME, &wall);
+        struct tm tmv;
+        localtime_r(&wall.tv_sec, &tmv);
+        fprintf(f, "%02d:%02d:%02d.%03ld %-16s rf>daemon=%llu daemon=%llu pipe=%llu bt=%llu total=%llu ms%s\n",
+                tmv.tm_hour, tmv.tm_min, tmv.tm_sec, wall.tv_nsec / 1000000L, s_trace_cmd,
+                trace_span(s_trace_rx_ms, s_trace_daemon_ms), trace_span(s_trace_daemon_ms, s_trace_write_ms),
+                trace_span(s_trace_write_ms, s_trace_read_ms), trace_span(s_trace_read_ms, now),
+                trace_span(s_trace_rx_ms, now), hidq_pending(cid) ? " (waiting in the report queue)" : "");
+        fclose(f);
+    }
+    s_trace_rx_ms = 0;
+    s_trace_cmd[0] = '\0';
+}
+
 void bt_hid_send_report(uint16_t cid, const uint8_t *report, uint16_t len) {
     bt_hid_queue_init(); /* a report sent before main() set it up must not be lost */
     hidq_send(cid, report, len, btstack_run_loop_get_time_ms());
     hidq_arm_timer();
+    trace_report_sent(cid);
 }
 
 void bt_hid_can_send_now(uint16_t cid) {

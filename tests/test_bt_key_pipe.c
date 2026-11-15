@@ -6,7 +6,9 @@
  *   - a line cut by the end of a read is kept and runs once, whole, with the next read. Its two
  *     halves used to run as two commands ("KBD_DO" and "WN 4F" were typed to the host as text).
  *   - two commands in one write both run, in order; target and command in one write (what
- *     hub_daemon sends) select the host and send the key. */
+ *     hub_daemon sends) select the host and send the key.
+ *   - a "TS" line (key trace, debug logging) gives its times to the trace and is never taken
+ *     for a command; the command after it is the traced one. */
 #define HARMONY_BT_STATE_H
 #define HARMONY_BT_PAIRING_H
 #define HARMONY_BT_HID_H
@@ -189,6 +191,18 @@ void send_host_text(const char *text) { s_texts++; record("text \"%s\"", text); 
 int parse_hex_bytes(const char *hex, uint8_t *out, int max_len) { UNUSED(hex); UNUSED(out); UNUSED(max_len); return 0; }
 void bt_hid_send_report(uint16_t cid, const uint8_t *report, uint16_t len) { UNUSED(cid); UNUSED(report); UNUSED(len); record("report"); }
 void arm_host_key_release_timer(uint32_t timeout_ms) { UNUSED(timeout_ms); }
+/* key trace: the times of a "TS" line, and the command lines offered to it */
+static char s_trace_times[64];
+static char s_trace_cmds[8][48];
+static int s_trace_begins, s_trace_ncmds;
+void bt_hid_trace_begin(const char *times) {
+    s_trace_begins++;
+    snprintf(s_trace_times, sizeof(s_trace_times), "%s", times);
+}
+void bt_hid_trace_command(const char *cmd) {
+    if (s_trace_ncmds < 8) snprintf(s_trace_cmds[s_trace_ncmds], sizeof(s_trace_cmds[0]), "%s", cmd);
+    s_trace_ncmds++;
+}
 
 #include "../payload/source/hub_btstack/bt_cmd.c"
 
@@ -304,11 +318,24 @@ int main(void) {
     pump();
     CHECK(s_ncalls == 1 && strcmp(s_calls[0], "kbd 05") == 0, "a line without a newline: %d call(s)", s_ncalls);
 
+    /* 7. Key trace: target, times and command in one write, as hub_daemon sends a key from a
+     * remote with debug logging on */
+    reset_calls();
+    s_trace_begins = s_trace_ncmds = 0;
+    put(wfd, "TARGET 00:11:22:33:44:55\nTS 5839211 5839213 5839214\nKBD_DOWN 4F\n");
+    pump();
+    CHECK(s_trace_begins == 1 && strcmp(s_trace_times, "5839211 5839213 5839214") == 0,
+          "the TS line did not reach the trace (%d call(s), '%s')", s_trace_begins, s_trace_times);
+    CHECK(s_trace_ncmds == 1 && strcmp(s_trace_cmds[0], "KBD_DOWN 4F") == 0,
+          "the traced command is not the key (%d offered, first '%s')", s_trace_ncmds, s_trace_cmds[0]);
+    CHECK(s_ncalls == 2 && strcmp(s_calls[1], "kbd 4f down") == 0 && s_texts == 0,
+          "target, TS and key: %d call(s), %d typed as text", s_ncalls, s_texts);
+
     close(wfd);
     close(g_bthid_fifo_fd);
     unlink(s_fifo_path);
     rmdir(dir);
     if (s_fail) return 1;
-    printf("[+] test_bt_key_pipe: the key pipe is read when written, and a cut line runs once and whole\n");
+    printf("[+] test_bt_key_pipe: the key pipe is read when written, a cut line runs once and whole, a TS line goes to the trace\n");
     return 0;
 }

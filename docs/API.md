@@ -173,6 +173,24 @@ Returns tail (up to 12KB) of requested daemon or system log.
   }
   ```
 
+**Debug logs.** While `/data/harmony/debug_logging.conf` (or `/data/harmony/bt_remote_debug`)
+exists on the Hub, two more logs are written. `touch` the file over SSH to turn them on and `rm` it
+to turn them off; no restart is needed. Both are in RAM (`/tmp`, gone after a reboot) and are not
+served by `/api/logs`: read them over SSH.
+- `/tmp/bt_sent.log`: one line per Bluetooth command that `hub_daemon` hands to `hub_btstack`
+  (device, command, action, HID page and usage, result). At 64 KB it becomes `/tmp/bt_sent.log.1`.
+- `/tmp/key_trace.log`: one line per key from a remote that goes to a Bluetooth device, with the
+  time the key spent in each part of the Hub, in milliseconds:
+  ```
+  21:04:07.512 KBD_DOWN 4F      rf>daemon=1 daemon=1 pipe=0 bt=1 total=3 ms
+  ```
+  `rf>daemon`: from `hub_rf` receiving the key from the remote until `hub_daemon` took it from
+  the key channel. `daemon`: until `hub_daemon` wrote the command to the key pipe. `pipe`: until
+  `hub_btstack` read it. `bt`: until the report was handed to the Bluetooth stack; the line ends
+  with `(waiting in the report queue)` when the stack did not take the report at once. `total`:
+  from `hub_rf` to the stack. The time on the radio link before `hub_rf` and after the stack is
+  not in it. At 256 KB the file becomes `/tmp/key_trace.log.1`.
+
 ### 1.8 Hub Assets & Icons
 #### `GET /api/icons`
 Returns list of available device and activity PNG icon filenames.

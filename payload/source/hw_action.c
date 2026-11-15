@@ -33,6 +33,8 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
 int g_dry_run = 0;
 
 __thread int g_live_remote_key = 0;
+__thread unsigned long long g_key_trace_rx_ms = 0;
+__thread unsigned long long g_key_trace_daemon_ms = 0;
 
 int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) {
     if (!pronto_hex || !pronto_hex[0]) return -1;
@@ -682,9 +684,19 @@ static int send_match_in(cJSON *root, const char *target, int match_mode, const 
             if (bfd >= 0) {
                 /* Target and command in one write: whole or not at all, and never with another
                  * writer's command between the two. They were two unchecked writes: a full pipe
-                 * could take the target and lose the command, and the key counted as sent. */
+                 * could take the target and lose the command, and the key counted as sent.
+                 * With debug logging on, a key from a remote also carries its times (key trace). */
                 char msg[320];
-                int mlen = snprintf(msg, sizeof(msg), "TARGET %s\n%s", bdaddr, pipe_cmd);
+                int mlen;
+                if (g_key_trace_rx_ms && is_debug_log_enabled()) {
+                    struct timespec tts;
+                    clock_gettime(CLOCK_MONOTONIC, &tts);
+                    unsigned long long write_ms = (unsigned long long)tts.tv_sec * 1000ULL + (unsigned long long)tts.tv_nsec / 1000000ULL;
+                    mlen = snprintf(msg, sizeof(msg), "TARGET %s\nTS %llu %llu %llu\n%s", bdaddr,
+                                    g_key_trace_rx_ms, g_key_trace_daemon_ms, write_ms, pipe_cmd);
+                } else {
+                    mlen = snprintf(msg, sizeof(msg), "TARGET %s\n%s", bdaddr, pipe_cmd);
+                }
                 ssize_t w = (mlen > 0 && mlen < (int)sizeof(msg)) ? write(bfd, msg, (size_t)mlen) : -1;
                 int werr = errno;
                 close(bfd);
