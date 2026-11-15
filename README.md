@@ -187,6 +187,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
     ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
+    ├── ssh_hostkeys.py     # SSH host key policy shared by the host tools (--reset-host-key)
     └── unbrick_recovery/   # SPI flash and Dropbear emergency recovery tools
 ```
 
