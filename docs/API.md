@@ -991,14 +991,16 @@ Associates a logical device ID with a paired Bluetooth MAC address.
 - **Response `200 OK`**: `{"ok": true}`
 - **Errors**: `400` without `deviceId` or with a `bdaddr` that is not an address; `404` when there
   is no device with that id; `500` when `devices.json` could not be saved. (Older builds answered
-  `200` with `{"ok": false}` for the last two.)
+  `200`: `{"ok": false}` without a device id or for an unknown device, `{"ok": true}` after a failed
+  save.)
 
 `hub_daemon` is the only writer of `devices.json`. When a new pairing links a device, `hub_btstack`
 sends this request on loopback; when `hub_daemon` does not answer, or answers anything but `200`,
 `400` or `404` (restarting, busy, the save failed), `hub_btstack` keeps the link and sends it again
 after 1 s, then with a pause that doubles up to 60 s, until it is saved. It never writes the file
-itself. Only a `404` or `400` drops the link. A newer link of the same device waits for the answer
-to the older one, so the older address cannot be applied last.
+itself. Only a `404` or `400` drops the link, and three `200 {"ok": false}` answers (an older
+`hub_daemon`'s "no such device"). A newer link of the same device waits for the answer to the older
+one (or its 3 s timeout), so that the older address is not applied after it.
 
 ### 6.5a Forget Host
 #### `POST /api/bt-forget-host`
@@ -1024,7 +1026,9 @@ connection wrote it again in between.
 
 The devices that were linked to the host have no host of their own any more: their keys go to the
 default host (`bthid_host_target`, the last host paired) when there is one, and that can be another
-TV or box. Link them to another host (`POST /api/bt-link-device`) or pair them again.
+TV or box. Link them to another host (`POST /api/bt-link-device`) or pair them again. If the forgotten
+host was itself the default host, their keys are dropped until a host connects; that host then
+becomes the default.
 
 Afterwards the host can only come back through a new pairing (pairing mode); outside pairing mode
 its pairing requests are refused. Remove the Hub ("Harmony Keyboard") from the host's own Bluetooth

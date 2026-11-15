@@ -11,6 +11,7 @@ one short of deleting the key store):
 - POST /api/bt-link-device answers 404 for an unknown device and 400 without one (hub_btstack drops
   a waiting link only then; it read {"ok":false} as "no such device" also when the save failed)
 - admin only: a user account gets 403
+- 500 when hub_btstack did not take the command (a test hook plays a hub_btstack that is gone)
 The daemon runs with --dry-run on its own mock root (its hub_btstack commands are printed). A short
 lived process named hub_btstack stands in for a running hub_btstack (hub_daemon finds it in /proc):
 run it under flock /tmp/hng_suite.lock so that no other test sees it.
@@ -30,6 +31,7 @@ from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
 
 PORT = 9242
 PORT_AUTH = 9243
+PORT_GONE = 9245
 BOX = "00:11:22:33:44:01"  # test addresses, not real devices
 TV = "00:11:22:33:44:02"
 OLD = "00:11:22:33:44:03"
@@ -142,6 +144,13 @@ def main():
                 check(st == 400, "no device id: 400", "%s %s" % (st, r))
                 st, r = hub.http_post("/api/bt-link-device", {"deviceId": "3", "bdaddr": BOX})
                 check(st == 200 and r.get("ok") is True and device_addrs(hub).get("3") == BOX, "a known device: 200, linked", "%s %s" % (st, r))
+
+                print("[-] hub_btstack does not take the command")
+                with HubHarness(port=PORT_GONE, config_dir=cfg, env={"HARMONY_TEST_BTSTACK_GONE": "1"}) as ghub:
+                    st, r = ghub.http_post("/api/bt-forget-host", {"addr": BOX})
+                    check(st == 500 and "try again" in str(r), "500, and the answer says to send it again", "%s %s" % (st, r))
+                    st, r = ghub.http_post("/api/bt-forget-host", {"addr": BOX})
+                    check(st == 500 and not device_addrs(ghub).get("3"), "the devices were cleared already; it stays 500 while hub_btstack is gone", "%s %s" % (st, r))
 
                 print("[-] accounts")
                 users = {"auth_enabled": True, "users": [

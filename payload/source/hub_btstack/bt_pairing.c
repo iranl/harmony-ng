@@ -338,9 +338,14 @@ static void device_name_for_id(const char *dev_id, char *out, size_t out_len) {
 typedef struct {
     char dev_id[64];
     char addr[18];
+    uint8_t ok_false; /* 200 {"ok":false} answers so far (an older hub_daemon: no such device) */
 } link_job_t;
 
-typedef enum { LINK_OK = 0, LINK_REFUSED, LINK_NO_ANSWER } link_result_t;
+/* An older hub_daemon answers 200 {"ok":false} for an unknown device (and for nothing else that
+ * could pass later, except a missing device id): after this many such answers the link is dropped */
+#define LINK_OK_FALSE_MAX 3
+
+typedef enum { LINK_OK = 0, LINK_REFUSED, LINK_NO_ANSWER, LINK_OK_FALSE } link_result_t;
 typedef enum { LINK_IDLE = 0, LINK_CONNECTING, LINK_READING } link_phase_t;
 
 static link_job_t s_links[LINK_PENDING_MAX];
@@ -371,7 +376,8 @@ static void link_pop_front(void) {
 
 /* 200 with {"ok":true} links it. 404 (no such device) and 400 refuse it: it can never succeed.
  * Anything else is no answer and is sent again: nothing, a cut answer, a 200 without its body,
- * 5xx (hub_daemon could not save it). */
+ * 5xx (hub_daemon could not save it). A 200 {"ok":false} (older hub_daemon) is sent again up to
+ * LINK_OK_FALSE_MAX times. */
 static link_result_t link_parse_answer(const char *resp, size_t len) {
     int code = 0;
     if (len < 12 || strncmp(resp, "HTTP/1.", 7) != 0 || sscanf(resp + 8, " %3d", &code) != 1) return LINK_NO_ANSWER;
@@ -379,6 +385,7 @@ static link_result_t link_parse_answer(const char *resp, size_t len) {
     if (code != 200) return LINK_NO_ANSWER;
     const char *body = strstr(resp, "\r\n\r\n");
     if (body && strstr(body, "\"ok\":true")) return LINK_OK;
+    if (body && strstr(body, "\"ok\":false")) return LINK_OK_FALSE;
     return LINK_NO_ANSWER;
 }
 
@@ -398,6 +405,19 @@ static void link_exchange_end(link_result_t r) {
         s_link_retry_ms = LINK_RETRY_FIRST_MS;
         link_try_next();
         return;
+    }
+    if (r == LINK_OK_FALSE) {
+        if (++s_links[0].ok_false >= LINK_OK_FALSE_MAX) {
+            snprintf(msg, sizeof(msg), "hub_daemon answered {\"ok\":false} %d times for the link of device %s: dropped",
+                     LINK_OK_FALSE_MAX, s_links[0].dev_id);
+            log_msg(msg);
+            link_pop_front();
+            s_link_failures = 0;
+            s_link_retry_ms = LINK_RETRY_FIRST_MS;
+            link_try_next();
+            return;
+        }
+        r = LINK_NO_ANSWER;
     }
     if (r == LINK_OK || r == LINK_REFUSED) {
         if (r == LINK_OK) {
@@ -552,13 +572,15 @@ static void link_queue(const char *dev_id, const char *addr_str) {
             s_links_n++;
         }
     }
-    if (i == 0 && s_link_phase != LINK_IDLE) {
+    if (i == 0 && s_link_phase != LINK_IDLE && strcmp(s_links[0].addr, addr_str) != 0) {
         /* That link is being sent with the old address. Its request may have reached hub_daemon
-         * already: let it finish, then send the new one, so that the old one cannot land last. */
+         * already: let it finish (answer or 3 s timeout), then send the new one, so that the old
+         * one is not applied after it. The same address again needs nothing more. */
         s_link_resend = true;
     }
     snprintf(s_links[i].dev_id, sizeof(s_links[i].dev_id), "%s", dev_id);
     snprintf(s_links[i].addr, sizeof(s_links[i].addr), "%s", addr_str);
+    s_links[i].ok_false = 0;
     /* a new link does not wait for the pause of an older one */
     s_link_retry_ms = LINK_RETRY_FIRST_MS;
     link_try_next();

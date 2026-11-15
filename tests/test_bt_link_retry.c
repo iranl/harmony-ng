@@ -210,6 +210,14 @@ int main(void) {
     fire_retry();
     got = serve_one(ls, OK_ANSWER, req, sizeof(req));
     CHECK(got && pending_links() == 0, "and the link is taken when hub_daemon saves it");
+    link_bt_device_to_addr("9", "00:11:22:33:44:09");
+    int okf = 0;
+    for (int i = 0; i < 5 && pending_links() > 0; i++) {
+        if (i) fire_retry();
+        if (serve_one(ls, OK_FALSE_ANSWER, req, sizeof(req))) okf++;
+    }
+    CHECK(okf == 3 && pending_links() == 0 && retry_pause_ms() == 0,
+          "an older hub_daemon's {\"ok\":false} (no such device) ends the link after 3 answers (%d answers)", okf);
 
     printf("[-] a link replaced while its request is out\n");
     link_bt_device_to_addr("6", "00:11:22:33:44:06");
@@ -220,6 +228,13 @@ int main(void) {
     if (c >= 0) answer(c, OK_ANSWER);
     got = serve_one(ls, OK_ANSWER, req, sizeof(req));
     CHECK(got && strstr(req, "00:11:22:33:44:07") && pending_links() == 0, "then the newer address is sent, and lands last");
+
+    printf("[-] the same link queued again while its request is out\n");
+    link_bt_device_to_addr("7", "00:11:22:33:44:0A");
+    c = accept_read(ls, req, sizeof(req));
+    link_bt_device_to_addr("7", "00:11:22:33:44:0A");
+    if (c >= 0) answer(c, OK_ANSWER);
+    CHECK(c >= 0 && pending_links() == 0 && !has_request(ls), "it is not sent a second time");
 
     printf("[-] a link dropped while its request is out\n");
     link_bt_device_to_addr("8", "00:11:22:33:44:08");
