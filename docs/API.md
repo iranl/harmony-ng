@@ -262,6 +262,9 @@ Executes system maintenance operations.
     "retain": false
   }
   ```
+- **Authentication**: `{"action": "auth", "authEnabled": true, "authUsername": "admin", "authPassword": "..."}`
+  sets the first admin account; a request that turns authentication on also answers `auth_enabled`
+  and `to_check`, the accounts and access tokens to check (11.1).
 
 ---
 
@@ -1474,7 +1477,9 @@ Exports complete hub configuration bundle or individual configuration elements.
 
 ### 9.2 Import Configuration
 #### `POST /import`
-Imports and atomically applies configuration files or full bundle.
+Imports and atomically applies configuration files or full bundle (`target` `bundle`, or `all`
+as the new web UI calls it). An import of the accounts that turns authentication on also answers
+`auth_enabled` and `to_check`, the accounts and access tokens to check (11.1).
 - **Request Body**:
   ```json
   {
@@ -1907,12 +1912,16 @@ Harmony Hub supports a multi-tier authentication model:
    "to_check": {"users": [{"username": "guest", "role": "admin"}],
                 "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "owner": "guest", "role": "admin", "created_at": 1729940000}]}}
   ```
-  Both web UIs show it right after the switch (the legacy UI after the login when the switch ended
-  its session; the new web UI after a restore, its only way to turn authentication on), with Delete
-  per item (`DELETE /api/users`, `DELETE /api/auth/tokens`; deleting an account also deletes its
-  tokens) and Keep all. The account logged in is never offered. The legacy UI's Users page can open
-  the last list of the session again. Nothing is stored, kept or blocked: accounts and tokens that
-  are not deleted keep working as before.
+  A token whose owner account is gone (it no longer works) carries `"owner_missing": true`.
+  Both web UIs show the list right after the switch, with Delete per item (`DELETE /api/users`,
+  `DELETE /api/auth/tokens`; deleting an account also deletes its tokens; one already gone counts as
+  deleted) and Keep all; the account logged in is never offered. The switch ends every session, so
+  the list is kept until an admin is logged in: the legacy UI asks for the login and shows it then,
+  and its Users page can open the last list of the session again; the new web UI (whose only way to
+  turn authentication on is a restore) keeps it for the browser session, shows the names with a
+  hint to log in on the Users page while nobody is logged in, and the full list once an admin is.
+  Nothing is stored on the Hub, kept or blocked: accounts and tokens that are not deleted keep
+  working as before.
 
   **Limit:** while authentication is off anybody on the network is admin. This list is a check at
   the moment authentication is turned on, not a protection during the off period: what somebody did

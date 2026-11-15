@@ -134,6 +134,8 @@ load_accounts
 # the command sets (set-admin, add-user) is not listed.
 CHECK_WAS_ON=0
 grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null && CHECK_WAS_ON=1
+# no users.json: hub_daemon counts accounts in webui_auth.conf as authentication on
+[ ! -f "$USERS_JSON" ] && [ -n "$(conf_accounts)" ] && CHECK_WAS_ON=1
 print_switch_check() {
     [ "$CHECK_WAS_ON" = "0" ] || return 0
     grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null || return 0

@@ -77,6 +77,12 @@ class HubUserSwitchCheck(unittest.TestCase):
         r = self.run_cmd("add-user", "guest", "pw")
         self.assertNotIn("Check the accounts", r.stdout)
 
+    def test_accounts_only_in_the_conf_count_as_on(self):
+        """no users.json, accounts in webui_auth.conf: hub_daemon counts that as on, so no switch"""
+        (self.root / "data" / "harmony" / "webui_auth.conf").write_text("alex:%s:admin\n" % ("a" * 64))
+        r = self.run_cmd("add-user", "guest", "pw")
+        self.assertNotIn("Check the accounts", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

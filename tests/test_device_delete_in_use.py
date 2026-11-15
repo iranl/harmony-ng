@@ -228,6 +228,33 @@ def main():
                   "map written compact (%d bytes, was %d) and still read by GET /api/rf-mapping" % (size, len(compact)),
                   "%s %s" % (st2, str(m2)[:200]))
 
+        print("[-] two activity deletes at once both leave the map; a temp file left by a power cut goes")
+        acts = json.load(open(os.path.join(cfg, "activities.json")))
+        acts["activities"] += [{"id": str(i), "name": "A%d" % i, "type": "Custom", "order": i,
+                                "startSequence": [], "stopSequence": []} for i in (20, 21, 22, 23)]
+        two = os.path.join(cfg, "two")
+        os.makedirs(two, exist_ok=True)
+        for name in ("devices.json", "settings.json"):
+            shutil.copy(os.path.join(cfg, name), os.path.join(two, name))
+        json.dump(acts, open(os.path.join(two, "activities.json"), "w"))
+        m = {"activities": {str(i): {"K%d" % k: {"type": "command", "action": "device_cmd", "deviceId": "1",
+                                                 "command": "C%d" % k} for k in range(300)} for i in (10, 20, 21, 22, 23)},
+             "devices": {}}
+        json.dump(m, open(os.path.join(two, "remote_slot1_map.json"), "w"), separators=(",", ":"))
+        with HubHarness(port=PORT, config_dir=two, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
+                        extra_data_files={"remote_slot1_map.json.drop": "half a map from a power cut"}) as hub:
+            results = []
+            ths = [threading.Thread(target=lambda a=a: results.append(hub.http_post("/api/activity-delete", {"id": a})[0]))
+                   for a in ("20", "21", "22", "23")]
+            for th in ths:
+                th.start()
+            for th in ths:
+                th.join()
+            left = sorted(map_file(hub, 1)["activities"])
+            check(results == [200] * 4 and left == ["10"], "all four sections left the map", "%s %s" % (results, left))
+            leftovers = [n for n in os.listdir(hub.data_dir) if ".drop" in n]
+            check(leftovers == [], "no temporary map file left", str(leftovers))
+
         print("[-] without hub_rf: a slot counts when its version file exists")
         rf.shutdown()
         with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},

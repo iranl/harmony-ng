@@ -386,6 +386,8 @@ static int id_listed(const cJSON *ids, const char *id) {
     return 0;
 }
 
+static volatile int s_drop_busy; /* one rewrite of the maps at a time (they share a temp name) */
+
 int remote_maps_drop_section(const char *section, const char *id) {
     if (!section || !id || !id[0]) return 0;
     /* only once the configuration no longer has it (its save may have failed) */
@@ -394,9 +396,24 @@ int remote_maps_drop_section(const char *section, const char *id) {
         cJSON_Delete(ids);
         return 0;
     }
+    /* No futex on the Hub: wait for another delete's rewrite with a flag and short sleeps (5 s) */
+    int waited_ms = 0;
+    while (__sync_lock_test_and_set(&s_drop_busy, 1)) {
+        if (waited_ms >= 5000) {
+            printf("[-] Maps busy: %s/%s left in the remote maps\n", section, id);
+            cJSON_Delete(ids);
+            return 0;
+        }
+        usleep(2000);
+        waited_ms += 2;
+    }
     static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
-        const char *path = config_store_path(files[i]);
+        char path[256];
+        snprintf(path, sizeof(path), "%s", config_store_path(files[i]));
+        char stale[300];
+        snprintf(stale, sizeof(stale), "%s.drop", path);
+        unlink(stale); /* left by a power cut during an earlier rewrite */
         /* The map editors save a whole file with no lock; a save in between is not overwritten:
          * the file is read again when it changed while it was being edited here (a few tries) */
         for (int attempt = 0; attempt < 3; attempt++) {
@@ -425,10 +442,12 @@ int remote_maps_drop_section(const char *section, const char *id) {
             /* compact, as the editors save it: the readers take maps up to 200000 bytes */
             char *out = cJSON_PrintUnformatted(map);
             cJSON_Delete(map);
-            /* own temp file, written and synced, then the map is compared once more right before
-             * the rename: an editor save (a rename too: new inode) in between is read again */
+            /* own temp file (one name per map: rewrites are serialized, and a file left by a power
+             * cut is replaced by the next one), written and synced, then the map is compared once
+             * more right before the rename: an editor save (a rename too: new inode) in between is
+             * read again */
             char tmp[300];
-            snprintf(tmp, sizeof(tmp), "%s.drop.%d", path, (int)getpid());
+            snprintf(tmp, sizeof(tmp), "%s.drop", path);
             int fd = out ? open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
             size_t olen = out ? strlen(out) : 0, done = 0;
             while (fd >= 0 && done < olen) {
@@ -460,6 +479,7 @@ int remote_maps_drop_section(const char *section, const char *id) {
         }
     }
     cJSON_Delete(ids);
+    __sync_lock_release(&s_drop_busy);
     return 1;
 }
 

@@ -721,7 +721,8 @@ paths:
                 auth_enabled: true
                 to_check:
                   users: [{username: guest, role: admin}]
-                  tokens: [{id: tok_1a2b3c4d, name: Old script, owner: guest, role: admin, created_at: 1729940000}]
+                  tokens: [{id: tok_1a2b3c4d, name: Old script, owner: guest, role: admin, created_at: 1729940000},
+                           {id: tok_5e6f7a8b, name: Gone script, owner: old, role: admin, owner_missing: true}]
         '400':
           description: Invalid request or payload error
         '401':
@@ -874,7 +875,10 @@ paths:
                 value: {action: auth, authEnabled: true, authUsername: admin, authPassword: secretpassword}
       responses:
         '200':
-          description: Action accepted
+          description: >-
+            Action accepted. The auth action that turns authentication on also answers auth_enabled
+            and "to_check": every account but the admin it sets and every access token, to check
+            (as POST /api/users).
           content:
             application/json:
               example:
@@ -1015,8 +1019,9 @@ paths:
           description: >-
             The device is in use by activities, other devices or remote key bindings (not counted:
             its own map page, which is removed with it, sections of deleted activities, pages of
-            deleted devices, the map of a slot that hub_rf does not report active and that has no
-            version file); nothing changed
+            deleted devices, the map of a slot without a remote: hub_rf does not report it active
+            and its version file names no remote, or hub_rf does not answer and there is no version
+            file); nothing changed
           content:
             application/json:
               example:

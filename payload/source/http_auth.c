@@ -720,6 +720,13 @@ void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, 
         }
         const cJSON *ca = cJSON_GetObjectItemCaseSensitive(it, "created_at");
         if (cJSON_IsNumber(ca)) cJSON_AddNumberToObject(tk, "created_at", ca->valuedouble);
+        /* a token whose account is gone no longer works (the owner check refuses it): say so */
+        const cJSON *ow = cJSON_GetObjectItemCaseSensitive(it, "owner");
+        if (cJSON_IsString(ow) && ow->valuestring[0]) {
+            int found = 0;
+            for (int i = 0; users && i < count && !found; i++) found = strcmp(users[i].username, ow->valuestring) == 0;
+            if (!found) cJSON_AddBoolToObject(tk, "owner_missing", 1);
+        }
         cJSON_AddItemToArray(ta, tk);
     }
     cJSON_Delete(root);

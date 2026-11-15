@@ -289,16 +289,17 @@ EOF
 # UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are real seconds from
 # /proc/uptime (a query can take 3 s; no steps when SNTP sets the clock), counted from the sleeps
 # when it cannot be read.
+UPTIME_FILE="${UPDATE_UPTIME_FILE:-/proc/uptime}"
 now_secs() {
   _up=""
-  read -r _up _rest 2>/dev/null < /proc/uptime
+  read -r _up _rest 2>/dev/null < "$UPTIME_FILE"
   _up="${_up%%.*}"
   case "$_up" in ''|*[!0-9]*) echo "" ;; *) echo "$_up" ;; esac
 }
-# seconds since $1 (now_secs), or $2 (counted) when larger or the clock is not readable
+# seconds since $1 (now_secs), or $2 (counted from the sleeps) when the uptime cannot be read
 since_secs() {
   _n=$(now_secs)
-  if [ -n "$1" ] && [ -n "$_n" ] && [ $((_n - $1)) -gt "$2" ]; then echo $((_n - $1)); else echo "$2"; fi
+  if [ -n "$1" ] && [ -n "$_n" ]; then echo $((_n - $1)); else echo "$2"; fi
 }
 wait_activity_switch() {
   local max="${UPDATE_ACTIVITY_WAIT_SECS:-600}"

@@ -355,7 +355,8 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *p_net = cJSON_GetObjectItemCaseSensitive(params, "restore_network");
             int allow_network = (p_net && (cJSON_IsTrue(p_net) || (cJSON_IsNumber(p_net) && p_net->valueint > 0)));
 
-            if (strcmp(tgt, "bundle") == 0) {
+            /* "all": the new web UI's name for the whole backup */
+            if (strcmp(tgt, "bundle") == 0 || strcmp(tgt, "all") == 0) {
                 cJSON *bundle = NULL;
                 if (p_pay && cJSON_IsString(p_pay)) bundle = cJSON_ParseWithOpts(p_pay->valuestring, NULL, 1);
                 else if (p_pay && cJSON_IsObject(p_pay)) bundle = p_pay;

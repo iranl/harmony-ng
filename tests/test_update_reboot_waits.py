@@ -38,7 +38,7 @@ case "$*" in
     line=$(sed -n "${n}p" "$UPD_ACT/replies")
     [ -z "$line" ] && line=$(sed -n '$p' "$UPD_ACT/replies")
     [ "$line" = "down" ] && exit 1
-    case "$line" in slow:*) /bin/sleep 2.5; line="${line#slow:}" ;; esac
+    case "$line" in slow:*) read u r < "$UPDATE_UPTIME_FILE"; echo "$((${u%%.*} + 3)).00 0.00" > "$UPDATE_UPTIME_FILE"; line="${line#slow:}" ;; esac
     echo "$line"
     exit 0 ;;
 esac
@@ -60,6 +60,13 @@ class RebootWaitsForSwitch(base.UpdateApply):
         reboot = f"#!/bin/sh\ncat {self.act}/calls > {self.root}/tmp/rebooted 2>/dev/null || echo 0 > {self.root}/tmp/rebooted\n"
         self.write(self.data / "safe_reboot.sh", reboot, 0o755)
         self.new_files["scripts/safe_reboot.sh"] = reboot
+        # time passes only in the fake sleep and in a slow query: a fake /proc/uptime
+        self.uptime = self.root / "uptime"
+        self.uptime.write_text("100.00 50.00\n")
+        sleep = self.root / "fakebin" / "sleep"
+        sleep.write_text('#!/bin/sh\n[ -n "$UPDATE_UPTIME_FILE" ] || exit 0\nread u r < "$UPDATE_UPTIME_FILE"\n'
+                         'echo "$((${u%%.*} + ${1%%.*})).00 0.00" > "$UPDATE_UPTIME_FILE"\n')
+        sleep.chmod(0o755)
         pidof = self.root / "fakebin" / "pidof"
         pidof.write_text('#!/bin/sh\n[ "$UPD_DAEMON_UP" = 1 ]\n')
         pidof.chmod(0o755)
@@ -74,6 +81,7 @@ class RebootWaitsForSwitch(base.UpdateApply):
             "UPD_DATA_BUDGET": "",
             "UPD_ACT": str(self.act),
             "UPD_DAEMON_UP": "1" if daemon_up else "0",
+            "UPDATE_UPTIME_FILE": str(self.uptime),
         }
         if wait_secs:
             env["UPDATE_ACTIVITY_WAIT_SECS"] = str(wait_secs)
@@ -116,10 +124,21 @@ class RebootWaitsForSwitch(base.UpdateApply):
         self.assertNotIn("anyway", r.stdout)
 
     def test_cap_is_real_time(self):
-        """each query takes 2.5 s here: the cap of 5 s ends after 2 queries, not after 3 counted sleeps"""
+        """the query takes 3 s here: the cap of 5 s ends after 1 query and a 2 s sleep, not after 3
+        counted sleeps"""
         r, calls_at_reboot = self.run_with(["slow:" + BUSY], wait_secs=5)
-        self.assertEqual(calls_at_reboot, 2, r.stdout)
-        self.assertRegex(r.stdout, r"still running after [56] s")
+        self.assertEqual(calls_at_reboot, 1, r.stdout)
+        self.assertIn("still running after 5 s", r.stdout)
+
+    def test_clock_step_does_not_end_the_wait(self):
+        """SNTP sets the clock during the wait (the Hub starts on 1970 time): date jumps, uptime not"""
+        date = self.root / "fakebin" / "date"
+        date.write_text('#!/bin/sh\nn=$(cat "%s/datecalls" 2>/dev/null || echo 0)\necho $((n + 1)) > "%s/datecalls"\n'
+                        '[ "$n" -ge 2 ] && echo 1800000000 || echo 1000\n' % (self.root, self.root))
+        date.chmod(0o755)
+        r, calls_at_reboot = self.run_with([BUSY, BUSY, BUSY, IDLE], wait_secs=30)
+        self.assertEqual(calls_at_reboot, 5, r.stdout)
+        self.assertNotIn("still running", r.stdout)
 
     def test_idle_at_the_cap_is_not_a_running_switch(self):
         r, calls_at_reboot = self.run_with([IDLE], wait_secs=1)
@@ -136,8 +155,8 @@ class RebootWaitsForSwitch(base.UpdateApply):
         self.tearDown()
         self.setUp()
         r2, r2_calls = self.run_with(["down"], fail_secs=6)
-        self.assertEqual(r2_calls, 3, r2.stdout)
-        self.assertIn("has not answered", r2.stdout)
+        self.assertEqual(r2_calls, 4, r2.stdout)
+        self.assertIn("has not answered for 6 s", r2.stdout)
 
 
 def load_tests(loader, tests, pattern):

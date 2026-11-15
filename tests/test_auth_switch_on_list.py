@@ -52,6 +52,10 @@ def names(lst, key):
     return sorted(x.get(key) for x in (lst or []))
 
 
+def toks_owner_missing(tc):
+    return sorted(tk.get("id") for tk in tc.get("tokens", []) if tk.get("owner_missing") is True)
+
+
 def run_users_route():
     print("[-] POST /api/users turns authentication on")
     with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": TOKENS}) as hub:
@@ -119,6 +123,20 @@ def run_import():
               "an old \"confirmed\" field is ignored", "%s %s" % (st, r))
         st, r = hub.http_post("/import", {"target": "users", "payload": payload}, headers=basic("a1", "pw"))
         check(st == 200 and "to_check" not in r, "import with authentication already on: no list", "%s %s" % (st, r))
+        check(toks_owner_missing(tc) == ["tok_ghost001"], "a token whose account is gone is marked owner_missing", str(tc))
+
+    print("[-] the new web UI's restore: target all (the whole backup) turns authentication on")
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": TOKENS}) as hub:
+        bundle = {"users": {"auth_enabled": True, "users": [{"username": "b1", "ha1": ha1("b1", "pw"), "role": "admin"}]}}
+        for target in ("all", "bundle"):
+            st, r = hub.http_post("/import", {"target": target, "payload": bundle},
+                                  headers=basic("b1", "pw") if target == "bundle" else None)
+            tc = (r or {}).get("to_check") or {}
+            if target == "all":
+                check(st == 200 and r.get("auth_enabled") is True and names(tc.get("users"), "username") == ["b1"]
+                      and len(tc.get("tokens", [])) == 2, "target all is accepted and answers the list", "%s %s" % (st, r))
+            else:
+                check(st == 200 and "to_check" not in r, "bundle again with authentication on: no list", "%s %s" % (st, r))
 
 
 def main():

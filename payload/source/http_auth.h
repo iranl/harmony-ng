@@ -56,7 +56,8 @@ void http_auth_drop_all_sessions(void);
 /* Authentication went from off to on. While it was off every client was admin, so anybody could
  * have made or changed an account or a token: adds "to_check": {"users": [...], "tokens": [...]}
  * to the reply, every account except owner (the one the switching request names, NULL for none)
- * and every personal access token (no hashes), for the UIs to show at once. */
+ * and every personal access token (no hashes; "owner_missing": true when its account is gone), for
+ * the UIs to show at once. */
 void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
