@@ -614,6 +614,17 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         close(client_fd);
                         return 1;
                     }
+                    if (renaming) {
+                        /* tokens left by a deleted account of the new name must not come back */
+                        int stale = http_tokens_remove_owner(uname);
+                        if (stale < 0) {
+                            cJSON_Delete(params);
+                            if (stale == HTTP_TOKENS_BUSY) send_json_error(client_fd, 503, "The token list is busy, try again");
+                            else send_json_error(client_fd, 500, "Old access tokens of this name could not be removed: " HTTP_TOKENS_UNREADABLE_MSG);
+                            close(client_fd);
+                            return 1;
+                        }
+                    }
                     if (renaming || pass[0]) http_auth_drop_user_sessions(ulist[admin_idx].username);
                     if (renaming) {
                         memset(ulist[admin_idx].username, 0, sizeof(ulist[admin_idx].username));
@@ -624,6 +635,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
                     }
                 } else if (pass[0] && ucnt < MAX_HTTP_USERS) {
+                    int stale = http_tokens_remove_owner(uname[0] ? uname : "admin");
+                    if (stale < 0) {
+                        cJSON_Delete(params);
+                        if (stale == HTTP_TOKENS_BUSY) send_json_error(client_fd, 503, "The token list is busy, try again");
+                        else send_json_error(client_fd, 500, "Old access tokens of this name could not be removed: " HTTP_TOKENS_UNREADABLE_MSG);
+                        close(client_fd);
+                        return 1;
+                    }
                     admin_idx = ucnt++;
                     memset(&ulist[admin_idx], 0, sizeof(ulist[admin_idx]));
                     strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);

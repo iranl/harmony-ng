@@ -27,6 +27,8 @@ so an operator (role user) needs to create and delete its own tokens:
 18  an unreadable file: the 500 says what to do; POST /api/auth/tokens-reset (admin with an account
     login, {"confirm": true}) moves it to tokens.json.bad and starts an empty list
 20  a new account of a deleted account's name does not get that account's old tokens
+22  a role user token an admin made sees and deletes only itself; an account named pat... uses its login
+23  renaming the admin (system action) to a deleted account's name does not bring its tokens back
 21  at a switch from off to on the reply lists the tokens (id, name, owner, role, no hash) and
     writes nothing
 """
@@ -56,8 +58,10 @@ USERS = {
         {"username": "many", "password": "manypass", "role": "user"},
         {"username": "rate", "password": "ratepass", "role": "user"},
         {"username": "gone", "password": "gonepass", "role": "user"},
+        {"username": "patrizia", "password": "patpass1", "role": "user"},
+        {"username": "former", "password": "formerpass", "role": "user"},
     ] + [
-        {"username": "op%d" % i, "password": "op%dpass" % i, "role": "user"} for i in range(8)
+        {"username": "op%d" % i, "password": "op%dpass" % i, "role": "user"} for i in range(6)
     ],
 }
 
@@ -271,7 +275,7 @@ def main():
         print("[-] 13  parallel creates and deletes")
         lost = resurrected = 0
         for rnd in range(15):
-            G = basic("op%d" % (rnd % 8), "op%dpass" % (rnd % 8))  # within the per-account rate
+            G = basic("op%d" % (rnd % 6), "op%dpass" % (rnd % 6))  # within the per-account rate
             st, ha = make_token(A, name="HA %d" % rnd)
             got = []
             done = {}
@@ -322,7 +326,7 @@ def main():
               "16 the 31st token change in a minute is refused (429)", "%s %s" % (codes[-4:], st))
 
         print("[-] 17  operator's own tokens")
-        O7 = basic("op7", "op7pass")
+        O7 = basic("op5", "op5pass")
         st, a1 = make_token(O7, name="phone 1")
         st, a2 = make_token(O7, name="phone 2")
         st, l1 = call("GET", "/api/auth/tokens", headers=O7)
@@ -380,6 +384,44 @@ def main():
         st, r = call("POST", "/api/users", {"username": "gone", "password": "newpass1", "role": "admin"}, A)
         st2, _ = call("GET", "/api/users", headers=bearer(rg.get("token")))
         check(st == 200 and st2 == 401, "20 the old token does not come back with the new account", "%s %s" % (st, st2))
+
+    print("[-] 22  who a token acts for")
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"users.json": USERS}) as hub:
+        A = bearer(login("admin", "secret123"))
+        st, ra = make_token(A, name="Android app (admin phone)")
+        st, rh = make_token(A, name="Home Assistant", role="user")
+        ha = rh.get("token")
+        st, r = call("GET", "/api/auth/tokens", headers=bearer(ha))
+        ids = [t["id"] for t in (r or {}).get("tokens", [])]
+        check(st == 200 and ids == [rh["id"]], "22 an admin's role user token lists only itself", "%s %s" % (st, ids))
+        st, _ = call("DELETE", "/api/auth/tokens?id=%s" % ra["id"], headers=bearer(ha))
+        st2, _ = call("GET", "/api/users", headers=bearer(ra["token"]))
+        check(st == 404 and st2 == 200, "22 it cannot delete the admin's token", "%s %s" % (st, st2))
+        P = basic("patrizia", "patpass1")
+        st, rp = make_token(P, name="phone")
+        st, r = call("GET", "/api/auth/tokens", headers=P)
+        ids = [t["id"] for t in (r or {}).get("tokens", [])]
+        check(st == 200 and ids == [rp["id"]], "22 patrizia lists her tokens with her login", "%s %s" % (st, ids))
+        sess = login("patrizia", "patpass1")
+        st, _ = call("DELETE", "/api/auth/tokens?id=%s" % rp["id"], headers=bearer(sess))
+        check(st == 200, "22 and deletes them with her session", str(st))
+        st, _ = call("DELETE", "/api/auth/tokens?id=%s" % rh["id"], headers=bearer(ha))
+        check(st == 200, "22 the admin's role user token deletes itself", str(st))
+
+        print("[-] 23  admin renamed to a deleted account's name")
+        tokf = os.path.join(hub.data_dir, "config", "tokens.json")
+        st, rf = make_token(basic("former", "formerpass"), name="old phone")
+        with open(tokf) as f:
+            with_former = f.read()
+        with open(tokf, "wb") as f:
+            f.write(b"{cut")
+        st, r = call("POST", "/api/users/delete", {"username": "former"}, A)
+        with open(tokf, "w") as f:
+            f.write(with_former)
+        st, r = call("POST", "/api/system-action", {"action": "auth", "authUsername": "former",
+                                                    "authPassword": "secret123", "authEnabled": True}, A)
+        st2, _ = call("GET", "/api/users", headers=bearer(rf.get("token")))
+        check(st == 200 and st2 == 401, "23 the old token stays refused after the rename", "%s %s %s" % (st, st2, r))
 
     print("[-] 15  switch on with an unreadable token file")
     off = {"auth_enabled": False, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}

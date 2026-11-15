@@ -2659,9 +2659,11 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
 - An operator (role `user`) may create its own tokens (always role `user`), logged in with its account
   (a session or Basic, not with a token: `403`), and may delete the tokens of its own account or the
   token it calls with (any other id answers `404`). An operator's `GET /api/auth/tokens` lists only
-  the tokens of its own account (logged in, or the owner of the token it calls with), and with such a
-  token it may delete the account's other tokens, so an account at its limit can free a slot. An admin
-  sees every token; the list shows each token's `owner`.
+  the tokens of its own account when it logs in with that account (session or Basic). With a token,
+  the token acts for its owner's account (list and delete that account's tokens, so an operator's app
+  at the limit can free a slot) only when the token's role is `user` and its owner is an operator
+  account; any other token with role `user` (for example one an admin made for Home Assistant) sees
+  and deletes only itself. An admin sees every token; the list shows each token's `owner`.
 - An operator account may create or delete at most 30 tokens a minute (each change rewrites the token
   file on flash): one more answers `429` with the seconds to wait.
 - The token file is changed under one lock: a request that cannot get it within 3 s answers `503`
@@ -2675,8 +2677,12 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   with a token) sends `POST /api/auth/tokens-reset` with `{"confirm": true}`: the file is moved to
   `config/tokens.json.bad` and an empty list starts; every token (Home Assistant, the Android app)
   then has to be created again. A readable file is never reset (`409`: delete tokens one by one).
-  Creating an account whose name a deleted account had removes that account's tokens left in the
-  file first; while the file cannot be changed the name cannot be used again (`500`).
+  `tokens.json.bad` stays on `/data` (the next reset replaces it); delete it over SSH once you have
+  looked at it. While another request holds the token list, these routes answer `503` ("busy, try
+  again"), never the text about an unreadable file.
+  Creating an account whose name a deleted account had (`POST /api/users`, or the admin name in
+  `POST /api/system-action` `"action": "auth"`) removes that account's tokens left in the file first;
+  while the file cannot be changed the name cannot be used (`500`, or `503` while busy).
 - A new password ends the account's sessions, not its tokens (Home Assistant and the Android app keep
   working). To lock out a lost phone, delete its token (named `Android app (<phone>, <date>)`).
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no

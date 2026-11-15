@@ -87,6 +87,11 @@ int http_tokens_save(const cJSON *root);
 /* With the lock held: 0 when this operator account may change one more token now, else -1 and
  * *retry_after seconds */
 int http_tokens_rate_check(const char *account, int *retry_after);
+/* Deletes the tokens owned by an account (deleted account, or a name used again). Returns how
+ * many, HTTP_TOKENS_BUSY when the lock was not free, or -1 when the file could not be read or
+ * written (left as it was). Takes the lock itself. */
+#define HTTP_TOKENS_BUSY (-3)
+int http_tokens_remove_owner(const char *owner);
 /* With the lock held: moves an unreadable token file aside and starts an empty list. 0 done,
  * 1 the file is readable (nothing done), -1 failed */
 int http_tokens_reset_unreadable(void);

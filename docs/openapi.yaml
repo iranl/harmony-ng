@@ -761,9 +761,10 @@ paths:
         - Authentication & Users
       summary: List Personal Access Tokens
       description: >-
-        Returns the Personal Access Tokens. An admin sees every token; an operator (role user) only
-        the tokens of its own account. last_used_at is always 0 (it is set when the token is created
-        and not updated).
+        Returns the Personal Access Tokens. An admin sees every token; an operator logged in with
+        its account sees that account's tokens; a role user token sees its owner's tokens only when
+        the owner is an operator account, else only itself. last_used_at is always 0 (it is set when
+        the token is created and not updated).
       security:
         - bearerAuth: []
         - basicAuth: []

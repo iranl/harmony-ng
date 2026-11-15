@@ -812,14 +812,36 @@ int http_tokens_reset_unreadable(void) {
         cJSON_Delete(root);
         return 1;
     }
+    /* an earlier .bad copy is replaced */
     if (rename(HARMONY_TOKENS_JSON, HTTP_TOKENS_JSON_BAD) != 0) return -1;
     root = cJSON_CreateObject();
-    if (!root) return -1;
-    cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
-    int rc = http_tokens_save(root);
+    if (root) cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+    /* no file reads as an empty list too: a failed write here still leaves a working state */
+    if (!root || http_tokens_save(root) != 0) printf("[-] AUTH: could not write the empty %s\n", HARMONY_TOKENS_JSON);
     cJSON_Delete(root);
     printf("[!] AUTH: unreadable %s moved to %s, empty token list started\n", HARMONY_TOKENS_JSON, HTTP_TOKENS_JSON_BAD);
-    return rc;
+    return 0;
+}
+
+int http_tokens_remove_owner(const char *owner) {
+    if (http_tokens_lock() != 0) return HTTP_TOKENS_BUSY;
+    cJSON *root = NULL;
+    int removed = -1;
+    if (http_tokens_load(&root) == 0) {
+        removed = 0;
+        cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
+        for (int i = cJSON_GetArraySize(arr) - 1; i >= 0; i--) {
+            cJSON *jo = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, i), "owner");
+            if (cJSON_IsString(jo) && strcmp(jo->valuestring, owner) == 0) {
+                cJSON_DeleteItemFromArray(arr, i);
+                removed++;
+            }
+        }
+        if (removed && http_tokens_save(root) != 0) removed = -1;
+    }
+    http_tokens_unlock();
+    cJSON_Delete(root);
+    return removed;
 }
 
 void http_tokens_unlock(void) {
