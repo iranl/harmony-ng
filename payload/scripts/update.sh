@@ -44,10 +44,6 @@ REPO="${REPO%/bin/mips}"
 REPO="${REPO%/}"
 [ -z "$REPO" ] && REPO="$DEFAULT_OTA"
 
-AUTH_HEADER=""
-if [ -n "$TOKEN_ARG" ]; then
-  AUTH_HEADER="--header Authorization: token ${TOKEN_ARG}"
-fi
 
 TIMESTAMP=$(date +%s 2>/dev/null || echo 1)
 
@@ -59,7 +55,12 @@ download_retry() {
   local i=1
   while [ $i -le $max_attempts ]; do
     rm -f "$dst" 2>/dev/null
-    $WGET -q -T "$timeout" $AUTH_HEADER -O "$dst" "$url" 2>/dev/null
+    # the header is one argument: unquoted, the token was passed to wget as extra URLs
+    if [ -n "$TOKEN_ARG" ]; then
+      $WGET -q -T "$timeout" --header "Authorization: token ${TOKEN_ARG}" -O "$dst" "$url" 2>/dev/null
+    else
+      $WGET -q -T "$timeout" -O "$dst" "$url" 2>/dev/null
+    fi
     if [ -s "$dst" ]; then
       return 0
     fi
@@ -133,20 +134,20 @@ do_check() {
   REMOTE_VER=""
 
   # 1. Try raw GitHub OTA VERSION file with retries (v2 checks v2/VERSION first)
-  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver 8 2 || \
-     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver 8 2 || \
-     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver 8 3; then
-    REMOTE_VER=$(cat /tmp/ota_ver | tr -d '\r\n v')
+  if download_retry "${REPO}/v2/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
+     download_retry "${REPO}/VERSION_V2?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 2 || \
+     download_retry "${REPO}/VERSION?_=${TIMESTAMP}" /tmp/ota_ver.$$ 8 3; then
+    REMOTE_VER=$(cat /tmp/ota_ver.$$ | tr -d '\r\n v')
   fi
 
   # 2. Fallback: try GitHub releases API
   if [ -z "$REMOTE_VER" ]; then
-    if download_retry "https://api.github.com/repos/iranl/harmony-ng/releases/latest" /tmp/gh_rel 10 2; then
-      REMOTE_VER=$(cat /tmp/gh_rel | awk -F'"tag_name":' '{print $2}' | awk -F'"' '{print $2}' | tr -d '\r\n v')
+    if download_retry "https://api.github.com/repos/iranl/harmony-ng/releases/latest" /tmp/gh_rel.$$ 10 2; then
+      REMOTE_VER=$(cat /tmp/gh_rel.$$ | awk -F'"tag_name":' '{print $2}' | awk -F'"' '{print $2}' | tr -d '\r\n v')
     fi
   fi
 
-  rm -f /tmp/ota_ver /tmp/gh_rel 2>/dev/null
+  rm -f /tmp/ota_ver.$$ /tmp/gh_rel.$$ 2>/dev/null
 
   if [ -z "$REMOTE_VER" ]; then
     echo "{\"ok\":false,\"error\":\"Could not fetch remote version from ${REPO}\"}"
@@ -473,12 +474,36 @@ do_remote_ota() {
   fi
 }
 
+# One apply at a time: every run uses /tmp/ota_update and its exit removes it, so a second
+# run (a double click, two browser tabs) deleted the files the first was installing. The lock
+# is a directory with the owner's pid; one left by a run that was killed is taken over.
+APPLY_LOCK=/tmp/ota_update.lock
+apply_locked() {
+  if ! mkdir "$APPLY_LOCK" 2>/dev/null; then
+    _owner=$(cat "$APPLY_LOCK/pid" 2>/dev/null)
+    if [ -n "$_owner" ] && [ -d "/proc/$_owner" ] && grep -q 'update.sh' "/proc/$_owner/cmdline" 2>/dev/null; then
+      echo "[-] Another software update is running (pid $_owner); not starting a second one."
+      return 1
+    fi
+    rm -rf "$APPLY_LOCK" 2>/dev/null
+    if ! mkdir "$APPLY_LOCK" 2>/dev/null; then
+      echo "[-] Another software update is starting; not starting a second one."
+      return 1
+    fi
+  fi
+  echo "$$" > "$APPLY_LOCK/pid"
+  ( do_apply )
+  _rc=$?
+  rm -rf "$APPLY_LOCK" 2>/dev/null
+  return $_rc
+}
+
 case "$CMD" in
   check)
     do_check
     ;;
   apply)
-    do_apply
+    apply_locked
     ;;
   fetch-remote|fetch-remote-ota)
     do_fetch_remote_ota
@@ -494,6 +519,6 @@ case "$CMD" in
     fi
     ;;
   *)
-    do_apply
+    apply_locked
     ;;
 esac

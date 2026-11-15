@@ -14,3 +14,7 @@ python3 "$SCRIPT_DIR/test_network_manager_sh.py"
 # mDNS and SSDP answer unicast queries only from senders on the Hub's own links
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_net_source_local" "$SCRIPT_DIR/test_net_source_local.c" \
     "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_net_source_local"
+# update.sh: the token is one header argument, one apply at a time (sandbox, stub busybox)
+python3 "$SCRIPT_DIR/test_update_sh.py"
+# update-apply refused while one runs (409), update-check writes only on change (port 9145)
+python3 "$SCRIPT_DIR/test_update_api_once.py"
