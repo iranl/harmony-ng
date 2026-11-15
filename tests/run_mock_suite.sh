@@ -346,6 +346,7 @@ python3 "$SCRIPT_DIR/test_ssdp.py"
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_modal_errors.mjs"; else echo "    (node not found, test_frontend_modal_errors.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
+python3 "$SCRIPT_DIR/test_icon_proxy_limits.py"
 python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 
 # 5c. Host tools (no device contact)
