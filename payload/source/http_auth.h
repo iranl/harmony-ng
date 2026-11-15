@@ -92,6 +92,10 @@ int http_tokens_rate_check(const char *account, int *retry_after);
  * written (left as it was). Takes the lock itself. */
 #define HTTP_TOKENS_BUSY (-3)
 int http_tokens_remove_owner(const char *owner);
+/* After an import replaced the accounts: removes the tokens left by deleted accounts whose name an
+ * imported account now has (names not in before). 0, or below 0 when one could not be removed. */
+int http_tokens_remove_new_names(const struct user_account *before, int before_count,
+                                 const struct user_account *after, int after_count);
 /* With the lock held: moves an unreadable token file aside and starts an empty list. 0 done,
  * 1 the file is readable (nothing done), -1 failed */
 int http_tokens_reset_unreadable(void);

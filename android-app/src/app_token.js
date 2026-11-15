@@ -2,9 +2,9 @@
 // Hub, and only that token is kept in the Hub profile. The web UI in a browser keeps its session
 // login (api_system_remotes.js login()).
 import { getSavedHubs, saveHub, forgetStoredPasswords } from './storage.js';
+import { t } from './i18n.js';
 
 export const APP_TOKEN_NAME = 'Android app';
-const OLD_LOGIN_GONE = 'The previous login was deleted on the Hub: log in again.';
 
 // "Android app (<phone model>, <date>)": an admin can tell the phones apart in the token list.
 // The Hub keeps names of up to 63 bytes.
@@ -105,7 +105,7 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
     // the previous login is gone on the Hub already: the caller must not keep it
     if (oldRevoked === true) {
       err.oldRevoked = true;
-      err.message = `${err.message} ${OLD_LOGIN_GONE}`;
+      err.message = `${err.message} ${t('app_old_login_gone', 'The previous login was deleted on the Hub: log in again.')}`;
     }
     throw err;
   } finally {

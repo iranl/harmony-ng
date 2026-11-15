@@ -881,6 +881,7 @@ export default {
     "hub_password_not_saved": "Le mot de passe n'est pas enregistré : l'app garde un jeton d'accès à la place.",
     "hub_logging_in": "Connexion...",
     "app_token_not_deleted": "La connexion précédente n'a pas pu être supprimée sur le Hub : un admin peut la supprimer dans la liste des jetons.",
+    "app_old_login_gone": "La connexion précédente a été supprimée sur le Hub : reconnectez-vous.",
     "hub_password_for_user": "Saisissez le mot de passe pour vous connecter avec le nouvel utilisateur.",
     "auth_tokens_unreadable": "Le Hub ne peut pas lire son fichier de jetons d'accès, ses jetons ne sont donc pas listés. Un admin peut mettre le fichier de côté avec POST /api/auth/tokens-reset ; chaque jeton doit ensuite être recréé.",
     "token_owner": "Propriétaire : {owner}",

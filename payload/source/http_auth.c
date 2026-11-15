@@ -823,6 +823,19 @@ int http_tokens_reset_unreadable(void) {
     return 0;
 }
 
+int http_tokens_remove_new_names(const struct user_account *before, int before_count,
+                                 const struct user_account *after, int after_count) {
+    int rc = 0;
+    for (int i = 0; after && i < after_count; i++) {
+        int existed = 0;
+        for (int j = 0; before && j < before_count; j++) {
+            if (strcmp(before[j].username, after[i].username) == 0) existed = 1;
+        }
+        if (!existed && http_tokens_remove_owner(after[i].username) < 0) rc = -1;
+    }
+    return rc;
+}
+
 int http_tokens_remove_owner(const char *owner) {
     if (http_tokens_lock() != 0) return HTTP_TOKENS_BUSY;
     cJSON *root = NULL;

@@ -28,7 +28,10 @@ so an operator (role user) needs to create and delete its own tokens:
     login, {"confirm": true}) moves it to tokens.json.bad and starts an empty list
 20  a new account of a deleted account's name does not get that account's old tokens
 22  a role user token an admin made sees and deletes only itself; an account named pat... uses its login
-23  renaming the admin (system action) to a deleted account's name does not bring its tokens back
+23  renaming the admin (system action) to a deleted account's name does not bring its tokens back;
+    a name another account has is refused (409) and its tokens stay
+25  an imported users file: a name that is new gets none of the tokens a deleted account of that
+    name left
 21  at a switch from off to on the reply lists the tokens (id, name, owner, role, no hash) and
     writes nothing
 """
@@ -408,7 +411,20 @@ def main():
         st, _ = call("DELETE", "/api/auth/tokens?id=%s" % rh["id"], headers=bearer(ha))
         check(st == 200, "22 the admin's role user token deletes itself", str(st))
 
-        print("[-] 23  admin renamed to a deleted account's name")
+        print("[-] 23  admin renamed to a deleted account's name, never to a name in use")
+        st, rbo = make_token(basic("boss", "bosspass"), name="Home Assistant")
+        st, rgu = make_token(basic("guest", "guestpass"), name="Android app")
+        BO = bearer(login("boss", "bosspass"))
+        for taken, tok in (("boss", rbo.get("token")), ("guest", rgu.get("token"))):
+            st, r = call("POST", "/api/system-action", {"action": "auth", "authUsername": taken,
+                                                        "authPassword": "secret123", "authEnabled": True}, BO)
+            st2, _ = call("GET", "/api/status", headers=bearer(tok))
+            check(st == 409 and st2 == 200, "23 rename to %s (in use) refused, its token kept" % taken,
+                  "%s %s %s" % (st, st2, r))
+        st, r = call("GET", "/api/users", headers=A)
+        names_now = sorted(u["username"] for u in (r or {}).get("users", []))
+        check(names_now.count("boss") == 1 and names_now.count("guest") == 1 and "admin" in names_now,
+              "23 no account renamed by the refused calls", str(names_now))
         tokf = os.path.join(hub.data_dir, "config", "tokens.json")
         st, rf = make_token(basic("former", "formerpass"), name="old phone")
         with open(tokf) as f:
@@ -422,6 +438,25 @@ def main():
                                                     "authPassword": "secret123", "authEnabled": True}, A)
         st2, _ = call("GET", "/api/users", headers=bearer(rf.get("token")))
         check(st == 200 and st2 == 401, "23 the old token stays refused after the rename", "%s %s %s" % (st, st2, r))
+
+    print("[-] 25  import of a users file")
+    on1 = {"auth_enabled": True, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}
+    leftover = {"tokens": [{"id": "tok_left", "name": "old phone", "token_hash": "2" * 64, "role": "user",
+                            "owner": "carol", "created_at": 1, "last_used_at": 0},
+                           {"id": "tok_keep", "name": "script", "token_hash": "3" * 64, "role": "admin",
+                            "owner": "admin", "created_at": 1, "last_used_at": 0}]}
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"users.json": on1, "tokens.json": leftover}) as hub:
+        tokf = os.path.join(hub.data_dir, "config", "tokens.json")
+        A = basic("admin", "secret123")
+        sha = lambda u, p: hashlib.sha256(("%s:Harmony Hub:%s" % (u, p)).encode()).hexdigest()
+        payload = {"auth_enabled": True, "users": [
+            {"username": "admin", "ha1": sha("admin", "secret123"), "role": "admin"},
+            {"username": "carol", "ha1": sha("carol", "carolpass"), "role": "user"}]}
+        st, r = call("POST", "/import", {"target": "users", "payload": payload}, A)
+        with open(tokf) as f:
+            ids = [t["id"] for t in json.load(f)["tokens"]]
+        check(st == 200 and ids == ["tok_keep"], "25 the new name's leftover token is removed, the others kept",
+              "%s %s %s" % (st, ids, r))
 
     print("[-] 15  switch on with an unreadable token file")
     off = {"auth_enabled": False, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}

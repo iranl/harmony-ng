@@ -881,6 +881,7 @@ export default {
     "hub_password_not_saved": "La contraseña no se guarda: la app guarda en su lugar un token de acceso.",
     "hub_logging_in": "Iniciando sesión...",
     "app_token_not_deleted": "No se pudo borrar el inicio de sesión anterior en el Hub: un administrador puede borrarlo en la lista de tokens.",
+    "app_old_login_gone": "El inicio de sesión anterior se borró en el Hub: inicie sesión de nuevo.",
     "hub_password_for_user": "Escriba la contraseña para iniciar sesión como el nuevo usuario.",
     "auth_tokens_unreadable": "El Hub no puede leer su archivo de tokens de acceso, por eso sus tokens no aparecen. Un administrador puede apartar el archivo con POST /api/auth/tokens-reset; después hay que crear de nuevo cada token.",
     "token_owner": "Propietario: {owner}",

@@ -2680,9 +2680,12 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   `tokens.json.bad` stays on `/data` (the next reset replaces it); delete it over SSH once you have
   looked at it. While another request holds the token list, these routes answer `503` ("busy, try
   again"), never the text about an unreadable file.
-  Creating an account whose name a deleted account had (`POST /api/users`, or the admin name in
-  `POST /api/system-action` `"action": "auth"`) removes that account's tokens left in the file first;
-  while the file cannot be changed the name cannot be used (`500`, or `503` while busy).
+  Creating an account whose name a deleted account had (`POST /api/users`, the admin name in
+  `POST /api/system-action` `"action": "auth"`, an imported users file, or `hub_user.sh add-user` /
+  `set-admin`) removes that account's tokens left in the file first; while the file cannot be changed
+  the name cannot be used (`500`, or `503` while busy; an import says so in a `warning`).
+  `hub_user.sh delete` removes the account's tokens too. The `"action": "auth"` rename refuses a name
+  another account has (`409`).
 - A new password ends the account's sessions, not its tokens (Home Assistant and the Android app keep
   working). To lock out a lost phone, delete its token (named `Android app (<phone>, <date>)`).
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no

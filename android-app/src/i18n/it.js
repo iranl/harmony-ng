@@ -881,6 +881,7 @@ export default {
     "hub_password_not_saved": "La password non viene salvata: l'app conserva invece un token di accesso.",
     "hub_logging_in": "Accesso in corso...",
     "app_token_not_deleted": "Non è stato possibile eliminare l'accesso precedente sull'Hub: un admin può eliminarlo nell'elenco dei token.",
+    "app_old_login_gone": "L'accesso precedente è stato eliminato sull'Hub: accedi di nuovo.",
     "hub_password_for_user": "Inserisci la password per accedere come nuovo utente.",
     "auth_tokens_unreadable": "L'Hub non riesce a leggere il file dei token di accesso, quindi i suoi token non sono elencati. Un admin può spostare il file con POST /api/auth/tokens-reset; poi ogni token va creato di nuovo.",
     "token_owner": "Proprietario: {owner}",

@@ -615,6 +615,16 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         return 1;
                     }
                     if (renaming) {
+                        /* a name another account has: refused before anything changes (its
+                         * tokens would be taken for leftovers below) */
+                        for (int i = 0; i < ucnt; i++) {
+                            if (i != admin_idx && strcmp(ulist[i].username, uname) == 0) {
+                                cJSON_Delete(params);
+                                send_json_error(client_fd, 409, "Another account already has this name");
+                                close(client_fd);
+                                return 1;
+                            }
+                        }
                         /* tokens left by a deleted account of the new name must not come back */
                         int stale = http_tokens_remove_owner(uname);
                         if (stale < 0) {
@@ -635,7 +645,16 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
                     }
                 } else if (pass[0] && ucnt < MAX_HTTP_USERS) {
-                    int stale = http_tokens_remove_owner(uname[0] ? uname : "admin");
+                    const char *new_name = uname[0] ? uname : "admin";
+                    for (int i = 0; i < ucnt; i++) {
+                        if (strcmp(ulist[i].username, new_name) == 0) {
+                            cJSON_Delete(params);
+                            send_json_error(client_fd, 409, "Another account already has this name");
+                            close(client_fd);
+                            return 1;
+                        }
+                    }
+                    int stale = http_tokens_remove_owner(new_name);
                     if (stale < 0) {
                         cJSON_Delete(params);
                         if (stale == HTTP_TOKENS_BUSY) send_json_error(client_fd, 503, "The token list is busy, try again");

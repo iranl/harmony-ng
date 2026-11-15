@@ -881,6 +881,7 @@ export default {
     "hub_password_not_saved": "Das Passwort wird nicht gespeichert: Die App behält stattdessen ein Zugriffstoken.",
     "hub_logging_in": "Anmeldung...",
     "app_token_not_deleted": "Die vorherige Anmeldung konnte auf dem Hub nicht gelöscht werden: Ein Admin kann sie in der Token-Liste löschen.",
+    "app_old_login_gone": "Die vorherige Anmeldung wurde auf dem Hub gelöscht: melden Sie sich erneut an.",
     "hub_password_for_user": "Geben Sie das Passwort ein, um sich als neuer Benutzer anzumelden.",
     "auth_tokens_unreadable": "Der Hub kann seine Zugriffstoken-Datei nicht lesen, daher werden ihre Token nicht aufgeführt. Ein Admin kann die Datei mit POST /api/auth/tokens-reset beiseitelegen; danach muss jedes Token neu erstellt werden.",
     "token_owner": "Besitzer: {owner}",

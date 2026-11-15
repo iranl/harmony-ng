@@ -881,6 +881,7 @@ export default {
     "hub_password_not_saved": "Het wachtwoord wordt niet opgeslagen: de app bewaart in plaats daarvan een toegangstoken.",
     "hub_logging_in": "Aanmelden...",
     "app_token_not_deleted": "De vorige aanmelding kon niet op de Hub worden verwijderd: een beheerder kan deze in de tokenlijst verwijderen.",
+    "app_old_login_gone": "De vorige aanmelding is op de Hub verwijderd: meld opnieuw aan.",
     "hub_password_for_user": "Typ het wachtwoord om aan te melden als de nieuwe gebruiker.",
     "auth_tokens_unreadable": "De Hub kan zijn bestand met toegangstokens niet lezen, dus de tokens worden niet getoond. Een beheerder kan het bestand opzijzetten met POST /api/auth/tokens-reset; daarna moet elk token opnieuw worden gemaakt.",
     "token_owner": "Eigenaar: {owner}",
