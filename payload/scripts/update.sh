@@ -279,6 +279,35 @@ EOF
   return 0
 }
 
+# The reboot at the end of an update must not cut an activity switch in the middle (the devices
+# were left half switched). hub_daemon refuses to start an update while one runs, but a switch can
+# start during the download: wait until GET /api/activity (loopback, no login) reports no switch,
+# no queued request and no steps left to send. Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and
+# reboots anyway (the new files are already installed); no answer from hub_daemon means no switch.
+wait_activity_switch() {
+  local max="${UPDATE_ACTIVITY_WAIT_SECS:-600}"
+  local waited=0
+  local said=0
+  local st
+  while [ "$waited" -lt "$max" ]; do
+    st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null) || return 0
+    if ! echo "$st" | grep -q '"busy":[[:space:]]*true' && \
+       ! echo "$st" | grep -q '"sending":[[:space:]]*true' && \
+       ! echo "$st" | grep -q '"queued":[[:space:]]*"'; then
+      [ "$said" = 1 ] && echo "[+] Activity switch finished after ${waited} s."
+      return 0
+    fi
+    if [ "$said" = 0 ]; then
+      echo "[*] An activity switch is running: the reboot waits until it has finished (at most ${max} s)."
+      said=1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  echo "[!] The activity switch is still running after ${max} s: rebooting anyway."
+  return 0
+}
+
 do_apply() {
   touch /tmp/hub_updating.flag 2>/dev/null || true
   TMPDIR="/tmp/ota_update"
@@ -488,6 +517,7 @@ do_apply() {
   # 7. Sync filesystem
   /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 
+  wait_activity_switch
   echo "[+] Update to v${NEW_VER} applied successfully. Initiating safe Hub reboot..."
   if [ -x /data/harmony/safe_reboot.sh ]; then
     /data/harmony/safe_reboot.sh &

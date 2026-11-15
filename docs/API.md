@@ -387,6 +387,7 @@ Checks for newer release bundles.
 #### `POST /api/update-apply`
 Executes `/data/harmony/update.sh` in the background and restarts services.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
+- **Not during an activity switch**: the update ends with a reboot, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing: `{"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished", "busy": true, "sending": true, "queued": null}`. Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch (at most 10 minutes, then it reboots anyway, the new files being installed already).
 - **Response `200 OK`**:
   ```json
   {
@@ -1608,6 +1609,9 @@ is installed. Both are admin actions, like their REST endpoints.
 ```json
 {"action": "update_check", "msgId": 41}
 ```
+`update_apply` during an activity switch is refused like the REST request (2.3): an ack with
+`"ok": false`, `"code": 409`, the `error` and the `status`, `busy`, `sending`, `queued` fields.
+
 **Response** (when the check ended):
 ```json
 {

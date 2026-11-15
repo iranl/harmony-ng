@@ -666,6 +666,13 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         return NULL; /* hub_cmd_poll delivers the reply */
     }
     if (strcmp(action, "update_apply") == 0) {
+        cJSON *blocked = ota_update_apply_blocked();
+        if (blocked) {
+            cJSON *rb = ack_with(req, action, 409, blocked);
+            cJSON_Delete(blocked);
+            return rb;
+        }
+
         cJSON *rest = ota_update_apply(req);
         cJSON *r = ack_with(req, action, rest ? 200 : 500, rest);
         cJSON_Delete(rest);

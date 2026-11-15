@@ -3244,6 +3244,10 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Trigger OTA update application
+      description: >-
+        Refused with 409 and status activity_switch (fields busy, sending, queued) while an
+        activity switch runs, a request is queued behind it, or its last steps are still being
+        sent: the update ends with a reboot, which must not cut a switch in the middle.
       responses:
         '200':
           description: Update started in background
