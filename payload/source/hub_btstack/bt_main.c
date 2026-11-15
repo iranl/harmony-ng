@@ -560,9 +560,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     wake_key_schedule(cid);
                     break;
                 }
+                case HID_SUBEVENT_CAN_SEND_NOW:
+                    bt_hid_can_send_now(hid_subevent_can_send_now_get_hid_cid(packet));
+                    break;
                 case HID_SUBEVENT_CONNECTION_CLOSED: {
                     g_host_connecting = false;
                     uint16_t cid = hid_subevent_connection_closed_get_hid_cid(packet);
+                    bt_hid_link_closed(cid);
                     if (cid != 0 && cid == s_wake_key_cid) {
                         /* the buffered wake key was meant for this channel: never send it on a later one */
                         btstack_run_loop_remove_timer(&s_wake_key_timer);
@@ -892,6 +896,7 @@ int main(int argc, const char *argv[]) {
     // 8. Classic HID Device service
     hid_device_init(1, hid_descriptor_composite_len, hid_descriptor_composite);
     hid_device_register_packet_handler(&packet_handler);
+    bt_hid_queue_init();
 
     // 9. BLE HID Service Host (for physical remote)
     hids_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));

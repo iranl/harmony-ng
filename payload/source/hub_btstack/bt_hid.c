@@ -1,7 +1,57 @@
 #include "bt_hid.h"
+#include "bt_hid_queue.h"
 #include "bt_pairing.h"
 
 btstack_timer_source_t g_host_key_release_timer;
+
+/* Report queue (bt_hid_queue.c) on BTstack: the send, the "can send now" request, the log, and a
+ * retry timer that runs while a report waits */
+#define HIDQ_RETRY_MS 20
+static btstack_timer_source_t s_hidq_timer;
+
+static uint8_t hidq_btstack_send(uint16_t cid, const uint8_t *report, uint16_t len) {
+    return hid_device_send_interrupt_message(cid, report, len);
+}
+
+static void hidq_timer_handler(btstack_timer_source_t *ts);
+
+static void hidq_arm_timer(void) {
+    btstack_run_loop_remove_timer(&s_hidq_timer);
+    if (!hidq_pending_any()) return;
+    btstack_run_loop_set_timer_handler(&s_hidq_timer, hidq_timer_handler);
+    btstack_run_loop_set_timer(&s_hidq_timer, HIDQ_RETRY_MS);
+    btstack_run_loop_add_timer(&s_hidq_timer);
+}
+
+static void hidq_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    hidq_service_all(btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+}
+
+static bool s_hidq_ready;
+
+void bt_hid_queue_init(void) {
+    if (s_hidq_ready) return;
+    hidq_init(hidq_btstack_send, hid_device_request_can_send_now_event, log_msg);
+    s_hidq_ready = true;
+}
+
+void bt_hid_send_report(uint16_t cid, const uint8_t *report, uint16_t len) {
+    bt_hid_queue_init(); /* a report sent before main() set it up must not be lost */
+    hidq_send(cid, report, len, btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+}
+
+void bt_hid_can_send_now(uint16_t cid) {
+    hidq_service(cid, btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+}
+
+void bt_hid_link_closed(uint16_t cid) {
+    hidq_drop(cid);
+    hidq_arm_timer();
+}
 uint8_t g_host_pending_release_type = 0; // 1 = keyboard, 2 = consumer, 3 = custom
 uint8_t g_host_custom_release_buf[16];
 int     g_host_custom_release_len = 0;
@@ -47,7 +97,7 @@ static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
     s_crelease_cid = 0;
     if (cid != 0) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
-        hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
+        bt_hid_send_report(cid, crelease, sizeof(crelease));
     }
 }
 
@@ -57,7 +107,7 @@ static void host_mrelease_timer_handler(btstack_timer_source_t *ts) {
     s_mrelease_cid = 0;
     if (cid != 0) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+        bt_hid_send_report(cid, mrelease, sizeof(mrelease));
     }
     g_host_mouse_buttons = 0;
 }
@@ -93,17 +143,17 @@ void send_host_release_all(void) {
     /* One report now; a second kind of release goes out on a timer, never back to back */
     if (prev_type == 2) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
-        hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
+        bt_hid_send_report(cid, crelease, sizeof(crelease));
     } else if (prev_type == 3 && g_host_custom_release_len > 0) {
-        hid_device_send_interrupt_message(cid, g_host_custom_release_buf, g_host_custom_release_len);
+        bt_hid_send_report(cid, g_host_custom_release_buf, g_host_custom_release_len);
     } else if (prev_type == 4) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+        bt_hid_send_report(cid, mrelease, sizeof(mrelease));
         g_host_mouse_buttons = 0;
     } else {
         /* keyboard (type 1), or unknown: keyboard release now, consumer release 20 ms later */
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, release, sizeof(release));
+        bt_hid_send_report(cid, release, sizeof(release));
         if (prev_type != 1) {
             s_crelease_cid = cid;
             btstack_run_loop_remove_timer(&g_host_crelease_timer);
@@ -137,7 +187,7 @@ void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel)
         return;
     }
     uint8_t report[6] = {0xa1, 0x03, buttons, (uint8_t)dx, (uint8_t)dy, (uint8_t)wheel};
-    hid_device_send_interrupt_message(cid, report, sizeof(report));
+    bt_hid_send_report(cid, report, sizeof(report));
     if (buttons) g_host_pending_cid = cid;
     g_keys_sent++;
     update_bthid_status();
@@ -181,7 +231,7 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
         host_key_release_timer_handler(NULL);
     }
     uint8_t press[10] = {0xa1, 0x01, modifier, 0, keycode, 0, 0, 0, 0, 0};
-    hid_device_send_interrupt_message(cid, press, sizeof(press));
+    bt_hid_send_report(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 1;
     arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);
@@ -213,7 +263,7 @@ void send_host_consumer_report(uint16_t usage_id) {
         host_key_release_timer_handler(NULL);
     }
     uint8_t press[4] = {0xa1, 0x02, (uint8_t)(usage_id & 0xff), (uint8_t)((usage_id >> 8) & 0xff)};
-    hid_device_send_interrupt_message(cid, press, sizeof(press));
+    bt_hid_send_report(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 2;
     arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);

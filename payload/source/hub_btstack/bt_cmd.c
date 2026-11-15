@@ -194,7 +194,7 @@ void poll_bthid_fifo(void) {
                 int rlen = parse_hex_bytes(line + 4, raw, sizeof(raw));
                 cur_cid = get_target_host_hid_cid();
                 if (rlen > 0 && cur_cid != 0) {
-                    hid_device_send_interrupt_message(cur_cid, raw, rlen);
+                    bt_hid_send_report(cur_cid, raw, rlen);
                     g_keys_sent++;
                     update_bthid_status();
                 }
@@ -234,7 +234,7 @@ void poll_bthid_fifo(void) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
                     }
-                    hid_device_send_interrupt_message(cur_cid, press_buf, press_len);
+                    bt_hid_send_report(cur_cid, press_buf, press_len);
                     if (rel_len > 0) {
                         memcpy(g_host_custom_release_buf, rel_buf, rel_len);
                         g_host_custom_release_len = rel_len;
@@ -275,7 +275,7 @@ void poll_bthid_fifo(void) {
                         btstack_run_loop_remove_timer(&g_host_key_release_timer);
                         send_host_release_all();
                     }
-                    hid_device_send_interrupt_message(cur_cid, rep, rlen);
+                    bt_hid_send_report(cur_cid, rep, rlen);
                     g_host_pending_cid = cur_cid;
                     if (rep[1] == 0x01 && (rlen > 4 && rep[4] != 0)) {
                         g_host_pending_release_type = 1;

@@ -16,6 +16,13 @@ extern int g_host_send_hold_mode;
 extern uint8_t g_host_mouse_buttons;
 
 void send_host_release_all(void);
+
+/* Every HID report to a host goes through here: in order, and a report the stack refuses waits
+ * and is sent again instead of being lost (bt_hid_queue.c) */
+void bt_hid_queue_init(void);
+void bt_hid_send_report(uint16_t cid, const uint8_t *report, uint16_t len);
+void bt_hid_can_send_now(uint16_t cid);
+void bt_hid_link_closed(uint16_t cid);
 void arm_host_key_release_timer(uint32_t timeout_ms);
 void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
 void send_host_mouse_click(uint8_t button);
