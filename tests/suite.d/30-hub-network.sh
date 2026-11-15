@@ -8,3 +8,6 @@ python3 "$SCRIPT_DIR/test_network_settings_api.py"
 # Recovery portal: SIGPIPE ignored, idle client, body in a second segment (hub_util on 127.0.0.1:9141)
 python3 "$SCRIPT_DIR/test_recovery_portal.py"
 # recovery_ap.sh: configuration read as data, portal started again until stop
+python3 "$SCRIPT_DIR/test_recovery_ap_sh.py"
+# network_manager.sh: Ethernet settings read, DNS list, wpa_supplicant configuration file
+python3 "$SCRIPT_DIR/test_network_manager_sh.py"
