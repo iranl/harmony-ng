@@ -32,3 +32,15 @@ python3 "$SCRIPT_DIR/test_mqtt_sequencer_sends.py"
 
 # RF debug tools refuse to open /dev/rfspi while hub_rf holds its lock
 python3 "$SCRIPT_DIR/test_rf_debug_lock.py"
+
+# Malformed input: hub_rf's frame handler on random frames of every type (AddressSanitizer,
+# private mock root), and the HTTP and SSDP parsers of hub_daemon on bad requests
+build_test -Wall -O1 -g -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_frame_fuzz" "$SCRIPT_DIR/test_rf_frame_fuzz.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
+TD_MOCK=$(mktemp -d)
+mkdir -p "$TD_MOCK/data/harmony" "$TD_MOCK/cache"
+ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_rf_frame_fuzz" 2>/dev/null | grep libasan | awk '{print $3}' || true)
+HARMONY_MOCK_DIR="$TD_MOCK" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_frame_fuzz" >"$TD_MOCK/fuzz.log" 2>&1 || { tail -40 "$TD_MOCK/fuzz.log"; exit 1; }
+tail -1 "$TD_MOCK/fuzz.log"
+rm -rf "$TD_MOCK"
+python3 "$SCRIPT_DIR/test_malformed_input.py"
