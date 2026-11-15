@@ -128,7 +128,7 @@ int find_touchscreen_fd(void) {
         "/dev/input/event0"
     };
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK);
+        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd >= 0) {
             char name[128] = {0};
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0) {
@@ -141,7 +141,7 @@ int find_touchscreen_fd(void) {
             close(fd);
         }
     }
-    return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+    return open(TOUCH_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 }
 
 void handle_screen_touch_tap(int x, int y) {

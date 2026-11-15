@@ -20,6 +20,7 @@
 static int i2s_lock_acquire(void) {
     int lfd = open(I2S_LOCK_FILE, O_RDWR | O_CREAT, 0666);
     if (lfd < 0) return -1;
+    fcntl(lfd, F_SETFD, FD_CLOEXEC); /* close-on-exec: helpers started with system() must not hold it */
     for (int i = 0; i < 50; i++) {
         if (flock(lfd, LOCK_EX | LOCK_NB) == 0) {
             return lfd;
@@ -59,6 +60,7 @@ int ir_i2s_init(void) {
     if (s_i2s_tx_fd >= 0) return 0;
     s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
     if (s_i2s_tx_fd < 0) return -1;
+    fcntl(s_i2s_tx_fd, F_SETFD, FD_CLOEXEC); /* close-on-exec: helpers started with system() must not hold it */
     if (ioctl(s_i2s_tx_fd, I2S_FREQ, I2S_FREQ_CAP) < 0) {
         close(s_i2s_tx_fd);
         s_i2s_tx_fd = -1;
@@ -226,6 +228,7 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     const bit_stream_t bs = *bsp;
     if (s_i2s_tx_fd < 0) {
         s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
+        if (s_i2s_tx_fd >= 0) fcntl(s_i2s_tx_fd, F_SETFD, FD_CLOEXEC);
     }
     int fd = s_i2s_tx_fd;
     if (fd < 0) {
@@ -455,6 +458,7 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     /* The transmit handle stays open: receive and transmit coexist (measured on a Hub), and
      * closing the transmit side can hang in ath_i2s_close (see ir_i2s_blast_words). */
     s->fd = open(I2S_DEVICE, O_RDONLY);
+    if (s->fd >= 0) fcntl(s->fd, F_SETFD, FD_CLOEXEC);
     if (s->fd < 0) {
         snprintf(err, errlen, "Failed to open " I2S_DEVICE ": %s", strerror(errno));
         free(s->chunk);

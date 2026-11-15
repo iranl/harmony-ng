@@ -68,3 +68,6 @@ rm -rf "$SHARED_STATE_DIR"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_log" \
     "$SCRIPT_DIR/test_remote_log.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
 "$BUILD_DIR/test_remote_log"
+
+# Long-lived fds of remote_ui, hub_daemon and hub_rf are close-on-exec
+python3 "$SCRIPT_DIR/test_fd_cloexec.py"

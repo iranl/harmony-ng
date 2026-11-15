@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <sys/socket.h>
@@ -457,6 +458,7 @@ static void start_probing(void) {
 static int open_socket(void) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) return -1;
+    fcntl(fd, F_SETFD, FD_CLOEXEC); /* a helper started with system() never reads it, so it fills up */
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in sin;

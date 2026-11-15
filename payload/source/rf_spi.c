@@ -432,6 +432,7 @@ int rf_spi_open(void) {
         perror("open /dev/rfspi");
         return -1;
     }
+    fcntl(g_rf_fd, F_SETFD, FD_CLOEXEC); /* one user of /dev/rfspi: no helper may keep it */
     return 0;
 }
 

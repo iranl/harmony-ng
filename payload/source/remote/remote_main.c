@@ -223,7 +223,10 @@ int main(int argc, char **argv) {
      * may have started this binary as /data/elite_ui: rename them before any config is read */
     remote_migrate_legacy("/data");
 
-    int lock_fd = open("/var/run/remote_ui.lock", O_CREAT | O_RDWR, 0644);
+    /* Every long-lived fd is close-on-exec: dropbear and the other helpers started with system()
+     * must not hold the lock (the execv restart would find it taken), /dev/rfspi (one user only),
+     * the framebuffer or the input devices */
+    int lock_fd = open("/var/run/remote_ui.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock_fd >= 0) {
         if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -320,7 +323,7 @@ int main(int argc, char **argv) {
     }
 
     if (!g_no_screen_mode) {
-        g_fb_fd = open(FB_DEV, O_RDWR);
+        g_fb_fd = open(FB_DEV, O_RDWR | O_CLOEXEC);
         if (g_fb_fd >= 0) {
             struct fb_fix_screeninfo finfo;
             struct fb_var_screeninfo vinfo;
@@ -352,7 +355,7 @@ int main(int argc, char **argv) {
             set_backlight_level(g_brightness_val);
         }
 
-        g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (g_gyro_fd >= 0) {
             init_gyro_interrupt();
         }
@@ -366,7 +369,7 @@ int main(int argc, char **argv) {
      * thread. remote_ui must be the sole process accessing RFSPI_DEV; supervisor
      * scripts must killall -9 any previous instances prior to starting this process.
      */
-    g_rf_fd = open(RFSPI_DEV, O_RDWR);
+    g_rf_fd = open(RFSPI_DEV, O_RDWR | O_CLOEXEC);
     if (g_rf_fd >= 0) {
         printf("[+] Opened %s for RF TX/RX\n", RFSPI_DEV);
         uint8_t pkt_init[7] = {0x10, 0xFF, 0x80, 0x00, 0x00, 0x01, 0x00};
@@ -435,7 +438,7 @@ int main(int argc, char **argv) {
     }
 
     for (int retry = 0; retry < 30 && g_btn_fd < 0; retry++) {
-        g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (g_btn_fd < 0) {
             usleep(100000);
         }

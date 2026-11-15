@@ -379,6 +379,9 @@ int main(int argc, char **argv) {
 
     /* Enforce single instance across the entire OS to protect AR9344 SPI arbiter */
     int lock_fd = open("/var/run/hub_rf.lock", O_CREAT | O_RDWR, 0644);
+    /* close-on-exec: a helper still running after hub_rf died kept the lock, and the next hub_rf
+     * refused to start */
+    if (lock_fd >= 0) fcntl(lock_fd, F_SETFD, FD_CLOEXEC);
     if (lock_fd >= 0) {
         if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
