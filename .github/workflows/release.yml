@@ -48,7 +48,9 @@ jobs:
             if [ -n "${{ github.event.inputs.version }}" ]; then
               TARGET_VER="${{ github.event.inputs.version }}"
             else
-              TARGET_VER=$(python scripts/bump_version.py --bump ${{ github.event.inputs.bump }} | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+              # --next only prints: --bump would write the files and raise versionCode, and the
+              # --version below raises it again (the repository then had +2, the APK +1)
+              TARGET_VER=$(python scripts/bump_version.py --next ${{ github.event.inputs.bump }})
             fi
             python scripts/bump_version.py --version "$TARGET_VER"
             git config user.name "github-actions[bot]"

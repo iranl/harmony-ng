@@ -16,3 +16,5 @@ python3 "$SCRIPT_DIR/test_usb_state_adapter.py"
 python3 "$SCRIPT_DIR/test_serve_dropbear.py"
 # build/build_btstack.sh applies btstack.patch to a clean clone (toy git repository)
 sh "$SCRIPT_DIR/test_build_btstack_patch.sh"
+# scripts/bump_version.py: missing files are errors, lockfile root version, --next for the release
+python3 "$SCRIPT_DIR/test_bump_version.py"
