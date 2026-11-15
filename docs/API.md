@@ -1324,7 +1324,7 @@ Publish to `<base>/cmd`:
 `id` is an opaque client string (up to 64 characters), echoed in the reply; a request without `id`
 is executed and not answered. Actions and fields mirror the WebSocket actions (section 10):
 `ping`, `get_state`, `get_snapshot` (the reply carries the snapshot), `start_activity` (`activity`),
-`stop_activity`, `cancel_activity`, `send_command` (`deviceId`, `command`, `status` = `press`,
+`stop_activity`, `cancel_activity`, `cancel_commands`, `send_command` (`deviceId`, `command`, `status` = `press`,
 `hold`, `release` or omitted for a tap), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
 `bt_mouse`, `rf_wake` (`slot`), `rf_sleep` (`slot`), `sync`, `ir_raw` (fields of 5.4),
 `ir_capture` (`enabled`, 5.5; the reply carries `enabled`),
@@ -1535,6 +1535,10 @@ Multiple commands or repeats can be queued as an array:
   "msgId": 3
 }
 ```
+A list, repeats or a hold run as a job of the command sequencer, one job after the other (at most
+16 waiting). The ack of a job carries `"state": "started"`, or `"queued"` when another job runs
+first. A job may last at most 300 s (commands x repeats x (gap + hold)); a longer one is refused
+with code 400. Errors: 404 unknown device or command, 409 queue full.
 
 #### 10.4 Start Activity
 ```json
@@ -1584,9 +1588,13 @@ Multiple commands or repeats can be queued as an array:
   "type": "ack",
   "action": "cancel_activity",
   "ok": true,
+  "commandsCancelled": 0,
   "msgId": 6
 }
 ```
+`cancel_activity` also drops the command jobs of 10.3 (`commandsCancelled` = how many; a held
+command is released first). `cancel_commands` drops the jobs only, with the same reply; it needs
+the rights of `send_command`.
 
 #### 10.6a Firmware Update Check and Install
 `update_check` runs the check of `POST /api/update-check` (optional `repo`, `token`,

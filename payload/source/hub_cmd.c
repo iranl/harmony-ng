@@ -404,7 +404,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
      * state queries are always allowed */
     if (role == (int)ROLE_USER) {
         const char *rest_path = NULL;
-        if (strcmp(action, "send_command") == 0 || strcmp(action, "ir_send") == 0) rest_path = "/api/ir-send";
+        if (strcmp(action, "send_command") == 0 || strcmp(action, "ir_send") == 0 ||
+            strcmp(action, "cancel_commands") == 0) rest_path = "/api/ir-send";
         else if (strcmp(action, "start_activity") == 0) rest_path = "/api/activity";
         else if (strcmp(action, "stop_activity") == 0 || strcmp(action, "power_off") == 0) rest_path = "/api/poweroff";
         else if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0) rest_path = "/api/activity-cancel";
@@ -500,11 +501,17 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
             if (rc == -6) return ack(req, action, 0, 404, "Command not found");
             return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "IR transmit failed");
         }
+        int waiting = hub_mqtt_queue_busy();
         int rc = hub_mqtt_queue_commands(dev_buf, 0, cmd_list, cmd_count, num_repeats, btn_action, delay_secs, hold_secs);
         if (rc == -5) return ack(req, action, 0, 404, "Device not found");
         if (rc == -6) return ack(req, action, 0, 404, "Command not found");
         if (rc == -2) return ack(req, action, 0, 409, "Command queue full");
-        return (rc == 0) ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 500, "Failed to queue command sequence");
+        if (rc == -3) return ack(req, action, 0, 400, "Command sequence too long (more than 300 s)");
+        if (rc != 0) return ack(req, action, 0, 500, "Failed to queue command sequence");
+        /* behind another job, the command waits: the ack says so */
+        cJSON *r = ack(req, action, 1, 200, NULL);
+        if (r) cJSON_AddStringToObject(r, "state", waiting ? "queued" : "started");
+        return r;
     }
     if (strcmp(action, "start_activity") == 0) {
         /* "activity" names the activity. The web UI sends it as "id" (its request id is msgId),
@@ -529,9 +536,14 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         if (r) cJSON_AddStringToObject(r, "state", rc == 1 ? "queued" : "stopping");
         return r;
     }
-    if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0) {
-        orch_cancel();
-        return ack(req, action, 1, 200, NULL);
+    if (strcmp(action, "cancel_activity") == 0 || strcmp(action, "reset_interlock") == 0 ||
+        strcmp(action, "cancel_commands") == 0) {
+        /* cancel_activity stops the command jobs too: nothing else could stop a long one */
+        if (strcmp(action, "cancel_commands") != 0) orch_cancel();
+        int dropped = hub_mqtt_queue_clear();
+        cJSON *r = ack(req, action, 1, 200, NULL);
+        if (r) cJSON_AddNumberToObject(r, "commandsCancelled", dropped);
+        return r;
     }
     if (strcmp(action, "bt_key") == 0) {
         const char *k = json_str(req, "key", NULL, NULL);

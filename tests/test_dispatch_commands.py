@@ -5,6 +5,8 @@ Command dispatch and IR codes (daemon in --dry-run, sends read from its log):
 - Connect / Disconnect are accepted for a job only when the device lists them, as the sender
 - dry run: the delayed Bluetooth reconnect script is not started
 - long codes are sent whole or refused, never cut
+- command jobs: total length capped, a queued command says so, cancel_commands / cancel_activity
+  drop the jobs
 """
 
 import json
@@ -179,6 +181,23 @@ def main():
             check(st == 200 and half and whole and whole > half,
                   "a Pronto code of %d characters is sent whole" % len(pronto(100)), "%s %s %s" % (st, half, whole))
 
+            print("[-] command jobs")
+            r = ws_ask(ws, {"action": "send_command", "msgId": 21, "deviceId": "2", "command": "Home",
+                            "num_repeats": 50, "delay_secs": 60})
+            check(r is not None and r.get("code") == 400, "a job of 50 minutes is refused", str(r))
+            r = ws_ask(ws, {"action": "send_command", "msgId": 22, "deviceId": "2", "command": ["Home", "Select"],
+                            "num_repeats": 3, "delay_secs": 2})
+            check(r is not None and r.get("ok") is True and r.get("state") == "started", "a job starts", str(r))
+            r = ws_ask(ws, {"action": "send_command", "msgId": 23, "deviceId": "2", "command": "Home"})
+            check(r is not None and r.get("ok") is True and r.get("state") == "queued",
+                  "a single command behind it says queued", str(r))
+            r = ws_ask(ws, {"action": "cancel_commands", "msgId": 24})
+            check(r is not None and r.get("ok") is True and r.get("commandsCancelled") == 2, "cancel_commands drops both", str(r))
+            ws_ask(ws, {"action": "send_command", "msgId": 25, "deviceId": "2", "command": ["Home", "Select"],
+                        "num_repeats": 3, "delay_secs": 2})
+            r = ws_ask(ws, {"action": "cancel_activity", "msgId": 26})
+            check(r is not None and r.get("ok") is True and r.get("commandsCancelled") == 1,
+                  "cancel_activity drops the jobs too", str(r))
             ws.close()
     finally:
         shutil.rmtree(cfg, ignore_errors=True)

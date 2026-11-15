@@ -38,6 +38,8 @@ int daemon_mqtt_button_handler(const char *device_id, const char *dev_name, cons
 int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][64], int cmd_count,
                             int num_repeats, int btn_action, double delay_secs, double hold_secs);
 int hub_mqtt_queue_busy(void);
+/* Drops every queued command job (a held command is released first); returns how many */
+int hub_mqtt_queue_clear(void);
 
 #ifdef __cplusplus
 }
