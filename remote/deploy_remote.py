@@ -246,7 +246,7 @@ def main() -> None:
     parser.add_argument("--user", default="root", help="SSH username (default root)")
     parser.add_argument("--key", type=pathlib.Path, help="SSH private key path")
     parser.add_argument("--factory-reset", action="store_true",
-                        help="Revert the Harmony remote to stock firmware (restores stock scripts & permissions)")
+                        help="Revert the Harmony remote to stock firmware with remote/factory_reset.sh (deletes its settings, logs and SSH access)")
     parser.add_argument("--reboot", action="store_true",
                         help="Reboot the remote instead of hot-restarting remote_ui (it also reboots when an old process still holds the watchdog)")
     parser.add_argument("--no-sync", action="store_true",
@@ -297,27 +297,26 @@ def main() -> None:
         if conf != "RESET":
             print("[-] Confirmation mismatch. Aborting reset.")
             sys.exit(1)
-        print("[*] Performing stock revert...")
-        revert_cmd = (
-            "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
-            "killall -9 init.sh remote_ui elite_ui codex_elite remote_watchdog.sh elite_watchdog.sh codex_watchdog.sh 2>/dev/null || true; "
-            "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
-            "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "else "
-            "  printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "fi; "
-            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/codex_elite.conf /data/remote_ui.conf /tmp/codex_elite.log /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid /tmp/elite_stop /tmp/elite_supervisors.pid 2>/dev/null || true; "
-            "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-            "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/remote_* /data/elite_* /data/codex_* /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
-            "reboot -f 2>/dev/null &"
-        )
-        run_cmd(["ssh"] + ssh_opts + [target, revert_cmd])
+        print("[*] Performing stock revert (factory_reset.sh)...")
+        # The remote's one reset script (the same that Settings > Factory Reset runs): copied to
+        # /tmp and run without its reboot, so its result can be checked first
+        reset_script = SCRIPT_DIR / "factory_reset.sh"
+        if not reset_script.is_file():
+            print(f"[-] {reset_script} is missing; nothing on the remote was changed.")
+            sys.exit(1)
+        res = subprocess.run(["ssh"] + ssh_opts + [target, "cat > /tmp/factory_reset.sh"],
+                             input=reset_script.read_bytes(), capture_output=True, check=False)
+        if res.returncode != 0:
+            print(f"[-] Copying factory_reset.sh to the remote failed; nothing was changed: {res.stderr.decode(errors='replace').strip()}")
+            sys.exit(1)
+        res = run_cmd(["ssh"] + ssh_opts + [target, "sh /tmp/factory_reset.sh --confirm --no-reboot"])
+        if res.stdout.strip():
+            print(res.stdout.strip())
+        if res.returncode != 0:
+            print(f"[-] The factory reset did not complete (exit code {res.returncode}): {res.stderr.strip()}")
+            print("    The remote was not rebooted by this tool. Run it again.")
+            sys.exit(1)
+        run_cmd(["ssh"] + ssh_opts + [target, "(sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &"])
         print("[+] The remote is rebooting into official Logitech firmware.")
         sys.exit(0)
 

@@ -147,35 +147,13 @@ def reset_hub(hub_ip: str, ssh_opts: list[str], backup: bool = True) -> bool:
     print("[*] Performing Hub factory reset sequence:")
 
     commands = [
-        # 1. Stop all daemons
-        "killall -9 init.sh hub_daemon hub_btstack hub_rf hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true",
-        # 2. Restore stock rcS.local if backup exists
-        (
-            "if [ -f /data/stock_backup/rcS.local.orig ]; then "
-            "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "  echo '  + Restored original stock rcS.local'; "
-            "else "
-            "  rm -f /etc/init.d/rcS.local; "
-            "  echo '  + Removed custom rcS.local (clean boot)'; "
-            "fi"
-        ),
-        # 3. Restore executable permissions to stock daemons
-        (
-            "chmod +x /usr/bin/watchdog /opt/luaworks/luaworks /usr/bin/hal /usr/sbin/bluetoothd 2>/dev/null || true; "
-            "echo '  + Restored permissions on stock daemons (watchdog, hal, luaworks, bluetoothd)'"
-        ),
-        # 4. Remove watchdog neuter and custom binaries
-        (
-            "rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/hub_rf 2>/dev/null || true; "
-            "rm -rf /data/harmony /data/harmony-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true; "
-            "echo '  + Removed all custom binaries, scripts, and temporary state'"
-        ),
-
-        # 5. Flush filesystem writes
-        "sync 2>/dev/null || /data/harmony/bin/hub_sync 2>/dev/null || /data/sync 2>/dev/null || true",
+        # payload/scripts/factory_reset.sh, copied to the Hub below: stops the services, restores
+        # the stock boot script, deletes /data/harmony, the Wi-Fi configuration and SSH access
+        RUN_RESET_SCRIPT,
     ]
 
+    if not upload_reset_script(target, "hub", ssh_opts):
+        return False
     if not run_steps(target, commands, ssh_opts, "Hub"):
         return False
     print("[+] Hub reboot signal delivered. Hub will boot into stock Logitech environment.")
@@ -198,40 +176,13 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
     print("[*] Performing remote factory reset sequence:")
 
     commands = [
-        # 1. Stop remote runtime & supervisors
-        "if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; killall -9 init.sh remote_ui elite_ui remote_watchdog.sh elite_watchdog.sh 2>/dev/null || true",
-        # 2. Restore stock rcS.local
-        (
-            "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
-            "  cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "  echo '  + Restored original stock rcS.local'; "
-            "else "
-            "  printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; "
-            "  chmod 755 /etc/init.d/rcS.local; "
-            "  echo '  + Restored clean stock rcS.local'; "
-            "fi"
-        ),
-        # 3. Restore executable permissions to stock daemons
-        (
-            "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
-            "echo '  + Restored permissions on stock daemons (usbhid, hal, luaworks, luadraws, watchdog, bluetoothd, dbus-daemon)'"
-        ),
-        # 4. Remove custom triggers, dangling symlinks, and files
-        (
-            "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /data/remote_ui.conf /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true; "
-            "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-            "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-            "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-            "rm -f /data/remote_* /data/elite_* /data/init.sh /data/safe_reboot.sh /data/factory_reset.sh /data/dropbear* /data/sync /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
-            "rm -rf /data/stock_backup /data/assets 2>/dev/null || true; "
-            "echo '  + Removed all custom binaries, Dropbear symlinks, and configuration files'"
-        ),
-        # 5. Flush filesystem writes (our sync binary is gone by now; stock firmware
-        #    has no sync link in PATH, only the BusyBox applet)
-        "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1",
+        # remote/factory_reset.sh, copied to the remote below: stops the runtime, restores the
+        # stock boot script, deletes the settings, logs and SSH access
+        RUN_RESET_SCRIPT,
     ]
 
+    if not upload_reset_script(target, "remote", ssh_opts):
+        return False
     if not run_steps(target, commands, ssh_opts, "remote"):
         return False
     print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
@@ -243,7 +194,7 @@ def confirm_prompt(device_label: str, backup: bool) -> bool:
     print(f" WARNING: FACTORY RESET FOR {device_label.upper()}")
     print("!" * 70)
     print(" This operation will:")
-    print("  1. Remove all custom software, binaries, and Web UI.")
+    print("  1. Remove all custom software and DELETE its settings, accounts, keys, Wi-Fi and SSH access.")
     print("  2. Restore original stock startup scripts and daemon permissions.")
     print("  3. Restore stock watchdog and power management behavior.")
     print("  4. Reboot device(s) back into official Logitech stock mode.")
@@ -256,6 +207,44 @@ def confirm_prompt(device_label: str, backup: bool) -> bool:
 
     val = input(f"\nType 'FACTORY-RESET' to confirm reverting {device_label} to stock: ").strip()
     return val == "FACTORY-RESET"
+
+
+# Each device has one reset script, the same one its own menu or web UI runs. The tool copies it
+# to the device's /tmp and runs it there, without its reboot: the tool reboots after it ran.
+RESET_SCRIPTS = {
+    "hub": ("Harmony Hub factory reset",
+            [REPO_DIR / "payload" / "scripts" / "factory_reset.sh", REPO_DIR / "scripts" / "factory_reset.sh"]),
+    "remote": ("Harmony remote factory reset",
+               [REPO_DIR / "remote" / "factory_reset.sh", REPO_DIR / "factory_reset.sh"]),
+}
+DEVICE_RESET_SCRIPT = "/tmp/factory_reset.sh"
+RUN_RESET_SCRIPT = f"sh {DEVICE_RESET_SCRIPT} --confirm --no-reboot || exit 1"
+
+
+def reset_script_path(device: str) -> pathlib.Path | None:
+    """The reset script of this device next to the tool (repository or release bundle)"""
+    marker, candidates = RESET_SCRIPTS[device]
+    for c in candidates:
+        try:
+            if marker in c.read_text(encoding="utf-8", errors="replace")[:400]:
+                return c
+        except OSError:
+            continue
+    return None
+
+
+def upload_reset_script(target: str, device: str, ssh_opts: list[str]) -> bool:
+    script = reset_script_path(device)
+    if script is None:
+        print(f"[-] The {device} reset script (factory_reset.sh) is not next to this tool; nothing was changed.")
+        return False
+    res = subprocess.run(["ssh"] + ssh_opts + [target, f"cat > {DEVICE_RESET_SCRIPT}"],
+                         input=script.read_bytes(), capture_output=True, check=False)
+    if res.returncode != 0:
+        print(f"[-] Copying {script.name} to the {device} failed: {res.stderr.decode(errors='replace').strip()}")
+        print(f"    Nothing on the {device} was changed.")
+        return False
+    return True
 
 
 def main() -> None:

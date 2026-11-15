@@ -171,6 +171,8 @@ link_if_changed /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
 
 [ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
 [ -f /data/harmony/safe_reboot.sh ] && link_if_changed /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+# the web UI's factory reset runs /data/harmony/bin/factory_reset.sh; the installers put it here
+[ -f /data/harmony/factory_reset.sh ] && link_if_changed /data/harmony/factory_reset.sh /data/harmony/bin/factory_reset.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
 write_if_changed /etc/profile.d/00-harmony.sh 644 <<'EOF'

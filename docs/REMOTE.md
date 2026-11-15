@@ -328,7 +328,7 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 - **`RF Pairing Menu`**: `[ LINKED ]` or `[ OPEN ]`.
   - Opens CC2544 pairing management: inspect remote address, paired Hub address, link RSSI, request pairing, or unpair.
 - **`Reboot Remote`**: Clean reboot confirmation -> flushes flash buffers and executes `reboot -f`.
-- **`Factory Reset`**: Two-stage safety confirmation -> removes custom startup scripts, restores stock Logitech UI binaries, and reboots.
+- **`Factory Reset`**: Two-stage safety confirmation -> runs `/data/factory_reset.sh` (the same script the host tools use): removes custom startup scripts, restores stock Logitech UI binaries, deletes the settings, the Hub's names stored on the remote, logs and SSH keys, and reboots. Without that script nothing is changed (the installers put it there).
   - *Hardware Factory Reset Alternative (No UI / SSH needed)*: Hold **`Menu`** (above `CH+`) and **`Off`** (top power button) simultaneously for ~20 seconds. The remote graphic with circular arrow will flash briefly first—**continue holding until the graphic stays permanently on the screen**. The remote then wipes user configurations and restores factory defaults.
 
 ### 6. `PUSH TO HUB`

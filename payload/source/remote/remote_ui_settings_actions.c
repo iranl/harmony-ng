@@ -65,27 +65,20 @@ static void execute_remote_reboot(void) {
     }
 }
 
+/* The remote's only reset is /data/factory_reset.sh (the tools copy the same script). It
+ * deletes the settings, logs and SSH keys and reboots into the stock firmware. Without it
+ * nothing is changed: the installers put it there. */
 static void execute_remote_factory_reset(void) {
+    if (access("/data/factory_reset.sh", R_OK) != 0) {
+        show_notice("Reset script missing: reinstall first", 4000);
+        render_screen();
+        return;
+    }
     show_notice("Restoring stock & rebooting...", 6000);
     render_screen();
     system("if [ -x /data/init.sh ]; then /data/init.sh stop 2>/dev/null || true; fi; "
            "killall -9 init.sh remote_watchdog.sh 2>/dev/null || true; "
-           "if [ -f /data/factory_reset.sh ]; then /data/factory_reset.sh --confirm; "
-           "else "
-           "chmod +x /usr/bin/watchdog /usr/bin/usbhid /usr/bin/hal /opt/luaworks/luaworks /opt/luadraws/luadraws /usr/sbin/bluetoothd /usr/bin/dbus-daemon 2>/dev/null || true; "
-           "rm -f /etc/nowatchdog /etc/tdeenable /data/reboot_counter /tmp/remote_ui.log /tmp/remote-init.log /tmp/remote_stop /tmp/remote_supervisors.pid 2>/dev/null || true; "
-           "rm -f /usr/bin/sync /usr/sbin/dropbear /usr/sbin/dropbearkey /usr/sbin/dbclient /usr/sbin/scp 2>/dev/null || true; "
-           "rm -f /usr/bin/head /usr/bin/tail /usr/bin/which /usr/bin/find /usr/bin/tar /usr/bin/xargs /usr/bin/xz /usr/bin/bzcat /usr/bin/bunzip2 /usr/bin/lzma /usr/bin/unlzma /usr/bin/diff /usr/bin/patch /usr/bin/awk /usr/bin/sed 2>/dev/null || true; "
-           "if [ -f /data/stock_backup/rcS.local.orig ] && ! grep -q 'usbeth' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'dropbear' /data/stock_backup/rcS.local.orig 2>/dev/null && ! grep -q 'exit 0' /data/stock_backup/rcS.local.orig 2>/dev/null; then "
-           "cp -f /data/stock_backup/rcS.local.orig /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; "
-           "else "
-           "printf '#!/bin/sh\\n/usr/bin/flashuboot /lib/firmware/u-boot.bin 2>/dev/null || true\\n' > /etc/init.d/rcS.local; chmod 755 /etc/init.d/rcS.local; fi; "
-           "rm -f /data/remote_ui /data/remote_ui.new /data/elite_ui /data/elite_ui.new /data/init.sh /data/safe_reboot.sh /data/remote_watchdog.sh /data/elite_watchdog.sh /data/dropbear* /data/mknod /data/scp /data/busybox 2>/dev/null || true; "
-           "rm -rf /data/stock_backup /data/assets /data/themes 2>/dev/null || true; "
-           "/data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; "
-           "rm -f /data/remote_sync /data/elite_sync /data/sync 2>/dev/null || true; "
-           "/bin/busybox sync 2>/dev/null || sync 2>/dev/null || true; sleep 1; "
-           "/sbin/reboot -f 2>/dev/null || reboot -f; fi &");
+           "sh /data/factory_reset.sh --confirm &");
     sleep(1);
     exit(0);
 }

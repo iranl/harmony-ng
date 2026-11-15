@@ -189,6 +189,9 @@ To use the result, back up `/data/harmony` on the Hub first, copy `migrated/conf
 
 If you ever wish to revert any changes, test official firmware, or recover from an unexpected state:
 
+### Software Factory Reset (Web UI or SSH)
+The web UI's "Revert to Stock Firmware" and `python tools/factory_reset.py --target hub --hub-ip <YOUR_HUB_IP>` both run the Hub's one reset script, `factory_reset.sh`. It restores the stock boot script and deletes everything harmony-ng keeps on the Hub: devices, activities and button maps, web UI accounts and tokens, the MQTT settings with their password, the Bluetooth keys, the Wi-Fi configuration (back to the stock firmware's copy, so the Hub needs Wi-Fi setup again) and SSH access. Save a backup first (`python tools/backup_hub.py`) to keep any of it.
+
 ### Hardware Factory Reset (Zero-Disassembly Method)
 1. **Unplug the micro-USB cable** from the back of the Hub.
 2. **Press and hold the Pair/Reset button** on the rear of the Hub.

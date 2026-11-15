@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -34,8 +35,8 @@ class FactoryResetScript(unittest.TestCase):
                   "cache/bin", "usr/sbin", "stub"):
             (r / d).mkdir(parents=True)
         text = SCRIPT.read_text()
-        for top in ("/tmp/", "/data/", "/etc/", "/cache/", "/usr/", "/opt/"):
-            text = text.replace(top, f"{r}{top}")
+        # every absolute device path, but not the #! line
+        text = re.sub(r"(?<![\w./$!-])/(tmp|data|etc|cache|usr|opt|mnt|root|home)/", lambda m: f"{r}{m.group(0)}", text)
         self.script = r / "factory_reset.sh"
         self.script.write_text(text)
         self.calls = r / "calls.log"

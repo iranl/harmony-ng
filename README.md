@@ -183,7 +183,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── remote_ui.c     # Remote framebuffer GUI & input application
 │       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp)
 └── tools/
-    ├── factory_reset.py    # Clean revert tool to factory stock firmware
+    ├── factory_reset.py    # Revert to stock: runs the device's factory_reset.sh (deletes settings and keys)
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
     ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
