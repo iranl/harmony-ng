@@ -2,3 +2,5 @@
 
 # tools/migrate_hub_configs.py: stock IR commands get no "repeats" (the Hub's default applies)
 python3 "$SCRIPT_DIR/test_migrate_stock_repeats.py"
+# tools/migrate_hub_configs.py: long device ids get short ones, every reference follows
+python3 "$SCRIPT_DIR/test_migrate_device_ids.py"
