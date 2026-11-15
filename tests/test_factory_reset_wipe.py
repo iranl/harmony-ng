@@ -3,7 +3,10 @@
 
 The scripts run with sh in a sandbox: every absolute device path is moved under a temporary
 root (a check makes sure none is left), and killall, mount, reboot, sleep and sync are stubs
-that record their calls. Nothing outside the temporary directory is touched.
+that record their calls. Nothing outside the temporary directory is touched. As on the Hub,
+/mnt/root (the stock file system) cannot be read: it is under the union mounted over /. The
+mount stub models mounting it again: "mount -t squashfs" copies a folder of stock files to the
+mount point when the test provides one (and fails otherwise).
 
 - payload/scripts/factory_reset.sh (Hub) deletes /data/harmony (accounts, tokens, web UI
   login, MQTT settings, Bluetooth keys and host files, devices), resets the Wi-Fi file to the
@@ -45,10 +48,27 @@ class Sandbox:
         stub = self.base / "stub"
         stub.mkdir()
         self.calls = self.base / "calls.log"
-        for cmd in ("killall", "mount", "reboot", "sleep", "sync"):
+        for cmd in ("killall", "reboot", "sleep", "sync", "umount"):
             f = stub / cmd
             f.write_text(f"#!/bin/sh\necho \"{cmd} $*\" >> '{self.calls}'\nexit 0\n")
             f.chmod(0o755)
+        self.stock = self.base / "stock"  # the stock file system, as the mount stub shows it
+        mount = stub / "mount"
+        mount.write_text(f"""#!/bin/sh
+echo "mount $*" >> '{self.calls}'
+if [ "$1" = "-t" ] && [ "$2" = squashfs ]; then
+  for last; do :; done
+  [ -d '{self.stock}' ] || exit 32
+  cp -a '{self.stock}/.' "$last/" || exit 32
+fi
+exit 0
+""")
+        mount.chmod(0o755)
+        # what the Hub's /proc/mounts says (paths as the sandboxed script sees them)
+        self.file("proc/mounts", f"/dev/mtdblock5 {self.root}/cache jffs2 rw 0 0\n"
+                  f"/dev/mtdblock3 {self.root}/mnt/root squashfs ro,relatime 0 0\n"
+                  f"/dev/mtdblock4 {self.root}/mnt/data jffs2 rw,relatime 0 0\n"
+                  f"none / unionfs rw,dirs={self.root}/mnt/data=rw:{self.root}/mnt/root=ro 0 0\n")
         text = PATH_RE.sub(lambda m: f"{self.root}{m.group(0)}", script.read_text())
         rest = text.replace(str(self.root), "ROOT")
         for allowed in ALLOWED:
@@ -59,6 +79,11 @@ class Sandbox:
         self.script = self.base / script.name
         self.script.write_text(text)
         self.env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin")
+
+    def stock_file(self, rel: str, text: str) -> None:
+        p = self.stock / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
 
     def file(self, rel: str, text: str = "x\n") -> pathlib.Path:
         p = self.root / rel
@@ -102,7 +127,7 @@ class HubScript(unittest.TestCase):
         self.s.close()
 
     def test_wipes_secrets_and_keeps_stock_data(self):
-        self.s.file("mnt/root/etc/wpa_supplicant.conf", "ctrl_interface=/var/run/wpa_supplicant\n# stock\n")
+        self.s.stock_file("etc/wpa_supplicant.conf", "ctrl_interface=/var/run/wpa_supplicant\n# stock\n")
         res = self.s.run("--confirm")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         for rel in HUB_SECRETS:
@@ -112,24 +137,61 @@ class HubScript(unittest.TestCase):
                          "ctrl_interface=/var/run/wpa_supplicant\n# stock\n", "Wi-Fi file = the stock copy")
         self.assertTrue((self.s.root / "data" / "resources" / "Context.json").exists())
         self.assertIn("# stock", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
-        self.assertIn("reboot -f", self.s.call_log())
+        log = self.s.call_log()
+        self.assertIn("reboot -f", log)
+        mounted = [c for c in log if c.startswith("mount -t squashfs")]
+        self.assertEqual(len(mounted), 1, log)
+        self.assertIn("/dev/mtdblock3", mounted[0], "the device from /proc/mounts")
+        self.assertLess(log.index(mounted[0]), [i for i, c in enumerate(log) if c.startswith("umount")][0])
+        self.assertLess([i for i, c in enumerate(log) if c.startswith("umount")][0], log.index("reboot -f"))
+        self.assertFalse((self.s.root / "tmp" / "harmony_stock_root").exists(), "the mount point is removed")
 
     def test_stock_boot_files_come_back(self):
         # harmony-ng's rcS.local took ath0 out of "auto": the stock firmware's DHCP needs it back
         self.s.file("etc/network/interfaces", "auto lo\niface ath0 inet dhcp\n")
-        self.s.file("mnt/root/etc/network/interfaces", "auto lo ath0\niface ath0 inet dhcp\n")
-        self.s.file("mnt/root/etc/init.d/rcS.local", "#!/bin/sh\n# factory\n")
+        self.s.stock_file("etc/network/interfaces", "auto lo ath0\niface ath0 inet dhcp\n# stock\n")
+        self.s.stock_file("etc/init.d/rcS.local", "#!/bin/sh\n# factory\n")
+        self.s.stock_file("usr/sbin/scp", "stock scp\n")  # a path harmony-ng also writes
+        self.s.file("usr/sbin/scp", "link to dropbearmulti\n")
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual((self.s.root / "etc" / "network" / "interfaces").read_text(),
+                         "auto lo ath0\niface ath0 inet dhcp\n# stock\n")
+        self.assertIn("# factory", (self.s.root / "etc" / "init.d" / "rcS.local").read_text(),
+                      "the stock firmware's own copy first")
+        self.assertEqual((self.s.root / "usr" / "sbin" / "scp").read_text(), "stock scp\n",
+                         "a stock file is put back, not deleted")
+
+    def test_stock_file_system_not_readable(self):
+        # no stock copies: rcS.local from the copy saved at the first install, interfaces edited
+        # back, nothing the stock firmware has is deleted
+        self.s.file("etc/network/interfaces", "auto lo\niface ath0 inet dhcp\n")
         res = self.s.run("--confirm", "--no-reboot")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual((self.s.root / "etc" / "network" / "interfaces").read_text(),
                          "auto lo ath0\niface ath0 inet dhcp\n")
-        self.assertIn("# factory", (self.s.root / "etc" / "init.d" / "rcS.local").read_text(),
-                      "the stock firmware's own copy first")
+        self.assertIn("# stock", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
+        self.assertTrue((self.s.root / "etc" / "wpa_supplicant.conf").exists())
+        self.assertFalse(any(c.startswith("umount") for c in self.s.call_log()), "nothing was mounted")
+
+    def test_no_stock_boot_script_anywhere_changes_nothing(self):
+        (self.s.root / "data" / "stock_backup" / "rcS.local.orig").unlink()
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("# harmony-ng", (self.s.root / "etc" / "init.d" / "rcS.local").read_text(),
+                      "not deleted: the union would hide the stock file")
+        self.assertTrue((self.s.root / "data" / "harmony" / "config" / "users.json").exists())
 
     def test_secrets_go_before_the_ways_in(self):
         text = HUB_SCRIPT.read_text()
-        self.assertLess(text.index("rm -rf /data/harmony"), text.index("restore_stock_file /mnt/root/etc/wpa_supplicant.conf"))
-        self.assertLess(text.index("restore_stock_file /mnt/root/etc/wpa_supplicant.conf"), text.index("/etc/dropbear/authorized_keys"))
+        self.assertLess(text.index("rm -rf /data/harmony"), text.index("restore_stock etc/wpa_supplicant.conf"))
+        self.assertLess(text.index("restore_stock etc/wpa_supplicant.conf"), text.index('"etc/dropbear/$_k"'))
+
+    def test_no_stock_path_is_deleted_directly(self):
+        text = HUB_SCRIPT.read_text()
+        for path in ("/etc/network/interfaces", "/etc/init.d/rcS.local", "/etc/wpa_supplicant.conf"):
+            self.assertNotRegex(text, r"rm -f[^\n]*" + re.escape(path) + r"(\s|$)")
+        self.assertNotIn("/mnt/root/etc", text, "/mnt/root cannot be read on the Hub")
 
     def test_wifi_file_without_stock_copy_has_no_network(self):
         res = self.s.run("--confirm")
