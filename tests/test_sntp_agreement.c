@@ -302,6 +302,27 @@ int main(void) {
     printf("  (%ld passes, %ld looks at the mark file)\n", passes, g_mark_access);
     CHECK(g_mark_access <= 4 * 3600 / 300 + 2, "the mark file is looked at once per 5 minutes at most");
 
+    /* a recheck round that moves the clock back by a minute: the next recheck is still due 5
+     * minutes after the round (not 5 minutes after the look at the mark file before it) */
+    {
+        int fd = open(SNTP_UNCONFIRMED_FILE, O_WRONLY | O_CREAT, 0644);
+        if (fd >= 0) close(fd);
+    }
+    setup(TWO, (int64_t[NSERVERS]){ 0, 1, 0, 0, 0 }, 0);
+    (void)sntp_sync_time("ntp.test", 1); /* two agree: rounds counted from 0 again */
+    {
+        int fd = open(SNTP_UNCONFIRMED_FILE, O_WRONLY | O_CREAT, 0644); /* hub_sntp set the mark */
+        if (fd >= 0) close(fd);
+    }
+    sntp_sync_done((time_t)hub_now());
+    g_clock_shift_us += 301LL * 1000000;
+    CHECK(sntp_sync_due() == 1, "a recheck is due while the mark is there");
+    g_clock_shift_us -= 60LL * 1000000; /* what the round's correction did */
+    sntp_sync_done((time_t)hub_now());
+    g_clock_shift_us += 301LL * 1000000;
+    CHECK(sntp_sync_due() == 1, "after a correction back, the next recheck comes 5 minutes after the round");
+    unlink(SNTP_UNCONFIRMED_FILE);
+
     g_stop = 1;
     pthread_join(th, NULL);
     for (int i = 0; i < NSERVERS; i++) close(g_fd[i]);

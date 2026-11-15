@@ -398,6 +398,9 @@ int sntp_sync_due(void) {
 }
 
 void sntp_sync_done(time_t res) {
+    /* the round may have moved the clock (also back): the next look at the mark file is timed
+     * from the round, as the next round is */
+    g_mark_checked = 0;
     if (res > 0) {
         g_time_valid = 1;
         g_last_sync_attempt = res;
