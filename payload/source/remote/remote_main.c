@@ -530,11 +530,7 @@ int main(int argc, char **argv) {
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_show_switch_target();
                 g_screen_dirty = true;
             } else if (now_ms - last_progress_render_ms >= 100) {
                 g_screen_dirty = true;

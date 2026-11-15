@@ -336,6 +336,7 @@ Both frames use a 17-byte standardized configuration payload:
 - Hub broadcasts upon activity change or sync query:
   - `payload[0..11]`: Activity ID string (null-terminated, e.g. `"12345678"` or `"-1"` for PowerOff).
   - `payload[12..24]`: Activity friendly name string (null-terminated, e.g. `"Watch TV"`).
+- The remote opens the activity's screen (or home for `"-1"`) only while it shows home or an activity screen. In Settings, pairing or the device browser it records the new activity and keeps the page; the activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
 
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:
