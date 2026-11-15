@@ -29,13 +29,27 @@
 orch_state_t orch_get_state(void) { return ORCH_STATE_RUNNING; }
 const char *orch_get_current_activity(void) { return "1"; }
 void hub_events_emit(hub_event_type_t type, cJSON *payload) { (void)type; cJSON_Delete(payload); }
-cJSON *get_device_list_copy(void) {
+/* The device list: hw_action.c takes a copy today; with the shared-snapshot change it takes a
+ * reference instead. Both forms are here so this test builds either way. */
+static cJSON *device_list_new(void) {
     /* btAutoReconnect 0: the key itself is the subject, not the reconnect it can trigger */
     return cJSON_Parse("{\"devices\":[{\"id\":\"2\",\"name\":\"Box\",\"type\":\"BT\",\"bdaddr\":\"" HOST_ADDR "\","
                        "\"btAutoReconnect\":0,\"interDeviceDelay\":0,\"interKeyDelay\":0,\"holdInterKeyDelay\":0,"
                        "\"commands\":[{\"name\":\"DirectionRight\",\"keyCode\":\"HID:07:4F\"},"
                        "{\"name\":\"Home\",\"keyCode\":\"HID:0C:223\"}]}]}");
 }
+cJSON *get_device_list_copy(void);
+cJSON *get_device_list_copy(void) { return device_list_new(); }
+struct cfg_snap;
+static cJSON *s_shared_list;
+const cJSON *get_device_list_acquire(struct cfg_snap **snap);
+const cJSON *get_device_list_acquire(struct cfg_snap **snap) {
+    if (!s_shared_list) s_shared_list = device_list_new();
+    *snap = (struct cfg_snap *)&s_shared_list;
+    return s_shared_list;
+}
+void release_device_list(struct cfg_snap **snap);
+void release_device_list(struct cfg_snap **snap) { *snap = NULL; }
 int ir_encode_pronto(const char *pronto, uint8_t repeats, uint32_t gap, uint8_t **out_bin, size_t *out_len) {
     (void)pronto; (void)repeats; (void)gap; (void)out_bin; (void)out_len;
     return -1;
@@ -49,6 +63,11 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t repeats, uint8_t **ou
     return -1;
 }
 int ir_i2s_blast_blob(const uint8_t *blob, size_t len, uint8_t port_mask) { (void)blob; (void)len; (void)port_mask; return 0; }
+/* The held-key IR player change adds these two to the transmitter; unused here */
+int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8_t port_mask);
+int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8_t port_mask) { (void)blob; (void)blob_len; (void)part; (void)port_mask; return -1; }
+void ir_i2s_tx_hold(int on);
+void ir_i2s_tx_hold(int on) { (void)on; }
 void ir_free_encoded(uint8_t *bin) { free(bin); }
 
 /* ---- the pipe ---- */
