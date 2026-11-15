@@ -274,6 +274,8 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 # The key pipe: hub_btstack's reader (bt_cmd.c with stubs), and hub_daemon's hand-off in one checked write
 build_test -Wall -Wextra -Wno-format-truncation -Wno-stringop-truncation -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_pipe" "$SCRIPT_DIR/test_bt_key_pipe.c" && "$BUILD_DIR/test_bt_key_pipe"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -Wl,--wrap=open -o "$BUILD_DIR/test_bt_key_handoff" "$SCRIPT_DIR/test_bt_key_handoff.c" "$REPO_ROOT/payload/source/hw_action.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_bt_key_handoff"
+# hub_rf's key queue: a quick tap keeps its press, a queued key is sent at once, the idle worker sleeps
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_queue" "$SCRIPT_DIR/test_rf_key_queue.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_key_queue"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"
