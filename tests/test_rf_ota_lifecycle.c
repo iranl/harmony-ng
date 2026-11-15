@@ -35,8 +35,8 @@ static int g_failures;
 
 /* Stubs & globals required by rf_ota.c and rf_sync.c */
 uint8_t g_tx_seq = 0;
-int g_ack_status = 0;
-uint8_t g_ack_payload[25] = {0};
+__thread int g_ack_status = 0;
+__thread uint8_t g_ack_payload[25] = {0};
 static int s_mock_ack_res = 0;
 
 void hub_led_show(int mode) { (void)mode; }

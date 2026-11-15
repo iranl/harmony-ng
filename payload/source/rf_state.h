@@ -126,8 +126,9 @@ extern rf_ota_state_t g_rf_ota;
 extern pthread_mutex_t g_ota_lock;
 extern int g_debug_logging;
 extern uint8_t g_tx_seq;
-extern int g_ack_status;
-extern uint8_t g_ack_payload[25];
+/* Per thread: the ACK of the last rf_send_frame_acked() of the calling thread */
+extern __thread int g_ack_status;
+extern __thread uint8_t g_ack_payload[25];
 
 #ifdef __cplusplus
 extern "C" {

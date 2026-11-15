@@ -14,10 +14,21 @@
 #include <time.h>
 
 uint8_t g_tx_seq = 0;
-int g_ack_status = 0;
-uint8_t g_ack_payload[25] = {0};
+/* The status and payload of the last ACK this thread waited for (rf_send_frame_acked): one copy
+ * per thread, so a caller reads its own ACK even when another thread sent in the meantime */
+__thread int g_ack_status = 0;
+__thread uint8_t g_ack_payload[25] = {0};
+/* One ACKed send at a time: the frame waited for is described by one slot and one sequence
+ * number, and several threads send ACKed frames (config push, icon push, settings, sleep, wake,
+ * Help, OTA). Set (under g_ack_mutex) from before the pending number is set until the result is
+ * copied. Not a mutex held over the wait: on the Hub (no futex) a thread blocked on a held mutex
+ * spins, so a second sender sleeps in short steps until the flag is clear. */
+static int g_acked_tx_busy = 0;
 static uint8_t g_pending_ack_seq = 0;
+static uint8_t g_pending_ack_slot = 0;
 static int g_ack_received = 0;
+static int g_ack_result_status = 0;
+static uint8_t g_ack_result_payload[25];
 static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* The Hub's kernel has no futex system call, so pthread_cond_timedwait() returns at once there
  * and a sender waiting for an ACK spun at full CPU for the whole wait. The receive thread
@@ -144,13 +155,27 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     }
 
     pthread_mutex_lock(&g_ack_mutex);
+    while (g_acked_tx_busy) {
+        pthread_mutex_unlock(&g_ack_mutex);
+        usleep(2000);
+        pthread_mutex_lock(&g_ack_mutex);
+    }
+    g_acked_tx_busy = 1;
     ack_pipe_open_locked();
     ack_pipe_drain();   /* a byte from an earlier ACK must not end this wait */
     g_pending_ack_seq = frame->seq;
+    /* the slot rf_send_frame() sends to */
+    g_pending_ack_slot = frame->dev_slot ? (frame->dev_slot & 0x0F) : (g_remote_slot ? (g_remote_slot & 0x0F) : 0x01);
     g_ack_received = 0;
     pthread_mutex_unlock(&g_ack_mutex);
 
-    if (rf_send_frame(frame) < 0) return -1;
+    if (rf_send_frame(frame) < 0) {
+        pthread_mutex_lock(&g_ack_mutex);
+        g_pending_ack_slot = 0;
+        g_acked_tx_busy = 0;
+        pthread_mutex_unlock(&g_ack_mutex);
+        return -1;
+    }
 
     struct timespec start;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -170,6 +195,13 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
         pthread_mutex_lock(&g_ack_mutex);
     }
     int ok = g_ack_received;
+    g_ack_received = 0;
+    g_pending_ack_slot = 0; /* nothing waits: a late ACK matches no one */
+    if (ok) {
+        g_ack_status = g_ack_result_status;
+        memcpy(g_ack_payload, g_ack_result_payload, sizeof(g_ack_payload));
+    }
+    g_acked_tx_busy = 0;
     pthread_mutex_unlock(&g_ack_mutex);
     if (ok && li >= 0) g_remote_link[li].acked_ok++;
     return ok ? 0 : -1;
@@ -187,15 +219,20 @@ int rf_wake_remote(uint8_t slot, int attempts) {
     return 0;
 }
 
-void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
+void rf_signal_ack_from(uint8_t slot, uint8_t seq, uint8_t status, const uint8_t *payload) {
     pthread_mutex_lock(&g_ack_mutex);
-    if ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq) {
+    /* The frame carries 4 bits of the sequence number; the ACK must also come from the slot the
+     * frame went to (slot 0 = not known, as from older callers): an ACK of the other remote for
+     * its own frame with the same low bits is not this one */
+    slot &= 0x0F;
+    if (g_pending_ack_slot != 0 && !g_ack_received && (slot == 0 || slot == g_pending_ack_slot) &&
+        ((seq & 0x0F) == (g_pending_ack_seq & 0x0F) || seq == g_pending_ack_seq)) {
         g_ack_received = 1;
-        g_ack_status = status;
+        g_ack_result_status = status;
         if (payload) {
-            memcpy(g_ack_payload, payload, sizeof(g_ack_payload));
+            memcpy(g_ack_result_payload, payload, sizeof(g_ack_result_payload));
         } else {
-            memset(g_ack_payload, 0, sizeof(g_ack_payload));
+            memset(g_ack_result_payload, 0, sizeof(g_ack_result_payload));
         }
         if (g_ack_pipe[1] >= 0) {
             ssize_t w = write(g_ack_pipe[1], "a", 1);   /* full pipe: a wake is already pending */
@@ -203,6 +240,10 @@ void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
         }
     }
     pthread_mutex_unlock(&g_ack_mutex);
+}
+
+void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
+    rf_signal_ack_from(0, seq, status, payload);
 }
 
 void query_paired_devices(void) {
