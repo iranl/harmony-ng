@@ -118,7 +118,7 @@ export default {
     "bt_pairing_stopped": "Bluetooth-Kopplungsmodus beendet",
     "bt_forget_host": "Entfernen",
     "bt_forget_host_title": "Bluetooth-Host entfernen",
-    "bt_forget_host_confirm": "{name} ({addr}) entfernen? Die Kopplung wird gelöscht und verknüpfte Geräte verlieren ihren Host. Zum erneuten Verwenden neu koppeln.",
+    "bt_forget_host_confirm": "{name} ({addr}) entfernen? Die Kopplung auf dem Hub wird gelöscht. Verknüpfte Geräte verlieren diese Verknüpfung: Ihre Tasten gehen an den Standard-Host (den zuletzt gekoppelten), der ein anderer Fernseher oder eine andere Box sein kann, bis Sie sie einem anderen Host zuweisen oder neu koppeln. Entfernen Sie den Hub (Harmony Keyboard) auch aus der Bluetooth-Liste von {name}.",
     "bt_host_forgotten": "Bluetooth-Host entfernt",
     "bt_forget_failed": "Entfernen fehlgeschlagen: ",
     "bt_remote": "BT Fernbedienung",

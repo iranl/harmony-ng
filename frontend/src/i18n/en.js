@@ -78,7 +78,7 @@ export default {
     "bt_pairing_stopped": "Bluetooth pairing mode stopped",
     "bt_forget_host": "Forget",
     "bt_forget_host_title": "Forget Bluetooth host",
-    "bt_forget_host_confirm": "Forget {name} ({addr})? Its pairing is deleted and the devices linked to it lose their host. Pair it again to use it.",
+    "bt_forget_host_confirm": "Forget {name} ({addr})? Its pairing on the Hub is deleted. Devices linked to it lose that link: their keys go to the default host (the last host paired), which can be another TV or box, until you link them to another host or pair again. Also remove the Hub (Harmony Keyboard) from the Bluetooth list of {name}.",
     "bt_host_forgotten": "Bluetooth host forgotten",
     "bt_forget_failed": "Forget failed: ",
     "bt_remote": "BT Remote",

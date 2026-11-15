@@ -118,7 +118,7 @@ export default {
     "bt_pairing_stopped": "Modo de emparejamiento Bluetooth detenido",
     "bt_forget_host": "Olvidar",
     "bt_forget_host_title": "Olvidar host Bluetooth",
-    "bt_forget_host_confirm": "¿Olvidar {name} ({addr})? Se borra su emparejamiento y los dispositivos vinculados pierden su host. Vuelva a emparejarlo para usarlo.",
+    "bt_forget_host_confirm": "¿Olvidar {name} ({addr})? Se borra su emparejamiento en el Hub. Los dispositivos vinculados pierden ese vínculo: sus teclas van al host predeterminado (el último emparejado), que puede ser otro televisor o reproductor, hasta que los vincule a otro host o vuelva a emparejar. Quite también el Hub (Harmony Keyboard) de la lista Bluetooth de {name}.",
     "bt_host_forgotten": "Host Bluetooth olvidado",
     "bt_forget_failed": "Error al olvidar: ",
     "bt_remote": "Mando BT",

@@ -1,6 +1,7 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
+import { forgetBtHostFlow } from './bt_forget.js';
 import {
   getHarmonyManufacturers,
   searchHarmonyManufacturers,
@@ -221,15 +222,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
           b.addEventListener('click', async () => {
             const addr = b.getAttribute('data-addr');
             const name = b.getAttribute('data-name') || addr;
-            const msg = t('bt_forget_host_confirm', 'Forget {name} ({addr})?').replace('{name}', name).replace('{addr}', addr);
-            if (!await showConfirm(msg, { title: t('bt_forget_host_title', 'Forget Bluetooth host'), okText: t('bt_forget_host', 'Forget') })) return;
-            try {
-              await this.client.forgetBtHost(addr);
-              showToast(t('bt_host_forgotten', 'Bluetooth host forgotten'), 'success');
-              await this.refreshData();
-            } catch (err) {
-              showToast(t('bt_forget_failed', 'Forget failed: ') + err.message, 'error');
-            }
+            if (await forgetBtHostFlow({ client: this.client, addr, name, t, showConfirm, showToast })) await this.refreshData();
             this.loadBtView();
           });
         });

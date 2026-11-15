@@ -78,7 +78,7 @@ export default {
     "bt_pairing_stopped": "Bluetooth-koppelingsmodus gestopt",
     "bt_forget_host": "Vergeten",
     "bt_forget_host_title": "Bluetooth-host vergeten",
-    "bt_forget_host_confirm": "{name} ({addr}) vergeten? De koppeling wordt verwijderd en gekoppelde apparaten verliezen hun host. Koppel hem opnieuw om hem te gebruiken.",
+    "bt_forget_host_confirm": "{name} ({addr}) vergeten? De koppeling op de Hub wordt verwijderd. Gekoppelde apparaten verliezen die koppeling: hun toetsen gaan naar de standaardhost (de laatst gekoppelde), die een andere tv of box kan zijn, tot u ze aan een andere host koppelt of opnieuw koppelt. Verwijder de Hub (Harmony Keyboard) ook uit de Bluetooth-lijst van {name}.",
     "bt_host_forgotten": "Bluetooth-host vergeten",
     "bt_forget_failed": "Vergeten mislukt: ",
     "bt_remote": "BT Afstandsbediening",

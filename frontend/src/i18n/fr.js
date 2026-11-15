@@ -78,7 +78,7 @@ export default {
     "bt_pairing_stopped": "Mode de couplage Bluetooth arrêté",
     "bt_forget_host": "Oublier",
     "bt_forget_host_title": "Oublier l'hôte Bluetooth",
-    "bt_forget_host_confirm": "Oublier {name} ({addr}) ? Son appairage est supprimé et les appareils liés perdent leur hôte. Appairez-le à nouveau pour l'utiliser.",
+    "bt_forget_host_confirm": "Oublier {name} ({addr}) ? Son appairage sur le Hub est supprimé. Les appareils liés perdent ce lien : leurs touches vont à l'hôte par défaut (le dernier appairé), qui peut être un autre téléviseur ou boîtier, jusqu'à ce que vous les liiez à un autre hôte ou appairiez à nouveau. Retirez aussi le Hub (Harmony Keyboard) de la liste Bluetooth de {name}.",
     "bt_host_forgotten": "Hôte Bluetooth oublié",
     "bt_forget_failed": "Échec de l'oubli : ",
     "bt_remote": "Télécommande BT",

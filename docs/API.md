@@ -988,12 +988,17 @@ Associates a logical device ID with a paired Bluetooth MAC address.
     "bdaddr": "AA:BB:CC:DD:EE:FF"
   }
   ```
-- **Response `200 OK`**: `{"ok": true}`; `{"ok": false}` when there is no device with that id.
+- **Response `200 OK`**: `{"ok": true}`
+- **Errors**: `400` without `deviceId` or with a `bdaddr` that is not an address; `404` when there
+  is no device with that id; `500` when `devices.json` could not be saved. (Older builds answered
+  `200` with `{"ok": false}` for the last two.)
 
 `hub_daemon` is the only writer of `devices.json`. When a new pairing links a device, `hub_btstack`
-sends this request on loopback; when `hub_daemon` does not answer (restarting, busy), `hub_btstack`
-keeps the link and sends it again after 1 s, then with a pause that doubles up to 60 s, until it
-answers. It never writes the file itself. A link refused with `{"ok": false}` is dropped.
+sends this request on loopback; when `hub_daemon` does not answer, or answers anything but `200`,
+`400` or `404` (restarting, busy, the save failed), `hub_btstack` keeps the link and sends it again
+after 1 s, then with a pause that doubles up to 60 s, until it is saved. It never writes the file
+itself. Only a `404` or `400` drops the link. A newer link of the same device waits for the answer
+to the older one, so the older address cannot be applied last.
 
 ### 6.5a Forget Host
 #### `POST /api/bt-forget-host`
@@ -1004,17 +1009,27 @@ mistake). Admin only.
   ```json
   {"ok": true, "addr": "AA:BB:CC:DD:EE:FF", "devices_cleared": 1, "default_host_cleared": true}
   ```
-- **Errors**: `400` when `addr` is not `XX:XX:XX:XX:XX:XX`; `503` when `hub_btstack` is not running
-  (Bluetooth off): nothing is changed, since the link key lives there; `500` when `devices.json`
-  could not be saved.
+- **Errors**: `400` when `addr` is not `XX:XX:XX:XX:XX:XX` or is `00:00:00:00:00:00`; `403` for a
+  user account; `503` when `hub_btstack` is not running (Bluetooth off): nothing is changed, since
+  the link key lives there; `500` when `devices.json` could not be saved, or when `hub_btstack` did
+  not take the command (the devices are cleared but the link key is kept: send the request again).
 
-In order: every device linked to the host loses its `bdaddr` in `devices.json` (`devices_cleared`
-counts them; they go to the default host until linked again), `bthid_host_target` is removed when
-it names the host (`default_host_cleared`), then `hub_btstack` gets `forget_host <addr>`: it drops
-the host's link key, closes its HID channels and its link, removes it from the host list, stops
-reconnecting to it, and drops a key kept for it and a device link waiting for it. Keys that were
-going to it go nowhere until the next activity picks a host. Afterwards the host can only come
-back through a new pairing (pairing mode); outside pairing mode its pairing requests are refused.
+In order: every device linked to the host loses its `bdaddr` (or legacy `btHost`) in
+`devices.json` (`devices_cleared` counts them), `bthid_host_target` is removed when it names the
+host (`default_host_cleared`), then the running `hub_btstack` gets `host_forget <addr>` and, right
+after the answer, drops the host's link key, closes its HID channels and its link, removes it from
+the host list, stops reconnecting to it (also when a connection to it was being set up), drops a
+key kept for it and a device link waiting for it, and removes `bthid_host_target` too if a
+connection wrote it again in between.
+
+The devices that were linked to the host have no host of their own any more: their keys go to the
+default host (`bthid_host_target`, the last host paired) when there is one, and that can be another
+TV or box. Link them to another host (`POST /api/bt-link-device`) or pair them again.
+
+Afterwards the host can only come back through a new pairing (pairing mode); outside pairing mode
+its pairing requests are refused. Remove the Hub ("Harmony Keyboard") from the host's own Bluetooth
+list too: the host keeps its key and keeps trying to connect, and a later pairing can fail until it
+is removed there.
 
 ### 6.6 Bluetooth Remote (B25) Status & Pairing
 #### `GET /api/remote-status` or `GET /api/remote-pair-status`

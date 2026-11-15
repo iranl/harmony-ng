@@ -118,7 +118,7 @@ export default {
     "bt_pairing_stopped": "Modalità accoppiamento Bluetooth interrotta",
     "bt_forget_host": "Dimentica",
     "bt_forget_host_title": "Dimentica host Bluetooth",
-    "bt_forget_host_confirm": "Dimenticare {name} ({addr})? L'abbinamento viene eliminato e i dispositivi collegati perdono il loro host. Abbinalo di nuovo per usarlo.",
+    "bt_forget_host_confirm": "Dimenticare {name} ({addr})? L'abbinamento sull'Hub viene eliminato. I dispositivi collegati perdono quel collegamento: i loro tasti vanno all'host predefinito (l'ultimo abbinato), che può essere un altro televisore o box, finché non li colleghi a un altro host o abbini di nuovo. Rimuovi anche l'Hub (Harmony Keyboard) dall'elenco Bluetooth di {name}.",
     "bt_host_forgotten": "Host Bluetooth dimenticato",
     "bt_forget_failed": "Operazione non riuscita: ",
     "bt_remote": "Telecomando BT",
