@@ -47,6 +47,15 @@ If your Hub is running stock firmware with SSH disabled, use this one-time autom
 ### Step 2.1: Connect Hub via Micro-USB
 1. Connect the Harmony Hub directly to your host PC using a standard Micro-USB data cable.
 2. The Hub powers on and enumerates on USB as `046D:C129` (Standard Hub) or `046D:C132` (Harmony Pro 2400).
+3. **Linux non-root USB access**: Mainline Linux kernels ignore `046d:c110..c14f` in `usbhid`, so `tools/harmony_hid.py` talks to the Hub directly via `libusb-1.0`. Grant non-root USB access once with a `udev` rule (or run with `sudo`):
+   ```bash
+   printf '%s\n' \
+     'SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c129", MODE="0660", TAG+="uaccess"' \
+     'SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c12b", MODE="0660", TAG+="uaccess"' \
+     'SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c132", MODE="0660", TAG+="uaccess"' \
+     | sudo tee /etc/udev/rules.d/99-harmony-usb.rules >/dev/null
+   sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb
+   ```
 
 ### Step 2.2: Run Automated USB Root Tool
 Run the all-in-one root tool:

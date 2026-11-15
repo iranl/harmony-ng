@@ -19,7 +19,7 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **Python 3.11 or newer**: Installed on host PC (`pip install pyusb`).
+- **Python 3.11 or newer**: Installed on host PC (no external Python packages needed; on Linux, system `libusb-1.0` is used automatically when `usbhid` ignores `046d:c12b`).
 
 ### Choose Your Installation Method
 
@@ -47,6 +47,7 @@ cd harmony-ng
 > **Up-to-Date Firmware Required**: HarmonyNG requires the latest official Logitech firmware (**v4.15.330** for Elite / Ultimate / 950). You do **not** need the proprietary Logitech desktop app or MyHarmony software. Our automated tooling checks, downloads, and flashes firmware directly over USB HID.
 
 1. Connect the remote directly to your host PC via Micro-USB (bottom port).
+   - **Linux non-root USB access**: Mainline Linux kernels ignore `046d:c110..c14f` in `usbhid`, so `tools/harmony_hid.py` opens the remote via `libusb-1.0`. Grant non-root access once with `/etc/udev/rules.d/99-harmony-usb.rules` (see [`FIRST_INSTALL_HUB.md`](FIRST_INSTALL_HUB.md#step-21-connect-hub-via-micro-usb)), or run the USB step with `sudo`.
 2. Check USB connection and driver status at any time:
    ```bash
    python remote/setup_remote.py --check-usb

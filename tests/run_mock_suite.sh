@@ -215,6 +215,7 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mfg" "$SCRIPT_DIR/test_mfg.c" "$REPO_ROOT/payload/source/mfg_id.c" && "$BUILD_DIR/test_mfg"
 # Host tool with a fake USB HID transport (tools/harmony_hid.py reports a cut file write)
 python3 "$SCRIPT_DIR/test_hid_write_result.py"
+python3 "$SCRIPT_DIR/test_linux_libusb_hid.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ws_read_frame" "$SCRIPT_DIR/test_ws_read_frame.c" "$REPO_ROOT/payload/source/ws_server.c" -lpthread && "$BUILD_DIR/test_ws_read_frame"
 # Remote: windowed OTA data frames that arrive outside OTA mode (real RF receive thread)
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_stray_ota_data" "$SCRIPT_DIR/test_remote_stray_ota_data.c" \

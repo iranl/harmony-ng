@@ -6,7 +6,7 @@ over raw USB HID without third-party dependencies.
 
 Supported OS:
 - Windows: Native ctypes (setupapi.dll + hid.dll + kernel32.dll)
-- Linux: Native /dev/hidraw* with standard ioctl
+- Linux: Native /dev/hidraw* with libusb-1.0 ctypes fallback when usbhid ignores 046d:c110..c14f
 - macOS: Native ctypes (IOKit.framework + CoreFoundation.framework)
 
 License: MIT (Harmony Hub Control Project)
@@ -450,6 +450,169 @@ def find_linux_device(target_pid: Optional[int] = None) -> Optional[str]:
     return None
 
 
+class _LibUsbDeviceDescriptor(ctypes.Structure):
+    _fields_ = [
+        ("bLength", ctypes.c_uint8),
+        ("bDescriptorType", ctypes.c_uint8),
+        ("bcdUSB", ctypes.c_uint16),
+        ("bDeviceClass", ctypes.c_uint8),
+        ("bDeviceSubClass", ctypes.c_uint8),
+        ("bDeviceProtocol", ctypes.c_uint8),
+        ("bMaxPacketSize0", ctypes.c_uint8),
+        ("idVendor", ctypes.c_uint16),
+        ("idProduct", ctypes.c_uint16),
+        ("bcdDevice", ctypes.c_uint16),
+        ("iManufacturer", ctypes.c_uint8),
+        ("iProduct", ctypes.c_uint8),
+        ("iSerialNumber", ctypes.c_uint8),
+        ("bNumConfigurations", ctypes.c_uint8),
+    ]
+
+
+class LinuxLibUsbDevice:
+    """Fallback USB interrupt transport via libusb-1.0 when Linux usbhid ignores 046d:c110..c14f."""
+
+    EP_OUT = 0x02
+    EP_IN = 0x81
+
+    def __init__(self, lib: ctypes.CDLL, ctx: ctypes.c_void_p, handle: ctypes.c_void_p, pid: int):
+        self.lib = lib
+        self.ctx = ctx
+        self.handle = handle
+        self.pid = pid
+
+    def write_report(self, data: bytes) -> bool:
+        if len(data) == 65 and data[0] == 0:
+            payload = data[1:65]
+        elif len(data) == 64:
+            payload = data
+        else:
+            raise ValueError(f"Invalid report size: {len(data)}")
+        arr = (ctypes.c_uint8 * 64).from_buffer_copy(payload)
+        transferred = ctypes.c_int(0)
+        rc = self.lib.libusb_interrupt_transfer(
+            self.handle, self.EP_OUT, arr, 64, ctypes.byref(transferred), 5000
+        )
+        return rc == 0 and transferred.value == 64
+
+    def read_report(self, timeout_ms: int = 5000) -> bytes:
+        arr = (ctypes.c_uint8 * 64)()
+        transferred = ctypes.c_int(0)
+        t_ms = max(1, int(timeout_ms))
+        rc = self.lib.libusb_interrupt_transfer(
+            self.handle, self.EP_IN, arr, 64, ctypes.byref(transferred), t_ms
+        )
+        if rc != 0 or transferred.value <= 0:
+            return b""
+        return bytes(arr[: transferred.value]).ljust(64, b"\x00")
+
+    def close(self) -> None:
+        if self.handle:
+            try:
+                self.lib.libusb_release_interface(self.handle, 0)
+            except Exception:
+                pass
+            try:
+                self.lib.libusb_close(self.handle)
+            except Exception:
+                pass
+            self.handle = ctypes.c_void_p()
+        if self.ctx:
+            try:
+                self.lib.libusb_exit(self.ctx)
+            except Exception:
+                pass
+            self.ctx = ctypes.c_void_p()
+
+
+def _load_linux_libusb() -> Optional[ctypes.CDLL]:
+    import ctypes.util
+    lib_name = ctypes.util.find_library("usb-1.0") or "libusb-1.0.so.0"
+    try:
+        lib = ctypes.CDLL(lib_name)
+    except OSError:
+        return None
+
+    lib.libusb_init.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    lib.libusb_init.restype = ctypes.c_int
+    lib.libusb_exit.argtypes = [ctypes.c_void_p]
+    lib.libusb_exit.restype = None
+    lib.libusb_get_device_list.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))]
+    lib.libusb_get_device_list.restype = ctypes.c_ssize_t
+    lib.libusb_free_device_list.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+    lib.libusb_free_device_list.restype = None
+    lib.libusb_get_device_descriptor.argtypes = [ctypes.c_void_p, ctypes.POINTER(_LibUsbDeviceDescriptor)]
+    lib.libusb_get_device_descriptor.restype = ctypes.c_int
+    lib.libusb_open.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    lib.libusb_open.restype = ctypes.c_int
+    lib.libusb_close.argtypes = [ctypes.c_void_p]
+    lib.libusb_close.restype = None
+    lib.libusb_set_auto_detach_kernel_driver.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.libusb_set_auto_detach_kernel_driver.restype = ctypes.c_int
+    lib.libusb_claim_interface.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.libusb_claim_interface.restype = ctypes.c_int
+    lib.libusb_release_interface.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.libusb_release_interface.restype = ctypes.c_int
+    lib.libusb_interrupt_transfer.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint8,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_uint,
+    ]
+    lib.libusb_interrupt_transfer.restype = ctypes.c_int
+    return lib
+
+
+def open_linux_libusb_device(target_pid: Optional[int] = None) -> Optional[LinuxLibUsbDevice]:
+    """Open Harmony USB interrupt endpoints directly via system libusb-1.0."""
+    lib = _load_linux_libusb()
+    if lib is None:
+        return None
+
+    ctx = ctypes.c_void_p()
+    if lib.libusb_init(ctypes.byref(ctx)) != 0:
+        return None
+
+    devs = ctypes.POINTER(ctypes.c_void_p)()
+    cnt = lib.libusb_get_device_list(ctx, ctypes.byref(devs))
+    if cnt < 0:
+        lib.libusb_exit(ctx)
+        return None
+
+    opened_dev: Optional[LinuxLibUsbDevice] = None
+    try:
+        for i in range(cnt):
+            dev = devs[i]
+            if not dev:
+                break
+            desc = _LibUsbDeviceDescriptor()
+            if lib.libusb_get_device_descriptor(dev, ctypes.byref(desc)) != 0:
+                continue
+            vid = int(desc.idVendor)
+            pid = int(desc.idProduct)
+            if vid != HARMONY_VID:
+                continue
+            if not ((target_pid and pid == target_pid) or (not target_pid and pid in ALL_HARMONY_PIDS)):
+                continue
+            handle = ctypes.c_void_p()
+            if lib.libusb_open(dev, ctypes.byref(handle)) != 0:
+                continue
+            lib.libusb_set_auto_detach_kernel_driver(handle, 1)
+            if lib.libusb_claim_interface(handle, 0) != 0:
+                lib.libusb_close(handle)
+                continue
+            opened_dev = LinuxLibUsbDevice(lib, ctx, handle, pid)
+            break
+    finally:
+        lib.libusb_free_device_list(devs, 1)
+
+    if not opened_dev:
+        lib.libusb_exit(ctx)
+    return opened_dev
+
+
 # ==============================================================================
 # macOS IOKit Transport (ctypes)
 # ==============================================================================
@@ -790,14 +953,23 @@ class HarmonyHid:
 
         elif sys.platform.startswith("linux"):
             path = find_linux_device(self.pid)
-            if not path:
-                return False
-            try:
-                fd = os.open(path, os.O_RDWR)
-                self.dev = LinuxHidDevice(fd, path)
+            if path:
+                try:
+                    fd = os.open(path, os.O_RDWR)
+                    self.dev = LinuxHidDevice(fd, path)
+                    return True
+                except OSError:
+                    pass
+            libusb_dev = open_linux_libusb_device(self.pid)
+            if libusb_dev:
+                self.dev = libusb_dev
+                self.drain_input()
+                try:
+                    self.command(0x00, [], timeout_ms=1500)
+                except Exception:
+                    pass
                 return True
-            except OSError:
-                return False
+            return False
         elif sys.platform == "darwin":
             mgr, dev_ref = find_darwin_device(self.pid)
             if not dev_ref:
