@@ -196,11 +196,12 @@ await t.check('a Hub without authentication: login keeps nothing and deletes the
   resetHub();
 });
 
-await t.check('a token limit on the Hub: the reason is shown, nothing changes', async () => {
+await t.check('a token limit on the Hub: the reason is shown; nothing changes without an old token', async () => {
   native(true);
   resetHub();
+  // a profile without a token: nothing to delete first, nothing changes
+  await storage.saveHub({ ...stored('hub_1'), token: null, tokenId: null });
   const c = new HarmonyClient(stored('hub_1'));
-  await c.login('alice', 'secret');
   const before = rawHubs();
   hubState.tokensStatus = 409;
   hubState.tokensError = 'This account already has 10 access tokens: delete one first';
@@ -208,6 +209,7 @@ await t.check('a token limit on the Hub: the reason is shown, nothing changes', 
   assert.equal(rawHubs(), before);
   assert.equal(hubState.sessions.size, 0, 'session left open');
   resetHub();
+  await c.login('alice', 'secret');
 });
 
 await t.check('token name tells the phones apart', async () => {
@@ -519,6 +521,42 @@ await t.check('token name: a long non-Latin model is cut between characters, the
   assert.ok(Buffer.byteLength(name) <= 63, `${Buffer.byteLength(name)} bytes`);
   assert.ok(name.endsWith('2026-11-15)'), name);
   assert.ok(!name.includes('\uFFFD'));
+});
+
+await t.check('a create that fails after the old token was deleted clears it and asks to log in again', async () => {
+  native(true);
+  resetHub();
+  const c = new HarmonyClient(living());
+  await c.login('alice', 'secret');
+  const old = living();
+  hubState.tokensStatus = 429;
+  hubState.tokensError = 'Too many token changes for this account, try again in 40 s';
+  await assert.rejects(c.login('alice', 'secret'), /log in again/);
+  assert.ok(!hubState.pats.has(old.tokenId), 'old token still on the Hub');
+  assert.equal(living().token, null, 'the deleted token is still stored');
+  assert.equal(c.token, null);
+  resetHub();
+});
+
+const textOf = root => [...root.walk()].map(n => n.textContent).join(' ');
+
+await t.check('legacy dialog says when the token file could not be read at the switch', async () => {
+  const { askToCheck } = await import('../android-app/src/app/decision_dialogs.js');
+  const client = { deleteUser: async () => {}, deleteToken: async () => {} };
+  const done = askToCheck(client, { users: [], tokens: [], tokens_unreadable: true }, 'owner');
+  assert.match(textOf(body), /cannot read its access token file/);
+  const keep = [...body.walk()].find(n => n.tagName === 'button' && n.textContent === 'Keep all');
+  await keep.click();
+  await done;
+});
+
+await t.check('new UI dialog says when the token file could not be read at the switch', async () => {
+  const { showSwitchCheck } = await import('../frontend/src/components/hub-decisions.js');
+  const api = { deleteUser: async () => {}, deleteToken: async () => {} };
+  const modal = showSwitchCheck(api, { users: [], tokens: [], tokens_unreadable: true });
+  assert.ok(modal, 'no dialog for an unreadable token file');
+  assert.match(textOf(body), /cannot read its access token file/);
+  if (modal && typeof modal.close === 'function') modal.close();
 });
 
 t.finish();

@@ -4,6 +4,7 @@
 import { getSavedHubs, saveHub, forgetStoredPasswords } from './storage.js';
 
 export const APP_TOKEN_NAME = 'Android app';
+const OLD_LOGIN_GONE = 'The previous login was deleted on the Hub: log in again.';
 
 // "Android app (<phone model>, <date>)": an admin can tell the phones apart in the token list.
 // The Hub keeps names of up to 63 bytes.
@@ -100,6 +101,13 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
       throw new Error(made.data.error || `Cannot create an access token (HTTP ${made.status})`);
     }
     return { token: made.data.token, tokenId: made.data.id || null, username: user, role: made.data.role || login.data.role || 'user', oldRevoked };
+  } catch (err) {
+    // the previous login is gone on the Hub already: the caller must not keep it
+    if (oldRevoked === true) {
+      err.oldRevoked = true;
+      err.message = `${err.message} ${OLD_LOGIN_GONE}`;
+    }
+    throw err;
   } finally {
     // the session was only needed to create the token
     if (!keepSession) {

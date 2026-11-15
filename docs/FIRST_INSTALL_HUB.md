@@ -232,7 +232,8 @@ The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_st
    does not log the app out: to lock out a lost phone, delete its token there. An operator account
    can hold 10 tokens; logging in again replaces the app's own token. If the app reports that
    `config/tokens.json` cannot be read, an admin moves it aside with `POST /api/auth/tokens-reset`
-   (`{"confirm": true}`, see API.md 11.1); every token then has to be created again.
+   (`{"confirm": true}`, see API.md 11.1); every token then has to be created again. The old file
+   stays as `config/tokens.json.bad` until the next reset; delete it over SSH once looked at.
 
 > [!IMPORTANT]
 > **Authentication is off after install.** Until you turn it on, every device on your network is admin on the Hub's API and web UI (port 8089): it can change the configuration, install updates and send any command. Turn it on in the web UI: **System** page, **User Accounts & Access Control**, enter an admin user name and password, tick **Require authentication** and save. Then use a personal access token for Home Assistant and scripts (`docs/API.md`, section 11). Commands sent over MQTT always run as admin, so the MQTT broker must be protected too (`docs/API.md`, section 8.1), and the Logitech protocol port 8088 (off by default) has no authentication at all.

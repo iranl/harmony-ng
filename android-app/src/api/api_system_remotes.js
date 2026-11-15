@@ -412,7 +412,20 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     const old = (this.hub.id && (await getSavedHubs()).find(h => h.id === this.hub.id)) || this.hub;
     // the previous login is dropped: deleted on the Hub before the new token is made
     const replace = { baseUrl: this.baseUrl, hub: old };
-    const r = await createAppToken(this.baseUrl, username, password, { replace });
+    let r;
+    try {
+      r = await createAppToken(this.baseUrl, username, password, { replace });
+    } catch (err) {
+      if (err.oldRevoked) {
+        // the old token is gone on the Hub: forget it, the app asks for the login again
+        const hub = { ...this.hub, token: null, tokenId: null };
+        if (hub.id) await saveHub(hub);
+        this.hub = hub;
+        this.token = null;
+        this.authHeader = null;
+      }
+      throw err;
+    }
     const oldKept = await finishReplace(r, replace);
     const hub = { ...this.hub, username: r.username, ...loginFields(r) };
     if (hub.id) await saveHub(hub);

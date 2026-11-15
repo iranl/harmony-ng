@@ -632,6 +632,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         try {
           r = await createAppToken(hubBaseUrl(next), next.username, password, { replace });
         } catch (err) {
+          // the old token is gone on the Hub already: do not keep it in the profile
+          if (err.oldRevoked && prev) await saveHub({ ...prev, token: null, tokenId: null });
           stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(err.message)}</span>`;
           return;
         }
