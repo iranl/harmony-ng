@@ -172,8 +172,8 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
         return 1;
     }
 
-    /* Route: GET /api/wifi-scan or GET /api/wifi/scan */
-    if ((strcmp(clean_path, "/api/wifi-scan") == 0 || strcmp(clean_path, "/api/wifi/scan") == 0) && strcmp(method, "GET") == 0) {
+    /* Route: GET /api/wifi-scan */
+    if (strcmp(clean_path, "/api/wifi-scan") == 0 && strcmp(method, "GET") == 0) {
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON *networks = cJSON_CreateArray();
