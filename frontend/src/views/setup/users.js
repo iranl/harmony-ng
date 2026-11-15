@@ -306,6 +306,16 @@ export function createView() {
   container.appendChild(usersCard);
   container.appendChild(tokensCard);
 
+  // Accounts and tokens made while authentication was off: keep or delete each
+  import('../../components/hub-decisions.js').then(({ createUnconfirmedCard }) => {
+    const unconfirmed = createUnconfirmedCard(api, () => {
+      loadUsers();
+      loadTokens();
+    });
+    container.insertBefore(unconfirmed.card, usersCard);
+    unconfirmed.load();
+  }).catch(() => { /* the lists below still work */ });
+
   loadUsers();
   loadTokens();
   return container;

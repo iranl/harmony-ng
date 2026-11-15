@@ -453,4 +453,9 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
       method: 'DELETE'
     });
   }
+
+  /* Keep accounts and tokens made while authentication was off (listed when it was turned on) */
+  async confirmAuthItems(users = [], tokens = [], all = false) {
+    return this.postJson('/api/auth/confirm', all ? { all: true } : { users, tokens });
+  }
 }

@@ -60,6 +60,36 @@ static int remove_tokens_of(const char *owner) {
 int http_api_auth_handle(int client_fd, const char *method, const char *clean_path,
                          const char *query, const char *body, const char *req,
                          const char *client_ip, enum http_role current_role) {
+    /* POST /api/auth/confirm: keep accounts and tokens listed when authentication was turned on
+     * ({"users": [names], "tokens": [ids]} or {"all": true}); deleting one uses the usual routes */
+    if (strcmp(clean_path, "/api/auth/confirm") == 0 && strcmp(method, "POST") == 0) {
+        cJSON *params = body ? cJSON_Parse(body) : NULL;
+        if (!cJSON_IsObject(params)) {
+            cJSON_Delete(params);
+            send_json_error(client_fd, 400, "JSON object with users, tokens or all expected");
+            close(client_fd);
+            return 1;
+        }
+        int nu = 0, nt = 0;
+        int rc = http_auth_confirm(cJSON_GetObjectItemCaseSensitive(params, "users"),
+                                   cJSON_GetObjectItemCaseSensitive(params, "tokens"),
+                                   cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "all")), &nu, &nt);
+        cJSON_Delete(params);
+        if (rc != 0) {
+            send_json_error(client_fd, 500, "Could not save the accounts or tokens (flash full?)");
+            close(client_fd);
+            return 1;
+        }
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddBoolToObject(resp, "ok", 1);
+        cJSON_AddNumberToObject(resp, "users", nu);
+        cJSON_AddNumberToObject(resp, "tokens", nt);
+        send_cjson_resp(client_fd, 200, resp);
+        cJSON_Delete(resp);
+        close(client_fd);
+        return 1;
+    }
+
     /* GET /api/auth/me */
     if (strcmp(clean_path, "/api/auth/me") == 0 && strcmp(method, "GET") == 0) {
         int auth_on = 0;
@@ -215,6 +245,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         if (jrole && cJSON_IsString(jrole)) cJSON_AddStringToObject(item, "role", jrole->valuestring);
                         if (jca && cJSON_IsNumber(jca)) cJSON_AddNumberToObject(item, "created_at", jca->valuedouble);
                         if (jla && cJSON_IsNumber(jla)) cJSON_AddNumberToObject(item, "last_used_at", jla->valuedouble);
+                        cJSON_AddBoolToObject(item, "confirmed", cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(it, "confirmed")));
                         cJSON_AddItemToArray(out_arr, item);
                     }
                 }
@@ -291,6 +322,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON_AddStringToObject(new_tok, "role", trole);
         /* the token ends with this account (loopback callers create unowned tokens) */
         if (owner[0] && strncmp(owner, "pat:", 4) != 0) cJSON_AddStringToObject(new_tok, "owner", owner);
+        cJSON_AddBoolToObject(new_tok, "confirmed", 1); /* made with authentication on */
         cJSON_AddNumberToObject(new_tok, "created_at", (double)time(NULL));
         cJSON_AddNumberToObject(new_tok, "last_used_at", 0);
         cJSON_AddItemToArray(arr, new_tok);
@@ -394,6 +426,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *u = cJSON_CreateObject();
             cJSON_AddStringToObject(u, "username", ulist[i].username);
             cJSON_AddStringToObject(u, "role", ulist[i].role == ROLE_USER ? "user" : "admin");
+            cJSON_AddBoolToObject(u, "confirmed", ulist[i].confirmed ? 1 : 0);
             cJSON_AddItemToArray(arr, u);
         }
         cJSON_AddItemToObject(resp, "users", arr);
@@ -478,6 +511,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             strncpy(ulist[ucnt].username, new_user, sizeof(ulist[ucnt].username) - 1);
             compute_ha1(ulist[ucnt].username, HARMONY_AUTH_REALM, new_pass, ulist[ucnt].ha1);
             ulist[ucnt].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
+            ulist[ucnt].confirmed = auth_on; /* made while authentication is off: asked about when it goes on */
             ucnt++;
         }
 
@@ -485,6 +519,15 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         if (j_en) {
             if (cJSON_IsBool(j_en)) auth_on = cJSON_IsTrue(j_en) ? 1 : 0;
             else if (cJSON_IsNumber(j_en)) auth_on = j_en->valueint != 0;
+        }
+
+        /* Turning authentication on: the account named here is the owner's; the reply lists the
+         * other accounts and the tokens nobody confirmed */
+        int auth_before = 0;
+        load_user_accounts(NULL, 0, &auth_before);
+        int turning_on = !auth_before && auth_on;
+        for (int i = 0; turning_on && i < ucnt; i++) {
+            if (strcmp(ulist[i].username, new_user) == 0) ulist[i].confirmed = 1;
         }
 
         /* Never invent an account with a known password: refuse a change that leaves no admin */
@@ -510,6 +553,10 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "message", "User account saved");
+        if (turning_on) {
+            cJSON_AddBoolToObject(resp, "auth_enabled", 1);
+            http_auth_add_unconfirmed(resp, ulist, ucnt);
+        }
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

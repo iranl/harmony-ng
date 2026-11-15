@@ -459,9 +459,28 @@ Creates or updates a device definition.
 
 ### 3.3 Delete Device
 #### `POST /api/device-delete` or `POST /ir/delete-device`
-Deletes a device and scrubs its references from activities.
+Deletes a device that nothing uses any more. References are not removed: while an activity (its
+`startSequence`, `stopSequence`, `deviceIds` or any other step), another device's
+`btTriggerDeviceId`, or a key binding of a remote map (`remote_slot1_map.json`,
+`remote_slot2_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
+changes. The map's own page for the device (`devices/<id>`) does not count.
 - **Request Body**: `{"deviceId": "70321456"}`
-- **Response `200 OK`**: `{"ok": true}`
+- **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)
+- **Response `409 Conflict`**: the device is in use; `users` lists what uses it (key bindings at
+  most 32 per map, `count` gives the total):
+  ```json
+  {
+    "ok": false,
+    "error": "Device is in use: remove it from these activities, devices and remote keys first",
+    "deviceId": "1",
+    "users": [
+      {"type": "activity", "id": "10", "name": "Watch TV", "fields": ["startSequence", "stopSequence"]},
+      {"type": "device", "id": "5", "name": "Receiver", "field": "btTriggerDeviceId"},
+      {"type": "remote_map", "slot": 1, "count": 2, "keys": ["activities/10/VolumeUp", "activities/10/VolumeDown"]},
+      {"type": "bt_remote_map", "count": 1, "keys": ["activities/10/OK"]}
+    ]
+  }
+  ```
 
 ### 3.4 Get Device Commands
 #### `GET /api/device-commands?deviceId=70321456`
@@ -1852,6 +1871,23 @@ Harmony Hub supports a multi-tier authentication model:
   personal access tokens it created. Turning authentication on or off ends every session.
 - Personal access tokens can be created only while authentication is on (`409` otherwise), carry the
   creating account as `owner`, end with it, and never have more rights than it.
+- **Accounts and tokens made while authentication was off are listed when it is turned on.** With
+  authentication off every client is admin, so an account or token made then could have been made by
+  anybody on the network. Each account and token carries `confirmed` (`GET /api/users`,
+  `GET /api/auth/tokens`): true when it was made with authentication on, or kept by an admin. The
+  request that turns authentication on (`POST /api/users` with `"auth_enabled": true`, or
+  `POST /api/system-action` with `"action": "auth"` and `authEnabled`) confirms the account it names
+  and answers with the others:
+  ```json
+  {"ok": true, "auth_enabled": true,
+   "unconfirmed": {"users": [{"username": "guest", "role": "admin"}],
+                   "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "role": "admin", "created_at": 1729940000}]}}
+  ```
+  Both web UIs then ask to keep or delete each one (or all). `POST /api/auth/confirm` with
+  `{"users": ["guest"], "tokens": ["tok_1a2b3c4d"]}` (or `{"all": true}`) keeps them (admin only;
+  answers the counts changed); deleting uses `DELETE /api/users` and `DELETE /api/auth/tokens`.
+  Nothing is deleted or disabled by itself. Accounts and tokens in files from older firmware have no
+  mark and are listed once, at the next switch from off to on.
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
   account either, every request except from loopback is refused (`401`) until the file is fixed.
 - `GET /api/mqtt-status` never returns the stored broker password (`config.has_password` instead).

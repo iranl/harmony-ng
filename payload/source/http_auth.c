@@ -376,6 +376,7 @@ int load_user_accounts(struct user_account *users, int max_users, int *auth_enab
                             if (jp && cJSON_IsString(jp)) needs_resave = 1;
                             const char *rstr = (jr && cJSON_IsString(jr)) ? jr->valuestring : "admin";
                             users[count].role = (strcasecmp(rstr, "user") == 0) ? ROLE_USER : ROLE_ADMIN;
+                            users[count].confirmed = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(it, "confirmed"));
                         }
                         count++;
                     }
@@ -480,6 +481,7 @@ int save_user_accounts(const struct user_account *users, int count, int auth_ena
             cJSON_AddStringToObject(u, "ha1", ha1_calc);
         }
         cJSON_AddStringToObject(u, "role", users[i].role == ROLE_USER ? "user" : "admin");
+        if (users[i].confirmed) cJSON_AddBoolToObject(u, "confirmed", 1);
         cJSON_AddItemToArray(arr, u);
     }
     cJSON_AddItemToObject(root, "users", arr);
@@ -690,4 +692,93 @@ void http_auth_send_challenge(int client_fd, const char *client_ip) {
         HARMONY_AUTH_REALM);
     send(client_fd, unauth, strlen(unauth), 0);
     close(client_fd);
+}
+
+/* Accounts and tokens made while authentication was off: with authentication off every client is
+ * admin, so one made then is a key anybody on the network could have planted. When it is turned
+ * on, the reply lists the ones nobody confirmed and the UIs ask the owner to keep or delete each. */
+void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, int count) {
+    if (!reply) return;
+    cJSON *o = cJSON_CreateObject();
+    cJSON *ua = cJSON_CreateArray();
+    for (int i = 0; users && i < count; i++) {
+        if (users[i].confirmed) continue;
+        cJSON *u = cJSON_CreateObject();
+        cJSON_AddStringToObject(u, "username", users[i].username);
+        cJSON_AddStringToObject(u, "role", users[i].role == ROLE_USER ? "user" : "admin");
+        cJSON_AddItemToArray(ua, u);
+    }
+    cJSON_AddItemToObject(o, "users", ua);
+    cJSON *ta = cJSON_CreateArray();
+    size_t flen = 0;
+    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
+    cJSON *root = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    const cJSON *toks = root ? cJSON_GetObjectItemCaseSensitive(root, "tokens") : (const cJSON *)0;
+    const cJSON *it;
+    cJSON_ArrayForEach(it, toks) {
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(it, "confirmed"))) continue;
+        cJSON *tk = cJSON_CreateObject();
+        static const char *const keys[] = { "id", "name", "role", "owner" };
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+            const cJSON *v = cJSON_GetObjectItemCaseSensitive(it, keys[k]);
+            if (cJSON_IsString(v) && v->valuestring) cJSON_AddStringToObject(tk, keys[k], v->valuestring);
+        }
+        const cJSON *ca = cJSON_GetObjectItemCaseSensitive(it, "created_at");
+        if (cJSON_IsNumber(ca)) cJSON_AddNumberToObject(tk, "created_at", ca->valuedouble);
+        cJSON_AddItemToArray(ta, tk);
+    }
+    cJSON_Delete(root);
+    cJSON_AddItemToObject(o, "tokens", ta);
+    cJSON_AddItemToObject(reply, "unconfirmed", o);
+}
+
+static int name_listed(const cJSON *list, const char *name) {
+    const cJSON *e;
+    cJSON_ArrayForEach(e, list) {
+        if (cJSON_IsString(e) && e->valuestring && strcmp(e->valuestring, name) == 0) return 1;
+    }
+    return 0;
+}
+
+int http_auth_confirm(const cJSON *usernames, const cJSON *token_ids, int all, int *users_done, int *tokens_done) {
+    int rc = 0;
+    if (users_done) *users_done = 0;
+    if (tokens_done) *tokens_done = 0;
+
+    struct user_account ulist[MAX_HTTP_USERS];
+    int auth_on = 0;
+    int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+    int changed = 0;
+    for (int i = 0; i < ucnt; i++) {
+        if (ulist[i].confirmed || !(all || name_listed(usernames, ulist[i].username))) continue;
+        ulist[i].confirmed = 1;
+        changed++;
+    }
+    if (changed && !save_user_accounts(ulist, ucnt, auth_on)) rc = -1;
+    if (users_done) *users_done = changed;
+
+    size_t flen = 0;
+    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
+    cJSON *root = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    int tchanged = 0;
+    cJSON *toks = root ? cJSON_GetObjectItemCaseSensitive(root, "tokens") : (cJSON *)0;
+    cJSON *it;
+    cJSON_ArrayForEach(it, toks) {
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(it, "id");
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(it, "confirmed"))) continue;
+        if (!all && !(cJSON_IsString(id) && name_listed(token_ids, id->valuestring))) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(it, "confirmed");
+        cJSON_AddBoolToObject(it, "confirmed", 1);
+        tchanged++;
+    }
+    if (tchanged) {
+        char *out = cJSON_Print(root);
+        if (!out || write_file_atomic_sized(HARMONY_TOKENS_JSON, out, strlen(out)) != 0) rc = -1;
+        free(out);
+    }
+    cJSON_Delete(root);
+    if (tokens_done) *tokens_done = tchanged;
+    return rc;
 }

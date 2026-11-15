@@ -52,6 +52,8 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppDevicesStudio } from './app_devices_studio.js';
+import { showAlert } from './app_icons_ui.js';
+import { deviceUsersOf, deviceUsersText } from './decision_dialogs.js';
 
 export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
   async searchIrdb() {
@@ -434,7 +436,14 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
       editor.querySelector('#btnMgrDelDev')?.addEventListener('click', async () => {
         if (!await showConfirm(t('delete_device_confirm', 'Delete device {name}?').replace('{name}', dev.name), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
-        await this.client.deleteDevice(dev.id);
+        try {
+          await this.client.deleteDevice(dev.id);
+        } catch (err) {
+          const users = deviceUsersOf(err);
+          if (users) await showAlert(`${err.message}\n\n${deviceUsersText(users)}`, { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
+          else alert(`Error: ${err.message}`);
+          return;
+        }
         alert(t("device_deleted"));
         await this.refreshData();
         this.populateManageDevices();

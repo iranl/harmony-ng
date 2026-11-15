@@ -52,6 +52,8 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppIconPicker } from './app_icons_picker.js';
+import { showAlert } from './app_icons_ui.js';
+import { deviceUsersOf, deviceUsersText } from './decision_dialogs.js';
 
 export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
   bindNavigationAndDeviceEvents() {
@@ -745,7 +747,14 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       const devId = document.getElementById('manageDeviceSelect')?.value;
       if (!devId) return;
       if (!await showConfirm(t('delete_device_all_cmds_confirm'), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
-      await this.client.deleteDevice(devId);
+      try {
+        await this.client.deleteDevice(devId);
+      } catch (err) {
+        const users = deviceUsersOf(err);
+        if (users) await showAlert(`${err.message}\n\n${deviceUsersText(users)}`, { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
+        else alert(`Error: ${err.message}`);
+        return;
+      }
       await this.refreshData();
       this.renderIrView();
     });

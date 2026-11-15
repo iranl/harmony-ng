@@ -35,6 +35,8 @@ Home Assistant must reach port 8089 of the Hub directly.
 **Configure.**
 1. Hub: nothing. If "Require authentication" is on (System page), create a Personal Access Token
    on the Users page (role User is enough) and keep it for the next step.
+   When authentication is turned on, the web UI lists the accounts and tokens made while it was off
+   (anybody on the network could make them then) and asks to keep or delete each one.
 2. Home Assistant: install `ha-harmony-ng` through HACS. The Hub appears under Settings, Devices
    and services as a discovered device (mDNS); confirm it, choose the API transport and paste the
    token if you created one. Without mDNS across your network, add the integration by hand with

@@ -27,6 +27,10 @@ struct user_account {
     char password[MAX_PASSWORD_LEN];
     char ha1[65];
     enum http_role role;
+    /* 1: made while authentication was on, or kept by an admin when it was turned on. Accounts
+     * without it (made while it was off, or older files) are listed when authentication goes
+     * from off to on. */
+    int confirmed;
 };
 
 #ifdef __cplusplus
@@ -53,6 +57,13 @@ void http_auth_note_success(const char *client_ip);
 /* End the sessions of one account (deleted, renamed, demoted, new password), or all of them */
 void http_auth_drop_user_sessions(const char *username);
 void http_auth_drop_all_sessions(void);
+/* Accounts and personal access tokens not confirmed (made while authentication was off, or older
+ * than this check): added to the reply of the request that turned authentication on, as
+ * "unconfirmed": {"users": [...], "tokens": [...]}, so the UIs can ask to keep or delete each. */
+void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, int count);
+/* Marks accounts (usernames) and tokens (ids) as kept; all = every one. Returns 0, or -1 when a
+ * file could not be written. */
+int http_auth_confirm(const cJSON *usernames, const cJSON *token_ids, int all, int *users_done, int *tokens_done);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

@@ -609,7 +609,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);
                     compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
                     ulist[admin_idx].role = ROLE_ADMIN;
+                    ulist[admin_idx].confirmed = curr_auth_enabled;
                 }
+                /* Turning authentication on: this admin is the owner's account; the reply lists the
+                 * other accounts and the tokens nobody confirmed (made while it was off) */
+                int turning_on = !curr_auth_enabled && new_auth_enabled;
+                if (turning_on && admin_idx >= 0) ulist[admin_idx].confirmed = 1;
 
                 /* No admin account and no password given: never invent admin/admin (the web UI
                  * used to save the moment the checkbox was ticked, before the form was filled).
@@ -629,6 +634,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddBoolToObject(resp, "ok", 1);
                 cJSON_AddBoolToObject(resp, "auth_enabled", new_auth_enabled);
                 cJSON_AddStringToObject(resp, "message", "Authentication settings updated");
+                if (turning_on) http_auth_add_unconfirmed(resp, ulist, ucnt);
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);

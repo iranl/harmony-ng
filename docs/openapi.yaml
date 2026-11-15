@@ -604,6 +604,7 @@ paths:
                     role: admin
                     created_at: 1729940000
                     last_used_at: 1729950000
+                    confirmed: true
     post:
       tags:
         - Authentication & Users
@@ -658,6 +659,40 @@ paths:
                 ok: true
                 message: Token deleted
 
+  /api/auth/confirm:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Keep accounts and tokens made while authentication was off (Admin only)
+      description: >-
+        When authentication is turned on, the reply lists the accounts and personal access tokens
+        not confirmed (made while it was off, or older files) under "unconfirmed". This route keeps
+        the named ones (or all); deleting uses DELETE /api/users and DELETE /api/auth/tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                users: {type: array, items: {type: string}}
+                tokens: {type: array, items: {type: string}}
+                all: {type: boolean}
+            example:
+              users: [family]
+              tokens: [tok_1a2b3c4d]
+      responses:
+        '200':
+          description: Marked as kept (counts of accounts and tokens changed)
+          content:
+            application/json:
+              example:
+                ok: true
+                users: 1
+                tokens: 1
+        '400':
+          description: Body is not a JSON object
+
   /api/users:
     get:
       tags:
@@ -675,8 +710,10 @@ paths:
                 users:
                   - username: admin
                     role: admin
+                    confirmed: true
                   - username: family
                     role: user
+                    confirmed: false
         '401':
           description: Unauthorized
         '403':
@@ -708,12 +745,19 @@ paths:
               role: user
       responses:
         '200':
-          description: User account saved
+          description: >-
+            User account saved. A request with auth_enabled true that turns authentication on also
+            returns auth_enabled and "unconfirmed": the other accounts and the tokens made while it
+            was off, for the UI to ask about (POST /api/auth/confirm keeps them).
           content:
             application/json:
               example:
                 ok: true
                 message: User account saved
+                auth_enabled: true
+                unconfirmed:
+                  users: [{username: guest, role: admin}]
+                  tokens: [{id: tok_1a2b3c4d, name: Old script, role: admin, created_at: 1729940000}]
         '400':
           description: Invalid request or payload error
         '401':
@@ -1003,6 +1047,17 @@ paths:
             application/json:
               example:
                 ok: true
+        '409':
+          description: The device is in use by activities, other devices or remote key bindings; nothing changed
+          content:
+            application/json:
+              example:
+                ok: false
+                error: "Device is in use: remove it from these activities, devices and remote keys first"
+                deviceId: "1"
+                users:
+                  - {type: activity, id: "10", name: Watch TV, fields: [startSequence]}
+                  - {type: remote_map, slot: 1, count: 1, keys: [activities/10/VolumeUp]}
 
   /api/device-commands:
     get:

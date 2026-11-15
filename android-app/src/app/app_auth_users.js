@@ -53,6 +53,7 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppSettingsSystem } from './app_settings_system.js';
+import { askUnconfirmed } from './decision_dialogs.js';
 
 export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
   async loadUserAccounts() {
@@ -141,7 +142,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const u = document.getElementById('authUsername')?.value.trim();
     const p = document.getElementById('authPassword')?.value;
     try {
-      await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
+      const authReply = await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
       if (status) {
         status.innerHTML = `<span style="color:var(--success)">${on ? 'Authentication requirement enabled & admin saved!' : 'Authentication requirement disabled!'}</span>`;
         setTimeout(() => { if (status) status.textContent = ''; }, 3500);
@@ -160,6 +161,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         } else if (!this.client.token) {
           this.showLoginModal();
         }
+        // Accounts and tokens made while authentication was off: keep or delete each
+        if (authReply?.unconfirmed && this.client.token) await askUnconfirmed(this.client, authReply.unconfirmed);
       }
 
       await this.loadUserAccounts();

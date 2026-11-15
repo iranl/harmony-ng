@@ -101,6 +101,163 @@ static int device_delay_fields_in_range(const cJSON *p) {
     return 1;
 }
 
+/* Device references: what still uses a device, so that a delete can be refused (a deleted device
+ * left its steps, key bindings and trigger behind, and they were skipped in silence). */
+#define DEVICE_USER_KEYS_MAX 32
+
+/* j (string or number) names the device id */
+static int names_device(const cJSON *j, const char *dev_id) {
+    char buf[64];
+    if (cJSON_IsString(j) && j->valuestring) return strcmp(j->valuestring, dev_id) == 0;
+    if (cJSON_IsNumber(j)) {
+        snprintf(buf, sizeof(buf), "%ld", (long)j->valuedouble);
+        return strcmp(buf, dev_id) == 0;
+    }
+    return 0;
+}
+
+/* Some "deviceId" (or "targetDevice") below j names the device, or a "deviceIds" list holds it */
+static int tree_uses_device(const cJSON *j, const char *dev_id) {
+    const cJSON *c;
+    cJSON_ArrayForEach(c, j) {
+        if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
+            names_device(c, dev_id)) return 1;
+        if (c->string && strcmp(c->string, "deviceIds") == 0 && cJSON_IsArray(c)) {
+            const cJSON *e;
+            cJSON_ArrayForEach(e, c) if (names_device(e, dev_id)) return 1;
+        }
+        if ((cJSON_IsObject(c) || cJSON_IsArray(c)) && tree_uses_device(c, dev_id)) return 1;
+    }
+    return 0;
+}
+
+/* Key bindings of a remote map that name the device, as "activities/10/VolumeUp". The map's own
+ * page for the device ("devices/<id>") belongs to the device and is not counted. */
+static void map_keys_using(const cJSON *j, const char *dev_id, const char *path, int depth,
+                           cJSON *keys, int *count) {
+    const cJSON *c;
+    int idx = 0;
+    cJSON_ArrayForEach(c, j) {
+        char sub[192];
+        if (c->string) snprintf(sub, sizeof(sub), "%s%s%s", path, path[0] ? "/" : "", c->string);
+        else snprintf(sub, sizeof(sub), "%s/%d", path, idx);
+        idx++;
+        if (depth == 1 && strcmp(path, "devices") == 0 && c->string && strcmp(c->string, dev_id) == 0) continue;
+        if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
+            names_device(c, dev_id)) {
+            if (*count < DEVICE_USER_KEYS_MAX) cJSON_AddItemToArray(keys, cJSON_CreateString(path));
+            (*count)++;
+            continue;
+        }
+        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, keys, count);
+    }
+}
+
+static void add_map_users(cJSON *users, const char *file, const char *type, int slot, const char *dev_id) {
+    size_t len = 0;
+    char *txt = read_file_text_alloc(config_store_path(file), 512 * 1024, &len);
+    cJSON *map = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    if (!map) return;
+    cJSON *keys = cJSON_CreateArray();
+    int count = 0;
+    map_keys_using(map, dev_id, "", 0, keys, &count);
+    cJSON_Delete(map);
+    if (count == 0) {
+        cJSON_Delete(keys);
+        return;
+    }
+    cJSON *u = cJSON_CreateObject();
+    cJSON_AddStringToObject(u, "type", type);
+    if (slot > 0) cJSON_AddNumberToObject(u, "slot", slot);
+    cJSON_AddNumberToObject(u, "count", count);
+    cJSON_AddItemToObject(u, "keys", keys);
+    cJSON_AddItemToArray(users, u);
+}
+
+static void id_text(const cJSON *j, char *out, size_t out_sz) {
+    out[0] = '\0';
+    if (cJSON_IsString(j) && j->valuestring) snprintf(out, out_sz, "%s", j->valuestring);
+    else if (cJSON_IsNumber(j)) snprintf(out, out_sz, "%ld", (long)j->valuedouble);
+}
+
+/* What uses the device: activities (sequences, device lists), other devices (Bluetooth trigger),
+ * remote key maps (touchscreen slots, Bluetooth remote). NULL when the device does not exist,
+ * else an array, empty when nothing uses it. Call with config_store_lock() held. */
+static cJSON *device_users(const char *dev_id) {
+    cJSON *devs_root = config_store_devices_copy();
+    const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : NULL;
+    int exists = 0;
+    const cJSON *d;
+    cJSON *users = cJSON_CreateArray();
+    cJSON_ArrayForEach(d, devs) {
+        char did[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
+        if (strcmp(did, dev_id) == 0) {
+            exists = 1;
+            continue;
+        }
+        if (names_device(cJSON_GetObjectItemCaseSensitive(d, "btTriggerDeviceId"), dev_id)) {
+            const cJSON *jn = cJSON_GetObjectItemCaseSensitive(d, "name");
+            cJSON *u = cJSON_CreateObject();
+            cJSON_AddStringToObject(u, "type", "device");
+            cJSON_AddStringToObject(u, "id", did);
+            cJSON_AddStringToObject(u, "name", cJSON_IsString(jn) && jn->valuestring ? jn->valuestring : "");
+            cJSON_AddStringToObject(u, "field", "btTriggerDeviceId");
+            cJSON_AddItemToArray(users, u);
+        }
+    }
+    cJSON_Delete(devs_root);
+    if (!exists) {
+        cJSON_Delete(users);
+        return NULL;
+    }
+
+    cJSON *acts_root = config_store_activities_copy();
+    const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
+                                     : cJSON_GetObjectItemCaseSensitive(acts_root, "activities")) : NULL;
+    const cJSON *a;
+    cJSON_ArrayForEach(a, acts) {
+        cJSON *fields = cJSON_CreateArray();
+        const cJSON *f;
+        cJSON_ArrayForEach(f, a) {
+            if (!f->string) continue;
+            int used = 0;
+            if (strcmp(f->string, "deviceIds") == 0 && cJSON_IsArray(f)) {
+                const cJSON *e;
+                cJSON_ArrayForEach(e, f) if (names_device(e, dev_id)) used = 1;
+            } else if (cJSON_IsObject(f) || cJSON_IsArray(f)) {
+                used = tree_uses_device(f, dev_id);
+            } else if (strcmp(f->string, "deviceId") == 0) {
+                used = names_device(f, dev_id);
+            }
+            if (used) cJSON_AddItemToArray(fields, cJSON_CreateString(f->string));
+        }
+        if (cJSON_GetArraySize(fields) == 0) {
+            cJSON_Delete(fields);
+            continue;
+        }
+        char aid[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(a, "id"), aid, sizeof(aid));
+        const cJSON *jn = cJSON_GetObjectItemCaseSensitive(a, "name");
+        cJSON *u = cJSON_CreateObject();
+        cJSON_AddStringToObject(u, "type", "activity");
+        cJSON_AddStringToObject(u, "id", aid);
+        cJSON_AddStringToObject(u, "name", cJSON_IsString(jn) && jn->valuestring ? jn->valuestring : "");
+        cJSON_AddItemToObject(u, "fields", fields);
+        cJSON_AddItemToArray(users, u);
+    }
+    cJSON_Delete(acts_root);
+
+    for (int slot = 1; slot <= 2; slot++) {
+        char name[40];
+        snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
+        add_map_users(users, name, "remote_map", slot, dev_id);
+    }
+    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id);
+    return users;
+}
+
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int http_api_devices_handle(int client_fd, const char *method, const char *clean_path,
@@ -775,6 +932,24 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             }
             if (dev_id[0]) {
                 config_store_lock();
+                /* Refused while activities, other devices or remote key maps still use the device
+                 * (as agreed in #220): the reply lists them so they can be changed first */
+                cJSON *users = device_users(dev_id);
+                if (users && cJSON_GetArraySize(users) > 0) {
+                    config_store_unlock();
+                    cJSON *err = cJSON_CreateObject();
+                    cJSON_AddBoolToObject(err, "ok", 0);
+                    cJSON_AddStringToObject(err, "error", "Device is in use: remove it from these activities, devices and remote keys first");
+                    cJSON_AddStringToObject(err, "deviceId", dev_id);
+                    cJSON_AddItemToObject(err, "users", users);
+                    cJSON_Delete(p);
+                    send_cjson_resp(client_fd, 409, err);
+                    cJSON_Delete(err);
+                    close(client_fd);
+                    return 1;
+                }
+                cJSON_Delete(users);
+
                 cJSON *root = config_store_devices_copy();
                 if (root) {
                     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
