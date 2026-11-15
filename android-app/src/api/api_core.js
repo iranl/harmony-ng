@@ -1,5 +1,3 @@
-import { isNativeApp } from '../app_token.js';
-
 export class HarmonyClientCore {
   constructor(hub) {
     this.wsPendingReqs = new Map();
@@ -29,7 +27,8 @@ export class HarmonyClientCore {
 
     // The app keeps its token in the Hub profile (one per Hub); the browser keeps its session
     // token in localStorage.
-    this.isNativeApp = isNativeApp();
+    this.isNativeApp = Boolean(typeof window !== 'undefined' && window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
     const savedToken = (!this.isNativeApp && typeof localStorage !== 'undefined') ? localStorage.getItem('harmony_auth_token') : null;
     this.token = this.hub.token || savedToken || null;
 
