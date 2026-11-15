@@ -42,17 +42,20 @@ int ws_handle_upgrade(int client_fd, const char *http_req, int role, int legacy)
 /* Generation of the client on client_fd, 0 when none (see ws_server.c) */
 unsigned int ws_client_gen(int client_fd);
 
-/* Send a text frame to a specific client */
+/* Send a text frame to a specific client. It never waits: what the socket does not take at once
+ * is queued and sent on by ws_server_tick(). Returns -1 when client_fd is not a client or the
+ * client does not keep up (queue over its limit or older than a few seconds): drop it. */
 int ws_send_text(int client_fd, const char *text);
 
 /* Broadcast a text frame to all active WebSocket clients */
 void ws_broadcast_text(const char *text);
 
 /*
- * Non-blocking read and unmask of an incoming WebSocket frame.
- * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when there was
- * nothing to read after all (spurious wakeup, EINTR: keep the client), -1 on error or when the
- * peer closed the connection.
+ * Non-blocking read and unmask of an incoming WebSocket frame (main loop only). Takes the bytes
+ * that are there and keeps a partial frame for the next call.
+ * Returns the payload length (0 for an empty frame such as a pong), WS_READ_AGAIN when the frame
+ * is not complete yet or there was nothing to read (keep the client), -1 on error, when the
+ * peer closed the connection, or for a frame longer than max_len - 1.
  */
 #define WS_READ_AGAIN (-2)
 int ws_read_frame(int client_fd, char *out_buf, size_t max_len, int *out_opcode);

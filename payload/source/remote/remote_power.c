@@ -661,6 +661,26 @@ void reset_idle_timer(void) {
     }
 }
 
+/* A hard key pressed while the screen is off goes to the Hub before the screen is lit: the unblank
+ * (display, backlight, touch controller, battery reading, flight recorder) and the first frame
+ * take far longer than the key, and all of it used to run before the key was sent.
+ * remote_key_wake_radio() is the part the key needs: the idle timer and the radio. The caller
+ * then handles the key and calls remote_key_wake_screen(). */
+void remote_key_wake_radio(void) {
+    g_last_activity_time = time(NULL);
+    /* The screen still counts as off while the key is handled: the power thread must not start a
+     * suspend under it */
+    uint64_t now = get_monotonic_ms();
+    if (g_suspend_hold_until_ms < now + REMOTE_KEY_WAKE_HOLD_MS) g_suspend_hold_until_ms = now + REMOTE_KEY_WAKE_HOLD_MS;
+    rf_wake_for_key();
+}
+
+void remote_key_wake_screen(void) {
+    if (g_screen_on) return; /* the key itself (a navigation key) or another thread lit it */
+    fb_set_blank(false);     /* its radio re-sync is skipped: the one for the key is a moment old */
+    g_screen_dirty = true;   /* drawn by the main loop, after the key events that are waiting */
+}
+
 void init_gyro_interrupt(void) {
     int fdr = open(GYRO_DATA_RATE_SYS, O_WRONLY);
     if (fdr >= 0) {

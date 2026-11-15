@@ -86,6 +86,7 @@ The tool automatically:
 > # Extract all 1,350 official icons directly from firmware bundle (no remote connection needed):
 > python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
 > ```
+> `flash` writes a bundle only when its intended skins list the skin the device reports over USB (a remote without a bundle of its own gets the remote bundle the tool picks for it); `--force` overrides that check.
 
 ---
 

@@ -26,7 +26,12 @@ int get_client_ip(int fd, char *ip_buf, size_t buf_len);
 int http_header_value(const char *req, const char *name, char *out, size_t out_len);
 int http_origin_is_allowed(const char *origin, const char *host);
 int http_request_is_cross_site(const char *req);
-int run_argv_wait(char *const argv[]);
+/* Runs argv[0] without a shell and waits for it, but kills it as soon as watch_path is larger
+ * than max_bytes or max_ms have passed. Returns the exit status, -1 when it could not run,
+ * RUN_TOO_BIG or RUN_TOO_SLOW. */
+#define RUN_TOO_BIG (-2)
+#define RUN_TOO_SLOW (-3)
+int run_argv_limited(char *const argv[], const char *watch_path, long max_bytes, unsigned int max_ms);
 int is_proc_running(const char *proc_name);
 
 #ifdef __cplusplus

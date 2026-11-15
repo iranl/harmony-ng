@@ -426,12 +426,14 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                 flash_firmware,
             )
             res = query_latest_firmware(target_skin, silent_on_empty=True)
+            fallback_skin = None
             if (not res or not res.get("Id")) and target_skin != DEFAULT_ELITE_SKIN:
                 # Some skins (e.g. 100, Harmony Ultimate 2013) have no entry of their own;
                 # the remote bundle published for skin 111 lists them as intended devices
                 print(f"[*] No firmware listed for skin {target_skin}, checking skin {DEFAULT_ELITE_SKIN} "
                       f"(same remote firmware bundle)")
                 res = query_latest_firmware(DEFAULT_ELITE_SKIN)
+                fallback_skin = DEFAULT_ELITE_SKIN
             if res and res.get("Id"):
 
                 latest_fw = res["Id"]
@@ -448,7 +450,8 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
                             bundle = parse_hfw2_bundle(fw_file)
                             print("[*] Installing latest firmware over USB HID...")
                             hid.close()
-                            if flash_firmware(bundle, target_device="remote", skip_confirm=True):
+                            if flash_firmware(bundle, target_device="remote", skip_confirm=True,
+                                              fallback_skin=fallback_skin):
                                 print("[*] Waiting 30s for Remote to complete reboot and flash...")
                                 time.sleep(15)
                                 t_reconnect = time.time() + 60

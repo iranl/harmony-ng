@@ -23,7 +23,7 @@ REMOTE_HTTP_PORT = 8088
 REMOTE_SSH_PORT = 22
 
 REMOTE_PID = 0xC12B
-PRO_PID = 0xC132
+PRO_PID = 0xC132  # also listed as the Pro Hub (tools/harmony_hid.py HUB_PRO_PID): see the note there
 HARMONY_VID = 0x046D
 
 # RNDIS / Gadget USB IDs

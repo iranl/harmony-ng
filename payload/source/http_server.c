@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <poll.h>
+#include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -164,6 +166,28 @@ static int is_http_keep_alive(const char *req) {
     }
     if (strcasestr(req, "Connection: keep-alive")) return 1;
     return 0;
+}
+
+/* Largest request body accepted for the request in req (its request line). Every body is read
+ * into memory and copied again by the handlers: the config import and the icon upload keep the
+ * old 2 MB, the saves that carry a whole button map or the web remote layouts get 256 KB,
+ * everything else HTTP_BODY_MAX. */
+#define HTTP_BODY_MAX (64 * 1024)
+#define HTTP_BODY_MAX_MAP (256 * 1024)
+#define HTTP_BODY_MAX_LARGE (2 * 1024 * 1024 - 1)
+static long http_body_limit(const char *req) {
+    static const struct { const char *route; long max; } limits[] = {
+        { "POST /import", HTTP_BODY_MAX_LARGE },
+        { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
+    };
+    for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
+        size_t n = strlen(limits[i].route);
+        if (strncmp(req, limits[i].route, n) == 0 && (req[n] == ' ' || req[n] == '?')) return limits[i].max;
+    }
+    return HTTP_BODY_MAX;
 }
 
 static int serve_static_file(int client_fd, const char *req, const char *path, int keep_alive) {
@@ -509,12 +533,41 @@ static void http_process_request(int client_fd, const char *req) {
     close(client_fd);
 }
 
+/* Time limits per client, on the monotonic clock. A client that sends its request a byte
+ * every few seconds restarted the 5 s receive timeout with every byte and kept its worker for
+ * as long as it liked; eight such clients took every worker slot and the Hub answered 503 to
+ * everyone else. */
+#define HTTP_IDLE_MS 5000           /* no byte at all */
+#define HTTP_CONN_DEADLINE_MS 30000 /* no new keep-alive request after this */
+
+uint64_t http_mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
+}
+
+ssize_t http_recv_until(int fd, void *buf, size_t len, uint64_t deadline_ms) {
+    for (;;) {
+        uint64_t now = http_mono_ms();
+        if (now >= deadline_ms) return -1;
+        uint64_t left = deadline_ms - now;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        int r = poll(&pfd, 1, left > HTTP_IDLE_MS ? HTTP_IDLE_MS : (int)left);
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) return -1; /* idle for HTTP_IDLE_MS, deadline reached, or poll error */
+        ssize_t n = recv(fd, buf, len, MSG_DONTWAIT);
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) continue;
+        return n;
+    }
+}
+
 void http_handle_client(int client_fd) {
     if (client_fd < 0) return;
 
     struct timeval rcv_tv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 
+    uint64_t conn_deadline = http_mono_ms() + HTTP_CONN_DEADLINE_MS;
     int req_count = 0;
     while (req_count < 64) {
         char *init_buf = (char *)calloc(1, HTTP_REQ_BUF_SIZE);
@@ -524,8 +577,10 @@ void http_handle_client(int client_fd) {
         }
 
         size_t total_hdr = 0;
+        uint64_t hdr_deadline = http_mono_ms() + HTTP_HEADER_DEADLINE_MS;
         while (total_hdr < HTTP_REQ_BUF_SIZE - 1) {
-            ssize_t n = recv(client_fd, init_buf + total_hdr, HTTP_REQ_BUF_SIZE - 1 - total_hdr, 0);
+            ssize_t n = http_recv_until(client_fd, init_buf + total_hdr, HTTP_REQ_BUF_SIZE - 1 - total_hdr,
+                                        hdr_deadline);
             if (n <= 0) break;
             total_hdr += (size_t)n;
             init_buf[total_hdr] = '\0';
@@ -582,14 +637,23 @@ void http_handle_client(int client_fd) {
                 long cl = atol(cl_pos);
                 size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
                 size_t body_recvd = (total_hdr >= hdr_len) ? (total_hdr - hdr_len) : 0;
+                if (cl > http_body_limit(init_buf)) {
+                    /* Refused before the body is read */
+                    send_json_error(client_fd, 413, "Request body too large");
+                    close(client_fd);
+                    free(init_buf);
+                    return;
+                }
                 if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
                     size_t total_needed = hdr_len + (size_t)cl;
                     dyn_buf = (char *)malloc(total_needed + 1);
                     if (dyn_buf) {
                         memcpy(dyn_buf, init_buf, total_hdr);
                         size_t total_read = total_hdr;
+                        uint64_t body_deadline = http_mono_ms() + HTTP_BODY_DEADLINE_MS;
                         while (total_read < total_needed) {
-                            ssize_t r = recv(client_fd, dyn_buf + total_read, total_needed - total_read, 0);
+                            ssize_t r = http_recv_until(client_fd, dyn_buf + total_read,
+                                                        total_needed - total_read, body_deadline);
                             if (r <= 0) break;
                             total_read += (size_t)r;
                         }
@@ -631,7 +695,7 @@ void http_handle_client(int client_fd) {
         if (dyn_buf) free(dyn_buf);
         free(init_buf);
 
-        if (!keep_alive) {
+        if (!keep_alive || http_mono_ms() >= conn_deadline) {
             close(client_fd);
             return;
         }

@@ -277,6 +277,24 @@ int access(const char *pathname, int mode) {
     return -1;
 }
 
+/* execv() of a program under the virtualized /data or /cache (the icon proxy runs
+ * /cache/bin/busybox wget): a test puts a stand-in there */
+int execv(const char *path, char *const argv[]) {
+    static int (*real_execv)(const char *, char *const[]) = NULL;
+    if (!real_execv) real_execv = dlsym(RTLD_NEXT, "execv");
+    char resolved[512];
+    int special_type = 0;
+    const char *target = path;
+    if (strncmp(path, "/data/", 6) == 0 || strncmp(path, "/cache/", 7) == 0) {
+        target = resolve_mock_path(path, resolved, sizeof(resolved), &special_type);
+    }
+    if (!real_execv) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return real_execv(target, argv);
+}
+
 int open(const char *pathname, int flags, ...) {
     init_real_functions();
     ensure_mock_dirs();
