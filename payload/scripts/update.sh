@@ -286,30 +286,44 @@ EOF
 # queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and reboots anyway
 # (the new files are installed already). A query that fails is "unknown", not "no switch": only a
 # hub_daemon that is not running means no switch; one that does not answer for
-# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on.
+# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are wall-clock seconds
+# (a query can take 3 s), counted from the sleeps when the clock cannot be read.
+now_secs() {
+  _d=$(date +%s 2>/dev/null)
+  case "$_d" in ''|*[!0-9]*) echo "" ;; *) echo "$_d" ;; esac
+}
+# seconds since $1 (now_secs), or $2 (counted) when larger or the clock is not readable
+since_secs() {
+  _n=$(now_secs)
+  if [ -n "$1" ] && [ -n "$_n" ] && [ $((_n - $1)) -gt "$2" ]; then echo $((_n - $1)); else echo "$2"; fi
+}
 wait_activity_switch() {
   local max="${UPDATE_ACTIVITY_WAIT_SECS:-600}"
   local fail_max="${UPDATE_ACTIVITY_FAIL_SECS:-60}"
   case "$max" in ''|*[!0-9]*) max=600 ;; esac
   case "$fail_max" in ''|*[!0-9]*) fail_max=60 ;; esac
-  local waited=0
-  local failed=0
+  local start
+  start=$(now_secs)
+  local counted=0
+  local fail_start=""
+  local fail_counted=0
   local idle=0
   local said=0
   local st
-  while [ "$waited" -lt "$max" ]; do
+  while [ "$(since_secs "$start" "$counted")" -lt "$max" ]; do
     if st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null); then
-      failed=0
+      fail_start=""
+      fail_counted=0
       if ! echo "$st" | grep -q '"busy":[[:space:]]*true' && \
          ! echo "$st" | grep -q '"sending":[[:space:]]*true' && \
          ! echo "$st" | grep -q '"queued":[[:space:]]*"'; then
         idle=$((idle + 1))
         if [ "$idle" -ge 2 ]; then
-          [ "$said" = 1 ] && echo "[+] Activity switch finished after ${waited} s."
+          [ "$said" = 1 ] && echo "[+] Activity switch finished after $(since_secs "$start" "$counted") s."
           return 0
         fi
         sleep 1
-        waited=$((waited + 1))
+        counted=$((counted + 1))
         continue
       fi
       idle=0
@@ -322,16 +336,26 @@ wait_activity_switch() {
       if ! pidof hub_daemon >/dev/null 2>&1; then
         return 0
       fi
-      failed=$((failed + 2))
-      if [ "$failed" -ge "$fail_max" ]; then
-        echo "[!] hub_daemon has not answered for ${failed} s: rebooting anyway."
+      if [ -z "$fail_start" ]; then
+        fail_start=$(now_secs)
+        [ -z "$fail_start" ] && fail_start="none"
+      fi
+      _fs="$fail_start"
+      [ "$_fs" = "none" ] && _fs=""
+      fail_counted=$((fail_counted + 2))
+      if [ "$(since_secs "$_fs" "$fail_counted")" -ge "$fail_max" ]; then
+        echo "[!] hub_daemon has not answered for $(since_secs "$_fs" "$fail_counted") s: rebooting anyway."
         return 0
       fi
     fi
     sleep 2
-    waited=$((waited + 2))
+    counted=$((counted + 2))
   done
-  echo "[!] The activity switch is still running after ${max} s: rebooting anyway."
+  if [ "$idle" -gt 0 ]; then
+    echo "[*] Waited $(since_secs "$start" "$counted") s: rebooting."
+  else
+    echo "[!] The activity switch is still running after $(since_secs "$start" "$counted") s: rebooting anyway."
+  fi
   return 0
 }
 

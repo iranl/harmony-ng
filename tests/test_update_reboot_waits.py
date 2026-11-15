@@ -8,7 +8,9 @@ Checks: the reboot comes only after two replies in a row that show no switch (bu
 queued request all count as a switch; one idle reply between two switches is not enough); a switch
 that does not end lets the update reboot after UPDATE_ACTIVITY_WAIT_SECS with a message; a failed
 query is "unknown": with hub_daemon running it keeps waiting until UPDATE_ACTIVITY_FAIL_SECS, with
-hub_daemon not running it reboots at once; a cap that is not a number keeps the default.
+hub_daemon not running it reboots at once; a cap that is not a number keeps the default; the caps
+are wall-clock seconds (slow queries count), and an idle answer at the cap is not called a running
+switch.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ case "$*" in
     line=$(sed -n "${n}p" "$UPD_ACT/replies")
     [ -z "$line" ] && line=$(sed -n '$p' "$UPD_ACT/replies")
     [ "$line" = "down" ] && exit 1
+    case "$line" in slow:*) /bin/sleep 2.5; line="${line#slow:}" ;; esac
     echo "$line"
     exit 0 ;;
 esac
@@ -111,6 +114,17 @@ class RebootWaitsForSwitch(base.UpdateApply):
         r, calls_at_reboot = self.run_with([IDLE], wait_secs="abc")
         self.assertEqual(calls_at_reboot, 2, r.stdout)
         self.assertNotIn("anyway", r.stdout)
+
+    def test_cap_is_wall_clock_time(self):
+        """each query takes 2.5 s here: the cap of 5 s ends after 2 queries, not after 3 counted sleeps"""
+        r, calls_at_reboot = self.run_with(["slow:" + BUSY], wait_secs=5)
+        self.assertEqual(calls_at_reboot, 2, r.stdout)
+        self.assertRegex(r.stdout, r"still running after [56] s")
+
+    def test_idle_at_the_cap_is_not_a_running_switch(self):
+        r, calls_at_reboot = self.run_with([IDLE], wait_secs=1)
+        self.assertEqual(calls_at_reboot, 1, r.stdout)
+        self.assertNotIn("still running", r.stdout)
 
     def test_daemon_not_running_reboots_at_once(self):
         r, calls_at_reboot = self.run_with(["down"], daemon_up=False)
