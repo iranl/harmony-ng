@@ -189,6 +189,11 @@ time since the screen blanked use that clock. After a resume the battery samples
 the first reading counts as rested when the suspend lasted 30 s or more (the cell rested all that
 time), and a battery report is requested, for an alarm wake and a button wake alike.
 
+A physical button pressed while the screen is off, in light standby or as the key that ends a
+suspend, is sent to the Hub first: `remote_ui` re-syncs the radio, sends the key and only then
+unblanks the display and draws the first frame. A release that is already waiting goes out before
+the unblank as well. Touches and the capacitive keys only wake the screen.
+
 > [!NOTE]
 > Touchscreen taps do **not** wake the remote in either standby mode. The Synaptics Clearpad sensor is put into hardware sleep mode (`0x35 = 0x01`) upon display blanking to prevent accidental touches and save ~10.5 mA.
 

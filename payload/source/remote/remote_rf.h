@@ -8,6 +8,10 @@ extern "C" {
 #endif
 
 void rf_wake_and_reconnect(void);
+/* The same re-sync for a hard key pressed while the screen is off: the caller sends the key frame
+ * right after it, and for a moment every other rf_wake_and_reconnect() does nothing, so no second
+ * re-sync is written behind that frame */
+void rf_wake_for_key(void);
 int rf_send_frame(rf_frame_t *frame);
 void rf_send_button_event(uint16_t key_code, int value);
 void rf_send_sync_query(void);

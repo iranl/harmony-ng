@@ -113,6 +113,25 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm -o "$BUILD_DIR/test_remote_key_release" && "$BUILD_DIR/test_remote_key_release"
 
+# The remote's main loop (the real remote_main.c) on the mock: a hard key pressed with the screen
+# off is sent before the screen is lit
+KEY_WAKE_SRCS=()
+for f in "$REPO_ROOT"/payload/source/remote/*.c; do
+    [ "${f##*/}" = "remote_main.c" ] || KEY_WAKE_SRCS+=("$f")
+done
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" \
+    "$SCRIPT_DIR/test_remote_key_wake.c" "${KEY_WAKE_SRCS[@]}" \
+    "$REPO_ROOT/payload/source/remote_stock_icons.c" \
+    "$REPO_ROOT/payload/source/mfg_id.c" \
+    "$REPO_ROOT/payload/source/cJSON.c" \
+    "$REPO_ROOT/payload/source/sha256.c" \
+    "$REPO_ROOT/payload/source/timezone_db.c" \
+    -Wl,--wrap=system,--wrap=open,--wrap=settimeofday,--wrap=write,--wrap=ioctl,--wrap=render_screen \
+    -lpthread -lm -o "$BUILD_DIR/test_remote_key_wake"
+KEY_WAKE_DIR="$(mktemp -d /tmp/hng_keywake.XXXXXX)"
+HARMONY_MOCK_DIR="$KEY_WAKE_DIR" HARMONY_MOCK_ROLE=remote LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_key_wake"
+rm -rf "$KEY_WAKE_DIR"
+
 # 4. Run Core Component Unit Tests
 echo "[-] Running core component unit tests..."
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_activity_icons" "$SCRIPT_DIR/test_activity_icons.c" && "$BUILD_DIR/test_activity_icons"
@@ -201,6 +220,8 @@ build_test -Wall -O2 -Wl,--wrap=fb_present -I"$REPO_ROOT/payload/source" -I"$REP
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_rf_keymap_lock" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_keymap_lock"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_companion_timeout" "$SCRIPT_DIR/test_rf_companion_timeout.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_companion_timeout"
+# A companion key press is never seen half stored (strncpy wrapped to widen the window)
+build_test -Wall -O2 -fno-builtin-strncpy -Wl,--wrap=strncpy -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_companion_race" "$SCRIPT_DIR/test_rf_companion_race.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_companion_race"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_capture" "$SCRIPT_DIR/test_ir_capture.c" "$REPO_ROOT/payload/source/ir_encoder.c" "$REPO_ROOT/payload/source/ir_i2s.c" -lpthread && "$BUILD_DIR/test_ir_capture" "$SCRIPT_DIR/fixtures/ir/samsung36_volume_up.i2s"
 # Remote: an activity change reported right after a wake that follows a suspend
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_wake_catchup" "$SCRIPT_DIR/test_remote_wake_catchup.c" \
@@ -273,6 +294,8 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"
+# update.sh apply in a host sandbox (a failed copy changes no installed file and no version)
+python3 "$SCRIPT_DIR/test_update_apply.py"
 
 # 5. Run Hub & Remote Full Co-Simulation
 python3 "$SCRIPT_DIR/test_bt_connect_commands.py"
@@ -306,14 +329,19 @@ python3 "$SCRIPT_DIR/test_activity_repeat_request.py"
 python3 "$SCRIPT_DIR/test_ws_events.py"
 python3 "$SCRIPT_DIR/test_reentrant_libc.py"
 python3 "$SCRIPT_DIR/test_status.py"
+python3 "$SCRIPT_DIR/test_http_worker_timeouts.py"
 python3 "$SCRIPT_DIR/test_static_cache_key.py"
 python3 "$SCRIPT_DIR/test_ws_auth.py"
+python3 "$SCRIPT_DIR/test_ws_slow_frame.py"
 python3 "$SCRIPT_DIR/test_lan_request_guards.py"
 python3 "$SCRIPT_DIR/test_ws_keepalive.py"
+python3 "$SCRIPT_DIR/test_ws_slow_reader.py"
 python3 "$SCRIPT_DIR/test_sntp_nonblocking.py"
 python3 "$SCRIPT_DIR/test_ir_raw.py"
+python3 "$SCRIPT_DIR/test_request_body_limit.py"
 python3 "$SCRIPT_DIR/test_activity_help_answer.py"
 python3 "$SCRIPT_DIR/test_mdns.py"
+python3 "$SCRIPT_DIR/test_import_validate.py"
 python3 "$SCRIPT_DIR/test_auth_hardening.py"
 python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 # bt_reconnect.sh in a host sandbox (a stale pid file never kills another process)
@@ -339,6 +367,7 @@ python3 "$SCRIPT_DIR/test_ssdp.py"
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_modal_errors.mjs"; else echo "    (node not found, test_frontend_modal_errors.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_hbus_aioharmony.py"
 python3 "$SCRIPT_DIR/test_save_json_types.py"
+python3 "$SCRIPT_DIR/test_icon_proxy_limits.py"
 python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 
 # 5c. Host tools (no device contact)

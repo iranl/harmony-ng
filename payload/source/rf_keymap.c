@@ -614,8 +614,14 @@ static struct {
     uint64_t last_repeat_ms;
     bool hold_sent;
 } s_companion_state[MAX_PAIRED_REMOTES];
+/* s_companion_state is written by the RF receive thread (handle_companion_packet) and read
+ * by the dispatch worker (check_companion_timeouts): every access holds this lock, so the
+ * worker never sees a new key with the start time of the previous one. Taken before
+ * g_rf_q_mutex (enqueue_remote_button), never the other way round. */
+static pthread_mutex_t s_companion_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void check_companion_timeouts(void) {
+    pthread_mutex_lock(&s_companion_lock);
     uint64_t now_ms = get_monotonic_ms();
     for (int s = 0; s < MAX_PAIRED_REMOTES; s++) {
         if (s_companion_state[s].current_key != 0) {
@@ -640,6 +646,7 @@ void check_companion_timeouts(void) {
             }
         }
     }
+    pthread_mutex_unlock(&s_companion_lock);
 }
 
 void handle_companion_packet(const uint8_t *pkt, size_t len) {
@@ -665,6 +672,10 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
     }
 
     int sidx = slot - 1;
+    const char *name = key_code ? map_button_code(key_code >> 8, key_code & 0xFF) : NULL;
+    if (key_code && !name) name = "Unknown";
+
+    pthread_mutex_lock(&s_companion_lock);
     uint64_t now_ms = get_monotonic_ms();
 
     printf("[*] Companion RX (slot=%d sub=0x%02X): raw=[%02X %02X %02X %02X %02X %02X %02X] -> key=0x%04X\n",
@@ -680,11 +691,9 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
             s_companion_state[sidx].current_name[0] = '\0';
             s_companion_state[sidx].hold_sent = false;
         }
+        pthread_mutex_unlock(&s_companion_lock);
         return;
     }
-
-    const char *name = map_button_code(key_code >> 8, key_code & 0xFF);
-    if (!name) name = "Unknown";
 
     if (s_companion_state[sidx].current_key != key_code) {
         if (s_companion_state[sidx].current_key != 0) {
@@ -708,6 +717,7 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
             }
         }
     }
+    pthread_mutex_unlock(&s_companion_lock);
 }
 
 void *dispatch_worker(void *arg) {
