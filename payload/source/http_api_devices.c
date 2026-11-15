@@ -12,6 +12,7 @@
 #include "config_sanitize.h"
 #include "cJSON.h"
 #include "bt_common.h"
+#include "state_watch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <sys/stat.h>
 
 /* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
 static uint8_t device_ir_ports(const char *dev_id) {
@@ -135,15 +137,26 @@ static int tree_uses_device(const cJSON *j, const char *dev_id) {
     return 0;
 }
 
-/* A section of a remote map ("activities/<id>") that no longer has its activity: no editor shows
+/* A section of a remote map that no longer has its activity ("activities/<id>") or its device
+ * ("devices/<id>", a page left from before deleted devices' pages were removed): no editor shows
  * it, so its bindings cannot be changed and must not hold a device. "-1" and "default" are the
  * fallback sections. */
-static int stale_activity_section(const char *path, const cJSON *act_ids) {
-    if (strncmp(path, "activities/", 11) != 0 || strchr(path + 11, '/')) return 0;
-    const char *id = path + 11;
-    if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
+static int stale_section(const char *path, const cJSON *act_ids, const cJSON *dev_ids) {
+    const char *id;
+    const cJSON *ids;
+    if (strncmp(path, "activities/", 11) == 0) {
+        id = path + 11;
+        ids = act_ids;
+        if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
+    } else if (strncmp(path, "devices/", 8) == 0) {
+        id = path + 8;
+        ids = dev_ids;
+    } else {
+        return 0;
+    }
+    if (strchr(id, '/')) return 0;
     const cJSON *e;
-    cJSON_ArrayForEach(e, act_ids) {
+    cJSON_ArrayForEach(e, ids) {
         if (cJSON_IsString(e) && strcmp(e->valuestring, id) == 0) return 0;
     }
     return 1;
@@ -153,7 +166,7 @@ static int stale_activity_section(const char *path, const cJSON *act_ids) {
  * page for the device ("devices/<id>") belongs to the device and is not counted, nor are the
  * sections of activities that no longer exist. */
 static void map_keys_using(const cJSON *j, const char *dev_id, const char *path, int depth,
-                           const cJSON *act_ids, cJSON *keys, int *count) {
+                           const cJSON *act_ids, const cJSON *dev_ids, cJSON *keys, int *count) {
     const cJSON *c;
     int idx = 0;
     cJSON_ArrayForEach(c, j) {
@@ -162,19 +175,19 @@ static void map_keys_using(const cJSON *j, const char *dev_id, const char *path,
         else snprintf(sub, sizeof(sub), "%s/%d", path, idx);
         idx++;
         if (depth == 1 && strcmp(path, "devices") == 0 && c->string && strcmp(c->string, dev_id) == 0) continue;
-        if (depth == 1 && stale_activity_section(sub, act_ids)) continue;
+        if (depth == 1 && stale_section(sub, act_ids, dev_ids)) continue;
         if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
             names_device(c, dev_id)) {
             if (*count < DEVICE_USER_KEYS_MAX) cJSON_AddItemToArray(keys, cJSON_CreateString(path));
             (*count)++;
             continue;
         }
-        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, act_ids, keys, count);
+        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, act_ids, dev_ids, keys, count);
     }
 }
 
 static void add_map_users(cJSON *users, const char *file, const char *type, int slot, const char *dev_id,
-                          const cJSON *act_ids) {
+                          const cJSON *act_ids, const cJSON *dev_ids) {
     size_t len = 0;
     char *txt = read_file_text_alloc(config_store_path(file), 512 * 1024, &len);
     cJSON *map = txt ? cJSON_Parse(txt) : NULL;
@@ -182,7 +195,7 @@ static void add_map_users(cJSON *users, const char *file, const char *type, int 
     if (!map) return;
     cJSON *keys = cJSON_CreateArray();
     int count = 0;
-    map_keys_using(map, dev_id, "", 0, act_ids, keys, &count);
+    map_keys_using(map, dev_id, "", 0, act_ids, dev_ids, keys, &count);
     cJSON_Delete(map);
     if (count == 0) {
         cJSON_Delete(keys);
@@ -202,45 +215,12 @@ static void id_text(const cJSON *j, char *out, size_t out_sz) {
     else if (cJSON_IsNumber(j)) snprintf(out, out_sz, "%ld", (long)j->valuedouble);
 }
 
-/* Which touchscreen remote slots are paired, from hub_rf (GET /api/rf/status, "slots"[].active).
- * Returns 0 and fills paired[1..2], or -1 when hub_rf does not answer within a second. */
-static int rf_slots_paired(int paired[3]) {
-    int port = 8092;
-#ifdef TEST_HARNESS
-    const char *tp = getenv("HARMONY_TEST_RF_PORT");
-    if (tp && atoi(tp) > 0) port = atoi(tp);
-#endif
+/* Which touchscreen remote slots hub_rf reports active (GET /api/rf/status, "slots"[].active),
+ * into paired[1..2]; stays 0 when hub_rf does not answer */
+static void rf_slots_active(int paired[3]) {
     paired[1] = paired[2] = 0;
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return -1;
-    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    a.sin_port = htons((uint16_t)port);
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    static const char req[] = "GET /api/rf/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    if (connect(s, (struct sockaddr *)&a, sizeof(a)) != 0 || send(s, req, sizeof(req) - 1, 0) != (ssize_t)(sizeof(req) - 1)) {
-        close(s);
-        return -1;
-    }
-    size_t cap = 65536, len = 0;
-    char *buf = malloc(cap);
-    ssize_t n;
-    while (buf && len < cap - 1 && (n = recv(s, buf + len, cap - 1 - len, 0)) > 0) len += (size_t)n;
-    close(s);
-    if (!buf) return -1;
-    buf[len] = '\0';
-    char *json = strstr(buf, "\r\n\r\n");
-    cJSON *st = json ? cJSON_Parse(json + 4) : NULL;
-    free(buf);
+    cJSON *st = state_watch_fetch_rf_status();
     const cJSON *slots = st ? cJSON_GetObjectItemCaseSensitive(st, "slots") : NULL;
-    if (!cJSON_IsArray(slots)) {
-        cJSON_Delete(st);
-        return -1;
-    }
     const cJSON *sl;
     cJSON_ArrayForEach(sl, slots) {
         const cJSON *jn = cJSON_GetObjectItemCaseSensitive(sl, "slot");
@@ -248,16 +228,26 @@ static int rf_slots_paired(int paired[3]) {
         if (k >= 1 && k <= 2) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
     }
     cJSON_Delete(st);
-    return 0;
 }
 
 /* Key bindings that use the device, in the maps of paired touchscreen slots and of the Bluetooth
- * remote. A slot map with no paired remote (an old file) cannot be opened by the editors, so it
- * does not count. Without an answer from hub_rf, a slot counts when its version file exists.
- * Read without the configuration lock (the maps are not under it). */
+ * remote. A slot counts when hub_rf reports it active or its remote_slot<N>_version.json exists (a
+ * remote reported on that slot); a map of a slot with neither (an old file) cannot be opened by
+ * the editors and does not count. Sections of activities and pages of devices that no longer exist
+ * do not count either. Read without the configuration lock (the maps are not under it). */
 static cJSON *device_map_users(const char *dev_id) {
     cJSON *users = cJSON_CreateArray();
     cJSON *act_ids = cJSON_CreateArray();
+    cJSON *dev_ids = cJSON_CreateArray();
+    cJSON *devs_root = config_store_devices_copy();
+    const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : (const cJSON *)0;
+    const cJSON *d;
+    cJSON_ArrayForEach(d, devs) {
+        char did[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
+        if (did[0]) cJSON_AddItemToArray(dev_ids, cJSON_CreateString(did));
+    }
+    cJSON_Delete(devs_root);
     cJSON *acts_root = config_store_activities_copy();
     const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
                                      : cJSON_GetObjectItemCaseSensitive(acts_root, "activities")) : NULL;
@@ -270,19 +260,17 @@ static cJSON *device_map_users(const char *dev_id) {
     cJSON_Delete(acts_root);
 
     int paired[3];
-    int rf_known = (rf_slots_paired(paired) == 0);
+    rf_slots_active(paired);
     for (int slot = 1; slot <= 2; slot++) {
         char name[40];
-        if (!rf_known) {
-            snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
-            paired[slot] = (access(config_store_path(name), F_OK) == 0);
-        }
-        if (!paired[slot]) continue;
+        snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
+        if (!paired[slot] && access(config_store_path(name), F_OK) != 0) continue;
         snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
-        add_map_users(users, name, "remote_map", slot, dev_id, act_ids);
+        add_map_users(users, name, "remote_map", slot, dev_id, act_ids, dev_ids);
     }
-    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id, act_ids);
+    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id, act_ids, dev_ids);
     cJSON_Delete(act_ids);
+    cJSON_Delete(dev_ids);
     return users;
 }
 
@@ -352,30 +340,87 @@ static int device_config_users(const char *dev_id, cJSON *users) {
     return 1;
 }
 
-void remote_maps_drop_section(const char *section, const char *id) {
-    if (!section || !id || !id[0]) return;
+/* The ids of the configured devices or activities ("devices" or "activities"), as strings */
+static cJSON *configured_ids(const char *what) {
+    cJSON *ids = cJSON_CreateArray();
+    int devices = strcmp(what, "devices") == 0;
+    cJSON *root = devices ? config_store_devices_copy() : config_store_activities_copy();
+    const cJSON *list = !root ? (const cJSON *)0 : cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, what);
+    const cJSON *it;
+    cJSON_ArrayForEach(it, list) {
+        char id[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(it, "id"), id, sizeof(id));
+        if (id[0]) cJSON_AddItemToArray(ids, cJSON_CreateString(id));
+    }
+    cJSON_Delete(root);
+    return ids;
+}
+
+static int id_listed(const cJSON *ids, const char *id) {
+    const cJSON *e;
+    cJSON_ArrayForEach(e, ids) {
+        if (cJSON_IsString(e) && strcmp(e->valuestring, id) == 0) return 1;
+    }
+    return 0;
+}
+
+int remote_maps_drop_section(const char *section, const char *id) {
+    if (!section || !id || !id[0]) return 0;
+    /* only once the configuration no longer has it (its save may have failed) */
+    cJSON *ids = configured_ids(section);
+    int still_there = id_listed(ids, id);
+    if (still_there) {
+        cJSON_Delete(ids);
+        return 0;
+    }
     static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
-        size_t len = 0;
-        char *txt = read_file_text_alloc(config_store_path(files[i]), 512 * 1024, &len);
-        cJSON *map = txt ? cJSON_Parse(txt) : NULL;
-        free(txt);
-        cJSON *sec = map ? cJSON_GetObjectItemCaseSensitive(map, section) : NULL;
-        if (!cJSON_IsObject(sec) || !cJSON_GetObjectItemCaseSensitive(sec, id)) {
+        const char *path = config_store_path(files[i]);
+        /* The map editors save a whole file with no lock; a save in between is not overwritten:
+         * the file is read again when it changed while it was being edited here (a few tries) */
+        for (int attempt = 0; attempt < 3; attempt++) {
+            struct stat before, after;
+            if (stat(path, &before) != 0) break;
+            size_t len = 0;
+            char *txt = read_file_text_alloc(path, 512 * 1024, &len);
+            cJSON *map = txt ? cJSON_Parse(txt) : NULL;
+            free(txt);
+            cJSON *sec = map ? cJSON_GetObjectItemCaseSensitive(map, section) : NULL;
+            int removed = 0;
+            if (cJSON_IsObject(sec)) {
+                for (cJSON *c = sec->child, *next; c; c = next) {
+                    next = c->next;
+                    /* this id, and (devices) the pages of devices deleted before pages went with them */
+                    if (c->string && (strcmp(c->string, id) == 0 || (strcmp(section, "devices") == 0 && !id_listed(ids, c->string)))) {
+                        cJSON_Delete(cJSON_DetachItemViaPointer(sec, c));
+                        removed++;
+                    }
+                }
+            }
+            if (!removed) {
+                cJSON_Delete(map);
+                break;
+            }
+            /* compact, as the editors save it: the readers take maps up to 200000 bytes */
+            char *out = cJSON_PrintUnformatted(map);
             cJSON_Delete(map);
-            continue;
+            if (stat(path, &after) != 0 || after.st_mtime != before.st_mtime || after.st_size != before.st_size ||
+                after.st_ino != before.st_ino) {
+                free(out);
+                continue; /* saved meanwhile: read it again */
+            }
+            if (!out || write_file_atomic_sized(path, out, strlen(out)) != 0) {
+                printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
+            } else {
+                printf("[*] Removed %d %s section(s) from %s\n", removed, section, files[i]);
+                if (i == 2) hub_send_btstack_cmd("reload_map");
+            }
+            free(out);
+            break;
         }
-        cJSON_DeleteItemFromObjectCaseSensitive(sec, id);
-        char *out = cJSON_Print(map);
-        cJSON_Delete(map);
-        if (!out || write_file_atomic_sized(config_store_path(files[i]), out, strlen(out)) != 0) {
-            printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
-        } else {
-            printf("[*] Removed %s/%s from %s\n", section, id, files[i]);
-            if (i == 2) hub_send_btstack_cmd("reload_map");
-        }
-        free(out);
     }
+    cJSON_Delete(ids);
+    return 1;
 }
 
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;

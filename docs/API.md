@@ -470,12 +470,16 @@ Deletes a device that nothing uses any more. References are not removed: while a
 `remote_slot2_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
 changes. Not counted, so a device never becomes impossible to delete: the map's own page for the
 device (`devices/<id>`, removed from the maps together with the device, so a new device given the
-same id starts without it), map sections of activities that no longer exist, and the map of a
-touchscreen slot with no paired remote (from `hub_rf`'s status; when `hub_rf` does not answer, a
-slot counts when its `remote_slot<N>_version.json` exists). Deleting an activity
-(`POST /api/activity-delete`) removes its sections (`activities/<id>`) from the three maps. The web
-remote layouts (`web_remote_layouts.json`) are not scanned: the web remote drops buttons of a
-device that no longer exists by itself.
+same id starts without it), map sections of activities and pages of devices that no longer exist,
+and the map of a touchscreen slot that has no remote: a slot counts when `hub_rf` reports it active
+(`GET /api/rf/status`, asked for at most 1.5 s) or its `remote_slot<N>_version.json` exists; with
+`hub_rf` not answering and no version file, the slot does not count. Deleting an activity
+(`POST /api/activity-delete`) removes its sections (`activities/<id>`) from the three maps; a device
+delete removes its page and pages of devices deleted earlier. Both only after the configuration
+save went through, and the maps are written compact (as the editors save them, so a large map
+stays under the 200000 bytes `GET /api/rf-mapping` reads); a map saved by an editor in the same
+moment is read again, not overwritten. The web remote layouts (`web_remote_layouts.json`) are not
+scanned: the web remote drops buttons of a device that no longer exists by itself.
 - **Request Body**: `{"deviceId": "70321456"}`
 - **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)
 - **Response `409 Conflict`**: the device is in use; `users` lists what uses it (key bindings at

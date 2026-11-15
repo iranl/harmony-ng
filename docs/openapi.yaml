@@ -1059,8 +1059,9 @@ paths:
         '409':
           description: >-
             The device is in use by activities, other devices or remote key bindings (not counted:
-            its own map page, which is removed with it, sections of deleted activities, the map of a
-            slot with no paired remote); nothing changed
+            its own map page, which is removed with it, sections of deleted activities, pages of
+            deleted devices, the map of a slot that hub_rf does not report active and that has no
+            version file); nothing changed
           content:
             application/json:
               example:

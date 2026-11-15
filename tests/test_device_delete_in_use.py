@@ -11,6 +11,10 @@ Deleting a device that is still used is refused (as agreed in #220): POST /api/d
   and in the map of a slot with no paired remote (from hub_rf's status; without an answer, a slot
   with a version file) do not count; deleting an activity removes its sections from the maps; a
   deleted device's own page is removed from the maps, so a new device with the same id starts clean
+- pages of devices that no longer exist do not count, and go with the next device delete
+- a slot counts when hub_rf reports it active or its version file exists; hub_rf down and no
+  version file: not counted; a hub_rf that answers slowly does not hold the request past ~1.5 s
+- a map rewritten by a delete stays compact: a large map stays readable by the editors
 The daemon runs with --dry-run on a private mock root (port 9202); a fake hub_rf status on 9203.
 """
 
@@ -21,6 +25,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness, SAMPLE_CONFIG  # noqa: E402
@@ -56,6 +61,8 @@ def config_dir():
     m["activities"]["11"]["screen_buttons"] = [{"label": "Old", "deviceId": "4", "command": "Menu"}]
     m["activities"]["12"] = {"A": {"type": "command", "action": "device_cmd", "deviceId": "3", "command": "Play"}}
     m["activities"]["99"] = {"X": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
+    # the page of a device deleted before pages went with their device
+    m["devices"]["98"] = {"Y": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}
     json.dump(m, open(os.path.join(d, "remote_slot1_map.json"), "w"))
     # an old slot 2 map: no remote paired there
     json.dump({"activities": {"10": {"B": {"type": "command", "action": "device_cmd", "deviceId": "4", "command": "Menu"}}},
@@ -74,8 +81,21 @@ def users_of(r, kind):
 
 
 class FakeRf(http.server.BaseHTTPRequestHandler):
+    slot1_active = True
+    trickle = False
+
     def do_GET(self):
-        body = json.dumps({"ok": True, "slots": [{"slot": 1, "active": True}, {"slot": 2, "active": False}]}).encode()
+        body = json.dumps({"ok": True, "slots": [{"slot": 1, "active": FakeRf.slot1_active},
+                                                 {"slot": 2, "active": False}]}).encode()
+        if FakeRf.trickle:  # one byte every 0.3 s: 20 s for the whole answer
+            for ch in b"HTTP/1.1 200 OK\r\n\r\n" + body:
+                try:
+                    self.wfile.write(bytes([ch]))
+                    self.wfile.flush()
+                except OSError:
+                    return
+                time.sleep(0.3)
+            return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -94,7 +114,8 @@ def map_file(hub, slot):
 def main():
     cfg = config_dir()
     ble_map = {"activities": {"10": {"OK": {"action": "device_cmd", "deviceId": "7", "command": "Select"}}}}
-    rf = http.server.HTTPServer(("127.0.0.1", RF_PORT), FakeRf)
+    rf = http.server.ThreadingHTTPServer(("127.0.0.1", RF_PORT), FakeRf)
+    rf.daemon_threads = True
     threading.Thread(target=rf.serve_forever, daemon=True).start()
     try:
         with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
@@ -150,6 +171,7 @@ def main():
             check(st == 200 and isinstance(r, dict) and r.get("ok") is True, "only its own map page: deleted", "%s %s" % (st, r))
             check("6" not in device_ids(hub), "device 6 gone")
             check("6" not in map_file(hub, 1).get("devices", {}), "its own page left the map")
+            check("98" not in map_file(hub, 1).get("devices", {}), "the leftover page of a deleted device went too")
             st, r = hub.http_post("/api/device-save", {"name": "New Player", "type": "MediaPlayer"})
             new_id = str(r.get("deviceId", r.get("id")))
             check(st == 200 and new_id in ("3", "6") and new_id not in map_file(hub, 1).get("devices", {}),
@@ -163,6 +185,42 @@ def main():
             maps = users_of(r, "remote_map")
             check(st == 409 and not users_of(r, "device") and len(maps) == 1,
                   "after the trigger went: only the screen button is left", "%s %s" % (st, r))
+
+        print("[-] hub_rf says the slot is not active, its version file exists: counted")
+        FakeRf.slot1_active = False
+        with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
+                        extra_data_files={"remote_slot1_version.json": {"slot": 1, "version": "2.4.2"}}) as hub:
+            st, r = hub.http_post("/api/device-delete", {"deviceId": "4"})
+            maps = {u.get("slot"): u.get("keys") for u in users_of(r, "remote_map")}
+            check(st == 409 and maps == {1: ["activities/11/screen_buttons/0"]}, "slot 1 counted by its version file",
+                  "%s %s" % (st, r))
+        FakeRf.slot1_active = True
+
+        print("[-] a slow hub_rf does not hold the request")
+        FakeRf.trickle = True
+        with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)}) as hub:
+            t0 = time.time()
+            st, r = hub.http_post("/api/device-delete", {"deviceId": "4"}, timeout=10)
+            took = time.time() - t0
+            check(st == 409 and took < 2.5, "answered in %.1f s" % took, "%s %s" % (st, r))
+        FakeRf.trickle = False
+
+        print("[-] a large compact map stays readable after a delete rewrote it")
+        big = {"activities": {"10": {}, "12": {"A": {"type": "command", "action": "device_cmd", "deviceId": "3", "command": "x"}}},
+               "devices": {}}
+        for i in range(1750):
+            big["activities"]["10"]["K%04d" % i] = {"type": "command", "action": "device_cmd", "deviceId": "1",
+                                                     "command": "Command%04d" % i}
+        compact = json.dumps(big, separators=(",", ":"))
+        with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
+                        extra_data_files={"remote_slot1_map.json": compact}) as hub:
+            st, r = hub.http_post("/api/activity-delete", {"id": "12"})
+            size = os.path.getsize(os.path.join(hub.data_dir, "remote_slot1_map.json"))
+            st2, m2 = hub.http_get("/api/rf-mapping?slot=1")
+            check(st == 200 and size <= len(compact) and size < 200000 and "12" not in map_file(hub, 1)["activities"]
+                  and len((m2 or {}).get("activities", {}).get("10", {})) == 1750,
+                  "map written compact (%d bytes, was %d) and still read by GET /api/rf-mapping" % (size, len(compact)),
+                  "%s %s" % (st2, str(m2)[:200]))
 
         print("[-] without hub_rf: a slot counts when its version file exists")
         rf.shutdown()
