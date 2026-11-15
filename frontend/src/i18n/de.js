@@ -818,6 +818,7 @@ export default {
     "add_user": "Benutzer hinzufügen",
     "api_tokens": "API-Token",
     "token_owner": "Besitzer: {owner}",
+    "auth_tokens_unreadable": "Der Hub kann seine Zugriffstoken-Datei nicht lesen, daher werden ihre Token nicht aufgeführt. Ein Admin kann die Datei mit POST /api/auth/tokens-reset beiseitelegen; danach muss jedes Token neu erstellt werden.",
     "generate_token": "Token erstellen",
     "delete_user": "Benutzer löschen",
 };

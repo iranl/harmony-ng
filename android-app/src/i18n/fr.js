@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Connexion...",
     "app_token_not_deleted": "La connexion précédente n'a pas pu être supprimée sur le Hub : un admin peut la supprimer dans la liste des jetons.",
     "hub_password_for_user": "Saisissez le mot de passe pour vous connecter avec le nouvel utilisateur.",
+    "auth_tokens_unreadable": "Le Hub ne peut pas lire son fichier de jetons d'accès, ses jetons ne sont donc pas listés. Un admin peut mettre le fichier de côté avec POST /api/auth/tokens-reset ; chaque jeton doit ensuite être recréé.",
     "token_owner": "Propriétaire : {owner}",
     "quick_map_nav_vol_desc": "Assignez rapidement les boutons standard de navigation et de volume à l'appareil sélectionné.",
     "quick_shortcuts": "Raccourcis rapides",

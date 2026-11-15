@@ -1,4 +1,4 @@
-import { createAppToken, revokeAppToken, loginFields } from '../app_token.js';
+import { createAppToken, revokeAppToken, loginFields, finishReplace } from '../app_token.js';
 import { saveHub, getSavedHubs } from '../storage.js';
 import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 
@@ -408,12 +408,12 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
 
   // App: trade the password for an access token, keep only the token in the Hub profile
   async loginApp(username, password) {
-    const r = await createAppToken(this.baseUrl, username, password);
     // the profile as stored now (the client's copy can be older)
     const old = (this.hub.id && (await getSavedHubs()).find(h => h.id === this.hub.id)) || this.hub;
-    // the previous login is dropped: delete it on the Hub too
-    let oldKept = false;
-    if (old && old.token && old.token !== r.token) oldKept = !(await revokeAppToken(this.baseUrl, old));
+    // the previous login is dropped: deleted on the Hub before the new token is made
+    const replace = { baseUrl: this.baseUrl, hub: old };
+    const r = await createAppToken(this.baseUrl, username, password, { replace });
+    const oldKept = await finishReplace(r, replace);
     const hub = { ...this.hub, username: r.username, ...loginFields(r) };
     if (hub.id) await saveHub(hub);
     this.hub = hub;

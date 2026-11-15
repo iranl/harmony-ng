@@ -818,6 +818,7 @@ export default {
     "add_user": "Aggiungi utente",
     "api_tokens": "Token API",
     "token_owner": "Proprietario: {owner}",
+    "auth_tokens_unreadable": "L'Hub non riesce a leggere il file dei token di accesso, quindi i suoi token non sono elencati. Un admin può spostare il file con POST /api/auth/tokens-reset; poi ogni token va creato di nuovo.",
     "generate_token": "Crea token",
     "delete_user": "Elimina utente",
 };

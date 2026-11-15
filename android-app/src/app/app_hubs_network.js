@@ -1,6 +1,6 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
-import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck } from '../app_token.js';
+import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
   getHarmonyManufacturers,
@@ -628,13 +628,14 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         // The password is used once, to create the app's access token; only the token is saved
         stat.textContent = t('hub_logging_in', 'Logging in...');
         let r;
+        const replace = prev && prev.token ? { baseUrl: hubBaseUrl(prev), hub: prev } : null;
         try {
-          r = await createAppToken(hubBaseUrl(next), next.username, password);
+          r = await createAppToken(hubBaseUrl(next), next.username, password, { replace });
         } catch (err) {
           stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(err.message)}</span>`;
           return;
         }
-        if (prev && prev.token && prev.token !== r.token) oldKept = !(await revokeAppToken(hubBaseUrl(prev), prev));
+        oldKept = await finishReplace(r, replace);
         Object.assign(next, { username: r.username || next.username }, loginFields(r));
       } else if (prev && prev.token) {
         if (next.username !== prevUser) {

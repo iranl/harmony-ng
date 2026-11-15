@@ -9,9 +9,24 @@ export const APP_TOKEN_NAME = 'Android app';
 // The Hub keeps names of up to 63 bytes.
 export function appTokenName(userAgent = (typeof navigator !== 'undefined' ? navigator.userAgent : ''), now = new Date()) {
   const m = /Android [\d.]+; ([^;)]+?)(?: Build\/|\)|;)/.exec(userAgent || '');
-  const model = m ? m[1].trim().slice(0, 24) : '';
   const date = now.toISOString().slice(0, 10);
+  const fixed = `${APP_TOKEN_NAME} (, ${date})`;
+  // the model gets the bytes left, cut between characters (never inside a UTF-8 sequence)
+  const model = m ? cutUtf8(m[1].trim(), 63 - utf8Length(fixed)) : '';
   return `${APP_TOKEN_NAME} (${model ? `${model}, ` : ''}${date})`;
+}
+
+function utf8Length(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+function cutUtf8(text, maxBytes) {
+  let out = '';
+  for (const ch of text) {
+    if (utf8Length(out + ch) > maxBytes) break;
+    out += ch;
+  }
+  return out.trim();
 }
 const SESSION_KEYS = ['harmony_auth_token', 'harmony_auth_user', 'harmony_auth_role'];
 
@@ -51,7 +66,10 @@ async function hubCall(baseUrl, path, { method = 'GET', token = null, body, time
 // Log in with the password, create the app's token, end the session. Returns
 // { token, tokenId, username, role }, or { authOff: true, username } when the Hub has no
 // authentication (then nothing needs to be kept). Throws when the Hub refuses the login.
-export async function createAppToken(baseUrl, username, password, { timeout = 6000, name = appTokenName() } = {}) {
+// replace: { baseUrl, hub } of the login this one replaces. Its token is deleted once the new
+// login is accepted and before the new token is made (an account at its token limit can then
+// log in again); the result says oldRevoked: true, or false when the Hub could not delete it.
+export async function createAppToken(baseUrl, username, password, { timeout = 6000, name = appTokenName(), replace = null } = {}) {
   // Authentication off: nothing to keep. Asked first, because firmware before 2.4.1 would make
   // a standing admin token while authentication is off.
   const me = await hubCall(baseUrl, '/api/auth/me', { timeout });
@@ -65,21 +83,23 @@ export async function createAppToken(baseUrl, username, password, { timeout = 60
   const session = login.data.access_token;
   const user = login.data.username || username;
   let keepSession = false;
+  let oldRevoked;
+  if (replace && replace.hub && replace.hub.token) oldRevoked = await revokeAppToken(replace.baseUrl, replace.hub);
   try {
     const made = await hubCall(baseUrl, '/api/auth/tokens', {
       method: 'POST', token: session, body: { name, role: login.data.role || 'user' }, timeout
     });
-    if (made.status === 409 && /authentication/i.test(made.data.error || '')) return { authOff: true, username: user };
+    if (made.status === 409 && /authentication/i.test(made.data.error || '')) return { authOff: true, username: user, oldRevoked };
     if (made.status === 403) {
       // A Hub that lets only admins create tokens: keep the session token instead (it ends when
       // the Hub restarts or after a day, then the app asks for the login again)
       keepSession = true;
-      return { token: session, tokenId: null, username: user, role: login.data.role || 'user' };
+      return { token: session, tokenId: null, username: user, role: login.data.role || 'user', oldRevoked };
     }
     if ((made.status !== 201 && made.status !== 200) || !made.data.token) {
       throw new Error(made.data.error || `Cannot create an access token (HTTP ${made.status})`);
     }
-    return { token: made.data.token, tokenId: made.data.id || null, username: user, role: made.data.role || login.data.role || 'user' };
+    return { token: made.data.token, tokenId: made.data.id || null, username: user, role: made.data.role || login.data.role || 'user', oldRevoked };
   } finally {
     // the session was only needed to create the token
     if (!keepSession) {
@@ -120,15 +140,24 @@ export async function revokeAppToken(baseUrl, hub, { timeout = 4000 } = {}) {
     if (!hub.tokenId) {
       // a session token (see createAppToken)
       const r = await hubCall(baseUrl, '/api/auth/logout', { method: 'POST', token: hub.token, timeout });
-      return r.status === 200;
+      return r.status === 200 || r.status === 401;
     }
     const r = await hubCall(baseUrl, `/api/auth/tokens?id=${encodeURIComponent(hub.tokenId)}`, {
       method: 'DELETE', token: hub.token, timeout
     });
-    return r.status === 200 || r.status === 404;
+    // 404: already deleted; 401: the token no longer works (deleted, or its account is gone)
+    return r.status === 200 || r.status === 404 || r.status === 401;
   } catch {
     return false;
   }
+}
+
+// After a login that replaced old (createAppToken with replace): delete the old login now if that
+// was not possible before. Returns true when the Hub may still hold it (tell the user).
+export async function finishReplace(result, old) {
+  if (!old || !old.hub || !old.hub.token || old.hub.token === result.token) return false;
+  if (result.oldRevoked === true) return false;
+  return !(await revokeAppToken(old.baseUrl, old.hub));
 }
 
 // The profile fields that hold the login (never a password)
@@ -148,9 +177,10 @@ export async function migrateStoredPasswords({ create = createAppToken, timeout 
     if (!hub.password) continue;
     let fields = {};
     try {
-      const r = await create(hubBaseUrl(hub), hub.username || '', hub.password, { timeout });
+      const r = await create(hubBaseUrl(hub), hub.username || '', hub.password,
+        { timeout, replace: { baseUrl: hubBaseUrl(hub), hub } });
       if (r && r.token) {
-        await revokeAppToken(hubBaseUrl(hub), hub);
+        if (r.oldRevoked === false) await revokeAppToken(hubBaseUrl(hub), hub);
         fields = loginFields(r);
         traded++;
       } else if (r && r.authOff) {

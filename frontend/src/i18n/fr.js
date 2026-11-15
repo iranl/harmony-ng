@@ -818,6 +818,7 @@ export default {
     "add_user": "Ajouter un utilisateur",
     "api_tokens": "Jetons API",
     "token_owner": "Propriétaire : {owner}",
+    "auth_tokens_unreadable": "Le Hub ne peut pas lire son fichier de jetons d'accès, ses jetons ne sont donc pas listés. Un admin peut mettre le fichier de côté avec POST /api/auth/tokens-reset ; chaque jeton doit ensuite être recréé.",
     "generate_token": "Créer un jeton",
     "delete_user": "Supprimer l'utilisateur",
 };

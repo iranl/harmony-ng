@@ -17,8 +17,8 @@ const native = on => { globalThis.Capacitor = on ? { isNativePlatform: () => tru
 // Fake Hubs by address: 192.168.1.20 answers, 192.168.1.21 is unreachable
 let calls = [];
 let hubState;
-function resetHub({ tokensStatus = 201, authOn = true, tokensError = 'refused' } = {}) {
-  hubState = { tokensStatus, authOn, tokensError, next: 1, pats: new Map(), sessions: new Set(), names: [] };
+function resetHub({ tokensStatus = 201, authOn = true, tokensError = 'refused', limit = 100 } = {}) {
+  hubState = { tokensStatus, authOn, tokensError, limit, next: 1, pats: new Map(), sessions: new Set(), names: [] };
 }
 resetHub();
 globalThis.fetch = async (url, opts = {}) => {
@@ -48,6 +48,7 @@ globalThis.fetch = async (url, opts = {}) => {
     if (!hubState.sessions.has(bearer)) return reply(401, { ok: false });
     if (!hubState.authOn) return reply(409, { ok: false, error: 'Turn on authentication before creating access tokens' });
     if (hubState.tokensStatus !== 201) return reply(hubState.tokensStatus, { ok: false, error: hubState.tokensError });
+    if (hubState.pats.size >= hubState.limit) return reply(409, { ok: false, error: 'This account already has 1 access tokens: delete one first' });
     const id = `tok_${hubState.next}`;
     const tok = `pat_${hubState.next++}`;
     hubState.pats.set(id, tok);
@@ -78,6 +79,7 @@ const { HarmonyAppHubsNetwork } = await import('../android-app/src/app/app_hubs_
 const t = makeChecker('Android app keeps an access token, never the Hub password');
 const rawHubs = () => localStorage.getItem('harmony_saved_hubs') || '';
 const stored = id => JSON.parse(rawHubs()).find(h => h.id === id);
+const living = () => JSON.parse(rawHubs()).find(h => h.host === '192.168.1.20');
 const HUB = { id: 'hub_1', name: 'Living', host: '192.168.1.20', port: 8089 };
 
 await t.check('start: a saved password becomes a token, no password is left', async () => {
@@ -412,22 +414,50 @@ await t.check('header badge shows the account, not the token name', async () => 
   assert.equal(a.currentUser, 'alice');
 });
 
-await t.check('token list rows show the owner', async () => {
-  const { showTokenOwners } = await import('../android-app/src/app/app_auth_users.js');
-  const list = document.createElement('div');
-  const row = document.createElement('div');
-  const info = document.createElement('div');
-  const meta = document.createElement('div');
-  meta.className = 'mini muted';
-  info.appendChild(meta);
-  row.appendChild(info);
-  const btn = document.createElement('button');
-  btn.className = 'btn-del-pat';
-  btn.setAttribute('data-id', 'tok_1');
-  row.appendChild(btn);
-  list.appendChild(row);
-  showTokenOwners(list, [{ id: 'tok_1', owner: 'alice' }]);
-  assert.match(meta.textContent, /Owner: alice/);
+await t.check('legacy Users list with an operator account, token list with owners', async () => {
+  native(false);
+  const { HarmonyAppAuthUsers } = await import('../android-app/src/app/app_auth_users.js');
+  const box = id => {
+    const e = document.getElementById(id) || document.createElement('div');
+    e.setAttribute('id', id);
+    if (!e.parentNode) body.appendChild(e);
+    // the stand-in DOM does not parse HTML: make the rows' buttons and info lines from it
+    Object.defineProperty(e, 'innerHTML', {
+      configurable: true,
+      get() { return this._html || ''; },
+      set(v) {
+        this.textContent = '';
+        this._html = String(v);
+        for (const m of this._html.matchAll(/data-id="([^"]+)"/g)) {
+          const row = document.createElement('div');
+          const meta = document.createElement('div');
+          meta.className = 'mini muted';
+          const btn = document.createElement('button');
+          btn.className = 'btn-del-pat';
+          btn.setAttribute('data-id', m[1]);
+          row.appendChild(meta);
+          row.appendChild(btn);
+          this.appendChild(row);
+        }
+      }
+    });
+    return e;
+  };
+  const users = box('usersListContainer');
+  const toks = box('tokensListContainer');
+  const app = Object.create(HarmonyAppAuthUsers.prototype);
+  app.renderSwitchCheckNotice = () => {};
+  app.checkAuthStatus = () => {};
+  app.applyRoleRestrictions = () => {};
+  app.client = {
+    getUsers: async () => ({ ok: true, auth_enabled: true, users: [{ username: 'admin', role: 'admin' }, { username: 'guest', role: 'user' }] }),
+    getTokens: async () => ({ ok: true, tokens: [{ id: 'tok_1', name: 'Android app (Pixel 7, 2026-11-15)', role: 'user', owner: 'guest', created_at: 1 }] }),
+  };
+  await app.loadUserAccounts();
+  assert.ok(!/Failed|not defined/.test(users.innerHTML), users.innerHTML.slice(0, 120));
+  assert.match(users.innerHTML, /guest/);
+  await app.loadPersonalAccessTokens();
+  assert.match(toks.textContent, /Owner: guest/);
 });
 
 await t.check('new UI token list shows the owner', async () => {
@@ -440,6 +470,55 @@ await t.check('new UI token list shows the owner', async () => {
   assert.ok(mount, 'no token list');
   assert.match(mount.textContent, /Owner: alice/);
   view.remove();
+});
+
+await t.check('an account at its token limit can log in again (old token deleted first)', async () => {
+  native(true);
+  resetHub({ limit: 1 });
+  const c = new HarmonyClient(living());
+  await c.login('alice', 'secret');
+  const first = living();
+  calls = [];
+  const r = await c.login('alice', 'secret');
+  assert.equal(r.ok, true);
+  const order = calls.filter(x => x.path.startsWith('/api/auth/tokens')).map(x => x.method);
+  assert.deepEqual(order, ['DELETE', 'POST'], `order ${order}`);
+  assert.ok(!hubState.pats.has(first.tokenId));
+  assert.equal(hubState.pats.size, 1);
+  resetHub();
+});
+
+await t.check('a token the Hub no longer accepts (401) counts as deleted at log out', async () => {
+  native(true);
+  resetHub();
+  const c = new HarmonyClient(living());
+  await c.login('alice', 'secret');
+  hubState.authOn = true;
+  hubState.pats.clear();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => (opts.method === 'DELETE'
+    ? new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401 })
+    : realFetch(url, opts));
+  const out = await c.logout();
+  globalThis.fetch = realFetch;
+  assert.equal(out.revoked, true);
+});
+
+await t.check('the error text of the Hub is shown when the token file cannot be read', async () => {
+  native(true);
+  resetHub({ tokensStatus: 500, tokensError: 'config/tokens.json cannot be read ... POST /api/auth/tokens-reset ...' });
+  const c = new HarmonyClient(living());
+  await assert.rejects(c.login('alice', 'secret'), /tokens-reset/);
+  resetHub();
+});
+
+await t.check('token name: a long non-Latin model is cut between characters, the date kept', async () => {
+  const { appTokenName } = appToken;
+  const ua = 'Mozilla/5.0 (Linux; Android 14; ' + 'Ж'.repeat(40) + ' Build/X; wv)';
+  const name = appTokenName(ua, new Date('2026-11-15T10:00:00Z'));
+  assert.ok(Buffer.byteLength(name) <= 63, `${Buffer.byteLength(name)} bytes`);
+  assert.ok(name.endsWith('2026-11-15)'), name);
+  assert.ok(!name.includes('\uFFFD'));
 });
 
 t.finish();

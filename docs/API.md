@@ -2641,7 +2641,7 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   A token whose owner account is gone carries `"owner_missing": true`: it is already refused (a token
   ends with its account) and is removed from the file when an account of that name is made again.
   When the token file cannot be read at that moment, `to_check` also has `"tokens_unreadable": true`
-  (its tokens are not listed).
+  (its tokens are not listed; both web UIs say so).
   Both web UIs show the list right after the switch, with Delete per item (`DELETE /api/users`,
   `DELETE /api/auth/tokens`; deleting an account also deletes its tokens; one already gone counts as
   deleted) and Keep all; the account logged in is never offered. The switch ends every session, so

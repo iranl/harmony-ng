@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Aanmelden...",
     "app_token_not_deleted": "De vorige aanmelding kon niet op de Hub worden verwijderd: een beheerder kan deze in de tokenlijst verwijderen.",
     "hub_password_for_user": "Typ het wachtwoord om aan te melden als de nieuwe gebruiker.",
+    "auth_tokens_unreadable": "De Hub kan zijn bestand met toegangstokens niet lezen, dus de tokens worden niet getoond. Een beheerder kan het bestand opzijzetten met POST /api/auth/tokens-reset; daarna moet elk token opnieuw worden gemaakt.",
     "token_owner": "Eigenaar: {owner}",
     "quick_map_nav_vol_desc": "Wijs snel standaard navigatie- en volumeknoppen toe aan een geselecteerd apparaat.",
     "quick_shortcuts": "Snelle sneltoetsen",

@@ -95,7 +95,6 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       }
       html += '</div>';
       listEl.innerHTML = html;
-      showTokenOwners(listEl, tokens);
 
       listEl.querySelectorAll('.btn-del-user').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -273,6 +272,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       }
       html += '</div>';
       listEl.innerHTML = html;
+      showTokenOwners(listEl, tokens);
 
       listEl.querySelectorAll('.btn-del-pat').forEach(btn => {
         btn.addEventListener('click', async () => {

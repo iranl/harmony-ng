@@ -15,6 +15,8 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
+const TOKENS_UNREADABLE_TEXT = 'The Hub cannot read its access token file, so its tokens are not listed. An admin can move the file aside with POST /api/auth/tokens-reset; every token then has to be created again.';
+
 // The Hub's "to_check" object (the reply that turned authentication on) as a flat list of
 // {kind, id, label}, without the account logged in
 export function checkItems(toCheck, currentUser = '') {
@@ -35,7 +37,9 @@ export function checkItems(toCheck, currentUser = '') {
 // Keep all closes. Nothing else changes: whatever is not deleted keeps working.
 export function askToCheck(client, toCheck, currentUser = '') {
   const items = checkItems(toCheck, currentUser);
-  if (!items.length || typeof document === 'undefined') return Promise.resolve();
+  // the Hub could not read its token file: its tokens are not in the list, say so
+  const tokensUnreadable = Boolean(toCheck && toCheck.tokens_unreadable);
+  if ((!items.length && !tokensUnreadable) || typeof document === 'undefined') return Promise.resolve();
   return new Promise((resolve) => {
     const status = el('p', { style: 'font-size: 12px; margin: 8px 0 0; color: var(--danger); min-height: 1em;' });
     const list = el('div', { style: 'display: flex; flex-direction: column; gap: 6px; margin-top: 10px;' });
@@ -75,6 +79,7 @@ export function askToCheck(client, toCheck, currentUser = '') {
       ]),
       el('div', { class: 'modal-sheet-body', style: 'padding-top: 10px; padding-bottom: 12px;' }, [
         el('p', { style: 'font-size: 13px; line-height: 1.5; margin: 0;', text: t('auth_check_intro', 'Authentication is on. Check the accounts and access tokens that exist on the Hub and delete any you do not recognise.') }),
+        ...(tokensUnreadable ? [el('p', { class: 'auth-tokens-unreadable', style: 'font-size: 12px; line-height: 1.5; margin: 8px 0 0; color: var(--danger);', text: t('auth_tokens_unreadable', TOKENS_UNREADABLE_TEXT) })] : []),
         list,
         status
       ]),

@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Logging in...",
     "app_token_not_deleted": "The previous login could not be deleted on the Hub: an admin can delete it in the token list.",
     "hub_password_for_user": "Type the password to log in as the new user.",
+    "auth_tokens_unreadable": "The Hub cannot read its access token file, so its tokens are not listed. An admin can move the file aside with POST /api/auth/tokens-reset; every token then has to be created again.",
     "token_owner": "Owner: {owner}",
     "quick_map_nav_vol_desc": "Quickly map standard navigation and volume buttons to a selected device.",
     "quick_shortcuts": "Quick Shortcuts",
