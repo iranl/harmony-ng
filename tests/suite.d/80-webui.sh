@@ -9,3 +9,4 @@ webui_node_test() {
 }
 echo "[-] Running web UI tests..."
 webui_node_test test_frontend_auth.mjs
+webui_node_test test_frontend_connection.mjs
