@@ -20,3 +20,5 @@ python3 "$SCRIPT_DIR/test_update_sh.py"
 python3 "$SCRIPT_DIR/test_update_api_once.py"
 # factory_reset.sh: supervisors stopped, hub_sync and read-only remount before the reset
 python3 "$SCRIPT_DIR/test_factory_reset_sh.py"
+# init.sh: profile files, dropbear wrapper and links rewritten only when they change
+python3 "$SCRIPT_DIR/test_init_flash_writes.py"

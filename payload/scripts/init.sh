@@ -7,6 +7,25 @@ sync_fs() {
   /data/harmony/bin/hub_sync 2>/dev/null || /cache/bin/sync 2>/dev/null || sync 2>/dev/null || true
 }
 
+# / is a union over /data, so these are flash writes: a file is rewritten only when its content
+# changes (every start used to rewrite them), through a temporary name, so a power cut never
+# leaves it empty (the dropbear wrapper is what starts SSH). Usage: write_if_changed PATH MODE
+write_if_changed() {
+  _wic_new=$(cat)
+  if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$_wic_new" ]; then
+    return 0
+  fi
+  printf '%s\n' "$_wic_new" > "$1.tmp" && chmod "$2" "$1.tmp" && mv -f "$1.tmp" "$1"
+}
+
+# A symlink is replaced only when it does not point there already. Usage: link_if_changed TARGET LINK
+link_if_changed() {
+  if [ -L "$2" ] && [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then
+    return 0
+  fi
+  ln -sf "$1" "$2"
+}
+
 echo "$(date) harmony init start: $1" >> "$LOG"
 
 case "$1" in
@@ -75,7 +94,7 @@ echo "$$" > /tmp/harmony_watchdog.pid
 ) &
 
 # 0. Neuter watchdog and crash reporting immediately
-touch /etc/nowatchdog 2>/dev/null || true
+[ -e /etc/nowatchdog ] || touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog 2>/dev/null || true
 killall -9 watchdog 2>/dev/null || true
 
@@ -141,23 +160,22 @@ rm -f /data/bin/sh /data/bin/ash /data/bin/busybox 2>/dev/null || true
 mkdir -p /data/harmony/bin /data/harmony/config 2>/dev/null || true
 if [ -x /cache/bin/busybox ]; then
   /cache/bin/busybox --install -s /cache/bin 2>/dev/null || true
-  ln -sf /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
+  link_if_changed /cache/bin/busybox /data/harmony/bin/busybox 2>/dev/null || true
 fi
-ln -sf /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
-ln -sf /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
+link_if_changed /data/harmony/bin/hub_sync /data/harmony/bin/sync 2>/dev/null || true
+link_if_changed /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
 
 [ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
-[ -f /data/harmony/safe_reboot.sh ] && ln -sf /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+[ -f /data/harmony/safe_reboot.sh ] && link_if_changed /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
-cat <<'EOF' > /etc/profile.d/00-harmony.sh
+write_if_changed /etc/profile.d/00-harmony.sh 644 <<'EOF'
 export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
-chmod 644 /etc/profile.d/00-harmony.sh 2>/dev/null || true
 
 for prof in /root/.profile /home/root/.profile; do
   mkdir -p "$(dirname "$prof")" 2>/dev/null || true
-  cat <<'EOF' > "$prof"
+  write_if_changed "$prof" 644 <<'EOF'
 BB_PATH=""
 if [ -x /cache/bin/busybox ]; then
     BB_PATH=/cache/bin/busybox
@@ -171,18 +189,16 @@ if [ -t 0 ] && [ -n "$BB_PATH" ] && [ -z "$BB_EXTENDED" ]; then
 fi
 export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
-  chmod 644 "$prof" 2>/dev/null || true
 done
 
 _dropbear_bin=""
 [ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
 if [ -n "$_dropbear_bin" ]; then
-  cat <<EOF > /usr/sbin/dropbear
+  write_if_changed /usr/sbin/dropbear 755 <<EOF
 #!/bin/sh
 export PATH=/data/harmony/bin:/cache/bin:\$PATH
 exec "$_dropbear_bin" -K 300 "\$@"
 EOF
-  chmod 755 /usr/sbin/dropbear
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
     /usr/sbin/dropbear
   fi
