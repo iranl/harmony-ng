@@ -294,6 +294,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Report what would be backed up without saving files")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:
         ssh_hostkeys.reset_host(args.host)
 

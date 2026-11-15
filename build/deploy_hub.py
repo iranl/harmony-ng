@@ -719,6 +719,8 @@ def main() -> None:
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:
         ssh_hostkeys.reset_host(target_host)
 

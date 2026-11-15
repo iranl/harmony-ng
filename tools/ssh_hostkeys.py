@@ -66,21 +66,31 @@ def known_hosts_problem() -> str | None:
 
     ssh with accept-new that cannot write the file only logs that at INFO level (hidden by
     the LogLevel=ERROR the tools use) and connects anyway: no key would ever be recorded or
-    checked. So the tools check the file themselves."""
+    checked. So the tools try what ssh will do: open the file for appending when it exists
+    (a dangling link fails here), or create a file in its folder when it does not. A real
+    open also catches, on Windows, an access list that denies writing. Nothing is left behind."""
     path = known_hosts_file()
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     except OSError as e:
         return f"cannot create {path.parent}: {e.strerror or e}"
-    if not os.access(path.parent, os.W_OK | os.X_OK):
-        return f"{path.parent} is not writable"
-    if path.exists() and (not path.is_file() or not os.access(path, os.R_OK | os.W_OK)):
-        return f"{path} is not a readable and writable file"
+    try:
+        if path.exists() or path.is_symlink():
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
+            os.close(fd)
+        else:
+            fd, probe = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
+            os.close(fd)
+            os.unlink(probe)
+    except OSError as e:
+        return f"cannot write {path}: {e.strerror or e}"
     return None
 
 
 def require_known_hosts() -> None:
-    """Stop the tool when the known_hosts file cannot be written (checked once per file)."""
+    """Stop the tool when the known_hosts file cannot be written (checked once per file). Every
+    tool calls it at the start of main(), before any USB or device work, so the stop always
+    comes with nothing changed."""
     key = str(known_hosts_file())
     if key in _checked_files:
         return
@@ -165,7 +175,12 @@ def forget_host(host: str, port: int = 22, path: pathlib.Path | None = None) -> 
 def reset_host(host: str, port: int = 22) -> None:
     """--reset-host-key: forget the recorded key and say so."""
     require_known_hosts()
-    removed = forget_host(host, port)
+    try:
+        removed = forget_host(host, port)
+    except OSError as e:
+        # Forgetting rewrites the file through a temporary file in its folder
+        sys.exit(f"[-] Cannot remove the SSH host key of {host} from {known_hosts_file()}: {e.strerror or e}.\n"
+                 f"    The folder must be writable for {RESET_OPTION}. Nothing was changed.")
     if removed:
         print(f"[*] Removed the recorded SSH host key of {host} from {known_hosts_file()}; "
               "the next connection records the key the device shows now.")

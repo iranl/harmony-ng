@@ -983,6 +983,8 @@ def main():
         print("[+] The remote has been reverted and is rebooting into official stock firmware!")
         sys.exit(0)
 
+    # Before step 1 or 2 change the remote: a stop here leaves it untouched
+    ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:
         ssh_hostkeys.reset_host(REMOTE_IP)
 

@@ -431,6 +431,8 @@ def main() -> None:
     parser.add_argument("--skip-usb-root", action="store_true", help="Skip USB HID root (use if Hub SSH is already online)")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
 
     print("=" * 72)
     print(" HARMONY HUB ALL-IN-ONE STOCK & CONFIGURATION RESTORE TOOL")

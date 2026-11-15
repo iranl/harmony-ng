@@ -265,6 +265,8 @@ def main() -> None:
                         help="Run remote_ui in no-screen mode (for remotes with a broken screen)")
     ssh_hostkeys.add_reset_option(parser, "the remote")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
     if args.reset_host_key:
         ssh_hostkeys.reset_host(args.ip)
 

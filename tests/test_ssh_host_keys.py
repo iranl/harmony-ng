@@ -123,6 +123,36 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(cfg.get("hostkeyalias"), "myhub")
         self.assertEqual(cfg.get("checkhostip"), "no")
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
+    def test_writability_is_tried_not_guessed(self):
+        base = pathlib.Path(self.tmp.name)
+        # A writable file in a folder this account cannot write: ssh can append, so no stop
+        ro_dir = base / "ro_dir"
+        ro_dir.mkdir()
+        (ro_dir / "known_hosts").write_text("")
+        ro_dir.chmod(0o555)
+        self.addCleanup(lambda: ro_dir.exists() and ro_dir.chmod(0o755))
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(ro_dir / "known_hosts")}):
+            self.assertIn("StrictHostKeyChecking=accept-new", ssh_hostkeys.ssh_options("192.168.1.20"))
+            # but --reset-host-key needs the folder: a clear stop, no traceback
+            (ro_dir / "known_hosts").chmod(0o644)
+            with self.assertRaises(SystemExit) as cm:
+                with mock.patch.object(ssh_hostkeys, "forget_host", side_effect=PermissionError(13, "Permission denied")):
+                    ssh_hostkeys.reset_host("192.168.1.20")
+            self.assertIn(ssh_hostkeys.RESET_OPTION, str(cm.exception.code))
+        # A link to a file in a folder that does not exist: ssh could not write it
+        link = base / "dangling_known_hosts"
+        link.symlink_to(base / "missing" / "known_hosts")
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(link)}):
+            with self.assertRaises(SystemExit) as cm:
+                ssh_hostkeys.ssh_options("192.168.1.20")
+            self.assertIn(str(link), str(cm.exception.code))
+        # The check leaves nothing behind
+        fresh = base / "fresh" / "known_hosts"
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fresh)}):
+            ssh_hostkeys.ssh_options("192.168.1.20")
+        self.assertEqual(list(fresh.parent.iterdir()), [])
+
     def test_forget_by_any_case(self):
         self.kh.parent.mkdir(parents=True)
         self.kh.write_text(f"localhost ssh-ed25519 {KEY}\nharmonyhub.local ssh-ed25519 {KEY}\n")
@@ -313,7 +343,20 @@ class ToolRuns(unittest.TestCase):
 
 
 SSHD = "/usr/sbin/sshd"
-SSHD_PORT = 9281
+SSHD_PORTS = range(9281, 9300)  # this test group's port range
+
+
+def free_port() -> int | None:
+    """A port of SSHD_PORTS nothing listens on now, or None."""
+    import socket
+    for port in SSHD_PORTS:
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    return None
 
 
 @unittest.skipUnless(os.path.isfile(SSHD) and shutil.which("ssh") and shutil.which("ssh-keygen")
@@ -324,6 +367,9 @@ class RealOpenSsh(unittest.TestCase):
     and forgetting by any case or by an ssh_config alias lets the next connection in."""
 
     def setUp(self):
+        self.port = free_port()
+        if self.port is None:
+            self.skipTest("no free port in this test's range")
         self.tmp = tempfile.TemporaryDirectory()
         self.d = pathlib.Path(self.tmp.name)
         for name in ("hostkey", "hostkey2", "userkey"):
@@ -342,7 +388,7 @@ class RealOpenSsh(unittest.TestCase):
     def start(self, hostkey: str) -> None:
         self.stop()
         conf = self.d / "sshd_config"
-        conf.write_text(f"Port {SSHD_PORT}\nListenAddress 127.0.0.1\nHostKey {self.d / hostkey}\n"
+        conf.write_text(f"Port {self.port}\nListenAddress 127.0.0.1\nHostKey {self.d / hostkey}\n"
                         f"AuthorizedKeysFile {self.d / 'auth'}\nStrictModes no\nUsePAM no\n"
                         f"PasswordAuthentication no\nPidFile {self.d / 'pid'}\n")
         self.proc = subprocess.Popen([SSHD, "-D", "-e", "-f", str(conf)], stdout=subprocess.DEVNULL,
@@ -350,11 +396,12 @@ class RealOpenSsh(unittest.TestCase):
         import socket
         import time
         for _ in range(50):
-            with socket.socket() as s:
-                if s.connect_ex(("127.0.0.1", SSHD_PORT)) == 0:
-                    return
+            # Our sshd first: a listener of someone else must not be taken for it
             if self.proc.poll() is not None:
                 self.skipTest(f"sshd does not start here: {self.proc.stderr.read()[:200]}")
+            with socket.socket() as s:
+                if s.connect_ex(("127.0.0.1", self.port)) == 0:
+                    return
             time.sleep(0.1)
         self.skipTest("sshd did not listen")
 
@@ -367,7 +414,7 @@ class RealOpenSsh(unittest.TestCase):
             self.proc = None
 
     def ssh(self, host: str, *extra: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["ssh", *extra, "-o", "BatchMode=yes", "-o", "LogLevel=ERROR", "-p", str(SSHD_PORT),
+        return subprocess.run(["ssh", *extra, "-o", "BatchMode=yes", "-o", "LogLevel=ERROR", "-p", str(self.port),
                                "-i", str(self.d / "userkey"), *ssh_hostkeys.ssh_options(host), host, "true"],
                               capture_output=True, text=True, timeout=30)
 
@@ -384,7 +431,7 @@ class RealOpenSsh(unittest.TestCase):
 
     def test_ssh_config_alias(self):
         conf = self.d / "ssh_config"
-        conf.write_text(f"Host myhub\n  HostName 127.0.0.1\n  Port {SSHD_PORT}\n")
+        conf.write_text(f"Host myhub\n  HostName 127.0.0.1\n  Port {self.port}\n")
         self.start("hostkey")
         self.assertEqual(self.ssh("myhub", "-F", str(conf)).returncode, 0)
         self.start("hostkey2")
@@ -449,6 +496,68 @@ class RootHubBackupHint(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 self.assertIsNone(mod.backup_stock_partitions("192.168.1.20", pathlib.Path(tmp) / "key"))
         self.assertIn(f"tools/backup_hub.py 192.168.1.20 {ssh_hostkeys.RESET_OPTION}", err.getvalue())
+
+
+@unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
+class StopBeforeDeviceWork(unittest.TestCase):
+    """With a known_hosts file that cannot be written, every tool stops in main() before its
+    first USB or device action, so "Nothing was changed" is true."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        locked = pathlib.Path(self.tmp.name) / "locked"
+        locked.mkdir()
+        locked.chmod(0o555)
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(locked.chmod, 0o755)
+        env = mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(locked / "sub" / "known_hosts")})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def load(self, rel: str, name: str):
+        sys.path.insert(0, str(REPO_DIR))
+        spec = importlib.util.spec_from_file_location(name, REPO_DIR / rel)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def device_touched(self, *a, **k):
+        raise AssertionError("device work started before the known_hosts check")
+
+    def run_main(self, mod, argv):
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                mod.main()
+        self.assertIn("SSH host keys cannot be recorded", str(cm.exception.code))
+
+    def test_root_hub_usb(self):
+        mod = self.load("tools/root_hub_usb.py", "root_hub_usb_stop")
+        with mock.patch.object(mod, "HarmonyHid", self.device_touched):
+            self.run_main(mod, ["root_hub_usb.py"])
+
+    def test_restore_stock(self):
+        mod = self.load("tools/restore_stock.py", "restore_stock_stop")
+        with mock.patch.object(mod, "gain_root_over_usb", self.device_touched), \
+             mock.patch.object(mod, "HarmonyHid", self.device_touched), \
+             mock.patch.object(mod, "find_latest_stock_backup", self.device_touched):
+            self.run_main(mod, ["restore_stock.py", "--force"])
+
+    def test_setup_remote(self):
+        mod = self.load("remote/setup_remote.py", "setup_remote_stop")
+
+        class State:
+            mode = None
+            remediation_cmd = ""
+        for step in ([], ["--step", "1"], ["--step", "2"]):
+            with self.subTest(step=step), \
+                 mock.patch.object(mod, "detect_remote_usb_state", lambda **k: State()), \
+                 mock.patch.object(mod, "print_usb_state_banner", lambda *a, **k: None), \
+                 mock.patch.object(mod, "step1_enable_usb_debug", self.device_touched), \
+                 mock.patch.object(mod, "step2_install_permanent_ssh", self.device_touched), \
+                 mock.patch.object(mod, "probe_remote", self.device_touched), \
+                 mock.patch.object(mod, "rce", self.device_touched), \
+                 mock.patch.object(mod, "ensure_ssh_key", self.device_touched):
+                self.run_main(mod, ["setup_remote.py", *step])
 
 
 class SetupRemoteBackupErrors(unittest.TestCase):

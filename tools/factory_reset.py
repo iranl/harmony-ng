@@ -280,6 +280,8 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
     ssh_hostkeys.add_reset_option(parser, "each device the tool connects to")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
 
     if not args.restore_backup:
         if not args.target:

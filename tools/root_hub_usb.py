@@ -393,6 +393,9 @@ def main() -> None:
     parser.add_argument("--skip-fw-check", action="store_true", help="Skip firmware version check and upgrade prompt")
     ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    if not args.wifi_only:
+        ssh_hostkeys.require_known_hosts()
 
     print("=" * 70)
     print(" LOGITECH HARMONY HUB USB ROOT & PERSISTENCE TOOL")
