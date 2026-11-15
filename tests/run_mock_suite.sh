@@ -276,6 +276,8 @@ build_test -Wall -Wextra -Wno-format-truncation -Wno-stringop-truncation -O2 -I"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -Wl,--wrap=open -o "$BUILD_DIR/test_bt_key_handoff" "$SCRIPT_DIR/test_bt_key_handoff.c" "$REPO_ROOT/payload/source/hw_action.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_bt_key_handoff"
 # hub_rf's key queue: a quick tap keeps its press, a queued key is sent at once, the idle worker sleeps
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_queue" "$SCRIPT_DIR/test_rf_key_queue.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_key_queue"
+# hub_daemon: a key from a remote goes out without the gaps between commands (daemon in --dry-run, mock key pipe)
+python3 "$SCRIPT_DIR/test_live_key_gaps.py"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"

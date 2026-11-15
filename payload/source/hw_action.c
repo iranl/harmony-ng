@@ -32,6 +32,8 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
 
 int g_dry_run = 0;
 
+__thread int g_live_remote_key = 0;
+
 int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) {
     if (!pronto_hex || !pronto_hex[0]) return -1;
     if (ports == 0) return 0; /* 0 = No blasters / IR disabled */
@@ -558,7 +560,10 @@ static int send_match_in(cJSON *root, const char *target, int match_mode, const 
         snprintf(s_last_press_cmd, sizeof(s_last_press_cmd), "%s", command);
     }
 
-    if (action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
+    /* The gaps between two commands are for sequences (activity steps, command lists, API
+     * calls): a device may need time between two commands sent back to back by a program. A key
+     * the user just pressed on a remote goes out at once: the user sets its pace. */
+    if (!g_live_remote_key && action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
         uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
         int req_delay = 0;
         if (strcmp(s_last_device_id, actual_dev_id) != 0) {

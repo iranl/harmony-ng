@@ -1107,7 +1107,9 @@ static void key_channel_handle(const char *msg) {
         if (strcmp(action, "press") == 0) btn_action = HW_BTN_ACTION_PRESS;
         else if (strcmp(action, "hold") == 0) btn_action = HW_BTN_ACTION_REPEAT;
         else if (is_release) btn_action = HW_BTN_ACTION_RELEASE;
+        g_live_remote_key = 1; /* no interKeyDelay / interDeviceDelay before a key from a remote */
         hw_device_command_send_action(dev, 0, cmd, btn_action);
+        g_live_remote_key = 0;
     }
     /* The button event, as POST /api/button-press: the first press and the release */
     if (strcmp(action, "press") == 0 || is_release) {

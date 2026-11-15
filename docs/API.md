@@ -448,6 +448,8 @@ Creates or updates a device definition.
   repeats of the same command) are milliseconds from 0 to 10000. The sender waits them out before
   the command, so a save with a value outside that range is refused with `400` and nothing is
   changed; a larger value already in `devices.json` is lowered to 10000 when the file is loaded.
+  The three waits are for commands a program sends (API, MQTT, activity sequences); a key pressed
+  on a remote is sent without them.
 - **Response `200 OK`**: `{"ok": true}`
 - **Response `400`**: `{"ok": false}` when a timing field is not a number (or numeric string) or a
   delay is out of range.
@@ -783,8 +785,11 @@ posting the key as `command`.
 main loop): `{"seq", "ts", "slot", "button", "action", "deviceId", "command"}`, `ts` being
 `CLOCK_MONOTONIC` in ms when `hub_rf` received the key. `hub_daemon` sends the device command as
 `POST /api/ir-send` with that `action` does and gives the same button event as this route. A
-press or hold older than 300 ms is skipped (logged), a release always runs. Not an API for other
-callers: format in `payload/source/hub_key_channel.h`.
+press or hold older than 1000 ms is skipped (logged), a release always runs. A key from this
+channel is sent at once: the device's `interDeviceDelay`, `interKeyDelay` and
+`holdInterKeyDelay` apply to commands from every other source (this API, MQTT, activity
+sequences), not to a key the user just pressed on a remote. Not an API for other callers: format
+in `payload/source/hub_key_channel.h`.
 - **Request Body**:
   ```json
   {

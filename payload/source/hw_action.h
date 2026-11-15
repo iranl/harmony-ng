@@ -13,6 +13,11 @@
 #define BT_DEBUG_FLAG "/data/harmony/bt_remote_debug"
 #endif
 
+/* Set while this thread sends a key that just came from a remote (the key channel from hub_rf):
+ * the gaps between commands (interDeviceDelay, interKeyDelay, holdInterKeyDelay) are for sequences, a live key goes
+ * out at once */
+extern __thread int g_live_remote_key;
+
 static inline int is_debug_log_enabled(void) {
     return (access(DEBUG_LOG_CONFIG, F_OK) == 0 || access(BT_DEBUG_FLAG, F_OK) == 0);
 }
