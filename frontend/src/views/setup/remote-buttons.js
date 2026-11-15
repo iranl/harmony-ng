@@ -8,6 +8,7 @@ import { store } from '../../store.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { loadRemoteRenderer, setRendererTheme } from '../../remote/remote-renderer.js';
+import { defaultBindings } from './remote-key-fallback.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -134,11 +135,6 @@ function keyLegend(k) {
   }
   if (k.glyph) return glyph(k.glyph, cx, cy);
   return svg('text', { x: cx, y: cy, class: 'eb-label', 'font-size': k.size || 20, text: k.text });
-}
-
-// The Hub falls back to these when the running activity doesn't bind a key
-function defaultBindings(acts) {
-  return acts['-1'] ?? acts.default ?? acts['53591842'] ?? Object.values(acts)[0];
 }
 
 function actionOf(b) {

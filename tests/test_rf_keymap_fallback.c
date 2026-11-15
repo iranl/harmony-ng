@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "rf_keymap.h"
 
@@ -40,7 +41,7 @@ static int s_sends;
 
 int http_post_local(int port, const char *path, const char *body) {
     (void)port;
-    if (path && strcmp(path, "/api/ir-send") == 0 && body) {
+    if (path && (strcmp(path, "/api/ir-send") == 0 || strcmp(path, "/api/activity") == 0) && body) {
         snprintf(s_last_send, sizeof(s_last_send), "%s", body);
         s_sends++;
     }
@@ -115,6 +116,35 @@ int main(void) {
         "\"default\":{\"VolumeUp\":" BTN("4", "DefVolUp") "}"
         "}}";
     check("\"default\" object used for an unmapped key", with_default, "20\n", "VolumeUp", "4", "DefVolUp");
+
+    /* An activity key bound only in one activity's entry (a Companion's WatchTV key): with
+       several activities it no longer starts anything from Off */
+    const char *start_key =
+        "{\"activities\":{"
+        "\"10\":{\"WatchTVActivity\":{\"action\":\"activity_start\",\"activityId\":\"10\"}},"
+        "\"20\":{}"
+        "}}";
+    write_file(s_map_path, start_key);
+    write_file(s_act_path, "-1\n");
+    rf_keymap_invalidate_map(1);
+    s_sends = 0;
+    dispatch_remote_button(1, "WatchTVActivity", "press", NULL);
+    printf("[%s] activity key bound in one of several activities, from Off: nothing started (sends=%d)\n",
+           s_sends == 0 ? "+" : "-", s_sends);
+    if (s_sends != 0) failures++;
+    const char *start_key_off =
+        "{\"activities\":{"
+        "\"10\":{},\"20\":{},"
+        "\"-1\":{\"WatchTVActivity\":{\"action\":\"activity_start\",\"activityId\":\"10\"}}"
+        "}}";
+    write_file(s_map_path, start_key_off);
+    rf_keymap_invalidate_map(1);
+    s_sends = 0;
+    s_last_send[0] = '\0';
+    dispatch_remote_button(1, "WatchTVActivity", "press", NULL);
+    bool started = (s_sends == 1 && strstr(s_last_send, "\"activity\":\"10\"") != NULL);
+    printf("[%s] the same key in the \"-1\" entry starts the activity from Off (%s)\n", started ? "+" : "-", s_last_send);
+    if (!started) failures++;
 
     /* A map with one activity keeps the old fallback */
     const char *one_act =
