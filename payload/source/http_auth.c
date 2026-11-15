@@ -653,6 +653,12 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
         return 0;
     }
 
+    /* Own access tokens: the handler limits an operator to tokens of its own account */
+    if ((strcmp(method, "DELETE") == 0 || strcmp(method, "POST") == 0) &&
+        strcmp(clean_path, "/api/auth/tokens") == 0) {
+        return 1;
+    }
+
     /* Control only: start and stop activities, send stored or raw commands and keys. Saving
      * commands (commands-batch), broadcasting progress frames (activity-progress) and every
      * other route need the admin role. */

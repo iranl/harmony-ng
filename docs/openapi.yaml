@@ -742,8 +742,12 @@ paths:
     post:
       tags:
         - Authentication & Users
-      summary: Generate Personal Access Token (Admin only)
-      description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation. Refused while authentication is off. name defaults to "Personal Access Token", role to admin.
+      summary: Generate Personal Access Token
+      description: >-
+        Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation.
+        Refused while authentication is off. name defaults to "Personal Access Token", role to admin.
+        An operator (role `user`) may create tokens for its own account only, logged in with the
+        account (session or Basic, not with a PAT); its tokens always have the role `user`.
       security:
         - bearerAuth: []
         - basicAuth: []
@@ -779,8 +783,11 @@ paths:
     delete:
       tags:
         - Authentication & Users
-      summary: Revoke Personal Access Token (Admin only)
-      description: The id may be given in the query or in a JSON body ({"id":"tok_..."}).
+      summary: Revoke Personal Access Token
+      description: >-
+        The id may be given in the query or in a JSON body ({"id":"tok_..."}).
+        An admin revokes any token. An operator revokes only the tokens of its own account or the
+        token it calls with; any other id answers 404.
       parameters:
         - in: query
           name: id

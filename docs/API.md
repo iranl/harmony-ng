@@ -2653,6 +2653,9 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   the moment authentication is turned on, not a protection during the off period: what somebody did
   while it was off (an account or token made and used, a setting changed) is not undone, and only
   accounts and tokens can be listed. Keep authentication on.
+- An operator (role `user`) may create its own tokens (always role `user`), logged in with its account
+  (a session or Basic, not with a token: `403`), and may delete the tokens of its own account or the
+  token it calls with (any other id answers `404`). Listing tokens stays admin only.
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
   account either, every request that needs a login (all API routes except `POST /api/auth/token`;
   the web UI files stay open) is refused (`401`), except from loopback, until the file is fixed.

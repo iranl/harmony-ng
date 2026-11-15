@@ -48,6 +48,21 @@ static int remove_tokens_of(const char *owner) {
     return removed;
 }
 
+/* The Bearer token of the request, or "" */
+static void request_bearer(const char *req, char *out, size_t out_sz) {
+    out[0] = '\0';
+    const char *hdr = req ? strcasestr(req, "Authorization:") : NULL;
+    if (!hdr) return;
+    hdr += 14;
+    while (*hdr == ' ' || *hdr == '\t') hdr++;
+    if (strncasecmp(hdr, "Bearer ", 7) != 0) return;
+    hdr += 7;
+    while (*hdr == ' ' || *hdr == '\t') hdr++;
+    size_t ti = 0;
+    while (*hdr && *hdr != '\r' && *hdr != '\n' && *hdr != ' ' && ti < out_sz - 1) out[ti++] = *hdr++;
+    out[ti] = '\0';
+}
+
 int http_api_auth_handle(int client_fd, const char *method, const char *clean_path,
                          const char *query, const char *body, const char *req,
                          const char *client_ip, enum http_role current_role) {
@@ -244,7 +259,17 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             if (jr && cJSON_IsString(jr) && strcasecmp(jr->valuestring, "user") == 0) trole = "user";
         }
 
-        if (current_role == ROLE_USER) trole = "user"; /* never more rights than the creator */
+        if (current_role == ROLE_USER) {
+            trole = "user"; /* never more rights than the creator */
+            /* An operator may create its own tokens (the app keeps one instead of the password),
+             * only from an account login, so each token ends with that account. */
+            if (!owner[0] || strncmp(owner, "pat:", 4) == 0) {
+                if (params) cJSON_Delete(params);
+                send_json_error(client_fd, 403, "Log in with an account to create a token");
+                close(client_fd);
+                return 1;
+            }
+        }
         char hex_rand[33] = {0};
         char id_rand[17] = {0};
         /* Random id: one from time(NULL) repeats for tokens created in the same second */
@@ -333,6 +358,18 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             return 1;
         }
 
+        /* Admins delete any token. An operator deletes only a token it created or the token it
+         * calls with (the app's log out); anything else answers as not found. */
+        char caller[MAX_USERNAME_LEN] = {0};
+        char own_hash[65] = {0};
+        if (current_role == ROLE_USER) {
+            http_auth_check_request(req, client_ip, method, caller, sizeof(caller));
+            if (strncmp(caller, "pat:", 4) == 0) caller[0] = '\0';
+            char btok[128];
+            request_bearer(req, btok, sizeof(btok));
+            if (strncmp(btok, "pat_", 4) == 0) sha256_hex((const uint8_t *)btok, strlen(btok), own_hash);
+        }
+
         const char *path = HARMONY_TOKENS_JSON;
         size_t flen = 0;
         int deleted = 0, save_failed = 0;
@@ -348,6 +385,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         cJSON *it = cJSON_GetArrayItem(arr, i);
                         cJSON *jid = cJSON_GetObjectItemCaseSensitive(it, "id");
                         if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, del_id) == 0) {
+                            if (current_role == ROLE_USER) {
+                                cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
+                                cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
+                                int mine = (caller[0] && cJSON_IsString(jo) && strcmp(jo->valuestring, caller) == 0) ||
+                                           (own_hash[0] && cJSON_IsString(jh) &&
+                                            http_auth_secret_equal(jh->valuestring, own_hash));
+                                if (!mine) break;
+                            }
                             cJSON_DeleteItemFromArray(arr, i);
                             deleted = 1;
                             break;
