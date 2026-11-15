@@ -31,3 +31,19 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
 SETTINGS_FILES_DIR="$(mktemp -d /tmp/hng_settings_files.XXXXXX)"
 HARMONY_MOCK_DIR="$SETTINGS_FILES_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_settings_files"
 rm -rf "$SETTINGS_FILES_DIR"
+
+# Every device command name the Hub can push is kept (3 devices x 200 through push, save, load)
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_config_limits" \
+    "$SCRIPT_DIR/test_remote_config_limits.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
+CONFIG_LIMITS_DIR="$(mktemp -d /tmp/hng_config_limits.XXXXXX)"
+HARMONY_MOCK_DIR="$CONFIG_LIMITS_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_config_limits"
+rm -rf "$CONFIG_LIMITS_DIR"
+
+# Theme font length check with the remote's 32-bit long (remote_theme.c compiled into the test)
+THEME_FONT_SRCS=()
+for f in "${REMOTE_TEST_SRCS[@]}"; do
+    [ "${f##*/}" = "remote_theme.c" ] || THEME_FONT_SRCS+=("$f")
+done
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_theme_font" \
+    "$SCRIPT_DIR/test_remote_theme_font.c" "${THEME_FONT_SRCS[@]}" -lpthread -lm
+"$BUILD_DIR/test_remote_theme_font"

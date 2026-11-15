@@ -140,8 +140,11 @@ typedef struct {
     uint16_t icon_id;
 } rf_device_t;
 
-/* Device command names pushed by the Hub, for browsing devices on the remote */
-#define MAX_RF_DEV_CMDS 512
+/* Device command names pushed by the Hub, for browsing devices on the remote: room for every
+ * command the Hub can push (a one-byte command index for each of MAX_RF_DEVICES devices). With
+ * 512, a config of a few large devices lost the commands of the last devices without a word:
+ * the remote acknowledged every name and dropped the ones past the table. */
+#define MAX_RF_DEV_CMDS (MAX_RF_DEVICES * 256)
 typedef struct {
     uint8_t dev_idx;  /* index into g_rf_devices */
     uint8_t cmd_idx;  /* index into the device's commands on the Hub */

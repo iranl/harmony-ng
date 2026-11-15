@@ -541,18 +541,18 @@ void save_rf_config(void) {
         if (g_rf_devices[i].icon_id > 0) {
             cJSON_AddNumberToObject(d, "icon_id", g_rf_devices[i].icon_id);
         }
+        /* One pass over the table per device: it holds up to MAX_RF_DEV_CMDS names */
+        const char *names[256] = {0};
         int max_idx = -1;
         for (int c = 0; c < g_rf_dev_cmd_count; c++) {
-            if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx > max_idx) max_idx = g_rf_dev_cmds[c].cmd_idx;
+            if (g_rf_dev_cmds[c].dev_idx != i) continue;
+            names[g_rf_dev_cmds[c].cmd_idx] = g_rf_dev_cmds[c].name;
+            if (g_rf_dev_cmds[c].cmd_idx > max_idx) max_idx = g_rf_dev_cmds[c].cmd_idx;
         }
         if (max_idx >= 0) {
             cJSON *cmds = cJSON_AddArrayToObject(d, "commands");
             for (int k = 0; k <= max_idx; k++) {
-                const char *cname = "";
-                for (int c = 0; c < g_rf_dev_cmd_count; c++) {
-                    if (g_rf_dev_cmds[c].dev_idx == i && g_rf_dev_cmds[c].cmd_idx == k) { cname = g_rf_dev_cmds[c].name; break; }
-                }
-                cJSON_AddItemToArray(cmds, cJSON_CreateString(cname));
+                cJSON_AddItemToArray(cmds, cJSON_CreateString(names[k] ? names[k] : ""));
             }
         }
         cJSON_AddItemToArray(devs, d);
