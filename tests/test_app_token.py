@@ -27,6 +27,8 @@ so an operator (role user) needs to create and delete its own tokens:
 18  an unreadable file: the 500 says what to do; POST /api/auth/tokens-reset (admin with an account
     login, {"confirm": true}) moves it to tokens.json.bad and starts an empty list
 20  a new account of a deleted account's name does not get that account's old tokens
+21  at a switch from off to on the reply lists the tokens (id, name, owner, role, no hash) and
+    writes nothing
 """
 
 import base64
@@ -393,6 +395,30 @@ def main():
             after = f.read()
         check(st == 200 and unc.get("tokens_unreadable") is True and after == cut,
               "15 the reply says the tokens are not listed, file left alone", "%s %s" % (st, r))
+
+    print("[-] 21  the token list at a switch")
+    on = {"auth_enabled": True, "users": [{"username": "admin", "password": "secret123", "role": "admin"},
+                                          {"username": "guest", "password": "guestpass", "role": "user"}]}
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"users.json": on}) as hub:
+        tokf = os.path.join(hub.data_dir, "config", "tokens.json")
+        A = bearer(login("admin", "secret123"))
+        st, r = make_token(basic("guest", "guestpass"), name="Android app (Pixel 7, 2026-11-15)")
+        pat, pid = r.get("token"), r.get("id")
+        call("POST", "/api/users", {"username": "admin", "password": "secret123", "role": "admin", "auth_enabled": False}, A)
+        with open(tokf, "rb") as f:
+            before = f.read()
+        st, r = call("POST", "/api/users", {"username": "admin", "password": "secret123", "role": "admin",
+                                            "auth_enabled": True})
+        toks = ((r or {}).get("to_check") or {}).get("tokens", []) if isinstance(r, dict) else []
+        mine = [t for t in toks if t.get("id") == pid]
+        check(st == 200 and len(mine) == 1 and mine[0].get("owner") == "guest" and mine[0].get("role") == "user"
+              and mine[0].get("name", "").startswith("Android app") and "token_hash" not in mine[0],
+              "21 the switch lists the app token with id, name, owner and role, no hash", "%s %s" % (st, toks))
+        with open(tokf, "rb") as f:
+            check(f.read() == before, "21 the switch writes nothing to the token file")
+        st, _ = call("GET", "/api/status", headers=bearer(pat))
+        check(st == 200, "21 the listed token keeps working", str(st))
+        check("confirmed" not in before.decode(), "21 no mark in the token file")
 
     if failed:
         print("[-] %d check(s) failed" % failed)
