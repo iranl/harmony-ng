@@ -228,6 +228,28 @@ cJSON *get_remote_direct_map(int slot) {
     return root;
 }
 
+/* The activity object for a key the current activity does not map (or with no activity running):
+ * the map's "-1" object (nothing running), then "default", then the map's only activity when it
+ * has exactly one. With several activities and neither "-1" nor "default" the key is not sent:
+ * the first activity in the file is an arbitrary pick, and its command would go to a device the
+ * current activity may not use (as agreed in #220). In a map without an "activities" object the
+ * activities are the top-level objects next to "devices". */
+static cJSON *fallback_activity_obj(cJSON *acts, cJSON *map) {
+    cJSON *o = cJSON_GetObjectItemCaseSensitive(acts, "-1");
+    if (!o) o = cJSON_GetObjectItemCaseSensitive(acts, "default");
+    if (o) return o;
+    cJSON *only = NULL;
+    int n = 0;
+    cJSON *c = NULL;
+    cJSON_ArrayForEach(c, acts) {
+        if (!cJSON_IsObject(c)) continue;
+        if (acts == map && c->string && strcmp(c->string, "devices") == 0) continue;
+        only = c;
+        n++;
+    }
+    return n == 1 ? only : NULL;
+}
+
 /* Remote button names that stock Logitech device configs call differently. Used only when
  * the device has no command with the button's own name. */
 static const char *const k_button_aliases[][3] = {
@@ -363,9 +385,7 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
         }
     }
     if (!btn_cfg) {
-        cJSON *def_obj = cJSON_GetObjectItemCaseSensitive(acts, "-1");
-        if (!def_obj) def_obj = cJSON_GetObjectItemCaseSensitive(acts, "default");
-        if (!def_obj && acts->child) def_obj = acts->child;
+        cJSON *def_obj = fallback_activity_obj(acts, map);
         if (def_obj && cJSON_IsObject(def_obj)) {
             btn_cfg = cJSON_GetObjectItemCaseSensitive(def_obj, button_name);
         }
