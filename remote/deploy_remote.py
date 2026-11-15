@@ -303,16 +303,20 @@ def main() -> None:
         # reboots: the script deletes the SSH keys, so a second login would be refused. Run with
         # HUP and PIPE ignored and its output in a file, so a cut login does not stop it half way
         reset_script = SCRIPT_DIR / "factory_reset.sh"
-        if not reset_script.is_file():
-            print(f"[-] {reset_script} is missing; nothing on the remote was changed.")
+        if not reset_script.is_file() or reset_script.stat().st_size == 0:
+            print(f"[-] {reset_script} is missing or empty; nothing on the remote was changed.")
             sys.exit(1)
-        login_cmd = ("rm -f /tmp/factory_reset.log; cat > /tmp/factory_reset.sh && "
+        data = reset_script.read_bytes()
+        # the script runs only when it arrived complete (MD5 checked on the remote)
+        login_cmd = ("rm -f /tmp/factory_reset.log; cat > /tmp/factory_reset.sh; "
+                     f"if [ \"$(md5sum < /tmp/factory_reset.sh | cut -c1-32)\" != {hashlib.md5(data).hexdigest()} ]; then "
+                     "echo '[-] The reset script did not arrive complete; nothing was changed.'; exit 1; fi; "
                      "(trap '' HUP PIPE; sh /tmp/factory_reset.sh --confirm --no-reboot > /tmp/factory_reset.log 2>&1 && "
                      "echo factory-reset-steps-done >> /tmp/factory_reset.log && "
                      "{ (sleep 1; reboot -f) </dev/null >/dev/null 2>&1 & }); "
                      "cat /tmp/factory_reset.log; grep -q '^factory-reset-steps-done$' /tmp/factory_reset.log")
         res = subprocess.run(["ssh"] + ssh_opts + [target, login_cmd],
-                             input=reset_script.read_bytes(), capture_output=True, check=False)
+                             input=data, capture_output=True, check=False)
         out = res.stdout.decode(errors="replace")
         for line in out.splitlines():
             if line.strip() and line.strip() != "factory-reset-steps-done":
@@ -324,7 +328,8 @@ def main() -> None:
                 print("    The connection was lost. The reset may still have finished: the remote then reboots by itself.")
                 print("    If it does not come back with the stock firmware and SSH refuses the key, power-cycle it.")
             else:
-                print("    The remote was not rebooted. Run it again.")
+                print("    The remote was not rebooted. Run it again; if SSH refuses the key (the reset got as far as")
+                print("    removing it), power-cycle the remote.")
             sys.exit(1)
         print("[+] The remote is rebooting into official Logitech firmware.")
         sys.exit(0)

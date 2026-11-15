@@ -46,6 +46,7 @@ class Sandbox:
         self.base = pathlib.Path(self.tmp.name)
         self.root = self.base / "root"
         self.root.mkdir()
+        (self.root / "tmp").mkdir()
         stub = self.base / "stub"
         stub.mkdir()
         self.calls = self.base / "calls.log"
@@ -244,11 +245,39 @@ class HubScript(unittest.TestCase):
 
     def test_no_stock_boot_script_anywhere_changes_nothing(self):
         (self.s.root / "data" / "stock_backup" / "rcS.local.orig").unlink()
+        # init.sh records the signals it ignores: the services start as at boot
+        sig = self.s.base / "init_sigign"
+        init = self.s.file("data/harmony/init.sh", f"#!/bin/sh\ngrep SigIgn /proc/$$/status > '{sig}'\n")
+        init.chmod(0o755)
         res = self.s.run("--confirm", "--no-reboot")
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("# harmony-ng", (self.s.root / "etc" / "init.d" / "rcS.local").read_text(),
                       "not deleted: the union would hide the stock file")
         self.assertTrue((self.s.root / "data" / "harmony" / "config" / "users.json").exists())
+        for _ in range(100):
+            if sig.exists() and sig.read_text().strip():
+                break
+            time.sleep(0.05)
+        mask = int(sig.read_text().split()[-1], 16)
+        self.assertEqual(mask & 0x1001, 0, "init.sh starts without SIGHUP and SIGPIPE ignored")
+        self.assertFalse((self.s.root / "tmp" / "factory_reset.lock").exists(), "the lock is released")
+
+    def test_one_reset_at_a_time(self):
+        other = subprocess.Popen(["sleep", "30"])
+        try:
+            self.s.file("tmp/factory_reset.lock/pid", f"{other.pid}\n")
+            res = self.s.run("--confirm", "--no-reboot")
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("Another factory reset is running", res.stdout)
+            self.assertTrue((self.s.root / "data" / "harmony" / "config" / "users.json").exists())
+        finally:
+            other.kill()
+            other.wait()
+        # a lock left by a run that no longer exists is taken over
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse((self.s.root / "data" / "harmony").exists())
+        self.assertFalse((self.s.root / "tmp" / "factory_reset.lock").exists())
 
     def test_secrets_go_before_the_ways_in(self):
         text = HUB_SCRIPT.read_text()
@@ -422,37 +451,105 @@ class OneScript(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertNotIn("completed successfully", res.stdout)
 
+    def login_sandbox(self):
+        """The tools' reset login run here: device paths in a test folder, reboot a stub"""
+        sys.path.insert(0, str(REPO_DIR / "tools"))
+        import factory_reset as tool
+        dev = self.base / "dev"
+        dev.mkdir(exist_ok=True)
+        stub = self.base / "stub"
+        stub.mkdir(exist_ok=True)
+        (stub / "reboot").write_text(f"#!/bin/sh\necho \"reboot $*\" >> '{dev}/rebooted'\n")
+        (stub / "reboot").chmod(0o755)
+
+        def cmd_for(script: bytes) -> str:
+            import hashlib
+            c = tool.reset_login_cmd(hashlib.md5(script).hexdigest())
+            c = c.replace(tool.DEVICE_RESET_SCRIPT, str(dev / "factory_reset.sh"))
+            return c.replace(tool.DEVICE_RESET_LOG, str(dev / "factory_reset.log"))
+        env = dict(os.environ, PATH=f"{stub}:{os.environ['PATH']}")
+        return tool, dev, env, cmd_for
+
     def test_cut_login_does_not_stop_the_reset(self):
         """The login runs script, mark and reboot with HUP and PIPE ignored and their output in a
         file: when the login is cut (SIGHUP to its process group, output closed) they go on."""
         import signal
-        sys.path.insert(0, str(REPO_DIR / "tools"))
-        import factory_reset as tool
-        dev = self.base / "dev"
-        dev.mkdir()
-        cmd = tool.RESET_LOGIN_CMD.replace(tool.DEVICE_RESET_SCRIPT, str(dev / "factory_reset.sh"))
-        cmd = cmd.replace(tool.DEVICE_RESET_LOG, str(dev / "factory_reset.log"))
-        stub = self.base / "stub"
-        stub.mkdir()
-        (stub / "reboot").write_text(f"#!/bin/sh\necho \"reboot $*\" >> '{dev}/rebooted'\n")
-        (stub / "reboot").chmod(0o755)
+        tool, dev, env, cmd_for = self.login_sandbox()
         script = b"#!/bin/sh\necho step one\nsleep 1\necho step two\n"
-        proc = subprocess.Popen(["sh", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                env=dict(os.environ, PATH=f"{stub}:{os.environ['PATH']}"), start_new_session=True)
+        proc = subprocess.Popen(["sh", "-c", cmd_for(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                env=env, start_new_session=True)
         proc.stdin.write(script)
         proc.stdin.close()
-        time.sleep(0.4)
+        log = dev / "factory_reset.log"
+        for _ in range(200):  # the script has started
+            if log.exists() and "step one" in log.read_text():
+                break
+            time.sleep(0.05)
         os.killpg(proc.pid, signal.SIGHUP)
         proc.stdout.close()
         proc.wait(timeout=10)
-        for _ in range(60):
+        for _ in range(100):
             if (dev / "rebooted").exists():
                 break
             time.sleep(0.1)
-        log = (dev / "factory_reset.log").read_text()
-        self.assertIn("step two", log, "the script ran to its end")
-        self.assertIn(tool.RESET_DONE_MARK, log)
+        text = log.read_text()
+        self.assertIn("step two", text, "the script ran to its end")
+        self.assertIn(tool.RESET_DONE_MARK, text)
         self.assertTrue((dev / "rebooted").exists(), "and the reboot started")
+
+    def test_cut_or_empty_upload_is_not_run(self):
+        tool, dev, env, cmd_for = self.login_sandbox()
+        script = b"#!/bin/sh\ntouch '" + str(dev).encode() + b"/ran'\necho done\n"
+        for sent in (script[:20], b""):
+            res = subprocess.run(["sh", "-c", cmd_for(script)], input=sent, env=env, capture_output=True, timeout=30)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn(b"did not arrive complete", res.stdout)
+            self.assertNotIn(tool.RESET_DONE_MARK.encode(), res.stdout)
+            self.assertFalse((dev / "ran").exists())
+            self.assertFalse((dev / "rebooted").exists(), "no reboot")
+        res = subprocess.run(["sh", "-c", cmd_for(script)], input=script, env=env, capture_output=True, timeout=30)
+        self.assertEqual(res.returncode, 0, res)
+        self.assertTrue((dev / "ran").exists())
+
+    def test_tool_result_handling(self):
+        """mark + exit 255 = done; no mark + 255 = may have finished, power-cycle; no mark + 1 = run again"""
+        ssh = self.base / "bin" / "ssh"
+        cases = {
+            "mark255": (0, "reset and reboots"),
+            "nomark255": (1, "power-cycle"),
+            "nomark1": (1, "Run the tool again"),
+        }
+        for mode, (rc, text) in cases.items():
+            ssh.write_text(f"""#!/bin/sh
+for last; do :; done
+case "$last" in
+  "uname -a") echo "Linux device"; exit 0 ;;
+  "uname -m") echo "$FAKE_MACHINE"; exit 0 ;;
+esac
+cat > /dev/null
+case {mode} in
+  mark255) echo factory-reset-steps-done; exit 255 ;;
+  nomark255) echo "Connection closed" >&2; exit 255 ;;
+  nomark1) exit 1 ;;
+esac
+""")
+            res = self.run_tool("remote", "armv5tejl")
+            self.assertEqual(res.returncode, rc, (mode, res.stdout))
+            self.assertIn(text, res.stdout, mode)
+        # without the mark the tool also says what to do when SSH no longer lets it in
+        self.assertIn("power-cycle", res.stdout)
+
+    def test_deploy_remote_refuses_an_empty_script(self):
+        kit = self.base / "kit"
+        kit.mkdir()
+        (kit / "deploy_remote.py").write_bytes((REPO_DIR / "remote" / "deploy_remote.py").read_bytes())
+        (kit / "factory_reset.sh").write_text("")
+        res = subprocess.run([sys.executable, str(kit / "deploy_remote.py"), "--factory-reset"],
+                             input="RESET\n", env=dict(self.env, FAKE_MACHINE="armv5tejl"),
+                             capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("missing or empty", res.stdout)
+        self.assertFalse(any("factory_reset.sh" in c for c in self.log()), "nothing sent")
 
     def one_reset_login(self) -> None:
         """copy, run and reboot in the same login, after the probe; nothing after it"""
