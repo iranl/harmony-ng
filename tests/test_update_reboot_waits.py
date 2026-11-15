@@ -4,9 +4,11 @@
 Same host sandbox as test_update_apply.py (paths moved into a temporary root, fake busybox, wget
 serving a local package). The fake busybox also answers GET http://127.0.0.1:8089/api/activity
 from a list of replies, one per call, and the reboot script records how many replies were read.
-Checks: the reboot comes only after the reply that shows no switch (busy, sending and a queued
-request all count as a switch); a switch that does not end lets the update reboot after
-UPDATE_ACTIVITY_WAIT_SECS with a message; no answer from hub_daemon reboots at once.
+Checks: the reboot comes only after two replies in a row that show no switch (busy, sending and a
+queued request all count as a switch; one idle reply between two switches is not enough); a switch
+that does not end lets the update reboot after UPDATE_ACTIVITY_WAIT_SECS with a message; a failed
+query is "unknown": with hub_daemon running it keeps waiting until UPDATE_ACTIVITY_FAIL_SECS, with
+hub_daemon not running it reboots at once; a cap that is not a number keeps the default.
 """
 
 from __future__ import annotations
@@ -55,8 +57,11 @@ class RebootWaitsForSwitch(base.UpdateApply):
         reboot = f"#!/bin/sh\ncat {self.act}/calls > {self.root}/tmp/rebooted 2>/dev/null || echo 0 > {self.root}/tmp/rebooted\n"
         self.write(self.data / "safe_reboot.sh", reboot, 0o755)
         self.new_files["scripts/safe_reboot.sh"] = reboot
+        pidof = self.root / "fakebin" / "pidof"
+        pidof.write_text('#!/bin/sh\n[ "$UPD_DAEMON_UP" = 1 ]\n')
+        pidof.chmod(0o755)
 
-    def run_with(self, replies: list[str], wait_secs: int = 0):
+    def run_with(self, replies: list[str], wait_secs=0, daemon_up: bool = True, fail_secs: int = 0):
         (self.act / "replies").write_text("\n".join(replies) + "\n")
         env = {
             "PATH": f"{self.root / 'fakebin'}:/usr/bin:/bin",
@@ -65,9 +70,12 @@ class RebootWaitsForSwitch(base.UpdateApply):
             "UPD_DATA_DIR": str(self.root / "data"),
             "UPD_DATA_BUDGET": "",
             "UPD_ACT": str(self.act),
+            "UPD_DAEMON_UP": "1" if daemon_up else "0",
         }
         if wait_secs:
             env["UPDATE_ACTIVITY_WAIT_SECS"] = str(wait_secs)
+        if fail_secs:
+            env["UPDATE_ACTIVITY_FAIL_SECS"] = str(fail_secs)
         self.serve_bundle()
         r = base.subprocess.run(["sh", str(self.script), "apply", base.REPO], capture_output=True, text=True,
                                 timeout=60, env=env)
@@ -81,13 +89,17 @@ class RebootWaitsForSwitch(base.UpdateApply):
 
     def test_reboot_after_the_switch(self):
         r, calls_at_reboot = self.run_with([BUSY, BUSY, SENDING, QUEUED, IDLE])
-        self.assertEqual(calls_at_reboot, 5, r.stdout)
+        self.assertEqual(calls_at_reboot, 6, r.stdout)  # two idle replies in a row
         self.assertIn("activity switch is running", r.stdout)
         self.assertIn("finished", r.stdout)
 
+    def test_one_idle_reply_between_switches_is_not_enough(self):
+        r, calls_at_reboot = self.run_with([IDLE, BUSY, IDLE, IDLE])
+        self.assertEqual(calls_at_reboot, 4, r.stdout)
+
     def test_idle_reboots_at_once(self):
         r, calls_at_reboot = self.run_with([IDLE])
-        self.assertEqual(calls_at_reboot, 1, r.stdout)
+        self.assertEqual(calls_at_reboot, 2, r.stdout)
         self.assertNotIn("activity switch is running", r.stdout)
 
     def test_switch_that_does_not_end(self):
@@ -95,9 +107,23 @@ class RebootWaitsForSwitch(base.UpdateApply):
         self.assertEqual(calls_at_reboot, 3, r.stdout)
         self.assertIn("rebooting anyway", r.stdout)
 
-    def test_no_answer_reboots_at_once(self):
-        r, calls_at_reboot = self.run_with(["down"])
+    def test_cap_not_a_number_keeps_the_default(self):
+        r, calls_at_reboot = self.run_with([IDLE], wait_secs="abc")
+        self.assertEqual(calls_at_reboot, 2, r.stdout)
+        self.assertNotIn("anyway", r.stdout)
+
+    def test_daemon_not_running_reboots_at_once(self):
+        r, calls_at_reboot = self.run_with(["down"], daemon_up=False)
         self.assertEqual(calls_at_reboot, 1, r.stdout)
+
+    def test_no_answer_is_unknown(self):
+        r, calls_at_reboot = self.run_with(["down", "down", BUSY, IDLE], fail_secs=6)
+        self.assertEqual(calls_at_reboot, 5, r.stdout)  # failures did not count as "no switch"
+        self.tearDown()
+        self.setUp()
+        r2, r2_calls = self.run_with(["down"], fail_secs=6)
+        self.assertEqual(r2_calls, 3, r2.stdout)
+        self.assertIn("has not answered", r2.stdout)
 
 
 def load_tests(loader, tests, pattern):

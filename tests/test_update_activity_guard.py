@@ -3,7 +3,8 @@
 A software update must not reboot the Hub in the middle of an activity switch (as agreed in #220):
 - POST /api/update-apply while a switch runs answers 409 with status "activity_switch" and the
   orchestrator fields (busy, sending, queued), and starts nothing
-- the same over the WebSocket command channel (update_apply): an ack with code 409 and the error
+- the same over the WebSocket command channel (update_apply): an ack with code 409, the error and
+  the status, busy, sending, queued fields
 - a request queued behind the running switch keeps the refusal
 - once the switch has completed, the update starts (200, status "applying"; the test build never
   runs the updater)
@@ -96,6 +97,8 @@ def main():
             ack = ws_until(ws, lambda m: m.get("msgId") == 51, 3)
             check(ack is not None and ack.get("ok") is False and ack.get("code") == 409
                   and "activity switch" in (ack.get("error") or ""), "command channel update_apply: 409", str(ack))
+            check(ack is not None and ack.get("status") == "activity_switch" and ack.get("busy") is True
+                  and "sending" in ack and "queued" in ack, "the ack carries status, busy, sending, queued", str(ack))
 
             st, r = hub.http_post("/api/poweroff", {})
             check(st == 200 and isinstance(r, dict) and r.get("state") == "queued", "power off queued", str(r))

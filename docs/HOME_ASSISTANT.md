@@ -25,6 +25,8 @@ remote key, infrared emitters on Home Assistant's infrared platform (so any core
 use the Hub as its blaster), a firmware update entity, and one child device with its own remote for
 every configured IR or Bluetooth device. Services for raw IR, Bluetooth keys, the activity Help flow
 and cancel. Entities are keyed on the Hub's factory unit id, so an IP change never breaks them.
+The Hub refuses to install an update while an activity switch runs (`409`, status
+`activity_switch`): install it again once the switch has finished.
 
 **Pros.** The complete feature set and the lowest latency; no broker; nothing to configure on the
 Hub; one integration for several Hubs.

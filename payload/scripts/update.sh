@@ -282,24 +282,51 @@ EOF
 # The reboot at the end of an update must not cut an activity switch in the middle (the devices
 # were left half switched). hub_daemon refuses to start an update while one runs, but a switch can
 # start during the download: wait until GET /api/activity (loopback, no login) reports no switch,
-# no queued request and no steps left to send. Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and
-# reboots anyway (the new files are already installed); no answer from hub_daemon means no switch.
+# no queued request and no steps left to send, twice 1 s apart (a finished switch hands over to its
+# queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and reboots anyway
+# (the new files are installed already). A query that fails is "unknown", not "no switch": only a
+# hub_daemon that is not running means no switch; one that does not answer for
+# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on.
 wait_activity_switch() {
   local max="${UPDATE_ACTIVITY_WAIT_SECS:-600}"
+  local fail_max="${UPDATE_ACTIVITY_FAIL_SECS:-60}"
+  case "$max" in ''|*[!0-9]*) max=600 ;; esac
+  case "$fail_max" in ''|*[!0-9]*) fail_max=60 ;; esac
   local waited=0
+  local failed=0
+  local idle=0
   local said=0
   local st
   while [ "$waited" -lt "$max" ]; do
-    st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null) || return 0
-    if ! echo "$st" | grep -q '"busy":[[:space:]]*true' && \
-       ! echo "$st" | grep -q '"sending":[[:space:]]*true' && \
-       ! echo "$st" | grep -q '"queued":[[:space:]]*"'; then
-      [ "$said" = 1 ] && echo "[+] Activity switch finished after ${waited} s."
-      return 0
-    fi
-    if [ "$said" = 0 ]; then
-      echo "[*] An activity switch is running: the reboot waits until it has finished (at most ${max} s)."
-      said=1
+    if st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null); then
+      failed=0
+      if ! echo "$st" | grep -q '"busy":[[:space:]]*true' && \
+         ! echo "$st" | grep -q '"sending":[[:space:]]*true' && \
+         ! echo "$st" | grep -q '"queued":[[:space:]]*"'; then
+        idle=$((idle + 1))
+        if [ "$idle" -ge 2 ]; then
+          [ "$said" = 1 ] && echo "[+] Activity switch finished after ${waited} s."
+          return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        continue
+      fi
+      idle=0
+      if [ "$said" = 0 ]; then
+        echo "[*] An activity switch is running: the reboot waits until it has finished (at most ${max} s)."
+        said=1
+      fi
+    else
+      idle=0
+      if ! pidof hub_daemon >/dev/null 2>&1; then
+        return 0
+      fi
+      failed=$((failed + 2))
+      if [ "$failed" -ge "$fail_max" ]; then
+        echo "[!] hub_daemon has not answered for ${failed} s: rebooting anyway."
+        return 0
+      fi
     fi
     sleep 2
     waited=$((waited + 2))
