@@ -8,3 +8,5 @@ python3 "$SCRIPT_DIR/test_hub_tools_target.py"
 python3 "$SCRIPT_DIR/test_remote_tools_options.py"
 # tools/sync_remote_to_hub.py: import flag, --force, --skip-icons, failed transfers (fake ssh)
 python3 "$SCRIPT_DIR/test_sync_remote_to_hub.py"
+# remote/bootstrap_serial.py against a fake serial console (stock shell without base64)
+python3 "$SCRIPT_DIR/test_bootstrap_serial.py"

@@ -29,6 +29,8 @@ This utility:
 5. Installs the emergency-recovery boot script `/etc/init.d/rcS.local`.
 6. Starts Dropbear daemon (`/data/dropbear -R -B`).
 
+How the files get there: the stock firmware has no `base64` or `uudecode`, so the tool decodes the small native decoder (`b64dec_tiny`) with the stock Lua and then each file with it, sends the base64 text in short lines, and checks every file with `md5sum` before it gets its final name. A file that does not arrive intact stops the tool, and the boot script already on the remote is left as it is. The Dropbear multi-call binary goes to `/data/dropbearmulti` (`/data/dropbear`, `/data/dropbearkey` and `/data/scp` link to it), the key also to `/etc/dropbear/authorized_keys` and `/root/.ssh/authorized_keys`, and Dropbear is started for key logins only (without `-B`).
+
 ---
 
 ## USB Ethernet & Dropbear SSH Setup
