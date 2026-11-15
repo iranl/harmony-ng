@@ -80,8 +80,13 @@ static int run_mknod(int argc, char **argv) {
         return 1;
     }
     mode_t mode = 0666;
-    if (argv[2][0] == 'c') mode |= S_IFCHR;
-    else if (argv[2][0] == 'b') mode |= S_IFBLK;
+    if (strcmp(argv[2], "c") == 0) mode |= S_IFCHR;
+    else if (strcmp(argv[2], "b") == 0) mode |= S_IFBLK;
+    else {
+        /* any other type used to create a regular file in place of the device node */
+        fprintf(stderr, "%s: type must be c or b, not '%s'\n", argv[0], argv[2]);
+        return 1;
+    }
     unsigned int maj = (unsigned int)atoi(argv[3]);
     unsigned int min = (unsigned int)atoi(argv[4]);
     dev_t dev = ((maj & 0xfff) << 8) | (min & 0xff);
@@ -164,33 +169,33 @@ static int run_eth_fix(int argc, char **argv) {
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
-    struct ethtool_value eval;
-
-    eval.cmd = ETHTOOL_STXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
-        printf("[+] %s: TX checksum offload disabled\n", ifname);
-    } else {
-        perror("[-] ETHTOOL_STXCSUM");
+    /* every offload is switched off on its own; the result says which ones failed (the
+     * success line used to be printed whatever the ioctl calls returned) */
+    static const struct { uint32_t cmd; const char *name; } offloads[] = {
+        { ETHTOOL_STXCSUM, "TX checksum offload" },
+        { ETHTOOL_SRXCSUM, "RX checksum offload" },
+        { ETHTOOL_SSG, "scatter-gather" },
+        { ETHTOOL_STSO, "TCP segmentation offload" },
+    };
+    int failed = 0;
+    for (size_t i = 0; i < sizeof(offloads) / sizeof(offloads[0]); i++) {
+        struct ethtool_value eval;
+        eval.cmd = offloads[i].cmd;
+        eval.data = 0;
+        ifr.ifr_data = (caddr_t)&eval;
+        if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
+            printf("[+] %s: %s disabled\n", ifname, offloads[i].name);
+        } else {
+            fprintf(stderr, "[-] %s: could not disable %s: %s\n", ifname, offloads[i].name, strerror(errno));
+            failed++;
+        }
     }
 
-    eval.cmd = ETHTOOL_SRXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_SSG;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_STSO;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
     close(fd);
+    if (failed) {
+        fprintf(stderr, "[-] %s: %d of 4 offload settings could not be changed\n", ifname, failed);
+        return 1;
+    }
     printf("[+] %s: All checksum and segmentation offloads disabled successfully\n", ifname);
     return 0;
 }
