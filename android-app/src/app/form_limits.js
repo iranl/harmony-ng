@@ -27,6 +27,6 @@ export function wifiPassphraseError(password, { open = false } = {}) {
 
 export function deviceDelayError(label, value) {
   if (value === undefined || Number.isNaN(value)) return null;
-  if (!Number.isInteger(value) || value < 0 || value > DEVICE_DELAY_MAX_MS) return `${label} must be 0 to ${DEVICE_DELAY_MAX_MS} ms`;
+  if (!Number.isInteger(value) || value < 0 || value > DEVICE_DELAY_MAX_MS) return label + ' must be 0 to ' + DEVICE_DELAY_MAX_MS + ' ms';
   return null;
 }
