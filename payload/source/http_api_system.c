@@ -595,6 +595,8 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         return 1;
                     }
                     if (renaming || pass[0]) http_auth_drop_user_sessions(ulist[admin_idx].username);
+                    /* changed while authentication is off: asked about again at the switch */
+                    if (!curr_auth_enabled && (renaming || pass[0])) ulist[admin_idx].confirmed = AUTH_MARK_NO;
                     if (renaming) {
                         memset(ulist[admin_idx].username, 0, sizeof(ulist[admin_idx].username));
                         strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
@@ -609,12 +611,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);
                     compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
                     ulist[admin_idx].role = ROLE_ADMIN;
-                    ulist[admin_idx].confirmed = curr_auth_enabled;
+                    ulist[admin_idx].confirmed = curr_auth_enabled ? AUTH_MARK_YES : AUTH_MARK_NO;
                 }
-                /* Turning authentication on: this admin is the owner's account; the reply lists the
-                 * other accounts and the tokens nobody confirmed (made while it was off) */
+                /* Turning authentication on: this admin is the owner's account when the request sets
+                 * its password; the reply lists the accounts and tokens nobody confirmed */
                 int turning_on = !curr_auth_enabled && new_auth_enabled;
-                if (turning_on && admin_idx >= 0) ulist[admin_idx].confirmed = 1;
+                if (turning_on) http_auth_switch_on_accounts(ulist, ucnt, admin_idx, pass[0] != 0);
 
                 /* No admin account and no password given: never invent admin/admin (the web UI
                  * used to save the moment the checkbox was ticked, before the form was filled).

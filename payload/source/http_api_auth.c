@@ -63,8 +63,27 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
     /* POST /api/auth/confirm: keep accounts and tokens listed when authentication was turned on
      * ({"users": [names], "tokens": [ids]} or {"all": true}); deleting one uses the usual routes */
     if (strcmp(clean_path, "/api/auth/confirm") == 0 && strcmp(method, "POST") == 0) {
+        /* With authentication off every client is admin: the mark would be set by anybody, at
+         * the very time it is meant to tell the owner's accounts from the others */
+        int auth_now = 0;
+        load_user_accounts(NULL, 0, &auth_now);
+        if (!auth_now) {
+            send_json_error(client_fd, 409, "Turn on authentication before keeping accounts or tokens");
+            close(client_fd);
+            return 1;
+        }
         cJSON *params = body ? cJSON_Parse(body) : NULL;
-        if (!cJSON_IsObject(params)) {
+        const cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "users");
+        const cJSON *jt = cJSON_GetObjectItemCaseSensitive(params, "tokens");
+        const cJSON *ja = cJSON_GetObjectItemCaseSensitive(params, "all");
+        int types_ok = cJSON_IsObject(params) && (!ja || cJSON_IsBool(ja));
+        for (int k = 0; types_ok && k < 2; k++) {
+            const cJSON *list = k ? jt : ju;
+            const cJSON *e;
+            if (list && !cJSON_IsArray(list)) types_ok = 0;
+            cJSON_ArrayForEach(e, list) if (!cJSON_IsString(e)) types_ok = 0;
+        }
+        if (!types_ok) {
             cJSON_Delete(params);
             send_json_error(client_fd, 400, "JSON object with users, tokens or all expected");
             close(client_fd);
@@ -245,7 +264,9 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         if (jrole && cJSON_IsString(jrole)) cJSON_AddStringToObject(item, "role", jrole->valuestring);
                         if (jca && cJSON_IsNumber(jca)) cJSON_AddNumberToObject(item, "created_at", jca->valuedouble);
                         if (jla && cJSON_IsNumber(jla)) cJSON_AddNumberToObject(item, "last_used_at", jla->valuedouble);
-                        cJSON_AddBoolToObject(item, "confirmed", cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(it, "confirmed")));
+                        /* only an explicit false is waiting for the owner (no mark: older file) */
+                        const cJSON *jcf = cJSON_GetObjectItemCaseSensitive(it, "confirmed");
+                        cJSON_AddBoolToObject(item, "confirmed", !(cJSON_IsBool(jcf) && !cJSON_IsTrue(jcf)));
                         cJSON_AddItemToArray(out_arr, item);
                     }
                 }
@@ -426,7 +447,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *u = cJSON_CreateObject();
             cJSON_AddStringToObject(u, "username", ulist[i].username);
             cJSON_AddStringToObject(u, "role", ulist[i].role == ROLE_USER ? "user" : "admin");
-            cJSON_AddBoolToObject(u, "confirmed", ulist[i].confirmed ? 1 : 0);
+            cJSON_AddBoolToObject(u, "confirmed", ulist[i].confirmed != AUTH_MARK_NO);
             cJSON_AddItemToArray(arr, u);
         }
         cJSON_AddItemToObject(resp, "users", arr);
@@ -473,6 +494,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         struct user_account ulist[MAX_HTTP_USERS];
         int auth_on = 0;
         int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+        int auth_before = auth_on;
 
         int found_idx = -1;
         for (int i = 0; i < ucnt; i++) {
@@ -494,6 +516,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                 if (nr != ulist[found_idx].role) ends_sessions = 1;
                 ulist[found_idx].role = nr;
             }
+            /* changed while authentication is off: anybody could have, so it is asked about again */
+            if (!auth_on && (new_pass[0] || (jr && cJSON_IsString(jr)))) ulist[found_idx].confirmed = AUTH_MARK_NO;
         } else {
             if (ucnt >= MAX_HTTP_USERS) {
                 cJSON_Delete(params);
@@ -511,7 +535,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             strncpy(ulist[ucnt].username, new_user, sizeof(ulist[ucnt].username) - 1);
             compute_ha1(ulist[ucnt].username, HARMONY_AUTH_REALM, new_pass, ulist[ucnt].ha1);
             ulist[ucnt].role = (strcasecmp(new_role_str, "admin") == 0) ? ROLE_ADMIN : ROLE_USER;
-            ulist[ucnt].confirmed = auth_on; /* made while authentication is off: asked about when it goes on */
+            /* made while authentication is off: asked about when it goes on */
+            ulist[ucnt].confirmed = auth_on ? AUTH_MARK_YES : AUTH_MARK_NO;
             ucnt++;
         }
 
@@ -521,14 +546,10 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             else if (cJSON_IsNumber(j_en)) auth_on = j_en->valueint != 0;
         }
 
-        /* Turning authentication on: the account named here is the owner's; the reply lists the
-         * other accounts and the tokens nobody confirmed */
-        int auth_before = 0;
-        load_user_accounts(NULL, 0, &auth_before);
+        /* Turning authentication on: the account named here is the owner's when this request sets
+         * its password; the reply lists the accounts and tokens nobody confirmed */
         int turning_on = !auth_before && auth_on;
-        for (int i = 0; turning_on && i < ucnt; i++) {
-            if (strcmp(ulist[i].username, new_user) == 0) ulist[i].confirmed = 1;
-        }
+        if (turning_on) http_auth_switch_on_accounts(ulist, ucnt, found_idx >= 0 ? found_idx : ucnt - 1, new_pass[0] != 0);
 
         /* Never invent an account with a known password: refuse a change that leaves no admin */
         int admin_count = 0;

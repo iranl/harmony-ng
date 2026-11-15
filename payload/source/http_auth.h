@@ -27,11 +27,16 @@ struct user_account {
     char password[MAX_PASSWORD_LEN];
     char ha1[65];
     enum http_role role;
-    /* 1: made while authentication was on, or kept by an admin when it was turned on. Accounts
-     * without it (made while it was off, or older files) are listed when authentication goes
-     * from off to on. */
+    /* AUTH_MARK_YES: made or last changed while authentication was on, or kept by an admin.
+     * AUTH_MARK_NO: made or changed while it was off (anybody could), listed until kept or deleted.
+     * AUTH_MARK_UNKNOWN: no mark in the file (older firmware): counts as kept while authentication
+     * stays on, becomes AUTH_MARK_NO when authentication is turned on. */
     int confirmed;
 };
+
+#define AUTH_MARK_NO 0
+#define AUTH_MARK_YES 1
+#define AUTH_MARK_UNKNOWN (-1)
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,13 +62,24 @@ void http_auth_note_success(const char *client_ip);
 /* End the sessions of one account (deleted, renamed, demoted, new password), or all of them */
 void http_auth_drop_user_sessions(const char *username);
 void http_auth_drop_all_sessions(void);
-/* Accounts and personal access tokens not confirmed (made while authentication was off, or older
- * than this check): added to the reply of the request that turned authentication on, as
- * "unconfirmed": {"users": [...], "tokens": [...]}, so the UIs can ask to keep or delete each. */
+/* Authentication goes from off to on (in memory; the caller saves the accounts): the owner's
+ * account (index owner, -1 for none) is kept when the request sets its password, or when it has no
+ * mark and was not changed while authentication was off; every other account without a mark is
+ * marked AUTH_MARK_NO so the owner is asked about it. */
+void http_auth_switch_on_accounts(struct user_account *users, int count, int owner, int owner_password_set);
+/* At the same switch, after the accounts were saved: tokens without a mark get "confirmed": false,
+ * and the reply gets "unconfirmed": {"users": [...], "tokens": [...]} (every account and token
+ * marked false), so the UIs can ask to keep or delete each. */
 void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, int count);
 /* Marks accounts (usernames) and tokens (ids) as kept; all = every one. Returns 0, or -1 when a
  * file could not be written. */
 int http_auth_confirm(const cJSON *usernames, const cJSON *token_ids, int all, int *users_done, int *tokens_done);
+/* After an import replaced users.json or webui_auth.conf (before = the accounts and the state
+ * from before it). Made while authentication was off, an import cannot vouch for anybody: every
+ * imported account is marked AUTH_MARK_NO, except one with the same name and password digest that
+ * was kept before. Saves the accounts. Returns the "unconfirmed" reply object when the import
+ * turned authentication on, else NULL. */
+cJSON *http_auth_after_import(const struct user_account *before, int before_count, int before_on);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

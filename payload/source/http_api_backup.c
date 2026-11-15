@@ -344,6 +344,12 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         int nfiles = 0;
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
+        /* The accounts before the import: one made while authentication is off cannot vouch for
+         * the accounts it brings (see http_auth_after_import) */
+        struct user_account acc_before[MAX_HTTP_USERS];
+        int acc_before_on = 0;
+        int acc_before_n = load_user_accounts(acc_before, MAX_HTTP_USERS, &acc_before_on);
+        cJSON *import_unconfirmed = NULL; /* set when the import turned authentication on */
         if (params) {
             cJSON *p_tgt = cJSON_GetObjectItemCaseSensitive(params, "target");
             cJSON *p_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");
@@ -433,10 +439,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             config_store_init();
                             notify_rf_push_config();
                             hub_send_btstack_cmd("reload_map");
-                            struct user_account tmp_u[MAX_HTTP_USERS];
-                            int tmp_en = 0;
-                            int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
-                            if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            import_unconfirmed = http_auth_after_import(acc_before, acc_before_n, acc_before_on);
                             http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                             success = 1;
                         }
@@ -480,10 +483,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             hub_send_btstack_cmd("reload_map");
                         }
                         if (strcmp(tgt, "auth") == 0 || strcmp(tgt, "users") == 0) {
-                            struct user_account tmp_u[MAX_HTTP_USERS];
-                            int tmp_en = 0;
-                            int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
-                            if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            import_unconfirmed = http_auth_after_import(acc_before, acc_before_n, acc_before_on);
                             http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                         }
                     }
@@ -510,6 +510,11 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Restored successfully" : "Import failed");
+        if (import_unconfirmed) {
+            /* the import turned authentication on: the same list as the other switches */
+            cJSON_AddBoolToObject(resp, "auth_enabled", 1);
+            cJSON_AddItemToObject(resp, "unconfirmed", import_unconfirmed);
+        }
         send_cjson_resp(client_fd, success ? 200 : 400, resp);
         cJSON_Delete(resp);
         close(client_fd);

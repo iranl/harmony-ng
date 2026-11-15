@@ -691,7 +691,15 @@ paths:
                 users: 1
                 tokens: 1
         '400':
-          description: Body is not a JSON object
+          description: Body is not a JSON object, or users/tokens are not lists of strings, or all is not a boolean
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (Admin role required)
+        '409':
+          description: Authentication is off (anybody could keep them then)
+        '500':
+          description: The accounts or tokens could not be written
 
   /api/users:
     get:
@@ -3361,7 +3369,10 @@ paths:
                 settings: {...}
       responses:
         '200':
-          description: Configuration imported and applied
+          description: >-
+            Configuration imported and applied. An import of the accounts made while authentication
+            is off marks them not confirmed; when it turns authentication on, the reply also carries
+            auth_enabled and "unconfirmed" (as POST /api/users).
           content:
             application/json:
               example:

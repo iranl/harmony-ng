@@ -129,6 +129,84 @@ pass="$3"
 trap 'rm -f "$ACCOUNTS"' EXIT
 load_accounts
 
+# Account marks of hub_daemon ("confirmed": true or false in users.json; tokens.json the same).
+# The rewrites below keep username, ha1 and role only, so the marks are put back on exit: root over
+# SSH is the owner, so the account this command sets (set-admin, add-user) is kept; every other
+# account keeps the mark it had. When the command turns authentication on, accounts and tokens
+# without a mark are marked false, as hub_daemon does at that switch, and set-admin and
+# enable-auth print the ones still waiting: keep or delete them in the web UI.
+MARKS="/tmp/harmony_auth_marks.tmp"
+json_marks() {
+    [ -f "$1" ] || return 0
+    awk '
+        {
+            line = $0
+            while (match(line, /"(username|id)"[ \t]*:[ \t]*"[^"]*"|"confirmed"[ \t]*:[ \t]*(true|false)/)) {
+                kv = substr(line, RSTART, RLENGTH)
+                line = substr(line, RSTART + RLENGTH)
+                k = kv; sub(/^"/, "", k); sub(/".*/, "", k)
+                v = kv; sub(/^"[^"]*"[ \t]*:[ \t]*"?/, "", v); sub(/"$/, "", v)
+                if (k == "confirmed") { if (n != "") print n ":" v; n = "" } else n = v
+            }
+        }
+    ' "$1"
+}
+auth_on_in_file() {
+    grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null
+}
+json_marks "$USERS_JSON" > "$MARKS"
+cp -f "$USERS_JSON" "$MARKS.orig" 2>/dev/null || : > "$MARKS.orig"
+MARKS_WAS_ON=0
+auth_on_in_file && MARKS_WAS_ON=1
+MARKS_OWNER=""
+case "$1" in set-admin|add-user) MARKS_OWNER="$2" ;; esac
+
+restore_marks() {
+    [ -f "$USERS_JSON" ] || return 0
+    cmp -s "$USERS_JSON" "$MARKS.orig" && return 0
+    switching=0
+    if [ "$MARKS_WAS_ON" = "0" ] && auth_on_in_file; then switching=1; fi
+    awk -v owner="$MARKS_OWNER" -v sw="$switching" -v marks="$MARKS" '
+        BEGIN { while ((getline l < marks) > 0) { i = index(l, ":"); m[substr(l, 1, i - 1)] = substr(l, i + 1) } }
+        /"username"[ \t]*:[ \t]*"/ && !/"confirmed"/ {
+            u = $0; sub(/.*"username"[ \t]*:[ \t]*"/, "", u); sub(/".*/, "", u)
+            v = (u == owner && owner != "") ? "true" : ((u in m) ? m[u] : (sw == 1 ? "false" : ""))
+            if (v != "") sub(/[ \t]*}[ \t]*,?[ \t]*$/, ", \"confirmed\": " v "&", $0)
+        }
+        { print }
+    ' "$USERS_JSON" > "$USERS_JSON.marks" && mv -f "$USERS_JSON.marks" "$USERS_JSON"
+    tokens_json="${USERS_JSON%/*}/tokens.json"
+    if [ "$switching" = "1" ] && [ -f "$tokens_json" ]; then
+        json_marks "$tokens_json" > "$MARKS.tok"
+        awk -v marks="$MARKS.tok" '
+            BEGIN { while ((getline l < marks) > 0) { i = index(l, ":"); has[substr(l, 1, i - 1)] = 1 } }
+            /"id"[ \t]*:[ \t]*"/ {
+                id = $0; sub(/.*"id"[ \t]*:[ \t]*"/, "", id); sub(/".*/, "", id)
+                if (!(id in has)) {
+                    ind = $0; sub(/[^ \t].*/, "", ind)
+                    if ($0 ~ /,[ \t]*$/) { print; print ind "\"confirmed\": false,"; next }
+                    print $0 ","; print ind "\"confirmed\": false"; next
+                }
+            }
+            { print }
+        ' "$tokens_json" > "$tokens_json.marks" && mv -f "$tokens_json.marks" "$tokens_json"
+    fi
+    case "$cmd" in
+        set-admin|enable-auth)
+            json_marks "$USERS_JSON" | grep ':false$' | sed 's/:false$//' > "$MARKS.list"
+            [ -f "$tokens_json" ] && json_marks "$tokens_json" | grep ':false$' | sed 's/:false$//;s/^/token /' >> "$MARKS.list"
+            if [ -s "$MARKS.list" ]; then
+                echo "[!] Made or changed while authentication was off (anybody on the network could), not kept yet:"
+                while read -r item; do echo "    $item"; done < "$MARKS.list"
+                echo "    Keep or delete them in the web UI (Users page) or with POST /api/auth/confirm."
+            fi
+            ;;
+    esac
+    rm -f "$MARKS.tok" "$MARKS.list" 2>/dev/null
+    return 0
+}
+trap 'rc=$?; [ "$rc" = "0" ] && restore_marks; rm -f "$ACCOUNTS" "$MARKS" "$MARKS.orig"; exit $rc' EXIT
+
 case "$cmd" in
     set-admin)
         if [ -z "$user" ] || [ -z "$pass" ]; then

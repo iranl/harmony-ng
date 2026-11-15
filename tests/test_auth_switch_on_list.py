@@ -16,6 +16,7 @@ Clients bind to 127.0.0.2 (not trusted as loopback). Port 9201, private mock roo
 """
 
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -47,6 +48,10 @@ def basic(user, pw):
 
 def names(lst, key):
     return sorted(x.get(key) for x in (lst or []))
+
+
+def ha1(user, pw):
+    return hashlib.sha256(("%s:Harmony Hub:%s" % (user, pw)).encode()).hexdigest()
 
 
 def users_by_name(hub, headers=None):
@@ -134,9 +139,102 @@ def run_system_action():
         check(all(t.get("confirmed") is True for t in saved.get("tokens", [])), "tokens.json keeps the mark", str(saved))
 
 
+def run_marks_only_from_the_owner():
+    print("[-] nobody can set or keep a mark while authentication is off")
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": LEGACY_TOKENS}) as hub:
+        st, r = hub.http_post("/api/users", {"username": "evil", "password": "pw-evil", "role": "admin"})
+        check(st == 200, "account made while off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/auth/confirm", {"all": True})
+        check(st == 409, "POST /api/auth/confirm while off: 409", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/users", {"username": "owner", "password": "pw-owner", "role": "admin",
+                                             "auth_enabled": True})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(names(unc.get("users"), "username") == ["evil"], "the account is still listed at the switch", str(r))
+        owner = basic("owner", "pw-owner")
+        for body in ({"users": "evil"}, {"tokens": 5}, {"all": "yes"}, {"users": [1]}):
+            st, r = hub.http_post("/api/auth/confirm", body, headers=owner)
+            check(st == 400, "wrong types refused: %s" % json.dumps(body), "%s %s" % (st, r))
+
+        print("[-] an account changed while authentication is off is asked about again")
+        st, r = hub.http_post("/api/users", {"username": "kid", "password": "pw-kid", "role": "user"}, headers=owner)
+        check(st == 200 and users_by_name(hub, owner).get("kid", {}).get("confirmed") is True, "kid made with auth on")
+        st, r = hub.http_post("/api/auth/confirm", {"all": True}, headers=owner)
+        st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": False}, headers=owner)
+        check(st == 200, "auth off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/users", {"username": "kid", "password": "hacked", "role": "admin"})
+        check(st == 200, "kid promoted with a new password while off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/users", {"username": "owner", "auth_enabled": True})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(names(unc.get("users"), "username") == ["kid"], "the changed account is listed, the owner's is not", str(r))
+
+    print("[-] the auth action: a change of the first admin while off, a switch without password")
+    with HubHarness(port=PORT, host=HOST) as hub:
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authUsername": "boss", "authPassword": "pw-boss",
+                                                     "authEnabled": 1})
+        check(st == 200 and (r or {}).get("unconfirmed") == {"users": [], "tokens": []}, "boss set with the switch",
+              "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 0}, headers=basic("boss", "pw-boss"))
+        check(st == 200, "auth off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authUsername": "boss", "authPassword": "hacked",
+                                                     "authEnabled": 0})
+        check(st == 200, "boss's password changed while off", "%s %s" % (st, r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 1})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(names(unc.get("users"), "username") == ["boss"], "switch without password: the changed admin is listed", str(r))
+
+
+def run_imports():
+    print("[-] an import made while authentication is off brings no marks")
+    with HubHarness(port=PORT, host=HOST) as hub:
+        payload = {"auth_enabled": False, "users": [
+            {"username": "evil", "ha1": ha1("evil", "pw-evil"), "role": "admin", "confirmed": True}]}
+        st, r = hub.http_post("/import", {"target": "users", "payload": payload})
+        check(st == 200 and "unconfirmed" not in r, "users imported while off", "%s %s" % (st, r))
+        check(users_by_name(hub).get("evil", {}).get("confirmed") is False, "imported mark not taken", str(users_by_name(hub)))
+        st, r = hub.http_post("/api/users", {"username": "owner", "password": "pw-owner", "role": "admin",
+                                             "auth_enabled": True})
+        check(names(((r or {}).get("unconfirmed") or {}).get("users"), "username") == ["evil"],
+              "the imported account is listed at the switch", str(r))
+
+    print("[-] an import that turns authentication on answers the list")
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": LEGACY_TOKENS}) as hub:
+        payload = {"auth_enabled": True, "users": [
+            {"username": "a1", "ha1": ha1("a1", "pw"), "role": "admin", "confirmed": True},
+            {"username": "u1", "ha1": ha1("u1", "pw"), "role": "user"}]}
+        st, r = hub.http_post("/import", {"target": "users", "payload": payload})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(st == 200 and r.get("auth_enabled") is True and names(unc.get("users"), "username") == ["a1", "u1"]
+              and names(unc.get("tokens"), "id") == ["tok_legacy01"], "import reply lists accounts and tokens", "%s %s" % (st, r))
+
+
+def run_older_files():
+    print("[-] files without marks (older firmware) on a Hub with authentication on")
+    old = {"auth_enabled": True, "realm": "Harmony Hub", "users": [
+        {"username": "alex", "ha1": ha1("alex", "pw-alex"), "role": "admin"},
+        {"username": "wife", "ha1": ha1("wife", "pw-wife"), "role": "user"}]}
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"users.json": old, "tokens.json": LEGACY_TOKENS}) as hub:
+        alex = basic("alex", "pw-alex")
+        us = users_by_name(hub, alex)
+        check(us.get("alex", {}).get("confirmed") is True and us.get("wife", {}).get("confirmed") is True,
+              "no mark counts as kept while auth stays on", str(us))
+        st, r = hub.http_get("/api/auth/tokens", headers=alex)
+        check(all(tk.get("confirmed") is True for tk in (r or {}).get("tokens", [])), "tokens without a mark too", str(r))
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 0}, headers=alex)
+        st, r = hub.http_post("/api/system-action", {"action": "auth", "authEnabled": 1})
+        unc = (r or {}).get("unconfirmed") or {}
+        check(names(unc.get("users"), "username") == ["wife"] and names(unc.get("tokens"), "id") == ["tok_legacy01"],
+              "at the next switch: listed once, the admin of the switch not", str(r))
+        us = users_by_name(hub, alex)
+        check(us.get("wife", {}).get("confirmed") is False and us.get("alex", {}).get("confirmed") is True,
+              "still waiting until kept or deleted", str(us))
+
+
 def main():
     run_users_route()
     run_system_action()
+    run_marks_only_from_the_owner()
+    run_imports()
+    run_older_files()
     if failures:
         print("FAILED: %d check(s)" % len(failures))
         sys.exit(1)
