@@ -18,3 +18,4 @@ python3 "$SCRIPT_DIR/test_webui_routes.py"
 webui_node_test test_webui_form_limits.mjs
 # Renderer import versions and Android backup flags of both UIs (static checks)
 python3 "$SCRIPT_DIR/test_webui_packaging.py"
+webui_node_test test_webui_i18n.mjs

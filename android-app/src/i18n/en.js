@@ -1238,4 +1238,5 @@ export default {
     "wifi_credentials_desc": "Enter Wi-Fi network credentials. Serves as wireless connection or automatic fallback when Ethernet is disconnected.",
     "wifi_ssid": "Wi-Fi Network Name (SSID)",
     "wifi_status_lbl": "Wi-Fi Status",
+    "hold_repeat": "Hold Repeat",
 };

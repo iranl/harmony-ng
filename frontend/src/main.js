@@ -87,7 +87,9 @@ async function initApp() {
   let devicesViewEl = null;
   let setupViewEl = null;
 
+  let activeTab = null;
   function renderActiveTab(tab) {
+    activeTab = tab;
     // Update tab bar buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
       if (btn.dataset.tab === tab) {
@@ -125,6 +127,15 @@ async function initApp() {
 
   window.addEventListener('harmony-route-changed', (e) => {
     renderActiveTab(e.detail.tab);
+  });
+
+  // The views are built once and kept: after a language change build them again, so their texts
+  // follow the new language without a reload
+  window.addEventListener('harmony-lang-changed', () => {
+    remoteViewEl = null;
+    devicesViewEl = null;
+    setupViewEl = null;
+    if (activeTab) renderActiveTab(activeTab);
   });
 
   // 5. Start router

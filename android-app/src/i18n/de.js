@@ -1238,4 +1238,5 @@ export default {
     "wifi_credentials_desc": "Geben Sie die Wi-Fi-Zugangsdaten ein. Dient als drahtlose Verbindung oder automatischer Fallback, wenn Ethernet getrennt wird.",
     "wifi_ssid": "WLAN-Netzwerkname (SSID)",
     "wifi_status_lbl": "WLAN-Status",
+    "hold_repeat": "Wiederholen beim Halten",
 };
