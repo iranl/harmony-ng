@@ -17,7 +17,8 @@ Checks:
    key while the daemon's main loop is stalled for 7 s (a WebSocket frame that trickles in):
    the press and the holds run while they are fresh, nothing runs after the stall, and the
    button events are press then release. Before the change the IR sends all ran after the
-   stall (late) and the release could be lost.
+   stall (late) and the release could be lost. (The press is the only send: a hold keeps a
+   held infrared key repeating and sends nothing itself, see test_ir_hold.py.)
 3. hub_rf against a hub_daemon without the key channel (no socket): it falls back to the HTTP
    routes and the key still arrives (press and release events).
 
@@ -184,8 +185,10 @@ def test_hub_rf_hold_across_stall(tmp, client):
         actions = button_actions(obs, 1.5)
         check(res.returncode == 0, "the hub_rf client ran", res.stderr[-300:])
         check(stalled, "the main loop was still stalled when the key was done")
-        check(during == 4, "press and 3 holds sent while fresh, during the stall", "during=%d" % during)
+        # the press is the one send: a hold only keeps a held infrared key repeating
+        check(during == 1, "the press sent while fresh, during the stall", "during=%d" % during)
         check(after == 0, "nothing sent late, after the stall", "after=%d" % after)
+        check(" hold skipped" not in log_text(log_path), "no hold was late (none skipped as stale)")
         check(actions == ["press", "release"], "button events: press, release", str(actions))
         obs.close()
         staller.close()

@@ -726,6 +726,19 @@ Transmits an IR command either by device ID and command name (single string or a
   - `num_repeats`: Number of times to cycle through the command list (1-50, default: 1).
   - `delay_secs`: Delay in seconds between successive commands (default: 0.25s for multi-commands, 0s for single).
   - `hold_secs`: Button press hold duration in seconds before release (0.0 to 10.0s).
+- **Held key (`"action"` with a device command)**: `press`, `hold` or `release`; `tap`, the
+  default, is one full keystroke. For an infrared command a `press` starts the code and returns
+  at once: the Hub sends the code and then repeats it in the code's own repeat format (its
+  repeat sequence, or the whole frame when it has none) with no pause, as the device's own
+  remote does, until the `release`. A `hold` sends nothing itself: it tells the Hub that the key
+  is still down. With no `hold` and no `release` for 600 ms the Hub stops repeating by itself
+  (a lost release cannot leave a key repeating), so a client that holds a key longer sends a
+  `hold` at least every 300 ms, as the remote does. The repeating always ends after a whole
+  frame, and the start of the code always goes out, also when the release comes sooner. A `tap`,
+  each command of a list and each step of an activity is one send, as before. Another infrared
+  command ends a held key (it waits for the frame on air). A `hold` or `release` for a key that
+  is not held does nothing. For a Bluetooth command `press` is key down, `release` key up and
+  `hold` nothing. The `hold_secs` of `send_command` (10.3, MQTT) sends the holds itself.
 - **Request by Raw Pronto**:
   ```json
   {

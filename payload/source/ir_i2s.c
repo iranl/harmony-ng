@@ -270,9 +270,11 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     return 0;
 }
 
-int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
-    if (!blob || blob_len < 16) return -1;
-
+/* Sends one timing sequence of a blob: the word count at loc, then that many duration words.
+ * chained: the lead-in and the tail silence every stream carries are taken out of the
+ * sequence's last space, so the stream lasts as long as the sequence itself and the next part
+ * of a held key follows with the code's own timing. */
+static int ir_i2s_blast_blob_sequence(const uint8_t *blob, size_t blob_len, uint16_t loc, int chained, uint8_t port_mask) {
     /* Parse 16-byte Logitech IR header */
     uint32_t period_ns = ((uint32_t)blob[1] << 24) |
                          ((uint32_t)blob[2] << 16) |
@@ -280,13 +282,11 @@ int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
                          ((uint32_t)blob[4]);
     uint8_t duty = blob[5];
     uint16_t pre_silence_us = ((uint16_t)blob[6] << 8) | (uint16_t)blob[7];
-    uint16_t start_loc = ((uint16_t)blob[10] << 8) | (uint16_t)blob[11];
-    if (start_loc < 16 || (size_t)start_loc + 2 > blob_len) start_loc = 16;
-    /* the word count at start_loc must be inside the blob (a 16- or 17-byte blob has none) */
-    if ((size_t)start_loc + 2 > blob_len) return -2;
-    uint16_t word_count = ((uint16_t)blob[start_loc] << 8) | (uint16_t)blob[start_loc + 1];
+    /* the word count at loc must be inside the blob (a 16- or 17-byte blob has none) */
+    if ((size_t)loc + 2 > blob_len) return -2;
+    uint16_t word_count = ((uint16_t)blob[loc] << 8) | (uint16_t)blob[loc + 1];
 
-    size_t words_offset = start_loc + 2;
+    size_t words_offset = loc + 2;
     if (words_offset >= blob_len) return -2;
 
     size_t actual_words = (blob_len - words_offset) / 2;
@@ -315,9 +315,57 @@ int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
         words[w_idx++] = (45000 & 0x7FFF); /* Trailing space: 45ms */
     }
 
+    if (chained && carrier_hz > 0) {
+        /* the lead-in above and the 500 carrier periods of silence ir_i2s_blast_words() appends */
+        uint32_t cut_us = pre_silence_us + (uint32_t)((1000000000ULL / carrier_hz) * 500ULL / 1000ULL);
+        while (cut_us > 0 && w_idx > 1 && !(words[w_idx - 1] & 0x8000)) {
+            uint16_t us = words[w_idx - 1] & 0x7FFF;
+            if (us > cut_us) {
+                words[w_idx - 1] = (uint16_t)(us - cut_us);
+                cut_us = 0;
+            } else {
+                cut_us -= us;   /* a short last space: the stream's own silence stands for it */
+                w_idx--;
+            }
+        }
+    }
+
     int rc = ir_i2s_blast_words(carrier_hz, duty, words, w_idx, port_mask);
     free(words);
     return rc;
+}
+
+/* Where the sequence sent at a press starts: the header's start location, or the first
+ * sequence when the header has none (a Pronto code with a repeat sequence only) */
+static uint16_t ir_blob_start_loc(const uint8_t *blob, size_t blob_len) {
+    uint16_t start_loc = ((uint16_t)blob[10] << 8) | (uint16_t)blob[11];
+    if (start_loc < 16 || (size_t)start_loc + 2 > blob_len) start_loc = 16;
+    return start_loc;
+}
+
+int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
+    if (!blob || blob_len < 16) return -1;
+    return ir_i2s_blast_blob_sequence(blob, blob_len, ir_blob_start_loc(blob, blob_len), 0, port_mask);
+}
+
+int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8_t port_mask) {
+    if (!blob || blob_len < 16) return -1;
+    uint16_t loc = ir_blob_start_loc(blob, blob_len);
+    if (part == IR_BLOB_REPEAT) {
+        /* the code's repeat sequence; a code without one repeats its whole frame */
+        uint16_t repeat_loc = ((uint16_t)blob[12] << 8) | (uint16_t)blob[13];
+        if (repeat_loc >= 16 && (size_t)repeat_loc + 4 <= blob_len &&
+            (blob[repeat_loc] || blob[repeat_loc + 1])) {
+            loc = repeat_loc;
+        }
+    } else if (part == IR_BLOB_FINISH) {
+        uint16_t finish_loc = ((uint16_t)blob[14] << 8) | (uint16_t)blob[15];
+        if (finish_loc < 16 || (size_t)finish_loc + 4 > blob_len) return -ENOENT;
+        loc = finish_loc;
+    } else if (part != IR_BLOB_START) {
+        return -1;
+    }
+    return ir_i2s_blast_blob_sequence(blob, blob_len, loc, 1, port_mask);
 }
 
 /*
@@ -629,15 +677,31 @@ static void *s_mode_user = NULL;
 static volatile int s_tx_active = 0;
 static volatile long long s_rx_discard_until_ms = 0;
 static volatile int s_rx_refreq = 0;
+/* A held key marks the whole hold (ir_i2s_tx_hold) around the marks of its frames: the receiver
+ * then stays deaf, and leaves the shared clock alone, in the few ms between two frames too. */
+static pthread_mutex_t s_tx_mark_lock = PTHREAD_MUTEX_INITIALIZER;
+static int s_tx_depth = 0;
 
 static void ir_rx_tx_begin(void) {
+    pthread_mutex_lock(&s_tx_mark_lock);
+    s_tx_depth++;
     s_tx_active = 1;
+    pthread_mutex_unlock(&s_tx_mark_lock);
 }
 
 static void ir_rx_tx_end(void) {
-    s_rx_discard_until_ms = ir_rx_now_ms() + IR_RX_TX_GUARD_MS;
-    s_rx_refreq = 1;
-    s_tx_active = 0;
+    pthread_mutex_lock(&s_tx_mark_lock);
+    if (s_tx_depth > 0 && --s_tx_depth == 0) {
+        s_rx_discard_until_ms = ir_rx_now_ms() + IR_RX_TX_GUARD_MS;
+        s_rx_refreq = 1;
+        s_tx_active = 0;
+    }
+    pthread_mutex_unlock(&s_tx_mark_lock);
+}
+
+void ir_i2s_tx_hold(int on) {
+    if (on) ir_rx_tx_begin();
+    else ir_rx_tx_end();
 }
 
 static int ir_mode_should_stop(void) {
