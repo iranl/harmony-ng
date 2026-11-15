@@ -19,6 +19,8 @@
 #define RESYNC_INTERVAL_SEC (4 * 3600) /* 4 hours */
 #define RETRY_INTERVAL_SEC 20          /* 20 seconds */
 #define CONFIRM_RETRY_SEC 300          /* next round while a time waits for a second server */
+#define CONFIRM_RETRY_ROUNDS 12        /* ... for the first hour; then once an hour */
+#define CONFIRM_RETRY_SLOW_SEC 3600
 
 /* A clock step larger than this is applied only when two servers (two different addresses)
  * agree on the time within AGREE_SEC. Smaller corrections from one server are applied at once. */
@@ -69,23 +71,38 @@ static void sntp_request_nonce(uint32_t *s, uint32_t *f) {
     *f = v[1] ? v[1] : 1;
 }
 
-/* Build date of this file (__DATE__, "Mmm dd yyyy") as a Unix time, 0 if it cannot be read */
-static int64_t sntp_build_epoch(void) {
-    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    const char *d = __DATE__;
-    char mon[4] = { d[0], d[1], d[2], 0 };
-    const char *m = strstr(months, mon);
-    int day = atoi(d + 4), year = atoi(d + 7);
-    if (!m || day < 1 || year < 2000) return 0;
-    int month = (int)(m - months) / 3 + 1;
-    /* days from 1970-01-01 to year-month-day (proleptic Gregorian) */
+/* Days from 1970-01-01 to year-month-day (proleptic Gregorian) */
+static int64_t sntp_days_from_civil(int year, int month, int day) {
     int y = year - (month <= 2);
     int era = y / 400;
     int yoe = y - era * 400;
     int doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
     int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = (int64_t)era * 146097 + doe - 719468;
-    return days * 86400;
+    return (int64_t)era * 146097 + doe - 719468;
+}
+
+/* Build date as a Unix time, 0 if unknown. build/compile_all.sh passes the UTC date
+ * (HUB_BUILD_DATE_UTC=YYYYMMDD). Without it __DATE__ is used, which is the build host's local
+ * date: one day is taken off, so a build east of UTC is never dated in the future. */
+static int64_t sntp_build_epoch(void) {
+    static int64_t cached = -1;
+    if (cached >= 0) return cached;
+    cached = 0;
+#ifdef HUB_BUILD_DATE_UTC
+    long v = (long)(HUB_BUILD_DATE_UTC);
+    int year = (int)(v / 10000), month = (int)(v / 100 % 100), day = (int)(v % 100);
+    if (year >= 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31)
+        cached = sntp_days_from_civil(year, month, day) * 86400;
+#else
+    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    const char *d = __DATE__;
+    char mon[4] = { d[0], d[1], d[2], 0 };
+    const char *m = strstr(months, mon);
+    int day = atoi(d + 4), year = atoi(d + 7);
+    if (m && day >= 1 && year >= 2000)
+        cached = (sntp_days_from_civil(year, (int)(m - months) / 3 + 1, day) - 1) * 86400;
+#endif
+    return cached;
 }
 
 /* Earliest time the clock can have: a reply before this is wrong, a clock before it is not set */
@@ -212,9 +229,12 @@ static void sntp_set_unconfirmed(int on) {
 
 /* the last round saw a large step from one server only and did not apply it */
 static int g_step_refused = 0;
+/* rounds in a row that ended with the time not checked by two servers (or a step refused) */
+static int g_confirm_rounds = 0;
 
 static time_t sntp_apply(const struct sntp_answer *a, int apply) {
     int64_t t = sntp_mono_us() + a->ref_us;
+    if (sizeof(time_t) < 8 && t / 1000000 > 0x7FFFFFFFLL) return 0; /* past 2038 on a 32-bit time_t */
     if (apply) {
         struct timeval new_tv;
         new_tv.tv_sec = (time_t)(t / 1000000);
@@ -268,22 +288,29 @@ time_t sntp_sync_time(const char *server, int apply) {
         if (seen) continue; /* the same server under another name is not a second opinion */
 
         if (clock_set && sntp_abs64(a.offset_us) <= limit_us && result == 0) {
-            result = sntp_apply(&a, apply); /* small correction: as before */
+            /* small correction: as before; under a second the clock is left alone */
+            result = sntp_apply(&a, apply && sntp_abs64(a.offset_us) >= 1000000);
             if (!unconfirmed) {
-                if (apply) g_step_refused = 0;
+                if (apply) {
+                    g_step_refused = 0;
+                    g_confirm_rounds = 0;
+                }
                 return result;
             }
         }
         for (int j = 0; j < na; j++) {
             if (sntp_abs64(a.ref_us - ans[j].ref_us) <= agree_us) {
-                if (sntp_abs64(a.offset_us) > limit_us || result == 0 || !clock_set) {
+                /* the clock is set to the time they agree on unless it is within AGREE_SEC of it
+                 * already (also after a small correction from another server in this round) */
+                int step = !clock_set || sntp_abs64(a.offset_us) > agree_us;
+                if (step)
                     printf("[+] SNTP: %s and %s agree, stepping the clock by %lld s\n", ans[j].host, a.host,
                            (long long)(a.offset_us / 1000000));
-                    result = sntp_apply(&a, apply);
-                }
+                result = sntp_apply(&a, apply && step);
                 if (result && apply) {
                     sntp_set_unconfirmed(0);
                     g_step_refused = 0;
+                    g_confirm_rounds = 0;
                 }
                 return result;
             }
@@ -292,7 +319,10 @@ time_t sntp_sync_time(const char *server, int apply) {
     }
 
     if (result) {
-        if (apply) g_step_refused = 0;
+        if (apply) {
+            g_step_refused = 0;
+            g_confirm_rounds++;
+        }
         return result; /* a small correction from one server; a later round looks for a second */
     }
     if (!clock_set) {
@@ -304,6 +334,7 @@ time_t sntp_sync_time(const char *server, int apply) {
             if (result && apply) {
                 sntp_set_unconfirmed(1);
                 g_step_refused = 0;
+                g_confirm_rounds++;
             }
             return result;
         }
@@ -312,7 +343,10 @@ time_t sntp_sync_time(const char *server, int apply) {
         printf("[!] SNTP: %s is %lld s away from the Hub clock: not applied until a second server agrees\n",
                ans[j].host, (long long)(ans[j].offset_us / 1000000));
     }
-    if (na > 0 && apply) g_step_refused = 1;
+    if (na > 0 && apply) {
+        g_step_refused = 1;
+        g_confirm_rounds++;
+    }
     return 0;
 }
 
@@ -329,15 +363,23 @@ int sntp_sync_due(void) {
         g_time_valid = 0;
     }
 
-    time_t interval = !g_time_valid ? RETRY_INTERVAL_SEC
-                    : (g_step_refused || sntp_unconfirmed()) ? CONFIRM_RETRY_SEC
-                    : RESYNC_INTERVAL_SEC;
-
-    if (g_last_sync_attempt == 0 || (now - g_last_sync_attempt) >= interval || now < g_last_sync_attempt) {
-        g_last_sync_attempt = now;
-        return 1;
+    int due;
+    time_t elapsed = now - g_last_sync_attempt;
+    if (g_last_sync_attempt == 0 || now < g_last_sync_attempt) {
+        due = 1;
+    } else if (!g_time_valid) {
+        due = elapsed >= RETRY_INTERVAL_SEC;
+    } else if (elapsed >= RESYNC_INTERVAL_SEC) {
+        due = 1;
+    } else {
+        /* a time not checked by two servers yet, or a refused step: every 5 minutes for the first
+         * hour, then once an hour (a Hub that reaches only one server stays in this state). The
+         * file is looked at only when such a round could be due. */
+        time_t confirm = g_confirm_rounds < CONFIRM_RETRY_ROUNDS ? CONFIRM_RETRY_SEC : CONFIRM_RETRY_SLOW_SEC;
+        due = elapsed >= confirm && (g_step_refused || sntp_unconfirmed());
     }
-    return 0;
+    if (due) g_last_sync_attempt = now;
+    return due;
 }
 
 void sntp_sync_done(time_t res) {

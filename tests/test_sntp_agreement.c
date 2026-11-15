@@ -1,7 +1,8 @@
 /*
  * hub_ntp.c steps the clock by more than an hour only when two servers agree.
  *
- * Fake SNTP servers answer on 127.0.0.11-15 (ports 9261-9265), each with its own time; the
+ * Fake SNTP servers answer on 127.0.0.11-15 (ports 9261-9265, any free port when one is busy),
+ * each with its own time; the
  * server names hub_ntp.c asks are resolved to them (getaddrinfo is replaced below; an unmapped
  * name fails at once). The Hub's clock is a fake too: gettimeofday() and settimeofday() are
  * replaced, so "the clock is not set" (1970) and the steps can be checked without root.
@@ -22,6 +23,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <time.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #define NTP_DELTA 2208988800ULL
@@ -60,6 +62,7 @@ static int64_t hub_now(void) { return (real_us() + g_clock_shift_us) / 1000000; 
 
 /* ---- fake servers ---- */
 static int g_fd[NSERVERS];
+static int g_port[NSERVERS];
 static volatile int g_answers[NSERVERS];      /* 1 = answers, 0 = silent */
 static volatile int64_t g_server_shift[NSERVERS]; /* seconds away from the real time */
 static volatile int g_stop;
@@ -79,7 +82,7 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     struct addrinfo *ai = calloc(1, sizeof(*ai));
     struct sockaddr_in *sa = calloc(1, sizeof(*sa));
     sa->sin_family = AF_INET;
-    sa->sin_port = htons((uint16_t)(9261 + idx));
+    sa->sin_port = htons((uint16_t)g_port[idx]);
     sa->sin_addr.s_addr = htonl(0x7F00000BU + (uint32_t)idx); /* 127.0.0.11 + idx */
     ai->ai_family = AF_INET;
     ai->ai_socktype = SOCK_DGRAM;
@@ -136,9 +139,15 @@ static int open_server(int i) {
     sa.sin_port = htons((uint16_t)(9261 + i));
     sa.sin_addr.s_addr = htonl(0x7F00000BU + (uint32_t)i);
     if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
-        perror("bind");
-        exit(2);
+        sa.sin_port = 0; /* the test's port is busy: any free one */
+        if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+            perror("bind");
+            exit(2);
+        }
     }
+    socklen_t l = sizeof(sa);
+    getsockname(fd, (struct sockaddr *)&sa, &l);
+    g_port[i] = ntohs(sa.sin_port);
     return fd;
 }
 
@@ -244,6 +253,31 @@ int main(void) {
     setup(ONLY0, (int64_t[NSERVERS]){ -200 * 86400LL, 0, 0, 0, 0 }, unset);
     t = sntp_sync_time("ntp.test", 1);
     CHECK(t == 0 && g_set_calls == 0, "a time before this build is not used");
+
+    printf("Checking a time that one server gave:\n");
+    /* one server set the clock 30 min ahead (clock not set before); the next round asks it first,
+     * then two others that agree on the real time */
+    {
+        int fd = open(SNTP_UNCONFIRMED_FILE, O_WRONLY | O_CREAT, 0644);
+        if (fd >= 0) close(fd);
+    }
+    setup(THREE, (int64_t[NSERVERS]){ 1800, 0, 0, 0, 0 }, 1800);
+    t = sntp_sync_time("ntp.test", 1);
+    CHECK(near(hub_now(), real), "the two that agree set the clock back, although the first agreed with it");
+    CHECK(access(SNTP_UNCONFIRMED_FILE, F_OK) != 0, "and only then the time counts as checked");
+
+    printf("Rounds and small corrections:\n");
+    setup(ONLY0, (int64_t[NSERVERS]){ 0, 0, 0, 0, 0 }, 0);
+    t = sntp_sync_time("ntp.test", 1);
+    CHECK(near(t, real) && g_set_calls == 0, "a correction under a second does not set the clock");
+    setup(ONLY0, (int64_t[NSERVERS]){ 2 * YEAR, 0, 0, 0, 0 }, 0);
+    for (int i = 0; i < 12; i++) (void)sntp_sync_time("ntp.test", 1);
+    g_clock_shift_us += 4LL * 3600 * 1000000; /* past the 4 h round: one is due now */
+    CHECK(sntp_sync_due() == 1, "a round is due after 4 hours");
+    g_clock_shift_us += 301LL * 1000000;
+    CHECK(sntp_sync_due() == 0, "after an hour of refused steps the next round is not after 5 minutes");
+    g_clock_shift_us += 3300LL * 1000000;
+    CHECK(sntp_sync_due() == 1, "but after an hour");
 
     g_stop = 1;
     pthread_join(th, NULL);
