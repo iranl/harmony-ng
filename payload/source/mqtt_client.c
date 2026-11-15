@@ -224,6 +224,8 @@ int mqtt_connect(void) {
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return connect_failed(-1, "socket: %s", strerror(errno));
+    /* close-on-exec: a helper started with system() kept the connection open after a reconnect */
+    fcntl(sock, F_SETFD, FD_CLOEXEC);
 
     /* Set 64KB send buffer to absorb burst discovery publishes without drop */
     int sndbuf = 65536;

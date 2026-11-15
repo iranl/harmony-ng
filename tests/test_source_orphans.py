@@ -19,7 +19,7 @@ REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 class SourceOrphans(unittest.TestCase):
     def test_every_source_is_built(self):
         refs = ""
-        for pattern in ("build/*.sh", "build/*.py", "tests/run_mock_suite.sh", "tests/*.py"):
+        for pattern in ("build/*.sh", "build/*.py", "tests/run_mock_suite.sh", "tests/suite.d/*.sh", "tests/*.py"):
             for f in REPO_DIR.glob(pattern):
                 if f.resolve() != pathlib.Path(__file__).resolve():
                     refs += f.read_text(errors="replace")

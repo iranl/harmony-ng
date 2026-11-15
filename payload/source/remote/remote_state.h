@@ -140,8 +140,11 @@ typedef struct {
     uint16_t icon_id;
 } rf_device_t;
 
-/* Device command names pushed by the Hub, for browsing devices on the remote */
-#define MAX_RF_DEV_CMDS 512
+/* Device command names pushed by the Hub, for browsing devices on the remote: room for every
+ * command the Hub can push (a one-byte command index for each of MAX_RF_DEVICES devices). With
+ * 512, a config of a few large devices lost the commands of the last devices without a word:
+ * the remote acknowledged every name and dropped the ones past the table. */
+#define MAX_RF_DEV_CMDS (MAX_RF_DEVICES * 256)
 typedef struct {
     uint8_t dev_idx;  /* index into g_rf_devices */
     uint8_t cmd_idx;  /* index into the device's commands on the Hub */
@@ -258,6 +261,9 @@ extern uint32_t g_ota_received_bytes;
 extern uint16_t g_ota_total_chunks;
 extern uint16_t g_ota_received_chunks;
 extern FILE *g_ota_file;
+/* The OTA receive state (g_ota_file, OTA mode) belongs to the RF thread's frame handlers, which
+ * hold this lock; the main loop's 60 s timeout takes it too before it closes the transfer */
+extern pthread_mutex_t g_ota_lock;
 
 extern FILE *g_icon_rx_file;
 extern uint32_t g_icon_rx_bytes;
@@ -351,6 +357,13 @@ uint64_t get_monotonic_ms(void);
  * get_monotonic_ms(). */
 uint64_t get_boot_ms(void);
 uint64_t get_wall_ms(void);
+/* remote_ui's output file (the supervisor starts it with stdout and stderr there; /tmp is RAM)
+ * and its size limit: past it the file is renamed to <path>.1 (replacing the older one) and a new
+ * one is started, so the two never hold more than twice the limit */
+#define REMOTE_UI_LOG "/tmp/remote_ui.log"
+#define REMOTE_UI_LOG_MAX (512L * 1024L)
+/* Rotates path as above when stdout is that file and it is past max_bytes; true when rotated */
+bool remote_log_rotate(const char *path, long max_bytes);
 extern volatile uint64_t g_suspended_ms;
 #define REMOTE_SUSPEND_GAP_MAX_MS (14ULL * 24 * 3600 * 1000)
 /* The time a suspend lasted, from the wall and monotonic clocks read before and after it;

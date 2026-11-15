@@ -35,6 +35,8 @@ pthread_mutex_t g_rf_write_mutex = PTHREAD_MUTEX_INITIALIZER; /* RF frame writes
 uint8_t g_rf_pm = RF_PM_ACTIVE;   /* CC2544 power mode, set during an OTA transfer */
 /* Power source; only read after a finished install, which this test never reaches (no OTA_END) */
 bool is_remote_docked(void) { return true; }
+bool remote_on_external_power(void) { return true; }
+pthread_mutex_t g_ota_lock = PTHREAD_MUTEX_INITIALIZER; /* remote_state.c */
 theme_t g_theme; /* the OTA overlay draws in the theme's colours */
 
 /* Stubs for icon rx and activities referenced by handle_icon_frame in remote_rf_ota */

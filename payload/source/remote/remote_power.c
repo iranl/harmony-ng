@@ -14,6 +14,7 @@
 #include <linux/watchdog.h>
 
 volatile sig_atomic_t g_wake_requested = 0;
+volatile sig_atomic_t g_deep_sleep_requested = 0;
 char g_timezone_str[64] = TZ_DEFAULT_POSIX;
 
 void expand_timezone(const char *in, char *out, size_t out_sz) {
@@ -25,6 +26,12 @@ void set_msp430_rtc(uint32_t epoch_sec) {
     if (!f) return;
     fprintf(f, "%u\n", epoch_sec);
     fclose(f);
+}
+
+void remote_set_clock(time_t epoch) {
+    struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+    g_last_activity_time = time(NULL);
 }
 
 void sync_time_from_rtc(void) {
@@ -51,8 +58,7 @@ void sync_time_from_rtc(void) {
     if (!f) return;
     uint32_t epoch_sec = 0;
     if (fscanf(f, "%u", &epoch_sec) == 1 && epoch_sec > 1577836800) {
-        struct timeval tv = { .tv_sec = (time_t)epoch_sec, .tv_usec = 0 };
-        settimeofday(&tv, NULL);
+        remote_set_clock((time_t)epoch_sec);
         printf("[+] Synchronized system time from MSP430 RTC: %u (TZ=%s)\n", epoch_sec, g_timezone_str);
     }
     fclose(f);
@@ -150,6 +156,15 @@ bool is_remote_docked(void) {
     return (strcmp(g_battery_info.powersource, "cradle") == 0 ||
             strcmp(g_battery_info.powersource, "usb") == 0 ||
             g_battery_info.charging);
+}
+
+bool remote_on_external_power(void) {
+    char psrc[16] = {0};
+    FILE *fp = fopen("/sys/devices/platform/i2c_davinci.1/i2c-1/1-0048/tps6507x-juniper/powersource", "r");
+    if (!fp) return false; /* unknown: restart in place, which works on any power source */
+    if (fscanf(fp, "%15s", psrc) != 1) psrc[0] = '\0';
+    fclose(fp);
+    return strcmp(psrc, "cradle") == 0 || strcmp(psrc, "usb") == 0;
 }
 
 void get_cpu_freq_status(char *out, size_t max_len) {
@@ -279,7 +294,11 @@ time_t ui_wall_time(void) {
  * time, so the next reading is a rested one even if the screen is already on */
 static bool s_resume_rested = false;
 
-void read_remote_battery(void) {
+/* The filter state above is read and written by the main loop, the power thread and the RF thread
+ * (each calls read_remote_battery): one reading at a time */
+static pthread_mutex_t s_batt_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void read_remote_battery_locked(void) {
     uint64_t now_ms = get_boot_ms(); /* rest, drop and debounce times count a suspend */
 
     if (s_last_batt_sample_ms > 0 && (now_ms - s_last_batt_sample_ms < 1000) && s_batt_sample_num > 0) {
@@ -360,6 +379,12 @@ void read_remote_battery(void) {
     g_battery_info.percent = s_filtered_pct;
 }
 
+void read_remote_battery(void) {
+    pthread_mutex_lock(&s_batt_lock);
+    read_remote_battery_locked();
+    pthread_mutex_unlock(&s_batt_lock);
+}
+
 void stop_usbeth_and_dropbear(void) {
     log_power_debug("[*] Stopping USB Ethernet and Dropbear synchronously...\n");
     system("killall -9 dropbear dropbearmulti usbhid 2>/dev/null; "
@@ -388,10 +413,16 @@ bool remote_deep_standby_due(uint64_t standby_s) {
     return standby_s >= (uint64_t)g_deep_standby_min * 60;
 }
 
+/* The stock firmware also holds the screen on while pairing is open or an activity starts: a
+ * remote that sleeps stops its pairing requests, and wakes into a locked switch overlay */
+bool remote_suspend_blocked(void) {
+    return g_pairing_state == 1 || g_is_switching_activity || g_is_syncing_config || g_is_ota_updating;
+}
+
 bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms) {
     if (is_remote_docked()) return false;
     if (strcmp(g_battery_info.powersource, "battery") != 0) return false;
-    if (g_is_syncing_config || g_is_ota_updating) return false;
+    if (remote_suspend_blocked()) return false;
     if (now_ms < g_suspend_hold_until_ms) return false;
     return remote_deep_standby_due(standby_s);
 }
@@ -500,15 +531,22 @@ void enter_kernel_suspend(void) {
 
 void remote_power_resumed(uint64_t suspended_ms) {
     /* The samples in the average are from before the suspend: start it from the next reading */
+    pthread_mutex_lock(&s_batt_lock);
     s_batt_sample_num = 0;
     s_last_batt_sample_ms = 0;
     if (suspended_ms >= REMOTE_BATT_REST_MS) s_resume_rested = true;
+    pthread_mutex_unlock(&s_batt_lock);
     /* CLOCK_MONOTONIC did not see the suspend, and the RF link may not have looked down to the
      * main loop: report the battery once the link is up (alarm wakes stay up until it went out) */
     remote_battery_request_report(&g_batt_report);
 }
 
 void trigger_manual_suspend_to_ram(void) {
+    if (remote_suspend_blocked()) {
+        show_notice("Busy: suspend after the transfer", 2500);
+        render_screen();
+        return;
+    }
     read_remote_battery();
     if (strcmp(g_battery_info.powersource, "usb") == 0) {
         show_notice("Unplug USB first!", 2500);
@@ -528,14 +566,35 @@ void sig_wake_handler(int sig) {
     g_wake_requested = 1;
 }
 
+/* The suspend sequence takes locks, writes files and starts helpers: it is not something a
+ * signal handler may run (the signal can arrive while the interrupted thread holds one of those
+ * locks). The handler only asks; the power thread does it. */
 void sig_deep_sleep_handler(int sig) {
     (void)sig;
+    g_deep_sleep_requested = 1;
+}
+
+static void forced_deep_standby(void) {
+    if (remote_suspend_blocked()) {
+        printf("[*] Deep standby (SIGUSR2) not started: a pairing, switch, sync or update is running\n");
+        return;
+    }
     fb_set_blank(true);
     uint64_t now_ms = get_boot_ms();
     s_last_blank_time_ms = (now_ms > 2000000) ? (now_ms - 2000000) : 1;
     log_power_debug("[*] Forcing IMMEDIATE Deep Standby via SIGUSR2\n");
     clearpad_sleep();
     enter_kernel_suspend();
+}
+
+/* Checked again right before a suspend that the power thread decided on: the screen-off test
+ * at the top of its loop is some milliseconds old by then, and a key that is waking the screen
+ * at that moment (reset_idle_timer() stamps the input before the slow unblank) must not be
+ * followed by a suspend */
+static bool still_idle_for_suspend(void) {
+    if (g_screen_on || g_wake_requested) return false;
+    if (g_timeout_seconds > 0 && time(NULL) - g_last_activity_time <= g_timeout_seconds) return false;
+    return true;
 }
 
 #define CHARGING_PAGE_MS 4000
@@ -549,6 +608,10 @@ void *power_manager(void *arg) {
 
     while (g_running) {
         remote_wdt_ping();
+        if (g_deep_sleep_requested) {
+            g_deep_sleep_requested = 0;
+            forced_deep_standby();
+        }
         /* A record every 5 minutes awake (a resume counts the time asleep, so one follows it too):
          * the battery over time, and how long before a halt the remote was still running */
         uint64_t hb_now_ms = get_boot_ms();
@@ -575,8 +638,10 @@ void *power_manager(void *arg) {
                             g_charging_page_until_ms = (uint32_t)(now_ms + CHARGING_PAGE_MS) | 1; /* 0 means off */
                         g_screen_dirty = true; /* the header's battery changes even when the screen is on */
                         strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
-                        s_last_batt_sample_ms = 0;
-                        read_remote_battery();
+                        pthread_mutex_lock(&s_batt_lock);
+                        s_last_batt_sample_ms = 0; /* read now, not up to 1 s later */
+                        read_remote_battery_locked();
+                        pthread_mutex_unlock(&s_batt_lock);
                         g_wake_requested = 1;
                     } else {
                         strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
@@ -601,7 +666,7 @@ void *power_manager(void *arg) {
                 } else if (now_ms < g_suspend_hold_until_ms) {
                     usleep(200000); /* awake after an alarm until the battery report went out */
                 } else if (remote_deep_standby_due(standby_s)) {
-                    if (remote_should_suspend(standby_s, now_ms)) {
+                    if (remote_should_suspend(standby_s, now_ms) && still_idle_for_suspend()) {
                         log_power_debug("[*] Standby time %llus reached deep standby (%s), suspending to RAM...\n",
                                         (unsigned long long)standby_s, g_deep_standby_min < 0 ? "at once" : "timeout");
                         clearpad_sleep();
@@ -638,8 +703,9 @@ void *power_manager(void *arg) {
         if (g_timeout_seconds > 0 && g_screen_on) {
             time_t now = time(NULL);
             if (now - g_last_activity_time > g_timeout_seconds) {
-                /* Blanking suspends a battery-powered remote, which would kill the transfer */
-                if (g_is_ota_updating || g_is_syncing_config) {
+                /* Blanking suspends a battery-powered remote, which would kill the transfer, stop
+                 * the pairing requests or hide the switch overlay */
+                if (remote_suspend_blocked()) {
                     reset_idle_timer();
                 } else {
                     printf("[*] Idle timeout reached (%ds), blanking display\n", g_timeout_seconds);

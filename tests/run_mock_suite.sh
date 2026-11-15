@@ -394,6 +394,14 @@ python3 "$SCRIPT_DIR/test_mqtt_ha_template.py"
 # 7. Device shell scripts run on the host (paths moved to a temp dir)
 python3 "$SCRIPT_DIR/test_hub_user_sh.py"
 
+# 8. Test groups kept in their own files, sourced in name order (tests/suite.d/*.sh).
+# A new group adds a file there instead of a line here, so branches do not touch this list.
+for suite_part in "$SCRIPT_DIR"/suite.d/*.sh; do
+    [ -e "$suite_part" ] || continue
+    echo "[-] Test group $(basename "$suite_part" .sh)"
+    . "$suite_part"
+done
+
 echo "==========================================================="
 echo "  ALL MOCKING & AUTOMATED TESTS COMPLETED WITH 100% PASS   "
 echo "==========================================================="

@@ -34,7 +34,7 @@ static bool go_back(void) {
                 bool was_reboot = g_settings_subview == SETTINGS_VIEW_REBOOT;
                 bool was_suspend = g_settings_subview == SETTINGS_VIEW_SUSPEND;
                 g_settings_subview = was_suspend ? SETTINGS_VIEW_POWER : SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = was_suspend ? 5 : (was_reboot ? 1 : 2);
+                g_selected_sub_item = was_suspend ? SETTINGS_POWER_SUSPEND_ITEM : (was_reboot ? 1 : 2);
             } else if (g_settings_subview != SETTINGS_VIEW_CATEGORIES) {
                 g_selected_category = (int)g_settings_subview - SETTINGS_VIEW_ACTIVITIES;
                 g_settings_subview = SETTINGS_VIEW_CATEGORIES;

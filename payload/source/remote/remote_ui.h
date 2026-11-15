@@ -99,6 +99,12 @@ void execute_settings_action(int idx);
 int pair_opt_count(void);
 void execute_pairing_menu_opt(int idx);
 int get_settings_sub_count(void);
+/* The item of the current Settings page drawn at screen row y, -1 = none. The drawing and the
+ * touch handling share the row geometry, so a tap selects the row it lands on. */
+int settings_item_at(int y);
+/* The Power page item that opens the Suspend page: Cancel, Back and the end of the countdown
+ * return to it */
+#define SETTINGS_POWER_SUSPEND_ITEM 5
 
 /* Status bar menu (remote_ui_menu.c): opened from the gear or a long press of the Activities key */
 void ui_menu_open(void);
