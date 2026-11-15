@@ -3,93 +3,65 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_PORT=8999
-DAEMON_BIN="$REPO_ROOT/payload/bin/hub_daemon"
+TEST_PORT="${TEST_PORT:-8999}"
 
 echo "=============================================="
 echo "  Harmony Hub Comprehensive Test Suite        "
 echo "  (Dry-Run & API Validation)                  "
 echo "=============================================="
 
-# Ensure host test binary exists or build it for host x86_64
+# Build (or reuse when nothing changed) the host daemon the same way the Python harness does:
+# one source list (tests/hub_harness.py), rebuilt when a source or the compile command changed.
+# A failed build stops the script: the API tests below need this binary.
 HOST_BUILD_DIR="$REPO_ROOT/build/tmp/test_host"
 mkdir -p "$HOST_BUILD_DIR"
-
-if [ ! -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
-    echo "[-] Compiling host test runner for dry-run verification..."
-    gcc -Wall -O2 -g -DTEST_HARNESS=1 \
-        -I"$REPO_ROOT/payload/source" \
-        "$REPO_ROOT/payload/source/hub_daemon.c" \
-        "$REPO_ROOT/payload/source/http_server.c" \
-        "$REPO_ROOT/payload/source/http_util.c" \
-        "$REPO_ROOT/payload/source/http_auth.c" \
-        "$REPO_ROOT/payload/source/http_api_auth.c" \
-        "$REPO_ROOT/payload/source/http_api_activities.c" \
-        "$REPO_ROOT/payload/source/http_api_devices.c" \
-        "$REPO_ROOT/payload/source/http_api_commands.c" \
-        "$REPO_ROOT/payload/source/http_api_custom_icons.c" \
-        "$REPO_ROOT/payload/source/http_api_network.c" \
-        "$REPO_ROOT/payload/source/hub_network_util.c" \
-        "$REPO_ROOT/payload/source/http_api_remotes.c" \
-        "$REPO_ROOT/payload/source/http_api_ota.c" \
-        "$REPO_ROOT/payload/source/http_api_backup.c" \
-        "$REPO_ROOT/payload/source/http_api_system.c" \
-        "$REPO_ROOT/payload/source/config_store.c" \
-        "$REPO_ROOT/payload/source/bt_migrate.c" \
-        "$REPO_ROOT/payload/source/config_sanitize.c" \
-        "$REPO_ROOT/payload/source/orchestrator.c" \
-        "$REPO_ROOT/payload/source/orchestrator_queue.c" \
-        "$REPO_ROOT/payload/source/hub_mqtt.c" \
-        "$REPO_ROOT/payload/source/hub_mqtt_ha.c" \
-        "$REPO_ROOT/payload/source/hub_ws.c" \
-        "$REPO_ROOT/payload/source/hub_ntp.c" \
-        "$REPO_ROOT/payload/source/resource_cache.c" \
-        "$REPO_ROOT/payload/source/cJSON.c" \
-        "$REPO_ROOT/payload/source/ir_encoder.c" \
-        "$REPO_ROOT/payload/source/ir_i2s.c" \
-        "$REPO_ROOT/payload/source/hw_action.c" \
-        "$REPO_ROOT/payload/source/ws_server.c" \
-        "$REPO_ROOT/payload/source/state_watch.c" \
-        "$REPO_ROOT/payload/source/hub_events.c" \
-        "$REPO_ROOT/payload/source/hub_info.c" \
-        "$REPO_ROOT/payload/source/hub_mdns.c" \
-        "$REPO_ROOT/payload/source/hub_ssdp.c" \
-        "$REPO_ROOT/payload/source/hbus_config.c" \
-        "$REPO_ROOT/payload/source/hbus_server.c" \
-        "$REPO_ROOT/payload/source/hub_cmd.c" \
-        "$REPO_ROOT/payload/source/mfg_id.c" \
-        "$REPO_ROOT/payload/source/mqtt_client.c" \
-        "$REPO_ROOT/payload/source/sha256.c" \
-        "$REPO_ROOT/payload/source/timezone_db.c" \
-        -lpthread -lm \
-        -o "$HOST_BUILD_DIR/hub_daemon_test" || {
-            echo "[!] Host test compile skipped (cross-compilation verified via compile_all.sh)"
-        }
+echo "[-] Building host test daemon (tests/hub_harness.py)..."
+if ! python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import hub_harness; hub_harness.build_hub_daemon_test(); hub_harness.build_mock_lib()' "$SCRIPT_DIR"; then
+    echo "[-] FAIL: the host test daemon did not compile"
+    exit 1
 fi
 
 run_api_tests() {
     local bin="$1"
     echo "[-] Launching test daemon in DRY-RUN mode on port $TEST_PORT..."
-    mkdir -p /tmp/hub_test_data/data/harmony /tmp/hub_test_data/data/resources
-    
+    if curl -s -o /dev/null "http://127.0.0.1:$TEST_PORT/health"; then
+        echo "[-] FAIL: port $TEST_PORT is already in use by another process"
+        exit 1
+    fi
+    # Private mock root: /data and /cache of the daemon live in a temp dir, not on the host
+    MOCK_ROOT=$(mktemp -d)
+    mkdir -p "$MOCK_ROOT/data/harmony/config"
+
     # Launch daemon with dry-run flag
-    "$bin" --dry-run --port "$TEST_PORT" >/tmp/hub_test_daemon.log 2>&1 &
+    HARMONY_MOCK_DIR="$MOCK_ROOT" HARMONY_MOCK_ROLE=hub LD_PRELOAD="$HOST_BUILD_DIR/libmock_hardware.so" \
+        "$bin" --dry-run --port "$TEST_PORT" >"$MOCK_ROOT/daemon.log" 2>&1 &
     DAEMON_PID=$!
-    
+
     cleanup() {
         echo "[-] Stopping test daemon (PID $DAEMON_PID)..."
         kill -9 "$DAEMON_PID" 2>/dev/null || true
+        rm -rf "$MOCK_ROOT"
     }
     trap cleanup EXIT
 
-    # Wait for daemon to listen
+    # Wait for daemon to listen; give up when it exits or never answers
     echo "[-] Waiting for daemon to initialize..."
-    for i in $(seq 1 15); do
+    local live=0
+    for i in $(seq 1 25); do
+        if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+            break
+        fi
         if curl -s "http://127.0.0.1:$TEST_PORT/health" >/dev/null 2>&1; then
+            live=1
             break
         fi
         sleep 0.2
     done
+    if [ "$live" != 1 ]; then
+        echo "[-] FAIL: the test daemon did not answer on port $TEST_PORT"
+        cat "$MOCK_ROOT/daemon.log" || true
+        exit 1
+    fi
 
     echo "[+] Daemon is live! Running test cases..."
 
@@ -215,19 +187,12 @@ if command -v gcc >/dev/null 2>&1; then
     "$HOST_BUILD_DIR/test_rf_loopback"
 fi
 
-if [ -f "$HOST_BUILD_DIR/hub_daemon_test" ]; then
-    run_api_tests "$HOST_BUILD_DIR/hub_daemon_test"
-    echo "[-] Running WebSocket event tests..."
-    python3 "$SCRIPT_DIR/test_ws_events.py"
-    python3 "$SCRIPT_DIR/test_status.py"
-    python3 "$SCRIPT_DIR/test_ws_auth.py"
-    python3 "$SCRIPT_DIR/test_ws_keepalive.py"
-    python3 "$SCRIPT_DIR/test_ir_raw.py"
-    python3 "$SCRIPT_DIR/test_mdns.py"
-    python3 "$SCRIPT_DIR/test_mqtt_v2.py"
-else
-    echo "[-] Validating cross-compiled binary headers and integrity..."
-    file "$DAEMON_BIN" || true
-    echo "[+] Dry-run logic verified via source audit and test harness."
-fi
-
+run_api_tests "$HOST_BUILD_DIR/hub_daemon_test"
+echo "[-] Running WebSocket event tests..."
+python3 "$SCRIPT_DIR/test_ws_events.py"
+python3 "$SCRIPT_DIR/test_status.py"
+python3 "$SCRIPT_DIR/test_ws_auth.py"
+python3 "$SCRIPT_DIR/test_ws_keepalive.py"
+python3 "$SCRIPT_DIR/test_ir_raw.py"
+python3 "$SCRIPT_DIR/test_mdns.py"
+python3 "$SCRIPT_DIR/test_mqtt_v2.py"

@@ -16,3 +16,8 @@ python3 "$SCRIPT_DIR/test_route_alias_role.py"
 
 # .gitignore ignores the local work folders at the top of the checkout only
 python3 "$SCRIPT_DIR/test_gitignore_rules.py"
+
+# Test harness and runners: a busy port or a binary built with other flags is not reused;
+# tests/run_tests.sh stops when the host daemon does not compile
+python3 "$SCRIPT_DIR/test_harness_guards.py"
+python3 "$SCRIPT_DIR/test_run_tests_script.py"
