@@ -1,6 +1,5 @@
 export default {
     "act_editor_sub": "Aktivitätseinstellungen und Befehlssequenzen konfigurieren",
-    "auth_decide_later": "Später entscheiden",
     "auth_delete_all": "Alle löschen",
     "auth_keep": "Behalten",
     "auth_keep_all": "Alle behalten",

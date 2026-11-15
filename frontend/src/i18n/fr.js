@@ -1,6 +1,5 @@
 export default {
     "act_editor_sub": "Configurer les paramètres et les séquences de commandes",
-    "auth_decide_later": "Décider plus tard",
     "auth_delete_all": "Tout supprimer",
     "auth_keep": "Garder",
     "auth_keep_all": "Tout garder",

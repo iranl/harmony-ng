@@ -1,6 +1,5 @@
 export default {
     "act_editor_sub": "Configurar opciones de actividad y secuencias de comandos",
-    "auth_decide_later": "Decidir más tarde",
     "auth_delete_all": "Eliminar todos",
     "auth_keep": "Conservar",
     "auth_keep_all": "Conservar todos",

@@ -1,6 +1,5 @@
 export default {
     "act_editor_sub": "Activiteitsinstellingen en opdrachtreeksen configureren",
-    "auth_decide_later": "Later beslissen",
     "auth_delete_all": "Alles verwijderen",
     "auth_keep": "Behouden",
     "auth_keep_all": "Alles behouden",

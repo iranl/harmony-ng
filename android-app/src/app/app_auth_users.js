@@ -53,7 +53,7 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppSettingsSystem } from './app_settings_system.js';
-import { askUnconfirmed } from './decision_dialogs.js';
+import { askUnconfirmed, unconfirmedItems } from './decision_dialogs.js';
 
 export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
   async loadUserAccounts() {
@@ -68,6 +68,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
 
       if (chk) chk.checked = Boolean(data.auth_enabled);
       const users = data.users || [];
+      this.renderUnconfirmedNotice(data, listEl);
 
       const admin = users.find(u => u.role === 'admin');
       if (admin && adminUser) adminUser.value = admin.username;
@@ -109,6 +110,50 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     } catch (err) {
       if (listEl) listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load users: ${err.message}</div>`;
     }
+  }
+
+  // The list the Hub answered when authentication was turned on, once there is a login to act with
+  async showPendingUnconfirmed() {
+    const pending = this.pendingUnconfirmed;
+    if (!pending || !this.client?.token) return;
+    this.pendingUnconfirmed = null;
+    const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+    await askUnconfirmed(this.client, pending, me);
+    await this.loadUserAccounts();
+  }
+
+  // Users page: the accounts and tokens still waiting (made while authentication was off), with a
+  // button that asks about them again
+  async renderUnconfirmedNotice(usersData, listEl) {
+    if (!listEl?.parentNode) return;
+    let box = document.getElementById('unconfirmedAuthNotice');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'unconfirmedAuthNotice';
+      box.style.cssText = 'margin: 6px 0;';
+      listEl.parentNode.insertBefore(box, listEl);
+    }
+    box.replaceChildren();
+    if (!usersData?.auth_enabled) return;
+    const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+    let tokens = [];
+    try {
+      tokens = ((await this.client.getTokens())?.tokens || []).filter((x) => x.confirmed === false);
+    } catch {
+      tokens = [];
+    }
+    const unconfirmed = { users: (usersData.users || []).filter((u) => u.confirmed === false), tokens };
+    const n = unconfirmedItems(unconfirmed, me).length;
+    if (!n) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-xs btn-secondary';
+    btn.textContent = `${t('auth_unconfirmed_title', 'Made while authentication was off')} (${n})`;
+    btn.addEventListener('click', async () => {
+      await askUnconfirmed(this.client, unconfirmed, me);
+      await this.loadUserAccounts();
+    });
+    box.appendChild(btn);
   }
 
   async addNonAdminUser() {
@@ -161,8 +206,10 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         } else if (!this.client.token) {
           this.showLoginModal();
         }
-        // Accounts and tokens made while authentication was off: keep or delete each
-        if (authReply?.unconfirmed && this.client.token) await askUnconfirmed(this.client, authReply.unconfirmed);
+        // Accounts and tokens made while authentication was off: asked about now, or right after
+        // the login when one is needed first
+        this.pendingUnconfirmed = authReply?.unconfirmed || null;
+        await this.showPendingUnconfirmed();
       }
 
       await this.loadUserAccounts();
@@ -286,6 +333,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           this.recordSuccess();
           this.setHubStatus(true);
           await this.checkAuthStatus();
+          await this.showPendingUnconfirmed();
           await this.refreshData();
           if (this.currentTab === 'system') {
             await this.loadUserAccounts();

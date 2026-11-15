@@ -7,8 +7,10 @@ import { t } from '../i18n/index.js';
 import { toast } from './toast.js';
 import { createModal } from './modal.js';
 
-/* A card listing the accounts and tokens nobody confirmed, while authentication is on. Hidden when
- * there is nothing to ask about; onChange runs after a keep or delete (to redraw other lists). */
+/* A card listing the accounts and tokens waiting to be kept (made or changed while authentication
+ * was off; files from older firmware only after the next switch from off to on), while
+ * authentication is on, never the account logged in. Hidden when there is nothing to ask about;
+ * onChange runs after a keep or delete (to redraw other lists). */
 export function createUnconfirmedCard(api, onChange) {
   const card = h('div', { className: 'card', style: { display: 'none' } });
 
@@ -19,7 +21,8 @@ export function createUnconfirmedCard(api, onChange) {
     try {
       const u = await api.getUsers();
       authOn = Boolean(u?.auth_enabled);
-      users = (u?.users || []).filter((x) => x.confirmed === false);
+      const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+      users = (u?.users || []).filter((x) => x.confirmed === false && x.username !== me);
       const tk = await api.getTokens();
       tokens = (tk?.tokens || []).filter((x) => x.confirmed === false);
     } catch {
@@ -37,8 +40,9 @@ export function createUnconfirmedCard(api, onChange) {
     }
 
     const act = async (list, keep) => {
-      try {
-        for (const item of list) {
+      // every item gets its turn; a token already gone with its account (404) counts as deleted
+      for (const item of list) {
+        try {
           if (keep) {
             await api.confirmAuthItems(item.kind === 'user' ? [item.id] : [], item.kind === 'token' ? [item.id] : []);
           } else if (item.kind === 'user') {
@@ -46,9 +50,9 @@ export function createUnconfirmedCard(api, onChange) {
           } else {
             await api.deleteToken(item.id);
           }
+        } catch (e) {
+          if (keep || e.status !== 404) toast.error(`${item.label}: ${e.message}`);
         }
-      } catch (e) {
-        toast.error(e.message);
       }
       await load();
       if (onChange) onChange();

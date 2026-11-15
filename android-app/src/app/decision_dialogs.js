@@ -15,10 +15,11 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
-// The Hub's "unconfirmed" object as a flat list of {kind, id, label}
-export function unconfirmedItems(unconfirmed) {
+// The Hub's "unconfirmed" object as a flat list of {kind, id, label}, without the account logged in
+export function unconfirmedItems(unconfirmed, currentUser = '') {
   const items = [];
   for (const u of unconfirmed?.users || []) {
+    if (currentUser && u.username === currentUser) continue;
     items.push({ kind: 'user', id: u.username, label: `${t('auth_unconfirmed_account', 'Account')}: ${u.username} (${u.role})` });
   }
   for (const tk of unconfirmed?.tokens || []) {
@@ -29,9 +30,10 @@ export function unconfirmedItems(unconfirmed) {
 }
 
 // Asks to keep or delete each listed account and token. Keep = POST /api/auth/confirm, delete =
-// the usual routes. Closing the dialog decides nothing: they stay listed as not confirmed.
-export function askUnconfirmed(client, unconfirmed) {
-  const items = unconfirmedItems(unconfirmed);
+// the usual routes (a token already gone with its account, 404, counts as deleted). Closing the
+// dialog decides nothing: they stay listed as not confirmed (Users page).
+export function askUnconfirmed(client, unconfirmed, currentUser = '') {
+  const items = unconfirmedItems(unconfirmed, currentUser);
   if (!items.length || typeof document === 'undefined') return Promise.resolve();
   return new Promise((resolve) => {
     const status = el('p', { style: 'font-size: 12px; margin: 8px 0 0; color: var(--danger); min-height: 1em;' });
@@ -46,10 +48,13 @@ export function askUnconfirmed(client, unconfirmed) {
       try {
         if (keep) {
           await client.confirmAuthItems(item.kind === 'user' ? [item.id] : [], item.kind === 'token' ? [item.id] : []);
-        } else if (item.kind === 'user') {
-          await client.deleteUser(item.id);
         } else {
-          await client.deleteToken(item.id);
+          try {
+            if (item.kind === 'user') await client.deleteUser(item.id);
+            else await client.deleteToken(item.id);
+          } catch (err) {
+            if (err.status !== 404) throw err;
+          }
         }
         item.row.remove();
         if (!list.children.length) close();
