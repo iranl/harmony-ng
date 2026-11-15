@@ -6,6 +6,7 @@ import { connection } from './utils/connection.js';
 import { getActiveHub } from './storage.js';
 import { getInitialLanguage, setLanguage } from './i18n/index.js';
 import { createStatusPill } from './components/status-pill.js';
+import { installUnauthorizedHandler } from './components/login-modal.js';
 import { initIconCache } from './icons/cache.js';
 import { createRemoteView } from './views/remote.js';
 import { createDevicesView } from './views/devices.js';
@@ -23,6 +24,9 @@ async function initApp() {
       setLanguage(e.target.value);
     });
   }
+
+  // A refused login (expired or revoked session) drops the token and asks for a new login
+  installUnauthorizedHandler();
 
   // 2. Active Hub configuration
   const hub = await getActiveHub();
