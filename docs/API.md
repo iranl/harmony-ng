@@ -2655,7 +2655,15 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   accounts and tokens can be listed. Keep authentication on.
 - An operator (role `user`) may create its own tokens (always role `user`), logged in with its account
   (a session or Basic, not with a token: `403`), and may delete the tokens of its own account or the
-  token it calls with (any other id answers `404`). Listing tokens stays admin only.
+  token it calls with (any other id answers `404`). Listing tokens stays admin only; the list shows
+  each token's `owner`.
+- A token created by an admin with a token (for example from the Android app) belongs to the same
+  account as the calling token and ends with it.
+- At most 64 tokens on the Hub and 10 per operator account: one more answers `409` with the reason.
+  If `config/tokens.json` exists but cannot be read or parsed, creating, deleting and listing tokens
+  answer `500` and leave the file as it is.
+- A new password ends the account's sessions, not its tokens (Home Assistant and the Android app keep
+  working). To lock out a lost phone, delete its token (named `Android app (<phone>, <date>)`).
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
   account either, every request that needs a login (all API routes except `POST /api/auth/token`;
   the web UI files stay open) is refused (`401`), except from loopback, until the file is fixed.
@@ -2693,12 +2701,13 @@ curl -X POST -H "Authorization: Bearer hht_018f..." http://192.168.1.1:8089/api/
 ### 11.3 Personal Access Tokens (PAT) for Home Automation
 Designed for Home Assistant, Homebridge, Node-RED, or automation scripts. Never requires sharing or hardcoding admin passwords.
 
-The Android app uses one too: when you log in, it creates a token named `Android app` for your
-account and keeps only that token, never the password. Logging out (or deleting the Hub profile)
-deletes the token on the Hub when the Hub can be reached.
+The Android app uses one too: when you log in, it creates a token named
+`Android app (<phone model>, <date>)` for your account and keeps only that token, never the
+password. Logging out (or deleting the Hub profile) deletes the token on the Hub when the Hub can
+be reached.
 
 ```bash
-# 1. Generate new Personal Access Token (Admin only)
+# 1. Generate new Personal Access Token (an operator gets role user, see 11.1)
 curl -X POST -H "Authorization: Bearer hht_..." \
   -H "Content-Type: application/json" \
   -d '{"name":"Home Assistant","role":"admin"}' \

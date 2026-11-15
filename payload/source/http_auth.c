@@ -11,6 +11,7 @@
 #include <time.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <strings.h>
@@ -743,4 +744,66 @@ void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, 
     cJSON_Delete(root);
     cJSON_AddItemToObject(o, "tokens", ta);
     cJSON_AddItemToObject(reply, "to_check", o);
+}
+
+static pthread_mutex_t s_tokens_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int http_tokens_lock(void) {
+    /* The Hub's kernel has no futex, so a contended pthread_mutex_lock() spins at full CPU. Try
+     * the lock and sleep in 2 ms steps instead; a holder only reads and writes one small file. */
+    for (int waited_ms = 0; waited_ms < 3000; waited_ms += 2) {
+        if (pthread_mutex_trylock(&s_tokens_lock) == 0) return 0;
+        usleep(2000);
+    }
+    return -1;
+}
+
+void http_tokens_unlock(void) {
+    pthread_mutex_unlock(&s_tokens_lock);
+}
+
+int http_tokens_load(cJSON **out) {
+    *out = NULL;
+    FILE *f = fopen(HARMONY_TOKENS_JSON, "rb");
+    if (!f) {
+        if (errno != ENOENT) return -1;
+        cJSON *root = cJSON_CreateObject();
+        if (!root) return -1;
+        cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+        *out = root;
+        return 0;
+    }
+    fclose(f);
+    size_t len = 0;
+    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, HTTP_TOKENS_FILE_MAX, &len);
+    if (!txt) return -1; /* larger than any reader accepts, or unreadable */
+    cJSON *root = cJSON_Parse(txt);
+    free(txt);
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return -1;
+    }
+    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
+    if (!arr) {
+        cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+    } else if (!cJSON_IsArray(arr)) {
+        cJSON_Delete(root);
+        return -1;
+    }
+    *out = root;
+    return 0;
+}
+
+int http_tokens_save(const cJSON *root) {
+    char *txt = cJSON_Print(root);
+    if (!txt) return -1;
+    size_t n = strlen(txt);
+    int rc = -1;
+    if (n <= HTTP_TOKENS_FILE_MAX) {
+        mkdir("/data/harmony", 0755);
+        mkdir("/data/harmony/config", 0755);
+        rc = write_file_atomic_sized(HARMONY_TOKENS_JSON, txt, n) == 0 ? 0 : -1;
+    }
+    free(txt);
+    return rc;
 }

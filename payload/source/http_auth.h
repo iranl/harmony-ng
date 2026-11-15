@@ -15,6 +15,12 @@
 #define HARMONY_USERS_JSON "/data/harmony/config/users.json"
 #define HARMONY_AUTH_CONF  "/data/harmony/webui_auth.conf"
 #define HARMONY_TOKENS_JSON "/data/harmony/config/tokens.json"
+/* Personal access tokens: at most this many in all, and per operator (role user) account. One
+ * entry is about 350 bytes in the file, so the list stays far below HTTP_TOKENS_FILE_MAX, the
+ * size every reader accepts. */
+#define HTTP_TOKENS_MAX 64
+#define HTTP_TOKENS_PER_OPERATOR 10
+#define HTTP_TOKENS_FILE_MAX 65536
 
 enum http_role {
     ROLE_NONE = 0,
@@ -58,6 +64,17 @@ void http_auth_drop_all_sessions(void);
  * and every personal access token (no hashes; "owner_missing": true when its account is gone), for
  * the UIs to show at once. */
 void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner);
+
+/* tokens.json is read, changed and written under one lock. http_tokens_lock() returns 0, or -1
+ * when another request held it for 3 s (it never blocks in the kernel: the Hub has no futex). */
+int http_tokens_lock(void);
+void http_tokens_unlock(void);
+/* *root = the file as an object with a "tokens" array (an empty list when there is no file).
+ * Returns -1 and leaves *root NULL when the file exists but cannot be read or parsed: the caller
+ * must then leave the file alone. */
+int http_tokens_load(cJSON **root);
+/* Writes the list; 0, or -1 when it was not stored */
+int http_tokens_save(const cJSON *root);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

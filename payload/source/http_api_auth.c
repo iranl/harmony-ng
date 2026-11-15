@@ -18,15 +18,13 @@
 
 /* Delete the personal access tokens created by owner. Returns how many were removed. */
 static int remove_tokens_of(const char *owner) {
-    size_t flen = 0;
-    char *json_txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
-    if (!json_txt) return 0;
-    cJSON *root = cJSON_Parse(json_txt);
-    free(json_txt);
-    if (!root) return 0;
-    int removed = 0;
-    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
-    if (cJSON_IsArray(arr)) {
+    /* -1 when the token file could not be read or written (it is then left as it was) */
+    if (http_tokens_lock() != 0) return -1;
+    cJSON *root = NULL;
+    int removed = -1;
+    if (http_tokens_load(&root) == 0) {
+        removed = 0;
+        cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
         for (int i = cJSON_GetArraySize(arr) - 1; i >= 0; i--) {
             cJSON *jo = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, i), "owner");
             if (cJSON_IsString(jo) && strcmp(jo->valuestring, owner) == 0) {
@@ -34,16 +32,9 @@ static int remove_tokens_of(const char *owner) {
                 removed++;
             }
         }
+        if (removed && http_tokens_save(root) != 0) removed = -1;
     }
-    if (removed) {
-        char *json_out = cJSON_Print(root);
-        if (json_out) {
-            if (write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) != 0) {
-                fprintf(stderr, "[-] AUTH: could not save %s (flash full?)\n", HARMONY_TOKENS_JSON);
-            }
-            free(json_out);
-        }
-    }
+    http_tokens_unlock();
     cJSON_Delete(root);
     return removed;
 }
@@ -196,38 +187,30 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
     /* GET /api/auth/tokens */
     if (strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "GET") == 0) {
-        const char *path = HARMONY_TOKENS_JSON;
-        size_t flen = 0;
-        char *json_txt = read_file_text_alloc(path, 65536, &flen);
+        cJSON *root = NULL;
+        if (http_tokens_load(&root) != 0) {
+            send_json_error(client_fd, 500, "The token file cannot be read; it was left unchanged");
+            close(client_fd);
+            return 1;
+        }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON *out_arr = cJSON_CreateArray();
-
-        if (json_txt) {
-            cJSON *root = cJSON_Parse(json_txt);
-            free(json_txt);
-            if (root) {
-                cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
-                if (arr && cJSON_IsArray(arr)) {
-                    const cJSON *it = NULL;
-                    cJSON_ArrayForEach(it, arr) {
-                        cJSON *item = cJSON_CreateObject();
-                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(it, "id");
-                        cJSON *jname = cJSON_GetObjectItemCaseSensitive(it, "name");
-                        cJSON *jrole = cJSON_GetObjectItemCaseSensitive(it, "role");
-                        cJSON *jca = cJSON_GetObjectItemCaseSensitive(it, "created_at");
-                        cJSON *jla = cJSON_GetObjectItemCaseSensitive(it, "last_used_at");
-                        if (jid && cJSON_IsString(jid)) cJSON_AddStringToObject(item, "id", jid->valuestring);
-                        if (jname && cJSON_IsString(jname)) cJSON_AddStringToObject(item, "name", jname->valuestring);
-                        if (jrole && cJSON_IsString(jrole)) cJSON_AddStringToObject(item, "role", jrole->valuestring);
-                        if (jca && cJSON_IsNumber(jca)) cJSON_AddNumberToObject(item, "created_at", jca->valuedouble);
-                        if (jla && cJSON_IsNumber(jla)) cJSON_AddNumberToObject(item, "last_used_at", jla->valuedouble);
-                        cJSON_AddItemToArray(out_arr, item);
-                    }
-                }
-                cJSON_Delete(root);
+        const cJSON *it = NULL;
+        cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "tokens")) {
+            cJSON *item = cJSON_CreateObject();
+            static const char *const str_keys[] = { "id", "name", "role", "owner" };
+            for (size_t k = 0; k < sizeof(str_keys) / sizeof(str_keys[0]); k++) {
+                const cJSON *v = cJSON_GetObjectItemCaseSensitive(it, str_keys[k]);
+                if (cJSON_IsString(v) && v->valuestring) cJSON_AddStringToObject(item, str_keys[k], v->valuestring);
             }
+            cJSON *jca = cJSON_GetObjectItemCaseSensitive(it, "created_at");
+            cJSON *jla = cJSON_GetObjectItemCaseSensitive(it, "last_used_at");
+            if (jca && cJSON_IsNumber(jca)) cJSON_AddNumberToObject(item, "created_at", jca->valuedouble);
+            if (jla && cJSON_IsNumber(jla)) cJSON_AddNumberToObject(item, "last_used_at", jla->valuedouble);
+            cJSON_AddItemToArray(out_arr, item);
         }
+        cJSON_Delete(root);
         cJSON_AddItemToObject(resp, "tokens", out_arr);
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
@@ -259,11 +242,16 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             if (jr && cJSON_IsString(jr) && strcasecmp(jr->valuestring, "user") == 0) trole = "user";
         }
 
+        /* Decided by the credential, not by the reported name: a call made with a token */
+        char btok[128];
+        request_bearer(req, btok, sizeof(btok));
+        int with_token = strncmp(btok, "pat_", 4) == 0;
+        if (with_token) owner[0] = '\0'; /* "pat:<name>": the owner comes from the token entry */
         if (current_role == ROLE_USER) {
             trole = "user"; /* never more rights than the creator */
             /* An operator may create its own tokens (the app keeps one instead of the password),
              * only from an account login, so each token ends with that account. */
-            if (!owner[0] || strncmp(owner, "pat:", 4) == 0) {
+            if (with_token || !owner[0]) {
                 if (params) cJSON_Delete(params);
                 send_json_error(client_fd, 403, "Log in with an account to create a token");
                 close(client_fd);
@@ -288,17 +276,60 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         char token_hash[65];
         sha256_hex((const uint8_t *)raw_token, strlen(raw_token), token_hash);
 
-        const char *path = HARMONY_TOKENS_JSON;
-        size_t flen = 0;
-        char *json_txt = read_file_text_alloc(path, 65536, &flen);
-        cJSON *root = json_txt ? cJSON_Parse(json_txt) : NULL;
-        if (json_txt) free(json_txt);
-        if (!root) root = cJSON_CreateObject();
-
+        if (params) cJSON_Delete(params);
+        if (http_tokens_lock() != 0) {
+            send_json_error(client_fd, 503, "The token list is busy, try again");
+            close(client_fd);
+            return 1;
+        }
+        cJSON *root = NULL;
+        if (http_tokens_load(&root) != 0) {
+            http_tokens_unlock();
+            send_json_error(client_fd, 500, "The token file cannot be read; it was left unchanged");
+            close(client_fd);
+            return 1;
+        }
         cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
-        if (!arr || !cJSON_IsArray(arr)) {
-            arr = cJSON_CreateArray();
-            cJSON_AddItemToObject(root, "tokens", arr);
+
+        /* A token made with a token belongs to the same account, and ends with it */
+        if (with_token) {
+            char call_hash[65];
+            sha256_hex((const uint8_t *)btok, strlen(btok), call_hash);
+            const cJSON *it;
+            cJSON_ArrayForEach(it, arr) {
+                const cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
+                if (cJSON_IsString(jh) && http_auth_secret_equal(jh->valuestring, call_hash)) {
+                    const cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
+                    if (cJSON_IsString(jo)) snprintf(owner, sizeof(owner), "%s", jo->valuestring);
+                    break;
+                }
+            }
+        }
+
+        int total = 0, of_owner = 0;
+        const cJSON *cit;
+        cJSON_ArrayForEach(cit, arr) {
+            total++;
+            const cJSON *jo = cJSON_GetObjectItemCaseSensitive(cit, "owner");
+            if (owner[0] && cJSON_IsString(jo) && strcmp(jo->valuestring, owner) == 0) of_owner++;
+        }
+        const char *limit_msg = NULL;
+        char limit_buf[128];
+        if (total >= HTTP_TOKENS_MAX) {
+            snprintf(limit_buf, sizeof(limit_buf), "The Hub already has %d access tokens: delete unused ones first",
+                     HTTP_TOKENS_MAX);
+            limit_msg = limit_buf;
+        } else if (current_role == ROLE_USER && of_owner >= HTTP_TOKENS_PER_OPERATOR) {
+            snprintf(limit_buf, sizeof(limit_buf), "This account already has %d access tokens: delete one first",
+                     HTTP_TOKENS_PER_OPERATOR);
+            limit_msg = limit_buf;
+        }
+        if (limit_msg) {
+            http_tokens_unlock();
+            cJSON_Delete(root);
+            send_json_error(client_fd, 409, limit_msg);
+            close(client_fd);
+            return 1;
         }
 
         cJSON *new_tok = cJSON_CreateObject();
@@ -307,23 +338,15 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON_AddStringToObject(new_tok, "token_hash", token_hash);
         cJSON_AddStringToObject(new_tok, "role", trole);
         /* the token ends with this account (loopback callers create unowned tokens) */
-        if (owner[0] && strncmp(owner, "pat:", 4) != 0) cJSON_AddStringToObject(new_tok, "owner", owner);
+        if (owner[0]) cJSON_AddStringToObject(new_tok, "owner", owner);
         cJSON_AddNumberToObject(new_tok, "created_at", (double)time(NULL));
         cJSON_AddNumberToObject(new_tok, "last_used_at", 0);
         cJSON_AddItemToArray(arr, new_tok);
 
-        char *json_out = cJSON_Print(root);
+        int saved = http_tokens_save(root);
+        http_tokens_unlock();
         cJSON_Delete(root);
-        int saved = 0;
-        if (json_out) {
-            mkdir("/data/harmony", 0755);
-            mkdir("/data/harmony/config", 0755);
-            saved = (write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) == 0);
-            free(json_out);
-        }
-
-        if (params) cJSON_Delete(params);
-        if (!saved) {
+        if (saved != 0) {
             send_json_error(client_fd, 500, "Could not save the token (flash full?)");
             close(client_fd);
             return 1;
@@ -359,61 +382,59 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         }
 
         /* Admins delete any token. An operator deletes only a token it created or the token it
-         * calls with (the app's log out); anything else answers as not found. */
+         * calls with (the app's log out); anything else answers as not found. Decided by the
+         * credential: with a token, only that token; with a login, the account's tokens. */
         char caller[MAX_USERNAME_LEN] = {0};
         char own_hash[65] = {0};
         if (current_role == ROLE_USER) {
-            http_auth_check_request(req, client_ip, method, caller, sizeof(caller));
-            if (strncmp(caller, "pat:", 4) == 0) caller[0] = '\0';
             char btok[128];
             request_bearer(req, btok, sizeof(btok));
             if (strncmp(btok, "pat_", 4) == 0) sha256_hex((const uint8_t *)btok, strlen(btok), own_hash);
+            else http_auth_check_request(req, client_ip, method, caller, sizeof(caller));
         }
 
-        const char *path = HARMONY_TOKENS_JSON;
-        size_t flen = 0;
-        int deleted = 0, save_failed = 0;
-        char *json_txt = read_file_text_alloc(path, 65536, &flen);
-        if (json_txt) {
-            cJSON *root = cJSON_Parse(json_txt);
-            free(json_txt);
-            if (root) {
+        int deleted = 0, failed = 0;
+        cJSON *root = NULL;
+        if (http_tokens_lock() != 0) {
+            failed = 503;
+        } else {
+            if (http_tokens_load(&root) != 0) {
+                failed = 500;
+            } else {
                 cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
-                if (arr && cJSON_IsArray(arr)) {
-                    int sz = cJSON_GetArraySize(arr);
-                    for (int i = 0; i < sz; i++) {
-                        cJSON *it = cJSON_GetArrayItem(arr, i);
-                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(it, "id");
-                        if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, del_id) == 0) {
-                            if (current_role == ROLE_USER) {
-                                cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
-                                cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
-                                int mine = (caller[0] && cJSON_IsString(jo) && strcmp(jo->valuestring, caller) == 0) ||
-                                           (own_hash[0] && cJSON_IsString(jh) &&
-                                            http_auth_secret_equal(jh->valuestring, own_hash));
-                                if (!mine) break;
-                            }
-                            cJSON_DeleteItemFromArray(arr, i);
-                            deleted = 1;
-                            break;
+                int sz = cJSON_GetArraySize(arr);
+                for (int i = 0; i < sz; i++) {
+                    cJSON *it = cJSON_GetArrayItem(arr, i);
+                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(it, "id");
+                    if (jid && cJSON_IsString(jid) && strcmp(jid->valuestring, del_id) == 0) {
+                        if (current_role == ROLE_USER) {
+                            cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
+                            cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
+                            int mine = (caller[0] && cJSON_IsString(jo) && strcmp(jo->valuestring, caller) == 0) ||
+                                       (own_hash[0] && cJSON_IsString(jh) &&
+                                        http_auth_secret_equal(jh->valuestring, own_hash));
+                            if (!mine) break;
                         }
+                        cJSON_DeleteItemFromArray(arr, i);
+                        deleted = 1;
+                        break;
                     }
-                    char *json_out = deleted ? cJSON_Print(root) : NULL;
-                    if (deleted && (!json_out || write_file_atomic_sized(HARMONY_TOKENS_JSON, json_out, strlen(json_out)) != 0)) {
-                        save_failed = 1;
-                    }
-                    free(json_out);
                 }
-                cJSON_Delete(root);
+                if (deleted && http_tokens_save(root) != 0) failed = 500;
             }
+            http_tokens_unlock();
         }
+        cJSON_Delete(root);
 
-        if (params) cJSON_Delete(params);
-        if (save_failed) {
-            send_json_error(client_fd, 500, "Could not save the token list (flash full?)");
+        if (failed) {
+            if (params) cJSON_Delete(params);
+            send_json_error(client_fd, failed, failed == 503 ? "The token list is busy, try again"
+                                                             : "The token file cannot be read or written; it was left unchanged");
             close(client_fd);
             return 1;
         }
+
+        if (params) cJSON_Delete(params);
         if (!deleted) {
             send_json_error(client_fd, 404, "Token not found");
             close(client_fd);
@@ -631,12 +652,17 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             return 1;
         }
         http_auth_drop_user_sessions(del_user);
-        remove_tokens_of(del_user);
+        int tokens_gone = remove_tokens_of(del_user);
 
         if (params) cJSON_Delete(params);
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "message", "User deleted");
+        if (tokens_gone < 0) {
+            /* They no longer work (no account behind them), but they stay in the file */
+            fprintf(stderr, "[!] Auth: tokens of a deleted account not removed (token file unreadable or not written)\n");
+            cJSON_AddStringToObject(resp, "warning", "The account's access tokens could not be removed from the token file");
+        }
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

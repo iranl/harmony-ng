@@ -737,8 +737,11 @@ paths:
                   - id: tok_1a2b3c4d
                     name: "Home Assistant"
                     role: admin
+                    owner: admin
                     created_at: 1729940000
                     last_used_at: 0
+        '500':
+          description: The token file exists but cannot be read or parsed (left unchanged)
     post:
       tags:
         - Authentication & Users
@@ -776,10 +779,14 @@ paths:
                 name: "Home Assistant"
                 role: admin
                 token: "pat_3f8a9b1c2d4e..."
+        '403':
+          description: An operator called with a token instead of an account login
         '409':
-          description: Authentication is off (turn it on before creating access tokens)
+          description: Authentication is off, or the token limit is reached (64 on the Hub, 10 per operator account)
         '500':
-          description: The token could not be created or saved
+          description: The token file cannot be read or written (left unchanged)
+        '503':
+          description: The token list is busy, try again
     delete:
       tags:
         - Authentication & Users
@@ -806,9 +813,11 @@ paths:
         '400':
           description: No token id given
         '404':
-          description: Token not found
+          description: No such token, or (operator) not a token of this account
         '500':
-          description: The token list could not be saved
+          description: The token file cannot be read or written (left unchanged)
+        '503':
+          description: The token list is busy, try again
 
   /api/users/delete:
     post:
