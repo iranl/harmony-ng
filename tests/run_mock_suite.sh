@@ -438,7 +438,8 @@ python3 -c "import yaml, sys; yaml.safe_load(open('$REPO_ROOT/docs/openapi.yaml'
 # Every C file in payload/source is built by a build script or a test
 python3 "$SCRIPT_DIR/test_source_orphans.py"
 echo "[-] Running OpenAPI Specification Test Suite..."
-python3 "$SCRIPT_DIR/test_openapi.py" --host 127.0.0.1 --port 9999
+# --harness: the live contract tests run against hub_daemon_test (they skipped without a daemon)
+python3 "$SCRIPT_DIR/test_openapi.py" --harness --port 9262
 python3 "$SCRIPT_DIR/test_mqtt_ha_template.py"
 
 # 7. Device shell scripts run on the host (paths moved to a temp dir)

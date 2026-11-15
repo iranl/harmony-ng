@@ -1201,6 +1201,10 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
 - `slots[].remote_id`: the remote's factory unit id (its `mfg` partition, `RF_MSG_UNIT_ID`),
   present once the remote reported it since pairing. The identifier for the remote's device in
   integrations; the slot number is only an attribute. Cleared on unpair.
+- When `hub_rf` does not answer, `hub_daemon` replies itself with `200`: `"running": false`,
+  `"state": "stopped"`, `connected`, `pairing_active` and `paired` false, both addresses
+  `"None"`, and two slots that carry only `slot`, `"active": false`, `address` and `rf_address`
+  (`"None"`).
 
 #### `POST /api/rf/status-changed` (internal)
 `hub_rf` posts the object above to this endpoint whenever it changed (once a second at most; the
