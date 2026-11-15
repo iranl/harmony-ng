@@ -3253,6 +3253,14 @@ paths:
                 ok: true
                 status: applying
                 message: Software update triggered. Hub services restarting in background.
+        '409':
+          description: An update started earlier is still running
+          content:
+            application/json:
+              example:
+                ok: false
+                status: busy
+                error: A software update is already running
 
   /export/{target}:
     get:
