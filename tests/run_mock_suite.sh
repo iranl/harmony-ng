@@ -112,6 +112,10 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT/payload/source/sha256.c" \
     "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm -o "$BUILD_DIR/test_remote_key_release" && "$BUILD_DIR/test_remote_key_release"
+# Remote: key event counter in every key frame (payload[19], 1..255 then 1), in the order written
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_key_counter" "$SCRIPT_DIR/test_remote_key_counter.c" \
+    "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
+    "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && "$BUILD_DIR/test_remote_key_counter"
 
 # The remote's main loop (the real remote_main.c) on the mock: a hard key pressed with the screen
 # off is sent before the screen is lit
@@ -260,6 +264,10 @@ build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dma
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_rf_device_cmd_frame" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_device_cmd_frame"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_status_json" "$SCRIPT_DIR/test_rf_status_json.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_status_json"
+# hub_rf: key frames lost between the remote and the Hub, counted from the key event counter (all hub_rf sources as build/compile_all.sh lists them, main renamed)
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_counter" "$SCRIPT_DIR/test_rf_key_counter.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_key_counter"
 # Host tool with ssh and npm replaced (build/deploy_hub.py starts the services again after an early end)
 python3 "$SCRIPT_DIR/test_deploy_hub_restart.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_model" "$SCRIPT_DIR/test_rf_model.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_model"

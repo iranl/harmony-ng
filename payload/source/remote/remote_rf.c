@@ -256,11 +256,24 @@ void rf_send_button_event(uint16_t key_code, int value) {
         strncpy((char *)&payload[20], dev_ctx, 5);
     }
 
+    /* Key event counter (rf_proto.h RF_KEY_COUNTER_OFF): one step per key frame, never reset
+     * while remote_ui runs (a resume from suspend keeps it). Key frames are sent once and not
+     * acknowledged; the Hub counts the gaps. The number and the write stay under one lock: the
+     * main loop sends presses and releases, the repeat thread sends holds, and two frames
+     * written out of order would be counted as lost. */
+    static pthread_mutex_t s_key_lock = PTHREAD_MUTEX_INITIALIZER;
+    static uint8_t s_key_counter = 0;
+    pthread_mutex_lock(&s_key_lock);
+    s_key_counter = rf_key_counter_next(s_key_counter);
+    uint8_t counter = s_key_counter;
+    payload[RF_KEY_COUNTER_OFF] = counter;
     rf_build_frame(&f, g_remote_slot, RF_MSG_BUTTON_PRESS, ++g_tx_seq, 0, payload, sizeof(payload));
     rf_send_frame(&f);
+    pthread_mutex_unlock(&s_key_lock);
 
-    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s\n", key_code,
-           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name, dev_ctx[0] ? dev_ctx : "none");
+    printf("[*] RF TX BUTTON_PRESS: 0x%04X %s %s dev=%s #%u\n", key_code,
+           state == 0x01 ? "press" : (state == 0x02 ? "hold" : "release"), short_name, dev_ctx[0] ? dev_ctx : "none",
+           counter);
 }
 
 void rf_send_activity_start(const char *act_id) {
