@@ -302,7 +302,10 @@ def backup_stock_partitions(hub_ip: str, priv_key_path: pathlib.Path) -> pathlib
         "if [ -x /cache/bin/busybox ]; then echo /cache/bin/busybox; elif [ -x /data/harmony/bin/busybox ]; then echo /data/harmony/bin/busybox; elif [ -x /tmp/busybox ]; then echo /tmp/busybox; else echo ''; fi",
     ]
     res = subprocess.run(chk_cmd, capture_output=True, text=True)
-    if res.returncode != 0 and ssh_hostkeys.report_failure(res.stderr, hub_ip):
+    if res.returncode != 0 and ssh_hostkeys.report_failure(res.stderr, hub_ip, hint=(
+            f"the Hub is rooted, only the stock backup is missing. Record the new key with\n"
+            f"    `python tools/backup_hub.py {hub_ip} {ssh_hostkeys.RESET_OPTION}` (it also saves a backup of the Hub\n"
+            f"    as it is now). The stock backup of /cache and /data needs this tool again with {ssh_hostkeys.RESET_OPTION}.")):
         print("[-] No stock backup was taken.")
         return None
     bb_bin = res.stdout.strip()

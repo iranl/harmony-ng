@@ -430,6 +430,27 @@ class SetupRemoteForgetsOnInstall(unittest.TestCase):
             self.assertEqual(kh.read_text(), f"192.168.1.20 ssh-ed25519 {KEY}\n")
 
 
+class RootHubBackupHint(unittest.TestCase):
+    """root_hub_usb.py has rooted the Hub when its stock backup meets a changed key: the hint
+    names the short way (backup_hub.py --reset-host-key), not only a new USB run."""
+
+    def test_hint(self):
+        sys.path.insert(0, str(REPO_DIR))
+        spec = importlib.util.spec_from_file_location("root_hub_usb_hint", REPO_DIR / "tools" / "root_hub_usb.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            def changed(cmd, *a, **k):
+                return subprocess.CompletedProcess(cmd, 255, "", CHANGED_BANNER)
+            err = io.StringIO()
+            with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(pathlib.Path(tmp) / "kh")}), \
+                 mock.patch.object(mod, "REPO_DIR", pathlib.Path(tmp)), \
+                 mock.patch.object(mod.subprocess, "run", changed), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                self.assertIsNone(mod.backup_stock_partitions("192.168.1.20", pathlib.Path(tmp) / "key"))
+        self.assertIn(f"tools/backup_hub.py 192.168.1.20 {ssh_hostkeys.RESET_OPTION}", err.getvalue())
+
+
 class SetupRemoteBackupErrors(unittest.TestCase):
     """The login check before the remote backup ends in "Backup failed", not a traceback,
     when there is no ssh client or the login hangs."""

@@ -107,7 +107,7 @@ Pass `--no-backup` to skip the automatic backup during setup.
 > [!NOTE]
 > Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). Embedded BusyBox on the device does not use gzip to avoid memory and CPU bottlenecks on flash.
 
-Every rooted remote answers at `192.168.2.1` and gets a new SSH host key when it is rooted. `setup_remote.py` forgets the recorded key of that address when it installs SSH and records the new one; the other tools refuse a remote whose key changed and name `--reset-host-key` (see "SSH host keys" in `docs/FIRST_INSTALL_HUB.md`).
+Every rooted remote answers at `192.168.2.1` and gets a new SSH host key when it is rooted. `setup_remote.py` forgets the recorded key of that address when it installs SSH and records the new one; the other tools refuse a remote whose key changed and name `--reset-host-key` (see "SSH host keys" in `docs/FIRST_INSTALL_HUB.md`). The keys are recorded per account: if you root the remote from Windows and deploy from WSL (or root with `sudo` and deploy without), the first deploy stops on the old key; run it once with `--reset-host-key`.
 
 ---
 

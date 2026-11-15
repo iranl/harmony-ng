@@ -179,19 +179,20 @@ def is_host_key_failure(stderr: str | bytes | None) -> bool:
     return bool(stderr) and any(t in stderr for t in _FAILURE_TEXTS)
 
 
-def host_key_help(host: str) -> str:
+def host_key_help(host: str, hint: str | None = None) -> str:
+    hint = hint or f"run this tool again with {RESET_OPTION} to record it."
     return (f"[-] The SSH host key of {host} is not the one recorded in {known_hosts_file()}.\n"
-            f"    A device that was rooted again, factory reset or replaced has a new key: run this tool\n"
-            f"    again with {RESET_OPTION} to record it. Otherwise another device may be answering at\n"
-            f"    {host}: check that before you reset the key.")
+            f"    A device that was rooted again, factory reset or replaced has a new key:\n"
+            f"    {hint}\n"
+            f"    Otherwise another device may be answering at {host}: check that before you reset the key.")
 
 
-def report_failure(stderr: str | bytes | None, host: str) -> bool:
+def report_failure(stderr: str | bytes | None, host: str, hint: str | None = None) -> bool:
     """When an ssh call failed on the host key, print what to do (to stderr). Returns True
-    when it was a host key failure."""
+    when it was a host key failure. hint replaces "run this tool again with --reset-host-key"."""
     if not is_host_key_failure(stderr):
         return False
-    print(host_key_help(host), file=sys.stderr)
+    print(host_key_help(host, hint), file=sys.stderr)
     return True
 
 
