@@ -209,7 +209,7 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 
 ### Key Power Mechanisms in `remote_ui`
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
-2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
+2. **Touch controller left to its kernel driver**: `remote_ui` no longer writes to the Synaptics ClearPad over raw I2C (`/dev/i2c-1`, address `0x20`). The stock firmware never does: the kernel's `clearpad` driver puts the controller to sleep at a suspend and wakes it at the resume, and with the screen off and the remote awake the controller dozes by itself. The raw writes only ran on remotes where `/dev/i2c-1` had been created by hand, so remotes behaved differently. The Stage 2 figures above were measured with them.
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
    - Configures LIS3DH hardware motion threshold (`int1_threshold=10`, `int1_duration=3`).
    - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.

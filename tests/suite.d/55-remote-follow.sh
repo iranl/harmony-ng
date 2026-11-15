@@ -16,3 +16,16 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
 FOLLOW_DIR="$(mktemp -d /tmp/hng_activity_follow.XXXXXX)"
 HARMONY_MOCK_DIR="$FOLLOW_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_activity_follow"
 rm -rf "$FOLLOW_DIR"
+
+# The touch controller is left to its kernel driver: no raw I2C at a blank or a wake, and no
+# remote source or boot script opens or creates /dev/i2c-1
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_no_raw_i2c" \
+    "$SCRIPT_DIR/test_remote_no_raw_i2c.c" "${FOLLOW_SRCS[@]}" -Wl,--wrap=open -lpthread -lm
+NO_I2C_DIR="$(mktemp -d /tmp/hng_no_raw_i2c.XXXXXX)"
+HARMONY_MOCK_DIR="$NO_I2C_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_no_raw_i2c"
+rm -rf "$NO_I2C_DIR"
+if grep -rn -e '/dev/i2c' -e 'I2C_SLAVE' "$REPO_ROOT/payload/source/remote" "$REPO_ROOT/remote"; then
+    echo "[-] remote code still uses a raw I2C bus node (above)"
+    exit 1
+fi
+echo "[+] no raw I2C bus node in the remote sources and scripts"

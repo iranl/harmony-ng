@@ -343,7 +343,6 @@ int main(int argc, char **argv) {
         reset_idle_timer();
         load_wallpaper_asset();
 
-        clearpad_hw_init();
         g_touch_fd = find_touchscreen_fd();
         if (g_touch_fd < 0) {
             perror("[-] Failed to open touchscreen node");
