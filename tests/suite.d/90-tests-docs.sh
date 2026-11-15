@@ -11,3 +11,5 @@ build_test -Wall -O1 -g -fsanitize=bounds -fno-sanitize-recover=bounds \
     -lpthread -lm -o "$BUILD_DIR/test_remote_mock_ui_bounds"
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_mock_ui_bounds"
 
+# /api/mqtt-publish needs the same role as /api/button-press; the snapshot hub object has unique keys
+python3 "$SCRIPT_DIR/test_route_alias_role.py"

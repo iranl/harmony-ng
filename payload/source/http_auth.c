@@ -667,6 +667,7 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             strcmp(clean_path, "/api/ir-raw") == 0 ||
             strcmp(clean_path, "/ir/send") == 0 ||
             strcmp(clean_path, "/api/button-press") == 0 ||
+            strcmp(clean_path, "/api/mqtt-publish") == 0 || /* older name of button-press */
             strcmp(clean_path, "/api/bt-key") == 0 ||
             strcmp(clean_path, "/api/bt-text") == 0 ||
             strcmp(clean_path, "/api/bt-mouse") == 0 ||
