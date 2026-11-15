@@ -151,6 +151,7 @@ int get_pinned_host_target(bd_addr_t addr) { UNUSED(addr); return 0; }
 uint16_t get_target_host_hid_cid(void) { return 0x41; }
 void hog_start_connect(void) {}
 void forget_ble_remote(void) {}
+void forget_classic_host(const bd_addr_t addr) { UNUSED(addr); }
 void start_user_scan(void) {}
 void stop_user_scan(void) {}
 void start_user_pair(const char *addr_str) { UNUSED(addr_str); }
