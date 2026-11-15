@@ -4,3 +4,7 @@
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_wpa_conf" "$SCRIPT_DIR/test_wpa_conf.c" \
     "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/cJSON.c" -ldl -lm && "$BUILD_DIR/test_wpa_conf"
 # Wi-Fi and static Ethernet settings the Hub cannot use get 400 (daemon on a private mock root, port 9143)
+python3 "$SCRIPT_DIR/test_network_settings_api.py"
+# Recovery portal: SIGPIPE ignored, idle client, body in a second segment (hub_util on 127.0.0.1:9141)
+python3 "$SCRIPT_DIR/test_recovery_portal.py"
+# recovery_ap.sh: configuration read as data, portal started again until stop
