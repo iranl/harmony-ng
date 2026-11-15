@@ -174,6 +174,10 @@ To use the result, back up `/data/harmony` on the Hub first, copy `migrated/conf
 
 The tool also takes a HarmonyNG configuration folder or a backup bundle (`--src`). The RF protocol carries 4 bytes of a device id, so a device whose id is longer gets the lowest free number as its id; devices whose id fits keep it, and every reference follows (activities, power sequences, the Bluetooth trigger, the remote maps and the hosts of an old `bt-devices.json`). The migration lists each renumbered id in its warnings.
 
+### SSH host keys
+
+The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_stock.py`, `factory_reset.py`, `deploy_remote.py`, `setup_remote.py`) record a device's SSH host key the first time they connect, in `~/.ssh/harmony_ng_known_hosts` (`$HARMONY_KNOWN_HOSTS` names another file), and refuse to connect when the device later shows a different key. A device that was rooted again, factory reset or replaced has a new key: the tool then stops and names `--reset-host-key`, which forgets the recorded key of that address, so the next connection records the new one. Check that the device at that address is yours before you reset its key.
+
 ---
 
 ## 5. Accessing the Web Console & Android App

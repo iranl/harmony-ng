@@ -39,6 +39,12 @@ import subprocess
 import sys
 import time
 
+# Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
+_HK_DIR = pathlib.Path(__file__).resolve().parent
+if str(_HK_DIR) not in sys.path:
+    sys.path.append(str(_HK_DIR))
+import ssh_hostkeys  # noqa: E402
+
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 
@@ -66,8 +72,7 @@ def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
         # Never wait for a password prompt the user cannot see (output is captured)
         "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
+        *ssh_hostkeys.ssh_options(),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=5",
     ]
@@ -129,7 +134,8 @@ def reset_hub(hub_ip: str, ssh_opts: list[str], backup: bool = True) -> bool:
     print(f"\n[*] Probing Harmony Hub at {target}...")
     probe = device_machine(target, ssh_opts)
     if probe.returncode != 0:
-        print(f"[-] Cannot reach Hub over SSH at {target}: {probe.stderr.strip()}")
+        if not ssh_hostkeys.report_failure(probe.stderr, hub_ip):
+            print(f"[-] Cannot reach Hub over SSH at {target}: {probe.stderr.strip()}")
         return False
     if not probe.stdout.strip().startswith("mips"):
         print(f"[-] {hub_ip} is not a Harmony Hub (uname -m: {probe.stdout.strip() or 'no answer'}); nothing was changed.")
@@ -187,8 +193,9 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
     print(f"\n[*] Probing Harmony remote at {target}...")
     probe = device_machine(target, ssh_opts)
     if probe.returncode != 0:
-        print(f"[-] Cannot reach the remote over SSH at {target}: {probe.stderr.strip()}")
-        print("    Ensure remote is connected via USB and PC adapter is set to 192.168.2.2.")
+        if not ssh_hostkeys.report_failure(probe.stderr, remote_ip):
+            print(f"[-] Cannot reach the remote over SSH at {target}: {probe.stderr.strip()}")
+            print("    Ensure remote is connected via USB and PC adapter is set to 192.168.2.2.")
         return False
     if not probe.stdout.strip().startswith("arm"):
         print(f"[-] {remote_ip} is not a Harmony remote (uname -m: {probe.stdout.strip() or 'no answer'}); nothing was changed.")
@@ -270,6 +277,7 @@ def main() -> None:
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
+    ssh_hostkeys.add_reset_option(parser, "each device the tool connects to")
     args = parser.parse_args()
 
     if not args.restore_backup:
@@ -287,6 +295,8 @@ def main() -> None:
             restore_cmd.append("--force")
         if args.hub_ip:
             restore_cmd.extend(["--hub-ip", args.hub_ip])
+        if args.reset_host_key:
+            restore_cmd.append(ssh_hostkeys.RESET_OPTION)
         print(f"[*] Delegating to all-in-one restore tool: {' '.join(restore_cmd)}")
         sys.exit(subprocess.run(restore_cmd).returncode)
 
@@ -301,6 +311,11 @@ def main() -> None:
             sys.exit(1)
 
     ssh_opts = get_ssh_opts(args.key)
+    if args.reset_host_key:
+        if args.target in ("hub", "all"):
+            ssh_hostkeys.reset_host(args.hub_ip)
+        if args.target in ("remote", "elite", "all"):
+            ssh_hostkeys.reset_host(args.remote_ip)
 
     failed = []
     if args.target in ("hub", "all"):

@@ -176,7 +176,10 @@ class SetupRemoteOptions(unittest.TestCase):
         self.run_main("--step", "1", "--no-backup", "--ssh-config")
         cfg = (self.base / ".ssh" / "config").read_text()
         self.assertIn("Host 192.168.2.1 harmony-remote", cfg)
-        self.assertNotIn("accept-new", cfg, "every remote shares this address: the entry must not pin a key")
+        # The project's host key policy: recorded in its own known_hosts file and checked
+        self.assertIn("StrictHostKeyChecking accept-new", cfg)
+        self.assertIn("UserKnownHostsFile", cfg)
+        self.assertNotIn("/dev/null", cfg)
 
 
 if __name__ == "__main__":

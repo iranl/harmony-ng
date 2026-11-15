@@ -20,6 +20,15 @@ import sys
 import tempfile
 import time
 
+# Shared SSH host key policy: tools/ssh_hostkeys.py (tools/ next to this script in a release bundle)
+for _hk_dir in (pathlib.Path(__file__).resolve().parent, pathlib.Path(__file__).resolve().parent / "tools",
+                pathlib.Path(__file__).resolve().parent.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
+
 
 def find_default_ssh_key() -> str | None:
     """Find newest harmony_owner key or standard SSH key."""
@@ -157,7 +166,7 @@ class HubDeployer:
         cmd = [
             "ssh",
             "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=no",
+            *ssh_hostkeys.ssh_options(),
             "-o", "ConnectTimeout=5",
         ]
         if self.ssh_key and os.path.isfile(self.ssh_key):
@@ -220,7 +229,7 @@ class HubDeployer:
             return False
 
         # SCP upload
-        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        scp_cmd = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
         if self.ssh_key and os.path.isfile(self.ssh_key):
             scp_cmd.extend(["-i", self.ssh_key])
         scp_cmd.extend([str(src), f"{self.hub_user}@{self.hub_host}:{stage}"])
@@ -309,7 +318,8 @@ class HubDeployer:
             print("Dry run: Hub is only read, nothing is changed")
         probe = self.run_ssh("uname -m")
         if probe.returncode != 0:
-            print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
+            if not ssh_hostkeys.report_failure(probe.stderr, self.hub_host):
+                print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
             return False
         # The Hub is a MIPS board. The remote (ARM) answers at 192.168.2.1 with the same key:
         # the Hub's boot script and binaries would leave it without a UI and without SSH.
@@ -412,7 +422,7 @@ class HubDeployer:
                     with tempfile.TemporaryDirectory() as tmp_dir:
                         tmp_p = pathlib.Path(tmp_dir)
                         # Pull /data/resources
-                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                        scp_pull = ["scp", "-O", "-q", "-r", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
                         if self.ssh_key and os.path.isfile(self.ssh_key):
                             scp_pull.extend(["-i", self.ssh_key])
                         scp_pull.extend([f"{self.hub_user}@{self.hub_host}:/data/resources", str(tmp_p / "resources")])
@@ -421,7 +431,7 @@ class HubDeployer:
                         out_dir = tmp_p / "out"
                         mig_res = subprocess.run([sys.executable, str(mig_script), "--src", str(tmp_p / "resources"), "--dest", str(out_dir)], capture_output=True, text=True)
                         if (out_dir / "config" / "devices.json").is_file():
-                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+                            scp_push = ["scp", "-O", "-q", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options()]
                             if self.ssh_key and os.path.isfile(self.ssh_key):
                                 scp_push.extend(["-i", self.ssh_key])
                             # Push config/*.json
@@ -703,11 +713,14 @@ def main() -> None:
     parser.add_argument("--dry-run", "-n", action="store_true", help="Read Hub state and report changes without modifying Hub")
     parser.add_argument("--no-backup", action="store_true", help="Skip pre-deployment backup")
     parser.add_argument("--stage-remote-ota", action="store_true", help="Stage local remote_ui.ota.gz into Hub /tmp/remote_ui.ota.gz (RAM tmpfs) for offline testing")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
 
     args = parser.parse_args()
     target_host = args.flag_host or args.host
     if not target_host:
         parser.error("HUB_ADDRESS is required (pass as first argument or --host=IP)")
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(target_host)
 
     ui_choice = "legacy"
     if args.ui_new:
