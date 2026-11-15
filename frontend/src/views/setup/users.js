@@ -152,8 +152,10 @@ export function createView() {
         }, [
           h('div', {}, [
             h('div', { style: { fontWeight: 'bold' }, text: tok.name }),
-            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `Owner: ${tok.owner || '-'} | Role: ${tok.role} | Created: ${tok.created_at || 'Recently'}` }),
+            h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: `Role: ${tok.role} | Created: ${tok.created_at || 'Recently'}` }),
           ]),
+          // the account the token belongs to (and ends with)
+          h('div', { className: 'text-dim', style: { fontSize: '11px' }, text: t('token_owner', 'Owner: {owner}', { owner: tok.owner || '-' }) }),
           h('button', {
             className: 'btn btn-danger btn-sm',
             text: 'Revoke',

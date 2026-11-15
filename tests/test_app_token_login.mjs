@@ -34,6 +34,9 @@ globalThis.fetch = async (url, opts = {}) => {
     return reply(200, { ok: true, auth_enabled: hubState.authOn });
   }
   if (u.pathname === '/health') return reply(200, { status: 'ok' });
+  if (u.pathname === '/api/auth/tokens' && call.method === 'GET') {
+    return reply(200, { ok: true, tokens: [{ id: 'tok_9', name: 'Android app (Pixel 7, 2026-11-15)', role: 'user', owner: 'alice' }] });
+  }
   if (u.pathname === '/api/auth/token') {
     const b = JSON.parse(opts.body);
     if (b.password !== 'secret') return reply(401, { ok: false, error: 'Invalid username or password' });
@@ -425,6 +428,18 @@ await t.check('token list rows show the owner', async () => {
   list.appendChild(row);
   showTokenOwners(list, [{ id: 'tok_1', owner: 'alice' }]);
   assert.match(meta.textContent, /Owner: alice/);
+});
+
+await t.check('new UI token list shows the owner', async () => {
+  native(false);
+  const { createView } = await import('../frontend/src/views/setup/users.js');
+  const view = createView();
+  body.appendChild(view);
+  await tick(50);
+  const mount = view.querySelector('#tokens-list-mount');
+  assert.ok(mount, 'no token list');
+  assert.match(mount.textContent, /Owner: alice/);
+  view.remove();
 });
 
 t.finish();

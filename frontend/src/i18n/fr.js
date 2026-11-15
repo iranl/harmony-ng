@@ -817,6 +817,7 @@ export default {
     "users": "Comptes utilisateur",
     "add_user": "Ajouter un utilisateur",
     "api_tokens": "Jetons API",
+    "token_owner": "Propriétaire : {owner}",
     "generate_token": "Créer un jeton",
     "delete_user": "Supprimer l'utilisateur",
 };

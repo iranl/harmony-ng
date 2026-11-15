@@ -817,6 +817,7 @@ export default {
     "users": "User Accounts",
     "add_user": "Add User",
     "api_tokens": "API Tokens",
+    "token_owner": "Owner: {owner}",
     "generate_token": "Create Token",
     "delete_user": "Delete User",
 };
