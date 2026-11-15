@@ -491,8 +491,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 /* Only touch the clock and the RTC (an I2C write) when they are off */
                 long drift = (long)time(NULL) - (long)epoch;
                 if (drift > 1 || drift < -1) {
-                    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
-                    settimeofday(&tv, NULL);
+                    remote_set_clock((time_t)epoch);
                     set_msp430_rtc(epoch);
                 }
             }
@@ -601,10 +600,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
         }
 
         case RF_MSG_SLEEP_REQ: {
-            printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
             rf_send_frame(&ack);
+            /* Not in the middle of a config sync or an update (the transfer would be lost), a
+             * pairing or an activity switch: the same gates as every other suspend */
+            if (remote_suspend_blocked()) {
+                printf("[*] Remote: SLEEP_REQ from Hub ignored: a sync, update, pairing or switch is running\n");
+                break;
+            }
+            printf("[*] Remote: received SLEEP_REQ from Hub. Suspending to RAM...\n");
             usleep(50000); /* allow RF ACK TX to complete before suspend */
             fb_set_blank(true);
             read_remote_battery();

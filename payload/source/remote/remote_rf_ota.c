@@ -632,7 +632,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     g_rf_fd = -1;
                 }
                 read_remote_battery();
-                if (!is_remote_docked()) {
+                if (!remote_on_external_power()) {
                     /* On battery a reboot switches the remote off (the SoC reset makes the PMIC
                      * cut power; only the Off key turns it back on), as Settings > Reboot already
                      * knows: start the new binary in place instead. Scripts and themes are

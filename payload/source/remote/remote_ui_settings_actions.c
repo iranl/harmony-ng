@@ -28,7 +28,8 @@ static void cycle_touch_sensitivity(void) {
 }
 
 static void execute_remote_reboot(void) {
-    bool docked = is_remote_docked();
+    /* The power source as it is now: a reboot on battery switches the remote off */
+    bool docked = remote_on_external_power();
     show_notice(tr(docked ? STR_NOTICE_REBOOTING : STR_NOTICE_RESTARTING), 4000);
     render_screen();
     log_power_debug("[*] System reboot initiated from Settings (docked=%d)...\n", docked);

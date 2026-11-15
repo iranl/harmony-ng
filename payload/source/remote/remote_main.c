@@ -32,6 +32,61 @@
 #include <linux/fb.h>
 #include <linux/input.h>
 
+/* The crash handler runs on the faulting thread, often inside malloc or stdio after a heap
+ * corruption: it may only use calls that are async-signal-safe (open, read, write, close, time,
+ * clock_gettime). A stdio or localtime call would wait for a lock that thread already holds, the
+ * process would hang there instead of exiting, and the supervisor would never restart it. So the
+ * record is built by hand in a buffer on the stack; the time is the epoch. */
+typedef struct { char buf[1024]; size_t len; } crash_rec_t;
+
+static void crash_put(crash_rec_t *r, const char *s) {
+    while (s && *s && r->len < sizeof(r->buf)) r->buf[r->len++] = *s++;
+}
+
+static void crash_put_n(crash_rec_t *r, const char *s, size_t max) {
+    for (size_t i = 0; s && i < max && s[i] && r->len < sizeof(r->buf); i++) r->buf[r->len++] = s[i];
+}
+
+static void crash_put_u(crash_rec_t *r, unsigned long long v) {
+    char d[24];
+    int n = 0;
+    do { d[n++] = (char)('0' + v % 10); v /= 10; } while (v && n < (int)sizeof(d));
+    while (n > 0 && r->len < sizeof(r->buf)) r->buf[r->len++] = d[--n];
+}
+
+static void crash_put_i(crash_rec_t *r, long long v) {
+    if (v < 0) { crash_put(r, "-"); crash_put_u(r, (unsigned long long)(-(v + 1)) + 1); }
+    else crash_put_u(r, (unsigned long long)v);
+}
+
+static void crash_put_hex(crash_rec_t *r, uintptr_t v) {
+    char d[2 * sizeof(v)];
+    int n = 0;
+    do { d[n++] = "0123456789abcdef"[v & 0xF]; v >>= 4; } while (v && n < (int)sizeof(d));
+    crash_put(r, "0x");
+    while (n > 0 && r->len < sizeof(r->buf)) r->buf[r->len++] = d[--n];
+}
+
+/* The VmPeak, VmSize, VmRSS and Threads lines of /proc/self/status */
+static void crash_put_status(crash_rec_t *r) {
+    char st[2048];
+    int fd = open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    ssize_t n = read(fd, st, sizeof(st) - 1);
+    close(fd);
+    if (n <= 0) return;
+    st[n] = '\0';
+    for (char *line = st; *line;) {
+        char *nl = strchr(line, '\n');
+        size_t len = nl ? (size_t)(nl - line + 1) : strlen(line);
+        if (strncmp(line, "VmPeak:", 7) == 0 || strncmp(line, "VmSize:", 7) == 0 ||
+            strncmp(line, "VmRSS:", 6) == 0 || strncmp(line, "Threads:", 8) == 0) {
+            crash_put_n(r, line, len);
+        }
+        line += len;
+    }
+}
+
 static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     (void)ucontext;
     int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
@@ -45,14 +100,8 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
         close(lfd);
     }
 
-    FILE *cf = fopen("/data/crash.log", "a");
-    if (cf) {
-        time_t now = time(NULL);
-        char tbuf[32] = {0};
-        struct tm *tm = localtime(&now);
-        if (tm) strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", tm);
-        else snprintf(tbuf, sizeof(tbuf), "epoch=%ld", (long)now);
-
+    int cfd = open("/data/crash.log", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (cfd >= 0) {
         const char *signame = "UNKNOWN";
         if (sig == SIGSEGV) signame = "SIGSEGV (Segmentation Fault)";
         else if (sig == SIGBUS) signame = "SIGBUS (Bus Error)";
@@ -60,32 +109,41 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
         else if (sig == SIGFPE) signame = "SIGFPE (Floating Point Exception)";
         else if (sig == SIGILL) signame = "SIGILL (Illegal Instruction)";
 
-        void *fault_addr = info ? info->si_addr : NULL;
-        int code = info ? info->si_code : 0;
-
-        fprintf(cf, "=== CRASH %s ===\n", tbuf);
-        fprintf(cf, "Signal: %d (%s), Code: %d, Fault Addr: %p\n", sig, signame, code, fault_addr);
-        fprintf(cf, "State: act='%s', view=%d, screen_on=%d, no_screen=%d, rf_conn=%d, slot=%d\n",
-                g_active_activity_id, g_current_view, g_screen_on ? 1 : 0, g_no_screen_mode ? 1 : 0,
-                g_rf_link_connected ? 1 : 0, g_remote_slot);
-        fprintf(cf, "Uptime mono: %llums\n", (unsigned long long)get_monotonic_ms());
-
-        FILE *sf = fopen("/proc/self/status", "r");
-        if (sf) {
-            char sline[128];
-            while (fgets(sline, sizeof(sline), sf)) {
-                if (strncmp(sline, "VmPeak:", 7) == 0 ||
-                    strncmp(sline, "VmSize:", 7) == 0 ||
-                    strncmp(sline, "VmRSS:", 6) == 0 ||
-                    strncmp(sline, "Threads:", 8) == 0) {
-                    fputs(sline, cf);
-                }
-            }
-            fclose(sf);
+        crash_rec_t r;
+        r.len = 0;
+        crash_put(&r, "=== CRASH epoch=");
+        crash_put_i(&r, (long long)time(NULL));
+        crash_put(&r, " ===\nSignal: ");
+        crash_put_i(&r, sig);
+        crash_put(&r, " (");
+        crash_put(&r, signame);
+        crash_put(&r, "), Code: ");
+        crash_put_i(&r, info ? info->si_code : 0);
+        crash_put(&r, ", Fault Addr: ");
+        crash_put_hex(&r, (uintptr_t)(info ? info->si_addr : NULL));
+        crash_put(&r, "\nState: act='");
+        crash_put_n(&r, g_active_activity_id, sizeof(g_active_activity_id));
+        crash_put(&r, "', view=");
+        crash_put_i(&r, (int)g_current_view);
+        crash_put(&r, ", screen_on=");
+        crash_put_i(&r, g_screen_on ? 1 : 0);
+        crash_put(&r, ", no_screen=");
+        crash_put_i(&r, g_no_screen_mode ? 1 : 0);
+        crash_put(&r, ", rf_conn=");
+        crash_put_i(&r, g_rf_link_connected ? 1 : 0);
+        crash_put(&r, ", slot=");
+        crash_put_i(&r, g_remote_slot);
+        crash_put(&r, "\nUptime mono: ");
+        crash_put_u(&r, (unsigned long long)get_monotonic_ms());
+        crash_put(&r, "ms\n");
+        crash_put_status(&r);
+        crash_put(&r, "========================================\n\n");
+        for (size_t off = 0; off < r.len;) {
+            ssize_t w = write(cfd, r.buf + off, r.len - off);
+            if (w <= 0) break;
+            off += (size_t)w;
         }
-        fprintf(cf, "========================================\n\n");
-        fflush(cf);
-        fclose(cf);
+        close(cfd);
     }
 
     sync();
