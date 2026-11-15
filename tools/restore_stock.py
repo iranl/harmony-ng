@@ -94,11 +94,14 @@ def find_latest_stock_backup(specified_path: str | None = None) -> pathlib.Path:
     if stock_backups:
         return stock_backups[0]
 
-    # Fallback to golden backup if present
-    for ext in ("tar", "tar.gz"):
-        golden = BACKUP_DIR / f"golden_hub_backup.{ext}"
-        if golden.is_file():
-            return golden
+    # Fallback to a golden backup if present (one per Hub: golden_hub_backup_<hub>.tar)
+    goldens = sorted(
+        [p for p in BACKUP_DIR.glob("golden_hub_backup*.*") if p.is_file() and p.name.endswith((".tar", ".tar.gz"))],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if goldens:
+        return goldens[0]
 
     # Fallback to any hub_backup_*.tar*
     other_backups = sorted(
