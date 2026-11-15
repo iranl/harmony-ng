@@ -22,3 +22,5 @@ python3 "$SCRIPT_DIR/test_update_api_once.py"
 python3 "$SCRIPT_DIR/test_factory_reset_sh.py"
 # init.sh: profile files, dropbear wrapper and links rewritten only when they change
 python3 "$SCRIPT_DIR/test_init_flash_writes.py"
+# start_usb_eth.sh: the EHCI device is registered at most once per boot
+python3 "$SCRIPT_DIR/test_start_usb_eth_once.py"
