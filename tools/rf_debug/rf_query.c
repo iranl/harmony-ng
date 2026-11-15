@@ -8,6 +8,8 @@
 #include <sys/select.h>
 #include <sys/time.h>
 
+#include "rf_lock.h"
+
 #include <signal.h>
 
 #define RFSPI_DEV "/dev/rfspi"
@@ -50,6 +52,7 @@ static void send_cmd(int fd, const uint8_t *cmd, size_t len, const char *name) {
 }
 
 int main(void) {
+    if (rf_debug_take_lock() < 0) return 2;
     int fd = open(RFSPI_DEV, O_RDWR);
     if (fd < 0) {
         perror("open " RFSPI_DEV);

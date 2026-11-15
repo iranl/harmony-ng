@@ -29,3 +29,6 @@ if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_harmony_search_n
 
 # MQTT send_command sequencer: what it sends, in which order and when (daemon log, dry run)
 python3 "$SCRIPT_DIR/test_mqtt_sequencer_sends.py"
+
+# RF debug tools refuse to open /dev/rfspi while hub_rf holds its lock
+python3 "$SCRIPT_DIR/test_rf_debug_lock.py"
