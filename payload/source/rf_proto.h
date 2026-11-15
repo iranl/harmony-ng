@@ -120,6 +120,7 @@
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
 #define RF_CAP_UNIT_ID             0x04  /* sends RF_MSG_UNIT_ID after every version report */
+#define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
 
 /* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
 #define RF_NAME_SIZE               40

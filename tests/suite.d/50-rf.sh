@@ -30,4 +30,10 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     HARMONY_MOCK_DIR="$RF50_MOCK/unpair_backup" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_unpair_backup"
 
+# Sender retries: OTA_END sent again, a complete checkpoint gets only OTA_END, RF_CAP_DEVICE_CMDS
+mkdir -p "$RF50_MOCK/sender_tmp"
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_sender_retries" "$SCRIPT_DIR/test_rf_sender_retries.c" \
+    -Wl,--wrap=fopen -Wl,--wrap=access -Wl,--wrap=unlink $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    RF_TEST_TMP="$RF50_MOCK/sender_tmp" HARMONY_MOCK_DIR="$RF50_MOCK/sender" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_sender_retries"
+
 rm -rf "$RF50_MOCK"

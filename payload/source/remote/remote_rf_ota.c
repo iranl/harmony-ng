@@ -482,7 +482,9 @@ bool handle_ota_frame(const rf_frame_t *f) {
             if (stat("/tmp/remote_ui.ota.gz", &st) == 0 && st.st_size > 0) {
                 if (ota_load_meta(tot_b, file_crc, &resume_chunk)) {
                     uint16_t have_c = ota_chunks_for(tot_b, s_chunk_bytes);
-                    if (resume_chunk > 0 && resume_chunk < have_c) {
+                    /* resume_chunk == have_c: every chunk is here (the Hub's OTA_END was lost):
+                     * the Hub sends OTA_END only, instead of the whole image again */
+                    if (resume_chunk > 0 && resume_chunk <= have_c) {
                         g_ota_file = fopen("/tmp/remote_ui.ota.gz", "r+b");
                         if (g_ota_file) {
                             can_resume = true;
