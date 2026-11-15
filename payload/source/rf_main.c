@@ -187,11 +187,19 @@ void handle_rf_frame(const rf_frame_t *f) {
                 }
             }
 
-            if (!handled) {
-                char dev_id[13] = {0};
-                char cmd[17] = {0};
-                memcpy(dev_id, f->payload, 12);
-                memcpy(cmd, &f->payload[12], sizeof(f->payload) - 12); /* 13 bytes: the rest of the frame */
+            if (!handled && (f->flags & 0x01)) {
+                /* A screen button frame (the remote sets bit 0 of the flags): [0..9] activity id,
+                 * [10] button index, [11..22] label. Not in the remote's map (the config changed
+                 * since the last push): nothing to send. */
+                char label[13] = {0};
+                memcpy(label, &f->payload[11], 12);
+                printf("[-] Screen button not found: slot=%d act=%s idx=%d label=%s\n", slot, act_or_dev, btn_idx, label);
+            } else if (!handled) {
+                /* A direct device command: [0..3] device id, [4..24] command name */
+                char dev_id[5] = {0};
+                char cmd[22] = {0};
+                memcpy(dev_id, f->payload, 4);
+                memcpy(cmd, &f->payload[4], sizeof(f->payload) - 4);
                 printf("[*] DEVICE_CMD direct: dev=%s cmd=%s\n", dev_id, cmd);
                 enqueue_remote_device_cmd(dev_id, cmd);
             }

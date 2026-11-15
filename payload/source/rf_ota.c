@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -139,7 +140,17 @@ void ota_set_status(int status, bool in_prog, const char *err) {
     }
 }
 
-static void get_ota_repo_source(char *out_repo, size_t out_sz) {
+/* The update source goes into a shell command between single quotes: only the characters the
+ * update API accepts for it (letters, digits and - _ . / : @ ~) */
+static bool ota_repo_chars_ok(const char *s) {
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (!isalnum(c) && !strchr("-_./:@~", c)) return false;
+    }
+    return true;
+}
+
+void get_ota_repo_source(char *out_repo, size_t out_sz) {
     out_repo[0] = '\0';
     FILE *f = fopen("/data/harmony/update_state.conf", "r");
     if (f) {
@@ -149,14 +160,20 @@ static void get_ota_repo_source(char *out_repo, size_t out_sz) {
                 char *src = line + 7;
                 char *nl = strchr(src, '\r'); if (nl) *nl = '\0';
                 nl = strchr(src, '\n'); if (nl) *nl = '\0';
-                if (*src) strncpy(out_repo, src, out_sz - 1);
+                /* a value that does not fit or has other characters is not used: a cut URL
+                 * is a wrong one */
+                if (*src && strlen(src) < out_sz && ota_repo_chars_ok(src)) {
+                    snprintf(out_repo, out_sz, "%s", src);
+                } else if (*src) {
+                    printf("[-] RF OTA: update source in update_state.conf not usable, using the default\n");
+                }
                 break;
             }
         }
         fclose(f);
     }
     if (!out_repo[0]) {
-        strncpy(out_repo, "https://raw.githubusercontent.com/iranl/harmony-ng/ota", out_sz - 1);
+        snprintf(out_repo, out_sz, "%s", "https://raw.githubusercontent.com/iranl/harmony-ng/ota");
     }
 }
 
@@ -303,7 +320,7 @@ void *rf_ota_sender_worker(void *arg) {
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
         printf("[*] Remote OTA image not found in /tmp. Downloading to %s...\n", ota_path);
-        char repo[256];
+        char repo[256] = {0};
         get_ota_repo_source(repo, sizeof(repo));
         char fetch_cmd[512];
         snprintf(fetch_cmd, sizeof(fetch_cmd), "/data/harmony/update.sh fetch-remote-ota '%s' >/tmp/ota_fetch.log 2>&1", repo);

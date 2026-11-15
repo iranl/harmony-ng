@@ -272,6 +272,17 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
     /* Route Companion / eQuad HID keyboard & consumer reports (Report 0x20, Sub-ID 0x01 or 0x03) */
     if (len >= 5 && pkt[0] == 0x20 && (pkt[2] == 0x01 || pkt[2] == 0x03)) {
+        /* hub_rf keeps two remote slots; a key report from another CC2544 slot (a third paired
+           device) would be handled as a key of the remote in slot 1 */
+        uint8_t kslot = pkt[1] & 0x0F;
+        if (kslot < 1 || kslot > MAX_PAIRED_REMOTES) {
+            static uint16_t s_logged; /* one line per slot */
+            if (!(s_logged & (1u << kslot))) {
+                s_logged |= (uint16_t)(1u << kslot);
+                printf("[-] RF key report from slot %u ignored: only slots 1 and 2 hold a remote\n", kslot);
+            }
+            return;
+        }
         handle_companion_packet(pkt, len);
         return;
     }
@@ -294,7 +305,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 memcpy(&f, pkt, sizeof(f));
             }
         } else if (pkt[0] == 0x12 && len >= 30) {
-            if (pkt[1] >= 1 && pkt[1] <= 15) {
+            if (pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
                 g_remote_slot = pkt[1];
             }
             if ((pkt[2] & 0xE0) == 0x40 || (pkt[2] & 0xE0) == 0x60) {
@@ -341,7 +352,8 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
 
     /* 0x41: Link status notification: 10 <slot> 41 04 <status> ... */
     if (len == 7 && pkt[0] == 0x10 && pkt[2] == 0x41) {
-        if (pkt[1] >= 1 && pkt[1] <= 15) {
+        /* the default slot for sends without one: only a slot that can hold a remote */
+        if (pkt[1] >= 1 && pkt[1] <= MAX_PAIRED_REMOTES) {
             g_remote_slot = pkt[1];
         }
         bool link_lost = (pkt[4] & 0x40) != 0;
@@ -464,7 +476,12 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 uint8_t nlen = pkt[5];
                 if (sidx < MAX_PAIRED_REMOTES && nlen > 0) {
                     if (nlen > 15) nlen = 15;
-                    memcpy(g_paired_remotes[sidx].name, &pkt[6], nlen);
+                    /* printable ASCII without quote and backslash: the name goes into the RF
+                       status object, which is JSON built with "%s" */
+                    for (uint8_t i = 0; i < nlen; i++) {
+                        uint8_t c = pkt[6 + i];
+                        g_paired_remotes[sidx].name[i] = (c >= 0x20 && c < 0x7F && c != '"' && c != '\\') ? (char)c : '?';
+                    }
                     g_paired_remotes[sidx].name[nlen] = '\0';
                     /* the name hints at a Sprite remote only while the EquadID is unknown; it
                      * never replaces an identified family (is_companion_slot applies it) */

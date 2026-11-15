@@ -253,6 +253,28 @@ static const char *rf_alias_command(cJSON *cmds, const char *button_name) {
 
 /* Runs the button through the maps: starts or stops an activity, or, when the key is mapped to a
  * device command, writes its target to out_dev/out_cmd (dispatch_remote_button_at() sends it). */
+/* A string for a JSON body built with "%s": quote, backslash and control characters escaped.
+ * Ids, names and commands can come from RF frames, which can carry any byte. */
+static const char *json_esc(char *out, size_t n, const char *in) {
+    size_t o = 0;
+    if (!n) return out;
+    for (; in && *in && o + 1 < n; in++) {
+        unsigned char c = (unsigned char)*in;
+        if (c == '"' || c == '\\') {
+            if (o + 2 >= n) break;
+            out[o++] = '\\';
+            out[o++] = (char)c;
+        } else if (c < 0x20) {
+            if (o + 6 >= n) break;
+            o += (size_t)snprintf(out + o, n - o, "\\u%04x", c);
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+    return out;
+}
+
 static void run_remote_button(uint8_t slot, const char *button_name, const char *action_state, const char *dev_id,
                              char *out_dev, size_t out_dev_len, char *out_cmd, size_t out_cmd_len) {
     int is_press = (strcmp(action_state, "release") != 0);
@@ -400,8 +422,8 @@ static void run_remote_button(uint8_t slot, const char *button_name, const char 
         snprintf(out_dev, out_dev_len, "%s", dev_id_buf);
         snprintf(out_cmd, out_cmd_len, "%s", cmd_buf);
     } else if (is_press && (strcmp(act_type_buf, "activity_start") == 0 || strcmp(act_type_buf, "change_activity") == 0) && target_act_id_buf[0]) {
-        char body[64];
-        snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", target_act_id_buf);
+        char body[160], e_act[128];
+        snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", json_esc(e_act, sizeof(e_act), target_act_id_buf));
         printf("[*] RF Dispatch: Start activity -> id=%s\n", target_act_id_buf);
         http_post_local(DAEMON_PORT, "/api/activity", body);
     } else if (is_press && (strcmp(act_type_buf, "activity_stop") == 0 || strcmp(act_type_buf, "poweroff") == 0)) {
@@ -485,10 +507,15 @@ static void dispatch_remote_button_at(uint8_t slot, const char *button_name, con
     if (send_key_event(slot, button_name, action, mapped_dev, mapped_cmd, ts_ms) == 0) return;
 
     /* No key channel (an older hub_daemon): the HTTP routes, the device command first */
-    char body[320];
+    char body[768];
+    char e_dev[128], e_cmd[128], e_act[32], e_btn[96];
+    json_esc(e_dev, sizeof(e_dev), mapped_dev);
+    json_esc(e_cmd, sizeof(e_cmd), mapped_cmd);
+    json_esc(e_act, sizeof(e_act), action);
+    json_esc(e_btn, sizeof(e_btn), button_name);
     if (mapped_dev[0] && mapped_cmd[0]) {
         snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\",\"action\":\"%s\"}",
-                 mapped_dev, mapped_cmd, action);
+                 e_dev, e_cmd, e_act);
         http_post_local(WEBUI_PORT, "/api/ir-send", body);
     }
 
@@ -497,11 +524,11 @@ static void dispatch_remote_button_at(uint8_t slot, const char *button_name, con
     if (mapped_dev[0] && mapped_cmd[0]) {
         snprintf(body, sizeof(body),
                  "{\"button\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d,\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                 button_name, action, slot, mapped_dev, mapped_cmd);
+                 e_btn, e_act, slot, e_dev, e_cmd);
     } else {
         snprintf(body, sizeof(body),
                  "{\"button\":\"%s\",\"action\":\"%s\",\"source\":\"remote_rf\",\"slot\":%d}",
-                 button_name, action, slot);
+                 e_btn, e_act, slot);
     }
     http_post_local(DAEMON_PORT, "/api/button-press", body);
 }
@@ -744,9 +771,9 @@ void *dispatch_worker(void *arg) {
         if (ev.kind == RF_EV_NONE) {
             continue;
         } else if (ev.kind == RF_EV_DEVICE_CMD) {
-            char body[256];
+            char body[512], e_dev[192], e_cmd[192];
             snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
-                     ev.param1, ev.param2);
+                     json_esc(e_dev, sizeof(e_dev), ev.param1), json_esc(e_cmd, sizeof(e_cmd), ev.param2));
             http_post_local(WEBUI_PORT, "/api/ir-send", body);
         } else if (ev.kind == RF_EV_ACTIVITY) {
             dispatch_activity_to_daemon(ev.param1);
@@ -763,8 +790,8 @@ void dispatch_activity_to_daemon(const char *act_id) {
         http_post_local(DAEMON_PORT, "/api/poweroff", "{}");
     } else {
         printf("[*] RF Dispatching Activity Start: %s to Hub\n", act_id);
-        char body[64];
-        snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", act_id);
+        char body[160], e_act[128];
+        snprintf(body, sizeof(body), "{\"activity\":\"%s\"}", json_esc(e_act, sizeof(e_act), act_id));
         http_post_local(DAEMON_PORT, "/api/activity", body);
     }
 }
@@ -777,8 +804,9 @@ void dispatch_device_command_to_webui(const char *payload) {
     *colon = '\0';
     const char *dev = buf;
     const char *cmd = colon + 1;
-    char body[256];
-    snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}", dev, cmd);
+    char body[512], e_dev[192], e_cmd[192];
+    snprintf(body, sizeof(body), "{\"deviceId\":\"%s\",\"command\":\"%s\"}",
+             json_esc(e_dev, sizeof(e_dev), dev), json_esc(e_cmd, sizeof(e_cmd), cmd));
     printf("[*] RF Dispatch Device Cmd: dev=%s cmd=%s\n", dev, cmd);
     http_post_local(WEBUI_PORT, "/api/ir-send", body);
 }

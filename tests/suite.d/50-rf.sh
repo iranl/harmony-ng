@@ -9,4 +9,10 @@ RF50_MOCK=$(mktemp -d /tmp/hng_rf50.XXXXXX)
 build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_ack_match" "$SCRIPT_DIR/test_rf_ack_match.c" \
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_ack_match"
 
+# Frame fields: DEVICE_CMD_REQUEST layouts, escaped request bodies, slots above 2, slot name, update source
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_frame_fields" "$SCRIPT_DIR/test_rf_frame_fields.c" \
+    -Wl,--wrap=enqueue_remote_device_cmd -Wl,--wrap=handle_companion_packet -Wl,--wrap=http_post_local \
+    $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="$RF50_MOCK/frame_fields" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_frame_fields"
+
 rm -rf "$RF50_MOCK"

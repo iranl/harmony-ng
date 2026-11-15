@@ -496,6 +496,7 @@ void *config_push_worker(void *arg) {
                             if (!act_id[0]) continue;
 
                             struct rf_step_send local_steps[8];
+                            memset(local_steps, 0, sizeof(local_steps)); /* the default steps below copy ids and names without a terminator */
                             int local_count = 0;
 
                             /* startSequence -> Modern Harmony format */

@@ -398,7 +398,12 @@ Both frames use a 17-byte standardized configuration payload:
 - The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
 
 #### `RF_MSG_DEVICE_CMD_REQUEST` (`0x16`)
-- Remote transmits for direct device command execution:
+- Remote transmits for a screen button (bit 0 of the flags byte set):
+  - `payload[0..9]`: Activity (or device) id of the screen.
+  - `payload[10]`: Button index.
+  - `payload[11..22]`: Button label (first 12 chars).
+  - The Hub sends the button's command from the remote's key map; a button that is not in the map sends nothing.
+- Remote transmits for direct device command execution (flags bit 0 clear):
   - `payload[0..3]`: Shortened Device ID (4 bytes, null-terminated).
   - `payload[4..24]`: Command name (up to 21 chars, null-terminated).
 
