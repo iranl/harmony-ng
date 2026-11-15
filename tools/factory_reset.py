@@ -33,6 +33,7 @@ backup is saved first with tools/backup_hub.py; --no-backup skips it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pathlib
 import subprocess
@@ -86,40 +87,6 @@ def run_ssh_cmd(target: str, cmd: str, ssh_opts: list[str]) -> subprocess.Comple
 REBOOT_CMD = "(sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &"
 
 
-STEP_MARK = "factory-reset-step"
-DONE_MARK = "factory-reset-steps-done"
-
-
-def reset_script(commands: list[str]) -> str:
-    """All steps and the reboot as one command, for one SSH login. On the remote the first
-    step stops the runtime, and with it the feeding of the 10 s hardware watchdog: separate
-    logins for each step could outlast it. Each step prints a mark when it has run; the
-    reboot comes only after the last one."""
-    parts = [f"{c}; echo {STEP_MARK} {i}" for i, c in enumerate(commands, 1)]
-    return "; ".join(parts + [f"echo {DONE_MARK}", REBOOT_CMD])
-
-
-def run_steps(target: str, commands: list[str], ssh_opts: list[str], device: str) -> bool:
-    """Run every reset step and the reboot in one SSH login (see reset_script()). Every step
-    ends in "|| true"; a missing mark means the login ended before that step."""
-    res = run_ssh_cmd(target, reset_script(commands), ssh_opts)
-    done = 0
-    finished = False
-    for line in res.stdout.splitlines():
-        if line.startswith(STEP_MARK + " "):
-            done = int(line.split()[-1])
-        elif line.strip() == DONE_MARK:
-            finished = True
-        elif line.strip():
-            print(line)
-    if not finished or res.returncode != 0:
-        print(f"[-] The {device} ran {done} of {len(commands)} reset steps (exit code {res.returncode}): {res.stderr.strip()}")
-        print(f"    The factory reset of the {device} is INCOMPLETE and it was not rebooted by this tool. Run the tool again.")
-        return False
-    print(f"[*] Rebooting the {device} into stock firmware...")
-    return True
-
-
 def device_machine(target: str, ssh_opts: list[str]) -> subprocess.CompletedProcess[str]:
     return run_ssh_cmd(target, "uname -m", ssh_opts)
 
@@ -145,19 +112,9 @@ def reset_hub(hub_ip: str, ssh_opts: list[str], backup: bool = True) -> bool:
             print("[-] No backup was made, so nothing was reset. Run again with --no-backup to reset without one.")
             return False
     print("[*] Performing Hub factory reset sequence:")
-
-    commands = [
-        # payload/scripts/factory_reset.sh, copied to the Hub below: stops the services, restores
-        # the stock boot script, deletes /data/harmony, the Wi-Fi configuration and SSH access
-        RUN_RESET_SCRIPT,
-    ]
-
-    if not upload_reset_script(target, "hub", ssh_opts):
-        return False
-    if not run_steps(target, commands, ssh_opts, "Hub"):
-        return False
-    print("[+] Hub reboot signal delivered. Hub will boot into stock Logitech environment.")
-    return True
+    # payload/scripts/factory_reset.sh: stops the services, restores the stock boot files,
+    # deletes /data/harmony, the Wi-Fi configuration and SSH access
+    return run_reset_script(target, "hub", ssh_opts)
 
 
 def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
@@ -174,19 +131,9 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
 
     print(f"[+] Connected to remote ({probe.stdout.strip()})")
     print("[*] Performing remote factory reset sequence:")
-
-    commands = [
-        # remote/factory_reset.sh, copied to the remote below: stops the runtime, restores the
-        # stock boot script, deletes the settings, logs and SSH access
-        RUN_RESET_SCRIPT,
-    ]
-
-    if not upload_reset_script(target, "remote", ssh_opts):
-        return False
-    if not run_steps(target, commands, ssh_opts, "remote"):
-        return False
-    print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
-    return True
+    # remote/factory_reset.sh: stops the runtime, restores the stock boot script, deletes the
+    # settings, logs and SSH access
+    return run_reset_script(target, "remote", ssh_opts)
 
 
 def confirm_prompt(device_label: str, backup: bool) -> bool:
@@ -209,8 +156,12 @@ def confirm_prompt(device_label: str, backup: bool) -> bool:
     return val == "FACTORY-RESET"
 
 
-# Each device has one reset script, the same one its own menu or web UI runs. The tool copies it
-# to the device's /tmp and runs it there, without its reboot: the tool reboots after it ran.
+# Each device has one reset script, the same one its own menu or web UI runs. The tool sends it
+# on the standard input of ONE login that saves it to the device's /tmp and runs it without its own
+# reboot, then writes a mark and starts the reboot: the script deletes the SSH keys, so a second
+# login would be refused. Script, mark and reboot run with HUP and PIPE ignored and their output
+# in a file on the device, so a login that is cut does not stop them half way; the login prints
+# that file at the end.
 RESET_SCRIPTS = {
     "hub": ("Harmony Hub factory reset",
             [REPO_DIR / "payload" / "scripts" / "factory_reset.sh", REPO_DIR / "scripts" / "factory_reset.sh"]),
@@ -218,7 +169,19 @@ RESET_SCRIPTS = {
                [REPO_DIR / "remote" / "factory_reset.sh", REPO_DIR / "factory_reset.sh"]),
 }
 DEVICE_RESET_SCRIPT = "/tmp/factory_reset.sh"
-RUN_RESET_SCRIPT = f"sh {DEVICE_RESET_SCRIPT} --confirm --no-reboot || exit 1"
+DEVICE_RESET_LOG = "/tmp/factory_reset.log"
+RESET_DONE_MARK = "factory-reset-steps-done"
+
+
+def reset_login_cmd(md5: str) -> str:
+    """The reset login. The script runs only when it arrived complete (its MD5, computed here, is
+    checked on the device: an empty or cut upload is refused before anything changes)."""
+    return (f"rm -f {DEVICE_RESET_LOG}; cat > {DEVICE_RESET_SCRIPT}; "
+            f"if [ \"$(md5sum < {DEVICE_RESET_SCRIPT} | cut -c1-32)\" != {md5} ]; then "
+            f"echo '[-] The reset script did not arrive complete; nothing was changed.'; exit 1; fi; "
+            f"(trap '' HUP PIPE; sh {DEVICE_RESET_SCRIPT} --confirm --no-reboot > {DEVICE_RESET_LOG} 2>&1 && "
+            f"echo {RESET_DONE_MARK} >> {DEVICE_RESET_LOG} && {{ {REBOOT_CMD} }}); "
+            f"cat {DEVICE_RESET_LOG}; grep -q '^{RESET_DONE_MARK}$' {DEVICE_RESET_LOG}")
 
 
 def reset_script_path(device: str) -> pathlib.Path | None:
@@ -233,18 +196,34 @@ def reset_script_path(device: str) -> pathlib.Path | None:
     return None
 
 
-def upload_reset_script(target: str, device: str, ssh_opts: list[str]) -> bool:
+def run_reset_script(target: str, device: str, ssh_opts: list[str]) -> bool:
     script = reset_script_path(device)
     if script is None:
         print(f"[-] The {device} reset script (factory_reset.sh) is not next to this tool; nothing was changed.")
         return False
-    res = subprocess.run(["ssh"] + ssh_opts + [target, f"cat > {DEVICE_RESET_SCRIPT}"],
-                         input=script.read_bytes(), capture_output=True, check=False)
-    if res.returncode != 0:
-        print(f"[-] Copying {script.name} to the {device} failed: {res.stderr.decode(errors='replace').strip()}")
-        print(f"    Nothing on the {device} was changed.")
-        return False
-    return True
+    data = script.read_bytes()
+    res = subprocess.run(["ssh"] + ssh_opts + [target, reset_login_cmd(hashlib.md5(data).hexdigest())],
+                         input=data, capture_output=True, check=False)
+    finished = False
+    for line in res.stdout.decode(errors="replace").splitlines():
+        if line.strip() == RESET_DONE_MARK:
+            finished = True
+        elif line.strip():
+            print(line)
+    if finished:
+        # the exit code may be lost when the reboot closes the connection first
+        print(f"[+] The {device} was reset and reboots into the stock Logitech firmware.")
+        return True
+    print(f"[-] The factory reset of the {device} was not confirmed (exit code {res.returncode}): "
+          f"{res.stderr.decode(errors='replace').strip()}")
+    if res.returncode == 255:
+        print(f"    The connection was lost. The reset may still have finished: the {device} then reboots by itself")
+        print("    within a minute. If it does not come back with the stock firmware and SSH refuses the key,")
+        print(f"    power-cycle the {device}.")
+    else:
+        print(f"    The {device} was not rebooted. Run the tool again; if SSH refuses the key (the reset got as far")
+        print(f"    as removing it), power-cycle the {device}.")
+    return False
 
 
 def main() -> None:

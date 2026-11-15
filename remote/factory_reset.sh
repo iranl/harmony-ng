@@ -1,12 +1,13 @@
 #!/bin/sh
-# Harmony remote factory reset: back to the stock Logitech firmware, with every harmony-ng file
-# and secret removed. This is the remote's only reset: Settings > Factory Reset runs it on the
+# Harmony remote factory reset: back to the stock Logitech firmware, with harmony-ng's files and
+# secrets removed. This is the remote's only reset: Settings > Factory Reset runs it on the
 # remote (/data/factory_reset.sh), and tools/factory_reset.py, deploy_remote.py --factory-reset
 # and setup_remote.py --factory-reset copy it to the remote and run it there.
 #
 # Removed: the harmony-ng programs and boot script, the settings and the Hub's activity and
 # device names (/data/remote_*), themes and icons, the logs, and SSH (links, binary,
-# authorized keys and host keys). The RF pairing with the Hub is kept by the radio chip.
+# authorized keys and host keys). Kept: the stock firmware's own data (/data/resources) and the
+# RF pairing with the Hub (in the radio chip). The hardware reset (Menu + Off) wipes everything.
 #
 # Usage: factory_reset.sh [--confirm] [--no-reboot]
 #   --confirm    no prompt
@@ -92,8 +93,8 @@ for _f in /data/remote_* /data/elite_* /data/codex_*; do
     esac
 done
 rm -rf /data/remote_conf_p /data/elite_conf_p 2>/dev/null || true
-rm -f /data/bin/dropbear /data/bin/dropbearkey /data/bin/scp /data/bin/dbclient 2>/dev/null || true
-rmdir /data/bin 2>/dev/null || true
+# only the dropbear links of the installer live there (the stock firmware has no rmdir)
+rm -rf /data/bin 2>/dev/null || true
 rm -f /data/rcS.local /data/force_sync /data/flightlog_on /data/debug_logging.conf /data/power_debug.log \
       /data/crash.log /data/harmony_crash.log /data/last_kmsg.log 2>/dev/null || true
 rm -f /etc/dropbear/authorized_keys /etc/dropbear/dropbear_*_host_key \

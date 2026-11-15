@@ -282,7 +282,7 @@ Executes system maintenance operations.
   ```json
   {"action": "reboot"}
   ```
-- **Factory Reset** (runs `factory_reset.sh` on the Hub, the same script `tools/factory_reset.py` uses): reverts to the stock Logitech firmware and deletes `/data/harmony` (devices, activities, button maps, accounts and tokens, MQTT settings, Bluetooth keys), the Wi-Fi configuration and SSH access, then reboots. Save a backup first:
+- **Factory Reset** (runs `factory_reset.sh` on the Hub, the same script `tools/factory_reset.py` uses): reverts to the stock Logitech firmware (stock `rcS.local` and `/etc/network/interfaces` back) and deletes `/data/harmony` (devices, activities, button maps, accounts and tokens, MQTT settings, Bluetooth keys), the Wi-Fi configuration and SSH access, then reboots. The stock firmware's own data stays. Save a backup first:
   ```json
   {"action": "factory_reset", "confirm": "RESET"}
   ```

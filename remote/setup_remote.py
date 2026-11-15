@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import math
 import os
@@ -146,6 +147,27 @@ def read_json_val(remote_file: str, key: str, timeout: int = 5) -> str:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         res = json.loads(r.read().decode("utf-8"))
         return res.get("data", {}).get(key, "")
+
+
+# Bytes printf may take as they are inside the single quotes of a command sent through the stock
+# web service; every other byte (quotes, backslash, %, line breaks) goes as an octal escape
+PRINTF_PLAIN = frozenset(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:=,+@#[]()<>|&;!?*~^{}$")
+
+
+def printf_commands(data: bytes, dest: str, max_len: int = 3000) -> list[str]:
+    """Shell commands that write data to dest with printf, each one line of at most about max_len
+    characters (the first one creates the file, the others append)"""
+    tokens = [chr(b) if b in PRINTF_PLAIN else f"\\{b:03o}" for b in data]
+    chunks: list[str] = []
+    cur = ""
+    for tok in tokens:
+        if len(cur) + len(tok) > max_len:
+            chunks.append(cur)
+            cur = ""
+        cur += tok
+    if cur or not chunks:
+        chunks.append(cur)
+    return [f"printf '{c}' {'>' if i == 0 else '>>'} {dest}" for i, c in enumerate(chunks)]
 
 
 def probe_remote(ip: str = REMOTE_IP, port: int = REMOTE_PORT, timeout: float = 1.0) -> bool:
@@ -951,8 +973,9 @@ def main():
             sys.exit(1)
         print("[*] Reverting remote to stock configuration (factory_reset.sh)...")
         # The remote's one reset script (the same that Settings > Factory Reset and
-        # deploy_remote.py --factory-reset run), written to /tmp through the stock web service and
-        # run in the background (it reboots the remote at its end)
+        # deploy_remote.py --factory-reset run), written to /tmp through the stock web service in
+        # one-line printf pieces, checked by its MD5, then run in the background (it reboots the
+        # remote at its end)
         reset_script = find_candidate([
             SCRIPT_DIR / "factory_reset.sh",
             REPO_DIR / "remote" / "factory_reset.sh",
@@ -961,10 +984,20 @@ def main():
         if not reset_script.is_file():
             print(f"[-] factory_reset.sh not found (looked for {reset_script}); nothing was changed.")
             sys.exit(1)
-        quoted = "'" + reset_script.read_text(encoding="utf-8").replace("'", "'\\''") + "'"
-        rce(f"printf '%s' {quoted} > /tmp/factory_reset.sh; "
-            "(sh /tmp/factory_reset.sh --confirm > /tmp/factory_reset.log 2>&1 &)")
-        print("[+] The remote has been reverted and is rebooting into official stock firmware!")
+        data = reset_script.read_bytes()
+        for cmd in printf_commands(data, "/tmp/factory_reset.sh"):
+            rce(cmd)
+        rce('m=$(md5sum /tmp/factory_reset.sh 2>/dev/null | awk "{print \\$1}"); echo "{\\"md5\\": \\"$m\\"}" > /tmp/frmd5.json')
+        try:
+            got = read_json_val("/tmp/frmd5.json", "md5")
+        except (OSError, ValueError) as e:  # no answer, or not JSON
+            got = f"no answer ({e})"
+        if got != hashlib.md5(data).hexdigest():
+            print(f"[-] The reset script did not arrive intact on the remote (MD5 {got}); nothing was changed.")
+            sys.exit(1)
+        rce("(sh /tmp/factory_reset.sh --confirm > /tmp/factory_reset.log 2>&1 &)")
+        print("[+] The reset script arrived intact and runs now: the remote reboots into the official")
+        print("    stock firmware when it is done.")
         sys.exit(0)
 
     pub_path = ensure_ssh_key(args.key)

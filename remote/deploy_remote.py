@@ -298,25 +298,26 @@ def main() -> None:
             print("[-] Confirmation mismatch. Aborting reset.")
             sys.exit(1)
         print("[*] Performing stock revert (factory_reset.sh)...")
-        # The remote's one reset script (the same that Settings > Factory Reset runs): copied to
-        # /tmp and run without its reboot, so its result can be checked first
+        # The remote's one reset script (the same that Settings > Factory Reset runs), sent on the
+        # standard input of ONE login that saves it, runs it without its own reboot and then
+        # reboots: the script deletes the SSH keys, so a second login would be refused
         reset_script = SCRIPT_DIR / "factory_reset.sh"
         if not reset_script.is_file():
             print(f"[-] {reset_script} is missing; nothing on the remote was changed.")
             sys.exit(1)
-        res = subprocess.run(["ssh"] + ssh_opts + [target, "cat > /tmp/factory_reset.sh"],
+        login_cmd = ("cat > /tmp/factory_reset.sh && sh /tmp/factory_reset.sh --confirm --no-reboot || exit 1; "
+                     "echo factory-reset-steps-done; (sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &")
+        res = subprocess.run(["ssh"] + ssh_opts + [target, login_cmd],
                              input=reset_script.read_bytes(), capture_output=True, check=False)
-        if res.returncode != 0:
-            print(f"[-] Copying factory_reset.sh to the remote failed; nothing was changed: {res.stderr.decode(errors='replace').strip()}")
+        out = res.stdout.decode(errors="replace")
+        for line in out.splitlines():
+            if line.strip() and line.strip() != "factory-reset-steps-done":
+                print(line)
+        if res.returncode != 0 or "factory-reset-steps-done" not in out.split():
+            print(f"[-] The factory reset did not complete (exit code {res.returncode}): {res.stderr.decode(errors='replace').strip()}")
+            print("    The remote was not rebooted by this tool. Run it again; when SSH no longer lets you in,")
+            print("    use the hardware reset (Menu + Off, see docs/FIRST_INSTALL_REMOTE.md).")
             sys.exit(1)
-        res = run_cmd(["ssh"] + ssh_opts + [target, "sh /tmp/factory_reset.sh --confirm --no-reboot"])
-        if res.stdout.strip():
-            print(res.stdout.strip())
-        if res.returncode != 0:
-            print(f"[-] The factory reset did not complete (exit code {res.returncode}): {res.stderr.strip()}")
-            print("    The remote was not rebooted by this tool. Run it again.")
-            sys.exit(1)
-        run_cmd(["ssh"] + ssh_opts + [target, "(sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &"])
         print("[+] The remote is rebooting into official Logitech firmware.")
         sys.exit(0)
 

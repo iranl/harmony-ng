@@ -32,6 +32,7 @@ printf '%s\\n' "$last" >> "$FAKE_DIR/log"
 case "$last" in
   "uname -m") echo "$FAKE_MACHINE" ;;
   *factory-reset-steps-done*)
+    cat > /dev/null  # the reset script arrives on stdin
     if [ -n "$FAKE_CUT_AFTER" ]; then
       i=1; while [ "$i" -le "$FAKE_CUT_AFTER" ]; do echo "factory-reset-step $i"; i=$((i + 1)); done
       echo "Connection to device closed." >&2; exit 255
@@ -78,7 +79,7 @@ class FactoryResetTool(unittest.TestCase):
     def test_remote_cut_mid_way(self):
         res = self.run_tool(["--target", "remote"], FAKE_CUT_AFTER="2")
         self.assertNotEqual(res.returncode, 0, res.stdout)
-        self.assertIn("ran 2 of 5", res.stdout)
+        self.assertIn("was not confirmed", res.stdout)
         self.assertNotIn("completed successfully", res.stdout)
 
     def test_hub_unreachable(self):

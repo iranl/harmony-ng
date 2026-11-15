@@ -114,6 +114,23 @@ class HubScript(unittest.TestCase):
         self.assertIn("# stock", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
         self.assertIn("reboot -f", self.s.call_log())
 
+    def test_stock_boot_files_come_back(self):
+        # harmony-ng's rcS.local took ath0 out of "auto": the stock firmware's DHCP needs it back
+        self.s.file("etc/network/interfaces", "auto lo\niface ath0 inet dhcp\n")
+        self.s.file("mnt/root/etc/network/interfaces", "auto lo ath0\niface ath0 inet dhcp\n")
+        self.s.file("mnt/root/etc/init.d/rcS.local", "#!/bin/sh\n# factory\n")
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual((self.s.root / "etc" / "network" / "interfaces").read_text(),
+                         "auto lo ath0\niface ath0 inet dhcp\n")
+        self.assertIn("# factory", (self.s.root / "etc" / "init.d" / "rcS.local").read_text(),
+                      "the stock firmware's own copy first")
+
+    def test_secrets_go_before_the_ways_in(self):
+        text = HUB_SCRIPT.read_text()
+        self.assertLess(text.index("rm -rf /data/harmony"), text.index("restore_stock_file /mnt/root/etc/wpa_supplicant.conf"))
+        self.assertLess(text.index("restore_stock_file /mnt/root/etc/wpa_supplicant.conf"), text.index("/etc/dropbear/authorized_keys"))
+
     def test_wifi_file_without_stock_copy_has_no_network(self):
         res = self.s.run("--confirm")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
@@ -174,21 +191,45 @@ class RemoteScript(unittest.TestCase):
 TOOL_HELP = subprocess.run([sys.executable, str(REPO_DIR / "tools" / "factory_reset.py"), "--help"],
                            capture_output=True, text=True, timeout=30).stdout
 
+# Fake ssh: logs each login; the login that runs the reset script takes the script on its
+# standard input and "deletes the SSH keys": every later login is refused, as on the device
 FAKE_SSH = """#!/bin/sh
 for last; do :; done
 printf '%s\\n' "$last" >> "$FAKE_DIR/log"
+if [ -e "$FAKE_DIR/keys_gone" ]; then
+  echo "root@device: Permission denied (publickey)." >&2; exit 255
+fi
 case "$last" in
-  "cat > "*) cat > "$FAKE_DIR/uploaded" ;;
   "uname -a") echo "Linux device" ;;
   "uname -m") echo "$FAKE_MACHINE" ;;
+esac
+case "$last" in *"cat > "*) cat > "$FAKE_DIR/uploaded" ;; esac
+case "$last" in *--confirm*) touch "$FAKE_DIR/keys_gone" ;; esac
+case "$last" in
   *factory-reset-steps-done*)
-    # all steps in one login, each printing a mark when it ran: print the marks the device would
+    # steps that print a mark when they ran: print the marks the device would
     steps=$(printf '%s' "$last" | grep -o 'echo factory-reset-step [0-9]*' | wc -l)
     i=1; while [ "$i" -le "$steps" ]; do echo "factory-reset-step $i"; i=$((i + 1)); done
     echo "factory-reset-steps-done" ;;
 esac
 exit 0
 """
+
+
+class WebUiText(unittest.TestCase):
+    """The web UI's reset dialog says that the reset deletes, in every language"""
+
+    def test_dialog_warns_instead_of_promising_safety(self):
+        html = (REPO_DIR / "android-app" / "index.html").read_text()
+        modal = html[html.index('id="resetModalStep1"'):html.index('id="resetModalStep2"')]
+        self.assertNotIn("remain safely stored", modal)
+        keys = re.findall(r'data-i18n="([^"]+)"', modal)
+        self.assertIn("revert_factory_warn_2", keys)
+        for lang in ("en", "de", "fr", "nl", "es", "it"):
+            text = (REPO_DIR / "android-app" / "src" / "i18n" / f"{lang}.js").read_text()
+            for key in keys:
+                self.assertRegex(text, rf'\n    "{key}": "', f"{key} missing in {lang}")
+            self.assertNotIn('"configs_are_safe"', text)
 
 
 class OneScript(unittest.TestCase):
@@ -233,14 +274,28 @@ class OneScript(unittest.TestCase):
         res = self.run_tool("hub", "mips")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.uploaded(), HUB_SCRIPT.read_bytes())
-        self.assertTrue(any("sh /tmp/factory_reset.sh --confirm --no-reboot" in c for c in self.log()), self.log())
+        self.one_reset_login()
         self.assertFalse(any("rm -rf /data/harmony" in c for c in self.log()), "no reset commands of its own")
 
     def test_tool_sends_the_remote_script(self):
         res = self.run_tool("remote", "armv5tejl")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.uploaded(), REMOTE_SCRIPT.read_bytes())
-        self.assertTrue(any("sh /tmp/factory_reset.sh --confirm --no-reboot" in c for c in self.log()), self.log())
+        self.one_reset_login()
+
+    def test_tool_reports_a_reset_that_failed(self):
+        (self.base / "bin" / "ssh").write_text(FAKE_SSH.replace('case "$last" in *--confirm*) touch',
+                                                                'case "$last" in *--confirm*) exit 1; touch'))
+        res = self.run_tool("remote", "armv5tejl")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertNotIn("completed successfully", res.stdout)
+
+    def one_reset_login(self) -> None:
+        """copy, run and reboot in the same login, after the probe; nothing after it"""
+        log = self.log()
+        self.assertEqual(len(log), 2, log)
+        self.assertIn("sh /tmp/factory_reset.sh --confirm --no-reboot", log[1])
+        self.assertIn("reboot -f", log[1])
 
     def test_deploy_remote_sends_the_script(self):
         res = subprocess.run([sys.executable, str(REPO_DIR / "remote" / "deploy_remote.py"), "--factory-reset"],
@@ -248,16 +303,35 @@ class OneScript(unittest.TestCase):
                              capture_output=True, text=True, timeout=60)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.uploaded(), REMOTE_SCRIPT.read_bytes())
-        self.assertTrue(any("sh /tmp/factory_reset.sh --confirm --no-reboot" in c for c in self.log()), self.log())
+        self.one_reset_login()
         self.assertFalse(any("rm -f /data/remote_*" in c for c in self.log()), "no reset commands of its own")
 
-    def test_setup_remote_writes_the_script(self):
+    def run_setup_remote(self, lose_piece: bool = False) -> tuple[int, list[str]]:
+        """setup_remote.py --factory-reset with the stock web service replaced: its commands run
+        here with /tmp moved into the test folder; the reset itself is not run"""
         import importlib.util
         spec = importlib.util.spec_from_file_location("setup_remote", REPO_DIR / "remote" / "setup_remote.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         sent: list[str] = []
-        with mock.patch.object(mod, "rce", side_effect=lambda cmd, *a, **k: sent.append(cmd)), \
+        tmp = self.base / "devtmp"
+        tmp.mkdir(exist_ok=True)
+
+        def rce(cmd: str, *a, **k) -> None:
+            sent.append(cmd)
+            if cmd.startswith("(sh /tmp/factory_reset.sh") or (lose_piece and len(sent) == 2):
+                return
+            # only the device paths the tool writes and reads, not the script's own text
+            for path in ("/tmp/factory_reset.sh", "/tmp/frmd5.json"):
+                cmd = re.sub(r"(?<=[ >])" + re.escape(path) + r"(?=$|[ ;)])", f"{tmp}/{pathlib.Path(path).name}", cmd)
+            subprocess.run(["sh", "-c", cmd], check=True)
+
+        def read_json_val(remote_file: str, key: str, timeout: int = 5) -> str:
+            import json
+            return json.loads((tmp / pathlib.Path(remote_file).name).read_text()).get(key, "")
+
+        with mock.patch.object(mod, "rce", side_effect=rce), \
+             mock.patch.object(mod, "read_json_val", side_effect=read_json_val), \
              mock.patch.object(mod, "probe_remote", return_value=True), \
              mock.patch.object(mod, "detect_remote_usb_state", return_value={}), \
              mock.patch.object(mod, "print_usb_state_banner"), \
@@ -265,13 +339,22 @@ class OneScript(unittest.TestCase):
              mock.patch.object(sys, "argv", ["setup_remote.py", "--factory-reset"]):
             with self.assertRaises(SystemExit) as cm:
                 mod.main()
-        self.assertEqual(cm.exception.code, 0)
-        self.assertEqual(len(sent), 1)
-        # run the command it sends (printf of the script) and compare what it writes
-        cmd = sent[0].split("; (sh ")[0].replace("/tmp/factory_reset.sh", str(self.base / "written.sh"))
-        subprocess.run(["sh", "-c", cmd], check=True)
-        self.assertEqual((self.base / "written.sh").read_bytes(), REMOTE_SCRIPT.read_bytes())
-        self.assertIn("sh /tmp/factory_reset.sh --confirm", sent[0])
+        self.written = (tmp / "factory_reset.sh").read_bytes() if (tmp / "factory_reset.sh").exists() else b""
+        return cm.exception.code, sent
+
+    def test_setup_remote_writes_and_checks_the_script(self):
+        code, sent = self.run_setup_remote()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.written, REMOTE_SCRIPT.read_bytes())
+        self.assertIn("sh /tmp/factory_reset.sh --confirm", sent[-1])
+        for cmd in sent:
+            self.assertNotIn("\n", cmd, "every command is one line")
+            self.assertLess(len(cmd), 4000)
+
+    def test_setup_remote_does_not_run_a_damaged_script(self):
+        code, sent = self.run_setup_remote(lose_piece=True)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(any(c.startswith("(sh /tmp/factory_reset.sh") for c in sent), "the reset is not started")
 
 
 if __name__ == "__main__":
