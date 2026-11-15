@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
+#include <poll.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -18,7 +19,11 @@ uint8_t g_ack_payload[25] = {0};
 static uint8_t g_pending_ack_seq = 0;
 static int g_ack_received = 0;
 static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t g_ack_cond = PTHREAD_COND_INITIALIZER;
+/* The Hub's kernel has no futex system call, so pthread_cond_timedwait() returns at once there
+ * and a sender waiting for an ACK spun at full CPU for the whole wait. The receive thread
+ * writes a byte to this pipe instead, and the sender sleeps in poll() until it or the timeout
+ * comes. g_ack_received (under g_ack_mutex) stays the answer; the byte only wakes. */
+static int g_ack_pipe[2] = { -1, -1 };
 
 static int g_nak_count = 0;
 static int g_backoff_ms = 0;
@@ -107,6 +112,25 @@ static int link_idx(uint8_t slot) {
     return (slot >= 1 && slot <= MAX_PAIRED_REMOTES) ? slot - 1 : -1;
 }
 
+/* g_ack_mutex held */
+static void ack_pipe_open_locked(void) {
+    if (g_ack_pipe[0] >= 0) return;
+    int fds[2];
+    if (pipe(fds) != 0) return;
+    for (int i = 0; i < 2; i++) {
+        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+    }
+    g_ack_pipe[0] = fds[0];
+    g_ack_pipe[1] = fds[1];
+}
+
+static void ack_pipe_drain(void) {
+    char buf[16];
+    if (g_ack_pipe[0] < 0) return;
+    while (read(g_ack_pipe[0], buf, sizeof(buf)) > 0) {}
+}
+
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     /* A send of the same frame as the last one to this remote is a retry */
     static struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
@@ -120,20 +144,30 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     }
 
     pthread_mutex_lock(&g_ack_mutex);
+    ack_pipe_open_locked();
+    ack_pipe_drain();   /* a byte from an earlier ACK must not end this wait */
     g_pending_ack_seq = frame->seq;
     g_ack_received = 0;
     pthread_mutex_unlock(&g_ack_mutex);
 
     if (rf_send_frame(frame) < 0) return -1;
 
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     pthread_mutex_lock(&g_ack_mutex);
-    if (!g_ack_received) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout_ms / 1000;
-        ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
-        if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
-        pthread_cond_timedwait(&g_ack_cond, &g_ack_mutex, &ts);
+    while (!g_ack_received) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long elapsed = (long)(now.tv_sec - start.tv_sec) * 1000L + (now.tv_nsec - start.tv_nsec) / 1000000L;
+        if (elapsed >= timeout_ms) break;
+        pthread_mutex_unlock(&g_ack_mutex);
+        if (g_ack_pipe[0] >= 0) {
+            struct pollfd pfd = { g_ack_pipe[0], POLLIN, 0 };
+            if (poll(&pfd, 1, (int)(timeout_ms - elapsed)) > 0) ack_pipe_drain();
+        } else {
+            usleep(2000);   /* no pipe: check the flag every 2 ms */
+        }
+        pthread_mutex_lock(&g_ack_mutex);
     }
     int ok = g_ack_received;
     pthread_mutex_unlock(&g_ack_mutex);
@@ -163,7 +197,10 @@ void rf_signal_ack(uint8_t seq, uint8_t status, const uint8_t *payload) {
         } else {
             memset(g_ack_payload, 0, sizeof(g_ack_payload));
         }
-        pthread_cond_signal(&g_ack_cond);
+        if (g_ack_pipe[1] >= 0) {
+            ssize_t w = write(g_ack_pipe[1], "a", 1);   /* full pipe: a wake is already pending */
+            (void)w;
+        }
     }
     pthread_mutex_unlock(&g_ack_mutex);
 }
