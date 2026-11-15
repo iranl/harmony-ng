@@ -197,12 +197,23 @@ export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
 done
 
-# SSH: /usr/sbin/dropbear is the wrapper /data/harmony/dropbear (key logins only), as rcS.local
-# sets it at boot. A server that already runs keeps its options until it is started again.
-if [ -x /data/harmony/dropbear ] && /data/harmony/dropbear --binary >/dev/null 2>&1; then
-  link_if_changed /data/harmony/dropbear /usr/sbin/dropbear
+# SSH: /usr/sbin/dropbear is a copy of /data/harmony/hub_sshd (key logins only), as rcS.local sets
+# it at boot, written only when it differs. A server that already runs keeps its options until it
+# is started again (the next boot).
+_sshd_bin=""
+if [ -s /data/harmony/hub_sshd ] && grep -q '^# harmony-ng hub_sshd$' /data/harmony/hub_sshd 2>/dev/null; then
+  _sshd_bin=$(sh /data/harmony/hub_sshd --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+  _sshd_cur=""
+  [ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+  if [ "$_sshd_cur" != "$(cat /data/harmony/hub_sshd)" ]; then
+    cp /data/harmony/hub_sshd /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+      mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+  fi
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
-    /usr/sbin/dropbear
+    # not with this script's ignored SIGHUP: SSH sessions would inherit it
+    (trap - HUP; /usr/sbin/dropbear)
   fi
 fi
 
