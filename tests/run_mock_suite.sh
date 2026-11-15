@@ -317,6 +317,7 @@ python3 "$SCRIPT_DIR/test_sntp_nonblocking.py"
 python3 "$SCRIPT_DIR/test_ir_raw.py"
 python3 "$SCRIPT_DIR/test_activity_help_answer.py"
 python3 "$SCRIPT_DIR/test_mdns.py"
+python3 "$SCRIPT_DIR/test_import_validate.py"
 python3 "$SCRIPT_DIR/test_auth_hardening.py"
 python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 # bt_reconnect.sh in a host sandbox (a stale pid file never kills another process)
