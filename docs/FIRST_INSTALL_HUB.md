@@ -56,7 +56,7 @@ Run the all-in-one root tool:
 python tools/root_hub_usb.py --hub-ip <YOUR_HUB_IP>
 
 # If your Hub is factory-reset or needs Wi-Fi credentials configured:
-python tools/root_hub_usb.py --wifi-ssid "YourNetworkName" --wifi-pass "YourPassword"
+python tools/root_hub_usb.py --wifi-ssid "YourNetworkName"   # asks for the Wi-Fi password
 ```
 
 The tool automatically:

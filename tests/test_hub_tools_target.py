@@ -229,5 +229,26 @@ class DeployHubBundleLayout(unittest.TestCase):
             self.assertEqual(d.icons_tar, bundle / "icons.tar.gz")
 
 
+class HubToolKeysAndPasswords(unittest.TestCase):
+    def test_private_key_next_to_public_key(self):
+        import root_hub_usb
+        self.assertEqual(root_hub_usb.private_key_path(pathlib.Path("/k/id.backup.pub")), pathlib.Path("/k/id.backup"))
+        self.assertEqual(root_hub_usb.private_key_path(pathlib.Path("/k/hub.key.pub")), pathlib.Path("/k/hub.key"))
+        with self.assertRaises(ValueError):
+            root_hub_usb.private_key_path(pathlib.Path("/k/mykey.pub.txt"))
+
+    def test_wifi_password_from_environment(self):
+        import root_hub_usb
+        args = mock.Mock(wifi_pass=None, wifi_enc="WPA2-PSK")
+        with mock.patch.dict(os.environ, {root_hub_usb.WIFI_PASS_ENV: "placeholder"}), \
+             mock.patch("getpass.getpass", side_effect=AssertionError("asked although the variable is set")):
+            self.assertEqual(root_hub_usb.wifi_password(args, "net"), "placeholder")
+        args = mock.Mock(wifi_pass="placeholder", wifi_enc="WPA2-PSK")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(root_hub_usb.wifi_password(args, "net"), "placeholder")
+        self.assertIn("shell history", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
