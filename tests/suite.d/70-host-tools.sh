@@ -21,3 +21,5 @@ python3 "$SCRIPT_DIR/test_bump_version.py"
 # Build downloads checked by SHA-256 (fake curl), theme download cache keyed by URL
 sh "$SCRIPT_DIR/test_build_downloads.sh"
 python3 "$SCRIPT_DIR/test_build_theme_cache.py"
+# Committed binaries match the SHA-256 list in tools/bin/README.md
+sh "$SCRIPT_DIR/test_prebuilt_hashes.sh"

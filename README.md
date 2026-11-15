@@ -194,7 +194,22 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 
 ## Building from Source
 
-Build requires Linux (or WSL2) with standard build utilities:
+Build requires Linux (or WSL2) with standard build utilities and two Bootlin toolchains,
+extracted into `build/toolchains/` (the build scripts pick the first `*--uclibc--stable*`
+folder they find there). CI and the release use exactly these files and check them:
+
+| Toolchain | URL | SHA-256 |
+|---|---|---|
+| Hub, MIPS32 big-endian | `https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2` | `a75aeb0f82eaeaf1989a7dfdf80219486b5ed1470c29c6f253fbcf824922c29f` |
+| Remote, ARMv5 EABI | `https://toolchains.bootlin.com/downloads/releases/toolchains/armv5-eabi/tarballs/armv5-eabi--uclibc--stable-2017.05-toolchains-1-1.tar.bz2` | `9afe6d92b2fdb5eee75c90f776374d19aa1203d5679651b289a4030dc9982036` |
+
+Both are Buildroot 2017.05 with gcc 5.4.0 and uClibc-ng 1.0.24, and every device binary is
+linked statically, so that C library is inside each binary. Later uClibc-ng releases fixed
+resolver flaws listed in public advisories for 1.0.24 (among them CVE-2021-43523 and
+CVE-2022-30295); the Hub resolves the MQTT broker and NTP server names with it. A newer
+toolchain has to keep kernel headers old enough for the Hub (2.6.31) and the remote (2.6.37).
+The binaries kept in the repository (SSH servers, kernel modules) are listed in
+`tools/bin/README.md`.
 
 ```bash
 # 1. Compile Hub native binaries (MIPS32 big-endian)
