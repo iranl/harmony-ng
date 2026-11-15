@@ -35,10 +35,9 @@ static time_t mono_now(void) {
 }
 static size_t g_client_count = 0;
 /* Clients are added from HTTP worker threads, polled and removed by the main loop, and sent to
- * from the orchestrator, HTTP and state watcher threads: guard the list, and serialize frame
- * writes so that two threads never interleave frames on one socket. */
+ * from the orchestrator, HTTP and state watcher threads: guard the list. Frame writes go
+ * through each client's output queue (ws_queue_frame), under that client's own lock. */
 static pthread_mutex_t g_clients_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t g_send_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* --- Standalone SHA-1 Engine (FIPS 180-1) --- */
 typedef struct {
@@ -295,6 +294,97 @@ int ws_handle_upgrade(int client_fd, const char *http_req, int role, int legacy)
     return 0;
 }
 
+/* Output queue of each client. Frames are written with MSG_DONTWAIT; what the socket does not
+ * take at once waits here and the main loop sends it on (ws_server_tick). The writes used to
+ * block (2 s per send() call, and send_all() went on as long as each call moved a byte) under
+ * one lock for all clients, so a client that read a few bytes now and then held the main loop
+ * and every other sender. A client whose queue grows past WS_TXQ_MAX_BYTES, or that has not
+ * taken its queue within WS_TXQ_MAX_AGE_S, is dropped. */
+#define WS_TXQ_MAX_BYTES (256 * 1024)
+#define WS_TXQ_MAX_AGE_S 5
+struct ws_txq {
+    pthread_mutex_t lock;
+    unsigned int gen; /* client the queue belongs to (g_client_gen) */
+    char *buf;
+    size_t len;  /* bytes in buf */
+    size_t off;  /* bytes of buf already sent */
+    time_t since; /* when the queue last went from empty to not empty */
+};
+static struct ws_txq g_txq[WS_MAX_CLIENTS] = { [0 ... WS_MAX_CLIENTS - 1] = { .lock = PTHREAD_MUTEX_INITIALIZER } };
+
+/* Sends what the socket takes without waiting; called with q->lock held. 0 while the client is
+ * fine (queue empty or still waiting), -1 when it has to go. */
+static int txq_flush(int fd, struct ws_txq *q) {
+    while (q->off < q->len) {
+        ssize_t n = send(fd, q->buf + q->off, q->len - q->off, MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        if (n <= 0) return -1;
+        q->off += (size_t)n;
+    }
+    if (q->off == q->len) {
+        free(q->buf);
+        q->buf = NULL;
+        q->len = q->off = 0;
+        return 0;
+    }
+    return (mono_now() - q->since > WS_TXQ_MAX_AGE_S) ? -1 : 0;
+}
+
+/* Queues one whole frame (header and payload) for the client on fd and sends what it can.
+ * -1 when fd is not a client, or the client cannot keep up (the caller drops it). */
+static int ws_queue_frame(int fd, const uint8_t *hdr, size_t hlen, const void *payload, size_t plen) {
+    int slot = -1;
+    unsigned int gen = 0;
+    pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_clients[i] == fd) {
+            slot = (int)i;
+            gen = g_client_gen[i];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_clients_lock);
+    if (slot < 0) return -1;
+
+    struct ws_txq *q = &g_txq[slot];
+    int rc = 0;
+    pthread_mutex_lock(&q->lock);
+    if (q->gen != gen) { /* a new client in the slot: the old one's bytes are not for it */
+        free(q->buf);
+        q->buf = NULL;
+        q->len = q->off = 0;
+        q->gen = gen;
+    }
+    size_t pending = q->len - q->off;
+    if (pending > 0 && pending + hlen + plen > WS_TXQ_MAX_BYTES) {
+        rc = -1; /* one frame always fits in an empty queue; behind others it may not */
+    } else {
+        if (pending == 0) {
+            free(q->buf);
+            q->buf = NULL;
+            q->len = q->off = 0;
+            q->since = mono_now();
+        } else if (q->off > 0) {
+            memmove(q->buf, q->buf + q->off, pending);
+            q->len = pending;
+            q->off = 0;
+        }
+        char *nb = (char *)realloc(q->buf, q->len + hlen + plen);
+        if (!nb) {
+            rc = -1;
+        } else {
+            q->buf = nb;
+            memcpy(q->buf + q->len, hdr, hlen);
+            if (plen) memcpy(q->buf + q->len + hlen, payload, plen);
+            q->len += hlen + plen;
+            rc = txq_flush(fd, q);
+        }
+    }
+    pthread_mutex_unlock(&q->lock);
+    return rc;
+}
+
 int ws_send_text(int client_fd, const char *text) {
     if (client_fd < 0 || !text) return -1;
 
@@ -318,13 +408,7 @@ int ws_send_text(int client_fd, const char *text) {
         hlen = 10;
     }
 
-    int rc = 0;
-    pthread_mutex_lock(&g_send_lock);
-    if (send_all(client_fd, header, hlen) != 0 || send_all(client_fd, text, payload_len) != 0) {
-        rc = -1;
-    }
-    pthread_mutex_unlock(&g_send_lock);
-    return rc;
+    return ws_queue_frame(client_fd, header, hlen, text, payload_len);
 }
 
 void ws_broadcast_text(const char *text) {
@@ -570,17 +654,20 @@ int ws_get_clients(int *out_fds, size_t max_count) {
 int ws_send_ping(int client_fd) {
     if (client_fd < 0) return -1;
     uint8_t frame[2] = {0x89, 0x00};
-    pthread_mutex_lock(&g_send_lock);
-    int rc = send_all(client_fd, frame, 2);
-    pthread_mutex_unlock(&g_send_lock);
-    return rc;
+    return ws_queue_frame(client_fd, frame, 2, NULL, 0);
 }
 
 int ws_server_tick(void) {
     time_t now = mono_now();
     int to_ping[WS_MAX_CLIENTS], n_ping = 0;
     int to_drop[WS_MAX_CLIENTS], n_drop = 0;
+    int fds[WS_MAX_CLIENTS];
+    unsigned int gens[WS_MAX_CLIENTS];
     pthread_mutex_lock(&g_clients_lock);
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        fds[i] = g_clients[i];
+        gens[i] = g_client_gen[i];
+    }
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i] < 0) continue;
         if (g_client_ping_sent[i]) {
@@ -591,6 +678,22 @@ int ws_server_tick(void) {
         }
     }
     pthread_mutex_unlock(&g_clients_lock);
+    /* Send on what the output queues hold; drop the clients that do not take it, and free the
+     * queue of a client that is gone */
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        struct ws_txq *q = &g_txq[i];
+        pthread_mutex_lock(&q->lock);
+        if (q->len > q->off) {
+            if (fds[i] < 0 || q->gen != gens[i]) {
+                free(q->buf);
+                q->buf = NULL;
+                q->len = q->off = 0;
+            } else if (txq_flush(fds[i], q) != 0 && n_drop < WS_MAX_CLIENTS) {
+                to_drop[n_drop++] = fds[i];
+            }
+        }
+        pthread_mutex_unlock(&q->lock);
+    }
     int dropped = 0;
     for (int i = 0; i < n_ping; i++) {
         if (ws_send_ping(to_ping[i]) != 0) {
@@ -608,8 +711,5 @@ int ws_server_tick(void) {
 int ws_send_pong(int client_fd) {
     if (client_fd < 0) return -1;
     uint8_t frame[2] = {0x8A, 0x00};
-    pthread_mutex_lock(&g_send_lock);
-    int rc = send_all(client_fd, frame, 2);
-    pthread_mutex_unlock(&g_send_lock);
-    return rc;
+    return ws_queue_frame(client_fd, frame, 2, NULL, 0);
 }

@@ -1814,6 +1814,9 @@ The server sends a WebSocket ping to a client that has sent nothing for 30 s; a 
 answers nothing (pong or any other frame) within 10 s of the ping is closed. Client pings are
 still answered with pongs. Capability flag: `ws_keepalive`.
 
+The Hub never waits for a slow client: what the connection does not take at once is queued for it.
+A client that has not taken its queue within 5 s, or whose queue would pass 256 KB, is closed.
+
 ---
 
 ## 11. Authentication & Security Architecture
