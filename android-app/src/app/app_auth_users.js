@@ -343,6 +343,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         if (errBox) errBox.style.display = 'none';
         try {
           await this.client.login(u, p);
+          if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
           if (modal) modal.style.display = 'none';
           const pInp = document.getElementById('loginPassword');
           if (pInp) pInp.value = '';
@@ -368,6 +369,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         if (this.client?.token) {
           if (await showConfirm(t('logout_confirm'), { title: t('logout'), okText: t('logout'), danger: false })) {
             await this.client.logout();
+            if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
             this.checkAuthStatus();
             await this.refreshData();
             this.showLoginModal();
@@ -429,7 +431,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       if (me && me.auth_enabled) {
         this.authEnabled = true;
         if (btnSession) btnSession.style.display = 'inline-flex';
-        if (userDisplay) userDisplay.textContent = me.username || 'User';
+        // the app's token reports itself as "pat:<token name>": show the account it belongs to
+        const appUser = (me.username || '').startsWith('pat:') && this.client.hub ? this.client.hub.username : '';
+        if (userDisplay) userDisplay.textContent = appUser || me.username || 'User';
         if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
         const hasToken = Boolean(this.client.token);
         if (!hasToken) {

@@ -1,3 +1,5 @@
+import { createAppToken, revokeAppToken, loginFields } from '../app_token.js';
+import { saveHub } from '../storage.js';
 import { HarmonyClientActivitiesDevices } from './api_activities_devices.js';
 
 export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
@@ -383,6 +385,7 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
   }
 
   async login(username, password) {
+    if (this.isNativeApp && this.hub && this.hub.host) return this.loginApp(username, password);
     const res = await fetch(this.baseUrl ? `${this.baseUrl}/api/auth/token` : '/api/auth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -403,7 +406,34 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return data;
   }
 
+  // App: trade the password for an access token, keep only the token in the Hub profile
+  async loginApp(username, password) {
+    const r = await createAppToken(this.baseUrl, username, password);
+    const old = this.hub;
+    if (r.token && old && old.token && old.token !== r.token) {
+      await revokeAppToken(this.baseUrl, old);
+    }
+    const hub = { ...this.hub, username: r.username, ...loginFields(r) };
+    if (hub.id) await saveHub(hub);
+    this.hub = hub;
+    this.token = r.token || null;
+    this.authHeader = this.token ? `Bearer ${this.token}` : null;
+    this.connectWebSocket(true);
+    return { ok: true, username: r.username, role: r.role || 'admin', auth_off: Boolean(r.authOff) };
+  }
+
+  async logoutApp() {
+    await revokeAppToken(this.baseUrl, this.hub);
+    const hub = { ...this.hub, token: null, tokenId: null };
+    if (hub.id) await saveHub(hub);
+    this.hub = hub;
+    this.token = null;
+    this.authHeader = null;
+    this.connectWebSocket(true);
+  }
+
   async logout() {
+    if (this.isNativeApp && this.hub && this.hub.host) return this.logoutApp();
     try {
       if (this.token) {
         await this.request('/api/auth/logout', { method: 'POST' });

@@ -1,5 +1,6 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
+import { migrateStoredPasswords } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
   getHarmonyManufacturers,
@@ -464,6 +465,12 @@ export class HarmonyAppCore {
         }
       } catch (e) {
         console.warn('Failed to initialize icon cache:', e);
+      }
+      // Profiles from older versions hold the Hub password: keep an access token instead
+      try {
+        await migrateStoredPasswords();
+      } catch (e) {
+        console.warn('Failed to update saved Hub logins:', e);
       }
     }
     await this.loadActiveHub();

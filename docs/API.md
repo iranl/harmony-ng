@@ -2693,6 +2693,10 @@ curl -X POST -H "Authorization: Bearer hht_018f..." http://192.168.1.1:8089/api/
 ### 11.3 Personal Access Tokens (PAT) for Home Automation
 Designed for Home Assistant, Homebridge, Node-RED, or automation scripts. Never requires sharing or hardcoding admin passwords.
 
+The Android app uses one too: when you log in, it creates a token named `Android app` for your
+account and keeps only that token, never the password. Logging out (or deleting the Hub profile)
+deletes the token on the Hub when the Hub can be reached.
+
 ```bash
 # 1. Generate new Personal Access Token (Admin only)
 curl -X POST -H "Authorization: Bearer hht_..." \
