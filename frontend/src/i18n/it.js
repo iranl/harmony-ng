@@ -155,7 +155,6 @@ export default {
     "config_pull_requested": "Recupero configurazione richiesto dal telecomando ({slot}). Attendi qualche secondo per la risposta e controlla lo stato.",
     "config_push_started": "Invio configurazione tramite RF al telecomando Harmony avviato!",
     "config_push_success": "Invio della configurazione attivato con successo.",
-    "configs_are_safe": "Le tue configurazioni sono al sicuro:",
     "configured_activities": "Attività configurate",
     "configured_hubs": "Hub configurati",
     "confirm": "Conferma",

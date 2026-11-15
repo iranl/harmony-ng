@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -48,22 +49,33 @@ class Sandbox:
         stub = self.base / "stub"
         stub.mkdir()
         self.calls = self.base / "calls.log"
-        for cmd in ("killall", "reboot", "sleep", "sync", "umount"):
+        for cmd in ("killall", "reboot", "sleep", "sync"):
             f = stub / cmd
             f.write_text(f"#!/bin/sh\necho \"{cmd} $*\" >> '{self.calls}'\nexit 0\n")
             f.chmod(0o755)
         self.stock = self.base / "stock"  # the stock file system, as the mount stub shows it
         mount = stub / "mount"
+        # like the kernel: the same file system twice on one mount point is refused
         mount.write_text(f"""#!/bin/sh
 echo "mount $*" >> '{self.calls}'
 if [ "$1" = "-t" ] && [ "$2" = squashfs ]; then
   for last; do :; done
   [ -d '{self.stock}' ] || exit 32
+  [ -e "$last/.mounted" ] && exit 255
   cp -a '{self.stock}/.' "$last/" || exit 32
+  : > "$last/.mounted"
 fi
 exit 0
 """)
         mount.chmod(0o755)
+        umount = stub / "umount"
+        umount.write_text(f"""#!/bin/sh
+echo "umount $*" >> '{self.calls}'
+[ -e "$1/.mounted" ] || exit 1
+rm -rf "$1"/* "$1/.mounted"
+exit 0
+""")
+        umount.chmod(0o755)
         # what the Hub's /proc/mounts says (paths as the sandboxed script sees them)
         self.file("proc/mounts", f"/dev/mtdblock5 {self.root}/cache jffs2 rw 0 0\n"
                   f"/dev/mtdblock3 {self.root}/mnt/root squashfs ro,relatime 0 0\n"
@@ -142,8 +154,9 @@ class HubScript(unittest.TestCase):
         mounted = [c for c in log if c.startswith("mount -t squashfs")]
         self.assertEqual(len(mounted), 1, log)
         self.assertIn("/dev/mtdblock3", mounted[0], "the device from /proc/mounts")
-        self.assertLess(log.index(mounted[0]), [i for i, c in enumerate(log) if c.startswith("umount")][0])
-        self.assertLess([i for i, c in enumerate(log) if c.startswith("umount")][0], log.index("reboot -f"))
+        last_umount = [i for i, c in enumerate(log) if c.startswith("umount")][-1]
+        self.assertLess(log.index(mounted[0]), last_umount)
+        self.assertLess(last_umount, log.index("reboot -f"))
         self.assertFalse((self.s.root / "tmp" / "harmony_stock_root").exists(), "the mount point is removed")
 
     def test_stock_boot_files_come_back(self):
@@ -172,7 +185,62 @@ class HubScript(unittest.TestCase):
                          "auto lo ath0\niface ath0 inet dhcp\n")
         self.assertIn("# stock", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
         self.assertTrue((self.s.root / "etc" / "wpa_supplicant.conf").exists())
-        self.assertFalse(any(c.startswith("umount") for c in self.s.call_log()), "nothing was mounted")
+        # a host key the stock image may have is left; the one the installers made is removed
+        self.assertTrue((self.s.root / "etc" / "dropbear" / "dropbear_rsa_host_key").exists())
+        self.assertFalse((self.s.root / "etc" / "dropbear" / "dropbear_ed25519_host_key").exists())
+        self.assertFalse((self.s.root / "etc" / "dropbear" / "authorized_keys").exists())
+
+    def test_mount_left_by_a_cut_run_is_cleared_first(self):
+        self.s.stock_file("etc/network/interfaces", "auto lo ath0\n# stock\n")
+        self.s.file("etc/network/interfaces", "auto lo\n")
+        self.s.file("tmp/harmony_stock_root/.mounted", "")
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual((self.s.root / "etc" / "network" / "interfaces").read_text(), "auto lo ath0\n# stock\n")
+        self.assertFalse((self.s.root / "tmp" / "harmony_stock_root").exists())
+
+    def test_cut_login_does_not_stop_the_reset(self):
+        self.s.stock_file("etc/network/interfaces", "auto lo ath0\n# stock\n")
+        self.s.stock_file("etc/dropbear/dropbear_rsa_host_key", "stock host key\n")
+        self.s.file("etc/network/interfaces", "auto lo\n")
+        # the output closes after the first line and SIGHUP arrives, as when the SSH login is cut
+        import signal
+        proc = subprocess.Popen(["sh", str(self.s.script), "--confirm", "--no-reboot"], env=self.s.env,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc.stdout.readline()
+        proc.stdout.close()
+        proc.send_signal(signal.SIGHUP)
+        self.assertEqual(proc.wait(timeout=60), 0, "the reset went on to its end")
+        self.assertEqual((self.s.root / "etc" / "network" / "interfaces").read_text(), "auto lo ath0\n# stock\n")
+        self.assertIn("# stock", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
+        self.assertEqual((self.s.root / "etc" / "dropbear" / "dropbear_rsa_host_key").read_text(), "stock host key\n")
+        self.assertFalse((self.s.root / "data" / "harmony").exists())
+        self.assertFalse((self.s.root / "tmp" / "harmony_stock_root").exists(), "the stock file system is unmounted")
+
+    def test_interrupted_run_unmounts(self):
+        import signal
+        self.s.stock_file("etc/network/interfaces", "auto lo ath0\n")
+        chmod = self.s.base / "stub" / "chmod"  # a slow step while the stock file system is mounted
+        chmod.write_text("#!/bin/sh\n/bin/sleep 2\nexec /bin/chmod \"$@\"\n")
+        chmod.chmod(0o755)
+        proc = subprocess.Popen(["sh", str(self.s.script), "--confirm", "--no-reboot"], env=self.s.env,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc.stdout.readline()
+        for _ in range(50):
+            if (self.s.root / "tmp" / "harmony_stock_root" / ".mounted").exists():
+                break
+            time.sleep(0.05)
+        proc.send_signal(signal.SIGTERM)
+        self.assertNotEqual(proc.wait(timeout=60), 0)
+        self.assertFalse((self.s.root / "tmp" / "harmony_stock_root" / ".mounted").exists(), "unmounted")
+
+    def test_failed_write_leaves_the_boot_script_whole(self):
+        (self.s.root / "etc" / "init.d" / "rcS.local.new").mkdir()  # cp to rcS.local.new fails
+        res = self.s.run("--confirm", "--no-reboot")
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("was not changed", res.stdout)
+        self.assertIn("# harmony-ng", (self.s.root / "etc" / "init.d" / "rcS.local").read_text())
+        self.assertTrue((self.s.root / "data" / "harmony" / "config" / "users.json").exists())
 
     def test_no_stock_boot_script_anywhere_changes_nothing(self):
         (self.s.root / "data" / "stock_backup" / "rcS.local.orig").unlink()
@@ -292,6 +360,8 @@ class WebUiText(unittest.TestCase):
             for key in keys:
                 self.assertRegex(text, rf'\n    "{key}": "', f"{key} missing in {lang}")
             self.assertNotIn('"configs_are_safe"', text)
+            front = (REPO_DIR / "frontend" / "src" / "i18n" / f"{lang}.js").read_text()
+            self.assertNotIn('"configs_are_safe"', front, "no unused promise left in the new UI either")
 
 
 class OneScript(unittest.TestCase):
@@ -351,6 +421,38 @@ class OneScript(unittest.TestCase):
         res = self.run_tool("remote", "armv5tejl")
         self.assertNotEqual(res.returncode, 0)
         self.assertNotIn("completed successfully", res.stdout)
+
+    def test_cut_login_does_not_stop_the_reset(self):
+        """The login runs script, mark and reboot with HUP and PIPE ignored and their output in a
+        file: when the login is cut (SIGHUP to its process group, output closed) they go on."""
+        import signal
+        sys.path.insert(0, str(REPO_DIR / "tools"))
+        import factory_reset as tool
+        dev = self.base / "dev"
+        dev.mkdir()
+        cmd = tool.RESET_LOGIN_CMD.replace(tool.DEVICE_RESET_SCRIPT, str(dev / "factory_reset.sh"))
+        cmd = cmd.replace(tool.DEVICE_RESET_LOG, str(dev / "factory_reset.log"))
+        stub = self.base / "stub"
+        stub.mkdir()
+        (stub / "reboot").write_text(f"#!/bin/sh\necho \"reboot $*\" >> '{dev}/rebooted'\n")
+        (stub / "reboot").chmod(0o755)
+        script = b"#!/bin/sh\necho step one\nsleep 1\necho step two\n"
+        proc = subprocess.Popen(["sh", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                env=dict(os.environ, PATH=f"{stub}:{os.environ['PATH']}"), start_new_session=True)
+        proc.stdin.write(script)
+        proc.stdin.close()
+        time.sleep(0.4)
+        os.killpg(proc.pid, signal.SIGHUP)
+        proc.stdout.close()
+        proc.wait(timeout=10)
+        for _ in range(60):
+            if (dev / "rebooted").exists():
+                break
+            time.sleep(0.1)
+        log = (dev / "factory_reset.log").read_text()
+        self.assertIn("step two", log, "the script ran to its end")
+        self.assertIn(tool.RESET_DONE_MARK, log)
+        self.assertTrue((dev / "rebooted").exists(), "and the reboot started")
 
     def one_reset_login(self) -> None:
         """copy, run and reboot in the same login, after the probe; nothing after it"""

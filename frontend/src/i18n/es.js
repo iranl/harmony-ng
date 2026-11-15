@@ -155,7 +155,6 @@ export default {
     "config_pull_requested": "Extracción de configuración solicitada del control remoto ({slot}). Espere unos segundos y verifique el estado.",
     "config_push_started": "¡Envío de configuración por RF al mando Harmony iniciado!",
     "config_push_success": "Envío de configuración activado con éxito.",
-    "configs_are_safe": "Sus configuraciones están seguras:",
     "configured_activities": "Actividades configuradas",
     "configured_hubs": "Hubs configurados",
     "confirm": "Confirmar",

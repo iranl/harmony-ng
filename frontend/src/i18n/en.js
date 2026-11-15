@@ -155,7 +155,6 @@ export default {
     "config_pull_requested": "Config pull requested from Remote ({slot}). Wait a few seconds for remote to reply and check sync status.",
     "config_push_started": "Configuration push started over RF to Harmony remote!",
     "config_push_success": "Configuration push triggered successfully.",
-    "configs_are_safe": "Your configurations are safe:",
     "configured_activities": "Configured Activities",
     "configured_hubs": "Configured Hubs",
     "confirm": "Confirm",
