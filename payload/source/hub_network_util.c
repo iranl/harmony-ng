@@ -1,6 +1,7 @@
 #include "hub_network_util.h"
 #include "http_util.h"
 #include "config_store.h"
+#include "wpa_conf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+#include <pthread.h>
 
 void net_get_local_ip(int sock_fd, char *buf, size_t max_len) {
     struct sockaddr_in sin;
@@ -235,9 +237,17 @@ void net_get_current_wifi_psk(char *psk_out, size_t psk_len) {
         char *p = strstr(line, "psk=");
         if (p) {
             p += 4;
-            while (*p == ' ' || *p == '\t' || *p == '"') p++;
-            char *end = p;
-            while (*end && *end != '"' && *end != '\r' && *end != '\n') end++;
+            while (*p == ' ' || *p == '\t') p++;
+            char *end;
+            if (*p == '"') {
+                /* quoted pass phrase: up to the last quote of the line, as wpa_supplicant reads
+                 * it (the pass phrase itself may contain quotes) */
+                p++;
+                end = strrchr(p, '"');
+                if (!end) end = p + strcspn(p, "\r\n");
+            } else {
+                end = p + strcspn(p, " \t\r\n");
+            }
             size_t len = (size_t)(end - p);
             if (len >= psk_len) len = psk_len - 1;
             strncpy(psk_out, p, len);
@@ -386,11 +396,34 @@ int net_scan_wifi_networks(cJSON *out_array) {
     return count;
 }
 
+static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len);
+
+/* One test at a time: a test rewrites both wpa_supplicant files and takes the Hub off its
+ * network for up to 12 s, and a second one at the same time would back up the first one's
+ * candidate as the configuration to restore. */
+static pthread_mutex_t s_wifi_test_lock = PTHREAD_MUTEX_INITIALIZER;
+
 int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len) {
     if (!ssid || !ssid[0]) {
         if (err_msg && err_len) snprintf(err_msg, err_len, "SSID cannot be empty");
         return -1;
     }
+    const char *bad = wpa_conf_value_error(ssid, 0);
+    if (!bad && !is_open) bad = wpa_conf_value_error(psk ? psk : "", 1);
+    if (bad) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "%s", bad);
+        return -1;
+    }
+    if (pthread_mutex_trylock(&s_wifi_test_lock) != 0) {
+        if (err_msg && err_len) snprintf(err_msg, err_len, "Another Wi-Fi test is running, try again in a few seconds");
+        return -1;
+    }
+    int rc = wifi_test_run(ssid, psk, is_open, hidden, err_msg, err_len);
+    pthread_mutex_unlock(&s_wifi_test_lock);
+    return rc;
+}
+
+static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len) {
 
     FILE *f_ping = popen("/usr/sbin/wpa_cli -i ath0 ping 2>/dev/null", "r");
     if (!f_ping) {
@@ -416,10 +449,11 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
         orig_conf = read_file_text_alloc("/etc/wpa_supplicant.ath0.conf", 16384, &bak_len);
     }
 
+    /* written as given: wpa_supplicant reads a quoted value without escapes (see wpa_conf.h) */
     char esc_ssid[128] = {0};
     char esc_psk[128] = {0};
-    escape_wpa_str(ssid, esc_ssid, sizeof(esc_ssid));
-    if (psk) escape_wpa_str(psk, esc_psk, sizeof(esc_psk));
+    snprintf(esc_ssid, sizeof(esc_ssid), "%s", ssid);
+    if (psk) snprintf(esc_psk, sizeof(esc_psk), "%s", psk);
 
     char test_wpa[1024];
     if (is_open) {
@@ -439,10 +473,10 @@ int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int
             "update_config=1\n\n"
             "network={\n"
             "\tssid=\"%s\"\n"
-            "\tpsk=\"%s\"\n"
+            "\tpsk=%s%s%s\n"
             "%s"
             "}\n",
-            esc_ssid, esc_psk,
+            esc_ssid, wpa_psk_quote(esc_psk), esc_psk, wpa_psk_quote(esc_psk),
             hidden ? "\tscan_ssid=1\n" : "");
     }
 
