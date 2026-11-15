@@ -36,4 +36,12 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$
     -Wl,--wrap=fopen -Wl,--wrap=access -Wl,--wrap=unlink $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     RF_TEST_TMP="$RF50_MOCK/sender_tmp" HARMONY_MOCK_DIR="$RF50_MOCK/sender" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_sender_retries"
 
+# Remote: config version compare, chunks sent again, OTA receiver input checks, screen timeout, capability bit
+mkdir -p "$RF50_MOCK/remote_tmp"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_rf_decoders" "$SCRIPT_DIR/test_remote_rf_decoders.c" \
+    -Wl,--wrap=fopen,--wrap=open,--wrap=unlink,--wrap=stat,--wrap=statvfs,--wrap=system \
+    "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
+    "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && \
+    RF_TEST_TMP="$RF50_MOCK/remote_tmp" HARMONY_MOCK_DIR="$RF50_MOCK/remote" HARMONY_MOCK_ROLE=remote LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_rf_decoders"
+
 rm -rf "$RF50_MOCK"

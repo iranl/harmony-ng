@@ -631,7 +631,7 @@ void *api_server_worker(void *arg) {
                             if (physical_nav) layout = rf_layout_id("list");
 
                             int bright = jb ? jb->valueint : 2;
-                            int timeout = jt ? jt->valueint : 10;
+                            int timeout = jt ? rf_clamp_screen_timeout(jt->valueint) : 10;
                             int touch = (jtouch && (cJSON_IsTrue(jtouch) || (cJSON_IsNumber(jtouch) && jtouch->valueint != 0))) ? 1 : 0;
                             int gyro = (jgyro && (cJSON_IsTrue(jgyro) || (cJSON_IsNumber(jgyro) && jgyro->valueint != 0))) ? 1 : (jgyro ? 0 : 1);
                             int nav_key = jnk ? jnk->valueint : 139;

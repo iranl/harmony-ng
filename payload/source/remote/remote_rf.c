@@ -311,10 +311,13 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
             }
         }
         if (!found_stop && count < max_steps && strcmp(from_id, "-1") != 0) {
+            /* the callers' arrays are not zeroed: terminate what is copied */
             strncpy(out_steps[count].act_id, from_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = 0x80;
             out_steps[count].delay_ms = 1500;
             strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             total += 1500;
             count++;
         }
@@ -342,9 +345,11 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         }
         if (found_start && !found_switched && count < max_steps) {
             strncpy(out_steps[count].act_id, to_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = (uint8_t)count;
             out_steps[count].delay_ms = 0;
             strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             count++;
         }
     }
