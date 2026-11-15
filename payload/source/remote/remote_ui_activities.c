@@ -13,7 +13,10 @@
 static volatile bool s_switch_from_hub = false;
 
 bool remote_view_follows_hub(void) {
-    return g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICES;
+    /* "Not paired" is left too, as before: an activity from the Hub means the remote is paired
+       and that page is out of date (shown when the chip's pairing reply was missed at start) */
+    return g_current_view == VIEW_ACTIVITIES || g_current_view == VIEW_DEVICES ||
+           g_current_view == VIEW_NOT_PAIRED;
 }
 
 static void show_activity_screen(const char *act_id) {

@@ -94,7 +94,8 @@ void device_browser_activate(int n);
 void trigger_activity_switch(const char *target_id, const char *target_name);
 void trigger_activity_switch_external(const char *id, const char *name);
 /* An activity change from the Hub (another remote, the web UI, an automation) moves the remote
- * to the activity's screen only while it shows the home or an activity screen; elsewhere
+ * to the activity's screen only while it shows the home or an activity screen (or the out-of-date
+ * "Not paired" page); elsewhere
  * (Settings, pairing, the device browser) the page stays and the new activity is there when the
  * user goes back. A switch started on this remote always ends on its screen. */
 bool remote_view_follows_hub(void);

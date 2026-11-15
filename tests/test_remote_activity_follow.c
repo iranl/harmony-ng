@@ -102,6 +102,13 @@ int main(void) {
     hub_activity("-1", "PowerOff", false);
     CHECK(g_current_view == VIEW_PAIRING && !g_is_switching_activity, "live change during pairing: the pairing page stays");
 
+    /* 4b. A "Not paired" page shown although the radio is paired: the first sync leaves it */
+    reset_state("-1");
+    g_initial_sync_received = false;
+    g_current_view = VIEW_NOT_PAIRED;
+    hub_activity("2", "Play Games", true);
+    CHECK(g_current_view == VIEW_DEVICES, "first sync on the out-of-date \"Not paired\" page: the activity's screen opens");
+
     /* 5. Home and activity screens follow, as before */
     reset_state("-1");
     g_current_view = VIEW_ACTIVITIES;
@@ -120,7 +127,8 @@ int main(void) {
     hub_activity("3", "Music", true);
     CHECK(!g_is_switching_activity && g_current_view == VIEW_DEVICES, "Hub confirms it: the activity's screen opens");
 
-    /* 7. A Hub switch whose progress bar ends while the user has moved to Settings */
+    /* 7. A Hub switch whose progress bar ends on a page that does not follow (keys and touch
+          cannot get there while the bar shows; covers a tap handled just before it started) */
     reset_state("-1");
     g_current_view = VIEW_DEVICES;
     hub_activity("1", "Watch TV", false);
@@ -130,7 +138,7 @@ int main(void) {
     g_is_switching_activity = false; /* the main loop ran out of time on the bar */
     remote_show_switch_target();
     CHECK(g_current_view == VIEW_SETTINGS && g_settings_subview == SETTINGS_VIEW_DISPLAY,
-          "end of a Hub switch while in Settings: Settings stays");
+          "end of a Hub switch on a page that does not follow: the page stays");
 
     /* 8. A switch started on the remote (a hard key mapped to PowerOff, pressed in Settings) */
     reset_state("2");
