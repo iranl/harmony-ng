@@ -163,7 +163,7 @@ Enables or disables the Bluetooth stack `hub_btstack`.
 ### 1.7 Hub Logs
 #### `GET /api/logs?source={daemon|btstack|rf|system|network}`
 Returns tail (up to 12KB) of requested daemon or system log.
-- **Parameters**: `source` (default: `daemon`).
+- **Parameters**: `source` (default: `daemon`). `daemon` and `rf` read `/tmp/harmony-init.log` (the output of hub_daemon and hub_rf), `btstack` `/tmp/hub-btstack.log`, `network` `/tmp/harmony-network.log`, `system` the kernel and system log.
 - **Response `200 OK`**:
   ```json
   {
@@ -223,7 +223,7 @@ Updates global hub settings.
   }
   ```
   *Note: `led_mode` sets the Hub's front light while it runs normally: `"green"` (default), `"amber"`, `"red"` or `"off"`. The light flashes green fast while it pairs a remote and alternates red and green slowly during an RF firmware update, then returns to this setting. A pairing that times out or a failed update flashes red slowly for 5 s first. The older values `"always_on"` (green) and `"always_off"` (off) are still accepted, and `"flashing_fast"` and `"flashing_slow"` now mean green.*
-  *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`).*
+  *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`). An `Area/City` name the Hub's table does not know is refused with `400` (it used to run as Central European time).*
 - **Response `200 OK`**: `{"ok": true}`
 
 #### `POST /api/bt/reconnect` or `POST /bt/reconnect`
@@ -249,6 +249,7 @@ Executes system maintenance operations.
   ```json
   {"action": "factory_reset", "confirm": "RESET"}
   ```
+  Answers `500` when the reset script is not installed where the Hub runs it.
 - **MQTT Direct Publish**:
   ```json
   {
@@ -956,7 +957,7 @@ The Classic Bluetooth hosts (link keys, `devices.json`) are not touched.
 Returns physical key bindings for BLE remote.
 
 #### `POST /api/remote-mapping-save`
-Saves BLE remote button mapping JSON.
+Saves BLE remote button mapping JSON. The body is stored as the file itself, so it must be one JSON object of less than 200000 bytes (what the readers load): `400` otherwise, `413` when larger; the stored mapping is then kept.
 
 ---
 
@@ -1166,7 +1167,7 @@ Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 
 #### `POST /api/rf-mapping-save?slot={1|2}`
-Saves button assignments for the specified slot.
+Saves button assignments for the specified slot. The body must be one JSON object of less than 200000 bytes: `400` otherwise, `413` when larger; the stored mapping is then kept.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
 #### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
@@ -1181,7 +1182,7 @@ Copies entire button mapping configuration from one remote slot to another.
   ```
 
 #### `POST /api/ui-remote-layout`
-Saves virtual remote keypad layout for WebUI and Android App.
+Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 200000 bytes: `400` otherwise, `413` when larger; the stored layouts are then kept.
 
 ---
 

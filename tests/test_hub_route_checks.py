@@ -11,6 +11,7 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
  4  GET /api/logs reads the files the Hub writes (harmony-init.log, harmony-network.log)
  5  factory reset does not answer "initiated" when its script is not installed
  6  POST /api/settings refuses a timezone name the Hub does not know (it ran as CET)
+ 7  mqtt.json, which holds the broker password, is made readable by its owner only
 """
 
 import base64
@@ -157,7 +158,9 @@ def test_icons():
 
 def test_query_params():
     print("[-] 3  query parameters, 4  log files")
-    with HubHarness(port=PORT, host=HOST) as hub:
+    with HubHarness(port=PORT, host=HOST, extra_data_files={"mqtt.json": {"enabled": False, "password": "x"}}) as hub:
+        mode = os.stat(os.path.join(hub.data_dir, "mqtt.json")).st_mode & 0o777
+        check(mode == 0o600, "mqtt.json (broker password) readable by its owner only", oct(mode))
         st, r = raw("GET", "/api/logs?source=rf&_=123")
         check(st == 200 and isinstance(r, dict) and r.get("source") == "rf", "source=rf with an extra parameter",
               repr(r)[:80])

@@ -383,7 +383,7 @@ const char *remote_fs_path(const char *path, char *buf, size_t len);
 bool is_remote_paired(void);
 void reset_idle_timer(void);
 void show_notice(const char *msg, int duration_ms);
-void log_remote_debug(const char *fmt, ...);
+void log_remote_debug(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define log_power_debug log_remote_debug
 bool has_configured_activities(void);
 int get_active_dev_cmd_count(void);

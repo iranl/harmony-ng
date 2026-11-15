@@ -38,14 +38,21 @@ void send_cjson_resp(int fd, int code, cJSON *obj) {
                             (code == 503) ? "Service Unavailable" : "Internal Server Error";
     char *json = obj ? cJSON_PrintUnformatted(obj) : NULL;
     size_t body_len = json ? strlen(json) : 0;
-    char header[256];
+    /* A 429 says when to try again: the "retry_after" seconds of its body */
+    char retry[40] = "";
+    const cJSON *ra = (code == 429 && obj) ? cJSON_GetObjectItemCaseSensitive(obj, "retry_after") : NULL;
+    if (cJSON_IsNumber(ra) && ra->valuedouble >= 0 && ra->valuedouble < 86400) {
+        snprintf(retry, sizeof(retry), "Retry-After: %d\r\n", ra->valueint);
+    }
+    char header[288];
     int hlen = snprintf(header, sizeof(header),
                        "HTTP/1.1 %d %s\r\n"
                        "Content-Type: application/json; charset=utf-8\r\n"
                        "Content-Length: %zu\r\n"
+                       "%s"
                        "Access-Control-Allow-Origin: *\r\n"
                        "Connection: close\r\n\r\n",
-                       code, http_status_reason(code, status_str), body_len);
+                       code, http_status_reason(code, status_str), body_len, retry);
     if (http_send_all(fd, header, (size_t)hlen) == 0 && body_len && json) http_send_all(fd, json, body_len);
     if (json) free(json);
 }

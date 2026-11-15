@@ -77,6 +77,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             char lock_msg[96];
             snprintf(lock_msg, sizeof(lock_msg), "Too many failed attempts. Try again in %d seconds", lock_secs);
             cJSON_AddStringToObject(err, "error", lock_msg);
+            cJSON_AddNumberToObject(err, "retry_after", lock_secs);
             send_cjson_resp(client_fd, 429, err);
             cJSON_Delete(err);
             close(client_fd);

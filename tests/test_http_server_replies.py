@@ -156,13 +156,14 @@ def test_reason_and_403():
             parsed = None
         check(n == len(body) and isinstance(parsed, dict) and parsed.get("ok") is False,
               "Content-Length matches the JSON body", "Content-Length %d, body %r" % (n, body))
-        status = ""
+        status, hdrs429 = "", {}
         for _ in range(8):
-            status, _, _ = request("POST", "/api/auth/token",
-                                   json.dumps({"username": "admin", "password": "wrong"}).encode())
+            status, hdrs429, _ = request("POST", "/api/auth/token",
+                                         json.dumps({"username": "admin", "password": "wrong"}).encode())
             if status.startswith("HTTP/1.1 429"):
                 break
         check(status == "HTTP/1.1 429 Too Many Requests", "429 status line", status)
+        check(hdrs429.get("retry-after", "").isdigit(), "429 has a Retry-After header", str(hdrs429))
 
 
 def test_static_cache():
