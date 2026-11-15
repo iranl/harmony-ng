@@ -1339,7 +1339,10 @@ paths:
       tags:
         - Activities
       summary: Broadcast activity switching progress
-      description: Relays transition progress events to WebSocket clients and publishes to MQTT topic harmony/hub/activity/status.
+      description: >-
+        Sends an activity_progress event to the WebSocket clients and MQTT, built from the known
+        fields of the body (activity or activityId, state or stateCode, step or currentStep, total
+        or totalSteps, desc or stepDesc); nothing else of the body is sent.
       requestBody:
         required: true
         content:
@@ -1348,17 +1351,19 @@ paths:
               type: object
             example:
               activityId: "123456"
-              state: switching
-              progress: 50
+              state: starting
               step: 2
               totalSteps: 4
+              desc: TV PowerOn
       responses:
         '200':
-          description: Progress broadcasted
+          description: Progress event sent
           content:
             application/json:
               example:
                 ok: true
+        '400':
+          description: The body is not a JSON object
 
   /api/activity-save:
     post:
@@ -1427,6 +1432,8 @@ paths:
             application/json:
               example:
                 ok: true
+        '409':
+          description: The activity is running; power off or start another activity first
 
   /api/activity-test-sequence:
     post:

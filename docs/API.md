@@ -645,6 +645,9 @@ Saves activity configuration with start and stop sequence steps.
 Deletes an activity by ID.
 - **Request Body**: `{"id": "123456"}`
 - **Response `200 OK`**: `{"ok": true}`
+- **Error `409 Conflict`**: the activity is running (its power off is built from its definition):
+  power off or start another activity first. If the activity file loses the running activity in
+  another way (a restore, a reload), the Hub reports PowerOff (`-1`, idle).
 
 ### 4.8 Test Sequence Execution
 #### `POST /api/activity-test-sequence`
@@ -662,7 +665,12 @@ Executes a test sequence immediately without modifying activity state.
 
 ### 4.9 Activity Progress Webhook
 #### `POST /api/activity-progress`
-Internal step progress notification. Broadcasts state payload to WebSockets and MQTT.
+Internal step progress notification: sends an `activity_progress` event (10.9) to the WebSocket
+clients and MQTT. The body is a JSON object; only these fields are taken: `activity` (or
+`activityId`), `state` (name or number, or `stateCode`), `step` (or `currentStep`), `total` (or
+`totalSteps`), `desc` (or `stepDesc`). Anything else in the body is not sent.
+- **Response `200 OK`**: `{"ok": true}`
+- **Error `400`**: the body is not a JSON object.
 
 ### 4.10 Reload / Sync Config
 #### `POST /api/sync` or `POST /api/reload`
@@ -1690,6 +1698,10 @@ or `stopping`) or is dropped.
 
 #### 10.9 Activity Progress
 One frame per executed step of an activity switch (unchanged shape, now carrying `seq` and `ts`).
+A step whose command could not be sent (unknown device -5, unknown command -6, IR or Bluetooth
+send failed) carries `"error": <code>`; the `Transition completed` frame carries `failedSteps`,
+the number of such steps. A new request no longer drops the commands that follow the Switched
+marker of the transition before it: they are sent first, as steps named `Tail of the last switch:`.
 ```json
 {
   "type": "activity_progress",

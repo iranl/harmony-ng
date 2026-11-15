@@ -42,6 +42,13 @@ static orch_bg_step_t g_bg_queue[ORCH_MAX_STEPS];
 static size_t g_bg_len = 0;
 static uint64_t g_t_switched_step1 = 0;
 static uint64_t g_t_switched_step4 = 0;
+/* A background step is claimed (marked executed) under this lock before it is sent: a new
+ * transition, which may start on a request thread, takes the steps still waiting into its own
+ * queue (orch_take_pending_tail), and no step may go out twice */
+static pthread_mutex_t g_bg_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Steps of the running transition whose command could not be sent */
+static int g_failed_steps = 0;
 
 static orch_progress_cb g_progress_cb = NULL;
 static void *g_cb_user_data = NULL;
@@ -168,6 +175,46 @@ static void set_state(orch_state_t st) {
     set_state_ex(st, 1);
 }
 
+/* The activity file changed (a restore, an import, a reload): the activity the Hub reports as
+ * running may be gone. Staying "running" in it until the next restart left a power off with
+ * nothing to send. Event bus sink, main loop. */
+static int g_recheck_current = 0; /* the file changed during a transition: check at its end */
+
+static void orch_check_current_known(void) {
+    char cur[32];
+    pthread_mutex_lock(&g_act_lock);
+    snprintf(cur, sizeof(cur), "%s", g_current_act);
+    pthread_mutex_unlock(&g_act_lock);
+    if (strcmp(cur, ORCH_POWEROFF_ID) == 0 || activity_known(cur)) return;
+    pthread_mutex_lock(&g_act_lock);
+    if (!orch_is_busy() && strcmp(g_current_act, cur) == 0) {
+        printf("[!] Orch: activity %s is no longer configured, now PowerOff\n", cur);
+        fflush(stdout);
+        snprintf(g_current_act, sizeof(g_current_act), "%s", ORCH_POWEROFF_ID);
+        save_current_activity(g_current_act);
+        write_activity_mirror(g_current_act);
+        set_state(ORCH_STATE_IDLE);
+    }
+    pthread_mutex_unlock(&g_act_lock);
+}
+
+static void orch_config_sink(const hub_event_t *ev, void *user) {
+    (void)user;
+    if (!ev || ev->type != HUB_EV_CONFIG_CHANGED) return;
+    const cJSON *files = cJSON_GetObjectItemCaseSensitive(ev->payload, "files");
+    const cJSON *f = NULL;
+    int activities = 0;
+    cJSON_ArrayForEach(f, files) {
+        if (cJSON_IsString(f) && strcmp(f->valuestring, "activities") == 0) activities = 1;
+    }
+    if (!activities) return;
+    if (orch_is_busy() || orch_is_sending()) {
+        g_recheck_current = 1;
+        return;
+    }
+    orch_check_current_known();
+}
+
 int orch_init(void) {
     g_queue_len = 0;
     g_current_step = 0;
@@ -187,6 +234,9 @@ int orch_init(void) {
     /* Emits the baseline activity_state event */
     set_state((strcmp(g_current_act, ORCH_POWEROFF_ID) == 0) ? ORCH_STATE_IDLE : ORCH_STATE_RUNNING);
     pthread_mutex_unlock(&g_act_lock);
+    if (hub_events_subscribe(orch_config_sink, NULL) != 0) {
+        fprintf(stderr, "[-] Orch: could not subscribe to configuration changes\n");
+    }
     return 0;
 }
 
@@ -287,8 +337,10 @@ void orch_cancel(void) {
     /* empty the queues first, so the state event below says nothing is being sent */
     g_queue_len = 0;
     g_current_step = 0;
+    pthread_mutex_lock(&g_bg_lock);
     g_bg_len = 0;
     memset(g_bg_queue, 0, sizeof(g_bg_queue));
+    pthread_mutex_unlock(&g_bg_lock);
     pthread_mutex_lock(&g_act_lock);
     g_queued_act[0] = '\0'; /* a cancel is the user's last word too */
     /* Only a power off in progress ends as PowerOff. g_target_act is "-1" by default and stays so
@@ -306,7 +358,7 @@ void orch_cancel(void) {
         pthread_mutex_unlock(&g_act_lock);
     }
     if (g_progress_cb) {
-        g_progress_cb(g_current_act, g_state, 0, 0, "Sequence cancelled", g_cb_user_data);
+        g_progress_cb(g_current_act, g_state, 0, 0, "Sequence cancelled", 0, -1, g_cb_user_data);
     }
 }
 
@@ -321,6 +373,7 @@ int orch_enqueue_steps(const orch_step_t *steps, size_t count) {
 
 static void orch_enqueue_bg_steps(const orch_bg_step_t *bg_steps, size_t count) {
     if (count > ORCH_MAX_STEPS) count = ORCH_MAX_STEPS;
+    pthread_mutex_lock(&g_bg_lock);
     if (bg_steps && count > 0) {
         memcpy(g_bg_queue, bg_steps, count * sizeof(orch_bg_step_t));
         g_bg_len = count;
@@ -329,21 +382,87 @@ static void orch_enqueue_bg_steps(const orch_bg_step_t *bg_steps, size_t count) 
     }
     g_t_switched_step1 = 0;
     g_t_switched_step4 = 0;
+    pthread_mutex_unlock(&g_bg_lock);
 }
 
-static void execute_step(const orch_step_t *step) {
+/*
+ * The background steps of the last transition that have not gone out yet (the commands after its
+ * Switched markers: the input a start selects, the devices a stop tail switches off), as main
+ * steps for the front of the next transition, in the order they were due and with the same gaps
+ * (a leading delay when the first one is not due yet). A new request used to drop them. The
+ * steps taken are marked sent, so the main loop does not send them as well. Returns the count.
+ */
+static size_t orch_take_pending_tail(orch_step_t *out, size_t max) {
+    size_t n = 0;
+    if (!out || max < 2) return 0;
+    pthread_mutex_lock(&g_bg_lock);
+    size_t idx[ORCH_MAX_STEPS];
+    size_t cnt = 0;
+    for (size_t b = 0; b < g_bg_len && cnt < ORCH_MAX_STEPS; b++) {
+        if (!g_bg_queue[b].executed) idx[cnt++] = b;
+    }
+    /* by due time; a step whose marker was not reached yet (no time) keeps its place after them */
+    for (size_t i = 1; i < cnt; i++) {
+        size_t v = idx[i];
+        uint64_t tv = g_bg_queue[v].target_time_ms ? g_bg_queue[v].target_time_ms : UINT64_MAX;
+        size_t j = i;
+        while (j > 0) {
+            uint64_t tp = g_bg_queue[idx[j - 1]].target_time_ms ? g_bg_queue[idx[j - 1]].target_time_ms : UINT64_MAX;
+            if (tp <= tv) break;
+            idx[j] = idx[j - 1];
+            j--;
+        }
+        idx[j] = v;
+    }
+    uint64_t now = get_now_ms();
+    if (cnt > 0 && g_bg_queue[idx[0]].target_time_ms > now) {
+        orch_step_t *d = &out[n++];
+        memset(d, 0, sizeof(*d));
+        d->type = STEP_ACT_DELAY;
+        d->delay_ms = (uint32_t)(g_bg_queue[idx[0]].target_time_ms - now);
+        snprintf(d->description, sizeof(d->description), "Tail of the last switch: Delay %ums", d->delay_ms);
+    }
+    for (size_t i = 0; i < cnt && n < max; i++) {
+        orch_bg_step_t *b = &g_bg_queue[idx[i]];
+        orch_step_t *s = &out[n++];
+        *s = b->step;
+        /* the gap to the next one as it was planned; the step's own delay after the last */
+        if (i + 1 < cnt && b->target_time_ms && g_bg_queue[idx[i + 1]].target_time_ms > b->target_time_ms) {
+            s->delay_ms = (uint32_t)(g_bg_queue[idx[i + 1]].target_time_ms - b->target_time_ms);
+        }
+        snprintf(s->description, sizeof(s->description), "Tail of the last switch: %.100s", b->step.description);
+        b->executed = 1;
+    }
+    for (size_t i = 0; i < cnt; i++) {
+        if (!g_bg_queue[idx[i]].executed) {
+            printf("[!] Orch: no room for the tail step '%s' of the last switch, dropped\n",
+                   g_bg_queue[idx[i]].step.description);
+            g_bg_queue[idx[i]].executed = 1;
+        }
+    }
+    pthread_mutex_unlock(&g_bg_lock);
+    if (n > 0) {
+        printf("[*] Orch: %zu tail step(s) of the last switch go out before the new one\n", n);
+        fflush(stdout);
+    }
+    return n;
+}
+
+/* Sends one step; returns 0, or the negative result of the send (the command did not go out) */
+static int execute_step(const orch_step_t *step) {
+    int rc = 0;
     switch (step->type) {
     case STEP_ACT_IR_PRONTO:
         if (step->pronto_hex[0]) {
-            hw_ir_send_pronto(step->pronto_hex, step->ir_ports, step->ir_repeats);
+            rc = hw_ir_send_pronto(step->pronto_hex, step->ir_ports, step->ir_repeats);
         }
         break;
     case STEP_ACT_DEVICE_CMD:
         if (step->device_id[0] && step->command_name[0]) {
-            int rc = hw_device_command_send(step->device_id, step->command_name);
+            rc = hw_device_command_send(step->device_id, step->command_name);
             if (rc != 0 && (strncmp(step->command_name, "0000 ", 5) == 0 ||
                             step->command_name[0] == 'F' || step->command_name[0] == 'f')) {
-                hw_ir_send_harmony_keycode(step->command_name, IR_PORT_ALL, 3);
+                rc = hw_ir_send_harmony_keycode(step->command_name, IR_PORT_ALL, 3);
             }
         }
         break;
@@ -359,17 +478,29 @@ static void execute_step(const orch_step_t *step) {
                     hw_device_bt_host(step->device_id, addr, sizeof(addr))) {
                     char cmd[64];
                     snprintf(cmd, sizeof(cmd), "connect_host %s", addr);
-                    hub_send_btstack_cmd(cmd);
+                    rc = hub_send_btstack_cmd(cmd);
                 } else {
-                    hub_send_btstack_cmd("connect_host");
+                    rc = hub_send_btstack_cmd("connect_host");
                 }
             } else if (strcasecmp(step->command_name, "DISCONNECT") == 0) {
                 /* With a device: close that device's host link (power off, see orchestrator_queue.c) */
-                if (step->device_id[0]) hw_device_bt_disconnect(step->device_id);
-                else hub_send_btstack_cmd("disconnect_host");
+                char addr[32];
+                if (step->device_id[0] && strncmp(step->device_id, "bt_", 3) != 0 &&
+                    hw_device_bt_host(step->device_id, addr, sizeof(addr))) {
+                    rc = hw_device_bt_disconnect(step->device_id);
+                } else {
+                    rc = hub_send_btstack_cmd("disconnect_host");
+                }
             } else {
+                /* To the host of the step's device. Without it the key went to whichever host
+                 * the last key had addressed. */
+                char addr[32] = "";
+                if (!step->device_id[0] || strncmp(step->device_id, "bt_", 3) == 0 ||
+                    !hw_device_bt_host(step->device_id, addr, sizeof(addr))) {
+                    addr[0] = '\0';
+                }
                 char bt_reply[256];
-                run_bt_saved_script("btkeyboard", "", step->command_name, 50, bt_reply, sizeof(bt_reply));
+                rc = run_bt_saved_script("btkeyboard", addr, step->command_name, 50, bt_reply, sizeof(bt_reply));
             }
         }
         break;
@@ -377,34 +508,58 @@ static void execute_step(const orch_step_t *step) {
     default:
         break;
     }
+    if (rc != 0) {
+        printf("[!] Orch: step '%s' not sent (device '%s', command '%s', result %d)\n", step->description,
+               step->device_id, step->command_name, rc);
+        fflush(stdout);
+        if (rc > 0) rc = -rc;
+    }
+    return rc;
 }
 
 int orch_tick(void) {
     uint64_t now = get_now_ms();
 
-    /* Process background queue */
+    /* Process background queue: each due step is claimed under the lock, then sent */
     if (g_bg_len > 0) {
         int any_pending = 0;
-        for (size_t b = 0; b < g_bg_len; b++) {
-            if (!g_bg_queue[b].executed) {
-                if (g_bg_queue[b].target_time_ms > 0 && now >= g_bg_queue[b].target_time_ms) {
-                    printf("[*] Orch bg step %zu/%zu: %s (type=%d)\n",
-                           b + 1, g_bg_len, g_bg_queue[b].step.description, g_bg_queue[b].step.type);
-                    fflush(stdout);
-                    execute_step(&g_bg_queue[b].step);
+        for (;;) {
+            orch_step_t due;
+            size_t pos = 0, len = 0;
+            int found = 0;
+            any_pending = 0;
+            pthread_mutex_lock(&g_bg_lock);
+            len = g_bg_len;
+            for (size_t b = 0; b < g_bg_len; b++) {
+                if (g_bg_queue[b].executed) continue;
+                if (!found && g_bg_queue[b].target_time_ms > 0 && now >= g_bg_queue[b].target_time_ms) {
+                    due = g_bg_queue[b].step;
                     g_bg_queue[b].executed = 1;
+                    pos = b;
+                    found = 1;
                 } else {
                     any_pending = 1;
                 }
             }
+            pthread_mutex_unlock(&g_bg_lock);
+            if (!found) break;
+            printf("[*] Orch bg step %zu/%zu: %s (type=%d)\n", pos + 1, len, due.description, due.type);
+            fflush(stdout);
+            execute_step(&due);
         }
         if (!any_pending) {
+            pthread_mutex_lock(&g_bg_lock);
             g_bg_len = 0;
+            pthread_mutex_unlock(&g_bg_lock);
             if (g_queue_len == 0) {
                 /* the last background step went out: publish sending false */
                 pthread_mutex_lock(&g_act_lock);
                 set_state(g_state);
                 pthread_mutex_unlock(&g_act_lock);
+                if (g_recheck_current && !orch_is_busy()) {
+                    g_recheck_current = 0;
+                    orch_check_current_known();
+                }
             }
         }
     }
@@ -420,22 +575,26 @@ int orch_tick(void) {
     if (g_current_step < g_queue_len) {
         const orch_step_t *step = &g_queue[g_current_step];
         if (step->type == STEP_ACT_STOP_SWITCHED) {
+            pthread_mutex_lock(&g_bg_lock);
             g_t_switched_step1 = now;
             for (size_t b = 0; b < g_bg_len; b++) {
                 if (g_bg_queue[b].anchor_step == 1) {
                     g_bg_queue[b].target_time_ms = g_t_switched_step1 + g_bg_queue[b].relative_offset_ms;
                 }
             }
+            pthread_mutex_unlock(&g_bg_lock);
             g_current_step++;
             g_next_deadline_ms = now;
             return 1;
         } else if (step->type == STEP_ACT_SWITCHED) {
+            pthread_mutex_lock(&g_bg_lock);
             g_t_switched_step4 = now;
             for (size_t b = 0; b < g_bg_len; b++) {
                 if (g_bg_queue[b].anchor_step == 4) {
                     g_bg_queue[b].target_time_ms = g_t_switched_step4 + g_bg_queue[b].relative_offset_ms;
                 }
             }
+            pthread_mutex_unlock(&g_bg_lock);
             pthread_mutex_lock(&g_act_lock);
             strncpy(g_current_act, g_target_act, sizeof(g_current_act) - 1);
             save_current_activity(g_current_act);
@@ -445,7 +604,7 @@ int orch_tick(void) {
 
             if (g_progress_cb) {
                 g_progress_cb(g_target_act, g_state, (int)g_current_step + 1,
-                              (int)g_queue_len, "Activity switched", g_cb_user_data);
+                              (int)g_queue_len, "Activity switched", 0, -1, g_cb_user_data);
             }
             g_current_step++;
             g_next_deadline_ms = now;
@@ -454,8 +613,9 @@ int orch_tick(void) {
             printf("[*] Orch step %zu/%zu: %s (type=%d, delay=%ums)\n",
                    g_current_step + 1, g_queue_len, step->description, step->type, step->delay_ms);
             fflush(stdout);
-            execute_step(step);
         }
+        int step_rc = execute_step(step);
+        if (step_rc != 0) g_failed_steps++;
 
         /* The delay runs from the end of the step: a send blocks for the length of its signal,
          * and counting from before it shortened the gap to the next step (two equal commands
@@ -465,7 +625,7 @@ int orch_tick(void) {
 
         if (g_progress_cb) {
             g_progress_cb(g_target_act, g_state, (int)g_current_step + 1,
-                          (int)g_queue_len, step->description, g_cb_user_data);
+                          (int)g_queue_len, step->description, step_rc, -1, g_cb_user_data);
         }
         g_current_step++;
         return 1;
@@ -487,7 +647,15 @@ int orch_tick(void) {
     clear_activity_target();
 
     if (g_progress_cb) {
-        g_progress_cb(g_current_act, g_state, 0, 0, "Transition completed", g_cb_user_data);
+        g_progress_cb(g_current_act, g_state, 0, 0, "Transition completed", 0, g_failed_steps, g_cb_user_data);
+    }
+    if (g_failed_steps > 0) {
+        printf("[!] Orch: %d step(s) of the switch to %s could not be sent\n", g_failed_steps, g_current_act);
+        fflush(stdout);
+    }
+    if (g_recheck_current && g_bg_len == 0) {
+        g_recheck_current = 0;
+        orch_check_current_known();
     }
     orch_start_queued();
     return (g_bg_len > 0 || g_queue_len > 0) ? 1 : 0;
@@ -509,10 +677,21 @@ static int orch_compile_transition(const char *target_id) {
         free(bg_steps);
         return -1;
     }
-    int rc = orch_enqueue_steps(main_steps, main_count);
+    /* The tail of the last transition still waiting goes out first (see orch_take_pending_tail) */
+    orch_step_t *all = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+    if (!all) {
+        free(main_steps);
+        free(bg_steps);
+        return -1;
+    }
+    size_t tail = orch_take_pending_tail(all, ORCH_MAX_STEPS - main_count);
+    memcpy(all + tail, main_steps, main_count * sizeof(orch_step_t));
+    g_failed_steps = 0;
+    int rc = orch_enqueue_steps(all, tail + main_count);
     if (rc == 0) {
         orch_enqueue_bg_steps(bg_steps, bg_count);
     }
+    free(all);
     free(main_steps);
     free(bg_steps);
     return rc;
@@ -615,7 +794,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         printf("[*] Orch: %s is the current activity, nothing to do\n", target_activity_id);
         fflush(stdout);
         if (g_progress_cb) {
-            g_progress_cb(target_activity_id, g_state, 0, 0, "Transition completed", g_cb_user_data);
+            g_progress_cb(target_activity_id, g_state, 0, 0, "Transition completed", 0, 0, g_cb_user_data);
         }
         return 0;
     }
@@ -639,10 +818,6 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         }
         return 0;
     }
-
-    /* Cancel any queued background commands from previous switch immediately */
-    g_bg_len = 0;
-    memset(g_bg_queue, 0, sizeof(g_bg_queue));
 
     strncpy(g_target_act, target_activity_id, sizeof(g_target_act) - 1);
     /* busy from here on; the event follows once the steps are queued */
@@ -673,7 +848,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
         pthread_mutex_unlock(&g_act_lock);
 
         if (g_progress_cb) {
-            g_progress_cb(g_target_act, g_state, 0, 0, "Transition completed", g_cb_user_data);
+            g_progress_cb(g_target_act, g_state, 0, 0, "Transition completed", 0, 0, g_cb_user_data);
         }
         return 0;
     }
@@ -683,7 +858,7 @@ int orch_switch_activity(const char *target_activity_id, int dry_run,
     pthread_mutex_unlock(&g_act_lock);
 
     if (g_progress_cb) {
-        g_progress_cb(g_target_act, g_state, 0, (int)g_queue_len, "Starting switch...", g_cb_user_data);
+        g_progress_cb(g_target_act, g_state, 0, (int)g_queue_len, "Starting switch...", 0, -1, g_cb_user_data);
     }
     return 0;
 }
@@ -744,16 +919,21 @@ int orch_repair_activity(const char *act_id, int dry_run, orch_toggle_t *toggles
     if (dry_run) {
         orch_format_preview_json(act_id, main_steps, m, bg_steps, b, sw_ms, end_ms, preview_json, preview_len);
     } else if (m > 0 || b > 0) {
-        g_bg_len = 0;
-        memset(g_bg_queue, 0, sizeof(g_bg_queue));
+        /* the tail of the last transition still waiting goes out first, as for a switch */
+        orch_step_t *all = (orch_step_t *)calloc(ORCH_MAX_STEPS, sizeof(orch_step_t));
+        size_t tail = all ? orch_take_pending_tail(all, ORCH_MAX_STEPS - m) : 0;
+        if (all) memcpy(all + tail, main_steps, m * sizeof(orch_step_t));
+        m += tail;
         strncpy(g_target_act, act_id, sizeof(g_target_act) - 1);
-        orch_enqueue_steps(main_steps, m);
+        g_failed_steps = 0;
+        orch_enqueue_steps(all ? all : main_steps, m);
         orch_enqueue_bg_steps(bg_steps, b);
+        free(all);
         /* The queue returns to RUNNING after its last main step; with none, stay RUNNING. Set
          * after the steps are queued, so the event carries sending true. */
         set_state(m > 0 ? ORCH_STATE_STARTING : g_state);
         if (g_progress_cb) {
-            g_progress_cb(g_target_act, g_state, 0, (int)m, "Help: re-sending the activity's commands", g_cb_user_data);
+            g_progress_cb(g_target_act, g_state, 0, (int)m, "Help: re-sending the activity's commands", 0, -1, g_cb_user_data);
         }
     }
     free(main_steps);

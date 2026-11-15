@@ -40,7 +40,7 @@ typedef struct {
 
 typedef void (*hub_event_sink_fn)(const hub_event_t *ev, void *user);
 
-#define HUB_EVENTS_MAX_SINKS 4
+#define HUB_EVENTS_MAX_SINKS 6
 #define HUB_EVENTS_RING 32
 
 int  hub_events_init(void);
