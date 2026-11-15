@@ -136,14 +136,15 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
     /* Route: POST /api/pronto-blast */
     if (strcmp(clean_path, "/api/pronto-blast") == 0 && strcmp(method, "POST") == 0) {
-        char pronto[512] = {0};
+        /* the code whole: a 511-character copy cut longer Pronto codes and sent the cut one */
+        char *pronto = NULL;
         uint8_t ports = IR_PORT_ALL;
         uint8_t repeats = 3;
 
         cJSON *req_j = body ? cJSON_Parse(body) : NULL;
         if (req_j) {
             cJSON *jp = cJSON_GetObjectItemCaseSensitive(req_j, "pronto");
-            if (jp && cJSON_IsString(jp) && jp->valuestring) strncpy(pronto, jp->valuestring, sizeof(pronto) - 1);
+            if (jp && cJSON_IsString(jp) && jp->valuestring && jp->valuestring[0]) pronto = strdup(jp->valuestring);
 
             cJSON *jport = cJSON_GetObjectItemCaseSensitive(req_j, "ports");
             if (jport && cJSON_IsNumber(jport)) ports = (uint8_t)jport->valuedouble;
@@ -156,13 +157,14 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON_Delete(req_j);
         }
 
-        if (!pronto[0]) {
+        if (!pronto) {
             send_json_error(client_fd, 400, "Missing pronto parameter");
             close(client_fd);
             return 1;
         }
 
         int rc = hw_ir_send_pronto(pronto, ports, repeats);
+        free(pronto);
         if (rc == 0) {
             cJSON *suc = cJSON_CreateObject();
             cJSON_AddBoolToObject(suc, "success", 1);
@@ -203,7 +205,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
     if ((strcmp(clean_path, "/api/ir-send") == 0 || strcmp(clean_path, "/ir/send") == 0) && strcmp(method, "POST") == 0) {
         char dev_id[64] = {0};
         char cmd_name[128] = {0};
-        char pronto_buf[2048] = {0};
+        char *pronto_buf = NULL; /* the code whole (a 2047-character copy cut longer ones) */
         int port = 7;
         int repeats = 1;
         int btn_action = HW_BTN_ACTION_TAP;
@@ -234,7 +236,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
             cJSON *jpronto = cJSON_GetObjectItemCaseSensitive(req_j, "pronto");
             if (!jpronto) jpronto = cJSON_GetObjectItemCaseSensitive(req_j, "code");
             if (!jpronto) jpronto = cJSON_GetObjectItemCaseSensitive(req_j, "raw");
-            if (jpronto && cJSON_IsString(jpronto) && jpronto->valuestring) strncpy(pronto_buf, jpronto->valuestring, sizeof(pronto_buf) - 1);
+            if (jpronto && cJSON_IsString(jpronto) && jpronto->valuestring && jpronto->valuestring[0]) {
+                pronto_buf = strdup(jpronto->valuestring);
+            }
 
             cJSON *jport = cJSON_GetObjectItemCaseSensitive(req_j, "port");
             if (jport && cJSON_IsNumber(jport) && jport->valueint > 0) port = jport->valueint;
@@ -246,11 +250,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         }
 
         int rc = -1;
-        if (pronto_buf[0]) {
+        if (pronto_buf) {
             rc = hw_ir_send_pronto(pronto_buf, (uint8_t)port, (uint8_t)repeats);
             if (rc != 0 && strncmp(pronto_buf, "G:", 2) == 0) {
                 rc = hw_ir_send_harmony_keycode(pronto_buf, (uint8_t)port, (uint8_t)repeats);
             }
+            free(pronto_buf);
         } else if (dev_id[0] && cmd_name[0]) {
             rc = hw_device_command_send_action(dev_id, 0, cmd_name, btn_action);
         } else {
@@ -346,26 +351,27 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
      * (fields of the learn wizard: deviceId, keycode or raw) */
     if (strcmp(clean_path, "/api/ir-test-learned") == 0 && strcmp(method, "POST") == 0) {
         char dev_id[64] = {0};
-        char code[8192] = {0};
+        char *code = NULL; /* the code whole (an 8191-character copy cut longer ones) */
         cJSON *req_j = body ? parse_request_params(body) : NULL;
         if (req_j) {
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(req_j, "deviceId");
             if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(dev_id, sizeof(dev_id), "%s", jid->valuestring);
             else if (jid && cJSON_IsNumber(jid)) snprintf(dev_id, sizeof(dev_id), "%ld", (long)jid->valuedouble);
             const char *keys[] = { "keycode", "raw", "code" };
-            for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && !code[0]; i++) {
+            for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]) && !code; i++) {
                 cJSON *jc = cJSON_GetObjectItemCaseSensitive(req_j, keys[i]);
-                if (jc && cJSON_IsString(jc) && jc->valuestring) snprintf(code, sizeof(code), "%s", jc->valuestring);
+                if (jc && cJSON_IsString(jc) && jc->valuestring && jc->valuestring[0]) code = strdup(jc->valuestring);
             }
             cJSON_Delete(req_j);
         }
-        if (!code[0]) {
+        if (!code) {
             send_json_error(client_fd, 400, "Missing keycode or raw");
             close(client_fd);
             return 1;
         }
         uint8_t ports = device_ir_ports(dev_id);
         int rc = hw_ir_send_harmony_keycode(code, ports, 1);
+        free(code);
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", rc == 0);
         cJSON_AddNumberToObject(resp, "port", ports);

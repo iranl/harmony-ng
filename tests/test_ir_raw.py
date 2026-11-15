@@ -50,9 +50,14 @@ def main():
         st, r = hub.http_post("/api/ir-raw", {"timings": [1000, 500]})
         st, c = hub.http_get("/api/test/ir-raw-last")
         check(st == 200 and c.get("frequency") == 38000 and c.get("port") == 7 and c.get("repeats") == 1, "defaults", str(c))
-        # Unmodulated, repeats scale the duration
+        # Frequency 0 is the default carrier (the blaster has no unmodulated output), and the
+        # reply says which carrier went out. The player sends one frame whatever "repeats" says,
+        # so duration_ms is one frame.
         st, r = hub.http_post("/api/ir-raw", {"frequency": 0, "timings": [1000, 500], "repeats": 3})
-        check(st == 200 and r.get("duration_ms") == 5, "frequency 0 allowed, duration with repeats", str(r))
+        st2, c = hub.http_get("/api/test/ir-raw-last")
+        check(st == 200 and r.get("frequency") == 38000 and c.get("frequency") == 38000,
+              "frequency 0 sends the default carrier and says so", "%s %s" % (r, c))
+        check(r.get("duration_ms") == 2, "duration_ms is what was sent (one frame)", str(r))
 
         # Validation
         for body, field in [

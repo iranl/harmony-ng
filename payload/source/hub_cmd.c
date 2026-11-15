@@ -219,7 +219,9 @@ int hub_cmd_ir_raw(const cJSON *req, cJSON **reply) {
     if (jf) {
         if (!cJSON_IsNumber(jf) || jf->valuedouble < 0 || jf->valuedouble != (double)(long)jf->valuedouble) err = "frequency: integer Hz required";
         else if (jf->valuedouble != 0 && (jf->valuedouble < 20000 || jf->valuedouble > 60000)) err = "frequency: 0 or 20000 to 60000 Hz";
-        else freq = (uint32_t)jf->valuedouble;
+        /* 0 is the default carrier: the blaster has no unmodulated output (0 was documented as
+         * unmodulated and went out at 38 kHz anyway) */
+        else if (jf->valuedouble != 0) freq = (uint32_t)jf->valuedouble;
     }
     const cJSON *jp = cJSON_GetObjectItemCaseSensitive(req, "port");
     if (!err && jp) {
@@ -291,7 +293,10 @@ int hub_cmd_ir_raw(const cJSON *req, cJSON **reply) {
     }
     cJSON_AddBoolToObject(*reply, "ok", 1);
     cJSON_AddNumberToObject(*reply, "count", (double)count);
-    cJSON_AddNumberToObject(*reply, "duration_ms", (double)((sum_us * (uint64_t)repeats + 999) / 1000));
+    cJSON_AddNumberToObject(*reply, "frequency", (double)freq);
+    /* What went out: the IR player sends a frame once (repeats are written into the code but
+     * not played), so the duration of one frame, not "repeats" of them */
+    cJSON_AddNumberToObject(*reply, "duration_ms", (double)((sum_us + 999) / 1000));
     return 200;
 }
 
