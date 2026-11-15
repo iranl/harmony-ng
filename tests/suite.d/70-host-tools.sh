@@ -12,3 +12,5 @@ python3 "$SCRIPT_DIR/test_sync_remote_to_hub.py"
 python3 "$SCRIPT_DIR/test_bootstrap_serial.py"
 # tools/usb_state.py picks the remote's network adapter by its USB ids (not a phone or a dongle)
 python3 "$SCRIPT_DIR/test_usb_state_adapter.py"
+# tools/unbrick_recovery/serve_dropbear.py serves only the Hub (loopback, port 9220)
+python3 "$SCRIPT_DIR/test_serve_dropbear.py"
