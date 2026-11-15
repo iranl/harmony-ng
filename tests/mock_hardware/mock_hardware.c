@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -596,4 +597,22 @@ int inotify_add_watch(int fd, const char *pathname, uint32_t mask) {
     static int (*real_in_add)(int, const char *, uint32_t) = NULL;
     if (!real_in_add) real_in_add = dlsym(RTLD_NEXT, "inotify_add_watch");
     return real_in_add ? real_in_add(fd, target, mask) : -1;
+}
+
+/* opendir() of a virtualized /data or /cache directory (the custom icon limits count the files of
+ * /data/harmony/custom_icons) */
+DIR *opendir(const char *name) {
+    static DIR *(*real_opendir)(const char *) = NULL;
+    if (!real_opendir) real_opendir = dlsym(RTLD_NEXT, "opendir");
+    char resolved[512];
+    int special_type = 0;
+    const char *target = name;
+    if ((strncmp(name, "/data/", 6) == 0 || strncmp(name, "/cache/", 7) == 0)) {
+        target = resolve_mock_path(name, resolved, sizeof(resolved), &special_type);
+    }
+    if (!real_opendir) {
+        errno = ENOSYS;
+        return NULL;
+    }
+    return real_opendir(target);
 }

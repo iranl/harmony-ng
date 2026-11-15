@@ -9,3 +9,5 @@ build_test -Wall -O2 -Wno-format-truncation -fsanitize=signed-integer-overflow -
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_api_body" "$SCRIPT_DIR/test_rf_api_body.c" \
     "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" \
     -lpthread -lm && "$BUILD_DIR/test_rf_api_body"
+echo "[-] Hub server: route checks (map saves, custom icons, query parameters, logs)..."
+python3 "$SCRIPT_DIR/test_hub_route_checks.py"

@@ -22,6 +22,7 @@ static const char *http_status_reason(int code, const char *phrase) {
         case 413: return "Content Too Large";
         case 429: return "Too Many Requests";
         case 502: return "Bad Gateway";
+        case 507: return "Insufficient Storage";
         default: return phrase;
     }
 }
@@ -69,6 +70,17 @@ int http_send_all(int fd, const void *buf, size_t len) {
         len -= (size_t)n;
     }
     return 0;
+}
+
+void http_query_param(const char *query, const char *name, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!query || !query[0] || !name) return;
+    cJSON *q = parse_request_params(query);
+    if (!q) return;
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(q, name);
+    if (cJSON_IsString(v) && v->valuestring) snprintf(out, out_sz, "%s", v->valuestring);
+    cJSON_Delete(q);
 }
 
 char *url_decode(const char *src) {

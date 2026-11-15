@@ -21,7 +21,7 @@ def hub_sources() -> set[str]:
     text = (REPO_DIR / "payload" / "source" / "http_api_system.c").read_text()
     route = text[text.index('"/api/logs"'):]
     route = route[:route.index("send_cjson_resp")]
-    return {"daemon"} | set(re.findall(r'"source=(\w+)"', route))
+    return {"daemon"} | set(re.findall(r'"source=(\w+)"', route)) | set(re.findall(r'strcmp\(qsrc, "(\w+)"\)', route))
 
 
 class WebUiLogSources(unittest.TestCase):
