@@ -23,3 +23,5 @@ sh "$SCRIPT_DIR/test_build_downloads.sh"
 python3 "$SCRIPT_DIR/test_build_theme_cache.py"
 # Committed binaries match the SHA-256 list in tools/bin/README.md
 sh "$SCRIPT_DIR/test_prebuilt_hashes.sh"
+# build/build_webui.py, build_apk.py, deploy_hub.py: one web UI packaging step, results checked
+python3 "$SCRIPT_DIR/test_webui_sync.py"

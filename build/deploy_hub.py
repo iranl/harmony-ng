@@ -573,13 +573,12 @@ class HubDeployer:
                 print(f"    [dry-run] would build web UI ({self.ui_choice}) first; comparison below uses files currently in payload/www")
             else:
                 ui_src_dir = self.repo_root / ("android-app" if self.ui_choice == "legacy" else "frontend")
-                if shutil.which("emcc"):
-                    render_sh = self.repo_root / "tools" / "remote_render" / "build.sh"
-                    if render_sh.is_file():
-                        subprocess.run(["bash", str(render_sh), "--wasm", str(ui_src_dir / "public" / "assets")], capture_output=True)
-                    theme_py = self.repo_root / "tools" / "remote_render" / "build_theme.py"
-                    if theme_py.is_file():
-                        subprocess.run([sys.executable, str(theme_py), "--tar", str(ui_src_dir / "public" / "assets" / "themes")], capture_output=True)
+                # One copy of the build steps for build_webui.py and this tool (same folder)
+                sys.path.insert(0, str(self.script_dir))
+                import build_webui
+                if not build_webui.build_extras(ui_src_dir, self.repo_root):
+                    print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
                 print(f"[*] Compiling frontend bundle with Vite ({ui_src_dir.name})...")
                 npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
@@ -588,29 +587,9 @@ class HubDeployer:
                     print(f"[-] WebUI build failed in {ui_src_dir.name}. Nothing deployed from this step.", file=sys.stderr)
                     return False
 
-                self.www_dir.mkdir(parents=True, exist_ok=True)
-                for p in self.www_dir.iterdir():
-                    if p.is_file():
-                        p.unlink(missing_ok=True)
-                assets_d = self.www_dir / "assets"
-                if assets_d.is_dir():
-                    shutil.rmtree(assets_d, ignore_errors=True)
-
-                dist_d = ui_src_dir / "dist"
-                for item in dist_d.iterdir():
-                    dest = self.www_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, dest, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(item, dest)
-
-                icons_sub = assets_d / "icons"
-                if icons_sub.is_dir():
-                    shutil.rmtree(icons_sub, ignore_errors=True)
-
-                gzip_script = self.repo_root / "build" / "gzip_assets.py"
-                if gzip_script.is_file():
-                    subprocess.run([sys.executable, str(gzip_script), str(self.www_dir)], capture_output=True)
+                if not build_webui.sync_dist_to_www(ui_src_dir / "dist", self.www_dir, self.repo_root):
+                    print("[-] WebUI packaging failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
         if not self.dry_run:
             self.run_ssh(
