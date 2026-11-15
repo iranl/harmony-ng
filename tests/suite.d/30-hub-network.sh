@@ -18,3 +18,5 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_
 python3 "$SCRIPT_DIR/test_update_sh.py"
 # update-apply refused while one runs (409), update-check writes only on change (port 9145)
 python3 "$SCRIPT_DIR/test_update_api_once.py"
+# factory_reset.sh: supervisors stopped, hub_sync and read-only remount before the reset
+python3 "$SCRIPT_DIR/test_factory_reset_sh.py"
