@@ -14,3 +14,5 @@ python3 "$SCRIPT_DIR/test_bootstrap_serial.py"
 python3 "$SCRIPT_DIR/test_usb_state_adapter.py"
 # tools/unbrick_recovery/serve_dropbear.py serves only the Hub (loopback, port 9220)
 python3 "$SCRIPT_DIR/test_serve_dropbear.py"
+# build/build_btstack.sh applies btstack.patch to a clean clone (toy git repository)
+sh "$SCRIPT_DIR/test_build_btstack_patch.sh"
