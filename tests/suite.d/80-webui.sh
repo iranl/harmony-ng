@@ -15,3 +15,4 @@ webui_node_test test_frontend_b25.mjs
 webui_node_test test_webui_dead_routes.mjs
 # Every Hub path the two UIs call has a handler in payload/source
 python3 "$SCRIPT_DIR/test_webui_routes.py"
+webui_node_test test_webui_form_limits.mjs

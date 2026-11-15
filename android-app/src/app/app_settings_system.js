@@ -51,6 +51,7 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
+import { wifiPassphraseError } from './form_limits.js';
 import { HarmonyAppRemotesRf } from './app_remotes_rf.js';
 import { copyText } from '../clipboard.js';
 
@@ -622,6 +623,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
       open: document.getElementById('wifiOpen')?.checked ? 1 : 0
     };
+    const passError = wifiPassphraseError(data.password, { open: data.open });
+    if (passError) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${passError}</span>`;
+      return;
+    }
 
     const testBtn = document.getElementById('btnWifiTest');
     if (testBtn) testBtn.disabled = true;
@@ -658,6 +664,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       hidden: document.getElementById('wifiHidden')?.checked ? 1 : 0,
       open: document.getElementById('wifiOpen')?.checked ? 1 : 0
     };
+    const passError = wifiPassphraseError(data.password, { open: data.open });
+    if (passError) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${passError}</span>`;
+      return;
+    }
 
     const isApplying = (applyMode === 'reconfigure' || applyMode === 'reboot' || applyMode === 'apply');
 
