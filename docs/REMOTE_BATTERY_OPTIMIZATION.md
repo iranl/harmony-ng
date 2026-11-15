@@ -11,7 +11,7 @@ Expected standby battery life on a fully charged battery is **~3 days**. This is
 | Subsystem | Active Power | Standby (0-30m) | Deep Standby (>30m) | Optimization Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
 | **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0. |
-| **Touchscreen** (Synaptics Clearpad) | ~11 mA | dozes by itself (not measured) | asleep (not measured) | Left to the kernel's `clearpad` driver: it sleeps the controller at a suspend and wakes it at the resume (section 2). |
+| **Touchscreen** (Synaptics Clearpad) | ~11 mA | in its own doze (not measured) | in its own doze (not measured) | Left to the kernel's `clearpad` driver, which never puts it into sleep mode (section 2). |
 | **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Button LEDs disabled when screen blanks or daytime. |
 | **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Suspended after 30 min; 0 I2C bus transactions. |
 | **CC2544 2.4GHz RF** (`/dev/rfspi`) | ~18 - 24 mA | < 0.5 mA | < 0.5 mA | Radio idle in PM2 sleep; wakes on button event. |
@@ -37,9 +37,9 @@ This properly cuts power to the display controller, saving ~68.5 mA and extendin
 
 The Synaptics Clearpad capacitive sensor consumes ~10.5 mA while actively scanning for finger contact.
 
-`remote_ui` does not write to the touch controller. The kernel's `clearpad` driver has its own suspend and resume hooks: it puts the controller to sleep when the remote suspends and wakes it at the resume, as on the stock firmware, which never writes to the controller from user space either. With the screen off and the remote awake (light standby) the controller dozes by itself between touches, and a touch wakes the screen when touch is enabled in Settings.
+`remote_ui` does not write to the touch controller. The kernel's `clearpad` driver owns the controller: at a suspend it masks the touch interrupt, at the resume it reads the controller once and unmasks it. Nobody puts the controller into its sleep mode, on stock either; it dozes by itself between touches. With the screen off and the remote awake (light standby) a touch wakes the screen when touch is enabled in Settings.
 
-Older builds wrote the controller's registers over raw I2C (`/dev/i2c-1`, address `0x20`) at every blank, wake and suspend, next to the kernel driver. Those writes only ran on remotes where `/dev/i2c-1` had been created by hand, and touch worked the same without them, so they were removed.
+Older builds wrote the controller's registers over raw I2C (`/dev/i2c-1`, address `0x20`) at every blank, wake and suspend, next to the kernel driver. The one before a suspend put the sensor into its sleep mode. Those writes only ran on remotes where `/dev/i2c-1` had been created by hand, and touch worked the same without them, so they were removed. On remotes that had the node the controller now stays in its doze during a suspend, as on stock and on every other remote, so deep standby may draw slightly more there (not measured).
 
 ---
 
