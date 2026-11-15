@@ -15,4 +15,9 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     HARMONY_MOCK_DIR="$RF50_MOCK/frame_fields" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_frame_fields"
 
+# Threads and radio I/O: no connect on the receive thread, read errors stop hub_rf, icon push off the API thread
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -DRF_API_PORT=9181 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_threads_io" "$SCRIPT_DIR/test_rf_threads_io.c" \
+    -Wl,--wrap=connect -Wl,--wrap=write $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="$RF50_MOCK/threads_io" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_threads_io"
+
 rm -rf "$RF50_MOCK"

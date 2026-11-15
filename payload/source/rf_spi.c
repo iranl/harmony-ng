@@ -36,9 +36,8 @@ static pthread_mutex_t g_ack_mutex = PTHREAD_MUTEX_INITIALIZER;
  * comes. g_ack_received (under g_ack_mutex) stays the answer; the byte only wakes. */
 static int g_ack_pipe[2] = { -1, -1 };
 
+/* CC2544 NAKs in a row (logged; senders retry on their own ACK timeouts) */
 static int g_nak_count = 0;
-static int g_backoff_ms = 0;
-#define NAK_BACKOFF_MAX_MS 5000
 
 int flash_cc2544(void) {
     int fin = open(CC2544_FW, O_RDONLY);
@@ -68,6 +67,8 @@ int rf_write_cmd(const uint8_t *cmd, size_t len) {
     pthread_mutex_lock(&g_rf_mutex);
     ssize_t w = write(g_rf_fd, cmd, len);
     pthread_mutex_unlock(&g_rf_mutex);
+    /* Only a negative result is an error: the CC2544 driver (/dev/rfspi) returns 0 for a
+     * complete write (measured on the Hub), so a length check would fail every send */
     if (w < 0) {
         perror("write /dev/rfspi");
         return -1;
@@ -328,7 +329,6 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
                 memcpy(f.payload, &pkt[4], sizeof(f.payload));
             }
             g_nak_count = 0;
-            g_backoff_ms = 0;
         }
         if (link_idx(f.dev_slot) >= 0) g_remote_link[link_idx(f.dev_slot)].frames_rx++;
         handle_rf_frame(&f);
@@ -366,12 +366,11 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
         return;
     }
 
-    /* Reset NAK backoff on any valid non-error response from CC2544 */
+    /* Any valid non-error response from the CC2544 ends a run of NAKs */
     if (!(pkt[0] == 0x10 && len >= 3 && pkt[2] == 0x8F)) {
         if (g_nak_count > 0 && g_debug_logging)
-            printf("[+] NAK backoff cleared (was %d NAKs, %dms)\n", g_nak_count, g_backoff_ms);
+            printf("[+] CC2544 answers again after %d NAKs\n", g_nak_count);
         g_nak_count = 0;
-        g_backoff_ms = 0;
     }
 
     uint8_t report_id = pkt[0];
@@ -410,17 +409,9 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
             /* 10 <slot> 8F <report of the refused send> ... */
             if (link_idx(pkt[1]) >= 0) g_remote_link[link_idx(pkt[1])].naks++;
             g_nak_count++;
-            if (g_nak_count > 3) {
-                if (g_nak_count - 3 >= 6) {
-                    g_backoff_ms = NAK_BACKOFF_MAX_MS;
-                } else {
-                    g_backoff_ms = 100 * (1 << (g_nak_count - 3));
-                    if (g_backoff_ms > NAK_BACKOFF_MAX_MS) g_backoff_ms = NAK_BACKOFF_MAX_MS;
-                }
-            }
             if (g_debug_logging || g_nak_count <= 5)
-                printf("[-] CC2544 NAK: SubID=0x%02X err=0x%02X (count=%d, backoff=%dms)\n",
-                       pkt[3], pkt[5], g_nak_count, g_backoff_ms);
+                printf("[-] CC2544 NAK: SubID=0x%02X err=0x%02X (count=%d)\n",
+                       pkt[3], pkt[5], g_nak_count);
             return;
         }
     }
@@ -501,18 +492,32 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
     }
 }
 
+volatile bool g_rf_read_failed = false;
+
 void *rx_worker(void *arg) {
     (void)arg;
     uint8_t buf[64];
+    int read_errors = 0;
 
     while (g_running) {
         memset(buf, 0, sizeof(buf));
         ssize_t n = read(g_rf_fd, buf, sizeof(buf));
         if (n > 0) {
+            read_errors = 0;
             handle_rf_packet(buf, (size_t)n);
         } else if (n < 0) {
             if (errno == EINTR) continue;
-            perror("read /dev/rfspi");
+            if (errno == EAGAIN) { usleep(100000); continue; }
+            if (++read_errors <= 3) perror("read /dev/rfspi");
+            if (read_errors >= RF_READ_ERRORS_MAX) {
+                /* The radio does not answer any more: hub_rf ends, its supervisor starts it again
+                 * and the start sets the CC2544 up anew. It used to log ten lines a second for as
+                 * long as it ran, with the remotes on "No Hub". */
+                fprintf(stderr, "[-] /dev/rfspi: %d read errors in a row, hub_rf stops for a restart\n", read_errors);
+                g_rf_read_failed = true;
+                g_running = false;
+                break;
+            }
             usleep(100000);
         } else {
             usleep(50000);

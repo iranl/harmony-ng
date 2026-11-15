@@ -224,8 +224,8 @@ void handle_rf_frame(const rf_frame_t *f) {
                 rf_keymap_invalidate_map(0);
                 usleep(50000);
                 pthread_t push_th;
-                pthread_create(&push_th, NULL, config_push_worker, NULL);
-                pthread_detach(push_th);
+                if (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0) pthread_detach(push_th);
+                else printf("[-] Config push not started (the remote asks again)\n");
             } else {
                 usleep(10000);
                 rf_send_hub_time_sync_slot_if_due(slot);
@@ -242,8 +242,8 @@ void handle_rf_frame(const rf_frame_t *f) {
             printf("[*] BATTERY_STATUS: Slot %d: %d%% (chg=%d, %umV)\n",
                    slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
             /* Kept in memory and in /tmp only (rf_battery_note_report): the remote reports every
-             * few minutes; writing it to flash cost hundreds of writes a day */
-            publish_remote_battery_mqtt(slot, g_remote_batteries[idx].percent, g_remote_batteries[idx].charging, g_remote_batteries[idx].voltage_mv);
+             * few minutes; writing it to flash cost hundreds of writes a day. hub_daemon gets it
+             * with the RF status push (rf_status event, MQTT). */
             if (!is_ota_busy()) {
                 rf_frame_t ack;
                 rf_build_ack(&ack, slot, f->seq, 0x00);
@@ -411,8 +411,15 @@ int main(int argc, char **argv) {
 
     /* Open SPI driver */
     if (rf_spi_open() < 0) {
-        fprintf(stderr, "[-] Warning: cannot open %s, attempting CC2544 flash...\n", RFSPI_DEV);
-        flash_cc2544();
+        int open_err = errno;
+        if (open_err == EBUSY || open_err == EACCES || open_err == EPERM || open_err == EMFILE || open_err == ENFILE) {
+            /* Another process holds the device, or no file can be opened: writing the radio
+             * firmware would not help, and a second user of the SPI bus hangs the Hub */
+            fprintf(stderr, "[-] Fatal: cannot open %s: %s\n", RFSPI_DEV, strerror(open_err));
+            return 1;
+        }
+        fprintf(stderr, "[-] Warning: cannot open %s (%s), attempting CC2544 flash...\n", RFSPI_DEV, strerror(open_err));
+        if (flash_cc2544() != 0) fprintf(stderr, "[-] CC2544 flash failed: %s\n", strerror(errno));
         if (rf_spi_open() < 0) {
             fprintf(stderr, "[-] Fatal: cannot open %s: %s\n", RFSPI_DEV, strerror(errno));
             return 1;
@@ -555,5 +562,5 @@ int main(int argc, char **argv) {
 
     printf("[+] Shutting down hub_rf...\n");
     rf_spi_close();
-    return 0;
+    return g_rf_read_failed ? 1 : 0;
 }

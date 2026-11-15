@@ -34,6 +34,24 @@ static void *rf_wake_worker(void *arg) {
     return NULL;
 }
 
+/* An icon transfer takes from a second (a remote asleep) to half a minute (a 16 KB icon): it runs
+ * on its own thread, so the RF API answers other requests meanwhile */
+typedef struct { int slot; char type[32]; char id[32]; } icon_push_job_t;
+
+static void *icon_push_worker(void *arg) {
+    icon_push_job_t *job = arg;
+    int pushed = 0, tried = 0;
+    for (int s = 1; s <= 2; s++) {
+        if (job->slot != 0 && job->slot != s) continue;
+        if (job->slot == 0 && !g_paired_remotes[s - 1].active) continue;
+        tried++;
+        if (rf_push_custom_icon(s, job->type, job->id) == 0) pushed++;
+    }
+    printf("[*] Icon %s pushed to %d of %d remote(s)\n", job->id, pushed, tried);
+    free(job);
+    return NULL;
+}
+
 /* The GET /api/rf/status object. RF_STATUS_QUERY_RADIO asks the CC2544 for the Hub address when
  * it is not known yet (API thread only); RF_STATUS_STABLE_ONLY leaves the link counters and the
  * battery voltage out, giving a string that changes only when the status changed. */
@@ -398,16 +416,27 @@ void *api_server_worker(void *arg) {
                         write(cli, res, strlen(res));
                     } else {
                         int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
-                        int pushed = 0;
-                        for (int s = 1; s <= 2; s++) {
-                            if (slot != 0 && slot != s) continue;
-                            if (slot == 0 && !g_paired_remotes[s - 1].active) continue;
-                            if (rf_push_custom_icon(s, type_str, id_str) == 0) pushed++;
+                        icon_push_job_t *job = calloc(1, sizeof(*job));
+                        int started = 0;
+                        if (job) {
+                            job->slot = slot;
+                            snprintf(job->type, sizeof(job->type), "%s", type_str);
+                            snprintf(job->id, sizeof(job->id), "%s", id_str);
+                            pthread_t ith;
+                            if (pthread_create(&ith, NULL, icon_push_worker, job) == 0) {
+                                pthread_detach(ith);
+                                started = 1;
+                            } else {
+                                free(job);
+                            }
                         }
-                        char res[160];
-                        int rlen = snprintf(res, sizeof(res),
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"icon_pushed\",\"id\":\"%s\",\"pushed\":%d,\"ok\":true}",
-                            id_str, pushed);
+                        char res[192];
+                        int rlen = started
+                            ? snprintf(res, sizeof(res),
+                                "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"icon_push_started\",\"id\":\"%s\",\"slot\":%d,\"ok\":true}",
+                                id_str, slot)
+                            : snprintf(res, sizeof(res),
+                                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"icon push not started\",\"ok\":false}");
                         write(cli, res, rlen);
                     }
                 }
@@ -426,11 +455,13 @@ void *api_server_worker(void *arg) {
                     FILE *vf = fopen("/data/harmony/config_version", "w");
                     if (vf) { fprintf(vf, "%d\n", g_config_version); fclose(vf); }
                     pthread_t push_th;
-                    pthread_create(&push_th, NULL, config_push_worker, NULL);
-                    pthread_detach(push_th);
+                    int push_ok = (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0);
+                    if (push_ok) pthread_detach(push_th);
                     rf_notify_update_available(1);
                     rf_notify_update_available(2);
-                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}";
+                    const char *res = push_ok
+                        ? "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"push_started\"}"
+                        : "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"config push not started\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 }
             } else if (strstr(buf, "GET /api/rf/sync") == buf) {
@@ -716,8 +747,7 @@ void *api_server_worker(void *arg) {
                         }
                         if (is_slot_direct_mode(slot)) {
                             pthread_t push_th;
-                            pthread_create(&push_th, NULL, config_push_worker, NULL);
-                            pthread_detach(push_th);
+                            if (pthread_create(&push_th, NULL, config_push_worker, NULL) == 0) pthread_detach(push_th);
                         }
                     }
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}";

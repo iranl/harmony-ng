@@ -13,7 +13,9 @@
 #define CC2544_FW          "/lib/firmware/cc2544.bin"
 #define DAEMON_PORT        8089
 #define WEBUI_PORT         8089
-#define RF_API_PORT        8092
+#ifndef RF_API_PORT
+#define RF_API_PORT        8092 /* tests build with another port */
+#endif
 #define CURRENT_ACT_FILE       "/data/harmony/current_activity"
 
 #define MAX_PAIRED_REMOTES 2
