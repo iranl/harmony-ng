@@ -27,9 +27,10 @@ NO_I2C_DIR="$(mktemp -d /tmp/hng_no_raw_i2c.XXXXXX)"
 HARMONY_MOCK_DIR="$NO_I2C_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_no_raw_i2c" \
     || { rm -rf "$NO_I2C_DIR"; exit 1; }
 rm -rf "$NO_I2C_DIR"
-# Text files only, and not build output (remote/bin holds a locally built BusyBox with i2c applets)
+# Text files only, tracked or new, not ignored build output (remote/bin holds a locally built
+# BusyBox with i2c applets)
 if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    RAW_I2C_HITS="$(git -C "$REPO_ROOT" grep -n -I -e '/dev/i2c' -e 'I2C_SLAVE' -- payload/source/remote remote || true)"
+    RAW_I2C_HITS="$(git -C "$REPO_ROOT" grep --untracked -n -I -e '/dev/i2c' -e 'I2C_SLAVE' -- payload/source/remote remote || true)"
 else
     RAW_I2C_HITS="$(grep -rnI --exclude-dir=bin -e '/dev/i2c' -e 'I2C_SLAVE' "$REPO_ROOT/payload/source/remote" "$REPO_ROOT/remote" || true)"
 fi

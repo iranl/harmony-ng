@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "remote/remote_state.h"
 #include "remote/remote_ui.h"
@@ -148,6 +150,20 @@ int main(void) {
     CHECK(g_is_switching_activity, "own switch from Settings: progress bar shown");
     hub_activity("-1", "PowerOff", true);
     CHECK(!g_is_switching_activity && g_current_view == VIEW_ACTIVITIES, "own switch: it ends on its target screen");
+
+    /* 9. The Hub unpairs the remote while a Hub switch's progress bar runs: "Not paired" stays */
+    reset_state("-1");
+    g_current_view = VIEW_ACTIVITIES;
+    hub_activity("2", "Play Games", false);
+    CHECK(g_is_switching_activity, "Hub switch before the unpair: progress bar shown");
+    int saved_fd = g_rf_fd;
+    g_rf_fd = open("/dev/null", O_WRONLY);
+    rf_perform_unpair_cleanup(false);
+    close(g_rf_fd);
+    g_rf_fd = saved_fd;
+    if (g_is_switching_activity) remote_show_switch_target(); /* the main loop at the bar's end */
+    CHECK(!g_is_switching_activity && g_current_view == VIEW_NOT_PAIRED,
+          "unpair during a Hub switch: the bar ends, \"Not paired\" stays");
 
     if (failures) {
         printf("[-] test_remote_activity_follow: %d check(s) failed\n", failures);

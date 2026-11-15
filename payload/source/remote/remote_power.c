@@ -648,7 +648,7 @@ void reset_idle_timer(void) {
 }
 
 /* A hard key pressed while the screen is off goes to the Hub before the screen is lit: the unblank
- * (display, backlight, touch controller, battery reading, flight recorder) and the first frame
+ * (display, backlight, battery reading, flight recorder) and the first frame
  * take far longer than the key, and all of it used to run before the key was sent.
  * remote_key_wake_radio() is the part the key needs: the idle timer and the radio. The caller
  * then handles the key and calls remote_key_wake_screen(). */
