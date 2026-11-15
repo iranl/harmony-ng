@@ -12,3 +12,6 @@ webui_node_test test_frontend_auth.mjs
 webui_node_test test_frontend_connection.mjs
 webui_node_test test_webui_keymap_load.mjs
 webui_node_test test_frontend_b25.mjs
+webui_node_test test_webui_dead_routes.mjs
+# Every Hub path the two UIs call has a handler in payload/source
+python3 "$SCRIPT_DIR/test_webui_routes.py"

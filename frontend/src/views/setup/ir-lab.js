@@ -9,18 +9,18 @@ export function createView() {
   const container = h('div', { className: 'setup-subview-irlab', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
   const devices = store.get('devices') || [];
-  let currentRunId = null;
+  let run = null; // the batch run in progress: { aborted }
 
   const targetSelect = h('select', { className: 'form-select' },
     devices.map(d => h('option', { value: d.id, text: d.name }))
   );
 
-  const delayInput = h('input', { type: 'number', className: 'form-input', value: 800 });
+  const delayInput = h('input', { type: 'number', className: 'form-input', value: 800, min: 0, max: 10000 });
 
   const commandsListArea = h('textarea', {
     className: 'form-textarea',
     rows: 6,
-    placeholder: 'Paste command names or hex codes (one per line)...',
+    placeholder: 'Paste the device\'s command names (one per line)...',
   });
 
   const card = h('div', { className: 'card' }, [
@@ -47,32 +47,36 @@ export function createView() {
         onclick: async () => {
           const lines = commandsListArea.value.split('\n').map(l => l.trim()).filter(Boolean);
           if (lines.length === 0) return toast.warn('Enter commands to test');
-          currentRunId = `run_${Date.now()}`;
-          try {
-            toast.info(`Starting batch run of ${lines.length} commands...`);
-            await api.sendBatchIr({
-              deviceId: targetSelect.value,
-              commands: lines,
-              delayMs: Number(delayInput.value) || 800,
-              runId: currentRunId,
-            });
-            toast.success('Batch execution finished');
-          } catch (e) {
-            toast.error(e.message);
+          if (run) return toast.warn('A batch run is already going');
+          // The Hub has no batch route: send one command at a time from here, like the legacy IR Lab
+          const typed = delayInput.value === '' ? NaN : Number(delayInput.value);
+          const delayMs = Number.isFinite(typed) ? Math.min(Math.max(typed, 0), 10000) : 800;
+          const deviceId = targetSelect.value;
+          const thisRun = (run = { aborted: false });
+          let failed = 0;
+          toast.info(`Starting batch run of ${lines.length} commands...`);
+          for (let i = 0; i < lines.length && !thisRun.aborted; i++) {
+            try {
+              await api.sendCommand(deviceId, lines[i]);
+            } catch (e) {
+              failed++;
+              toast.error(`${lines[i]}: ${e.message}`);
+            }
+            if (i < lines.length - 1 && !thisRun.aborted) await new Promise(r => setTimeout(r, delayMs));
           }
+          run = null;
+          if (thisRun.aborted) return;
+          if (failed) toast.warn(`Batch finished, ${failed} of ${lines.length} failed`);
+          else toast.success('Batch execution finished');
         },
       }),
       h('button', {
         className: 'btn btn-danger',
         text: '⏹ Abort Run',
-        onclick: async () => {
-          if (!currentRunId) return;
-          try {
-            await api.cancelBatchIr(currentRunId);
-            toast.warn('Batch run aborted');
-          } catch (e) {
-            toast.error(e.message);
-          }
+        onclick: () => {
+          if (!run) return;
+          run.aborted = true;
+          toast.warn('Batch run aborted');
         },
       }),
     ]),

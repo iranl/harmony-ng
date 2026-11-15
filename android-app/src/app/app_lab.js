@@ -169,17 +169,21 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
   async importLabSelected() {
     const devId = document.getElementById('labDevice')?.value;
     if (!devId || devId === '__auto_lab__') return alert(t("select_real_stored_device"));
-    const lines = [];
+    // Saved like the IR database tab does (/api/commands-batch): the Hub has no IR Lab import route
+    const dev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
+    const port = dev?.controlPort ?? dev?.control_port ?? 7;
+    const cmds = [];
     document.querySelectorAll('.lab-pick:checked').forEach(cb => {
       const idx = Number(cb.getAttribute('data-index'));
       const c = this.labQueue[idx];
-      if (c.raw) lines.push(`${c.name}|raw|${c.raw}`);
-      else if (c.keycode) lines.push(`${c.name}|${c.keycode}`);
+      const code = c?.raw || c?.keycode;
+      if (c && code) cmds.push({ name: c.name, raw: code, repeats: 3, port });
     });
-    if (!lines.length) return alert(t('no_cmds_selected', 'No commands selected.'));
+    if (!cmds.length) return alert(t('no_cmds_selected', 'No commands selected.'));
     try {
-      await this.client.importIrdb({ deviceId: devId, payload: lines.join('\n') });
-      alert(t("imported_n_cmds").replace("{count}", lines.length));
+      const res = await this.client.saveBatchCommands(devId, cmds);
+      if (res && res.ok === false) throw new Error(res.error || 'Import failed');
+      alert(t("imported_n_cmds").replace("{count}", cmds.length));
       await this.refreshData();
     } catch (err) {
       alert(t('import_failed', 'Import failed: ') + err.message);
@@ -202,7 +206,6 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
 
     if (!selected.length) return alert(t("no_cmds_to_run"));
     this.labRunning = true;
-    this.labRunId = Date.now().toString();
 
     let done = 0;
     for (const cmd of selected) {
@@ -225,8 +228,9 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
   }
 
   stopLabQueue() {
+    // The run is a loop in this page (runLabQueue): clearing the flag stops it after the
+    // command in flight
     this.labRunning = false;
-    if (this.labRunId) this.client.cancelBatchIr(this.labRunId);
   }
 
   /* -------------------------------------------------------------

@@ -63,10 +63,6 @@ export function createBluetoothApi(client) {
       return client.postJson('/api/bt-mouse', payload);
     },
 
-    async runBtScript(script, delay = 35) {
-      return client.postJson('/api/bt-script', { script: String(script), delay: Number(delay) || 35 });
-    },
-
     async saveBtCommand(deviceId, name, script) {
       return client.postForm('/bt/command', { deviceId, name, script });
     },

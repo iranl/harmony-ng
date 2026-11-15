@@ -129,26 +129,11 @@ export class HarmonyClientSystemRemotes extends HarmonyClientActivitiesDevices {
     return this.postForm('/ir/delete-command', { deviceId, command });
   }
 
-  async importIrdb(data) {
-    return this.postForm('/ir/irdb-import', data);
-  }
-
   async saveBatchCommands(deviceId, commands) {
     return this.postJson('/api/commands-batch', { deviceId: String(deviceId), commands });
   }
 
   /* Bulk IR Lab */
-  async sendBatchIr(data) {
-    return this.postJson('/api/ir-batch-send', data);
-  }
-
-  async cancelBatchIr(runId) {
-    return this.postJson('/api/ir-cancel', { runId });
-  }
-
-  async clearLabTarget(deviceId) {
-    return this.postJson('/api/ir-lab-clear', { deviceId });
-  }
 
   /* MQTT */
   async getMqttStatus() {

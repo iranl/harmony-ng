@@ -13,7 +13,7 @@ export class FakeNode {
     this.dataset = {};
     this._text = '';
     this.className = '';
-    this.value = '';
+    this._value = '';
     this.disabled = false;
     this.checked = false;
     const node = this;
@@ -24,6 +24,18 @@ export class FakeNode {
       toggle: (c, on) => { const set = node._classes(); const want = on === undefined ? !set.has(c) : on; if (want) set.add(c); else set.delete(c); node.className = [...set].join(' '); return want; },
     };
   }
+  // A select without a chosen value shows its first option, as in a browser
+  get value() {
+    if (this.tagName === 'select') {
+      const opts = [...this.walk()].filter(n => n.tagName === 'option');
+      const pick = opts.find(o => o.value === this._value) || opts[0];
+      return pick ? pick.value : this._value;
+    }
+    return this._value;
+  }
+  set value(v) { this._value = String(v ?? ''); }
+  get options() { return [...this.walk()].filter(n => n.tagName === 'option'); }
+  get selectedIndex() { return this.options.findIndex(o => o.value === this.value); }
   _classes() { return new Set(String(this.className || '').split(/\s+/).filter(Boolean)); }
   get textContent() { return this._text + this.children.map(c => c.textContent).join(''); }
   set textContent(v) { this.children.forEach(c => { c.parentNode = null; }); this.children = []; this._text = String(v ?? ''); }
@@ -49,7 +61,9 @@ export class FakeNode {
   *walk() { yield this; for (const c of this.children) yield* c.walk(); }
   matches(sel) {
     return sel.split(',').map(x => x.trim()).some(one => {
-      const m = one.match(/^([a-zA-Z0-9-]*)((?:[#.][a-zA-Z0-9_-]+)*)((?:\[[^\]]+\])*)$/);
+      let sel1 = one;
+      if (sel1.endsWith(':checked')) { if (!this.checked) return false; sel1 = sel1.slice(0, -8); }
+      const m = sel1.match(/^([a-zA-Z0-9-]*)((?:[#.][a-zA-Z0-9_-]+)*)((?:\[[^\]]+\])*)$/);
       if (!m) return false;
       if (m[1] && this.tagName !== m[1].toLowerCase()) return false;
       for (const part of m[2].match(/[#.][a-zA-Z0-9_-]+/g) || []) {
