@@ -280,6 +280,9 @@ void hub_ssdp_handle(void) {
         st[i] = '\0';
     }
     if (strcasecmp(st, "ssdp:all") != 0 && strcasecmp(st, "upnp:rootdevice") != 0 && strcasecmp(st, SSDP_URN) != 0) return;
+    /* the answer is unicast to the sender: only to one on our own link, never to a spoofed or
+     * routed address (reflection, and the Hub's details to any host) */
+    if (!net_source_is_local(&from)) return;
     char out[512];
     int len = hub_ssdp_build_response(st, g_ip, g_shim_port, out, sizeof(out));
     send_to(out, len, &from);

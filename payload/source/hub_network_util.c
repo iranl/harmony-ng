@@ -17,6 +17,8 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <ifaddrs.h>
 
 void net_get_local_ip(int sock_fd, char *buf, size_t max_len) {
     struct sockaddr_in sin;
@@ -525,4 +527,26 @@ static int wifi_test_run(const char *ssid, const char *psk, int is_open, int hid
 
     if (orig_conf) free(orig_conf);
     return 0;
+}
+
+/* Whether a datagram's source is on a link of this Hub: loopback, or inside the subnet of one
+ * of its IPv4 interfaces. The discovery responders (mDNS, SSDP) answer a unicast query only
+ * then (RFC 6762 section 11): a spoofed or routed source would otherwise get the answer,
+ * which turns the Hub into a small traffic reflector and shows its details to any host. */
+int net_source_is_local(const struct sockaddr_in *from) {
+    if (!from || from->sin_family != AF_INET) return 0;
+    uint32_t src = ntohl(from->sin_addr.s_addr);
+    if ((src >> 24) == 127) return 1;
+    struct ifaddrs *list = NULL;
+    if (getifaddrs(&list) != 0) return 0;
+    int local = 0;
+    for (struct ifaddrs *ifa = list; ifa && !local; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || !ifa->ifa_netmask || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if (!(ifa->ifa_flags & IFF_UP)) continue;
+        uint32_t addr = ntohl(((const struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr);
+        uint32_t mask = ntohl(((const struct sockaddr_in *)ifa->ifa_netmask)->sin_addr.s_addr);
+        if (mask && (src & mask) == (addr & mask)) local = 1;
+    }
+    freeifaddrs(list);
+    return local;
 }

@@ -11,3 +11,6 @@ python3 "$SCRIPT_DIR/test_recovery_portal.py"
 python3 "$SCRIPT_DIR/test_recovery_ap_sh.py"
 # network_manager.sh: Ethernet settings read, DNS list, wpa_supplicant configuration file
 python3 "$SCRIPT_DIR/test_network_manager_sh.py"
+# mDNS and SSDP answer unicast queries only from senders on the Hub's own links
+build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_net_source_local" "$SCRIPT_DIR/test_net_source_local.c" \
+    "$REPO_ROOT/payload/source/hub_network_util.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_net_source_local"

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include "cJSON.h"
 
+struct sockaddr_in;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,6 +27,7 @@ void net_get_wifi_ssid(char *ssid_out, size_t ssid_len);
 void net_get_current_wifi_psk(char *psk_out, size_t psk_len);
 int net_scan_wifi_networks(cJSON *out_array);
 int net_test_wifi_connection(const char *ssid, const char *psk, int is_open, int hidden, char *err_msg, size_t err_len);
+int net_source_is_local(const struct sockaddr_in *from);
 
 #ifdef __cplusplus
 }

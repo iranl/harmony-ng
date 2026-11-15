@@ -641,7 +641,7 @@ void hub_mdns_handle(void) {
     mdns_query_t q;
     if (mdns_parse_query(pkt, (size_t)n, &q) != 0) return;
     if (q.flags & 0x8000) {
-        if (g_state != ST_OFF && is_conflict(&q, &from)) handle_conflict();
+        if (g_state != ST_OFF && is_conflict(&q, &from) && net_source_is_local(&from)) handle_conflict();
         return;
     }
     if (g_state != ST_RUNNING && g_state != ST_ANNOUNCING) return; /* not ours yet while probing */
@@ -673,6 +673,8 @@ void hub_mdns_handle(void) {
         }
     }
     if (!answers) return;
+    /* a unicast answer goes only to a sender on our own link (RFC 6762 section 11) */
+    if (unicast && !net_source_is_local(&from)) return;
     uint8_t out[MDNS_MAX_PACKET];
     /* legacy unicast queries get the query id back; multicast responses carry 0 */
     int len = mdns_build_response(&g_info, answers, additionals, 0, unicast ? q.id : 0, out, sizeof(out));

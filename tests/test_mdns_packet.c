@@ -10,6 +10,7 @@
 #include "hub_mdns.h"
 #include "hub_info.h"
 #include "http_auth.h"
+#include "hub_network_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@ void net_get_network_details(char *i, size_t il, char *g, size_t gl, char *m, si
 void net_get_iface_ip_mask_mac(const char *n, char *ip, size_t il, char *m, size_t ml, char *mac, size_t macl) {
     (void)n; (void)il; (void)ml; (void)macl; ip[0] = m[0] = mac[0] = '\0';
 }
+int net_source_is_local(const struct sockaddr_in *from) { (void)from; return 1; }
 int config_store_get_settings(struct hub_settings *s) { memset(s, 0, sizeof(*s)); s->mdns_enabled = 1; return 0; }
 
 static int g_failures;
