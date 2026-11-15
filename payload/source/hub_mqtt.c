@@ -35,6 +35,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/stat.h>
 
 #define MQTT_V2_MARKER "/data/harmony/mqtt_v2_migrated"
@@ -90,6 +91,9 @@ static void set_str(char *dst, size_t cap, const cJSON *j, const char *dflt) {
 /* enabled, host, port, username, password, baseTopic, clientId, discoveryPrefix, haDiscovery.
  * Returns 1 when MQTT is enabled and has a host. */
 static int load_mqtt_config(void) {
+    /* It holds the broker password: readable by root only (also a file saved by an older
+     * firmware, at the next start) */
+    chmod(HARMONY_MQTT_FILE, 0600);
     cJSON *root = config_store_get_mqtt_json();
     if (!root) return 0;
     cJSON *en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
@@ -842,27 +846,39 @@ struct mqtt_pulse_entry {
     int active;
 };
 static struct mqtt_pulse_entry g_pulse_queue[16];
+/* Filled by the thread of the button press (an HTTP worker), emptied by the main loop: two
+ * presses at once took the same slot and one release was never published */
+static pthread_mutex_t g_pulse_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void queue_pulse_off(const char *topic, int pulse_ms) {
     uint64_t deadline = mono_ms() + (pulse_ms > 0 ? (uint64_t)pulse_ms : 50ULL);
+    pthread_mutex_lock(&g_pulse_lock);
     for (int i = 0; i < 16; i++) {
         if (!g_pulse_queue[i].active) {
             snprintf(g_pulse_queue[i].topic, sizeof(g_pulse_queue[i].topic), "%s", topic);
             g_pulse_queue[i].off_deadline_ms = deadline;
             g_pulse_queue[i].active = 1;
+            pthread_mutex_unlock(&g_pulse_lock);
             return;
         }
     }
+    pthread_mutex_unlock(&g_pulse_lock);
     mqtt_publish_ex(topic, "0", 1, 0, 0); /* queue full: release at once */
 }
 
 static void pulse_tick(void) {
     uint64_t now = mono_ms();
     for (int i = 0; i < 16; i++) {
+        char topic[sizeof(g_pulse_queue[0].topic)];
+        int due = 0;
+        pthread_mutex_lock(&g_pulse_lock);
         if (g_pulse_queue[i].active && now >= g_pulse_queue[i].off_deadline_ms) {
-            mqtt_publish_ex(g_pulse_queue[i].topic, "0", 1, 0, 0);
+            memcpy(topic, g_pulse_queue[i].topic, sizeof(topic));
             g_pulse_queue[i].active = 0;
+            due = 1;
         }
+        pthread_mutex_unlock(&g_pulse_lock);
+        if (due) mqtt_publish_ex(topic, "0", 1, 0, 0);
     }
 }
 
@@ -1075,7 +1091,16 @@ int hub_mqtt_init(void) {
     return 1;
 }
 
+/* Settings saved: applied by the main loop (hub_mqtt_tick), which owns the MQTT state. The HTTP
+ * worker that saved them used to disconnect and set up the client itself while the main loop
+ * was reading the same socket. */
+static int g_sync_pending;
+
 void daemon_sync_mqtt(void) {
+    __atomic_store_n(&g_sync_pending, 1, __ATOMIC_SEQ_CST);
+}
+
+static void sync_mqtt_now(void) {
     int was_enabled = g_mqtt_enabled;
     g_mqtt_enabled = load_mqtt_config();
     if (mqtt_is_connected() || was_enabled) {
@@ -1098,6 +1123,7 @@ void daemon_sync_mqtt(void) {
 
 void hub_mqtt_tick(void) {
     seq_tick();
+    if (__atomic_exchange_n(&g_sync_pending, 0, __ATOMIC_SEQ_CST)) sync_mqtt_now();
     if (!g_mqtt_enabled) return;
     if (mqtt_is_connected()) {
         if (!g_last_mqtt_connected) {

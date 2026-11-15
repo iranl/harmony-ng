@@ -29,6 +29,28 @@ static char g_current_act[32] = ORCH_POWEROFF_ID;
 static char g_target_act[32] = ORCH_POWEROFF_ID;
 static pthread_mutex_t g_act_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* The step queues (g_queue, g_bg_queue and their counters) are run by the main loop (orch_tick)
+ * and replaced by requests from HTTP workers and shim clients. Without one lock over both, two
+ * requests at the same moment could both pass the busy check and build their transitions into
+ * the same queue, and a request could rewrite the queue orch_tick was running. Recursive: the
+ * main loop starts a queued request from inside orch_tick. Always taken before g_act_lock. */
+static pthread_mutex_t g_queue_lock;
+static pthread_once_t g_queue_lock_once = PTHREAD_ONCE_INIT;
+static void queue_lock_init(void) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&g_queue_lock, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void queue_lock(void) {
+    pthread_once(&g_queue_lock_once, queue_lock_init);
+    pthread_mutex_lock(&g_queue_lock);
+}
+static void queue_unlock(void) {
+    pthread_mutex_unlock(&g_queue_lock);
+}
+
 /* A start or power off asked while a transition runs: it starts when that one has completed.
  * One slot, the latest request wins (the user's last word), the running target is never queued. */
 static char g_queued_act[32];
@@ -281,7 +303,15 @@ orch_state_t orch_get_state(void) {
     return st;
 }
 
+static void cancel_locked(void);
+
 void orch_cancel(void) {
+    queue_lock();
+    cancel_locked();
+    queue_unlock();
+}
+
+static void cancel_locked(void) {
     hw_ir_cancel(IR_PORT_ALL);
     clear_activity_target();
     /* empty the queues first, so the state event below says nothing is being sent */
@@ -312,10 +342,12 @@ void orch_cancel(void) {
 
 int orch_enqueue_steps(const orch_step_t *steps, size_t count) {
     if (count > ORCH_MAX_STEPS) return -1;
+    queue_lock();
     memcpy(g_queue, steps, count * sizeof(orch_step_t));
     g_queue_len = count;
     g_current_step = 0;
     g_next_deadline_ms = get_now_ms();
+    queue_unlock();
     return 0;
 }
 
@@ -379,7 +411,16 @@ static void execute_step(const orch_step_t *step) {
     }
 }
 
+static int orch_tick_locked(void);
+
 int orch_tick(void) {
+    queue_lock();
+    int r = orch_tick_locked();
+    queue_unlock();
+    return r;
+}
+
+static int orch_tick_locked(void) {
     uint64_t now = get_now_ms();
 
     /* Process background queue */
@@ -566,8 +607,19 @@ static void orch_format_preview_json(const char *target_id,
     cJSON_Delete(pj);
 }
 
+static int switch_activity_locked(const char *target_activity_id, int dry_run,
+                                  char *preview_json, size_t preview_len);
+
 int orch_switch_activity(const char *target_activity_id, int dry_run,
                          char *preview_json, size_t preview_len) {
+    queue_lock();
+    int rc = switch_activity_locked(target_activity_id, dry_run, preview_json, preview_len);
+    queue_unlock();
+    return rc;
+}
+
+static int switch_activity_locked(const char *target_activity_id, int dry_run,
+                                  char *preview_json, size_t preview_len) {
     if (!target_activity_id || !target_activity_id[0]) return -1;
     /* an unknown id fails here, whether it would run now or be queued (a dry run keeps its
      * empty preview) */
@@ -707,8 +759,19 @@ static void note_toggle(const orch_step_t *s, orch_toggle_t *toggles, size_t max
     (*n)++;
 }
 
+static int repair_activity_locked(const char *act_id, int dry_run, orch_toggle_t *toggles, size_t max_toggles,
+                                  size_t *toggle_count, char *preview_json, size_t preview_len);
+
 int orch_repair_activity(const char *act_id, int dry_run, orch_toggle_t *toggles, size_t max_toggles,
                          size_t *toggle_count, char *preview_json, size_t preview_len) {
+    queue_lock();
+    int rc = repair_activity_locked(act_id, dry_run, toggles, max_toggles, toggle_count, preview_json, preview_len);
+    queue_unlock();
+    return rc;
+}
+
+static int repair_activity_locked(const char *act_id, int dry_run, orch_toggle_t *toggles, size_t max_toggles,
+                                  size_t *toggle_count, char *preview_json, size_t preview_len) {
     *toggle_count = 0;
     if (!act_id || !act_id[0] || strcmp(act_id, ORCH_POWEROFF_ID) == 0) return -3;
     if (!dry_run) {

@@ -616,3 +616,20 @@ DIR *opendir(const char *name) {
     }
     return real_opendir(target);
 }
+
+/* chmod() of a virtualized /data or /cache path (mqtt.json is made readable by root only) */
+int chmod(const char *path, mode_t mode) {
+    static int (*real_chmod)(const char *, mode_t) = NULL;
+    if (!real_chmod) real_chmod = dlsym(RTLD_NEXT, "chmod");
+    char resolved[512];
+    int special_type = 0;
+    const char *target = path;
+    if (strncmp(path, "/data/", 6) == 0 || strncmp(path, "/cache/", 7) == 0) {
+        target = resolve_mock_path(path, resolved, sizeof(resolved), &special_type);
+    }
+    if (!real_chmod) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return real_chmod(target, mode);
+}

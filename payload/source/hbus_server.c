@@ -57,6 +57,8 @@ static int g_config_version = 0;
 /* runactivity requests waiting for their completion frame, one per legacy client */
 typedef struct {
     int fd;
+    unsigned int gen;      /* ws_client_gen() of fd when the request came: a later client on the
+                            * same fd number is someone else */
     char id[80];
     char target[32];       /* the daemon's activity id */
 } hbus_pending_t;
@@ -279,14 +281,46 @@ static void pending_set(int fd, const char *id, const char *target) {
     if (!p) p = pending_for(-1);
     if (!p) return;
     p->fd = fd;
+    p->gen = ws_client_gen(fd);
     snprintf(p->id, sizeof(p->id), "%s", id ? id : "");
     snprintf(p->target, sizeof(p->target), "%s", target ? target : "");
 }
 
 static void pending_clear(hbus_pending_t *p) {
     p->fd = -1;
+    p->gen = 0;
     p->id[0] = '\0';
     p->target[0] = '\0';
+}
+
+/* The entry's client is still the one that asked. A client dropped by the keepalive reaper or a
+ * failed send never reaches this file's read path, and its fd number can belong to a new client
+ * (or an HTTP worker's socket) by now: such an entry is dropped. */
+static int pending_live(hbus_pending_t *p) {
+    if (p->fd < 0) return 0;
+    if (ws_client_gen(p->fd) != p->gen) {
+        pending_clear(p);
+        return 0;
+    }
+    return 1;
+}
+
+/* Requests that can no longer complete: their target was replaced in the queue by a later
+ * request, or the transition was cancelled. Once nothing runs and nothing is queued, an entry
+ * whose target is not the activity the Hub is in is dropped (it used to answer whoever held the
+ * fd at some later start of that activity). */
+static void pending_drop_stale(void) {
+    int any = 0;
+    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (pending_live(&g_pending[i])) any = 1;
+    }
+    if (!any || orch_is_busy()) return;
+    char queued[32];
+    if (orch_get_queued_activity(queued, sizeof(queued))) return;
+    const char *cur = orch_get_current_activity();
+    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (g_pending[i].fd >= 0 && strcmp(g_pending[i].target, cur) != 0) pending_clear(&g_pending[i]);
+    }
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -563,7 +597,7 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
         int tot = (total && cJSON_IsNumber(total)) ? total->valueint : 0;
         if (tot <= 0) return;
         for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-            if (g_pending[i].fd < 0 || strcmp(g_pending[i].target, target) != 0) continue;
+            if (!pending_live(&g_pending[i]) || strcmp(g_pending[i].target, target) != 0) continue;
             cJSON *d = cJSON_CreateObject();
             cJSON_AddNumberToObject(d, "done", done);
             cJSON_AddNumberToObject(d, "total", tot);
@@ -593,7 +627,7 @@ void hbus_event_sink(const hub_event_t *ev, void *user) {
         g_announced_target[0] = '\0';
         /* Step 4: completion to the requester, once */
         for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-            if (g_pending[i].fd < 0 || strcmp(g_pending[i].target, cur) != 0) continue;
+            if (!pending_live(&g_pending[i]) || strcmp(g_pending[i].target, cur) != 0) continue;
             send_json(g_pending[i].fd, reply_id_str(CMD_START, g_pending[i].id, 200, "OK", NULL));
             pending_clear(&g_pending[i]);
         }
@@ -622,6 +656,7 @@ static void apply_pending_settings(void);
 
 void hbus_tick(void) {
     apply_pending_settings();
+    pending_drop_stale();
     int fds[WS_MAX_CLIENTS];
     int n = 0;
     pthread_mutex_lock(&g_new_lock);
