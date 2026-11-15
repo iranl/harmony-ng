@@ -215,12 +215,14 @@ static const tz_entry_t s_iana_mappings[] = {
     { "Africa/Addis_Ababa",         "EAT-3" },
 };
 
-void timezone_to_posix(const char *in, char *out, size_t out_sz) {
-    if (!out || out_sz == 0) return;
+/* The POSIX string for in; returns 0 when in is a name the table does not know (out is then the
+ * default) */
+static int tz_resolve(const char *in, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return 0;
 
     if (!in || !in[0]) {
         snprintf(out, out_sz, "%s", TZ_DEFAULT_POSIX);
-        return;
+        return 1;
     }
 
     /* Trim leading and trailing whitespace */
@@ -235,14 +237,14 @@ void timezone_to_posix(const char *in, char *out, size_t out_sz) {
 
     if (!clean[0]) {
         snprintf(out, out_sz, "%s", TZ_DEFAULT_POSIX);
-        return;
+        return 1;
     }
 
     /* 1. Check if input is a known IANA identifier */
     for (size_t i = 0; i < sizeof(s_iana_mappings) / sizeof(s_iana_mappings[0]); i++) {
         if (strcasecmp(clean, s_iana_mappings[i].name) == 0) {
             snprintf(out, out_sz, "%s", s_iana_mappings[i].posix);
-            return;
+            return 1;
         }
     }
 
@@ -250,7 +252,7 @@ void timezone_to_posix(const char *in, char *out, size_t out_sz) {
     for (size_t i = 0; i < sizeof(s_prefix_mappings) / sizeof(s_prefix_mappings[0]); i++) {
         if (strcasecmp(clean, s_prefix_mappings[i].name) == 0) {
             snprintf(out, out_sz, "%s", s_prefix_mappings[i].posix);
-            return;
+            return 1;
         }
     }
 
@@ -258,17 +260,27 @@ void timezone_to_posix(const char *in, char *out, size_t out_sz) {
     const char *comma1 = strchr(clean, ',');
     if (comma1 && strchr(comma1 + 1, ',')) {
         snprintf(out, out_sz, "%s", clean);
-        return;
+        return 1;
     }
 
     /* 4. If it's a fixed offset POSIX string (e.g. UTC, JST-9, MST7, MSK-3), preserve it */
     if (!strchr(clean, '/')) {
         snprintf(out, out_sz, "%s", clean);
-        return;
+        return 1;
     }
 
     /* 5. Fallback default */
     snprintf(out, out_sz, "%s", TZ_DEFAULT_POSIX);
+    return 0;
+}
+
+void timezone_to_posix(const char *in, char *out, size_t out_sz) {
+    tz_resolve(in, out, out_sz);
+}
+
+int timezone_is_known(const char *in) {
+    char out[128];
+    return tz_resolve(in, out, sizeof(out));
 }
 
 void timezone_get_rf_prefix(const char *posix, char *out_prefix, size_t out_sz) {

@@ -10,6 +10,7 @@ Route checks of hub_daemon (port 9101, own mock root, clients bound to 127.0.0.2
     slot, device delete id)
  4  GET /api/logs reads the files the Hub writes (harmony-init.log, harmony-network.log)
  5  factory reset does not answer "initiated" when its script is not installed
+ 6  POST /api/settings refuses a timezone name the Hub does not know (it ran as CET)
 """
 
 import base64
@@ -193,6 +194,12 @@ def test_query_params():
         finally:
             for path in marks:
                 os.unlink(path)
+
+        print("[-] 6  timezones")
+        st, r = raw("POST", "/api/settings", json.dumps({"timezone": "America/Argentina/Buenos_Aires"}).encode())
+        check(st == 400, "unlisted Area/City timezone refused", "%s %s" % (st, r))
+        st, r = raw("POST", "/api/settings", json.dumps({"timezone": "Europe/Rome"}).encode())
+        check(st == 200 and isinstance(r, dict) and r.get("timezone") == "Europe/Rome", "listed timezone saved", str(st))
 
         print("[-] 5  factory reset")
         st, r = raw("POST", "/system", json.dumps({"action": "factory_reset", "confirm": "RESET"}).encode())

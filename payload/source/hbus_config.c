@@ -3,6 +3,7 @@
 #include "hbus_config.h"
 #include "config_store.h"
 #include "sha256.h"
+#include "json_number.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,8 +45,7 @@ static const char *obj_str(const cJSON *o, const char *k) {
 static void id_of(const cJSON *d, char *out, size_t cap) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(d, "id");
     if (j && cJSON_IsString(j) && j->valuestring) snprintf(out, cap, "%s", j->valuestring);
-    else if (j && cJSON_IsNumber(j)) snprintf(out, cap, "%ld", (long)j->valuedouble);
-    else out[0] = '\0';
+    else if (!json_number_text(j, out, cap)) out[0] = '\0';
 }
 
 static cJSON *list_of(cJSON *root, const char *key) {
@@ -202,8 +202,7 @@ int hbus_activity_devices(const cJSON *act, char ids[16][32]) {
             char did[32];
             const cJSON *j = cJSON_GetObjectItemCaseSensitive(st, "deviceId");
             if (j && cJSON_IsString(j) && j->valuestring) snprintf(did, sizeof(did), "%s", j->valuestring);
-            else if (j && cJSON_IsNumber(j)) snprintf(did, sizeof(did), "%ld", (long)j->valuedouble);
-            else continue;
+            else if (!json_number_text(j, did, sizeof(did))) continue;
             int dup = 0;
             for (int i = 0; i < n; i++) if (strcmp(ids[i], did) == 0) dup = 1;
             if (!dup && n < 16) snprintf(ids[n++], 32, "%s", did);

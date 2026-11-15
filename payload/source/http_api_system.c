@@ -694,6 +694,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 s.ntp_server[sizeof(s.ntp_server) - 1] = '\0';
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "timezone");
+            if (item && cJSON_IsString(item) && item->valuestring && !timezone_is_known(item->valuestring)) {
+                /* it used to be stored and silently run as Central European time */
+                cJSON_Delete(p);
+                send_json_error(client_fd, 400, "Unknown timezone: use a name from the list or a POSIX TZ string");
+                close(client_fd);
+                return 1;
+            }
             if (item && cJSON_IsString(item) && item->valuestring) {
                 strncpy(s.timezone, item->valuestring, sizeof(s.timezone) - 1);
                 s.timezone[sizeof(s.timezone) - 1] = '\0';

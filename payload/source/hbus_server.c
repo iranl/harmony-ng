@@ -6,6 +6,7 @@
 #include "hub_info.h"
 #include "http_server.h"
 #include "http_util.h"
+#include "json_number.h"
 #include "ws_server.h"
 #include "orchestrator.h"
 #include "hw_action.h"
@@ -112,7 +113,7 @@ static void load_remote_id(void) {
         if (root) {
             const cJSON *r = cJSON_GetObjectItemCaseSensitive(root, "remoteId");
             if (r && cJSON_IsNumber(r) && r->valuedouble > 0) {
-                snprintf(g_remote_id, sizeof(g_remote_id), "%ld", (long)r->valuedouble);
+                json_number_text(r, g_remote_id, sizeof(g_remote_id));
             } else if (r && cJSON_IsString(r) && r->valuestring && r->valuestring[0]) {
                 snprintf(g_remote_id, sizeof(g_remote_id), "%s", r->valuestring);
             }
@@ -294,10 +295,7 @@ static void pending_clear(hbus_pending_t *p) {
 static const char *param_str(const cJSON *params, const char *key, char *buf, size_t cap) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(params, key);
     if (j && cJSON_IsString(j) && j->valuestring) return j->valuestring;
-    if (j && cJSON_IsNumber(j)) {
-        snprintf(buf, cap, "%ld", (long)j->valuedouble);
-        return buf;
-    }
+    if (j && cJSON_IsNumber(j)) return json_number_text(j, buf, cap) ? buf : NULL;
     return NULL;
 }
 
@@ -311,7 +309,7 @@ static int activity_exists(const char *id) {
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
         char aid[32] = "";
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
-        else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
+        else if (j && cJSON_IsNumber(j)) json_number_text(j, aid, sizeof(aid));
         if (strcmp(aid, id) == 0) {
             found = 1;
             break;
@@ -331,7 +329,7 @@ static cJSON *cmd_runactivity(int fd, const char *cmd, const cJSON *id, const cJ
     if (!activity_exists(target)) return reply(cmd, id, 500, "Unknown activity", NULL);
     char idtxt[80] = "";
     if (id && cJSON_IsString(id) && id->valuestring) snprintf(idtxt, sizeof(idtxt), "%s", id->valuestring);
-    else if (id && cJSON_IsNumber(id)) snprintf(idtxt, sizeof(idtxt), "%ld", (long)id->valuedouble);
+    else if (id && cJSON_IsNumber(id)) json_number_text(id, idtxt, sizeof(idtxt));
     /* The request id must be remembered before the orchestrator emits (an empty transition
      * completes inside the call; the bus dispatches it on the next iteration) */
     pending_set(fd, idtxt, target);
@@ -400,7 +398,7 @@ static int channel_device_in(cJSON *aroot, cJSON *droot, const char *cur, char *
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
         char aid[32] = "";
         if (j && cJSON_IsString(j) && j->valuestring) snprintf(aid, sizeof(aid), "%s", j->valuestring);
-        else if (j && cJSON_IsNumber(j)) snprintf(aid, sizeof(aid), "%ld", (long)j->valuedouble);
+        else if (j && cJSON_IsNumber(j)) json_number_text(j, aid, sizeof(aid));
         if (strcmp(aid, cur) != 0) continue;
         /* the same device list as the configuration object: sequence steps plus deviceIds */
         char ids[16][32];
@@ -412,7 +410,7 @@ static int channel_device_in(cJSON *aroot, cJSON *droot, const char *cur, char *
                 const cJSON *ij = cJSON_GetObjectItemCaseSensitive(d, "id");
                 char xid[32] = "";
                 if (ij && cJSON_IsString(ij) && ij->valuestring) snprintf(xid, sizeof(xid), "%s", ij->valuestring);
-                else if (ij && cJSON_IsNumber(ij)) snprintf(xid, sizeof(xid), "%ld", (long)ij->valuedouble);
+                else if (ij && cJSON_IsNumber(ij)) json_number_text(ij, xid, sizeof(xid));
                 if (strcmp(xid, did) != 0) continue;
                 const cJSON *c = NULL;
                 cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(d, "commands")) {
