@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Aanmelden...",
     "app_token_not_deleted": "De vorige aanmelding kon niet op de Hub worden verwijderd: een beheerder kan deze in de tokenlijst verwijderen.",
     "hub_password_for_user": "Typ het wachtwoord om aan te melden als de nieuwe gebruiker.",
+    "token_owner": "Eigenaar: {owner}",
     "quick_map_nav_vol_desc": "Wijs snel standaard navigatie- en volumeknoppen toe aan een geselecteerd apparaat.",
     "quick_shortcuts": "Snelle sneltoetsen",
     "quick_suggestions_lbl": "Snelle suggesties:",

@@ -95,6 +95,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       }
       html += '</div>';
       listEl.innerHTML = html;
+      showTokenOwners(listEl, tokens);
 
       listEl.querySelectorAll('.btn-del-user').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -264,7 +265,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
             <div>
               <div style="font-weight: 600; font-size: 13px;">${escapeHtml(t.name || 'Unnamed Token')}</div>
               <div class="mini muted" style="font-size: 10px; margin-top: 2px;">
-                <span>ID: ${t.id}</span> • <span>Owner: ${escapeHtml(t.owner || '-')}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
+                <span>ID: ${t.id}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
               </div>
             </div>
             <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name || t.id)}">Revoke</button>
@@ -433,11 +434,11 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       if (me && me.auth_enabled) {
         this.authEnabled = true;
         if (btnSession) btnSession.style.display = 'inline-flex';
-        // the app's token reports itself as "pat:<token name>": show the account it belongs to
-        const appUser = (me.username || '').startsWith('pat:') && this.client.hub ? this.client.hub.username : '';
-        if (userDisplay) userDisplay.textContent = appUser || me.username || 'User';
+        if (userDisplay) userDisplay.textContent = me.username || 'User';
         if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
         const hasToken = Boolean(this.client.token);
+        // the app's token reports itself as "pat:<token name>": show the account it belongs to
+        if (userDisplay && hasToken && (me.username || '').startsWith('pat:') && this.client.hub?.username) userDisplay.textContent = this.client.hub.username;
         if (!hasToken) {
           this.showLoginModal();
         } else {
@@ -461,4 +462,16 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     }
   }
 
+}
+
+// Adds each token's owner (the account it belongs to and ends with) to its row in the token list
+export function showTokenOwners(listEl, tokens) {
+  listEl.querySelectorAll('.btn-del-pat').forEach(btn => {
+    const tok = tokens.find(x => x.id === btn.getAttribute('data-id'));
+    const meta = btn.parentNode && btn.parentNode.querySelector('.mini.muted');
+    if (!tok || !meta) return;
+    const span = document.createElement('span');
+    span.textContent = ` • ${t('token_owner', 'Owner: {owner}').replace('{owner}', tok.owner || '-')}`;
+    meta.appendChild(span);
+  });
 }

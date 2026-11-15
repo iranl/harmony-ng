@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Iniciando sesión...",
     "app_token_not_deleted": "No se pudo borrar el inicio de sesión anterior en el Hub: un administrador puede borrarlo en la lista de tokens.",
     "hub_password_for_user": "Escriba la contraseña para iniciar sesión como el nuevo usuario.",
+    "token_owner": "Propietario: {owner}",
     "quick_map_nav_vol_desc": "Mapea rápidamente los botones estándar de navegación y volumen a un dispositivo seleccionado.",
     "quick_shortcuts": "Accesos rápidos",
     "quick_suggestions_lbl": "Sugerencias rápidas:",

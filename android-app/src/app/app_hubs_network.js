@@ -1,6 +1,6 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
-import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, checkLogin } from '../app_token.js';
+import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
   getHarmonyManufacturers,
@@ -591,20 +591,16 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
     modal.querySelector('#btnHubTest').onclick = async () => {
       const stat = modal.querySelector('#hubTestStatus');
       stat.textContent = 'Testing connection...';
-      const target = {
+      const c = new HarmonyClient({
         host: modal.querySelector('#hubFormHost').value.trim(),
-        port: Number(modal.querySelector('#hubFormPort').value) || 8089
-      };
-      // the connection is tested without credentials; a typed password is checked with one login
-      // that is ended at once (nothing is kept)
-      const res = await new HarmonyClient(target).testConnection();
-      const password = modal.querySelector('#hubFormPass').value;
-      if (res.ok && password) {
-        const lr = await checkLogin(hubBaseUrl(target), modal.querySelector('#hubFormUser').value.trim(), password)
-          .catch(err => ({ ok: false, error: err.message }));
-        if (!lr.ok) res.ok = false;
-        res.error = lr.error;
-      }
+        port: Number(modal.querySelector('#hubFormPort').value) || 8089,
+        username: modal.querySelector('#hubFormUser').value.trim(),
+        password: modal.querySelector('#hubFormPass').value.trim()
+      });
+      // the app sends no password with requests: a typed one is checked with one login that is
+      // ended at once (nothing is kept)
+      c.testConnection = withLoginCheck(c, modal.querySelector('#hubFormUser').value.trim(), modal.querySelector('#hubFormPass').value);
+      const res = await c.testConnection();
       if (res.ok) stat.innerHTML = '<span style="color:var(--success)">✓ Connected!</span>';
       else stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(res.error)}</span>`;
     };

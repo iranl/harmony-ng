@@ -409,5 +409,23 @@ await t.check('header badge shows the account, not the token name', async () => 
   assert.equal(a.currentUser, 'alice');
 });
 
+await t.check('token list rows show the owner', async () => {
+  const { showTokenOwners } = await import('../android-app/src/app/app_auth_users.js');
+  const list = document.createElement('div');
+  const row = document.createElement('div');
+  const info = document.createElement('div');
+  const meta = document.createElement('div');
+  meta.className = 'mini muted';
+  info.appendChild(meta);
+  row.appendChild(info);
+  const btn = document.createElement('button');
+  btn.className = 'btn-del-pat';
+  btn.setAttribute('data-id', 'tok_1');
+  row.appendChild(btn);
+  list.appendChild(row);
+  showTokenOwners(list, [{ id: 'tok_1', owner: 'alice' }]);
+  assert.match(meta.textContent, /Owner: alice/);
+});
+
 t.finish();
 process.exit(0);

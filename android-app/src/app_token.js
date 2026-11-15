@@ -101,6 +101,17 @@ export async function checkLogin(baseUrl, username, password, { timeout = 4000 }
   return { ok: true };
 }
 
+// Test button: client.testConnection() that also checks a typed password with one login
+export function withLoginCheck(client, username, password) {
+  const plain = client.testConnection.bind(client);
+  return async () => {
+    const res = await plain();
+    if (!res.ok || !password) return res;
+    const lr = await checkLogin(client.baseUrl, username, password).catch(err => ({ ok: false, error: err.message }));
+    return lr.ok ? res : { ok: false, error: lr.error };
+  };
+}
+
 // Delete the profile's token on the Hub. False when the Hub could not be reached or refused;
 // the caller forgets the token anyway.
 export async function revokeAppToken(baseUrl, hub, { timeout = 4000 } = {}) {

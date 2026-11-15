@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Accesso in corso...",
     "app_token_not_deleted": "Non è stato possibile eliminare l'accesso precedente sull'Hub: un admin può eliminarlo nell'elenco dei token.",
     "hub_password_for_user": "Inserisci la password per accedere come nuovo utente.",
+    "token_owner": "Proprietario: {owner}",
     "quick_map_nav_vol_desc": "Mappa rapidamente i pulsanti standard di navigazione e volume sul dispositivo selezionato.",
     "quick_shortcuts": "Scorciatoie rapide",
     "quick_suggestions_lbl": "Suggerimenti rapidi:",

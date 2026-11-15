@@ -882,6 +882,7 @@ export default {
     "hub_logging_in": "Anmeldung...",
     "app_token_not_deleted": "Die vorherige Anmeldung konnte auf dem Hub nicht gelöscht werden: Ein Admin kann sie in der Token-Liste löschen.",
     "hub_password_for_user": "Geben Sie das Passwort ein, um sich als neuer Benutzer anzumelden.",
+    "token_owner": "Besitzer: {owner}",
     "quick_map_nav_vol_desc": "Schnelle Zuweisung von Standard-Navigations- und Lautstärketasten zu einem ausgewählten Gerät.",
     "quick_shortcuts": "Schnellzugriffe",
     "quick_suggestions_lbl": "Schnellvorschläge:",
