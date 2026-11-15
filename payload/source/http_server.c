@@ -168,6 +168,28 @@ static int is_http_keep_alive(const char *req) {
     return 0;
 }
 
+/* Largest request body accepted for the request in req (its request line). Every body is read
+ * into memory and copied again by the handlers: the config import and the icon upload keep the
+ * old 2 MB, the saves that carry a whole button map or the web remote layouts get 256 KB,
+ * everything else HTTP_BODY_MAX. */
+#define HTTP_BODY_MAX (64 * 1024)
+#define HTTP_BODY_MAX_MAP (256 * 1024)
+#define HTTP_BODY_MAX_LARGE (2 * 1024 * 1024 - 1)
+static long http_body_limit(const char *req) {
+    static const struct { const char *route; long max; } limits[] = {
+        { "POST /import", HTTP_BODY_MAX_LARGE },
+        { "POST /api/custom-icons", HTTP_BODY_MAX_LARGE },
+        { "POST /api/rf-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/remote-mapping-save", HTTP_BODY_MAX_MAP },
+        { "POST /api/ui-remote-layout", HTTP_BODY_MAX_MAP },
+    };
+    for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
+        size_t n = strlen(limits[i].route);
+        if (strncmp(req, limits[i].route, n) == 0 && (req[n] == ' ' || req[n] == '?')) return limits[i].max;
+    }
+    return HTTP_BODY_MAX;
+}
+
 static int serve_static_file(int client_fd, const char *req, const char *path, int keep_alive) {
     if (strstr(path, "..")) return 0;
 
@@ -615,6 +637,13 @@ void http_handle_client(int client_fd) {
                 long cl = atol(cl_pos);
                 size_t hdr_len = (size_t)(hdr_end + 4 - init_buf);
                 size_t body_recvd = (total_hdr >= hdr_len) ? (total_hdr - hdr_len) : 0;
+                if (cl > http_body_limit(init_buf)) {
+                    /* Refused before the body is read */
+                    send_json_error(client_fd, 413, "Request body too large");
+                    close(client_fd);
+                    free(init_buf);
+                    return;
+                }
                 if (cl > 0 && cl < 2 * 1024 * 1024 && (size_t)cl > body_recvd) {
                     size_t total_needed = hdr_len + (size_t)cl;
                     dyn_buf = (char *)malloc(total_needed + 1);

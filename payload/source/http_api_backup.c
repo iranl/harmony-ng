@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/socket.h>
 
 /* --- Import: every part is checked before the first file is written --- */
@@ -141,8 +142,8 @@ static char *bt_links_export_json(size_t *out_len) {
     return txt;
 }
 
-int http_api_backup_handle(int client_fd, const char *method, const char *clean_path,
-                           const char *query, const char *body, const char *req) {
+static int backup_handle(int client_fd, const char *method, const char *clean_path,
+                         const char *query, const char *body, const char *req) {
     (void)query;
     (void)req;
 
@@ -516,4 +517,24 @@ int http_api_backup_handle(int client_fd, const char *method, const char *clean_
     }
 
     return 0;
+}
+
+/* One import or export at a time: each holds the whole configuration in memory several times
+ * (request body, parsed tree, printed sections), and several at once could run the Hub out of
+ * memory. A second one gets 409. */
+static pthread_mutex_t g_backup_busy = PTHREAD_MUTEX_INITIALIZER;
+
+int http_api_backup_handle(int client_fd, const char *method, const char *clean_path,
+                           const char *query, const char *body, const char *req) {
+    int is_backup = (strncmp(clean_path, "/export/", 8) == 0 && strcmp(method, "GET") == 0) ||
+                    (strcmp(clean_path, "/import") == 0 && strcmp(method, "POST") == 0);
+    if (!is_backup) return 0;
+    if (pthread_mutex_trylock(&g_backup_busy) != 0) {
+        send_json_error(client_fd, 409, "Another import or export is running");
+        close(client_fd);
+        return 1;
+    }
+    int handled = backup_handle(client_fd, method, clean_path, query, body, req);
+    pthread_mutex_unlock(&g_backup_busy);
+    return handled;
 }

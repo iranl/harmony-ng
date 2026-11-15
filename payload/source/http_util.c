@@ -22,6 +22,7 @@ void send_cjson_resp(int fd, int code, cJSON *obj) {
                             (code == 403) ? "Forbidden" :
                             (code == 404) ? "Not Found" :
                             (code == 409) ? "Conflict" :
+                            (code == 413) ? "Payload Too Large" :
                             (code == 503) ? "Service Unavailable" : "Internal Server Error";
     char *json = obj ? cJSON_PrintUnformatted(obj) : NULL;
     size_t body_len = json ? strlen(json) : 0;
