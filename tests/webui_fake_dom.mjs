@@ -147,3 +147,30 @@ export function texts(root, cls) {
 export function buttonByText(root, label) {
   return [...root.walk()].find(n => n.tagName === 'button' && n.textContent.trim() === label) || null;
 }
+
+// The UIs import JSON files the way Vite does (no import attribute), and Capacitor plugins that
+// exist only in the app's node_modules; Node needs a hook for both. The Capacitor stand-ins fail
+// every call, so the code takes its browser path (localStorage). Call before the dynamic import
+// of a view.
+export async function allowJsonImports() {
+  const { register } = await import('node:module');
+  const capacitor = 'export const Preferences = { get: async () => { throw new Error("no native"); }, ' +
+    'set: async () => { throw new Error("no native"); }, remove: async () => { throw new Error("no native"); } }; ' +
+    'export const Haptics = { impact: async () => {} }; export const ImpactStyle = { Light: "LIGHT", Medium: "MEDIUM", Heavy: "HEAVY" };';
+  const hook = `
+    import { readFile } from 'node:fs/promises';
+    export async function resolve(specifier, context, next) {
+      if (specifier.startsWith('@capacitor/')) {
+        return { url: 'data:text/javascript,' + encodeURIComponent(${JSON.stringify(capacitor)}), shortCircuit: true };
+      }
+      return next(specifier, context);
+    }
+    export async function load(url, context, next) {
+      if (url.startsWith('file:') && url.endsWith('.json')) {
+        const src = await readFile(new URL(url), 'utf8');
+        return { format: 'module', source: 'export default ' + src + ';', shortCircuit: true };
+      }
+      return next(url, context);
+    }`;
+  register(`data:text/javascript,${encodeURIComponent(hook)}`);
+}

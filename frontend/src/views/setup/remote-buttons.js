@@ -156,6 +156,7 @@ export function createButtonEditor() {
   let ctx = 'a:-1';
   let selected = 'VolumeUp';
   let dirty = false;
+  let loadError = null; // the slot's map could not be read: saving would replace it with what is shown
   let screenView = null; // a screen picked with the ACTIVITIES / DEVICES keys; null follows the context
   let listTop = null;     // the screen's list scrolled this many remote pixels; null opens it on its selection
   let homeSelect = 0;     // an activity on the home page shown
@@ -349,6 +350,10 @@ export function createButtonEditor() {
     className: 'btn btn-primary btn-sm',
     text: 'Save to Hub',
     onclick: async () => {
+      if (loadError) {
+        toast.error(`Not saved: the Hub's key map was not loaded (${loadError}). Press Revert to load it again.`);
+        return;
+      }
       try {
         await api.saveRFMapping(map, slot);
         dirty = false;
@@ -685,13 +690,20 @@ export function createButtonEditor() {
 
   async function load(newSlot) {
     slot = newSlot;
+    let mapError = null;
     const [m, devs] = await Promise.all([
-      api.getRFMapping(slot).catch(() => null),
+      api.getRFMapping(slot).catch((e) => { mapError = e?.message || String(e); return null; }),
       api.request('/api/devices').catch(() => null),
     ]);
     // The Hub's push and its device-browser matching read devices.json (/api/devices)
     devices = devs?.devices || [];
-    map = m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+    // Only a reply from the Hub starts an empty map ({"ok":true,"mappings":[]} = no map yet);
+    // after a failed read the editor shows nothing and must not save over the Hub's map
+    if (!mapError && !(m && typeof m === 'object' && !Array.isArray(m))) mapError = 'unexpected reply';
+    loadError = mapError;
+    saveBtn.disabled = Boolean(loadError);
+    if (loadError) toast.error(`Cannot load the key map of slot ${slot}: ${loadError}. Saving is off until it loads.`);
+    map = !loadError ? m : {};
     delete map.ok; delete map.mappings; // the Hub's reply when it has no map yet
     map.activities = map.activities || {};
     map.devices = map.devices || {};

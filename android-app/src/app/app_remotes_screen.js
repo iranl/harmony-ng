@@ -214,19 +214,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       }
     }
 
-    try {
-      const m = await this.client.getRFMapping(this.selectedRemoteSlot);
-      if (m) {
-        if (!m.activities) m.activities = {};
-        if (!m.devices) m.devices = {};
-        this.remoteMapData = m;
-      } else {
-        this.remoteMapData = { activities: {}, devices: {} };
-      }
-    } catch (e) {
-      console.warn(`Failed to load slot ${this.selectedRemoteSlot} mappings:`, e);
-      this.remoteMapData = { activities: {}, devices: {} };
-    }
+    await this.loadRemoteMap();
 
     try {
       this.remoteConfig = await this.client.request(`/api/rf/remote-config?slot=${this.selectedRemoteSlot || 1}`).catch(() => null);
@@ -518,9 +506,36 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     }
   }
 
+  // Reads the slot's key map. Save All posts the whole map and the Hub replaces its file with it,
+  // so after a failed read the editor keeps Save off: an empty map shown here would wipe the slot.
+  // Only a reply from the Hub ({"ok":true,"mappings":[]} = no map yet) starts an empty map.
+  async loadRemoteMap() {
+    const slot = this.selectedRemoteSlot || 1;
+    this.remoteMapLoadError = null;
+    try {
+      const m = await this.client.getRFMapping(slot);
+      if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error('unexpected reply');
+      delete m.ok; delete m.mappings; // the Hub's reply when it has no map yet
+      if (!m.activities) m.activities = {};
+      if (!m.devices) m.devices = {};
+      this.remoteMapData = m;
+    } catch (e) {
+      console.warn(`Failed to load slot ${slot} mappings:`, e);
+      this.remoteMapLoadError = e?.message || String(e);
+      this.remoteMapData = { activities: {}, devices: {} };
+      showToast(`Cannot load the key map of slot ${slot}: ${this.remoteMapLoadError}. Saving is off until it loads.`, 'danger');
+    }
+    const btn = document.getElementById('remoteSaveAllBtn');
+    if (btn) btn.disabled = Boolean(this.remoteMapLoadError);
+  }
+
   async saveAllRemoteMappings() {
     const btn = document.getElementById('remoteSaveAllBtn');
     const slot = this.selectedRemoteSlot || 1;
+    if (this.remoteMapLoadError) {
+      showToast(`Not saved: the Hub's key map was not loaded (${this.remoteMapLoadError}). Open the slot again to retry.`, 'danger');
+      return;
+    }
     try {
       if (btn) btn.textContent = 'Saving...';
       await this.client.saveRFMapping(this.remoteMapData, slot);
