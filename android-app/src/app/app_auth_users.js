@@ -53,7 +53,7 @@ import {
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
 import { HarmonyAppSettingsSystem } from './app_settings_system.js';
-import { askUnconfirmed, unconfirmedItems } from './decision_dialogs.js';
+import { askToCheck, checkItems } from './decision_dialogs.js';
 
 export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
   async loadUserAccounts() {
@@ -68,7 +68,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
 
       if (chk) chk.checked = Boolean(data.auth_enabled);
       const users = data.users || [];
-      this.renderUnconfirmedNotice(data, listEl);
+      this.renderSwitchCheckNotice(data, listEl);
 
       const admin = users.find(u => u.role === 'admin');
       if (admin && adminUser) adminUser.value = admin.username;
@@ -112,59 +112,50 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     }
   }
 
-  // The list the Hub answered when authentication was turned on, once there is a login to act with
-  async showPendingUnconfirmed() {
-    const pending = this.pendingUnconfirmed;
+  // The accounts and tokens to check that the Hub answered when authentication was turned on,
+  // shown once there is a login from after the switch to act with
+  async showSwitchCheck() {
+    const pending = this.pendingSwitchCheck;
     if (!pending || !this.client?.token) return;
-    // the switch ended every session: only a login made after it can keep or delete anything
+    // the switch ended every session: only a login made after it can delete anything
     let session = null;
     try {
       session = await this.client.getAuthMe();
     } catch {
       session = null;
     }
-    if (!session?.authenticated || session.role !== 'admin') {
+    if (!session?.authenticated) {
       this.showLoginModal(); /* the list stays pending until the login succeeds */
       return;
     }
-    this.pendingUnconfirmed = null;
+    this.pendingSwitchCheck = null;
+    if (session.role !== 'admin') return; /* a user account cannot delete accounts or tokens */
     const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
-    await askUnconfirmed(this.client, pending, me);
+    this.lastSwitchCheck = pending;
+    await askToCheck(this.client, pending, me);
     await this.loadUserAccounts();
   }
 
-  // Users page: the accounts and tokens still waiting (made while authentication was off), with a
-  // button that asks about them again
-  async renderUnconfirmedNotice(usersData, listEl) {
+  // Users page: the result of the last switch in this session, to open again
+  renderSwitchCheckNotice(usersData, listEl) {
     if (!listEl?.parentNode) return;
-    let box = document.getElementById('unconfirmedAuthNotice');
+    let box = document.getElementById('switchCheckNotice');
     if (!box) {
       box = document.createElement('div');
-      box.id = 'unconfirmedAuthNotice';
+      box.id = 'switchCheckNotice';
       box.style.cssText = 'margin: 6px 0;';
       listEl.parentNode.insertBefore(box, listEl);
     }
-    const gen = (this.unconfirmedNoticeGen = (this.unconfirmedNoticeGen || 0) + 1);
     box.replaceChildren();
-    if (!usersData?.auth_enabled) return;
+    if (!usersData?.auth_enabled || !this.lastSwitchCheck) return;
     const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
-    let tokens = [];
-    try {
-      tokens = ((await this.client.getTokens())?.tokens || []).filter((x) => x.confirmed === false);
-    } catch {
-      tokens = [];
-    }
-    if (gen !== this.unconfirmedNoticeGen) return; /* a newer call draws it */
-    box.replaceChildren();
-    const unconfirmed = { users: (usersData.users || []).filter((u) => u.confirmed === false), tokens };
-    const n = unconfirmedItems(unconfirmed, me).length;
-    if (!n) return;
+    if (!checkItems(this.lastSwitchCheck, me).length) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-xs btn-secondary';
-    btn.textContent = `${t('auth_unconfirmed_title', 'Made while authentication was off')} (${n})`;
+    btn.textContent = t('auth_check_title', 'Check accounts and access tokens');
     btn.addEventListener('click', async () => {
-      await askUnconfirmed(this.client, unconfirmed, me);
+      await askToCheck(this.client, this.lastSwitchCheck, me);
       await this.loadUserAccounts();
     });
     box.appendChild(btn);
@@ -220,10 +211,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         } else if (!this.client.token) {
           this.showLoginModal();
         }
-        // Accounts and tokens made while authentication was off: asked about now, or right after
-        // the login when one is needed first
-        this.pendingUnconfirmed = authReply?.unconfirmed || null;
-        await this.showPendingUnconfirmed();
+        // the accounts and tokens to check: shown now, or right after the login when one is needed
+        this.pendingSwitchCheck = authReply?.to_check || null;
+        await this.showSwitchCheck();
       }
 
       await this.loadUserAccounts();
@@ -347,7 +337,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           this.recordSuccess();
           this.setHubStatus(true);
           await this.checkAuthStatus();
-          await this.showPendingUnconfirmed();
+          await this.showSwitchCheck();
           await this.refreshData();
           if (this.currentTab === 'system') {
             await this.loadUserAccounts();

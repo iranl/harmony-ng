@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { showSwitchCheck } from '../../components/hub-decisions.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-backup', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -86,8 +87,10 @@ export function createView() {
         if (ok) {
           try {
             toast.info('Restoring backup to Hub...');
-            await api.restoreBackup('all', text, false);
+            const reply = await api.restoreBackup('all', text, false);
             toast.success('Backup restored successfully!');
+            // the restore turned authentication on: the accounts and tokens to check
+            if (reply?.to_check) showSwitchCheck(api, reply.to_check);
           } catch (e) {
             toast.error(e.message);
           }

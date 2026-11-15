@@ -595,8 +595,6 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                         return 1;
                     }
                     if (renaming || pass[0]) http_auth_drop_user_sessions(ulist[admin_idx].username);
-                    /* changed while authentication is off: asked about again at the switch */
-                    if (!curr_auth_enabled && (renaming || pass[0])) ulist[admin_idx].confirmed = AUTH_MARK_NO;
                     if (renaming) {
                         memset(ulist[admin_idx].username, 0, sizeof(ulist[admin_idx].username));
                         strncpy(ulist[admin_idx].username, uname, sizeof(ulist[admin_idx].username) - 1);
@@ -611,12 +609,7 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     strncpy(ulist[admin_idx].username, uname[0] ? uname : "admin", sizeof(ulist[admin_idx].username) - 1);
                     compute_ha1(ulist[admin_idx].username, HARMONY_AUTH_REALM, pass, ulist[admin_idx].ha1);
                     ulist[admin_idx].role = ROLE_ADMIN;
-                    ulist[admin_idx].confirmed = curr_auth_enabled ? AUTH_MARK_YES : AUTH_MARK_NO;
                 }
-                /* Turning authentication on: this admin is the owner's account when the request sets
-                 * its password; the reply lists the accounts and tokens nobody confirmed */
-                int turning_on = !curr_auth_enabled && new_auth_enabled;
-                if (turning_on) http_auth_switch_on_accounts(ulist, ucnt, admin_idx, pass[0] != 0);
 
                 /* No admin account and no password given: never invent admin/admin (the web UI
                  * used to save the moment the checkbox was ticked, before the form was filled).
@@ -636,7 +629,10 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddBoolToObject(resp, "ok", 1);
                 cJSON_AddBoolToObject(resp, "auth_enabled", new_auth_enabled);
                 cJSON_AddStringToObject(resp, "message", "Authentication settings updated");
-                if (turning_on) http_auth_add_unconfirmed(resp, ulist, ucnt);
+                if (!curr_auth_enabled && new_auth_enabled) {
+                    /* turned on: the accounts and tokens to check, but the admin set here */
+                    http_auth_add_switch_check(resp, ulist, ucnt, admin_idx >= 0 ? ulist[admin_idx].username : NULL);
+                }
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);

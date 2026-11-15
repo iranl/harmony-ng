@@ -27,18 +27,7 @@ struct user_account {
     char password[MAX_PASSWORD_LEN];
     char ha1[65];
     enum http_role role;
-    /* AUTH_MARK_YES: made while authentication was on, or kept since the last switch from off
-     * to on (by an admin, or as the account that switch named).
-     * AUTH_MARK_NO: waiting: every account but the switch's own after each switch from off to on,
-     * and accounts made or changed while authentication is off; listed until kept or deleted.
-     * AUTH_MARK_UNKNOWN: no mark in the file (older firmware): counts as kept while authentication
-     * stays on, like any other at the next switch. */
-    int confirmed;
 };
-
-#define AUTH_MARK_NO 0
-#define AUTH_MARK_YES 1
-#define AUTH_MARK_UNKNOWN (-1)
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,27 +53,11 @@ void http_auth_note_success(const char *client_ip);
 /* End the sessions of one account (deleted, renamed, demoted, new password), or all of them */
 void http_auth_drop_user_sessions(const char *username);
 void http_auth_drop_all_sessions(void);
-/* Authentication goes from off to on (in memory; the caller saves the accounts): the owner's
- * account (index owner, -1 for none) is kept when the request sets its password, or when it was not
- * changed while authentication was off; every other account goes back to waiting (an off period
- * voids earlier keeps: anybody was admin then). */
-void http_auth_switch_on_accounts(struct user_account *users, int count, int owner, int owner_password_set);
-/* 1 when the caller (an account or a personal access token) is itself waiting: it may not keep
- * anything (it could keep itself) */
-int http_auth_caller_waiting(const char *req, const char *client_ip);
-/* At the same switch, after the accounts were saved: every token gets "confirmed": false,
- * and the reply gets "unconfirmed": {"users": [...], "tokens": [...]} (every account and token
- * marked false), so the UIs can ask to keep or delete each. */
-void http_auth_add_unconfirmed(cJSON *reply, const struct user_account *users, int count);
-/* Marks accounts (usernames) and tokens (ids) as kept; all = every one. Returns 0, or -1 when a
- * file could not be written. */
-int http_auth_confirm(const cJSON *usernames, const cJSON *token_ids, int all, int *users_done, int *tokens_done);
-/* After an import replaced users.json or webui_auth.conf (before = the accounts and the state
- * from before it). Made while authentication was off, an import cannot vouch for anybody: every
- * imported account is marked AUTH_MARK_NO, except one with the same name and password digest that
- * was kept before. Saves the accounts. Returns the "unconfirmed" reply object when the import
- * turned authentication on, else NULL. */
-cJSON *http_auth_after_import(const struct user_account *before, int before_count, int before_on);
+/* Authentication went from off to on. While it was off every client was admin, so anybody could
+ * have made or changed an account or a token: adds "to_check": {"users": [...], "tokens": [...]}
+ * to the reply, every account except owner (the one the switching request names, NULL for none)
+ * and every personal access token (no hashes), for the UIs to show at once. */
+void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

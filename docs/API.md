@@ -1891,48 +1891,30 @@ Harmony Hub supports a multi-tier authentication model:
   personal access tokens it created. Turning authentication on or off ends every session.
 - Personal access tokens can be created only while authentication is on (`409` otherwise), carry the
   creating account as `owner`, end with it, and never have more rights than it.
-- **Accounts and tokens are listed for the owner when authentication is turned on.** With
-  authentication off every client is admin, so an account or token made or changed then could have
-  been made by anybody on the network. Each account and token carries `confirmed` in `users.json`
-  and `tokens.json`:
-  - `true`: made while authentication was on, or kept since the last switch from off to on (by an
-    admin with `POST /api/auth/confirm`, or as the account that switch named);
-  - `false`: waiting to be kept. At **every** switch from off to on, every account except the one
-    the switching request names and every token go back to `false`: an off period voids every
-    earlier keep. An account made or changed (password, role, name) while authentication is off,
-    and one imported while it is off, is `false` too; repeating the same role is not a change;
-  - no mark (files from older firmware): counts as kept while authentication stays on, and is
-    treated like any other at the next switch.
-
-  The account the switching request names is kept when the request sets its password, or when it
-  was not made or changed while authentication was off. `GET /api/users` and
-  `GET /api/auth/tokens` show `"confirmed": false` for the ones waiting. Every request that turns
-  authentication on answers with them: `POST /api/users` with `"auth_enabled": true`,
-  `POST /api/system-action` with `"action": "auth"` and `authEnabled`, an import (`POST /import`)
-  of a users file with authentication on, and `hub_user.sh set-admin`, `add-user`, `delete` or
-  `enable-auth` over SSH (printed):
+- **Turning authentication on lists the accounts and access tokens to check.** Every request that
+  turns authentication from off to on answers with every account except the one the request names,
+  and every personal access token (no hashes): `POST /api/users` with `"auth_enabled": true` (the
+  account it saves is not listed), `POST /api/system-action` with `"action": "auth"` and
+  `authEnabled` (the admin it sets is not listed), an import (`POST /import`) of a users file with
+  authentication on (every account listed); `hub_user.sh set-admin`, `add-user`, `delete` and
+  `enable-auth` over SSH print the same list when they turn it on. This happens at every switch from
+  off to on:
   ```json
   {"ok": true, "auth_enabled": true,
-   "unconfirmed": {"users": [{"username": "guest", "role": "admin"}],
-                   "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "role": "admin", "created_at": 1729940000}]}}
+   "to_check": {"users": [{"username": "guest", "role": "admin"}],
+                "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "owner": "guest", "role": "admin", "created_at": 1729940000}]}}
   ```
-  The legacy web UI asks right after the switch or the import, once a login made after it exists
-  (the switch ends every session, so it asks for the login first), and offers the same list on its
-  Users page later; the new web UI's Users page lists them while authentication is on. Neither
-  offers the account logged in. `POST /api/auth/confirm` with
-  `{"users": ["guest"], "tokens": ["tok_1a2b3c4d"]}` (or `{"all": true}`) keeps them: admin only,
-  `409` while authentication is off, `403` when the caller's own account or token is waiting (it
-  could keep itself), `400` for other types, `500` when a file cannot be written; it answers the
-  counts changed. Deleting uses `DELETE /api/users` and `DELETE /api/auth/tokens` (deleting an
-  account also deletes its tokens). Nothing is deleted or disabled by itself: a waiting account or
-  token works until it is deleted. `hub_user.sh` keeps the marks when it rewrites `users.json`
-  (the marks are in the file before it replaces `users.json`); the account it sets is kept (root over
-  SSH is the owner).
+  Both web UIs show it right after the switch (the legacy UI after the login when the switch ended
+  its session; the new web UI after a restore, its only way to turn authentication on), with Delete
+  per item (`DELETE /api/users`, `DELETE /api/auth/tokens`; deleting an account also deletes its
+  tokens) and Keep all. The account logged in is never offered. The legacy UI's Users page can open
+  the last list of the session again. Nothing is stored, kept or blocked: accounts and tokens that
+  are not deleted keep working as before.
 
-  **Limit:** while authentication is off anybody on the network is admin. The list only shows what
-  was made, changed or kept before the owner's switch; it does not stop somebody who acts during
-  the off period (an account they made keeps working until the owner deletes it, and one used
-  before the owner's switch was already used). Keep authentication on.
+  **Limit:** while authentication is off anybody on the network is admin. This list is a check at
+  the moment authentication is turned on, not a protection during the off period: what somebody did
+  while it was off (an account or token made and used, a setting changed) is not undone, and only
+  accounts and tokens can be listed. Keep authentication on.
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
   account either, every request except from loopback is refused (`401`) until the file is fixed.
 - `GET /api/mqtt-status` never returns the stored broker password (`config.has_password` instead).

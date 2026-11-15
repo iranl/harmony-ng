@@ -604,7 +604,6 @@ paths:
                     role: admin
                     created_at: 1729940000
                     last_used_at: 1729950000
-                    confirmed: true
     post:
       tags:
         - Authentication & Users
@@ -659,49 +658,6 @@ paths:
                 ok: true
                 message: Token deleted
 
-  /api/auth/confirm:
-    post:
-      tags:
-        - Authentication & Users
-      summary: Keep accounts and tokens made while authentication was off (Admin only)
-      description: >-
-        At every switch of authentication from off to on, every account but the one the switch
-        names and every token wait again, and the reply lists them under "unconfirmed" (also
-        accounts made or changed while it was off). This route keeps the named ones (or all);
-        deleting uses DELETE /api/users and DELETE /api/auth/tokens.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                users: {type: array, items: {type: string}}
-                tokens: {type: array, items: {type: string}}
-                all: {type: boolean}
-            example:
-              users: [family]
-              tokens: [tok_1a2b3c4d]
-      responses:
-        '200':
-          description: Marked as kept (counts of accounts and tokens changed)
-          content:
-            application/json:
-              example:
-                ok: true
-                users: 1
-                tokens: 1
-        '400':
-          description: Body is not a JSON object, or users/tokens are not lists of strings, or all is not a boolean
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden (Admin role required, or the caller's own account or token is waiting itself)
-        '409':
-          description: Authentication is off (anybody could keep them then)
-        '500':
-          description: The accounts or tokens could not be written
-
   /api/users:
     get:
       tags:
@@ -719,10 +675,8 @@ paths:
                 users:
                   - username: admin
                     role: admin
-                    confirmed: true
                   - username: family
                     role: user
-                    confirmed: false
         '401':
           description: Unauthorized
         '403':
@@ -756,17 +710,18 @@ paths:
         '200':
           description: >-
             User account saved. A request with auth_enabled true that turns authentication on also
-            returns auth_enabled and "unconfirmed": the other accounts and the tokens made while it
-            was off, for the UI to ask about (POST /api/auth/confirm keeps them).
+            returns auth_enabled and "to_check": every other account and every access token, to
+            check and delete what is not recognised (while authentication was off anybody could make
+            them).
           content:
             application/json:
               example:
                 ok: true
                 message: User account saved
                 auth_enabled: true
-                unconfirmed:
+                to_check:
                   users: [{username: guest, role: admin}]
-                  tokens: [{id: tok_1a2b3c4d, name: Old script, role: admin, created_at: 1729940000}]
+                  tokens: [{id: tok_1a2b3c4d, name: Old script, owner: guest, role: admin, created_at: 1729940000}]
         '400':
           description: Invalid request or payload error
         '401':
@@ -3378,9 +3333,9 @@ paths:
       responses:
         '200':
           description: >-
-            Configuration imported and applied. An import of the accounts made while authentication
-            is off marks them not confirmed; when it turns authentication on, the reply also carries
-            auth_enabled and "unconfirmed" (as POST /api/users).
+            Configuration imported and applied. When an import of the accounts turns authentication
+            on, the reply also carries auth_enabled and "to_check" (every account and access token,
+            as POST /api/users).
           content:
             application/json:
               example:

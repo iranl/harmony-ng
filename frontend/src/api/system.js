@@ -255,11 +255,6 @@ export function createSystemApi(client) {
       });
     },
 
-    /* Keep accounts and tokens made while authentication was off */
-    async confirmAuthItems(users = [], tokens = [], all = false) {
-      return client.postJson('/api/auth/confirm', all ? { all: true } : { users, tokens });
-    },
-
     async login(username, password) {
       const res = await fetch(client.buildUrl('/api/auth/token'), {
         method: 'POST',
