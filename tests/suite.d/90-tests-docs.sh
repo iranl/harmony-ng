@@ -13,3 +13,6 @@ HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so"
 
 # /api/mqtt-publish needs the same role as /api/button-press; the snapshot hub object has unique keys
 python3 "$SCRIPT_DIR/test_route_alias_role.py"
+
+# .gitignore ignores the local work folders at the top of the checkout only
+python3 "$SCRIPT_DIR/test_gitignore_rules.py"

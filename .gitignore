@@ -1,12 +1,17 @@
 AGENTS.md
-.agents/
+# agent working files; the shared rules in .agents/rules/ are tracked
+.agents/*
+!.agents/rules/
+# web UI build output (android-app/dist, frontend/dist)
 dist/
-artifacts/
-firmware/
-release/
-data/
-background/
-backups/
+# local work folders at the top of the checkout only: a source folder with one of these
+# names deeper in the tree (src/data/, tests/fixtures/data/, docs/release/) must not vanish
+/artifacts/
+/firmware/
+/release/
+/data/
+/background/
+/backups/
 build/toolchains
 build/output/
 build/remote_tools/
