@@ -6,3 +6,5 @@ python3 "$SCRIPT_DIR/test_migrate_input_shapes.py"
 python3 "$SCRIPT_DIR/test_hub_tools_target.py"
 # remote/deploy_remote.py and remote/setup_remote.py: --no-screen on every path, ARM binaries, ssh config
 python3 "$SCRIPT_DIR/test_remote_tools_options.py"
+# tools/sync_remote_to_hub.py: import flag, --force, --skip-icons, failed transfers (fake ssh)
+python3 "$SCRIPT_DIR/test_sync_remote_to_hub.py"
