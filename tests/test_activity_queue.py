@@ -173,8 +173,12 @@ def main():
             check(st == 200 and r.get("state") == "queued", "start 11 during the start of 12: queued", "%s %s" % (st, r))
             st, r = hub.http_post("/api/activity-delete", {"id": "11"})
             check(st == 200 and r.get("ok") is True, "activity 11 deleted while it is queued", "%s %s" % (st, r))
-            s = wait_for(hub, lambda s: str(s.get("activity")) == "12" and s.get("state") == 2 and not s.get("busy"), 20)
-            check(s is not None and s.get("queued") is None, "12 running, the dropped request is not queued", str(state_of(hub)))
+            # 12 reads running (busy false) from its Switched marker on, one orchestrator tick before
+            # the transition completes and the queued request is taken: wait for the end of the
+            # transition too (nothing sending, nothing queued), not only for "running"
+            s = wait_for(hub, lambda s: str(s.get("activity")) == "12" and s.get("state") == 2 and not s.get("busy")
+                         and s.get("sending") is False and s.get("queued", "") is None, 20)
+            check(s is not None, "12 running, the dropped request is not queued", str(state_of(hub)))
             time.sleep(0.3)
             last = [x for x in ev.drain(0.5) if x.get("type") == "activity_state"]
             seen_states = [(x.get("stateName"), x.get("queued"), x.get("sending")) for x in last]
