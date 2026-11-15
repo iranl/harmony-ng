@@ -516,9 +516,11 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const mdlInp = document.getElementById('editDevModel');
           const iconInp = document.getElementById('editDevIcon');
           if (nameInp) nameInp.value = dev.name || '';
-          if (typeInp && dev.type) {
-            let opt = typeInp.querySelector(`option[value="${dev.type}"]`);
-            if (!opt && dev.type.startsWith('plugin:')) {
+          if (typeInp) {
+            const plugId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+            const targetTypeVal = plugId ? `plugin:${plugId}` : (dev.type || 'IR');
+            let opt = typeInp.querySelector(`option[value="${targetTypeVal}"]`);
+            if (!opt && plugId) {
               let optgroup = document.getElementById('editDevTypePluginGroup');
               if (!optgroup) {
                 optgroup = document.createElement('optgroup');
@@ -527,13 +529,13 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
                 typeInp.appendChild(optgroup);
               }
               opt = document.createElement('option');
-              opt.value = dev.type;
-              opt.textContent = `${dev.type.substring(7)} (Plugin)`;
+              opt.value = targetTypeVal;
+              opt.textContent = `${plugId} (Plugin)`;
               optgroup.appendChild(opt);
             }
-            typeInp.value = dev.type;
+            typeInp.value = targetTypeVal;
             if (typeof this.handleEditDeviceTypeChanged === 'function') {
-              this.handleEditDeviceTypeChanged(dev.type, dev.config || dev);
+              this.handleEditDeviceTypeChanged(targetTypeVal, dev.config || dev);
             }
           }
           if (mfgInp) mfgInp.value = dev.manufacturer || '';
@@ -616,10 +618,15 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
         btTrigCmdName = parts.slice(1).join(':');
       }
 
+      const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
       let pluginId = null;
       let pluginCfg = null;
       if (type && type.startsWith('plugin:')) {
         pluginId = type.substring(7);
+      } else if (type === 'plugin' || curDev?.plugin) {
+        pluginId = curDev?.plugin || (curDev?.type && curDev.type.startsWith('plugin:') ? curDev.type.substring(7) : null);
+      }
+      if (pluginId) {
         pluginCfg = {};
         document.querySelectorAll('[id^="edit_plug_cfg_"]').forEach(inp => {
           const key = inp.id.replace('edit_plug_cfg_', '');

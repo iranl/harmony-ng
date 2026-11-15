@@ -776,22 +776,38 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_AddStringToObject(found_dev, "plugin", j_type->valuestring + 7);
                 }
 
-                /* Also merge flat parameters into found_dev->config if present (e.g. from urlencoded form posts) */
-                const char *flat_fields[] = { "ip_address", "host", "port", "host_mac", "controller_mac", "host_ip", NULL };
-                for (int fi = 0; flat_fields[fi]; fi++) {
-                    cJSON *jf = cJSON_GetObjectItemCaseSensitive(p, flat_fields[fi]);
-                    if (jf) {
+                /* Also merge flat parameters or custom fields into found_dev->config if present */
+                const char *reserved_dev_keys[] = {
+                    "id", "deviceId", "name", "type", "manufacturer", "model", "icon", "plugin", "config",
+                    "commands", "controlPort", "interDeviceDelay", "interKeyDelay", "holdInterKeyDelay",
+                    "powerOnDelay", "isPowerAlwaysOn", "mqttEnabled", "mqttTopic", "mqttPulseMs",
+                    "bdaddr", "btHost", "btAutoReconnect", "btReconnectDurationSec", "btReconnectDelaySec",
+                    "btTriggerDeviceId", "btTriggerCommandName", "powerOnSequence", "powerOffSequence", NULL
+                };
+                cJSON *field_item = NULL;
+                cJSON_ArrayForEach(field_item, p) {
+                    if (!field_item->string || !field_item->string[0]) continue;
+                    int is_reserved = 0;
+                    for (int k = 0; reserved_dev_keys[k]; k++) {
+                        if (strcasecmp(field_item->string, reserved_dev_keys[k]) == 0) {
+                            is_reserved = 1;
+                            break;
+                        }
+                    }
+                    if (!is_reserved) {
                         cJSON *cur_cfg = cJSON_GetObjectItemCaseSensitive(found_dev, "config");
                         if (!cur_cfg || !cJSON_IsObject(cur_cfg)) {
                             cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
                             cur_cfg = cJSON_CreateObject();
                             cJSON_AddItemToObject(found_dev, "config", cur_cfg);
                         }
-                        cJSON_DeleteItemFromObjectCaseSensitive(cur_cfg, flat_fields[fi]);
-                        if (cJSON_IsNumber(jf)) {
-                            cJSON_AddNumberToObject(cur_cfg, flat_fields[fi], jf->valuedouble);
-                        } else if (cJSON_IsString(jf)) {
-                            cJSON_AddStringToObject(cur_cfg, flat_fields[fi], jf->valuestring);
+                        cJSON_DeleteItemFromObjectCaseSensitive(cur_cfg, field_item->string);
+                        if (cJSON_IsNumber(field_item)) {
+                            cJSON_AddNumberToObject(cur_cfg, field_item->string, field_item->valuedouble);
+                        } else if (cJSON_IsBool(field_item)) {
+                            cJSON_AddBoolToObject(cur_cfg, field_item->string, cJSON_IsTrue(field_item));
+                        } else if (cJSON_IsString(field_item) && field_item->valuestring) {
+                            cJSON_AddStringToObject(cur_cfg, field_item->string, field_item->valuestring);
                         }
                     }
                 }

@@ -99,6 +99,95 @@ export function createView() {
       ]),
     ]);
 
+    const isPlugin = Boolean(dev?.plugin || (dev?.type && (dev.type.startsWith('plugin:') || dev.type === 'plugin')));
+    const pluginId = dev?.plugin || (dev?.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+
+    // Plugin Configuration Card (for plugin devices)
+    let pluginCard = null;
+    if (isPlugin && pluginId) {
+      let cfgObj = dev.config || {};
+      if (typeof cfgObj === 'string') {
+        try { cfgObj = JSON.parse(cfgObj); } catch {}
+      }
+
+      const pluginInputs = {};
+      const fieldsContainer = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' } });
+
+      const savePluginBtn = h('button', {
+        className: 'btn btn-primary btn-sm',
+        style: { alignSelf: 'flex-start', marginTop: '8px' },
+        text: 'Save Plugin Settings',
+        onclick: async () => {
+          try {
+            const updatedConfig = {};
+            for (const [key, inp] of Object.entries(pluginInputs)) {
+              updatedConfig[key] = inp.type === 'number' ? Number(inp.value) : inp.value.trim();
+            }
+            savePluginBtn.disabled = true;
+            savePluginBtn.textContent = 'Saving...';
+            await api.saveDeviceDetails({
+              id: dev.id,
+              deviceId: dev.id,
+              type: `plugin:${pluginId}`,
+              plugin: pluginId,
+              config: updatedConfig,
+            });
+            toast.success('Plugin settings saved!');
+            await refreshInventory();
+            dev.config = updatedConfig;
+          } catch (e) {
+            toast.error(e.message);
+          } finally {
+            savePluginBtn.disabled = false;
+            savePluginBtn.textContent = 'Save Plugin Settings';
+          }
+        }
+      });
+
+      pluginCard = h('div', { className: 'card' }, [
+        h('div', { className: 'card-header' }, [
+          h('h4', { className: 'card-title', text: `🧩 Plugin Configuration: ${pluginId}` }),
+        ]),
+        fieldsContainer,
+        savePluginBtn,
+      ]);
+
+      // Fetch plugin manifest definition to render proper config field inputs
+      api.getPlugins().then(res => {
+        const plugins = res?.plugins || [];
+        const plug = plugins.find(p => p.id === pluginId);
+        let fields = plug?.device_definition?.config_fields;
+        if (!fields && cfgObj && typeof cfgObj === 'object') {
+          fields = Object.keys(cfgObj).map(k => ({
+            key: k,
+            label: k.replace(/_/g, ' ').toUpperCase(),
+            type: typeof cfgObj[k] === 'number' ? 'number' : 'string'
+          }));
+        }
+        if (fields && fields.length > 0) {
+          fieldsContainer.innerHTML = '';
+          fields.forEach(f => {
+            const curVal = cfgObj[f.key] !== undefined ? cfgObj[f.key] : (f.default !== undefined ? f.default : '');
+            const inp = h('input', {
+              type: f.type === 'number' ? 'number' : 'text',
+              className: 'form-input',
+              value: String(curVal),
+              placeholder: f.placeholder || '',
+            });
+            pluginInputs[f.key] = inp;
+            fieldsContainer.appendChild(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
+              h('label', { className: 'form-label', text: f.label || f.key }),
+              inp,
+            ]));
+          });
+        } else {
+          fieldsContainer.innerHTML = '<span class="text-dim" style="font-size:12px;">No configurable settings for this plugin.</span>';
+        }
+      }).catch(() => {
+        fieldsContainer.innerHTML = '<span class="text-dim" style="font-size:12px;">Could not load plugin definition.</span>';
+      });
+    }
+
     // IR Capture / Learn Card
     const learnCard = h('div', { className: 'card' }, [
       h('div', { className: 'card-header' }, [
@@ -274,8 +363,12 @@ export function createView() {
 
     container.appendChild(header);
     container.appendChild(iconCard);
-    container.appendChild(learnCard);
-    container.appendChild(prontoCard);
+    if (pluginCard) {
+      container.appendChild(pluginCard);
+    } else {
+      container.appendChild(learnCard);
+      container.appendChild(prontoCard);
+    }
     container.appendChild(cmdsCard);
     container.appendChild(dangerCard);
   }

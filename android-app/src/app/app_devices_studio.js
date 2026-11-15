@@ -605,7 +605,19 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const model = document.getElementById('newDeviceModel')?.value.trim();
     const status = document.getElementById('profileStatus');
 
-    if (!name || !manufacturer || !model) return alert(t("name_mfr_model_required"));
+    const isPlugin = type.startsWith('plugin:');
+    let effectiveMfg = manufacturer;
+    let effectiveModel = model;
+    let pluginId = null;
+    let pluginDef = null;
+    if (isPlugin) {
+      pluginId = type.substring(7);
+      pluginDef = (this.installedPlugins || []).find(p => p.id === pluginId);
+      if (!effectiveMfg) effectiveMfg = pluginDef?.author || 'Community';
+      if (!effectiveModel) effectiveModel = pluginDef?.device_definition?.device_type || pluginId;
+    }
+
+    if (!name || (!isPlugin && (!effectiveMfg || !effectiveModel))) return alert(t("name_mfr_model_required"));
     try {
       if (status) status.textContent = 'Saving new device...';
       const icon = document.getElementById('newDeviceIcon')?.value || 'tv';
@@ -620,8 +632,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         id: generatedDevId,
         name,
         type,
-        manufacturer,
-        model,
+        manufacturer: effectiveMfg || 'Generic',
+        model: effectiveModel || 'Generic',
         icon
       };
       let pluginId = null;

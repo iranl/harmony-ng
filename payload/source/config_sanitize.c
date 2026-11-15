@@ -104,6 +104,7 @@ void sanitize_devices_json(cJSON *root) {
                        (type_str && strcasecmp(type_str, "plugin") == 0));
 
         const char *final_type = "IR";
+        char plug_type_buf[128] = {0};
         if (is_mqtt) {
             final_type = (type_str && type_str[0]) ? type_str : "MQTT";
         } else if (is_bt) {
@@ -114,7 +115,18 @@ void sanitize_devices_json(cJSON *root) {
                                strcasecmp(type_str, "BTHID") == 0 || strcasestr(mfg_str, "bluetooth") != NULL;
             final_type = (type_str && type_str[0] && type_says_bt) ? type_str : "BT";
         } else if (is_plugin) {
-            final_type = (type_str && type_str[0]) ? type_str : "plugin";
+            const char *plug_id = NULL;
+            if (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring && j_plug_src->valuestring[0]) {
+                plug_id = j_plug_src->valuestring;
+            } else if (type_str && strncasecmp(type_str, "plugin:", 7) == 0) {
+                plug_id = type_str + 7;
+            }
+            if (plug_id && plug_id[0]) {
+                snprintf(plug_type_buf, sizeof(plug_type_buf), "plugin:%s", plug_id);
+                final_type = plug_type_buf;
+            } else {
+                final_type = (type_str && type_str[0]) ? type_str : "plugin";
+            }
         } else if (type_str && type_str[0]) {
             final_type = type_str;
         }

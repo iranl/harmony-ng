@@ -123,8 +123,29 @@ def main():
             check(cmd.get("keyCode", "").startswith("PLUGIN:philips-hue:"), f"Command '{cmd.get('name')}' has valid keyCode")
 
         # -------------------------------------------------------------
-        # Test 3: Prevent deleting plugin when in use by device
+        # Test 2b: Update plugin device settings via POST /ir/device
         # -------------------------------------------------------------
+        update_dev_payload = {
+            "id": dev_id,
+            "deviceId": dev_id,
+            "name": "Updated Hue Bridge",
+            "type": "plugin:philips-hue",
+            "plugin": "philips-hue",
+            "config": json.dumps({"bridge_ip": "192.168.1.222", "api_key": "new_secret_key"}),
+        }
+        st, res = hub.http_post("/ir/device", update_dev_payload)
+        check(st == 200 and res.get("ok") is True, "POST /ir/device updates plugin device settings")
+
+        st, dev_res2 = hub.http_get("/api/devices")
+        check(st == 200, "GET /api/devices succeeds after update")
+        updated_dev = next((d for d in dev_res2.get("devices", []) if str(d.get("id")) == dev_id), None)
+        check(updated_dev is not None, "Updated device found in inventory")
+        check(updated_dev.get("name") == "Updated Hue Bridge", "Device name updated")
+        check(updated_dev.get("type") == "plugin:philips-hue", "Device type preserved as plugin:philips-hue")
+        check(updated_dev.get("plugin") == "philips-hue", "Device plugin preserved as philips-hue")
+        updated_cfg = updated_dev.get("config", {})
+        check(updated_cfg.get("bridge_ip") == "192.168.1.222", f"Config bridge_ip updated: {updated_cfg}")
+        check(updated_cfg.get("api_key") == "new_secret_key", f"Config api_key updated: {updated_cfg}")
         st, del_res = hub.http_post("/api/plugins/uninstall", {"id": "philips-hue"})
         check(st == 400, "Uninstalling plugin in use by device rejected with HTTP 400")
         check("currently in use" in del_res.get("error", "").lower() or "in use" in del_res.get("message", "").lower(),

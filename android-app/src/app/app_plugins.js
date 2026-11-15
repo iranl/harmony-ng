@@ -644,13 +644,19 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       wrap = row;
     }
 
-    if (!selectedType.startsWith('plugin:')) {
+    let pluginId = null;
+    if (selectedType && selectedType.startsWith('plugin:')) {
+      pluginId = selectedType.substring(7);
+    } else if (selectedType === 'plugin' || prefillConfig?.plugin) {
+      pluginId = prefillConfig?.plugin || (prefillConfig?.type && prefillConfig.type.startsWith('plugin:') ? prefillConfig.type.substring(7) : null);
+    }
+
+    if (!pluginId) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
       return;
     }
 
-    const pluginId = selectedType.substring(7);
     if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
       this.client.getPlugins().then(res => {
         this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
@@ -659,11 +665,19 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       }).catch(() => {});
     }
 
+    let cfgObj = prefillConfig;
+    if (typeof cfgObj === 'string') {
+      try { cfgObj = JSON.parse(cfgObj); } catch {}
+    } else if (cfgObj && typeof cfgObj.config === 'string') {
+      try { cfgObj = JSON.parse(cfgObj.config); } catch { cfgObj = cfgObj.config; }
+    } else if (cfgObj && typeof cfgObj.config === 'object') {
+      cfgObj = cfgObj.config;
+    }
+
     const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
     let fields = plug?.device_definition?.config_fields;
 
-    if (!fields && prefillConfig) {
-      const cfgObj = prefillConfig.config || prefillConfig;
+    if (!fields && cfgObj && typeof cfgObj === 'object') {
       const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
       if (knownKeys.length > 0) {
         fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : 'string' }));
@@ -699,10 +713,8 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
           ${fields.map(f => {
             let curVal = '';
-            if (prefillConfig && prefillConfig[f.key] !== undefined) {
-              curVal = prefillConfig[f.key];
-            } else if (prefillConfig && prefillConfig.config && prefillConfig.config[f.key] !== undefined) {
-              curVal = prefillConfig.config[f.key];
+            if (cfgObj && typeof cfgObj === 'object' && cfgObj[f.key] !== undefined && cfgObj[f.key] !== null) {
+              curVal = cfgObj[f.key];
             } else if (f.default !== undefined) {
               curVal = f.default;
             }
