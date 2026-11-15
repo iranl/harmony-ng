@@ -29,6 +29,7 @@ import hashlib
 import hmac
 import os
 import pathlib
+import stat
 import sys
 import tempfile
 
@@ -66,18 +67,30 @@ def known_hosts_problem() -> str | None:
 
     ssh with accept-new that cannot write the file only logs that at INFO level (hidden by
     the LogLevel=ERROR the tools use) and connects anyway: no key would ever be recorded or
-    checked. So the tools try what ssh will do: open the file for appending when it exists
-    (a dangling link fails here), or create a file in its folder when it does not. A real
-    open also catches, on Windows, an access list that denies writing. Nothing is left behind."""
+    checked. So the tools try what ssh will do: open the file to read and append when it
+    exists (it must be a regular file), create the target of a link that points to a file not
+    made yet, or create a file in its folder when there is none. A real open also catches, on
+    Windows, an access list that denies writing. Whatever the check creates, it removes."""
     path = known_hosts_file()
     try:
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     except OSError as e:
         return f"cannot create {path.parent}: {e.strerror or e}"
+    # Read and write (ssh reads the keys too); no blocking on a FIFO
+    flags = os.O_RDWR | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        if path.exists() or path.is_symlink():
-            fd = os.open(path, os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
+        if path.exists():
+            fd = os.open(path, flags)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    return f"{path} is not a regular file"
+            finally:
+                os.close(fd)
+        elif path.is_symlink():
+            # A link to a file not created yet: ssh creates the target, so try that and undo it
+            fd = os.open(path, flags | os.O_CREAT, 0o600)
             os.close(fd)
+            os.unlink(os.path.realpath(path))
         else:
             fd, probe = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
             os.close(fd)
@@ -161,10 +174,18 @@ def forget_host(host: str, port: int = 22, path: pathlib.Path | None = None) -> 
     keep = [ln for ln in lines if not _line_matches(ln, names)]
     removed = len(lines) - len(keep)
     if removed:
-        fd, tmp = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
+        new = b"\n".join(keep)
+        try:
+            fd, tmp = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
+        except OSError:
+            # A writable file in a folder this account cannot write: rewrite it in place
+            with open(path, "r+b") as f:
+                f.write(new)
+                f.truncate()
+            return removed
         try:
             with os.fdopen(fd, "wb") as f:
-                f.write(b"\n".join(keep))
+                f.write(new)
             os.replace(tmp, path)
         except OSError:
             os.unlink(tmp)
@@ -180,7 +201,7 @@ def reset_host(host: str, port: int = 22) -> None:
     except OSError as e:
         # Forgetting rewrites the file through a temporary file in its folder
         sys.exit(f"[-] Cannot remove the SSH host key of {host} from {known_hosts_file()}: {e.strerror or e}.\n"
-                 f"    The folder must be writable for {RESET_OPTION}. Nothing was changed.")
+                 f"    Nothing was changed by {RESET_OPTION}.")
     if removed:
         print(f"[*] Removed the recorded SSH host key of {host} from {known_hosts_file()}; "
               "the next connection records the key the device shows now.")

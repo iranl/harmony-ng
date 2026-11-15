@@ -134,8 +134,11 @@ class HelperTests(unittest.TestCase):
         self.addCleanup(lambda: ro_dir.exists() and ro_dir.chmod(0o755))
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(ro_dir / "known_hosts")}):
             self.assertIn("StrictHostKeyChecking=accept-new", ssh_hostkeys.ssh_options("192.168.1.20"))
-            # but --reset-host-key needs the folder: a clear stop, no traceback
-            (ro_dir / "known_hosts").chmod(0o644)
+            # --reset-host-key rewrites such a file in place
+            (ro_dir / "known_hosts").write_bytes(b"192.168.1.20 ssh-ed25519 " + KEY.encode() + b"\r\n# keep\r\n")
+            ssh_hostkeys.reset_host("192.168.1.20")
+            self.assertEqual((ro_dir / "known_hosts").read_bytes(), b"# keep\r\n")
+            # Any other error while forgetting: a clear stop, no traceback
             with self.assertRaises(SystemExit) as cm:
                 with mock.patch.object(ssh_hostkeys, "forget_host", side_effect=PermissionError(13, "Permission denied")):
                     ssh_hostkeys.reset_host("192.168.1.20")
@@ -147,6 +150,29 @@ class HelperTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 ssh_hostkeys.ssh_options("192.168.1.20")
             self.assertIn(str(link), str(cm.exception.code))
+        # A link to a file not created yet, in a folder that exists: ssh would create it, so it passes
+        made_later = base / "later"
+        made_later.mkdir()
+        link2 = base / "link_to_later"
+        link2.symlink_to(made_later / "known_hosts")
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(link2)}):
+            ssh_hostkeys.ssh_options("192.168.1.20")
+        self.assertFalse((made_later / "known_hosts").exists(), "the check left the link target behind")
+        # A file this account can write but not read: ssh could not check keys in it
+        wo = base / "write_only_known_hosts"
+        wo.write_text("")
+        wo.chmod(0o200)
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(wo)}):
+            with self.assertRaises(SystemExit):
+                ssh_hostkeys.ssh_options("192.168.1.20")
+        # A FIFO: no hang, a stop
+        if hasattr(os, "mkfifo"):
+            fifo = base / "fifo_known_hosts"
+            os.mkfifo(fifo)
+            with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fifo)}):
+                with self.assertRaises(SystemExit) as cm:
+                    ssh_hostkeys.ssh_options("192.168.1.20")
+                self.assertIn("not a regular file", str(cm.exception.code))
         # The check leaves nothing behind
         fresh = base / "fresh" / "known_hosts"
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fresh)}):
@@ -401,9 +427,21 @@ class RealOpenSsh(unittest.TestCase):
                 self.skipTest(f"sshd does not start here: {self.proc.stderr.read()[:200]}")
             with socket.socket() as s:
                 if s.connect_ex(("127.0.0.1", self.port)) == 0:
+                    self.check_own_server(hostkey)
                     return
             time.sleep(0.1)
         self.skipTest("sshd did not listen")
+
+    def check_own_server(self, hostkey: str) -> None:
+        """Another run may have started its server on the same port first: the server must
+        show this test's own host key, else skip."""
+        if not shutil.which("ssh-keyscan"):
+            return
+        res = subprocess.run(["ssh-keyscan", "-p", str(self.port), "-t", "ed25519", "127.0.0.1"],
+                             capture_output=True, text=True, timeout=30)
+        own = (self.d / f"{hostkey}.pub").read_text().split()[1]
+        if own not in res.stdout:
+            self.skipTest("another server answers on this test's port")
 
     def stop(self) -> None:
         if self.proc:
@@ -558,6 +596,21 @@ class StopBeforeDeviceWork(unittest.TestCase):
                  mock.patch.object(mod, "rce", self.device_touched), \
                  mock.patch.object(mod, "ensure_ssh_key", self.device_touched):
                 self.run_main(mod, ["setup_remote.py", *step])
+
+
+class SetupRemoteForgetErrors(unittest.TestCase):
+    """setup_remote.py forgets the remote's key after rooting it: an error there must not end
+    the setup half-way (the next connection names --reset-host-key if the old key stays)."""
+
+    def test_forget_error_is_reported(self):
+        spec = importlib.util.spec_from_file_location("setup_remote_forget", REPO_DIR / "remote" / "setup_remote.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        out = io.StringIO()
+        with mock.patch.object(mod.ssh_hostkeys, "forget_host", side_effect=PermissionError(13, "Permission denied")), \
+             contextlib.redirect_stdout(out):
+            mod.forget_remote_host_key()
+        self.assertIn("Could not forget", out.getvalue())
 
 
 class SetupRemoteBackupErrors(unittest.TestCase):

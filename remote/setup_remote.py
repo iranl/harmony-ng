@@ -283,7 +283,13 @@ def forget_remote_host_key() -> None:
     """Rooting a remote and installing SSH on it gives it a new host key, and every remote
     answers at the same address: forget the recorded key, so the next connection records
     the key of the remote that is on the USB cable now."""
-    if ssh_hostkeys.forget_host(REMOTE_IP):
+    try:
+        removed = ssh_hostkeys.forget_host(REMOTE_IP)
+    except OSError as e:
+        # Never end the setup here: the next connection names --reset-host-key if the old key stays
+        print(f"[!] Could not forget the recorded SSH host key of {REMOTE_IP}: {e.strerror or e}")
+        return
+    if removed:
         print(f"[*] Forgot the recorded SSH host key of {REMOTE_IP} (SSH was just installed on this remote).")
 
 
