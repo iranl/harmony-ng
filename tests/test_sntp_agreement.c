@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #define NTP_DELTA 2208988800ULL
@@ -59,6 +60,13 @@ int settimeofday(const struct timeval *tv, const struct timezone *tz) {
 }
 
 static int64_t hub_now(void) { return (real_us() + g_clock_shift_us) / 1000000; }
+
+/* access() on the mark file is counted (the rest goes to the kernel as usual) */
+static long g_mark_access;
+int access(const char *path, int mode) {
+    if (strcmp(path, SNTP_UNCONFIRMED_FILE) == 0) g_mark_access++;
+    return (int)syscall(SYS_faccessat, AT_FDCWD, path, mode, 0);
+}
 
 /* ---- fake servers ---- */
 static int g_fd[NSERVERS];
@@ -278,6 +286,21 @@ int main(void) {
     CHECK(sntp_sync_due() == 0, "after an hour of refused steps the next round is not after 5 minutes");
     g_clock_shift_us += 3300LL * 1000000;
     CHECK(sntp_sync_due() == 1, "but after an hour");
+
+    /* a checked clock between two 4 h rounds, the main loop asking 20 times a second (here once a
+     * second of fake time): the mark file is looked at only now and then */
+    setup(TWO, (int64_t[NSERVERS]){ 0, 1, 0, 0, 0 }, 0);
+    (void)sntp_sync_time("ntp.test", 1);
+    g_clock_shift_us += 5LL * 3600 * 1000000;
+    (void)sntp_sync_due(); /* the 4 h round */
+    g_mark_access = 0;
+    long passes = 0;
+    for (int s = 0; s < 4 * 3600 - 10; s++) {
+        g_clock_shift_us += 1000000;
+        for (int k = 0; k < 20; k++, passes++) (void)sntp_sync_due();
+    }
+    printf("  (%ld passes, %ld looks at the mark file)\n", passes, g_mark_access);
+    CHECK(g_mark_access <= 4 * 3600 / 300 + 2, "the mark file is looked at once per 5 minutes at most");
 
     g_stop = 1;
     pthread_join(th, NULL);

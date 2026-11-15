@@ -85,14 +85,15 @@ static int64_t sntp_days_from_civil(int year, int month, int day) {
  * (HUB_BUILD_DATE_UTC=YYYYMMDD). Without it __DATE__ is used, which is the build host's local
  * date: one day is taken off, so a build east of UTC is never dated in the future. */
 static int64_t sntp_build_epoch(void) {
-    static int64_t cached = -1;
-    if (cached >= 0) return cached;
-    cached = 0;
+    static int64_t cached;
+    static volatile int cached_set;
+    if (cached_set) return cached;
+    int64_t epoch = 0;
 #ifdef HUB_BUILD_DATE_UTC
     long v = (long)(HUB_BUILD_DATE_UTC);
     int year = (int)(v / 10000), month = (int)(v / 100 % 100), day = (int)(v % 100);
     if (year >= 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31)
-        cached = sntp_days_from_civil(year, month, day) * 86400;
+        epoch = sntp_days_from_civil(year, month, day) * 86400;
 #else
     static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     const char *d = __DATE__;
@@ -100,9 +101,12 @@ static int64_t sntp_build_epoch(void) {
     const char *m = strstr(months, mon);
     int day = atoi(d + 4), year = atoi(d + 7);
     if (m && day >= 1 && year >= 2000)
-        cached = (sntp_days_from_civil(year, (int)(m - months) / 3 + 1, day) - 1) * 86400;
+        epoch = (sntp_days_from_civil(year, (int)(m - months) / 3 + 1, day) - 1) * 86400;
 #endif
-    return cached;
+    /* the same value on every call: a second thread computing it too is harmless */
+    cached = epoch;
+    cached_set = 1;
+    return epoch;
 }
 
 /* Earliest time the clock can have: a reply before this is wrong, a clock before it is not set */
@@ -352,6 +356,7 @@ time_t sntp_sync_time(const char *server, int apply) {
 
 static time_t g_last_sync_attempt = 0;
 static int g_time_valid = 0;
+static time_t g_mark_checked = 0; /* when the "not checked yet" file was last looked at */
 
 int sntp_sync_due(void) {
     time_t now = (time_t)(sntp_now_us() / 1000000);
@@ -376,7 +381,17 @@ int sntp_sync_due(void) {
          * hour, then once an hour (a Hub that reaches only one server stays in this state). The
          * file is looked at only when such a round could be due. */
         time_t confirm = g_confirm_rounds < CONFIRM_RETRY_ROUNDS ? CONFIRM_RETRY_SEC : CONFIRM_RETRY_SLOW_SEC;
-        due = elapsed >= confirm && (g_step_refused || sntp_unconfirmed());
+        if (elapsed < confirm) {
+            due = 0;
+        } else if (g_step_refused) {
+            due = 1;
+        } else if (g_mark_checked == 0 || now - g_mark_checked >= CONFIRM_RETRY_SEC || now < g_mark_checked) {
+            /* hub_sntp may have set the mark: looked at once per CONFIRM_RETRY_SEC at most */
+            g_mark_checked = now;
+            due = sntp_unconfirmed();
+        } else {
+            due = 0;
+        }
     }
     if (due) g_last_sync_attempt = now;
     return due;
