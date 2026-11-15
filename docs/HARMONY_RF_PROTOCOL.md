@@ -373,7 +373,14 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
   - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
   - `payload[3..18]`: Short button name string (up to 16 chars).
+  - `payload[19]`: Key event counter. The remote numbers every key frame it sends (press, hold and release alike): `1`..`255`, then `1` again. `0` means the remote does not count (older remotes). The counter starts at `1` when `remote_ui` starts and is not reset by a resume from suspend.
   - `payload[20..24]`: Device context ID string (up to 4 chars + NUL) when the remote is browsing a device in the Hub Device Browser view (`VIEW_DEVICE_BROWSER`). Hub routes physical buttons to this device or falls back to matching command names. When not browsing a device, bytes 20..24 are zeroed.
+
+- Key frames are sent once: the Hub does not acknowledge them and the remote does not resend them. A lost press is a key that does nothing, a lost release leaves the key down.
+- The counter only measures that loss. For each slot the Hub compares the number of a key frame with the one before it and adds the numbers in between (over the ring `1`..`255`) to `key_events_lost` in the RF status (`GET /api/rf/status`, `slots[].link`), with one log line per gap: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. The first key frame after `hub_rf` starts only sets the reference.
+- A remote that restarted counts from `1` again. After a version report, a unit id frame or a link-up report from the CC2544, the Hub takes the next key frame `#n` as the restarted counter (`n - 1` frames missing, none for `#1`) when that is the smaller gap. Without such a hint a counter that goes back is counted as a gap around the ring. The same number twice in a row is logged as a frame received twice, not as a loss (`#1` twice with such a hint in between is a restart).
+- The Hub also sorts the missing frames by what the frames around the gap show: a hold or release of a key whose press it did not see (`key_lost_press`), a key frame while the key before it is still down (`key_lost_release`), and the rest, holds or frames it cannot tell (`key_lost_other`). Only the last key that went down is tracked per slot.
+- A frame with counter `0` is not measured at all. A Hub without the counter ignores the byte.
 
 #### `RF_MSG_CONFIG_END` (`0x0F`) and the config push
 - `payload[0]`: `0x00` clear (opens the push), `0x01` complete (closes it).

@@ -269,6 +269,7 @@ static void handle_rf_packet(const uint8_t *pkt, size_t len) {
         bool link_lost = (pkt[4] & 0x40) != 0;
         if (pkt[1] == 1 || pkt[1] == 2) {
             g_paired_remotes[pkt[1] - 1].link_lost = link_lost;
+            if (!link_lost) rf_key_note_restart_hint(pkt[1]); /* a remote that started links again */
         }
         if (g_debug_logging)
             printf("[*] Hub RF Link Status: %s (slot=%d byte4=0x%02X)\n",
