@@ -389,7 +389,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 char resp_buf[1024];
                 ssize_t rn;
                 while ((rn = read(rfsock, resp_buf, sizeof(resp_buf))) > 0) {
-                    write(client_fd, resp_buf, (size_t)rn);
+                    if (http_send_all(client_fd, resp_buf, (size_t)rn) != 0) break;
                 }
                 close(rfsock);
                 close(client_fd);

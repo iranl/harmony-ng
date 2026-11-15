@@ -208,6 +208,17 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
     return blen;
 }
 
+int rf_api_body_status(const char *buf, size_t n, size_t cap) {
+    const char *hdr_end = strstr(buf, "\r\n\r\n");
+    if (!hdr_end) return 0;
+    const char *cl = strcasestr(buf, "Content-Length:");
+    if (!cl || cl > hdr_end) return 0;
+    long want = atol(cl + 15);
+    size_t hdr_len = (size_t)(hdr_end + 4 - buf);
+    if (want <= 0 || hdr_len + (size_t)want <= n) return 0;
+    return (hdr_len + (size_t)want > cap) ? 413 : 400;
+}
+
 void *api_server_worker(void *arg) {
     (void)arg;
     int srv = socket(AF_INET, SOCK_STREAM, 0);
@@ -253,6 +264,21 @@ void *api_server_worker(void *arg) {
             ssize_t more = read(cli, buf + n, sizeof(buf) - 1 - (size_t)n);
             if (more <= 0) break;
             n += more;
+        }
+        /* A body that did not arrive whole (larger than buf, or the sender stopped) was handled
+         * as it was, and POST /api/rf/remote-direct-buttons saved it cut */
+        int body_status = 0;
+        if (n > 0) {
+            buf[n] = '\0';
+            body_status = rf_api_body_status(buf, (size_t)n, sizeof(buf) - 1);
+        }
+        if (body_status) {
+            const char *res = (body_status == 413)
+                ? "HTTP/1.1 413 Content Too Large\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":false,\"error\":\"Request body too large\"}"
+                : "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"ok\":false,\"error\":\"Request body incomplete\"}";
+            write(cli, res, strlen(res));
+            close(cli);
+            continue;
         }
         if (n > 0) {
             buf[n] = '\0';

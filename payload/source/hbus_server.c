@@ -5,6 +5,7 @@
 #include "hub_ssdp.h"
 #include "hub_info.h"
 #include "http_server.h"
+#include "http_util.h"
 #include "ws_server.h"
 #include "orchestrator.h"
 #include "hw_action.h"
@@ -656,8 +657,7 @@ static void send_http(int fd, int code, const char *reason, const char *ctype, c
     int n = snprintf(hdr, sizeof(hdr),
                      "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
                      code, reason, ctype, blen);
-    send(fd, hdr, (size_t)n, MSG_NOSIGNAL);
-    if (blen) send(fd, body, blen, MSG_NOSIGNAL);
+    if (http_send_all(fd, hdr, (size_t)n) == 0 && blen) http_send_all(fd, body, blen);
 }
 
 static cJSON *provision_reply(const cJSON *req) {

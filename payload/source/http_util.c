@@ -14,6 +14,18 @@
 #include <sys/wait.h>
 #include <errno.h>
 
+/* Reason phrase for the codes the routes use besides the common ones of send_cjson_resp(); other
+ * codes keep the phrase given */
+static const char *http_status_reason(int code, const char *phrase) {
+    switch (code) {
+        case 408: return "Request Timeout";
+        case 413: return "Content Too Large";
+        case 429: return "Too Many Requests";
+        case 502: return "Bad Gateway";
+        default: return phrase;
+    }
+}
+
 void send_cjson_resp(int fd, int code, cJSON *obj) {
     const char *status_str = (code == 200) ? "OK" :
                             (code == 201) ? "Created" :
@@ -32,9 +44,8 @@ void send_cjson_resp(int fd, int code, cJSON *obj) {
                        "Content-Length: %zu\r\n"
                        "Access-Control-Allow-Origin: *\r\n"
                        "Connection: close\r\n\r\n",
-                       code, status_str, body_len);
-    send(fd, header, (size_t)hlen, 0);
-    if (body_len && json) send(fd, json, body_len, 0);
+                       code, http_status_reason(code, status_str), body_len);
+    if (http_send_all(fd, header, (size_t)hlen) == 0 && body_len && json) http_send_all(fd, json, body_len);
     if (json) free(json);
 }
 
@@ -46,6 +57,18 @@ void send_json_error(int fd, int code, const char *msg) {
         send_cjson_resp(fd, code, obj);
         cJSON_Delete(obj);
     }
+}
+
+int http_send_all(int fd, const void *buf, size_t len) {
+    const char *p = (const char *)buf;
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1; /* error, or the send timeout passed without a byte taken */
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
 }
 
 char *url_decode(const char *src) {
@@ -242,7 +265,8 @@ int is_safe_ipv4(const char *ip) {
             digits = 0;
             val = 0;
         } else if (isdigit((unsigned char)*p)) {
-            digits++;
+            /* checked before the multiply: a long run of digits must not overflow val */
+            if (++digits > 3) return 0;
             val = val * 10 + (*p - '0');
         } else {
             return 0;

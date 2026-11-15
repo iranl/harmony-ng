@@ -478,12 +478,12 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             "Cache-Control: no-cache\r\n"
             "Connection: close\r\n\r\n",
             fsz);
-        send(client_fd, header, (size_t)hlen, 0);
+        http_send_all(client_fd, header, (size_t)hlen);
 
         char buf[8192];
         size_t nr;
         while ((nr = fread(buf, 1, sizeof(buf), f)) > 0) {
-            if (send(client_fd, buf, nr, 0) < 0) break;
+            if (http_send_all(client_fd, buf, nr) != 0) break;
         }
         fclose(f);
         unlink("/tmp/proxy_icon.tmp");
@@ -517,12 +517,12 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
                     "Cache-Control: public, max-age=604800, immutable\r\n"
                     "Connection: close\r\n\r\n",
                     tsz);
-                send(client_fd, hdr, (size_t)hlen, 0);
+                http_send_all(client_fd, hdr, (size_t)hlen);
                 if (strcmp(method, "GET") == 0) {
                     char buf[16384];
                     size_t nr;
                     while ((nr = fread(buf, 1, sizeof(buf), tf)) > 0) {
-                        if (send(client_fd, buf, nr, 0) < 0) break;
+                        if (http_send_all(client_fd, buf, nr) != 0) break;
                     }
                 }
                 fclose(tf);
