@@ -28,10 +28,16 @@ SRC = REPO_DIR / "payload" / "source"
 PORT = int(os.environ.get("PORTAL_TEST_PORT", "9141"))
 
 
+def hub_util_sources() -> list[str]:
+    """hub_util's sources as build/compile_all.sh lists them (the list may grow)"""
+    for line in (REPO_DIR / "build" / "compile_all.sh").read_text().splitlines():
+        if '-o "$BIN/hub_util"' in line:
+            return [str(REPO_DIR / t) for t in line.split() if t.startswith("payload/source/") and t.endswith(".c")]
+    raise RuntimeError("hub_util build line not found in build/compile_all.sh")
+
+
 def build_hub_util(out: pathlib.Path) -> None:
-    srcs = ["hub_util.c", "hub_ntp.c", "ota_verify.c", "tweetnacl.c", "sha256.c", "cJSON.c"]
-    cmd = ["gcc", "-Wall", "-O2", "-DTEST_HARNESS", f"-I{SRC}", "-o", str(out)]
-    cmd += [str(SRC / s) for s in srcs] + ["-lm"]
+    cmd = ["gcc", "-Wall", "-O2", "-DTEST_HARNESS", f"-I{SRC}", "-o", str(out), *hub_util_sources(), "-lm"]
     subprocess.run(cmd, check=True)
 
 

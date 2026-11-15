@@ -18,12 +18,20 @@ REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 SRC = REPO_DIR / "payload" / "source"
 
 
+def hub_util_sources() -> list[str]:
+    """hub_util's sources as build/compile_all.sh lists them (the list may grow)"""
+    for line in (REPO_DIR / "build" / "compile_all.sh").read_text().splitlines():
+        if '-o "$BIN/hub_util"' in line:
+            return [str(REPO_DIR / t) for t in line.split() if t.startswith("payload/source/") and t.endswith(".c")]
+    raise RuntimeError("hub_util build line not found in build/compile_all.sh")
+
+
 class HubUtilCli(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.bin = pathlib.Path(cls.tmp.name) / "hub_util"
-        srcs = [str(SRC / s) for s in ("hub_util.c", "hub_ntp.c", "ota_verify.c", "tweetnacl.c", "sha256.c", "cJSON.c")]
+        srcs = hub_util_sources()
         subprocess.run(["gcc", "-Wall", "-O2", "-DTEST_HARNESS", f"-I{SRC}", "-o", str(cls.bin), *srcs, "-lm"], check=True)
 
     @classmethod
