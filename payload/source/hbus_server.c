@@ -475,6 +475,10 @@ void hbus_handle_ws_message(int cfd) {
     if (!buf) return;
     int opcode = 0;
     int len = ws_read_frame(cfd, buf, HBUS_REQ_MAX, &opcode);
+    if (len == WS_READ_AGAIN) { /* the frame is not complete yet: keep the client */
+        free(buf);
+        return;
+    }
     if (len < 0 || opcode == WS_OP_CLOSE) {
         hbus_pending_t *p = pending_for(cfd);
         if (p) pending_clear(p);
