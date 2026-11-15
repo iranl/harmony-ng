@@ -21,6 +21,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <poll.h>
 
 /*
  * Held IR key. A press hands the encoded code to one player thread and returns. The thread
@@ -31,11 +32,15 @@
  * finish sequence if the code has one. It always ends after a whole frame and never before the
  * start sequence is out, so a quick tap still sends what a tap sends. The command lock is not
  * held while it plays, so the release gets in.
+ *
+ * No condition variables: the Hub's kernel has no futex system call, so pthread_cond_wait()
+ * returns at once and a thread waiting on one spins at full CPU. The player sleeps in poll()
+ * on a pipe instead, and a caller waiting for the player to finish checks every few ms.
  */
+#define IR_HOLD_IDLE_POLL_US 2000
 static struct {
     pthread_mutex_t lock;
-    pthread_cond_t wake;    /* a key was handed over */
-    pthread_cond_t idle;    /* the key ended, the transmitter is free */
+    int wake_rd, wake_wr;   /* a byte: a key was handed over */
     int thread_up;
     int active;             /* a key is handed over and has not ended */
     int stop;               /* it ends after the frame on air */
@@ -44,8 +49,7 @@ static struct {
     uint8_t *blob;
     size_t blob_len;
     uint8_t ports;
-} s_ir_hold = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER,
-                0, 0, 0, 0, {0}, NULL, 0, 0 };
+} s_ir_hold = { PTHREAD_MUTEX_INITIALIZER, -1, -1, 0, 0, 0, 0, {0}, NULL, 0, 0 };
 
 static uint64_t ir_hold_now_ms(void) {
     struct timespec ts;
@@ -53,11 +57,35 @@ static uint64_t ir_hold_now_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
 
+/* s_ir_hold.lock held on entry and on return; returns when a key is handed over */
+static void ir_hold_wait_for_key(void) {
+    while (!s_ir_hold.active) {
+        pthread_mutex_unlock(&s_ir_hold.lock);
+        struct pollfd p = { s_ir_hold.wake_rd, POLLIN, 0 };
+        if (poll(&p, 1, 1000) > 0) {   /* the timeout only guards against a lost byte */
+            char b[16];
+            while (read(s_ir_hold.wake_rd, b, sizeof(b)) > 0) {}
+        }
+        pthread_mutex_lock(&s_ir_hold.lock);
+    }
+}
+
+/* s_ir_hold.lock held on entry and on return; returns when no key plays (the one playing ends
+ * after its frame on air) */
+static void ir_hold_wait_idle(void) {
+    while (s_ir_hold.active) {
+        s_ir_hold.stop = 1;
+        pthread_mutex_unlock(&s_ir_hold.lock);
+        usleep(IR_HOLD_IDLE_POLL_US);
+        pthread_mutex_lock(&s_ir_hold.lock);
+    }
+}
+
 static void *ir_hold_thread(void *arg) {
     (void)arg;
     pthread_mutex_lock(&s_ir_hold.lock);
     for (;;) {
-        while (!s_ir_hold.active) pthread_cond_wait(&s_ir_hold.wake, &s_ir_hold.lock);
+        ir_hold_wait_for_key();
         uint8_t *blob = s_ir_hold.blob;
         size_t blob_len = s_ir_hold.blob_len;
         uint8_t ports = s_ir_hold.ports;
@@ -90,7 +118,6 @@ static void *ir_hold_thread(void *arg) {
         ir_free_encoded(blob);
         s_ir_hold.blob = NULL;
         s_ir_hold.active = 0;
-        pthread_cond_broadcast(&s_ir_hold.idle);
     }
     return NULL;
 }
@@ -98,10 +125,7 @@ static void *ir_hold_thread(void *arg) {
 /* Ends the held key, if any, and returns when its frame on air is out */
 static void ir_hold_stop_wait(void) {
     pthread_mutex_lock(&s_ir_hold.lock);
-    while (s_ir_hold.active) {
-        s_ir_hold.stop = 1;
-        pthread_cond_wait(&s_ir_hold.idle, &s_ir_hold.lock);
-    }
+    ir_hold_wait_idle();
     pthread_mutex_unlock(&s_ir_hold.lock);
 }
 
@@ -110,6 +134,19 @@ static void ir_hold_stop_wait(void) {
 static int ir_hold_press(const char *key, uint8_t *blob, size_t blob_len, uint8_t ports) {
     pthread_mutex_lock(&s_ir_hold.lock);
     if (!s_ir_hold.thread_up) {
+        if (s_ir_hold.wake_rd < 0) {
+            int fds[2];
+            if (pipe(fds) != 0) {
+                pthread_mutex_unlock(&s_ir_hold.lock);
+                return -1;
+            }
+            for (int i = 0; i < 2; i++) {
+                fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+                fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+            }
+            s_ir_hold.wake_rd = fds[0];
+            s_ir_hold.wake_wr = fds[1];
+        }
         pthread_t th;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
@@ -123,10 +160,7 @@ static int ir_hold_press(const char *key, uint8_t *blob, size_t blob_len, uint8_
         }
         s_ir_hold.thread_up = 1;
     }
-    while (s_ir_hold.active) {
-        s_ir_hold.stop = 1;
-        pthread_cond_wait(&s_ir_hold.idle, &s_ir_hold.lock);
-    }
+    ir_hold_wait_idle();
     snprintf(s_ir_hold.key, sizeof(s_ir_hold.key), "%s", key);
     s_ir_hold.blob = blob;
     s_ir_hold.blob_len = blob_len;
@@ -134,7 +168,7 @@ static int ir_hold_press(const char *key, uint8_t *blob, size_t blob_len, uint8_
     s_ir_hold.deadline_ms = ir_hold_now_ms() + HW_IR_HOLD_DEADLINE_MS;
     s_ir_hold.stop = 0;
     s_ir_hold.active = 1;
-    pthread_cond_signal(&s_ir_hold.wake);
+    if (write(s_ir_hold.wake_wr, "k", 1) < 0) { /* full pipe: a byte is already waiting */ }
     pthread_mutex_unlock(&s_ir_hold.lock);
     return 0;
 }
