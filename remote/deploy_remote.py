@@ -55,6 +55,29 @@ CHECK_BUSYBOX = "/tmp/busybox"
 FLASH_SLACK_KB = 32  # JFFS2/UBIFS need room beyond each file's own size
 
 
+# remote_ui reads its settings (no_screen among them) from this file (SETTINGS_CONFIG_FILE)
+SETTINGS_CONF = "/data/remote_settings.conf"
+NO_SCREEN_CMD = (f"touch {SETTINGS_CONF} && sed -i '/^no_screen=/d' {SETTINGS_CONF} && "
+                 f"echo 'no_screen=1' >> {SETTINGS_CONF} && grep -q '^no_screen=1' {SETTINGS_CONF}")
+ELF_MACHINE_ARM = 40
+
+
+def wrong_arch_files() -> list[str]:
+    """Local binaries in DEPLOY_FILES that are ELF files but not ARM (e.g. a Hub build)."""
+    wrong = []
+    for f in DEPLOY_FILES:
+        try:
+            with open(f, "rb") as fh:
+                head = fh.read(20)
+        except OSError:
+            continue
+        if len(head) == 20 and head[:4] == b"\x7fELF":
+            machine = int.from_bytes(head[18:20], "little" if head[5] == 1 else "big")
+            if machine != ELF_MACHINE_ARM:
+                wrong.append(f.name)
+    return wrong
+
+
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -217,7 +240,15 @@ def main() -> None:
                         help="Skip forcing full configuration sync from Hub after deployment (default: False)")
     parser.add_argument("--check", action="store_true",
                         help="Run only the ready-to-go check, which changes nothing on the remote")
+    parser.add_argument("--no-screen", action="store_true",
+                        help="Run remote_ui in no-screen mode (for remotes with a broken screen)")
     args = parser.parse_args()
+
+    if not args.factory_reset:
+        wrong = wrong_arch_files()
+        if wrong:
+            print(f"[-] Not built for the remote (ARM): {', '.join(wrong)}. Nothing was changed.")
+            sys.exit(1)
 
     target = f"{args.user}@{args.ip}"
     # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
@@ -368,6 +399,12 @@ def main() -> None:
     final_res = run_cmd(["ssh"] + ssh_opts + [target, post])
     if final_res.stdout.strip():
         print(f"    {final_res.stdout.strip()}")
+
+    if args.no_screen:
+        print(f"[*] Configuring No-Screen mode in {SETTINGS_CONF}...")
+        if run_cmd(["ssh"] + ssh_opts + [target, NO_SCREEN_CMD]).returncode != 0:
+            print(f"[-] Could not write no_screen=1 to {SETTINGS_CONF}; remote_ui was NOT restarted. Run the deployment again.")
+            sys.exit(1)
 
     if not args.no_sync:
         print("[*] Requesting automatic Hub config sync after startup (touch /data/force_sync)...")

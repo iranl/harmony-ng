@@ -630,25 +630,51 @@ def ensure_ssh_key(key_path: pathlib.Path | None = None) -> pathlib.Path:
 
 
 
-def update_ssh_config(key_path: pathlib.Path) -> None:
-    """Optionally add Host entry to ~/.ssh/config."""
+def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
+    """Offer a Host entry for ~/.ssh/config; write it only when asked (--ssh-config).
+
+    Every remote has the same address over USB and a new host key after each rooting, so
+    the entry does not pin the key (as the project's tools do not)."""
     config_path = pathlib.Path.home() / ".ssh" / "config"
     config_entry = (
         f"\nHost {REMOTE_IP} harmony-remote\n"
         f"    HostName {REMOTE_IP}\n"
         f"    User root\n"
         f"    IdentityFile {key_path}\n"
-        f"    StrictHostKeyChecking accept-new\n"
+        f"    StrictHostKeyChecking no\n"
+        f"    UserKnownHostsFile /dev/null\n"
     )
     try:
         existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-        if REMOTE_IP not in existing:
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(config_path, "a", encoding="utf-8") as f:
-                f.write(config_entry)
-            print(f"[+] Added '{REMOTE_IP}' to {config_path}")
+        if REMOTE_IP in existing:
+            return
+        if not write:
+            print(f"[*] To log in with 'ssh harmony-remote', add this to {config_path} (or run with --ssh-config):"
+                  + config_entry.replace("\n", "\n    "))
+            return
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "a", encoding="utf-8") as f:
+            f.write(config_entry)
+        print(f"[+] Added '{REMOTE_IP}' to {config_path}")
     except Exception as e:
         print(f"[*] Note: Could not update {config_path}: {e}")
+
+
+SETTINGS_CONF = "/data/remote_settings.conf"
+NO_SCREEN_CMD = (f"touch {SETTINGS_CONF} && sed -i '/^no_screen=/d' {SETTINGS_CONF} && "
+                 f"echo 'no_screen=1' >> {SETTINGS_CONF} && grep -q '^no_screen=1' {SETTINGS_CONF}")
+
+
+def write_no_screen(priv_path: pathlib.Path) -> bool:
+    """Set no-screen mode in the file remote_ui reads its settings from (SETTINGS_CONFIG_FILE).
+    remote_ui reads it at start; the runtime installed later (deploy_remote.py) keeps it."""
+    print(f"[*] Configuring No-Screen mode in {SETTINGS_CONF}...")
+    res = subprocess.run(remote_ssh_cmd(priv_path) + [NO_SCREEN_CMD], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    if res.returncode != 0:
+        print(f"[-] Warning: could not write no_screen=1 to {SETTINGS_CONF}; remote_ui starts in normal screen mode.")
+        return False
+    return True
 
 
 # ==============================================================================
@@ -844,14 +870,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         subprocess.run(["scp"] + scp_opts + [str(rcs_file), f"{target}:/etc/init.d/rcS.local"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if no_screen:
-        # remote_ui reads its settings from /data/remote_settings.conf (SETTINGS_CONFIG_FILE)
-        print("[*] Configuring No-Screen mode in /data/remote_settings.conf...")
-        conf = "/data/remote_settings.conf"
-        res = subprocess.run(["ssh"] + ssh_opts + [target,
-                             f"touch {conf} && sed -i '/^no_screen=/d' {conf} && echo 'no_screen=1' >> {conf} && grep -q '^no_screen=1' {conf}"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if res.returncode != 0:
-            print(f"[-] Warning: could not write no_screen=1 to {conf}; remote_ui starts in normal screen mode.")
+        write_no_screen(priv_path)
 
     # Finalize permissions, symlinks, and launch runtime (via watchdog if present)
     print("[*] Finalizing permissions and starting remote supervisor...")
@@ -888,6 +907,8 @@ def main():
     parser.add_argument("--no-screen", action="store_true", help="Install in no-screen mode (for remotes with broken screens).")
     parser.add_argument("--backup", action="store_true", help="Only back up the rooted remote over SSH to backups/remote/ and exit.")
     parser.add_argument("--no-backup", action="store_true", help="Do not back up the remote after SSH comes up.")
+    parser.add_argument("--ssh-config", action="store_true",
+                        help="Add a 'harmony-remote' entry to ~/.ssh/config (otherwise it is only printed).")
     args = parser.parse_args()
 
     # Pre-execution USB & Network State Detection
@@ -934,7 +955,7 @@ def main():
 
     pub_path = ensure_ssh_key(args.key)
     priv_path = pub_path.with_suffix("")
-    update_ssh_config(priv_path)
+    update_ssh_config(priv_path, write=args.ssh_config)
 
     pub_str = pub_path.read_text(encoding="utf-8").strip()
 
@@ -954,6 +975,8 @@ def main():
             print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
             if not args.no_backup:
                 backup_remote(priv_path)
+            if args.no_screen:
+                write_no_screen(priv_path)
             post_state = detect_remote_usb_state(check_firmware=False)
             print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
             print_success(priv_path)
@@ -993,6 +1016,8 @@ def main():
 
         if probe_tcp(REMOTE_IP, 22, timeout_s=0.5):
             print(f"[+] Remote is ALREADY online with SSH active at {REMOTE_IP}:22!")
+            if args.no_screen:
+                write_no_screen(priv_path)
             post_state = detect_remote_usb_state(check_firmware=False)
             print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
             print_success(priv_path)
@@ -1030,6 +1055,8 @@ def main():
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
         if not args.no_backup:
             backup_remote(priv_path)
+        if args.no_screen:
+            write_no_screen(priv_path)
         post_state = detect_remote_usb_state(check_firmware=False)
         print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
@@ -1042,6 +1069,8 @@ def main():
         print(f"\n[+] SUCCESS: Dropbear SSH is ONLINE at {REMOTE_IP}:22!")
         if not args.no_backup:
             backup_remote(priv_path)
+        if args.no_screen:
+            write_no_screen(priv_path)
         post_state = detect_remote_usb_state(check_firmware=False)
         print_usb_state_banner(post_state, label="POST-INSTALL USB & NETWORK STATE")
         print_success(priv_path)
