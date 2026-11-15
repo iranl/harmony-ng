@@ -348,18 +348,19 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t slot = f->dev_slot & 0x0F;
             if (slot < 1 || slot > 2) slot = 1;
             RF_LOG(LOG_LEVEL_INFO, "[*] UNPAIR_NOTIFY received from Remote Slot %d\n", slot);
+            /* The ACK first: once the slot is removed from the CC2544 it cannot reach the remote */
+            rf_frame_t ack;
+            rf_build_ack(&ack, slot, f->seq, 0x00);
+            rf_send_frame(&ack);
+            usleep(30000);
             uint8_t s = (slot == 2) ? 0x02 : 0x01;
             uint8_t unpair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00};
             rf_write_cmd(unpair, sizeof(unpair));
-            g_paired_remotes[slot - 1].active = false;
-            memset(g_paired_remotes[slot - 1].rf_addr, 0, 4);
+            rf_slot_forget(slot); /* the same cleanup as an unpair from the Hub */
             if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
                 g_has_paired_device = false;
                 memset(g_paired_addr, 0, sizeof(g_paired_addr));
             }
-            rf_frame_t ack;
-            rf_build_ack(&ack, slot, f->seq, 0x00);
-            rf_send_frame(&ack);
             break;
         }
 

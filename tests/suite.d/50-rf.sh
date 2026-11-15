@@ -25,4 +25,9 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -DRF
     $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     HARMONY_MOCK_DIR="$RF50_MOCK/api_params" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_api_params"
 
+# Unpair from either side clears the slot; the remote's settings backup keeps noScreen and powerDebug
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_unpair_backup" "$SCRIPT_DIR/test_rf_unpair_backup.c" \
+    $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="$RF50_MOCK/unpair_backup" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_unpair_backup"
+
 rm -rf "$RF50_MOCK"

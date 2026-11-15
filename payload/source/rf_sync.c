@@ -113,8 +113,8 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     cJSON_AddNumberToObject(root, "nightEnd", night_end);
     int cap_buttons = (p[17] == 0) ? 0 : 1;
     cJSON_AddBoolToObject(root, "capButtonsEnabled", cap_buttons != 0);
-    int power_debug = (p[18] == 1) ? 1 : 0;
-    cJSON_AddBoolToObject(root, "powerDebug", power_debug != 0);
+    /* p[18]: 1 on, 2 off, 0 not reported (what remotes send today): then the stored value stays */
+    if (p[18] == 1 || p[18] == 2) cJSON_AddBoolToObject(root, "powerDebug", p[18] == 1);
 
     int lang_id = (p[19] <= 5) ? p[19] : 0;
     const char *lang_str = "en";
@@ -129,6 +129,28 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     int phys_nav = (p[22] == 1) ? 1 : 0;
     cJSON_AddBoolToObject(root, "physicalNavEnabled", phys_nav != 0);
     cJSON_AddNumberToObject(root, "physical_nav", phys_nav);
+
+    /* The remote answers every settings push with this backup, which has no no-screen byte and
+     * no power debug value: keep what the settings API stored for them. Replacing the file with
+     * the frame's view lost both, and the next config push turned no-screen mode and power
+     * logging off again. */
+    FILE *of = fopen(path, "r");
+    if (of) {
+        char old_txt[4096];
+        size_t on = fread(old_txt, 1, sizeof(old_txt) - 1, of);
+        fclose(of);
+        old_txt[on] = '\0';
+        cJSON *old = cJSON_Parse(old_txt);
+        static const char *const keep[] = { "noScreen", "no_screen", "powerDebug", "power_debug",
+                                            "debugLogging", "debug_logging", NULL };
+        for (int k = 0; old && keep[k]; k++) {
+            if (k >= 2 && (p[18] == 1 || p[18] == 2)) continue; /* the frame carried power debug */
+            cJSON *ov = cJSON_GetObjectItem(old, keep[k]);
+            if (ov) cJSON_AddItemToObject(root, keep[k], cJSON_Duplicate(ov, 1));
+        }
+        cJSON_Delete(old);
+    }
+    if (!cJSON_GetObjectItem(root, "powerDebug")) cJSON_AddBoolToObject(root, "powerDebug", 0);
 
     char *txt = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

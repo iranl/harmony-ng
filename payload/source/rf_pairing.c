@@ -199,30 +199,10 @@ void unpair_device(int slot) {
     uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
     RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
     rf_write_cmd(unpair, sizeof(unpair));
-    if (slot == 1 || slot == 0) {
-        g_paired_remotes[0].active = false;
-        memset(g_paired_remotes[0].rf_addr, 0, 4);
-        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
-        g_paired_remotes[0].equad_id = 0;
-        g_paired_remotes[0].model = REMOTE_MODEL_UNKNOWN;
-        if (g_remote_versions[0].remote_id[0] || g_remote_versions[0].skin) {
-            g_remote_versions[0].remote_id[0] = '\0';
-            g_remote_versions[0].skin = 0;
-            rf_state_save_version_file(1);
-        }
-    }
-    if (slot == 2 || slot == 0) {
-        g_paired_remotes[1].active = false;
-        memset(g_paired_remotes[1].rf_addr, 0, 4);
-        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
-        g_paired_remotes[1].equad_id = 0;
-        g_paired_remotes[1].model = REMOTE_MODEL_UNKNOWN;
-        if (g_remote_versions[1].remote_id[0] || g_remote_versions[1].skin) {
-            g_remote_versions[1].remote_id[0] = '\0';
-            g_remote_versions[1].skin = 0;
-            rf_state_save_version_file(2);
-        }
-    }
+    /* everything known about the remote goes with the pairing (the same cleanup as for an
+     * unpair the remote asked for) */
+    if (slot == 1 || slot == 0) rf_slot_forget(1);
+    if (slot == 2 || slot == 0) rf_slot_forget(2);
     if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
         g_has_paired_device = false;
         memset(g_paired_addr, 0, sizeof(g_paired_addr));

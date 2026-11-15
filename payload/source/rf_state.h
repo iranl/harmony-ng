@@ -154,6 +154,10 @@ extern const char *g_rf_version_dir;
 extern time_t (*g_rf_time_fn)(time_t *);
 void rf_battery_note_report(uint8_t slot, uint8_t percent, uint8_t charging, uint16_t voltage_mv);
 void rf_battery_restore(void);
+/* A slot was unpaired: its pairing, identity, version, config version, capabilities and battery
+ * are those of a remote that is gone. All of them are cleared (the version file too), so a remote
+ * paired into the slot later starts from nothing. The slot's settings and key map stay. */
+void rf_slot_forget(uint8_t slot);
 /* Gives a report made before the clock was set its reported_at; returns 1 when it changed one */
 int rf_battery_fix_times(void);
 void mark_remote_slot_active(uint8_t slot);
