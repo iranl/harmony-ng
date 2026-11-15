@@ -123,7 +123,10 @@ static void one_key(const char *command, int action, const char *want) {
 }
 
 int main(void) {
-    g_dry_run = 1; /* commands to hub_btstack's socket are only printed */
+    /* Not a dry run: a dry run prints Bluetooth keys instead of handing them over. The pipe is
+     * the test's socket pair (open wrapped), and btAutoReconnect 0 keeps commands to
+     * hub_btstack's own socket out of this path. */
+    g_dry_run = 0;
     if (socketpair(AF_UNIX, SOCK_DGRAM, 0, s_sock) != 0) {
         perror("socketpair");
         return 1;
