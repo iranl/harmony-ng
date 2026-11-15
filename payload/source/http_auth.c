@@ -30,9 +30,6 @@ static struct auth_session s_sessions[MAX_AUTH_SESSIONS];
 static pthread_mutex_t s_session_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int s_accounts_unreadable_logged;
 
-void http_auth_init(void) {
-}
-
 /* Random hex from /dev/urandom. Returns 0, or -1 when no random bytes can be read: a token
  * from a predictable generator would be worse than no token. */
 int generate_random_hex(char *out, size_t num_bytes) {
