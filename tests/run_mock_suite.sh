@@ -113,6 +113,25 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm -o "$BUILD_DIR/test_remote_key_release" && "$BUILD_DIR/test_remote_key_release"
 
+# The remote's main loop (the real remote_main.c) on the mock: a hard key pressed with the screen
+# off is sent before the screen is lit
+KEY_WAKE_SRCS=()
+for f in "$REPO_ROOT"/payload/source/remote/*.c; do
+    [ "${f##*/}" = "remote_main.c" ] || KEY_WAKE_SRCS+=("$f")
+done
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" \
+    "$SCRIPT_DIR/test_remote_key_wake.c" "${KEY_WAKE_SRCS[@]}" \
+    "$REPO_ROOT/payload/source/remote_stock_icons.c" \
+    "$REPO_ROOT/payload/source/mfg_id.c" \
+    "$REPO_ROOT/payload/source/cJSON.c" \
+    "$REPO_ROOT/payload/source/sha256.c" \
+    "$REPO_ROOT/payload/source/timezone_db.c" \
+    -Wl,--wrap=system,--wrap=open,--wrap=settimeofday,--wrap=write,--wrap=ioctl,--wrap=render_screen \
+    -lpthread -lm -o "$BUILD_DIR/test_remote_key_wake"
+KEY_WAKE_DIR="$(mktemp -d /tmp/hng_keywake.XXXXXX)"
+HARMONY_MOCK_DIR="$KEY_WAKE_DIR" HARMONY_MOCK_ROLE=remote LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_key_wake"
+rm -rf "$KEY_WAKE_DIR"
+
 # 4. Run Core Component Unit Tests
 echo "[-] Running core component unit tests..."
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_activity_icons" "$SCRIPT_DIR/test_activity_icons.c" && "$BUILD_DIR/test_activity_icons"

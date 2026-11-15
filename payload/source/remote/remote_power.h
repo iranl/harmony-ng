@@ -42,6 +42,12 @@ bool remote_should_suspend(uint64_t standby_s, uint64_t now_ms);
  * then suspends again: without it a sleeping remote never reported */
 #define REMOTE_ALARM_WAKE_HOLD_MS 8000ULL
 extern uint64_t g_suspend_hold_until_ms;
+/* A hard key pressed with the screen off: radio first (remote_key_wake_radio), then the caller
+ * handles the key, then the screen (remote_key_wake_screen). No suspend starts for this long
+ * after the key, although the screen is still off while the key is handled. */
+#define REMOTE_KEY_WAKE_HOLD_MS 1000ULL
+void remote_key_wake_radio(void);
+void remote_key_wake_screen(void);
 /* Called after a battery report went out: an alarm-wake hold can end now */
 void remote_power_report_sent(void);
 /* After a resume from suspend to RAM that lasted suspended_ms: fresh battery samples, the next

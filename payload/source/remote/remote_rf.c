@@ -62,15 +62,42 @@ void rf_send_full_sync_request(void) {
     fflush(stdout);
 }
 
-void rf_wake_and_reconnect(void) {
-    /* Re-syncing the CC2544 mid-transfer drops frames, and a sync or OTA proves the link is up */
-    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+/* After rf_wake_for_key() no other re-sync for this long: its caller sends a key frame right
+ * behind the re-sync, and a second re-sync written while that frame is still in the CC2544 can
+ * drop it. The screen wake that follows the key and, after a suspend, the power thread both ask
+ * for a re-sync within these milliseconds; the one for the key already did what they want. */
+#define RF_KEY_RESYNC_HOLD_MS 100
+static pthread_mutex_t s_resync_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t s_resync_hold_until_ms = 0;
+
+/* The reconnect packet to the CC2544, 5 ms for the chip to take it, then a sync query */
+static void rf_resync(void) {
     uint8_t pkt_dongle[10] = {0x12, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     pthread_mutex_lock(&g_rf_write_mutex);
     if (write(g_rf_fd, pkt_dongle, sizeof(pkt_dongle)) < 0) {}
     pthread_mutex_unlock(&g_rf_write_mutex);
     usleep(5000);
     rf_send_sync_query();
+}
+
+void rf_wake_and_reconnect(void) {
+    /* Re-syncing the CC2544 mid-transfer drops frames, and a sync or OTA proves the link is up */
+    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+    pthread_mutex_lock(&s_resync_lock);
+    bool held = get_monotonic_ms() < s_resync_hold_until_ms;
+    pthread_mutex_unlock(&s_resync_lock);
+    if (held) return;
+    rf_resync();
+}
+
+void rf_wake_for_key(void) {
+    if (g_rf_fd < 0 || g_is_syncing_config || g_is_ota_updating) return;
+    /* The hold starts before the re-sync: a wake from another thread must not land between this
+     * re-sync and the key frame either */
+    pthread_mutex_lock(&s_resync_lock);
+    s_resync_hold_until_ms = get_monotonic_ms() + 5 + RF_KEY_RESYNC_HOLD_MS;
+    pthread_mutex_unlock(&s_resync_lock);
+    rf_resync();
 }
 
 static void *rf_pairing_worker(void *arg) {
