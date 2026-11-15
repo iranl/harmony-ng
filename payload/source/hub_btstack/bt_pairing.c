@@ -12,6 +12,15 @@ static bool s_hosts_restore_done;
 static uint8_t s_hosts_saved[MAX_HOST_CONNS][6];
 static int s_hosts_saved_n = -1;
 
+#include "bt_wake_key.h"
+
+#ifndef HOST_TARGET_FILE
+#define HOST_TARGET_FILE "/data/harmony/bthid_host_target"
+#endif
+#ifndef DEVICES_FILE
+#define DEVICES_FILE "/data/harmony/config/devices.json"
+#endif
+
 discovered_remote_t g_discovered[MAX_DISCOVERED];
 int g_discovered_count = 0;
 bool g_user_scan_active = false;
@@ -20,7 +29,9 @@ time_t g_user_scan_end = 0;
 uint16_t get_target_host_hid_cid(void) {
     /* Once a target host is chosen (TARGET line), its keys go to it or nowhere: falling back to
      * another connected host sent e.g. Shield keys to a TV. Without a target (g_active_host_idx
-     * -1, e.g. the web UI's "Auto") any connected host is used, as before. */
+     * -1, e.g. the web UI's "Auto") any connected host is used, as before. A target that could
+     * not be used (BT_HOST_IDX_NONE) gets nothing. */
+    if (g_active_host_idx == BT_HOST_IDX_NONE) return 0;
     if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS) {
         if (g_hosts[g_active_host_idx].connected && g_hosts[g_active_host_idx].hid_cid) {
             return g_hosts[g_active_host_idx].hid_cid;
@@ -112,6 +123,9 @@ host_conn_t * register_host_target(const bd_addr_t addr, const char *name) {
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (is_null_bd_addr(g_hosts[i].addr)) {
             memcpy(g_hosts[i].addr, addr, 6);
+            /* no link yet: 0 is a valid connection handle, and a failed connection to this host
+             * used to call gap_disconnect(0), which can close another device's link */
+            g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
             if (name && name[0]) {
                 strncpy(g_hosts[i].name, name, sizeof(g_hosts[i].name) - 1);
                 g_hosts[i].name[sizeof(g_hosts[i].name) - 1] = '\0';
@@ -216,10 +230,13 @@ void update_status(const char *state_str) {
         h->paired = gap_get_link_key_for_bd_addr(ha, lk, &lkt);
         h->cid = g_hosts[i].hid_cid;
     }
-    FILE *f = fopen(STATUS_FILE, "w");
+    /* Written whole, then renamed over the old one: a reader (GET /api/bt-status) that came
+     * between the truncation and the write saw an empty file and answered "no hosts" */
+    FILE *f = fopen(STATUS_FILE ".new", "w");
     if (f) {
         bt_status_write(f, &v);
-        fclose(f);
+        if (fclose(f) == 0) rename(STATUS_FILE ".new", STATUS_FILE);
+        else unlink(STATUS_FILE ".new");
     }
     update_bthid_status();
 }
@@ -233,29 +250,20 @@ int get_pinned_target(bd_addr_t addr) {
     fclose(f);
     buf[rn] = 0;
     if (parse_bd_addr(buf, addr)) return 1;
-    char *p = strstr(buf, "bdaddr");
-    if (p) {
-        p = strchr(p, ':');
-        if (p) {
-            char mac[32] = "";
-            int i = 0;
-            while (*p && i < 20) {
-                if ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F') || *p == ':') {
-                    mac[i++] = *p;
-                } else if (i > 0) {
-                    break;
-                }
-                p++;
-            }
-            mac[i] = 0;
-            if (parse_bd_addr(mac, addr)) return 1;
-        }
-    }
-    return 0;
+    /* bt_remote_map.json (hub_daemon's): "remote": {"bdaddr": ...}, or "bdaddr" at the top. The
+     * text search used before started on the colon after the key and never found the address,
+     * so a remote pinned only in the map (after a restore) was never looked for. */
+    cJSON *mj = cJSON_Parse(buf);
+    cJSON *rem = mj ? cJSON_GetObjectItemCaseSensitive(mj, "remote") : NULL;
+    cJSON *ja = rem ? cJSON_GetObjectItemCaseSensitive(rem, "bdaddr") : NULL;
+    if (!ja && mj) ja = cJSON_GetObjectItemCaseSensitive(mj, "bdaddr");
+    int found = ja && cJSON_IsString(ja) && parse_bd_addr(ja->valuestring, addr) && !is_null_bd_addr(addr);
+    cJSON_Delete(mj);
+    return found;
 }
 
 int get_pinned_host_target(bd_addr_t addr) {
-    const char *files[] = {"/data/harmony/bthid_host_target", "/data/harmony/config/devices.json", NULL};
+    const char *files[] = {HOST_TARGET_FILE, DEVICES_FILE, NULL};
     for (int fi = 0; files[fi]; fi++) {
         FILE *f = fopen(files[fi], "r");
         if (!f) continue;
@@ -263,7 +271,9 @@ int get_pinned_host_target(bd_addr_t addr) {
         size_t rn = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         buf[rn] = 0;
-        for (char *p = buf; *p; p++) {
+        /* stop where a whole address no longer fits: the tests below read up to p[14], which
+         * near the end went past the data and past the buffer */
+        for (char *p = buf; p + 17 <= buf + rn; p++) {
             if (isxdigit((unsigned char)*p) && p[2] == ':' && p[5] == ':' && p[8] == ':' && p[11] == ':' && p[14] == ':') {
                 char mac[18];
                 strncpy(mac, p, 17);
@@ -511,6 +521,10 @@ bool get_activity_host_target(const char *act_id, bd_addr_t out) {
 }
 
 void init_known_hosts(void) {
+    /* An empty default host file (cut by a power loss while it was written) would never be
+     * rewritten: it is only written when missing or at a new pairing */
+    struct stat hst;
+    if (stat(HOST_TARGET_FILE, &hst) == 0 && hst.st_size == 0) unlink(HOST_TARGET_FILE);
     bd_addr_t def_target;
     /* Register the pinned host without a name: the devices below name it by address.
      * It used to get the first BT device's name in devices.json, whichever host that was. */
@@ -566,6 +580,13 @@ void try_connect_host_addr(const bd_addr_t addr) {
         }
     }
     if (g_host_connecting && (time(NULL) - g_host_connecting_start) < 5) {
+        /* Another attempt is running: this host waits for its turn (the loop's own target is
+         * tried again by the loop). It used to be skipped and never tried. */
+        if (!(g_host_reconnect_active && memcmp(g_host_reconnect_target, addr, 6) == 0) && rq_push(addr)) {
+            char qmsg[96];
+            snprintf(qmsg, sizeof(qmsg), "Host %s waits: another connection attempt is running", bd_addr_to_str(addr));
+            log_msg(qmsg);
+        }
         return;
     }
     char msg[128];
@@ -674,6 +695,8 @@ static void host_reconnect_timer_handler(btstack_timer_source_t *ts) {
 
     if (g_host_reconnect_attempts >= MAX_HOST_RECONNECT_ATTEMPTS) {
         log_msg("Host reconnect: Maximum retry attempts reached");
+        /* a key kept for this host would otherwise wait for any later connection */
+        wake_key_drop(is_null_bd_addr(g_host_reconnect_target) ? NULL : g_host_reconnect_target);
         g_host_reconnect_active = false;
         g_host_connecting = false;
         host_reconnect_next();
@@ -710,6 +733,9 @@ void start_host_reconnect(const bd_addr_t target, int max_attempts) {
     read_current_activity(cur_act, sizeof(cur_act));
     if (!g_host_pairing && (strcmp(cur_act, "-1") == 0 || strcasecmp(cur_act, "poweroff") == 0)) {
         log_msg("Host reconnect: Suppressed while Activity is PowerOff");
+        /* No key waits for a connection while the Hub is off: a kept key (e.g. a power-off key
+         * that came after the link closed) went out at the next start in place of its own key */
+        wake_key_drop(NULL);
         return;
     }
 
@@ -864,6 +890,8 @@ void forget_ble_remote(void) {
     g_user_scan_active = false;
     le_pair_window_close();
     btstack_run_loop_remove_timer(&reconnect_timer);
+    /* a connection being set up would complete later and pair the forgotten remote again */
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     gap_stop_scan();
     unlink(TARGET_FILE);
     if (have) {
@@ -909,6 +937,7 @@ void start_user_scan(void) {
     g_user_scan_end = time(NULL) + 8;
 
     btstack_run_loop_remove_timer(&reconnect_timer);
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     if (connection_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(connection_handle);
     }
@@ -949,6 +978,7 @@ void start_user_pair(const char *addr_str) {
 
     g_user_scan_active = false;
     btstack_run_loop_remove_timer(&reconnect_timer);
+    if (app_state == APP_CONNECTING) gap_connect_cancel();
     if (connection_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(connection_handle);
     }
