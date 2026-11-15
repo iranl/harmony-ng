@@ -90,6 +90,9 @@ SKIN_NAMES = {
 
 DEFAULT_HUB_SKIN = 97
 DEFAULT_ELITE_SKIN = 111
+# Skins of the touchscreen remotes: one of them without a bundle of its own gets the bundle of
+# another remote skin on purpose (DEFAULT_ELITE_SKIN, REMOTE_FALLBACK_SKINS)
+REMOTE_SKINS = (99, 100, 102, 105, 108, 111, 112, 116)
 REMOTE_FALLBACK_SKINS = [111, 112, 102, 105, 99]
 
 
@@ -429,13 +432,55 @@ def extract_remote_icons(
 # Firmware USB Flasher (Clean-room Implementation)
 # ==============================================================================
 
+def read_device_skin(hid: HarmonyHid) -> Optional[int]:
+    """Skin id the connected device reports in /sys/sysinfo ("0x6F" or "111"), None if unknown."""
+    try:
+        value = str(hid.get_sysinfo().get("skin", "")).strip()
+    except Exception:
+        return None
+    try:
+        return int(value, 16) if value.lower().startswith("0x") else int(value, 10)
+    except ValueError:
+        return None
+
+
+def bundle_skin_mismatch(bundle: FirmwareBundle, device_skin: Optional[int]) -> Optional[str]:
+    """Why the bundle is not meant for a device of this skin, or None when its skin list has it."""
+    if device_skin is None:
+        return "the device did not report its skin"
+    if not bundle.intended_skins:
+        return "the bundle lists no intended skins"
+    if device_skin not in bundle.intended_skins:
+        name = SKIN_NAMES.get(device_skin, "unknown model")
+        return f"device skin {device_skin} ({name}) is not in the bundle's intended skins {bundle.intended_skins}"
+    return None
+
+
+def fallback_bundle_allowed(bundle: FirmwareBundle, device_skin: Optional[int], fallback_skin: Optional[int]) -> bool:
+    """A remote bundle chosen on purpose as the fallback for a remote without one of its own."""
+    return (
+        fallback_skin is not None
+        and device_skin in REMOTE_SKINS
+        and fallback_skin in REMOTE_SKINS
+        and fallback_skin in bundle.intended_skins
+    )
+
+
 def flash_firmware(
     bundle: FirmwareBundle,
     target_device: str = "auto",
     dry_run: bool = False,
     skip_confirm: bool = False,
+    force: bool = False,
+    fallback_skin: Optional[int] = None,
 ) -> bool:
-    """Flash firmware bundle directly to connected Hub or remote over USB HID."""
+    """Flash firmware bundle directly to connected Hub or remote over USB HID.
+
+    The bundle must list the skin the connected device reports (the USB id alone does not tell
+    the model: 046D:C132 is listed both for a Pro Hub and for a remote); force=True flashes anyway.
+    fallback_skin: the caller chose the bundle of this remote skin on purpose for a remote without
+    a bundle of its own; it is accepted for a remote device when the bundle lists that skin.
+    """
     # 1. Determine target PID
     if target_device.lower() == "hub":
         target_pids = [HUB_PID, HUB_PRO_PID]
@@ -468,13 +513,21 @@ def flash_firmware(
         dev_name = "Harmony Hub"
     print(f"[+] Connected to {dev_name} (USB {HARMONY_VID:04X}:{connected_pid:04X})")
 
-    # 2. Check intended skins
-    if bundle.intended_skins:
-        print(f"[*] Bundle intended skins: {bundle.intended_skins}")
-        if connected_pid in (HUB_PID, HUB_PRO_PID) and not any(s in [97, 106, 109, 115] for s in bundle.intended_skins):
-            print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate Hub compatibility!")
-        elif connected_pid == REMOTE_PID and not any(s in [99, 100, 102, 105, 108, 111, 112, 116] for s in bundle.intended_skins):
-            print(f"[!] Warning: Bundle skins {bundle.intended_skins} do not indicate remote compatibility!")
+    # 2. The bundle must be meant for this device: its intended skins must list the device's skin
+    device_skin = read_device_skin(hid)
+    print(f"[*] Device skin: {device_skin if device_skin is not None else 'not reported'}; "
+          f"bundle intended skins: {bundle.intended_skins or 'none listed'}")
+    mismatch = bundle_skin_mismatch(bundle, device_skin)
+    if mismatch and fallback_bundle_allowed(bundle, device_skin, fallback_skin):
+        print(f"[*] {mismatch}: using it as the fallback bundle of skin {fallback_skin} "
+              f"for a remote without a bundle of its own.")
+        mismatch = None
+    if mismatch and not force:
+        print(f"[-] Refusing to flash {bundle.path.name}: {mismatch}. Pass --force to flash anyway.", file=sys.stderr)
+        hid.close()
+        return False
+    if mismatch:
+        print(f"[!] --force: flashing although {mismatch}.")
 
     # 3. Dry-run or confirmation
     for img in bundle.images:
@@ -610,6 +663,8 @@ def main():
     sub_flash.add_argument("--firmware", help="Path to .hfw2 bundle (auto-downloads latest if omitted)")
     sub_flash.add_argument("--dry-run", action="store_true", help="Validate bundle and intended skins without writing")
     sub_flash.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    sub_flash.add_argument("--force", action="store_true",
+                           help="Flash even if the bundle's intended skins do not list the skin the device reports")
 
     args = parser.parse_args()
 
@@ -749,6 +804,9 @@ def main():
             target_device=args.target if args.firmware else target,
             dry_run=args.dry_run,
             skip_confirm=args.yes,
+            force=args.force,
+            # a remote gets the latest remote bundle (REMOTE_FALLBACK_SKINS), not one of its own skin
+            fallback_skin=skin if not args.firmware and target == "remote" else None,
         )
         if not ok:
             sys.exit(1)

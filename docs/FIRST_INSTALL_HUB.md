@@ -80,6 +80,7 @@ The tool automatically:
 > python tools/harmony_firmware.py check
 > python tools/harmony_firmware.py flash --target hub
 > ```
+> `flash` writes a bundle only when its intended skins list the skin the device reports over USB (a remote without a bundle of its own gets the remote bundle the tool picks for it); `--force` overrides that check.
 
 ### Step 2.3: Verify SSH Access
 Test SSH connectivity over your local network:
