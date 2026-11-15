@@ -21,3 +21,8 @@ python3 "$SCRIPT_DIR/test_gitignore_rules.py"
 # tests/run_tests.sh stops when the host daemon does not compile
 python3 "$SCRIPT_DIR/test_harness_guards.py"
 python3 "$SCRIPT_DIR/test_run_tests_script.py"
+
+# Bluetooth reconnect trigger of hw_action.c on the daemon (was a copy of the function in a C test)
+python3 "$SCRIPT_DIR/test_bt_reconnect_trigger.py"
+# Model search of both web UIs skips entries without a model name (Node, offline)
+if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_harmony_search_null_model.js"; else echo "    (node not found, test_harmony_search_null_model.js skipped)"; fi
