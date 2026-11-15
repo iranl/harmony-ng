@@ -661,18 +661,32 @@ int main(int argc, char **argv) {
         /* 1. Physical Buttons (event0) */
         if (g_btn_fd >= 0 && FD_ISSET(g_btn_fd, &rfds)) {
             struct input_event ev;
-            while (read(g_btn_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+            bool key_woke = false; /* a press found the screen off: light it after the key */
+            for (;;) {
+                if (read(g_btn_fd, &ev, sizeof(ev)) != sizeof(ev)) {
+                    if (!key_woke) break;
+                    /* The key events that were waiting are handled: light the screen, then look
+                     * once more, so a release that comes during the unblank goes out before the
+                     * first frame is drawn */
+                    key_woke = false;
+                    remote_key_wake_screen();
+                    continue;
+                }
                 if (ev.type == EV_KEY) {
-                    reset_idle_timer();
+                    if (!g_screen_on && (ev.value == 1 || key_woke)) {
+                        /* A press with the screen off: the key first. Only the idle timer and the
+                         * radio now, then the key is handled below as with the screen on, and the
+                         * screen is lit when no key event is waiting any more. Waking the screen
+                         * first cost the key the whole unblank and a full frame. */
+                        if (!key_woke) remote_key_wake_radio();
+                        key_woke = true;
+                    } else {
+                        reset_idle_timer();
+                    }
                     /* The release of the key held over RF always goes out: an overlay, a view
                      * change or a blank screen would drop it below, and the hold repeats would
                      * go on until the next key */
                     if (ev.value == 0 && remote_release_held_rf_key(ev.code)) continue;
-                    if (!g_screen_on) {
-                        fb_set_blank(false);
-                        render_screen();
-                        continue;
-                    }
 
                     /* A new press means the release was missed; it acts as usual */
                     if (key_swallowed(ev.code)) {
