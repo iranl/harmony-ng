@@ -149,7 +149,7 @@ On the first deploy (no `/data/harmony/config/devices.json` on the Hub yet), the
 
 | Stock | HarmonyNG |
 | :--- | :--- |
-| Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...) |
+| Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...). IR commands get no `repeats` field: stock keeps one repeat count per device, and the Hub's default applies |
 | Power settings (`PowerFeature`): power-on delay, discrete on/off actions | Each device's `powerOnDelay`, `powerOnSequence` and `powerOffSequence`. Toggle-only devices keep empty sequences and use their `PowerToggle` command |
 | Activities, their devices and the input each device is set to (`ActivityList.json` roles) | `activities.json`, with the input commands at the start of each activity's start sequence |
 | Remote button maps (`MapList.json`) | `remote_slot1_map.json`: the keys of each activity, the keys of each device (device browser) and each activity's screen buttons |

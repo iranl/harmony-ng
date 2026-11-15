@@ -276,9 +276,10 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
                 "keyCode": key_code,
                 "raw": raw_str
             }
+            # No "repeats": stock keeps a repeat count per device (PressMinRepeats), not per
+            # command, and a held key repeats on the Hub by itself. The Hub's default applies.
             if not is_bt and not is_mqtt:
                 cmd_obj["port"] = control_port
-                cmd_obj["repeats"] = _int(c.get("Repeats"), 3)
 
             clean_cmds.append(cmd_obj)
 
