@@ -9,7 +9,7 @@ sync_fs() {
 
 # / is a union over /data, so these are flash writes: a file is rewritten only when its content
 # changes (every start used to rewrite them), through a temporary name, so a power cut never
-# leaves it empty (the dropbear wrapper is what starts SSH). Usage: write_if_changed PATH MODE
+# leaves it empty. Usage: write_if_changed PATH MODE
 write_if_changed() {
   _wic_new=$(cat)
   if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$_wic_new" ]; then
@@ -195,14 +195,10 @@ export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
 done
 
-_dropbear_bin=""
-[ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
-if [ -n "$_dropbear_bin" ]; then
-  write_if_changed /usr/sbin/dropbear 755 <<EOF
-#!/bin/sh
-export PATH=/data/harmony/bin:/cache/bin:\$PATH
-exec "$_dropbear_bin" -K 300 "\$@"
-EOF
+# SSH: /usr/sbin/dropbear is the wrapper /data/harmony/dropbear (key logins only), as rcS.local
+# sets it at boot. A server that already runs keeps its options until it is started again.
+if [ -x /data/harmony/dropbear ] && /data/harmony/dropbear --binary >/dev/null 2>&1; then
+  link_if_changed /data/harmony/dropbear /usr/sbin/dropbear
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
     /usr/sbin/dropbear
   fi

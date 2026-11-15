@@ -57,7 +57,7 @@ cp /etc/dropbear/authorized_keys /home/root/.ssh/authorized_keys
 chmod 700 /root /root/.ssh /home/root /home/root/.ssh
 chmod 600 /etc/dropbear/authorized_keys /root/.ssh/authorized_keys /home/root/.ssh/authorized_keys
 
-# Phase 2: Set blank root password fallback in /etc/passwd
+# Phase 2: Set blank root password fallback in /etc/passwd (serial console only: SSH takes keys)
 sed -i 's/^root:[^:]*:/root::/' /etc/passwd
 
 # Phase 3: Disable hardware watchdog
@@ -68,7 +68,15 @@ chmod 644 /etc/nowatchdog
 /usr/bin/lua -e 'local f=io.open("/usr/sbin/dropbearmulti","rb") f:seek("set",%OFFSET%) local g=io.open("/data/dropbearmulti","wb") while true do local b=f:read(65536) if not b then break end g:write(b) end f:close() g:close()'
 
 chmod 755 /data/dropbearmulti
-ln -sf /data/dropbearmulti /usr/sbin/dropbear
+# /usr/sbin/dropbear (started by the stock boot script) takes keys only: -s refuses password
+# logins, -g also for root. Written under a new name and renamed: this script may be running
+# from that path.
+cat <<'EOF' > /usr/sbin/dropbear.new
+#!/bin/sh
+exec /data/dropbearmulti dropbear -s -g "$@"
+EOF
+chmod 755 /usr/sbin/dropbear.new
+mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 ln -sf /data/dropbearmulti /usr/sbin/dropbearkey
 ln -sf /data/dropbearmulti /usr/sbin/dbclient
 ln -sf /data/dropbearmulti /usr/sbin/scp
@@ -78,8 +86,8 @@ if [ ! -r /etc/dropbear/dropbear_rsa_host_key ]; then
     /data/dropbearmulti dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
 fi
 
-# Phase 6: Start Dropbear SSH daemon in background and let rcS continue
-/data/dropbearmulti dropbear -R -p 0.0.0.0:22 "$@"
+# Phase 6: Start Dropbear SSH daemon in background and let rcS continue (key logins only)
+/data/dropbearmulti dropbear -s -g -R -p 0.0.0.0:22 "$@"
 exit 0
 """
 

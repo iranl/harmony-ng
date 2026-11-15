@@ -71,7 +71,7 @@ The tool automatically:
 4. Stages the self-extracting MIPS Dropbear payload to `/sys/dropbear`.
 5. Arms the persistent boot trigger `/tde/enable` -> `/etc/tdeenable`.
 6. Sends reboot signal to `/sys/reboot`.
-7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
+7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network, for key logins only (the key the tool installs; password logins are refused).
 8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
 
 > [!TIP]

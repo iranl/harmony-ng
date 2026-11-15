@@ -9,6 +9,16 @@ touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
 killall -9 watchdog 2>/dev/null || true
 
+# SSH: /usr/sbin/dropbear becomes the wrapper /data/harmony/dropbear, which starts the server
+# for key logins only. The stock boot script starts /usr/sbin/dropbear right after this file, and
+# the emergency mode below starts it too. Only when the wrapper finds a server binary: otherwise
+# /usr/sbin/dropbear stays as it is.
+if [ -x /data/harmony/dropbear ] && /data/harmony/dropbear --binary >/dev/null 2>&1; then
+	if [ "$(readlink /usr/sbin/dropbear 2>/dev/null)" != /data/harmony/dropbear ]; then
+		ln -sf /data/harmony/dropbear /usr/sbin/dropbear 2>/dev/null || true
+	fi
+fi
+
 # 1. Reboot counter emergency check
 COUNT=0
 REBOOT_FILE="/data/harmony/reboot_counter"
@@ -64,14 +74,8 @@ EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
 
-	# Start Dropbear SSH
-	DROPBEAR_BIN="/data/harmony/bin/dropbear"
-	if [ -x "$DROPBEAR_BIN" ]; then
-		echo '#!/bin/sh' > /usr/sbin/dropbear
-		echo "exec $DROPBEAR_BIN -K 300 \"\$@\"" >> /usr/sbin/dropbear
-		chmod 755 /usr/sbin/dropbear
-		/usr/sbin/dropbear
-	elif [ -x /usr/sbin/dropbear ]; then
+	# Start Dropbear SSH (key logins only when the wrapper is linked, see above)
+	if [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
 	fi
 
