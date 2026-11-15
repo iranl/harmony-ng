@@ -26,3 +26,6 @@ python3 "$SCRIPT_DIR/test_run_tests_script.py"
 python3 "$SCRIPT_DIR/test_bt_reconnect_trigger.py"
 # Model search of both web UIs skips entries without a model name (Node, offline)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_harmony_search_null_model.js"; else echo "    (node not found, test_harmony_search_null_model.js skipped)"; fi
+
+# MQTT send_command sequencer: what it sends, in which order and when (daemon log, dry run)
+python3 "$SCRIPT_DIR/test_mqtt_sequencer_sends.py"
