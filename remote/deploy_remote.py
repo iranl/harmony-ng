@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import os
 import pathlib
 import shutil
 import subprocess
@@ -76,6 +77,18 @@ def wrong_arch_files() -> list[str]:
             if machine != ELF_MACHINE_ARM:
                 wrong.append(f.name)
     return wrong
+
+
+def default_ssh_key() -> pathlib.Path | None:
+    """The key the other tools use without --key: $SSH_KEY, else the newest
+    ~/.ssh/harmony_owner_* (setup_remote.py creates harmony_owner_ed25519)."""
+    env_key = os.environ.get("SSH_KEY")
+    if env_key and os.path.isfile(env_key):
+        return pathlib.Path(env_key)
+    ssh_dir = pathlib.Path.home() / ".ssh"
+    keys = sorted((k for k in ssh_dir.glob("harmony_owner_*") if k.is_file() and not k.name.endswith(".pub")),
+                  key=lambda k: k.stat().st_mtime, reverse=True) if ssh_dir.is_dir() else []
+    return keys[0] if keys else None
 
 
 def run_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -254,8 +267,9 @@ def main() -> None:
     # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
     ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
                 "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
-    if args.key and args.key.is_file():
-        ssh_opts.extend(["-i", str(args.key)])
+    key = args.key if args.key and args.key.is_file() else default_ssh_key()
+    if key:
+        ssh_opts.extend(["-i", str(key)])
 
     print("=" * 60)
     print("  Harmony Remote Custom Runtime Deployment")

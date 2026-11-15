@@ -100,6 +100,24 @@ class DeployRemoteOptions(unittest.TestCase):
         self.assertIn("remote_ui", out)
         self.assertEqual(remote.commands, [], "the remote was contacted with a wrong build")
 
+    def test_default_key_is_the_owner_key(self):
+        ssh = self.base / ".ssh"
+        ssh.mkdir()
+        (ssh / "id_rsa").write_text("other")
+        (ssh / "harmony_owner_ed25519").write_text("owner")
+        (ssh / "harmony_owner_ed25519.pub").write_text("pub")
+        with mock.patch.object(self.mod.pathlib.Path, "home", lambda: self.base), \
+             mock.patch.dict(os.environ, {"SSH_KEY": ""}):
+            self.assertEqual(self.mod.default_ssh_key(), ssh / "harmony_owner_ed25519")
+        remote = FakeRemote()
+        seen = []
+        orig = remote.run_cmd
+        remote.run_cmd = lambda cmd: (seen.append(cmd), orig(cmd))[1]
+        with mock.patch.object(self.mod.pathlib.Path, "home", lambda: self.base), \
+             mock.patch.dict(os.environ, {"SSH_KEY": ""}):
+            self.deploy(remote)
+        self.assertTrue(any(str(ssh / "harmony_owner_ed25519") in c for c in seen if c[0] == "ssh"))
+
 
 class SetupRemoteOptions(unittest.TestCase):
     def setUp(self):
