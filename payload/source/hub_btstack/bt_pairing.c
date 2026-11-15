@@ -558,6 +558,37 @@ static void link_queue(const char *dev_id, const char *addr_str) {
     link_try_next();
 }
 
+/* Drop waiting links to this host (it was forgotten); one being sent is abandoned */
+static void link_drop_host(const bd_addr_t addr) {
+    int w = 0;
+    for (int r = 0; r < s_links_n; r++) {
+        bd_addr_t a;
+        if (parse_bd_addr(s_links[r].addr, a) && memcmp(a, addr, 6) == 0) {
+            if (r == 0 && s_link_phase != LINK_IDLE) {
+                if (s_link_fd >= 0) {
+                    btstack_run_loop_remove_data_source(&s_link_ds);
+                    close(s_link_fd);
+                    s_link_fd = -1;
+                }
+                btstack_run_loop_remove_timer(&s_link_timeout_timer);
+                s_link_phase = LINK_IDLE;
+            }
+            continue;
+        }
+        if (w != r) s_links[w] = s_links[r];
+        w++;
+    }
+    s_links_n = w;
+    if (s_links_n == 0) {
+        btstack_run_loop_remove_timer(&s_link_retry_timer);
+        s_link_pause = false;
+        s_link_failures = 0;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+    } else if (s_link_phase == LINK_IDLE && !s_link_pause) {
+        link_try_next();
+    }
+}
+
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     if (!dev_id || !dev_id[0] || !addr_str || !addr_str[0]) return;
     char msg[128];
@@ -582,6 +613,53 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
         }
         update_status(app_state == APP_READY ? "ready" : "standby");
     }
+}
+
+/* forget_host <addr>: remove a classic host for good. Its link key goes (so it cannot reconnect
+ * outside pairing mode: a new pairing request is refused), its link is closed, it leaves the host
+ * table and every reconnect list, and no kept key or waiting device link goes to it. hub_daemon
+ * clears the devices linked to it and the default host file before it sends the command. */
+void forget_classic_host(const bd_addr_t addr_in) {
+    bd_addr_t addr;
+    if (is_null_bd_addr(addr_in)) return;
+    memcpy(addr, addr_in, 6);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Forgetting Bluetooth host %s", bd_addr_to_str(addr));
+    log_msg(msg);
+
+    /* no more reconnects to it: its loop stops (another host's loop goes on), it leaves the queue */
+    rq_remove(addr);
+    if (g_host_reconnect_active && memcmp(g_host_reconnect_target, addr, 6) == 0) {
+        stop_host_reconnect();
+    }
+    wake_key_drop(addr);
+    link_drop_host(addr);
+    if (g_pairing_new_key_valid && memcmp(g_pairing_new_key_addr, addr, 6) == 0) g_pairing_new_key_valid = false;
+
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        if (memcmp(g_hosts[i].addr, addr, 6) != 0) continue;
+        /* close the HID channels, then the link itself: an open link stays authenticated without
+         * the key and the host could open the channels again on it */
+        if (g_hosts[i].hid_cid) hid_device_disconnect(g_hosts[i].hid_cid);
+        if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
+            gap_disconnect(g_hosts[i].acl_handle);
+        }
+        memset(&g_hosts[i], 0, sizeof(g_hosts[i]));
+        g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+        /* keys for it go nowhere until the next TARGET (they must not reach another host) */
+        if (g_active_host_idx == i) g_active_host_idx = BT_HOST_IDX_NONE;
+    }
+    gap_drop_link_key_for_bd_addr(addr);
+    if (memcmp(g_host_addr, addr, 6) == 0) {
+        /* the "last paired host" record: it was tried when no other host was known */
+        memset(g_host_addr, 0, sizeof(g_host_addr));
+        if (tlv_impl) tlv_impl->delete_tag(&tlv_context, TLV_TAG_HIDR);
+    }
+    g_host_connected = is_any_host_connected();
+    g_host_hid_cid = get_target_host_hid_cid();
+    host_reconnect_next();
+    update_status(app_state == APP_READY ? "ready" : "standby");
+    update_bthid_status();
 }
 
 static cJSON *load_json_file(const char *path, long max_size) {

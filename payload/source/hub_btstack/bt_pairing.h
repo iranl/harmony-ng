@@ -40,6 +40,8 @@ int get_pinned_host_target(bd_addr_t addr);
 /* Hand a device-to-host link to hub_daemon (it owns devices.json); kept and sent again until it
  * answers */
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str);
+/* Remove a classic host: link key, link, host table entry, reconnects, kept key, waiting links */
+void forget_classic_host(const bd_addr_t addr);
 void init_known_hosts(void);
 void try_connect_host_addr(const bd_addr_t addr);
 void try_connect_host(void);

@@ -428,6 +428,14 @@ void execute_btstack_cmd(const char *cmd_in) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
+    } else if (strncasecmp(cmd, "forget_host", 11) == 0) {
+        /* a classic host (before "forget", which would take it for the BLE remote) */
+        bd_addr_t tgt;
+        if (cmd_addr_arg(cmd + 11, tgt, false) != 1) {
+            log_msg("forget_host: not a Bluetooth address, ignored");
+            return;
+        }
+        forget_classic_host(tgt);
     } else if (strncasecmp(cmd, "forget", 6) == 0) {
         forget_ble_remote();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {

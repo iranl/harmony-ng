@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import { store } from '../../store.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
+import { confirm } from '../../components/confirm.js';
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-bthosts', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
@@ -121,11 +122,32 @@ export function createView() {
                 },
               }),
               h('button', {
-                className: 'btn btn-danger btn-sm',
+                className: 'btn btn-secondary btn-sm',
                 text: 'Disconnect',
                 onclick: async () => {
                   await api.disconnectBt(bdaddr);
                   toast.info('Disconnected');
+                },
+              }),
+              h('button', {
+                className: 'btn btn-danger btn-sm',
+                text: t('bt_forget_host', 'Forget'),
+                onclick: async () => {
+                  const name = hItem.name || bdaddr;
+                  const ok = await confirm.ask({
+                    title: t('bt_forget_host_title', 'Forget Bluetooth host'),
+                    message: t('bt_forget_host_confirm', 'Forget {name} ({addr})?').replace('{name}', name).replace('{addr}', bdaddr),
+                    confirmText: t('bt_forget_host', 'Forget'),
+                    danger: true,
+                  });
+                  if (!ok) return;
+                  try {
+                    await api.forgetBtHost(bdaddr);
+                    toast.success(t('bt_host_forgotten', 'Bluetooth host forgotten'));
+                    loadStatus();
+                  } catch (e) {
+                    toast.error(t('bt_forget_failed', 'Forget failed: ') + e.message);
+                  }
                 },
               }),
             ]),

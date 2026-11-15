@@ -182,6 +182,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
                 ${devs.map(d => `<option value="${escapeHtml(d.id)}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name || d.id)}</option>`).join('')}
               </select>
               <button type="button" class="btn btn-xs btn-secondary btn-bt-disconn" data-addr="${escapeHtml(h.addr)}" data-connected="${h.connected ? '1' : ''}">${h.connected ? 'Disconnect' : 'Connect'}</button>
+              <button type="button" class="btn btn-xs btn-danger btn-bt-forget" data-addr="${escapeHtml(h.addr)}" data-name="${escapeHtml(resolveHostDeviceName(h))}">${escapeHtml(t('bt_forget_host', 'Forget'))}</button>
             </div>
           </div>
         `;
@@ -211,6 +212,23 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
               await this.client.disconnectBt(addr);
             } else {
               await this.client.connectBt(addr);
+            }
+            this.loadBtView();
+          });
+        });
+
+        list.querySelectorAll('.btn-bt-forget').forEach(b => {
+          b.addEventListener('click', async () => {
+            const addr = b.getAttribute('data-addr');
+            const name = b.getAttribute('data-name') || addr;
+            const msg = t('bt_forget_host_confirm', 'Forget {name} ({addr})?').replace('{name}', name).replace('{addr}', addr);
+            if (!await showConfirm(msg, { title: t('bt_forget_host_title', 'Forget Bluetooth host'), okText: t('bt_forget_host', 'Forget') })) return;
+            try {
+              await this.client.forgetBtHost(addr);
+              showToast(t('bt_host_forgotten', 'Bluetooth host forgotten'), 'success');
+              await this.refreshData();
+            } catch (err) {
+              showToast(t('bt_forget_failed', 'Forget failed: ') + err.message, 'error');
             }
             this.loadBtView();
           });
