@@ -12,6 +12,7 @@
  * ICONDIR is a path on the remote's filesystem (for example /data/themes/phosphor) holding
  * <keyword>.png for the activity icon keywords; "classic" means the stock assets.
  * See tools/remote_render/README.md. */
+#include <sys/stat.h>
 #include "render_state.h"
 #include "remote_fb.h"
 #include "remote_ui.h"
@@ -70,6 +71,9 @@ static void *xcalloc(size_t n, size_t size) {
 static unsigned char *read_whole_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
     if (!f) { fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
+    /* Only a regular file: fopen() also opens a directory, whose size on ext4 reads as LONG_MAX */
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode)) { fclose(f); fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
     long n = -1;
     if (fseek(f, 0, SEEK_END) == 0) n = ftell(f);
     if (n < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
