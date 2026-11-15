@@ -717,12 +717,53 @@ paths:
                 ok: true
                 message: Logged out
 
+  /api/auth/tokens-reset:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Move an unreadable token file aside
+      description: >-
+        When config/tokens.json cannot be read or parsed, moves it to config/tokens.json.bad and
+        starts an empty token list. Admin logged in with an account (not a token). Every access
+        token then has to be created again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: File moved aside, empty list started
+          content:
+            application/json:
+              example:
+                ok: true
+                moved_to: config/tokens.json.bad
+        '400':
+          description: confirm is not true
+        '403':
+          description: Not an admin, or called with a token
+        '409':
+          description: The token file is readable (nothing done)
+        '500':
+          description: The file could not be moved or the new list not written
+        '503':
+          description: The token list is busy, try again
+
   /api/auth/tokens:
     get:
       tags:
         - Authentication & Users
-      summary: List Personal Access Tokens (Admin only)
-      description: Returns active Personal Access Tokens for third-party home automation integrations. last_used_at is always 0 (it is set when the token is created and not updated).
+      summary: List Personal Access Tokens
+      description: >-
+        Returns the Personal Access Tokens. An admin sees every token; an operator (role user) only
+        the tokens of its own account. last_used_at is always 0 (it is set when the token is created
+        and not updated).
       security:
         - bearerAuth: []
         - basicAuth: []
@@ -783,6 +824,8 @@ paths:
           description: An operator called with a token instead of an account login
         '409':
           description: Authentication is off, or the token limit is reached (64 on the Hub, 10 per operator account)
+        '429':
+          description: More than 30 token changes in a minute by this operator account
         '500':
           description: The token file cannot be read or written (left unchanged)
         '503':
@@ -814,6 +857,8 @@ paths:
           description: No token id given
         '404':
           description: No such token, or (operator) not a token of this account
+        '429':
+          description: More than 30 token changes in a minute by this operator account
         '500':
           description: The token file cannot be read or written (left unchanged)
         '503':
@@ -905,7 +950,8 @@ paths:
             User account saved. A request with auth_enabled true that turns authentication on also
             returns auth_enabled and "to_check": every other account and every access token, to
             check and delete what is not recognised (while authentication was off anybody could make
-            them).
+            them). "tokens_unreadable": true in it when the token file could not be read (its tokens
+            are not listed).
           content:
             application/json:
               example:

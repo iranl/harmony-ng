@@ -54,6 +54,31 @@ static void request_bearer(const char *req, char *out, size_t out_sz) {
     out[ti] = '\0';
 }
 
+/* The account a caller acts for: the logged-in account, or the owner of the token it calls with
+ * (looked up in root, the loaded token list). "" when there is none. */
+static void token_caller_account(const char *req, const char *client_ip, const char *method,
+                                 const cJSON *root, char *out, size_t out_sz) {
+    out[0] = '\0';
+    char btok[128];
+    request_bearer(req, btok, sizeof(btok));
+    if (strncmp(btok, "pat_", 4) != 0) {
+        http_auth_check_request(req, client_ip, method, out, out_sz);
+        if (strncmp(out, "pat", 3) == 0) out[0] = '\0';
+        return;
+    }
+    char hash[65];
+    sha256_hex((const uint8_t *)btok, strlen(btok), hash);
+    const cJSON *it;
+    cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "tokens")) {
+        const cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
+        if (cJSON_IsString(jh) && http_auth_secret_equal(jh->valuestring, hash)) {
+            const cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
+            if (cJSON_IsString(jo)) snprintf(out, out_sz, "%s", jo->valuestring);
+            return;
+        }
+    }
+}
+
 int http_api_auth_handle(int client_fd, const char *method, const char *clean_path,
                          const char *query, const char *body, const char *req,
                          const char *client_ip, enum http_role current_role) {
@@ -185,19 +210,70 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         return 1;
     }
 
+    /* POST /api/auth/tokens-reset {"confirm": true}: an unreadable token file is moved aside
+     * (tokens.json.bad) and an empty list started. Admin, logged in with an account. */
+    if (strcmp(clean_path, "/api/auth/tokens-reset") == 0 && strcmp(method, "POST") == 0) {
+        char btok[128];
+        request_bearer(req, btok, sizeof(btok));
+        cJSON *params = body ? cJSON_Parse(body) : NULL;
+        int confirm_ok = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(params, "confirm"));
+        cJSON_Delete(params);
+        int code = 0;
+        const char *msg = NULL;
+        if (current_role != ROLE_ADMIN || strncmp(btok, "pat_", 4) == 0) {
+            code = 403;
+            msg = "An admin logged in with an account (not a token) can reset the token file";
+        } else if (!confirm_ok) {
+            code = 400;
+            msg = "Send {\"confirm\": true}: every access token has to be created again";
+        } else if (http_tokens_lock() != 0) {
+            code = 503;
+            msg = "The token list is busy, try again";
+        } else {
+            int rc = http_tokens_reset_unreadable();
+            http_tokens_unlock();
+            if (rc == 1) {
+                code = 409;
+                msg = "The token file is readable: delete tokens one by one instead";
+            } else if (rc != 0) {
+                code = 500;
+                msg = "Could not move the token file aside (flash full?)";
+            }
+        }
+        if (code) {
+            send_json_error(client_fd, code, msg);
+        } else {
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddBoolToObject(resp, "ok", 1);
+            cJSON_AddStringToObject(resp, "moved_to", "config/tokens.json.bad");
+            cJSON_AddStringToObject(resp, "message", "Token file moved aside; every access token has to be created again");
+            send_cjson_resp(client_fd, 200, resp);
+            cJSON_Delete(resp);
+        }
+        close(client_fd);
+        return 1;
+    }
+
     /* GET /api/auth/tokens */
     if (strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "GET") == 0) {
         cJSON *root = NULL;
         if (http_tokens_load(&root) != 0) {
-            send_json_error(client_fd, 500, "The token file cannot be read; it was left unchanged");
+            send_json_error(client_fd, 500, HTTP_TOKENS_UNREADABLE_MSG);
             close(client_fd);
             return 1;
         }
+        /* An operator sees the tokens of its own account only (to free a slot at the limit) */
+        char mine[MAX_USERNAME_LEN] = {0};
+        if (current_role == ROLE_USER) token_caller_account(req, client_ip, method, root, mine, sizeof(mine));
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON *out_arr = cJSON_CreateArray();
         const cJSON *it = NULL;
         cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "tokens")) {
+            if (current_role == ROLE_USER) {
+                const cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
+                if (!mine[0] || !cJSON_IsString(jo) || strcmp(jo->valuestring, mine) != 0) continue;
+            }
             cJSON *item = cJSON_CreateObject();
             static const char *const str_keys[] = { "id", "name", "role", "owner" };
             for (size_t k = 0; k < sizeof(str_keys) / sizeof(str_keys[0]); k++) {
@@ -285,7 +361,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *root = NULL;
         if (http_tokens_load(&root) != 0) {
             http_tokens_unlock();
-            send_json_error(client_fd, 500, "The token file cannot be read; it was left unchanged");
+            send_json_error(client_fd, 500, HTTP_TOKENS_UNREADABLE_MSG);
             close(client_fd);
             return 1;
         }
@@ -295,14 +371,24 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         if (with_token) {
             char call_hash[65];
             sha256_hex((const uint8_t *)btok, strlen(btok), call_hash);
+            int found = 0;
             const cJSON *it;
             cJSON_ArrayForEach(it, arr) {
                 const cJSON *jh = cJSON_GetObjectItemCaseSensitive(it, "token_hash");
                 if (cJSON_IsString(jh) && http_auth_secret_equal(jh->valuestring, call_hash)) {
                     const cJSON *jo = cJSON_GetObjectItemCaseSensitive(it, "owner");
                     if (cJSON_IsString(jo)) snprintf(owner, sizeof(owner), "%s", jo->valuestring);
+                    found = 1;
                     break;
                 }
+            }
+            if (!found) {
+                /* deleted since the request was let in: no token without its account */
+                http_tokens_unlock();
+                cJSON_Delete(root);
+                send_json_error(client_fd, 401, "The calling access token no longer exists");
+                close(client_fd);
+                return 1;
             }
         }
 
@@ -320,7 +406,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                      HTTP_TOKENS_MAX);
             limit_msg = limit_buf;
         } else if (current_role == ROLE_USER && of_owner >= HTTP_TOKENS_PER_OPERATOR) {
-            snprintf(limit_buf, sizeof(limit_buf), "This account already has %d access tokens: delete one first",
+            snprintf(limit_buf, sizeof(limit_buf),
+                     "This account already has %d access tokens: delete one first (GET /api/auth/tokens lists them)",
                      HTTP_TOKENS_PER_OPERATOR);
             limit_msg = limit_buf;
         }
@@ -328,6 +415,15 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             http_tokens_unlock();
             cJSON_Delete(root);
             send_json_error(client_fd, 409, limit_msg);
+            close(client_fd);
+            return 1;
+        }
+        int retry_after = 0;
+        if (current_role == ROLE_USER && http_tokens_rate_check(owner, &retry_after) != 0) {
+            http_tokens_unlock();
+            cJSON_Delete(root);
+            snprintf(limit_buf, sizeof(limit_buf), "Too many token changes for this account, try again in %d s", retry_after);
+            send_json_error(client_fd, 429, limit_buf);
             close(client_fd);
             return 1;
         }
@@ -382,25 +478,28 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         }
 
         /* Admins delete any token. An operator deletes only a token it created or the token it
-         * calls with (the app's log out); anything else answers as not found. Decided by the
-         * credential: with a token, only that token; with a login, the account's tokens. */
+         * calls with (the app's log out); anything else answers as not found. The account is
+         * the logged-in one, or the owner of the token the operator calls with. */
         char caller[MAX_USERNAME_LEN] = {0};
         char own_hash[65] = {0};
         if (current_role == ROLE_USER) {
             char btok[128];
             request_bearer(req, btok, sizeof(btok));
             if (strncmp(btok, "pat_", 4) == 0) sha256_hex((const uint8_t *)btok, strlen(btok), own_hash);
-            else http_auth_check_request(req, client_ip, method, caller, sizeof(caller));
         }
 
-        int deleted = 0, failed = 0;
+        int deleted = 0, failed = 0, retry_after = 0;
         cJSON *root = NULL;
         if (http_tokens_lock() != 0) {
             failed = 503;
         } else {
             if (http_tokens_load(&root) != 0) {
                 failed = 500;
-            } else {
+            } else if (current_role == ROLE_USER) {
+                token_caller_account(req, client_ip, method, root, caller, sizeof(caller));
+                if (caller[0] && http_tokens_rate_check(caller, &retry_after) != 0) failed = 429;
+            }
+            if (!failed) {
                 cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
                 int sz = cJSON_GetArraySize(arr);
                 for (int i = 0; i < sz; i++) {
@@ -420,7 +519,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
                         break;
                     }
                 }
-                if (deleted && http_tokens_save(root) != 0) failed = 500;
+                if (deleted && http_tokens_save(root) != 0) failed = 507;
             }
             http_tokens_unlock();
         }
@@ -428,8 +527,12 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
 
         if (failed) {
             if (params) cJSON_Delete(params);
-            send_json_error(client_fd, failed, failed == 503 ? "The token list is busy, try again"
-                                                             : "The token file cannot be read or written; it was left unchanged");
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Too many token changes for this account, try again in %d s", retry_after);
+            send_json_error(client_fd, failed == 507 ? 500 : failed,
+                            failed == 503 ? "The token list is busy, try again" :
+                            failed == 429 ? msg :
+                            failed == 507 ? "Could not save the token list (flash full?)" : HTTP_TOKENS_UNREADABLE_MSG);
             close(client_fd);
             return 1;
         }
@@ -540,6 +643,14 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             if (!new_pass[0]) {
                 cJSON_Delete(params);
                 send_json_error(client_fd, 400, "Password is required for new user");
+                close(client_fd);
+                return 1;
+            }
+            /* Tokens left by an earlier account of this name (its delete could not change the
+             * token file) must not come back with the new account */
+            if (remove_tokens_of(new_user) < 0) {
+                cJSON_Delete(params);
+                send_json_error(client_fd, 500, "Old access tokens of this name could not be removed: " HTTP_TOKENS_UNREADABLE_MSG);
                 close(client_fd);
                 return 1;
             }

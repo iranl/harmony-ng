@@ -9,7 +9,7 @@ so an operator (role user) needs to create and delete its own tokens:
  1  the app's sequence: log in, create a token, end the session; the token keeps working
  2  an operator creates a token for its own account (session or Basic); it is always role user
  3  an operator cannot create a token while calling with a token
- 4  an operator still cannot list tokens
+ 4  an operator lists only its own account's tokens
  5  an operator cannot delete another account's token (404), and the token keeps working
  6  an operator deletes the token it calls with (the app's log out), and of its own account
  7  an admin still deletes any token
@@ -22,6 +22,11 @@ so an operator (role user) needs to create and delete its own tokens:
 14  a new password ends the account's sessions, not its tokens (delete the token to lock a phone out)
 15  turning authentication on with a token file that cannot be read: the reply says the tokens are
     not listed, the file is left alone
+16  at most 30 token changes per operator account and minute (429)
+17  an operator lists the tokens of its own account (login or token), and deletes them with its token
+18  an unreadable file: the 500 says what to do; POST /api/auth/tokens-reset (admin with an account
+    login, {"confirm": true}) moves it to tokens.json.bad and starts an empty list
+20  a new account of a deleted account's name does not get that account's old tokens
 """
 
 import base64
@@ -47,6 +52,10 @@ USERS = {
         {"username": "other", "password": "otherpass", "role": "user"},
         {"username": "boss", "password": "bosspass", "role": "admin"},
         {"username": "many", "password": "manypass", "role": "user"},
+        {"username": "rate", "password": "ratepass", "role": "user"},
+        {"username": "gone", "password": "gonepass", "role": "user"},
+    ] + [
+        {"username": "op%d" % i, "password": "op%dpass" % i, "role": "user"} for i in range(8)
     ],
 }
 
@@ -144,9 +153,10 @@ def main():
         st, r3 = make_token(bearer(app_tok), name="Planted")
         check(st == 403 and not r3.get("token"), "3  operator calling with a token cannot create one", "%s %s" % (st, r3))
 
-        print("[-] 4  listing stays admin only")
-        st, _ = call("GET", "/api/auth/tokens", headers=bearer(app_tok))
-        check(st == 403, "4  operator cannot list tokens", str(st))
+        print("[-] 4  listing: an operator sees its own tokens only")
+        st, r = call("GET", "/api/auth/tokens", headers=bearer(app_tok))
+        owners = {t.get("owner") for t in (r or {}).get("tokens", [])} if isinstance(r, dict) else None
+        check(st == 200 and owners == {"guest"}, "4  operator sees only its own account's tokens", "%s %s" % (st, owners))
 
         print("[-] 5  no deleting another account's token")
         st, ra = make_token(A, name="Home Assistant")
@@ -257,9 +267,9 @@ def main():
         check(st == 200, "12 the restored file works again", str(st))
 
         print("[-] 13  parallel creates and deletes")
-        G = basic("guest", "guestpass")
         lost = resurrected = 0
         for rnd in range(15):
+            G = basic("op%d" % (rnd % 8), "op%dpass" % (rnd % 8))  # within the per-account rate
             st, ha = make_token(A, name="HA %d" % rnd)
             got = []
             done = {}
@@ -295,6 +305,79 @@ def main():
         st1, _ = call("GET", "/api/status", headers=bearer(o_sess))
         st2, _ = call("GET", "/api/status", headers=bearer(o_tok))
         check(st1 == 401 and st2 == 200, "14 sessions end, the token keeps working", "%s %s" % (st1, st2))
+
+
+        print("[-] 16  rate limit")
+        R = basic("rate", "ratepass")
+        codes = []
+        for i in range(15):
+            st, r = make_token(R, name="r%d" % i)
+            codes.append(st)
+            st2, _ = call("DELETE", "/api/auth/tokens?id=%s" % r.get("id"), headers=R)
+            codes.append(st2)
+        st, r = make_token(R, name="one too many")
+        check(codes == [201, 200] * 15 and st == 429 and "try again" in str(r.get("error", "")),
+              "16 the 31st token change in a minute is refused (429)", "%s %s" % (codes[-4:], st))
+
+        print("[-] 17  operator's own tokens")
+        O7 = basic("op7", "op7pass")
+        st, a1 = make_token(O7, name="phone 1")
+        st, a2 = make_token(O7, name="phone 2")
+        st, l1 = call("GET", "/api/auth/tokens", headers=O7)
+        ids = sorted(t["id"] for t in (l1 or {}).get("tokens", []))
+        check(st == 200 and ids == sorted([a1["id"], a2["id"]]), "17 the list shows only the account's tokens", "%s %s" % (st, ids))
+        st, l2 = call("GET", "/api/auth/tokens", headers=bearer(a1["token"]))
+        ids2 = sorted(t["id"] for t in (l2 or {}).get("tokens", []))
+        check(st == 200 and ids2 == ids, "17 the same with the account's token", "%s %s" % (st, ids2))
+        st, _ = call("DELETE", "/api/auth/tokens?id=%s" % a2["id"], headers=bearer(a1["token"]))
+        check(st == 200, "17 a token deletes another token of its account", str(st))
+        call("DELETE", "/api/auth/tokens?id=%s" % a1["id"], headers=O7)
+
+        print("[-] 18  reset of an unreadable file")
+        with open(tokf, "rb") as f:
+            good = f.read()
+        st, r = call("POST", "/api/auth/tokens-reset", {"confirm": True}, A)
+        check(st == 409, "18 a readable file is not reset", str(st))
+        st, _ = call("POST", "/api/auth/tokens-reset", {"confirm": True}, bearer(adm_pat))
+        check(st == 403, "18 not with a token", str(st))
+        bad = good[: len(good) // 2]
+        with open(tokf, "wb") as f:
+            f.write(bad)
+        st, r = make_token(A, name="x")
+        check(st == 500 and "tokens-reset" in str((r or {}).get("error", "")), "18 the 500 says how to recover", str(r))
+        st, _ = call("POST", "/api/auth/tokens-reset", {"confirm": True}, basic("guest", "guestpass"))
+        check(st == 403, "18 an operator cannot reset", str(st))
+        st, _ = call("POST", "/api/auth/tokens-reset", {}, A)
+        check(st == 400, "18 not without confirm", str(st))
+        with open(tokf, "rb") as f:
+            check(f.read() == bad, "18 the refused calls left the file alone")
+        st, r = call("POST", "/api/auth/tokens-reset", {"confirm": True}, A)
+        with open(tokf + ".bad", "rb") as f:
+            moved = f.read()
+        with open(tokf) as f:
+            fresh = json.load(f)
+        check(st == 200 and moved == bad and fresh.get("tokens") == [], "18 moved to tokens.json.bad, empty list",
+              "%s %s" % (st, r))
+        st, r = make_token(A, name="after reset")
+        check(st == 201, "18 tokens can be created again", str(st))
+
+        print("[-] 20  a new account of the same name")
+        with open(tokf, "w") as f:
+            json.dump(fresh, f)
+        st, rg = make_token(basic("gone", "gonepass"), name="old phone")
+        with open(tokf) as f:
+            with_gone = f.read()
+        with open(tokf, "wb") as f:
+            f.write(b"{cut")
+        st, r = call("POST", "/api/users/delete", {"username": "gone"}, A)
+        check(st == 200 and (r or {}).get("warning"), "20 delete with a broken file warns", str(r))
+        st, r = call("POST", "/api/users", {"username": "gone", "password": "newpass1", "role": "admin"}, A)
+        check(st == 500, "20 the name cannot be reused while the old tokens cannot be removed", str(st))
+        with open(tokf, "w") as f:
+            f.write(with_gone)
+        st, r = call("POST", "/api/users", {"username": "gone", "password": "newpass1", "role": "admin"}, A)
+        st2, _ = call("GET", "/api/users", headers=bearer(rg.get("token")))
+        check(st == 200 and st2 == 401, "20 the old token does not come back with the new account", "%s %s" % (st, st2))
 
     print("[-] 15  switch on with an unreadable token file")
     off = {"auth_enabled": False, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}

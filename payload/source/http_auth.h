@@ -21,6 +21,15 @@
 #define HTTP_TOKENS_MAX 64
 #define HTTP_TOKENS_PER_OPERATOR 10
 #define HTTP_TOKENS_FILE_MAX 65536
+/* Where POST /api/auth/tokens-reset moves an unreadable token file */
+#define HTTP_TOKENS_JSON_BAD "/data/harmony/config/tokens.json.bad"
+/* A request waits at most this long for the token file lock (503 after) */
+#define HTTP_TOKENS_LOCK_WAIT_MS 3000
+/* Token creates and deletes per operator account and minute (429 after) */
+#define HTTP_TOKENS_WRITES_PER_MIN 30
+/* The 500 text for a token file that cannot be read */
+#define HTTP_TOKENS_UNREADABLE_MSG "config/tokens.json cannot be read (cut, or larger than 64 KB) and was left unchanged; " \
+    "an admin can move it aside with POST /api/auth/tokens-reset (every access token then has to be created again)"
 
 enum http_role {
     ROLE_NONE = 0,
@@ -75,6 +84,12 @@ void http_tokens_unlock(void);
 int http_tokens_load(cJSON **root);
 /* Writes the list; 0, or -1 when it was not stored */
 int http_tokens_save(const cJSON *root);
+/* With the lock held: 0 when this operator account may change one more token now, else -1 and
+ * *retry_after seconds */
+int http_tokens_rate_check(const char *account, int *retry_after);
+/* With the lock held: moves an unreadable token file aside and starts an empty list. 0 done,
+ * 1 the file is readable (nothing done), -1 failed */
+int http_tokens_reset_unreadable(void);
 
 enum http_role http_auth_check_request(const char *req, const char *client_ip,
                                        const char *method, char *out_user, size_t out_user_len);

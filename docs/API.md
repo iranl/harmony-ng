@@ -2638,7 +2638,10 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
    "to_check": {"users": [{"username": "guest", "role": "admin"}],
                 "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "owner": "guest", "role": "admin", "created_at": 1729940000}]}}
   ```
-  A token whose owner account is gone (it no longer works) carries `"owner_missing": true`.
+  A token whose owner account is gone carries `"owner_missing": true`: it is already refused (a token
+  ends with its account) and is removed from the file when an account of that name is made again.
+  When the token file cannot be read at that moment, `to_check` also has `"tokens_unreadable": true`
+  (its tokens are not listed).
   Both web UIs show the list right after the switch, with Delete per item (`DELETE /api/users`,
   `DELETE /api/auth/tokens`; deleting an account also deletes its tokens; one already gone counts as
   deleted) and Keep all; the account logged in is never offered. The switch ends every session, so
@@ -2655,13 +2658,25 @@ admin (8.1), and port 8088 (1.12) is never authenticated.
   accounts and tokens can be listed. Keep authentication on.
 - An operator (role `user`) may create its own tokens (always role `user`), logged in with its account
   (a session or Basic, not with a token: `403`), and may delete the tokens of its own account or the
-  token it calls with (any other id answers `404`). Listing tokens stays admin only; the list shows
-  each token's `owner`.
+  token it calls with (any other id answers `404`). An operator's `GET /api/auth/tokens` lists only
+  the tokens of its own account (logged in, or the owner of the token it calls with), and with such a
+  token it may delete the account's other tokens, so an account at its limit can free a slot. An admin
+  sees every token; the list shows each token's `owner`.
+- An operator account may create or delete at most 30 tokens a minute (each change rewrites the token
+  file on flash): one more answers `429` with the seconds to wait.
+- The token file is changed under one lock: a request that cannot get it within 3 s answers `503`
+  ("try again").
 - A token created by an admin with a token (for example from the Android app) belongs to the same
   account as the calling token and ends with it.
 - At most 64 tokens on the Hub and 10 per operator account: one more answers `409` with the reason.
-  If `config/tokens.json` exists but cannot be read or parsed, creating, deleting and listing tokens
-  answer `500` and leave the file as it is.
+  If `config/tokens.json` exists but cannot be read or parsed (cut, or larger than 64 KB), creating,
+  deleting and listing tokens answer `500` with a text that says so, and the file is left as
+  it is (every token is refused until then). To start again, an admin logged in with an account (not
+  with a token) sends `POST /api/auth/tokens-reset` with `{"confirm": true}`: the file is moved to
+  `config/tokens.json.bad` and an empty list starts; every token (Home Assistant, the Android app)
+  then has to be created again. A readable file is never reset (`409`: delete tokens one by one).
+  Creating an account whose name a deleted account had removes that account's tokens left in the
+  file first; while the file cannot be changed the name cannot be used again (`500`).
 - A new password ends the account's sessions, not its tokens (Home Assistant and the Android app keep
   working). To lock out a lost phone, delete its token (named `Android app (<phone>, <date>)`).
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
