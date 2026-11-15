@@ -20,6 +20,8 @@ so an operator (role user) needs to create and delete its own tokens:
 12  a token file that cannot be read or parsed is left alone (500), never rebuilt
 13  creates and deletes at the same time lose nothing (the file is changed under one lock)
 14  a new password ends the account's sessions, not its tokens (delete the token to lock a phone out)
+15  turning authentication on with a token file that cannot be read: the reply says the tokens are
+    not listed, the file is left alone
 """
 
 import base64
@@ -293,6 +295,21 @@ def main():
         st1, _ = call("GET", "/api/status", headers=bearer(o_sess))
         st2, _ = call("GET", "/api/status", headers=bearer(o_tok))
         check(st1 == 401 and st2 == 200, "14 sessions end, the token keeps working", "%s %s" % (st1, st2))
+
+    print("[-] 15  switch on with an unreadable token file")
+    off = {"auth_enabled": False, "users": [{"username": "admin", "password": "secret123", "role": "admin"}]}
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"users.json": off}) as hub:
+        tokf = os.path.join(hub.data_dir, "config", "tokens.json")
+        cut = b'{"tokens": [{"id": "tok_1", "name": "Old'
+        with open(tokf, "wb") as f:
+            f.write(cut)
+        st, r = call("POST", "/api/users", {"username": "admin", "password": "secret123", "role": "admin",
+                                            "auth_enabled": True})
+        unc = (r or {}).get("to_check", {}) if isinstance(r, dict) else {}
+        with open(tokf, "rb") as f:
+            after = f.read()
+        check(st == 200 and unc.get("tokens_unreadable") is True and after == cut,
+              "15 the reply says the tokens are not listed, file left alone", "%s %s" % (st, r))
 
     if failed:
         print("[-] %d check(s) failed" % failed)
