@@ -72,8 +72,10 @@ echo "[*] Restoring preserved configuration for future re-install..."
 cp -f /data/remote_conf_p/* /data/ 2>/dev/null || true
 rm -rf /data/remote_conf_p 2>/dev/null || true
 
-# Flush with our sync binary, remove it, then flush that removal with the stock
-# BusyBox applet (stock firmware has no sync link in PATH).
+# Flush with our sync binary, then remove it. The stock firmware has neither a sync
+# command nor a BusyBox sync applet, so the last two flush attempts below only work on a
+# remote that still has one; the removal is flushed by reboot itself (BusyBox reboot
+# calls sync() unless -n is given).
 /data/remote_sync 2>/dev/null || /data/sync 2>/dev/null || /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
 rm -f /data/remote_sync /data/elite_sync /data/sync 2>/dev/null || true
 /bin/busybox sync 2>/dev/null || sync 2>/dev/null || true
