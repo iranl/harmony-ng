@@ -56,3 +56,10 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
 SETTINGS_SCREENS_DIR="$(mktemp -d /tmp/hng_settings_screens.XXXXXX)"
 HARMONY_MOCK_DIR="$SETTINGS_SCREENS_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_settings_screens"
 rm -rf "$SETTINGS_SCREENS_DIR"
+
+# The main loop's OTA timeout against the RF thread's handlers; one pairing worker after stop + start
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_shared_state" \
+    "$SCRIPT_DIR/test_remote_shared_state.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
+SHARED_STATE_DIR="$(mktemp -d /tmp/hng_shared_state.XXXXXX)"
+HARMONY_MOCK_DIR="$SHARED_STATE_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_shared_state"
+rm -rf "$SHARED_STATE_DIR"

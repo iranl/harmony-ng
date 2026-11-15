@@ -874,3 +874,22 @@ bool handle_icon_frame(const rf_frame_t *f) {
             return false;
     }
 }
+
+void ota_check_timeout(void) {
+    /* A frame handler holds the lock: frames are arriving, so this is no timeout. The main loop
+     * never waits here (an install holds the lock for seconds). */
+    if (pthread_mutex_trylock(&g_ota_lock) != 0) return;
+    /* Again under the lock, with the time read now: an OTA_START handled since the main loop
+     * read its clock is a new transfer, and its file must not be closed under it */
+    if (g_is_ota_updating && ms_since(get_monotonic_ms(), g_ota_last_packet_ms) >= 60000) {
+        printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
+        ota_set_updating(false);
+        if (g_ota_file) {
+            fflush(g_ota_file);
+            fclose(g_ota_file);
+            g_ota_file = NULL;
+        }
+        g_screen_dirty = true;
+    }
+    pthread_mutex_unlock(&g_ota_lock);
+}

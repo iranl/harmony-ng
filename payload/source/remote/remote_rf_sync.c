@@ -42,7 +42,10 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
     if (f->dev_slot & 0x0F) g_remote_slot = f->dev_slot & 0x0F;
 
     /* Handle OTA and custom Icon streaming frames via modular handler */
-    if (handle_ota_frame(f)) return;
+    pthread_mutex_lock(&g_ota_lock);
+    bool ota_frame = handle_ota_frame(f);
+    pthread_mutex_unlock(&g_ota_lock);
+    if (ota_frame) return;
     if (handle_icon_frame(f)) return;
 
     switch (f->msg_type) {
@@ -154,26 +157,30 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
                 init_act_triggers();
                 pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
-            } else if (!g_is_syncing_config) {
+            } else {
+                /* Tested under the lock: the main loop gives up on a stalled sync under it too,
+                   and then restores the saved config; the new version must not be stamped on it */
+                pthread_mutex_lock(&g_sync_lock);
+                bool in_sync = g_is_syncing_config;
+                if (in_sync) {
+                    g_is_syncing_config = false;
+                    g_config_version = version;
+                    g_has_hub_config = true;
+                    g_update_config_available = false;
+                    save_rf_config();
+                    build_activity_list();
+                    if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
+                        open_device_browser();
+                    }
+                }
+                pthread_mutex_unlock(&g_sync_lock);
                 /* A resend after our ACK was lost is fine to ACK again. Any other "complete"
                    arrived after this remote gave up on the sync; don't stamp its version on
                    the restored config, and leave it unACKed so the Hub reports the failure. */
-                if (version != g_config_version) {
+                if (!in_sync && version != g_config_version) {
                     printf("[-] Ignoring CONFIG_END complete v%d outside a sync\n", version);
                     break;
                 }
-            } else {
-                pthread_mutex_lock(&g_sync_lock);
-                g_is_syncing_config = false;
-                g_config_version = version;
-                g_has_hub_config = true;
-                g_update_config_available = false;
-                save_rf_config();
-                build_activity_list();
-                if (!has_configured_activities() && g_current_view == VIEW_ACTIVITIES) {
-                    open_device_browser();
-                }
-                pthread_mutex_unlock(&g_sync_lock);
                 g_screen_dirty = true;
             }
             rf_frame_t ack;
@@ -759,7 +766,9 @@ void *rf_rx_worker(void *arg) {
         if (n >= 32 && pkt[0] == 0x20 && pkt[2] == 0x12 && (pkt[4] & 0xE0) == RF_OTA_HDR_DATA) {
             if (g_is_ota_updating) {
                 g_last_hub_frame_ms = get_monotonic_ms();
+                pthread_mutex_lock(&g_ota_lock);
                 handle_ota_data_frame(pkt);
+                pthread_mutex_unlock(&g_ota_lock);
             }
             continue;
         }

@@ -261,6 +261,9 @@ extern uint32_t g_ota_received_bytes;
 extern uint16_t g_ota_total_chunks;
 extern uint16_t g_ota_received_chunks;
 extern FILE *g_ota_file;
+/* The OTA receive state (g_ota_file, OTA mode) belongs to the RF thread's frame handlers, which
+ * hold this lock; the main loop's 60 s timeout takes it too before it closes the transfer */
+extern pthread_mutex_t g_ota_lock;
 
 extern FILE *g_icon_rx_file;
 extern uint32_t g_icon_rx_bytes;

@@ -179,7 +179,9 @@ void handle_screen_touch_tap(int x, int y) {
 
     if (is_tap && y < UI_CONTENT_Y) {
         header_layout_t l;
+        pthread_mutex_lock(&g_render_mutex); /* measures text with the theme fonts, which a theme change frees */
         header_layout(&l);
+        pthread_mutex_unlock(&g_render_mutex);
         if (x < HDR_GEAR_W) {
             ui_menu_open();
             render_screen();

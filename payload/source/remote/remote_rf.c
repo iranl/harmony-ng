@@ -4,6 +4,10 @@
 #include "remote_config.h"
 #include "remote_battery.h"
 
+/* Each start of pairing gets a generation; a worker ends as soon as a newer start exists, so a
+ * stop and a new start within its 1 s sleep no longer leave two workers sending requests */
+static volatile unsigned s_pairing_gen;
+
 int rf_send_frame(rf_frame_t *frame) {
     if (g_rf_fd < 0 || !frame) return -1;
     uint8_t out[32];
@@ -74,9 +78,9 @@ void rf_wake_and_reconnect(void) {
 }
 
 static void *rf_pairing_worker(void *arg) {
-    (void)arg;
+    unsigned gen = (unsigned)(uintptr_t)arg;
     int attempts = 0;
-    while (g_running && g_pairing_state == 1 && attempts < 30) {
+    while (g_running && g_pairing_state == 1 && gen == s_pairing_gen && attempts < 30) {
         uint8_t pkt_pair[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x01, 0x00};
         pthread_mutex_lock(&g_rf_write_mutex);
         if (write(g_rf_fd, pkt_pair, sizeof(pkt_pair)) < 0) {
@@ -86,14 +90,14 @@ static void *rf_pairing_worker(void *arg) {
 
         sleep(1);
         attempts++;
-        if (g_pairing_state != 1) break;
+        if (g_pairing_state != 1 || gen != s_pairing_gen) break;
 
         uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x20, 0x00, 0x00};
         pthread_mutex_lock(&g_rf_write_mutex);
         if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
         pthread_mutex_unlock(&g_rf_write_mutex);
     }
-    if (g_pairing_state == 1) {
+    if (g_pairing_state == 1 && gen == s_pairing_gen) {
         printf("[-] Pairing timed out after 30s\n");
         g_pairing_state = 3;
         render_screen();
@@ -108,8 +112,13 @@ void rf_start_pairing(void) {
 
     printf("[*] Initiating RF Pairing to Hub...\n");
     pthread_t th;
-    if (pthread_create(&th, NULL, rf_pairing_worker, NULL) == 0) {
+    unsigned gen = ++s_pairing_gen;
+    if (pthread_create(&th, NULL, rf_pairing_worker, (void *)(uintptr_t)gen) == 0) {
         pthread_detach(th);
+    } else {
+        /* No worker: "pairing" would hold back the sync queries and suspends for good */
+        printf("[-] Pairing could not start: no thread\n");
+        g_pairing_state = 3;
     }
     fflush(stdout);
 }

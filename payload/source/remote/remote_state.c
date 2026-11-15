@@ -83,6 +83,7 @@ uint32_t g_ota_received_bytes = 0;
 uint16_t g_ota_total_chunks = 0;
 uint16_t g_ota_received_chunks = 0;
 FILE *g_ota_file = NULL;
+pthread_mutex_t g_ota_lock = PTHREAD_MUTEX_INITIALIZER;
 
 FILE *g_icon_rx_file = NULL;
 uint32_t g_icon_rx_bytes = 0;

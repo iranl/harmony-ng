@@ -275,10 +275,14 @@ void execute_settings_action(int idx) {
                 g_unpair_confirm_active = false;
                 if (g_rf_fd >= 0) {
                     uint8_t q_own[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
+                    pthread_mutex_lock(&g_rf_write_mutex);
                     if (write(g_rf_fd, q_own, sizeof(q_own)) < 0) {}
+                    pthread_mutex_unlock(&g_rf_write_mutex);
                     usleep(10000);
                     uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x20, 0x00, 0x00};
+                    pthread_mutex_lock(&g_rf_write_mutex);
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
+                    pthread_mutex_unlock(&g_rf_write_mutex);
                 }
                 break;
             case 1:

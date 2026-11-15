@@ -294,7 +294,11 @@ time_t ui_wall_time(void) {
  * time, so the next reading is a rested one even if the screen is already on */
 static bool s_resume_rested = false;
 
-void read_remote_battery(void) {
+/* The filter state above is read and written by the main loop, the power thread and the RF thread
+ * (each calls read_remote_battery): one reading at a time */
+static pthread_mutex_t s_batt_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void read_remote_battery_locked(void) {
     uint64_t now_ms = get_boot_ms(); /* rest, drop and debounce times count a suspend */
 
     if (s_last_batt_sample_ms > 0 && (now_ms - s_last_batt_sample_ms < 1000) && s_batt_sample_num > 0) {
@@ -373,6 +377,12 @@ void read_remote_battery(void) {
     s_filtered_pct = remote_battery_filter_step(&s_batt_filter, g_battery_info.voltage_mv, is_charging,
                                                chg_transition, rested, now_ms);
     g_battery_info.percent = s_filtered_pct;
+}
+
+void read_remote_battery(void) {
+    pthread_mutex_lock(&s_batt_lock);
+    read_remote_battery_locked();
+    pthread_mutex_unlock(&s_batt_lock);
 }
 
 void stop_usbeth_and_dropbear(void) {
@@ -521,9 +531,11 @@ void enter_kernel_suspend(void) {
 
 void remote_power_resumed(uint64_t suspended_ms) {
     /* The samples in the average are from before the suspend: start it from the next reading */
+    pthread_mutex_lock(&s_batt_lock);
     s_batt_sample_num = 0;
     s_last_batt_sample_ms = 0;
     if (suspended_ms >= REMOTE_BATT_REST_MS) s_resume_rested = true;
+    pthread_mutex_unlock(&s_batt_lock);
     /* CLOCK_MONOTONIC did not see the suspend, and the RF link may not have looked down to the
      * main loop: report the battery once the link is up (alarm wakes stay up until it went out) */
     remote_battery_request_report(&g_batt_report);
@@ -626,8 +638,10 @@ void *power_manager(void *arg) {
                             g_charging_page_until_ms = (uint32_t)(now_ms + CHARGING_PAGE_MS) | 1; /* 0 means off */
                         g_screen_dirty = true; /* the header's battery changes even when the screen is on */
                         strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);
-                        s_last_batt_sample_ms = 0;
-                        read_remote_battery();
+                        pthread_mutex_lock(&s_batt_lock);
+                        s_last_batt_sample_ms = 0; /* read now, not up to 1 s later */
+                        read_remote_battery_locked();
+                        pthread_mutex_unlock(&s_batt_lock);
                         g_wake_requested = 1;
                     } else {
                         strncpy(s_last_dock_psrc, psrc, sizeof(s_last_dock_psrc) - 1);

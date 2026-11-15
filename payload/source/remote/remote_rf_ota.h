@@ -12,6 +12,9 @@ bool handle_ota_frame(const rf_frame_t *f);
 void handle_ota_data_frame(const uint8_t *pkt);
 /* Enter or leave OTA mode: sets g_is_ota_updating and the CC2544 power mode */
 void ota_set_updating(bool on);
+/* The main loop's check: a transfer without a chunk for 60 s leaves OTA mode (the progress stays
+ * saved for a resume). Tested again under g_ota_lock, and skipped while the RF thread holds it. */
+void ota_check_timeout(void);
 bool handle_icon_frame(const rf_frame_t *f);
 void render_ota_overlay(void);
 /* Install helpers (exposed for tests). ota_stage_file copies src to dst, a new file on the

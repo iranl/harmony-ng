@@ -398,8 +398,11 @@ int main(int argc, char **argv) {
             uint8_t pkt_dongle0[10] = {0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             uint8_t pkt_dongle1[10] = {0x12, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             printf("[*] Writing Dongle Active Sync (10 bytes)...\n");
+            /* The RF thread already runs and writes ACKs: every write to the CC2544 takes the lock */
+            pthread_mutex_lock(&g_rf_write_mutex);
             if (write(g_rf_fd, pkt_dongle0, sizeof(pkt_dongle0)) < 0) { perror("write dongle sync 0"); }
             if (write(g_rf_fd, pkt_dongle1, sizeof(pkt_dongle1)) < 0) { perror("write dongle sync 1"); }
+            pthread_mutex_unlock(&g_rf_write_mutex);
             fflush(stdout);
 
             for (int w = 0; w < 10 && !g_rf_link_connected; w++) {
@@ -645,16 +648,7 @@ int main(int argc, char **argv) {
                 last_ota_stall_sync_ms = now_ms;
                 rf_wake_and_reconnect();
             }
-            if (ota_quiet_ms >= 60000) {
-                printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
-                ota_set_updating(false);
-                if (g_ota_file) {
-                    fflush(g_ota_file);
-                    fclose(g_ota_file);
-                    g_ota_file = NULL;
-                }
-                g_screen_dirty = true;
-            }
+            if (ota_quiet_ms >= 60000) ota_check_timeout();
         }
 
         /* Redraw once when the charging page times out */
