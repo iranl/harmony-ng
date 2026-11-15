@@ -122,7 +122,7 @@ export function createView() {
                 },
               }),
               h('button', {
-                className: 'btn btn-secondary btn-sm',
+                className: 'btn btn-danger btn-sm',
                 text: 'Disconnect',
                 onclick: async () => {
                   await api.disconnectBt(bdaddr);
