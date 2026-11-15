@@ -225,6 +225,10 @@ The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_st
    ```
 2. Use the header language selector for English, Deutsch, Français, Nederlands, Español, or Italiano.
 3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
+4. If authentication is on, log in once in the app. The app does not save your password: it creates a
+   personal access token named "Android app" for your account and keeps only that token. Log out in
+   the app deletes the token on the Hub; an admin can also delete it in the token list (User Accounts &
+   Access Control).
 
 > [!IMPORTANT]
 > **Authentication is off after install.** Until you turn it on, every device on your network is admin on the Hub's API and web UI (port 8089): it can change the configuration, install updates and send any command. Turn it on in the web UI: **System** page, **User Accounts & Access Control**, enter an admin user name and password, tick **Require authentication** and save. Then use a personal access token for Home Assistant and scripts (`docs/API.md`, section 11). Commands sent over MQTT always run as admin, so the MQTT broker must be protected too (`docs/API.md`, section 8.1), and the Logitech protocol port 8088 (off by default) has no authentication at all.

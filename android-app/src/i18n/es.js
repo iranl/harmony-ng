@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Configuración modificada. ¿Enviar ajustes al mando?",
     "per_activity_scope": "Por actividad",
     "per_device_scope": "Por dispositivo (Explorador de dispositivos)",
-    "persistent_tokens_desc": "Tokens de acceso persistentes para Home Assistant, Homebridge, Node-RED o scripts sin compartir contraseñas.",
+    "persistent_tokens_desc": "Tokens de acceso persistentes para Home Assistant, Homebridge, Node-RED o scripts sin compartir contraseñas. La app de Android crea su propio token (\"Android app\") al iniciar sesión y lo borra al cerrarla.",
     "ph_bt_custom_cmd_name": "p. ej. VoiceSearch, Subtítulos, AppMacro",
     "ph_bt_presets_filter": "Filtrar teclas (p. ej. Inicio, Reproducir, Intro)...",
     "ph_bt_save_cmd_name": "Nombre del comando",

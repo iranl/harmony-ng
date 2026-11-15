@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Configurazione modificata. Inviare le impostazioni al telecomando?",
     "per_activity_scope": "Per attività",
     "per_device_scope": "Per dispositivo (Browser dispositivi)",
-    "persistent_tokens_desc": "Token persistenti per Home Assistant, Homebridge, Node-RED o script senza condividere password.",
+    "persistent_tokens_desc": "Token persistenti per Home Assistant, Homebridge, Node-RED o script senza condividere password. L'app Android crea un proprio token (\"Android app\") all'accesso e lo elimina all'uscita.",
     "ph_bt_custom_cmd_name": "es. VoiceSearch, Sottotitoli, AppMacro",
     "ph_bt_presets_filter": "Filtra tasti (es. Home, Play, Invio)...",
     "ph_bt_save_cmd_name": "Nome comando",

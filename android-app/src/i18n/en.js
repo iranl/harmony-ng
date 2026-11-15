@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Hub configuration changed. Push settings to Harmony remote?",
     "per_activity_scope": "Per Activity",
     "per_device_scope": "Per Device (Device Browser)",
-    "persistent_tokens_desc": "Persistent tokens for Home Assistant, Homebridge, Node-RED, or scripts without sharing passwords.",
+    "persistent_tokens_desc": "Persistent tokens for Home Assistant, Homebridge, Node-RED, or scripts without sharing passwords. The Android app creates its own token (\"Android app\") at login and deletes it at log out.",
     "ph_bt_custom_cmd_name": "e.g. VoiceSearch, Subtitle, AppMacro",
     "ph_bt_presets_filter": "Filter keys (e.g. Home, Play, Enter)...",
     "ph_bt_save_cmd_name": "Command name",

@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Hub-configuratie gewijzigd. Instellingen naar afstandsbediening sturen?",
     "per_activity_scope": "Per activiteit",
     "per_device_scope": "Per apparaat (Apparaatbrowser)",
-    "persistent_tokens_desc": "Permanente tokens voor Home Assistant, Homebridge, Node-RED of scripts zonder wachtwoorden te delen.",
+    "persistent_tokens_desc": "Permanente tokens voor Home Assistant, Homebridge, Node-RED of scripts zonder wachtwoorden te delen. De Android-app maakt bij het aanmelden een eigen token (\"Android app\") aan en verwijdert het bij het afmelden.",
     "ph_bt_custom_cmd_name": "bijv. VoiceSearch, Ondertitels, AppMacro",
     "ph_bt_presets_filter": "Toetsen filteren (bijv. Home, Play, Enter)...",
     "ph_bt_save_cmd_name": "Opdrachtnaam",

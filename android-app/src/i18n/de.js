@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Hub-Konfiguration geändert. Einstellungen an Fernbedienung übertragen?",
     "per_activity_scope": "Pro Aktivität",
     "per_device_scope": "Pro Gerät (Geräte-Browser)",
-    "persistent_tokens_desc": "Dauerhafte Zugriffstokens für Home Assistant, Homebridge, Node-RED oder Skripte ohne Weitergabe von Passwörtern.",
+    "persistent_tokens_desc": "Dauerhafte Zugriffstokens für Home Assistant, Homebridge, Node-RED oder Skripte ohne Weitergabe von Passwörtern. Die Android-App erstellt beim Anmelden ein eigenes Token (\"Android app\") und löscht es beim Abmelden.",
     "ph_bt_custom_cmd_name": "z. B. VoiceSearch, Untertitel, AppMacro",
     "ph_bt_presets_filter": "Tasten filtern (z. B. Home, Play, Enter)...",
     "ph_bt_save_cmd_name": "Befehlsname",

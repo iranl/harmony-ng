@@ -803,7 +803,7 @@ export default {
     "pending_push_sub": "Configuration modifiée. Transférer à la télécommande ?",
     "per_activity_scope": "Par activité",
     "per_device_scope": "Par appareil (Navigateur d'appareils)",
-    "persistent_tokens_desc": "Jetons d'accès persistants pour Home Assistant, Homebridge, Node-RED ou scripts sans partager de mots de passe.",
+    "persistent_tokens_desc": "Jetons d'accès persistants pour Home Assistant, Homebridge, Node-RED ou scripts sans partager de mots de passe. L'app Android crée son propre jeton (\"Android app\") à la connexion et le supprime à la déconnexion.",
     "ph_bt_custom_cmd_name": "p. ex. VoiceSearch, Sous-titres, AppMacro",
     "ph_bt_presets_filter": "Filtrer les touches (p. ex. Accueil, Lecture, Entrée)...",
     "ph_bt_save_cmd_name": "Nom de la commande",
