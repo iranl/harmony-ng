@@ -25,6 +25,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 /* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
 static uint8_t device_ir_ports(const char *dev_id) {
@@ -217,10 +218,11 @@ static void id_text(const cJSON *j, char *out, size_t out_sz) {
 
 /* Which touchscreen remote slots hub_rf reports active (GET /api/rf/status, "slots"[].active),
  * into paired[1..2]; stays 0 when hub_rf does not answer */
-static void rf_slots_active(int paired[3]) {
+static int rf_slots_active(int paired[3]) {
     paired[1] = paired[2] = 0;
     cJSON *st = state_watch_fetch_rf_status();
     const cJSON *slots = st ? cJSON_GetObjectItemCaseSensitive(st, "slots") : NULL;
+    int answered = cJSON_IsArray(slots);
     const cJSON *sl;
     cJSON_ArrayForEach(sl, slots) {
         const cJSON *jn = cJSON_GetObjectItemCaseSensitive(sl, "slot");
@@ -228,12 +230,31 @@ static void rf_slots_active(int paired[3]) {
         if (k >= 1 && k <= 2) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
     }
     cJSON_Delete(st);
+    return answered;
+}
+
+/* The slot's remote_slot<N>_version.json names a remote (remote_id or skin; an unpair clears both
+ * and keeps the file): require_remote. Else: the file exists. */
+static int slot_version_file_counts(int slot, int require_remote) {
+    char name[40];
+    snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
+    if (!require_remote) return access(config_store_path(name), F_OK) == 0;
+    size_t len = 0;
+    char *txt = read_file_text_alloc(config_store_path(name), 8192, &len);
+    cJSON *v = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    const cJSON *rid = v ? cJSON_GetObjectItemCaseSensitive(v, "remote_id") : NULL;
+    const cJSON *skin = v ? cJSON_GetObjectItemCaseSensitive(v, "skin") : NULL;
+    int named = (cJSON_IsString(rid) && rid->valuestring[0]) || (cJSON_IsNumber(skin) && skin->valueint != 0);
+    cJSON_Delete(v);
+    return named;
 }
 
 /* Key bindings that use the device, in the maps of paired touchscreen slots and of the Bluetooth
- * remote. A slot counts when hub_rf reports it active or its remote_slot<N>_version.json exists (a
- * remote reported on that slot); a map of a slot with neither (an old file) cannot be opened by
- * the editors and does not count. Sections of activities and pages of devices that no longer exist
+ * remote. A slot counts when hub_rf reports it active, or, not active, when its version file still
+ * names a remote (remote_id or skin: an unpair clears them); when hub_rf does not answer, when its
+ * version file exists. A map of any other slot (an old file, an unpaired remote) cannot be opened
+ * by the legacy editor and does not count. Sections of activities and pages of devices that no longer exist
  * do not count either. Read without the configuration lock (the maps are not under it). */
 static cJSON *device_map_users(const char *dev_id) {
     cJSON *users = cJSON_CreateArray();
@@ -260,11 +281,10 @@ static cJSON *device_map_users(const char *dev_id) {
     cJSON_Delete(acts_root);
 
     int paired[3];
-    rf_slots_active(paired);
+    int answered = rf_slots_active(paired);
     for (int slot = 1; slot <= 2; slot++) {
         char name[40];
-        snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
-        if (!paired[slot] && access(config_store_path(name), F_OK) != 0) continue;
+        if (!paired[slot] && !slot_version_file_counts(slot, answered)) continue;
         snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
         add_map_users(users, name, "remote_map", slot, dev_id, act_ids, dev_ids);
     }
@@ -341,10 +361,12 @@ static int device_config_users(const char *dev_id, cJSON *users) {
 }
 
 /* The ids of the configured devices or activities ("devices" or "activities"), as strings */
+/* NULL when the configuration cannot be read (no memory): nothing may be removed then */
 static cJSON *configured_ids(const char *what) {
-    cJSON *ids = cJSON_CreateArray();
     int devices = strcmp(what, "devices") == 0;
     cJSON *root = devices ? config_store_devices_copy() : config_store_activities_copy();
+    if (!root) return NULL;
+    cJSON *ids = cJSON_CreateArray();
     const cJSON *list = !root ? (const cJSON *)0 : cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, what);
     const cJSON *it;
     cJSON_ArrayForEach(it, list) {
@@ -368,8 +390,7 @@ int remote_maps_drop_section(const char *section, const char *id) {
     if (!section || !id || !id[0]) return 0;
     /* only once the configuration no longer has it (its save may have failed) */
     cJSON *ids = configured_ids(section);
-    int still_there = id_listed(ids, id);
-    if (still_there) {
+    if (!ids || id_listed(ids, id)) {
         cJSON_Delete(ids);
         return 0;
     }
@@ -404,18 +425,37 @@ int remote_maps_drop_section(const char *section, const char *id) {
             /* compact, as the editors save it: the readers take maps up to 200000 bytes */
             char *out = cJSON_PrintUnformatted(map);
             cJSON_Delete(map);
+            /* own temp file, written and synced, then the map is compared once more right before
+             * the rename: an editor save (a rename too: new inode) in between is read again */
+            char tmp[300];
+            snprintf(tmp, sizeof(tmp), "%s.drop.%d", path, (int)getpid());
+            int fd = out ? open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1;
+            size_t olen = out ? strlen(out) : 0, done = 0;
+            while (fd >= 0 && done < olen) {
+                ssize_t w = write(fd, out + done, olen - done);
+                if (w <= 0) break;
+                done += (size_t)w;
+            }
+            int written = fd >= 0 && done == olen && fsync(fd) == 0;
+            if (fd >= 0) close(fd);
+            free(out);
+            if (!written) {
+                unlink(tmp);
+                printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
+                break;
+            }
             if (stat(path, &after) != 0 || after.st_mtime != before.st_mtime || after.st_size != before.st_size ||
                 after.st_ino != before.st_ino) {
-                free(out);
+                unlink(tmp);
                 continue; /* saved meanwhile: read it again */
             }
-            if (!out || write_file_atomic_sized(path, out, strlen(out)) != 0) {
+            if (rename(tmp, path) != 0) {
+                unlink(tmp);
                 printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
             } else {
                 printf("[*] Removed %d %s section(s) from %s\n", removed, section, files[i]);
                 if (i == 2) hub_send_btstack_cmd("reload_map");
             }
-            free(out);
             break;
         }
     }

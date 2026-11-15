@@ -12,8 +12,8 @@ Deleting a device that is still used is refused (as agreed in #220): POST /api/d
   with a version file) do not count; deleting an activity removes its sections from the maps; a
   deleted device's own page is removed from the maps, so a new device with the same id starts clean
 - pages of devices that no longer exist do not count, and go with the next device delete
-- a slot counts when hub_rf reports it active or its version file exists; hub_rf down and no
-  version file: not counted; a hub_rf that answers slowly does not hold the request past ~1.5 s
+- a slot counts when hub_rf reports it active, or, inactive, while its version file names a remote
+  (remote_id or skin: an unpair clears them); hub_rf down: when its version file exists; a hub_rf that answers slowly does not hold the request past ~1.5 s
 - a map rewritten by a delete stays compact: a large map stays readable by the editors
 The daemon runs with --dry-run on a private mock root (port 9202); a fake hub_rf status on 9203.
 """
@@ -186,13 +186,19 @@ def main():
             check(st == 409 and not users_of(r, "device") and len(maps) == 1,
                   "after the trigger went: only the screen button is left", "%s %s" % (st, r))
 
-        print("[-] hub_rf says the slot is not active, its version file exists: counted")
+        print("[-] hub_rf says the slot is not active: counted only while its version file names a remote")
         FakeRf.slot1_active = False
+        with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
+                        extra_data_files={"remote_slot1_version.json": {"slot": 1, "version": "2.4.2",
+                                                                         "remote_id": "20141001120000-000002"}}) as hub:
+            st, r = hub.http_post("/api/device-delete", {"deviceId": "4"})
+            maps = {u.get("slot"): u.get("keys") for u in users_of(r, "remote_map")}
+            check(st == 409 and maps == {1: ["activities/11/screen_buttons/0"]}, "slot 1 counted: its file names a remote",
+                  "%s %s" % (st, r))
         with HubHarness(port=PORT, config_dir=cfg, env={"HARMONY_TEST_RF_PORT": str(RF_PORT)},
                         extra_data_files={"remote_slot1_version.json": {"slot": 1, "version": "2.4.2"}}) as hub:
             st, r = hub.http_post("/api/device-delete", {"deviceId": "4"})
-            maps = {u.get("slot"): u.get("keys") for u in users_of(r, "remote_map")}
-            check(st == 409 and maps == {1: ["activities/11/screen_buttons/0"]}, "slot 1 counted by its version file",
+            check(not users_of(r, "remote_map"), "slot 1 unpaired (no remote_id or skin in its file): not counted",
                   "%s %s" % (st, r))
         FakeRf.slot1_active = True
 

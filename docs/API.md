@@ -392,7 +392,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
   {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",
    "busy": true, "sending": true, "queued": null}
   ```
-  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are wall-clock time (a query can take 3 s). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
+  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
 - **Response `200 OK`**:
   ```json
   {
@@ -472,13 +472,16 @@ changes. Not counted, so a device never becomes impossible to delete: the map's 
 device (`devices/<id>`, removed from the maps together with the device, so a new device given the
 same id starts without it), map sections of activities and pages of devices that no longer exist,
 and the map of a touchscreen slot that has no remote: a slot counts when `hub_rf` reports it active
-(`GET /api/rf/status`, asked for at most 1.5 s) or its `remote_slot<N>_version.json` exists; with
-`hub_rf` not answering and no version file, the slot does not count. Deleting an activity
+(`GET /api/rf/status`, asked for at most 1.5 s), or, not active, when its
+`remote_slot<N>_version.json` still names a remote (`remote_id` or `skin`; an unpair clears both);
+when `hub_rf` does not answer, when that file exists. Any other slot does not count. Deleting an activity
 (`POST /api/activity-delete`) removes its sections (`activities/<id>`) from the three maps; a device
-delete removes its page and pages of devices deleted earlier. Both only after the configuration
-save went through, and the maps are written compact (as the editors save them, so a large map
-stays under the 200000 bytes `GET /api/rf-mapping` reads); a map saved by an editor in the same
-moment is read again, not overwritten. The web remote layouts (`web_remote_layouts.json`) are not
+delete removes its page and pages of devices deleted earlier. Both only once the configuration in
+memory no longer has the activity or device. The maps are written compact (as the editors save
+them, so a large map stays under the 200000 bytes `GET /api/rf-mapping` reads), to a temporary
+file compared with the map once more right before the rename: an editor save in the meantime is
+read again instead of being overwritten (one in the last instant before the rename can still be
+lost: the editors take no lock). The web remote layouts (`web_remote_layouts.json`) are not
 scanned: the web remote drops buttons of a device that no longer exists by itself.
 - **Request Body**: `{"deviceId": "70321456"}`
 - **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)

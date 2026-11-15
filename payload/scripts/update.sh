@@ -286,11 +286,14 @@ EOF
 # queued follower in between). Gives up after UPDATE_ACTIVITY_WAIT_SECS (600 s) and reboots anyway
 # (the new files are installed already). A query that fails is "unknown", not "no switch": only a
 # hub_daemon that is not running means no switch; one that does not answer for
-# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are wall-clock seconds
-# (a query can take 3 s), counted from the sleeps when the clock cannot be read.
+# UPDATE_ACTIVITY_FAIL_SECS (60 s) in a row lets the reboot go on. Times are real seconds from
+# /proc/uptime (a query can take 3 s; no steps when SNTP sets the clock), counted from the sleeps
+# when it cannot be read.
 now_secs() {
-  _d=$(date +%s 2>/dev/null)
-  case "$_d" in ''|*[!0-9]*) echo "" ;; *) echo "$_d" ;; esac
+  _up=""
+  read -r _up _rest 2>/dev/null < /proc/uptime
+  _up="${_up%%.*}"
+  case "$_up" in ''|*[!0-9]*) echo "" ;; *) echo "$_up" ;; esac
 }
 # seconds since $1 (now_secs), or $2 (counted) when larger or the clock is not readable
 since_secs() {
@@ -310,7 +313,9 @@ wait_activity_switch() {
   local idle=0
   local said=0
   local st
+  local qstart
   while [ "$(since_secs "$start" "$counted")" -lt "$max" ]; do
+    qstart=$(now_secs)
     if st=$($WGET -q -T 3 -O - "http://127.0.0.1:8089/api/activity" 2>/dev/null); then
       fail_start=""
       fail_counted=0
@@ -337,7 +342,7 @@ wait_activity_switch() {
         return 0
       fi
       if [ -z "$fail_start" ]; then
-        fail_start=$(now_secs)
+        fail_start="$qstart" # from the start of the first failed query
         [ -z "$fail_start" ] && fail_start="none"
       fi
       _fs="$fail_start"

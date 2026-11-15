@@ -9,7 +9,7 @@ queued request all count as a switch; one idle reply between two switches is not
 that does not end lets the update reboot after UPDATE_ACTIVITY_WAIT_SECS with a message; a failed
 query is "unknown": with hub_daemon running it keeps waiting until UPDATE_ACTIVITY_FAIL_SECS, with
 hub_daemon not running it reboots at once; a cap that is not a number keeps the default; the caps
-are wall-clock seconds (slow queries count), and an idle answer at the cap is not called a running
+are real seconds from /proc/uptime (slow queries count), and an idle answer at the cap is not called a running
 switch.
 """
 
@@ -115,7 +115,7 @@ class RebootWaitsForSwitch(base.UpdateApply):
         self.assertEqual(calls_at_reboot, 2, r.stdout)
         self.assertNotIn("anyway", r.stdout)
 
-    def test_cap_is_wall_clock_time(self):
+    def test_cap_is_real_time(self):
         """each query takes 2.5 s here: the cap of 5 s ends after 2 queries, not after 3 counted sleeps"""
         r, calls_at_reboot = self.run_with(["slow:" + BUSY], wait_secs=5)
         self.assertEqual(calls_at_reboot, 2, r.stdout)
