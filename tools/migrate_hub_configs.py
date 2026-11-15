@@ -784,19 +784,41 @@ def remap_remote_map_devices(map_obj: Any, dev_map: Dict[str, str]) -> Any:
     return out
 
 
+def collect_device_refs(obj: Any) -> set:
+    """Every device id an object refers to: DEVICE_REF_KEYS values, "deviceIds" lists and the
+    keys of a remote map's "devices" object."""
+    refs: set = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in DEVICE_REF_KEYS and isinstance(v, (str, int)) and not isinstance(v, bool):
+                refs.add(str(v))
+            elif k == "deviceIds" and isinstance(v, list):
+                refs.update(str(x) for x in v if isinstance(x, (str, int)) and not isinstance(x, bool))
+            elif k == "devices" and isinstance(v, dict):
+                refs.update(str(x) for x in v)
+            refs |= collect_device_refs(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            refs |= collect_device_refs(v)
+    return refs
+
+
 def shorten_long_device_ids(devices_obj: Optional[Dict[str, Any]], activities_obj: Optional[Dict[str, Any]],
-                            warnings: List[str]) -> Dict[str, str]:
+                            warnings: List[str], maps: Optional[List[Any]] = None) -> Dict[str, str]:
     """Give a short id to every device whose id the RF protocol cannot carry, on any import path.
 
     A harmony-ng config or bundle can hold long ids (an import made before stock ids were
     shortened, or devices added by other tools). Devices whose id already fits keep it; each
-    long id gets the lowest free number. Every reference follows (activities, power sequences,
-    Bluetooth trigger; the caller remaps the remote maps). Returns the old -> new map (empty
-    when every id already fits)."""
+    long id gets the lowest free number that no device has and nothing refers to: a reference
+    left over from a deleted device (in the activities, the devices or the remote maps given in
+    maps) never ends up pointing at a renumbered device, and map keys never collide. Every
+    reference follows (activities, power sequences, Bluetooth trigger; the caller remaps the
+    remote maps). Returns the old -> new map (empty when every id already fits)."""
     if not devices_obj:
         return {}
     devs = [d for d in devices_obj.get("devices", []) if isinstance(d, dict)]
     used = {str(d.get("id", "")) for d in devs if not rf_id_too_long(d.get("id", ""))}
+    used |= collect_device_refs(devices_obj) | collect_device_refs(activities_obj) | collect_device_refs(maps or [])
     dev_map: Dict[str, str] = {}
     next_id = 1
     for d in devs:
@@ -812,6 +834,22 @@ def shorten_long_device_ids(devices_obj: Optional[Dict[str, Any]], activities_ob
         warnings.append(f"device ids longer than the {RF_DEVICE_ID_MAX} bytes the RF protocol carries were renumbered: "
                         + ", ".join(f"{o} -> {n}" for o, n in dev_map.items()))
     return dev_map
+
+
+def _read_config_maps(cfg_dir: Optional[str]) -> List[Any]:
+    """The remote maps of a config folder, read only for the device ids they refer to."""
+    maps: List[Any] = []
+    if not cfg_dir:
+        return maps
+    for name in ("remote_slot1_map.json", "elite_remote_map.json", "remote_slot2_map.json", "bt_remote_map.json"):
+        path = os.path.join(cfg_dir, name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    maps.append(json.load(f))
+            except (OSError, ValueError):
+                pass  # read again (and reported) when the map itself is migrated
+    return maps
 
 
 def check_step_commands(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]],
@@ -1133,7 +1171,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         check_step_commands(devices_obj, activities_obj, warnings)
     else:
         # A config from an older import can still hold stock ids; its maps follow the new ids
-        dev_map = shorten_long_device_ids(devices_obj, activities_obj, warnings)
+        dev_map = shorten_long_device_ids(devices_obj, activities_obj, warnings, _read_config_maps(cfg_dir))
     cfg_dev_map = {} if devices_from_stock else dev_map
 
     # Stock remote maps (MapList.json) and activity roles, for a full stock import
@@ -1287,7 +1325,9 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
         act_obj, id_map = sanitize_activities_json(act_data)
 
     # A bundle from an older import can still hold stock device ids
-    dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings)
+    dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings,
+                                      [bundle.get(k) for k in ("remote_slot1_map", "elite_remote_map",
+                                                               "remote_slot2_map", "bt_remote_map")])
 
     if dev_obj:
         with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:

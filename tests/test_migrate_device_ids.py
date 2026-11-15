@@ -114,6 +114,45 @@ class MigrateDeviceIds(unittest.TestCase):
         mig.migrate(str(bundle), str(out))
         self.check(out, bt_hosts=True)
 
+    def stale_config(self):
+        # Device 2 was deleted, but a step and a map entry still name it
+        devices = {"devices": [{"id": "1", "name": "Amp", "type": "IR", "commands": [{"name": "PowerOn"}]},
+                               {"id": LONG, "name": "TV", "type": "IR", "commands": [{"name": "PowerOn"}]}]}
+        activities = {"activities": [{"id": "1", "name": "Watch", "deviceIds": ["1", LONG],
+                                      "stopSequence": [{"deviceId": "2", "command": "PowerOff"}]}]}
+        slot1 = {"activities": {"1": {"Play": {"deviceId": "3", "command": "Play"}}},
+                 "devices": {"2": {"OK": {"deviceId": "2", "command": "OK"}},
+                             LONG: {"OK": {"deviceId": LONG, "command": "OK"}}}}
+        return devices, activities, slot1
+
+    def check_stale(self, out: Path) -> None:
+        devs = json.loads((out / "config" / "devices.json").read_text())["devices"]
+        tv = next(d["id"] for d in devs if d["name"] == "TV")
+        # 2 is referenced by the stale step and map entry, 3 by a stale map button: both stay free
+        self.assertEqual(tv, "4")
+        act = json.loads((out / "config" / "activities.json").read_text())["activities"][0]
+        self.assertEqual(act["stopSequence"][0]["deviceId"], "2")
+        slot1 = json.loads((out / "remote_slot1_map.json").read_text())
+        self.assertEqual(sorted(slot1["devices"]), ["2", "4"])
+        self.assertEqual(slot1["devices"]["4"]["OK"]["deviceId"], "4")
+        self.assertEqual(slot1["devices"]["2"]["OK"]["deviceId"], "2")
+
+    def test_stale_references_keep_their_id_folder(self):
+        devices, activities, slot1 = self.stale_config()
+        cfg = self.base / "harmony"
+        write_json(cfg / "config" / "devices.json", devices)
+        write_json(cfg / "config" / "activities.json", activities)
+        write_json(cfg / "remote_slot1_map.json", slot1)
+        mig.migrate(str(cfg), str(self.base / "out"))
+        self.check_stale(self.base / "out")
+
+    def test_stale_references_keep_their_id_bundle(self):
+        devices, activities, slot1 = self.stale_config()
+        bundle = self.base / "bundle.json"
+        write_json(bundle, {"devices": devices, "activities": activities, "remote_slot1_map": slot1})
+        mig.migrate(str(bundle), str(self.base / "out"))
+        self.check_stale(self.base / "out")
+
     def test_ids_that_fit_are_not_touched(self):
         devices = {"devices": [{"id": "12", "name": "A"}, {"id": "abcd", "name": "B"}]}
         acts = {"activities": [{"id": "1", "name": "Watch", "deviceIds": ["12", "abcd"]}]}
