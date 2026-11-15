@@ -175,7 +175,12 @@ export function createSystemApi(client) {
       if (typeof payload === 'string') {
         try { parsed = JSON.parse(payload); } catch { /* ignore */ }
       }
-      return client.postJson('/import', { target, payload: parsed, restore_network: !!restoreNetwork }, { timeout: 30000 });
+      const reply = await client.postJson('/import', { target, payload: parsed, restore_network: !!restoreNetwork }, { timeout: 30000 });
+      // a restore that turned authentication on answers the accounts and tokens to check
+      if (reply && reply.to_check && typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('harmony:auth-switch-check', { detail: reply.to_check }));
+      }
+      return reply;
     },
 
     /* Icons */

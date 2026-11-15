@@ -6,6 +6,12 @@ import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
 import { showSwitchCheck } from '../../components/hub-decisions.js';
 
+// A restore that turned authentication on (api/system.js): the accounts and tokens to check
+if (typeof window !== 'undefined' && !window.__harmonySwitchCheckListener) {
+  window.__harmonySwitchCheckListener = true;
+  window.addEventListener('harmony:auth-switch-check', (e) => showSwitchCheck(api, e.detail));
+}
+
 export function createView() {
   const container = h('div', { className: 'setup-subview-backup', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
@@ -87,10 +93,8 @@ export function createView() {
         if (ok) {
           try {
             toast.info('Restoring backup to Hub...');
-            const reply = await api.restoreBackup('all', text, false);
+            await api.restoreBackup('all', text, false);
             toast.success('Backup restored successfully!');
-            // the restore turned authentication on: the accounts and tokens to check
-            if (reply?.to_check) showSwitchCheck(api, reply.to_check);
           } catch (e) {
             toast.error(e.message);
           }
