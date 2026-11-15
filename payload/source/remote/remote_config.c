@@ -4,6 +4,44 @@
 #include "remote_stock_icons.h"
 #include "remote_fb.h"
 
+/* Settings, the Hub config and the usage counts are rewritten as a whole: to <path>.tmp, flushed
+ * to flash, then renamed over the old file and the directory flushed. Writing in place truncated
+ * the file first, and on UBIFS the truncate reaches flash well before the new data, so a reset
+ * in between left an empty file (every setting back at its default, or no activities). On any
+ * error the old file stays as it was. */
+static bool write_file_safely(const char *path, const char *data, size_t len) {
+    char tmp[256];
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) return false;
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd < 0) return false;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t w = write(fd, data + off, len - off);
+        if (w < 0 && errno == EINTR) continue;
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+    bool ok = off == len && fsync(fd) == 0;
+    if (close(fd) != 0) ok = false;
+    if (!ok || rename(tmp, path) != 0) {
+        printf("[-] Could not write %s: %s (the previous file is kept)\n", path, strerror(errno));
+        unlink(tmp);
+        return false;
+    }
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        strcpy(slash, "/."); /* "/data/." : the directory itself */
+        int dfd = open(dir, O_RDONLY | O_CLOEXEC);
+        if (dfd >= 0) {
+            fsync(dfd);
+            close(dfd);
+        }
+    }
+    return true;
+}
+
 /* Icon files are checked where the renderer will load them (see remote_fs_path) */
 static bool fs_readable(const char *path) {
     char buf[256];
@@ -563,8 +601,7 @@ void save_rf_config(void) {
             fclose(rf);
         }
         if (!existing || strcmp(existing, json) != 0) {
-            FILE *f = fopen(RF_CONFIG_FILE, "w");
-            if (f) { fputs(json, f); fclose(f); }
+            write_file_safely(RF_CONFIG_FILE, json, strlen(json));
         }
         if (existing) free(existing);
         free(json);
@@ -845,12 +882,12 @@ static void sort_activity_list(void) {
 void flush_activity_usage(void) {
     pthread_mutex_lock(&g_usage_mutex);
     if (g_usage_dirty) {
-        FILE *f = fopen(ACTIVITY_USAGE_FILE, "w");
-        if (f) {
-            for (int k = 0; k < g_usage_len; k++) fprintf(f, "%s=%u\n", g_usage[k].id, g_usage[k].count);
-            fclose(f);
-            g_usage_dirty = false;
+        char buf[sizeof(g_usage) / sizeof(g_usage[0]) * (sizeof(g_usage[0].id) + 12)];
+        size_t len = 0;
+        for (int k = 0; k < g_usage_len; k++) {
+            len += (size_t)snprintf(buf + len, sizeof(buf) - len, "%s=%u\n", g_usage[k].id, g_usage[k].count);
         }
+        if (write_file_safely(ACTIVITY_USAGE_FILE, buf, len)) g_usage_dirty = false;
     }
     pthread_mutex_unlock(&g_usage_mutex);
 }
@@ -915,21 +952,21 @@ void load_settings_conf(void) {
             else if (strcmp(key, "cap_buttons") == 0 || strcmp(key, "capacitive_buttons") == 0) g_cap_buttons_enabled = (val != 0);
             else if (strcmp(key, "touch_sens") == 0) g_touch_sensitivity = (val >= 1 && val <= 3) ? val : 2;
             else if (strcmp(key, "gyro") == 0) g_gyro_enabled = (val != 0);
-            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = (val > 0) ? val : 50;
+            else if (strcmp(key, "gyro_rate") == 0) g_gyro_rate_hz = remote_gyro_rate_valid(val) ? val : 50;
             else if (strcmp(key, "deep_standby") == 0 || strcmp(key, "deep_standby_min") == 0) {
                 if (val == -1 || val == 0 || val == 15 || val == 30 || val == 60 || val == 120 || val == 240) {
                     g_deep_standby_min = val;
                 }
             }
-            else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = val;
-            else if (strcmp(key, "night_start") == 0) g_night_start_hour = val;
-            else if (strcmp(key, "night_end") == 0) g_night_end_hour = val;
+            else if (strcmp(key, "btn_backlight") == 0) g_btn_backlight_mode = (val >= 0 && val <= 2) ? val : 2;
+            else if (strcmp(key, "night_start") == 0) g_night_start_hour = (val >= 0 && val <= 23) ? val : 22;
+            else if (strcmp(key, "night_end") == 0) g_night_end_hour = (val >= 0 && val <= 23) ? val : 7;
             else if (strcmp(key, "timeout") == 0) g_timeout_seconds = val;
             else if (strcmp(key, "brightness") == 0) g_brightness_val = (val >= 1 && val <= 5) ? val : 2;
             else if (strcmp(key, "screen") == 0) g_screen_on = (val != 0);
             else if (strcmp(key, "confirm_act") == 0 || strcmp(key, "confirm") == 0) g_confirm_activity = (val != 0);
             else if (strcmp(key, "no_screen") == 0) g_no_screen_mode = (val != 0);
-            else if (strcmp(key, "log_level") == 0) g_log_level = val;
+            else if (strcmp(key, "log_level") == 0) g_log_level = (val >= LOG_LEVEL_ERR && val <= LOG_LEVEL_DEBUG) ? val : LOG_LEVEL_INFO;
             else if (strcmp(key, "key_hint") == 0) g_key_hint_pending = (val != 0);
             else if (strcmp(key, "language") == 0 || strcmp(key, "lang") == 0) {
                 g_language = remote_lang_from_code(sval);
@@ -961,7 +998,16 @@ void load_settings_conf(void) {
     }
 }
 
+/* Saved from the main loop (a change on the remote) and from the RF thread (a settings push, a
+ * time zone change): one at a time */
+static pthread_mutex_t s_settings_save_lock = PTHREAD_MUTEX_INITIALIZER;
+
+bool remote_gyro_rate_valid(int hz) {
+    return hz == 10 || hz == 25 || hz == 50 || hz == 100;
+}
+
 void save_settings_conf(void) {
+    pthread_mutex_lock(&s_settings_save_lock);
     char buf[2048];
     int n = snprintf(buf, sizeof(buf),
         "touch=%d\n"
@@ -1024,11 +1070,7 @@ void save_settings_conf(void) {
             fclose(rf);
         }
         if (strcmp(cur, buf) != 0) {
-            FILE *f = fopen(SETTINGS_CONFIG_FILE, "w");
-            if (f) {
-                fputs(buf, f);
-                fclose(f);
-            }
+            write_file_safely(SETTINGS_CONFIG_FILE, buf, (size_t)n);
         }
     }
 
@@ -1040,6 +1082,7 @@ void save_settings_conf(void) {
     } else {
         unlink("/data/debug_logging.conf");
     }
+    pthread_mutex_unlock(&s_settings_save_lock);
 
     g_settings_dirty = true;
     if (g_rf_link_connected) {

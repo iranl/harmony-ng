@@ -24,3 +24,10 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
 CRASH_DIR="$(mktemp -d /tmp/hng_crash.XXXXXX)"
 HARMONY_MOCK_DIR="$CRASH_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_crash_handler"
 rm -rf "$CRASH_DIR"
+
+# Settings, Hub config and usage files: a write cut short keeps the old file; settings range checks
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_settings_files" \
+    "$SCRIPT_DIR/test_remote_settings_files.c" "${REMOTE_TEST_SRCS[@]}" -lpthread -lm
+SETTINGS_FILES_DIR="$(mktemp -d /tmp/hng_settings_files.XXXXXX)"
+HARMONY_MOCK_DIR="$SETTINGS_FILES_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_settings_files"
+rm -rf "$SETTINGS_FILES_DIR"

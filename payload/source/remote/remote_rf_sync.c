@@ -415,7 +415,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
 
             /* Extended settings fields */
-            if (f->payload[11] > 0 && f->payload[11] != g_gyro_rate_hz) {
+            if (remote_gyro_rate_valid(f->payload[11]) && f->payload[11] != g_gyro_rate_hz) {
                 g_gyro_rate_hz = f->payload[11];
                 if (g_gyro_fd >= 0) init_gyro_interrupt();
             }
