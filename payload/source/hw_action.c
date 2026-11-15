@@ -675,12 +675,18 @@ static int send_match_in(cJSON *root, const char *target, int match_mode, const 
         if (pipe_cmd[0]) {
             int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
             if (bfd >= 0) {
-                char target_hdr[64];
-                snprintf(target_hdr, sizeof(target_hdr), "TARGET %s\n", bdaddr);
-                write(bfd, target_hdr, strlen(target_hdr));
-                write(bfd, pipe_cmd, strlen(pipe_cmd));
+                /* Target and command in one write: whole or not at all, and never with another
+                 * writer's command between the two. They were two unchecked writes: a full pipe
+                 * could take the target and lose the command, and the key counted as sent. */
+                char msg[320];
+                int mlen = snprintf(msg, sizeof(msg), "TARGET %s\n%s", bdaddr, pipe_cmd);
+                ssize_t w = (mlen > 0 && mlen < (int)sizeof(msg)) ? write(bfd, msg, (size_t)mlen) : -1;
+                int werr = errno;
                 close(bfd);
-                ret = 0;
+                ret = (w == mlen) ? 0 : -1;
+                if (ret != 0) {
+                    printf("[!] Bluetooth key not handed to hub_btstack (%s): %s", w < 0 ? strerror(werr) : "short write", pipe_cmd);
+                }
             } else {
                 ret = -1;
             }

@@ -39,6 +39,18 @@ static void pairing_timeout_handler(btstack_timer_source_t *ts) {
     if (g_host_pairing) pairing_mode_off("timeout");
 }
 
+/* The key pipe is read as soon as hub_daemon writes to it. It used to be read only from the
+ * 100 ms command timer: every key waited up to 100 ms, and a press and its release written
+ * within one period reached the host back to back. */
+static btstack_data_source_t g_bthid_fifo_ds;
+static char s_fifo_carry[256]; /* a line cut by the end of a read */
+static size_t s_fifo_carry_len = 0;
+
+static void bthid_fifo_process(btstack_data_source_t *ds, btstack_data_source_callback_type_t callback_type) {
+    (void)ds;
+    if (callback_type == DATA_SOURCE_CALLBACK_READ) poll_bthid_fifo();
+}
+
 void poll_bthid_fifo(void) {
     if (g_bthid_fifo_fd < 0) {
         struct stat st;
@@ -47,12 +59,30 @@ void poll_bthid_fifo(void) {
         chmod(BTHID_FIFO, 0666);
         g_bthid_fifo_fd = open(BTHID_FIFO, O_RDWR | O_NONBLOCK);
         if (g_bthid_fifo_fd < 0) return;
+        btstack_run_loop_set_data_source_fd(&g_bthid_fifo_ds, g_bthid_fifo_fd);
+        btstack_run_loop_set_data_source_handler(&g_bthid_fifo_ds, &bthid_fifo_process);
+        btstack_run_loop_add_data_source(&g_bthid_fifo_ds);
+        btstack_run_loop_enable_data_source_callbacks(&g_bthid_fifo_ds, DATA_SOURCE_CALLBACK_READ);
     }
 
-    char buf[1024];
-    ssize_t n = read(g_bthid_fifo_fd, buf, sizeof(buf) - 1);
+    char buf[1024 + sizeof(s_fifo_carry)];
+    memcpy(buf, s_fifo_carry, s_fifo_carry_len);
+    ssize_t n = read(g_bthid_fifo_fd, buf + s_fifo_carry_len, 1023);
     if (n <= 0) return;
+    n += (ssize_t)s_fifo_carry_len;
+    s_fifo_carry_len = 0;
     buf[n] = 0;
+    /* A read that ends in the middle of a line (more than 1023 bytes were waiting): keep the cut
+     * line for the next read. Its two halves used to run as two commands, each typed to the host
+     * as text. */
+    if (buf[n - 1] != '\n' && buf[n - 1] != '\r') {
+        char *last_nl = strrchr(buf, '\n');
+        if (last_nl && strlen(last_nl + 1) < sizeof(s_fifo_carry)) {
+            s_fifo_carry_len = strlen(last_nl + 1);
+            memcpy(s_fifo_carry, last_nl + 1, s_fifo_carry_len);
+            last_nl[1] = 0;
+        }
+    }
 
     char *save = NULL;
     char *line = strtok_r(buf, "\r\n", &save);

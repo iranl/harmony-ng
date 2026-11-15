@@ -271,6 +271,9 @@ build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUIL
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_reconnect_queue" "$SCRIPT_DIR/test_bt_reconnect_queue.c" "$REPO_ROOT/payload/source/hub_btstack/bt_reconnect_queue.c" && "$BUILD_DIR/test_bt_reconnect_queue"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_le_pair_window" "$SCRIPT_DIR/test_bt_le_pair_window.c" "$REPO_ROOT/payload/source/hub_btstack/bt_le_pair_window.c" && "$BUILD_DIR/test_bt_le_pair_window"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_hid_queue" "$SCRIPT_DIR/test_bt_hid_queue.c" "$REPO_ROOT/payload/source/hub_btstack/bt_hid_queue.c" && "$BUILD_DIR/test_bt_hid_queue"
+# The key pipe: hub_btstack's reader (bt_cmd.c with stubs), and hub_daemon's hand-off in one checked write
+build_test -Wall -Wextra -Wno-format-truncation -Wno-stringop-truncation -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_pipe" "$SCRIPT_DIR/test_bt_key_pipe.c" && "$BUILD_DIR/test_bt_key_pipe"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -Wl,--wrap=open -o "$BUILD_DIR/test_bt_key_handoff" "$SCRIPT_DIR/test_bt_key_handoff.c" "$REPO_ROOT/payload/source/hw_action.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_bt_key_handoff"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"
