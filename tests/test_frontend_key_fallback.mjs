@@ -2,7 +2,7 @@
 // running activity does not bind. Same order as rf_keymap.c: "-1", "default", then the map's
 // only activity entry; with several entries and neither of the first two, nothing.
 import assert from 'node:assert/strict';
-import { defaultBindings } from '../frontend/src/views/setup/remote-key-fallback.js';
+import { defaultBindings, defaultBinding } from '../frontend/src/views/setup/remote-key-fallback.js';
 
 let failures = 0;
 function check(name, fn) {
@@ -32,6 +32,19 @@ check('a stock activity id is not special', () => {
 });
 check('a map with one activity entry: that entry', () => {
   assert.equal(defaultBindings({ 3: vol('1') })?.VolumeUp.deviceId, '1');
+});
+check('an empty entry is not an activity entry', () => {
+  assert.equal(defaultBindings({ 3: vol('1'), 2: {} })?.VolumeUp.deviceId, '1');
+});
+check('"-1" present but null stops the search, as on the Hub', () => {
+  assert.equal(defaultBindings({ 3: vol('1'), '-1': null }), undefined);
+});
+check('"default" present but null stops the search', () => {
+  assert.equal(defaultBindings({ 3: vol('1'), default: null }), undefined);
+});
+check('a key bound to null in the fallback entry binds nothing', () => {
+  assert.equal(defaultBinding({ '-1': { VolumeUp: null } }, 'VolumeUp'), undefined);
+  assert.equal(defaultBinding({ '-1': vol('9') }, 'VolumeUp')?.deviceId, '9');
 });
 check('no map: nothing', () => {
   assert.equal(defaultBindings({}), undefined);

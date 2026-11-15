@@ -230,7 +230,8 @@ cJSON *get_remote_direct_map(int slot) {
 
 /* The activity object for a key the current activity does not map (or with no activity running):
  * the map's "-1" object (nothing running), then "default", then the map's only activity when it
- * has exactly one. With several activities and neither "-1" nor "default" the key is not sent:
+ * has exactly one (empty entries do not count). With several activities and neither "-1" nor
+ * "default" the key is not sent:
  * the first activity in the file is an arbitrary pick, and its command would go to a device the
  * current activity may not use (as agreed in #220). In a map without an "activities" object the
  * activities are the top-level objects next to "devices". */
@@ -242,7 +243,7 @@ static cJSON *fallback_activity_obj(cJSON *acts, cJSON *map) {
     int n = 0;
     cJSON *c = NULL;
     cJSON_ArrayForEach(c, acts) {
-        if (!cJSON_IsObject(c)) continue;
+        if (!cJSON_IsObject(c) || !c->child) continue; /* an empty entry binds nothing */
         if (acts == map && c->string && strcmp(c->string, "devices") == 0) continue;
         only = c;
         n++;

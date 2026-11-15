@@ -122,7 +122,7 @@ int main(void) {
     const char *start_key =
         "{\"activities\":{"
         "\"10\":{\"WatchTVActivity\":{\"action\":\"activity_start\",\"activityId\":\"10\"}},"
-        "\"20\":{}"
+        "\"20\":{\"DirectionUp\":" BTN("2", "Up") "}"
         "}}";
     write_file(s_map_path, start_key);
     write_file(s_act_path, "-1\n");
@@ -146,6 +146,12 @@ int main(void) {
     printf("[%s] the same key in the \"-1\" entry starts the activity from Off (%s)\n", started ? "+" : "-", s_last_send);
     if (!started) failures++;
 
+    /* An empty entry (an activity whose last key was removed) is not an activity entry */
+    const char *one_and_empty =
+        "{\"activities\":{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"20\":{}}}";
+    check("one activity plus an empty entry: the activity's mapping", one_and_empty, "20\n", "VolumeUp", "1", "VolUp");
+    check("one activity plus an empty entry, nothing running: its mapping", one_and_empty, "-1\n", "VolumeUp", "1", "VolUp");
+
     /* A map with one activity keeps the old fallback */
     const char *one_act =
         "{\"activities\":{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "}},\"devices\":{\"1\":{}}}";
@@ -157,7 +163,7 @@ int main(void) {
         "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"devices\":{\"1\":{}}}";
     check("flat map, one activity next to \"devices\": its mapping", flat_one, "-1\n", "VolumeUp", "1", "VolUp");
     const char *flat_two =
-        "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"20\":{},\"devices\":{\"1\":{}}}";
+        "{\"10\":{\"VolumeUp\":" BTN("1", "VolUp") "},\"20\":{\"DirectionUp\":" BTN("2", "Up") "},\"devices\":{\"1\":{}}}";
     check("flat map, two activities: not sent", flat_two, "-1\n", "VolumeUp", NULL, NULL);
 
     unlink(s_map_path);
