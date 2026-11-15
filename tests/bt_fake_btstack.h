@@ -198,7 +198,13 @@ uint8_t hid_device_send_interrupt_message(uint16_t cid, const uint8_t *msg, uint
     return 0;
 }
 void hid_device_request_can_send_now_event(uint16_t cid) { UNUSED(cid); }
-void hid_device_disconnect(uint16_t cid) { record("hid_device_disconnect %04x", cid); }
+/* A test may set this to play what BTstack does inside hid_device_disconnect(): for a connection
+ * still being set up it reports a failed open at once */
+static void (*s_fake_on_hid_disconnect)(uint16_t cid);
+void hid_device_disconnect(uint16_t cid) {
+    record("hid_device_disconnect %04x", cid);
+    if (s_fake_on_hid_disconnect) s_fake_on_hid_disconnect(cid);
+}
 static uint8_t s_connect_status = 0;
 uint8_t hid_device_connect(uint8_t *addr, uint16_t *cid) {
     record("hid_device_connect %02X", addr[5]);

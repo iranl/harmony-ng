@@ -459,34 +459,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                     hid_subevent_connection_opened_get_bd_addr(packet, conn_addr);
 
                     if (status != ERROR_CODE_SUCCESS) {
-                        g_host_connecting = false;
-                        char msg[128];
-                        snprintf(msg, sizeof(msg), "Classic HID Host connection to %s failed (0x%02x)",
-                                 bd_addr_to_str(conn_addr), status);
-                        log_msg(msg);
-                        for (int i = 0; i < MAX_HOST_CONNS; i++) {
-                            if (memcmp(g_hosts[i].addr, conn_addr, 6) == 0 || g_hosts[i].hid_cid == cid) {
-                                g_hosts[i].connected = false;
-                                g_hosts[i].hid_cid = 0;
-                                if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
-                                    gap_disconnect(g_hosts[i].acl_handle);
-                                    g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
-                                }
-                            }
-                        }
-                        g_host_connected = is_any_host_connected();
-                        g_host_hid_cid = get_target_host_hid_cid();
-                        update_status(app_state == APP_READY ? "ready" : "standby");
-                        update_bthid_status();
-                        char cur_act[64] = "-1";
-                        read_current_activity(cur_act, sizeof(cur_act));
-                        if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
-                            if (!g_host_reconnect_active && !is_null_bd_addr(conn_addr) && !host_manual_disconnect(conn_addr)) {
-                                start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
-                            }
-                        } else {
-                            log_msg("Host disconnected while Activity is PowerOff, suppressing reconnect");
-                        }
+                        host_open_failed(conn_addr, cid, status);
                         break;
                     }
 

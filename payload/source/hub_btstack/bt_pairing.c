@@ -357,6 +357,8 @@ static char s_link_req[512];
 static size_t s_link_req_len, s_link_req_sent;
 static char s_link_resp[512];
 static size_t s_link_resp_len;
+/* the link being sent was replaced by a newer one: send it again after this answer */
+static bool s_link_resend;
 
 static void link_try_next(void);
 static void link_retry_handler(btstack_timer_source_t *ts);
@@ -367,15 +369,17 @@ static void link_pop_front(void) {
     s_links_n--;
 }
 
-/* "HTTP/1.1 200 ... {"ok":true}" links it; another full answer below 500 refuses it; anything
- * else (nothing, a cut answer, 5xx) is no answer */
-static link_result_t link_parse_answer(const char *resp) {
+/* 200 with {"ok":true} links it. 404 (no such device) and 400 refuse it: it can never succeed.
+ * Anything else is no answer and is sent again: nothing, a cut answer, a 200 without its body,
+ * 5xx (hub_daemon could not save it). */
+static link_result_t link_parse_answer(const char *resp, size_t len) {
     int code = 0;
-    if (strncmp(resp, "HTTP/1.", 7) != 0 || sscanf(resp + 8, " %d", &code) != 1) return LINK_NO_ANSWER;
-    if (code >= 500) return LINK_NO_ANSWER;
+    if (len < 12 || strncmp(resp, "HTTP/1.", 7) != 0 || sscanf(resp + 8, " %3d", &code) != 1) return LINK_NO_ANSWER;
+    if (code == 404 || code == 400) return LINK_REFUSED;
+    if (code != 200) return LINK_NO_ANSWER;
     const char *body = strstr(resp, "\r\n\r\n");
-    if (code == 200 && body && strstr(body, "\"ok\":true")) return LINK_OK;
-    return LINK_REFUSED;
+    if (body && strstr(body, "\"ok\":true")) return LINK_OK;
+    return LINK_NO_ANSWER;
 }
 
 static void link_exchange_end(link_result_t r) {
@@ -388,12 +392,19 @@ static void link_exchange_end(link_result_t r) {
     s_link_phase = LINK_IDLE;
     if (s_links_n <= 0) return;
     char msg[192];
+    if (s_link_resend) {
+        /* the answer is for the old address: the newer one goes now, whatever the answer was */
+        s_link_resend = false;
+        s_link_retry_ms = LINK_RETRY_FIRST_MS;
+        link_try_next();
+        return;
+    }
     if (r == LINK_OK || r == LINK_REFUSED) {
         if (r == LINK_OK) {
             snprintf(msg, sizeof(msg), "Device %s linked to host %s by hub_daemon%s", s_links[0].dev_id, s_links[0].addr,
                      s_link_failures ? " (after waiting for it)" : "");
         } else {
-            snprintf(msg, sizeof(msg), "hub_daemon refused the link of device %s to host %s: not kept", s_links[0].dev_id, s_links[0].addr);
+            snprintf(msg, sizeof(msg), "hub_daemon refused the link of device %s to host %s (no such device): not kept", s_links[0].dev_id, s_links[0].addr);
         }
         log_msg(msg);
         link_pop_front();
@@ -466,7 +477,7 @@ static void link_ds_process(btstack_data_source_t *ds, btstack_data_source_callb
             break; /* the end of the answer (Connection: close), or an error */
         }
         s_link_resp[s_link_resp_len] = '\0';
-        link_exchange_end(link_parse_answer(s_link_resp));
+        link_exchange_end(link_parse_answer(s_link_resp, s_link_resp_len));
     }
 }
 
@@ -542,14 +553,9 @@ static void link_queue(const char *dev_id, const char *addr_str) {
         }
     }
     if (i == 0 && s_link_phase != LINK_IDLE) {
-        /* that link is being sent with the old address: abandon the exchange, send the new one */
-        if (s_link_fd >= 0) {
-            btstack_run_loop_remove_data_source(&s_link_ds);
-            close(s_link_fd);
-            s_link_fd = -1;
-        }
-        btstack_run_loop_remove_timer(&s_link_timeout_timer);
-        s_link_phase = LINK_IDLE;
+        /* That link is being sent with the old address. Its request may have reached hub_daemon
+         * already: let it finish, then send the new one, so that the old one cannot land last. */
+        s_link_resend = true;
     }
     snprintf(s_links[i].dev_id, sizeof(s_links[i].dev_id), "%s", dev_id);
     snprintf(s_links[i].addr, sizeof(s_links[i].addr), "%s", addr_str);
@@ -565,6 +571,7 @@ static void link_drop_host(const bd_addr_t addr) {
         bd_addr_t a;
         if (parse_bd_addr(s_links[r].addr, a) && memcmp(a, addr, 6) == 0) {
             if (r == 0 && s_link_phase != LINK_IDLE) {
+                s_link_resend = false;
                 if (s_link_fd >= 0) {
                     btstack_run_loop_remove_data_source(&s_link_ds);
                     close(s_link_fd);
@@ -615,7 +622,45 @@ void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
     }
 }
 
-/* forget_host <addr>: remove a classic host for good. Its link key goes (so it cannot reconnect
+/* An outgoing HID connection failed (also when it is cancelled: closing a channel that still waits
+ * for its link reports "open failed" at once, inside hid_device_disconnect()). The reconnect loop is
+ * restarted only for a host still in the table: a host that was just forgotten must stay gone. */
+void host_open_failed(const bd_addr_t conn_addr_in, uint16_t cid, uint8_t status) {
+    bd_addr_t conn_addr;
+    memcpy(conn_addr, conn_addr_in, 6);
+    g_host_connecting = false;
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Classic HID Host connection to %s failed (0x%02x)", bd_addr_to_str(conn_addr), status);
+    log_msg(msg);
+    bool known = false;
+    for (int i = 0; i < MAX_HOST_CONNS; i++) {
+        bool same = memcmp(g_hosts[i].addr, conn_addr, 6) == 0;
+        if (same && !is_null_bd_addr(conn_addr)) known = true;
+        if (same || g_hosts[i].hid_cid == cid) {
+            g_hosts[i].connected = false;
+            g_hosts[i].hid_cid = 0;
+            if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
+                gap_disconnect(g_hosts[i].acl_handle);
+                g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
+            }
+        }
+    }
+    g_host_connected = is_any_host_connected();
+    g_host_hid_cid = get_target_host_hid_cid();
+    update_status(app_state == APP_READY ? "ready" : "standby");
+    update_bthid_status();
+    char cur_act[64] = "-1";
+    read_current_activity(cur_act, sizeof(cur_act));
+    if (!g_host_pairing && cur_act[0] && strcmp(cur_act, "-1") != 0 && strcasecmp(cur_act, "poweroff") != 0) {
+        if (known && !g_host_reconnect_active && !host_manual_disconnect(conn_addr)) {
+            start_host_reconnect(conn_addr, MAX_HOST_RECONNECT_ATTEMPTS);
+        }
+    } else {
+        log_msg("Host disconnected while Activity is PowerOff, suppressing reconnect");
+    }
+}
+
+/* host_forget <addr>: remove a classic host for good. Its link key goes (so it cannot reconnect
  * outside pairing mode: a new pairing request is refused), its link is closed, it leaves the host
  * table and every reconnect list, and no kept key or waiting device link goes to it. hub_daemon
  * clears the devices linked to it and the default host file before it sends the command. */
@@ -627,33 +672,65 @@ void forget_classic_host(const bd_addr_t addr_in) {
     snprintf(msg, sizeof(msg), "Forgetting Bluetooth host %s", bd_addr_to_str(addr));
     log_msg(msg);
 
-    /* no more reconnects to it: its loop stops (another host's loop goes on), it leaves the queue */
+    /* no more reconnects to it: its loop stops (another host's loop goes on), it leaves the queue
+     * and the hosts to restore after a restart */
     rq_remove(addr);
     if (g_host_reconnect_active && memcmp(g_host_reconnect_target, addr, 6) == 0) {
         stop_host_reconnect();
     }
+    int w = 0;
+    for (int r = 0; r < s_hosts_before_n; r++) {
+        if (memcmp(s_hosts_before[r], addr, 6) == 0) continue;
+        if (w != r) memcpy(s_hosts_before[w], s_hosts_before[r], 6);
+        w++;
+    }
+    s_hosts_before_n = w;
     wake_key_drop(addr);
     link_drop_host(addr);
     if (g_pairing_new_key_valid && memcmp(g_pairing_new_key_addr, addr, 6) == 0) g_pairing_new_key_valid = false;
 
+    /* The entry goes first, the channels are closed after: closing a connection that is still being
+     * set up reports a failed open at once, and that must not find the host and reconnect it. */
+    uint16_t cids[MAX_HOST_CONNS];
+    hci_con_handle_t handles[MAX_HOST_CONNS];
+    int n = 0;
     for (int i = 0; i < MAX_HOST_CONNS; i++) {
         if (memcmp(g_hosts[i].addr, addr, 6) != 0) continue;
-        /* close the HID channels, then the link itself: an open link stays authenticated without
-         * the key and the host could open the channels again on it */
-        if (g_hosts[i].hid_cid) hid_device_disconnect(g_hosts[i].hid_cid);
-        if (g_hosts[i].acl_handle != HCI_CON_HANDLE_INVALID) {
-            gap_disconnect(g_hosts[i].acl_handle);
-        }
+        cids[n] = g_hosts[i].hid_cid;
+        handles[n] = g_hosts[i].acl_handle;
+        n++;
         memset(&g_hosts[i], 0, sizeof(g_hosts[i]));
         g_hosts[i].acl_handle = HCI_CON_HANDLE_INVALID;
-        /* keys for it go nowhere until the next TARGET (they must not reach another host) */
+        /* the next key brings its own TARGET; until then nothing goes to another host */
         if (g_active_host_idx == i) g_active_host_idx = BT_HOST_IDX_NONE;
     }
     gap_drop_link_key_for_bd_addr(addr);
+    for (int k = 0; k < n; k++) {
+        /* close the HID channels, then the link itself: an open link stays authenticated without
+         * the key and the host could open the channels again on it */
+        if (cids[k]) hid_device_disconnect(cids[k]);
+        if (handles[k] != HCI_CON_HANDLE_INVALID) gap_disconnect(handles[k]);
+    }
     if (memcmp(g_host_addr, addr, 6) == 0) {
         /* the "last paired host" record: it was tried when no other host was known */
         memset(g_host_addr, 0, sizeof(g_host_addr));
         if (tlv_impl) tlv_impl->delete_tag(&tlv_context, TLV_TAG_HIDR);
+    }
+    /* hub_daemon removed the default host file already; a connection that opened in between may
+     * have written it again (it is written when missing) */
+    bd_addr_t def;
+    FILE *hf = fopen(HOST_TARGET_FILE, "r");
+    if (hf) {
+        char line[64] = "";
+        bool names_it = false;
+        while (fgets(line, sizeof(line), hf)) {
+            const char *v = strncmp(line, "bdaddr=", 7) == 0 ? line + 7 : line;
+            char a17[18];
+            snprintf(a17, sizeof(a17), "%s", v);
+            if (parse_bd_addr(a17, def) && memcmp(def, addr, 6) == 0) names_it = true;
+        }
+        fclose(hf);
+        if (names_it) unlink(HOST_TARGET_FILE);
     }
     g_host_connected = is_any_host_connected();
     g_host_hid_cid = get_target_host_hid_cid();

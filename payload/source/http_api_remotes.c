@@ -938,7 +938,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     /* Route: POST /api/bt-forget-host {"addr": "XX:XX:XX:XX:XX:XX"}: remove a paired Bluetooth host
      * for good. The devices linked to it lose their link (devices.json, through the store), the
      * default host file goes when it names it, then hub_btstack drops its link key, closes its
-     * link and forgets it (forget_host). Admin only: not in the user role's list. */
+     * link and forgets it (host_forget). Admin only: not in the user role's list. */
     if (strcmp(clean_path, "/api/bt-forget-host") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         char addr[32] = {0};
@@ -948,7 +948,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             if (ja && cJSON_IsString(ja)) strncpy(addr, ja->valuestring, sizeof(addr) - 1);
             cJSON_Delete(params);
         }
-        if (!hub_valid_bdaddr(addr)) {
+        if (!hub_valid_bdaddr(addr) || strcmp(addr, "00:00:00:00:00:00") == 0) {
             send_json_error(client_fd, 400, "addr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
             close(client_fd);
             return 1;
@@ -1008,9 +1008,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             fclose(hf);
             if (match && unlink(host_path) == 0) default_cleared = 1;
         }
+        /* Straight to the running hub_btstack: the file fallback of hub_send_btstack_cmd() is
+         * dropped when hub_btstack starts more than 10 s later, and the key would stay. */
         char pipe_cmd[64];
-        snprintf(pipe_cmd, sizeof(pipe_cmd), "forget_host %s\n", addr);
-        hub_send_btstack_cmd(pipe_cmd);
+        snprintf(pipe_cmd, sizeof(pipe_cmd), "host_forget %s\n", addr);
+        if (hub_send_btstack_cmd_live(pipe_cmd) != 0) {
+            send_json_error(client_fd, 500, "hub_btstack did not take the command: the link key is kept, try again");
+            close(client_fd);
+            return 1;
+        }
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddStringToObject(st, "addr", addr);
@@ -1044,8 +1050,15 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        int success = 0;
-        if (dev_id[0]) {
+        if (!dev_id[0]) {
+            send_json_error(client_fd, 400, "deviceId required");
+            close(client_fd);
+            return 1;
+        }
+        /* found: no such device is 404, a failed save 500. hub_btstack sends a link again after
+         * any answer but 200 and 404/400: it used to see {"ok":false} for both. */
+        int success = 0, found = 0;
+        {
             config_store_lock();
             cJSON *root = config_store_devices_copy();
             if (root) {
@@ -1063,6 +1076,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             if (bdaddr[0]) {
                                 cJSON_AddStringToObject(dev_item, "bdaddr", bdaddr);
                             }
+                            found = 1;
                             if (config_store_save_devices(root) == 0) {
                                 root = NULL;
                                 success = 1;
@@ -1074,6 +1088,11 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 cJSON_Delete(root); /* NULL once the store took it */
             }
             config_store_unlock();
+        }
+        if (!found || !success) {
+            send_json_error(client_fd, found ? 500 : 404, found ? "devices.json could not be saved" : "no device with that id");
+            close(client_fd);
+            return 1;
         }
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", success);

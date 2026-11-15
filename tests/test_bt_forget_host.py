@@ -4,12 +4,16 @@ POST /api/bt-forget-host {"addr": ...} removes a paired Bluetooth host (there wa
 one short of deleting the key store):
 - the address is checked (400 for anything but "XX:XX:XX:XX:XX:XX")
 - nothing changes while hub_btstack is not running (503): the link key lives there
-- the devices linked to the host lose their link in devices.json, other devices keep theirs
+- the devices linked to the host lose their link in devices.json (also a legacy "btHost"), other
+  devices keep theirs
 - the default host file (bthid_host_target) goes when it names the host, stays otherwise
-- hub_btstack gets "forget_host <addr>"
+- hub_btstack gets "host_forget <addr>"
+- POST /api/bt-link-device answers 404 for an unknown device and 400 without one (hub_btstack drops
+  a waiting link only then; it read {"ok":false} as "no such device" also when the save failed)
 - admin only: a user account gets 403
 The daemon runs with --dry-run on its own mock root (its hub_btstack commands are printed). A short
-lived process named hub_btstack stands in for a running hub_btstack.
+lived process named hub_btstack stands in for a running hub_btstack (hub_daemon finds it in /proc):
+run it under flock /tmp/hng_suite.lock so that no other test sees it.
 """
 
 import base64
@@ -28,6 +32,7 @@ PORT = 9242
 PORT_AUTH = 9243
 BOX = "00:11:22:33:44:01"  # test addresses, not real devices
 TV = "00:11:22:33:44:02"
+OLD = "00:11:22:33:44:03"
 failed = 0
 
 
@@ -47,6 +52,8 @@ def config_dir():
                                "commands": [{"name": "Home", "raw": "HID:0C:0223"}]})
     devices["devices"].append({"id": "4", "name": "TV Box", "type": "BT", "bdaddr": TV,
                                "commands": [{"name": "Home", "raw": "HID:0C:0223"}]})
+    devices["devices"].append({"id": "5", "name": "Old Box", "type": "BT", "btHost": OLD,
+                               "commands": [{"name": "Home", "raw": "HID:0C:0223"}]})
     json.dump(devices, open(os.path.join(d, "devices.json"), "w"))
     for name in ("activities.json", "settings.json", "remote_slot1_map.json"):
         src = os.path.join(SAMPLE_CONFIG, name)
@@ -57,7 +64,7 @@ def config_dir():
 
 def device_addrs(hub):
     devs = json.load(open(os.path.join(hub.data_dir, "config", "devices.json")))["devices"]
-    return {str(x["id"]): x.get("bdaddr") for x in devs}
+    return {str(x["id"]): x.get("bdaddr") or x.get("btHost") for x in devs}
 
 
 class FakeBtstack:
@@ -88,7 +95,7 @@ def main():
                         extra_data_files={"bthid_host_target": "bdaddr=%s\n" % BOX}) as hub:
             host_file = os.path.join(hub.data_dir, "bthid_host_target")
             print("[-] addresses")
-            for bad in ("", "001122334401", "0:1:2:3:4:5", BOX + "\nscan"):
+            for bad in ("", "001122334401", "0:1:2:3:4:5", BOX + "\nscan", "00:00:00:00:00:00"):
                 st, _ = hub.http_post("/api/bt-forget-host", {"addr": bad})
                 check(st == 400, "%r: 400" % bad, str(st))
 
@@ -118,12 +125,23 @@ def main():
                 check(st == 200 and r.get("devices_cleared") == 1 and r.get("default_host_cleared") is False,
                       "\"bdaddr\" is taken too; a default host file naming another host stays", "%s %s" % (st, r))
                 check(os.path.exists(host_file), "the file is still there")
+                st, r = hub.http_post("/api/bt-forget-host", {"addr": OLD})
+                check(st == 200 and r.get("devices_cleared") == 1 and not device_addrs(hub).get("5"),
+                      "a device linked with the legacy btHost key is cleared too", "%s %s %s" % (st, r, device_addrs(hub)))
                 st, r = hub.http_post("/api/bt-forget-host", {"addr": TV})
                 check(st == 200 and r.get("devices_cleared") == 0, "a host no device uses: 200, nothing to clear", "%s %s" % (st, r))
                 time.sleep(0.3)
                 out = open(log.name, errors="replace").read()
-                check(("forget_host %s" % BOX) in out and ("forget_host %s" % TV) in out,
+                check(("host_forget %s" % BOX) in out and ("host_forget %s" % TV) in out,
                       "hub_btstack is told to forget each host, in upper case", out[-400:])
+
+                print("[-] POST /api/bt-link-device answers")
+                st, r = hub.http_post("/api/bt-link-device", {"deviceId": "99", "bdaddr": BOX})
+                check(st == 404, "an unknown device: 404 (it was 200 {\"ok\": false})", "%s %s" % (st, r))
+                st, r = hub.http_post("/api/bt-link-device", {"bdaddr": BOX})
+                check(st == 400, "no device id: 400", "%s %s" % (st, r))
+                st, r = hub.http_post("/api/bt-link-device", {"deviceId": "3", "bdaddr": BOX})
+                check(st == 200 and r.get("ok") is True and device_addrs(hub).get("3") == BOX, "a known device: 200, linked", "%s %s" % (st, r))
 
                 print("[-] accounts")
                 users = {"auth_enabled": True, "users": [

@@ -42,6 +42,8 @@ int get_pinned_host_target(bd_addr_t addr);
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str);
 /* Remove a classic host: link key, link, host table entry, reconnects, kept key, waiting links */
 void forget_classic_host(const bd_addr_t addr);
+/* An outgoing HID connection failed or was cancelled; reconnects only a host still in the table */
+void host_open_failed(const bd_addr_t conn_addr, uint16_t cid, uint8_t status);
 void init_known_hosts(void);
 void try_connect_host_addr(const bd_addr_t addr);
 void try_connect_host(void);

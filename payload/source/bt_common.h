@@ -64,6 +64,28 @@ static inline int hub_bt_pipe_send(const char *target, const char *line) {
 
 extern int g_dry_run;
 
+/* Send a command to the running hub_btstack over its socket only, no file fallback: -1 when it
+ * did not take it (not running, restarting). For commands that must not wait for a later start. */
+static inline int hub_send_btstack_cmd_live(const char *cmd) {
+    if (!cmd || !cmd[0]) return -1;
+    if (g_dry_run) {
+        printf("[DRY-RUN] BTstack command simulated: %s", cmd);
+        if (cmd[strlen(cmd) - 1] != '\n') printf("\n");
+        return 0;
+    }
+    int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return -1;
+    struct sockaddr_un sun;
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = AF_UNIX;
+    strncpy(sun.sun_path, HUB_BTSTACK_SOCK, sizeof(sun.sun_path) - 1);
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 150000 };
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    ssize_t sent = sendto(s, cmd, strlen(cmd), 0, (struct sockaddr *)&sun, sizeof(sun));
+    close(s);
+    return sent > 0 ? 0 : -1;
+}
+
 /* Send IPC command to hub_btstack: Unix domain datagram socket first, file fallback */
 static inline int hub_send_btstack_cmd(const char *cmd) {
     if (!cmd || !cmd[0]) return -1;

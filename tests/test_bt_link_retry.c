@@ -8,8 +8,12 @@
  *   - a link hub_daemon did not answer is kept and sent again once hub_daemon answers (it was
  *     written into devices.json behind hub_daemon's back, and the next device edit undid it)
  *   - the pause between tries doubles from 1 s to at most 60 s
- *   - a link hub_daemon refused (no such device) is dropped, a 5xx answer is tried again
- *   - a newer link of the same device replaces the waiting one */
+ *   - a link hub_daemon refused (404, no such device) is dropped; a 5xx answer, a 200 without its
+ *     body or a cut answer is no answer and is tried again
+ *   - a newer link of the same device replaces the waiting one; one replaced while its request is
+ *     out is sent again after that answer, so the older address cannot land last
+ *   - a link dropped while its request is out (host forgotten) is not sent again
+ *   - at most 8 links wait; a 9th replaces the newest waiting one */
 #define TEST_DIR "/tmp/hng_bt_link_test"
 #define DAEMON_PORT 9241
 #include "bt_fake_btstack.h"
@@ -97,15 +101,14 @@ static int listen_daemon(void) {
     return s;
 }
 
-/* Play hub_daemon for one request: read it into req, answer with answer (NULL: close without
- * answering). Returns false when no request came. */
-static bool serve_one(int ls, const char *answer, char *req, size_t reqlen) {
+/* Play hub_daemon: take one connection and read its request into req (-1: none came) */
+static int accept_read(int ls, char *req, size_t reqlen) {
     struct pollfd p = { .fd = ls, .events = POLLIN, .revents = 0 };
     req[0] = '\0';
     for (int i = 0; i < 50 && poll(&p, 1, 10) <= 0; i++) pump(5);
-    if (!(p.revents & POLLIN)) return false;
+    if (!(p.revents & POLLIN)) return -1;
     int c = accept(ls, NULL, NULL);
-    if (c < 0) return false;
+    if (c < 0) return -1;
     size_t got = 0;
     struct timespec t0;
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -121,14 +124,37 @@ static bool serve_one(int ls, const char *answer, char *req, size_t reqlen) {
         char *cl = strstr(req, "Content-Length: ");
         if (hdr_end && cl && strlen(hdr_end + 4) >= (size_t)atoi(cl + 16)) break;
     }
-    if (answer && send(c, answer, strlen(answer), MSG_NOSIGNAL) < 0) s_fail = 1;
+    if (got == 0) {
+        close(c);
+        return -1;
+    }
+    return c;
+}
+
+/* ... answer it (NULL: close without answering) and let hub_btstack read the answer */
+static void answer(int c, const char *text) {
+    if (text && send(c, text, strlen(text), MSG_NOSIGNAL) < 0) s_fail = 1;
     close(c);
     pump(500);
-    return got > 0;
+}
+
+static bool serve_one(int ls, const char *text, char *req, size_t reqlen) {
+    int c = accept_read(ls, req, reqlen);
+    if (c < 0) return false;
+    answer(c, text);
+    return true;
+}
+
+static bool has_request(int ls) {
+    struct pollfd p = { .fd = ls, .events = POLLIN, .revents = 0 };
+    for (int i = 0; i < 20 && poll(&p, 1, 10) <= 0; i++) pump(5);
+    return (p.revents & POLLIN) != 0;
 }
 
 #define OK_ANSWER "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}"
-#define NO_DEVICE_ANSWER "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"ok\":false}"
+#define NO_DEVICE_ANSWER "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 34\r\nConnection: close\r\n\r\n{\"error\":\"no device with that id\"}"
+#define HEADERS_ONLY "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\n\r\n"
+#define OK_FALSE_ANSWER "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"ok\":false}"
 #define BUSY_ANSWER "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
 int main(void) {
@@ -163,13 +189,70 @@ int main(void) {
     printf("[-] answers that end or keep a link\n");
     link_bt_device_to_addr("99", "00:11:22:33:44:02");
     got = serve_one(ls, NO_DEVICE_ANSWER, req, sizeof(req));
-    CHECK(got && pending_links() == 0 && retry_pause_ms() == 0, "refused (no such device): dropped, not tried again");
+    CHECK(got && pending_links() == 0 && retry_pause_ms() == 0, "refused with 404 (no such device): dropped, not tried again");
     link_bt_device_to_addr("3", "00:11:22:33:44:01");
     got = serve_one(ls, BUSY_ANSWER, req, sizeof(req));
     CHECK(got && pending_links() == 1 && retry_pause_ms() == 1000, "a 5xx answer is tried again");
     link_bt_device_to_addr("3", "00:11:22:33:44:03");
     got = serve_one(ls, OK_ANSWER, req, sizeof(req));
     CHECK(got && strstr(req, "00:11:22:33:44:03") && pending_links() == 0, "a newer link of the same device replaces the waiting one");
+
+    printf("[-] answers that are no answer\n");
+    link_bt_device_to_addr("5", "00:11:22:33:44:05");
+    got = serve_one(ls, HEADERS_ONLY, req, sizeof(req));
+    CHECK(got && pending_links() == 1 && retry_pause_ms() == 1000, "a 200 cut before its body is tried again (it was dropped)");
+    fire_retry();
+    got = serve_one(ls, "HTTP/1.", req, sizeof(req));
+    CHECK(got && pending_links() == 1 && retry_pause_ms() == 2000, "a 7-byte answer is tried again, not read past");
+    fire_retry();
+    got = serve_one(ls, OK_FALSE_ANSWER, req, sizeof(req));
+    CHECK(got && pending_links() == 1, "a 200 {\"ok\":false} (a failed save on an older hub_daemon) is tried again, not dropped");
+    fire_retry();
+    got = serve_one(ls, OK_ANSWER, req, sizeof(req));
+    CHECK(got && pending_links() == 0, "and the link is taken when hub_daemon saves it");
+
+    printf("[-] a link replaced while its request is out\n");
+    link_bt_device_to_addr("6", "00:11:22:33:44:06");
+    int c = accept_read(ls, req, sizeof(req));
+    CHECK(c >= 0 && strstr(req, "00:11:22:33:44:06"), "the first request is out");
+    link_bt_device_to_addr("6", "00:11:22:33:44:07");
+    CHECK(!has_request(ls), "the newer one waits for the answer to the first (two at once could land in any order)");
+    if (c >= 0) answer(c, OK_ANSWER);
+    got = serve_one(ls, OK_ANSWER, req, sizeof(req));
+    CHECK(got && strstr(req, "00:11:22:33:44:07") && pending_links() == 0, "then the newer address is sent, and lands last");
+
+    printf("[-] a link dropped while its request is out\n");
+    link_bt_device_to_addr("8", "00:11:22:33:44:08");
+    c = accept_read(ls, req, sizeof(req));
+#ifdef LINK_PENDING_MAX
+    bd_addr_t a8 = {0x00, 0x11, 0x22, 0x33, 0x44, 0x08};
+    link_drop_host(a8);
+#endif
+    if (c >= 0) close(c);
+    pump(200);
+    CHECK(c >= 0 && pending_links() == 0 && retry_pause_ms() == 0 && !has_request(ls), "it is not sent again");
+
+    printf("[-] full queue\n");
+    close(ls);
+    ls = -1;
+    for (int i = 0; i < 9; i++) {
+        char id[8], ad[18];
+        snprintf(id, sizeof(id), "%d", 10 + i);
+        snprintf(ad, sizeof(ad), "00:11:22:33:45:%02d", i);
+        link_bt_device_to_addr(id, ad);
+        pump(100);
+    }
+#ifdef LINK_PENDING_MAX
+    CHECK(pending_links() == 8 && strcmp(s_links[0].dev_id, "10") == 0 && strcmp(s_links[7].dev_id, "18") == 0,
+          "8 links wait; the 9th replaces the newest (%d waiting)", pending_links());
+    s_links_n = 0;
+    btstack_run_loop_remove_timer(&s_link_retry_timer);
+    s_link_pause = false;
+#else
+    CHECK(0, "8 links wait; the 9th replaces the newest");
+#endif
+    ls = listen_daemon();
+    if (ls < 0) return 1;
 
     printf("[-] hub_daemon alive but not answering\n");
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -185,7 +268,7 @@ int main(void) {
 #endif
     CHECK(pending_links() == 1 && retry_pause_ms() == 1000, "no answer in time: kept and tried again later");
     /* the connection hub_daemon never took */
-    int c = accept(ls, NULL, NULL);
+    c = accept(ls, NULL, NULL);
     if (c >= 0) close(c);
     fire_retry();
     got = serve_one(ls, OK_ANSWER, req, sizeof(req));
