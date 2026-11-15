@@ -337,14 +337,14 @@ def backup_remote(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> pathlib.Path 
     print(" [*] BACKING UP THE REMOTE (/data, /opt/luadraws, /etc)")
     print("=" * 70)
     ssh = remote_ssh_cmd(priv_path, ip)
-    reach = subprocess.run(ssh + ["true"], capture_output=True, text=True, timeout=30, check=False)
-    if reach.returncode != 0:
-        if not ssh_hostkeys.report_failure(reach.stderr, ip):
-            print(f"[-] Cannot log in to the remote over SSH: {(reach.stderr or '').strip()}")
-        print("[-] Backup skipped.")
-        return None
     staged = False
     try:
+        reach = subprocess.run(ssh + ["true"], capture_output=True, text=True, timeout=30, check=False)
+        if reach.returncode != 0:
+            if not ssh_hostkeys.report_failure(reach.stderr, ip):
+                print(f"[-] Cannot log in to the remote over SSH: {(reach.stderr or '').strip()}")
+            print("[-] Backup skipped.")
+            return None
         bb = find_remote_tar_busybox(ssh)
         if not bb:
             local_bb = find_local_arm_busybox()

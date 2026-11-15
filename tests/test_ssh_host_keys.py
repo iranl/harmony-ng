@@ -430,5 +430,27 @@ class SetupRemoteForgetsOnInstall(unittest.TestCase):
             self.assertEqual(kh.read_text(), f"192.168.1.20 ssh-ed25519 {KEY}\n")
 
 
+class SetupRemoteBackupErrors(unittest.TestCase):
+    """The login check before the remote backup ends in "Backup failed", not a traceback,
+    when there is no ssh client or the login hangs."""
+
+    def test_no_ssh_or_timeout(self):
+        spec = importlib.util.spec_from_file_location("setup_remote_backup", REPO_DIR / "remote" / "setup_remote.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        errors = [FileNotFoundError(2, "No such file or directory", "ssh"),
+                  subprocess.TimeoutExpired(["ssh"], 30)]
+        with tempfile.TemporaryDirectory() as tmp:
+            for err in errors:
+                def fail(*a, _err=err, **k):
+                    raise _err
+                out = io.StringIO()
+                with self.subTest(error=type(err).__name__), \
+                     mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(pathlib.Path(tmp) / "kh")}), \
+                     mock.patch.object(mod.subprocess, "run", fail), contextlib.redirect_stdout(out):
+                    self.assertIsNone(mod.backup_remote(pathlib.Path(tmp) / "key"))
+                    self.assertIn("Backup failed", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
