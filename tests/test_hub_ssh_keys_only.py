@@ -282,6 +282,18 @@ class BootScripts(unittest.TestCase):
         self.assertEqual(self.s.started(), self.keys_only())
         self.assertFalse(self.s.hup_ignored(), "SSH sessions must not inherit init.sh's ignored SIGHUP")
 
+    def test_init_starts_the_wrapper_when_dropbear_cannot_be_written(self):
+        self.s.fake_server("data/dropbearmulti")
+        self.s.install_wrapper()
+        sbin = self.s.root / "usr" / "sbin"
+        sbin.chmod(0o555)  # /usr/sbin/dropbear cannot be written
+        try:
+            self.s.run(self.init_block(), ps_out="  1 root init")
+        finally:
+            sbin.chmod(0o755)
+        self.assertFalse(self.usr.exists())
+        self.assertEqual(self.s.started(), self.keys_only())
+
     def test_init_does_not_start_a_second_server(self):
         self.rooted_hub()
         self.s.install_wrapper()

@@ -212,8 +212,13 @@ if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
       mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
   fi
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
-    # not with this script's ignored SIGHUP: SSH sessions would inherit it
-    (trap - HUP; /usr/sbin/dropbear)
+    # not with this script's ignored SIGHUP: SSH sessions would inherit it. The wrapper directly
+    # when /usr/sbin/dropbear could not be written
+    if [ -x /usr/sbin/dropbear ] && [ -s /usr/sbin/dropbear ]; then
+      (trap - HUP; /usr/sbin/dropbear)
+    else
+      (trap - HUP; sh /data/harmony/hub_sshd)
+    fi
   fi
 fi
 

@@ -25,7 +25,7 @@ if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
 		cp "$_sshd_src" /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
 			mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
 	fi
-elif [ ! -s /usr/sbin/dropbear ] && [ -x /data/dropbearmulti ]; then
+elif [ ! -s /usr/sbin/dropbear ] && [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
 	# no usable wrapper and /usr/sbin/dropbear missing, empty or a dangling link: never boot
 	# without SSH while the server binary is there
 	printf '#!/bin/sh\nexec /data/dropbearmulti dropbear -s -g -K 300 "$@"\n' > /usr/sbin/dropbear.new &&
@@ -91,7 +91,7 @@ EOF
 	# directly when that file is not usable)
 	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
-	elif [ -x /data/dropbearmulti ]; then
+	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
 		/data/dropbearmulti dropbear -s -g -K 300
 	fi
 
