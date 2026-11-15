@@ -47,3 +47,12 @@ done
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_theme_font" \
     "$SCRIPT_DIR/test_remote_theme_font.c" "${THEME_FONT_SRCS[@]}" -lpthread -lm
 "$BUILD_DIR/test_remote_theme_font"
+
+# Settings pages: texts fit beside values and badges in every language, taps hit the drawn rows,
+# leaving the Suspend page returns to its own Power item
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_settings_screens" \
+    "$SCRIPT_DIR/test_remote_settings_screens.c" "${REMOTE_TEST_SRCS[@]}" \
+    -Wl,--wrap=fb_draw_text_aa,--wrap=fb_fill_rect,--wrap=execute_settings_action -lpthread -lm
+SETTINGS_SCREENS_DIR="$(mktemp -d /tmp/hng_settings_screens.XXXXXX)"
+HARMONY_MOCK_DIR="$SETTINGS_SCREENS_DIR" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_settings_screens"
+rm -rf "$SETTINGS_SCREENS_DIR"

@@ -222,10 +222,13 @@ static void render_activity_page(int page_start, int y_off) {
         char name[sizeof(g_activities[0].name)];
         fb_draw_text_aa(64, y + 10, fb_fit_text_aa(name, sizeof(name), g_activities[idx].name, &g_font_main, FB_WIDTH - 30 - 64), text_color, &g_font_main);
 
+        /* Fitted like the name: left of the selection chevron */
         if (is_confirm_pending) {
-            fb_draw_text_aa(64, y + 28, tr(STR_CONFIRM_PRESS_OK), RGB_YELLOW, &g_font_main);
+            fb_draw_text_aa(64, y + 28, fb_fit_text_aa(name, sizeof(name), tr(STR_CONFIRM_PRESS_OK), &g_font_main, FB_WIDTH - 30 - 64),
+                            RGB_YELLOW, &g_font_main);
         } else if (is_active) {
-            fb_draw_text_aa(64, y + 28, tr(STR_ACTIVE), RGB_GREEN, &g_font_main);
+            fb_draw_text_aa(64, y + 28, fb_fit_text_aa(name, sizeof(name), tr(STR_ACTIVE), &g_font_main, FB_WIDTH - 30 - 64),
+                            RGB_GREEN, &g_font_main);
         }
 
         if (is_sel) {

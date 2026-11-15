@@ -257,7 +257,7 @@ void execute_settings_action(int idx) {
                     show_notice("Debug Log: ENABLED", 2000);
                 }
                 break;
-            case 5:
+            case SETTINGS_POWER_SUSPEND_ITEM:
                 g_settings_subview = SETTINGS_VIEW_SUSPEND;
                 g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
@@ -331,12 +331,12 @@ void execute_settings_action(int idx) {
         if (idx == 0) {
             g_suspend_countdown_start_ms = 0;
             g_settings_subview = SETTINGS_VIEW_POWER;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
         } else if (idx == 1) {
             g_suspend_countdown_start_ms = 0;
             trigger_manual_suspend_to_ram();
             g_settings_subview = SETTINGS_VIEW_POWER;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
         }
         return;
     }

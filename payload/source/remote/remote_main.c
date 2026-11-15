@@ -679,8 +679,9 @@ int main(int argc, char **argv) {
             if (elapsed_s >= 10) {
                 g_suspend_countdown_start_ms = 0;
                 trigger_manual_suspend_to_ram();
-                g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 0;
+                /* Back on the page the countdown was started from, at its item */
+                g_settings_subview = SETTINGS_VIEW_POWER;
+                g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
                 g_screen_dirty = true;
             } else {
                 static uint64_t s_last_cd_render = 0;
