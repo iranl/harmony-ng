@@ -1060,13 +1060,18 @@ Initiates RF pairing beacon on slot 1 or slot 2 for Harmony touchscreen remotes 
 #### `POST /api/rf/wake?slot={1|2}`
 Turns the remote's screen on over RF (`RF_MSG_WAKE`), as a key press would; with the screen already on it restarts the idle timeout. Returns `202` `{"status":"waking","slot":1,"ok":true}` at once and tries for about 10 s in the background; `hub_rf` logs whether the remote acknowledged it. One wake runs at a time (`202` `already_waking` while one runs); `409` during an RF OTA, `400` for a Companion slot. Remotes without this message do not answer. A remote in deep standby (suspended to RAM on battery) does not receive it either: it reports again at its next hourly alarm or key press. An RF OTA start (`/api/rf/ota-start`) sends the same request first (4 attempts). Over USB/SSH the same is `touch /tmp/trigger_wake` on the remote.
 
-#### `GET /api/rf/stop-pair`
+#### `GET /api/rf/stop-pair` or `POST /api/rf/stop-pair`
 Stops active pairing mode.
 - **Response `200 OK`**: `{"status": "pairing_stopped"}`
 
 #### `GET /api/rf/unpair?slot={1|2}` or `POST /api/rf/unpair`
-Unpairs target remote slot.
+Unpairs target remote slot; without a slot (or with `slot=0` / `slot=all`) every remote.
 - **Response `200 OK`**: `{"status": "unpaired"}`
+
+The RF routes read `slot` from the query, or from a JSON body (`"slot": 1`) when the query has
+none. A value other than `1` or `2` is answered with `400`; `0` and `all` ("every remote") are
+accepted by pair, unpair, sleep and push-icon only. Routes match the path exactly
+(`/api/rf/pairing-state` is not `/api/rf/pair`).
 
 ### 7.3 Raw RF Frame Transmit
 #### `GET /api/rf/send?hex={hex_stream}`

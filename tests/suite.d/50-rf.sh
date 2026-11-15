@@ -20,4 +20,9 @@ build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -DRF
     -Wl,--wrap=connect -Wl,--wrap=write $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
     HARMONY_MOCK_DIR="$RF50_MOCK/threads_io" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_threads_io"
 
+# RF API: exact routes, the slot from the query or the JSON body, 400 for any other slot
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -DRF_API_PORT=9183 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_api_params" "$SCRIPT_DIR/test_rf_api_params.c" \
+    $RF50_SRCS "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="$RF50_MOCK/api_params" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_api_params"
+
 rm -rf "$RF50_MOCK"

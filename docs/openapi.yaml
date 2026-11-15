@@ -2603,6 +2603,17 @@ paths:
             application/json:
               example:
                 status: pairing_stopped
+    post:
+      tags:
+        - RF & Remote
+      summary: Stop RF pairing mode (POST)
+      responses:
+        '200':
+          description: Pairing stopped
+          content:
+            application/json:
+              example:
+                status: pairing_stopped
 
   /api/rf/unpair:
     get:

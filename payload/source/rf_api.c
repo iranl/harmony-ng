@@ -34,6 +34,71 @@ static void *rf_wake_worker(void *arg) {
     return NULL;
 }
 
+/* The request is method + path exactly ("GET /api/rf/pair"), followed by a query or the end of
+ * the path: "GET /api/rf/pairing-state" is not "GET /api/rf/pair" */
+static bool route_is(const char *buf, const char *method_path) {
+    size_t n = strlen(method_path);
+    return strncmp(buf, method_path, n) == 0 && (buf[n] == ' ' || buf[n] == '?');
+}
+
+/* A query parameter of the request line (not URL-decoded); 1 found, 0 not */
+static int query_param(const char *buf, const char *key, char *out, size_t out_sz) {
+    const char *line_end = strstr(buf, "\r\n");
+    const char *sp = strchr(buf, ' ');
+    if (!sp) return 0;
+    const char *path_end = strchr(sp + 1, ' ');
+    if (!path_end || (line_end && path_end > line_end)) return 0;
+    const char *q = memchr(sp + 1, '?', (size_t)(path_end - sp - 1));
+    if (!q) return 0;
+    size_t klen = strlen(key);
+    for (const char *p = q + 1; p < path_end;) {
+        const char *amp = memchr(p, '&', (size_t)(path_end - p));
+        const char *end = amp ? amp : path_end;
+        if ((size_t)(end - p) > klen && strncmp(p, key, klen) == 0 && p[klen] == '=') {
+            size_t vlen = (size_t)(end - p) - klen - 1;
+            if (vlen >= out_sz) vlen = out_sz - 1;
+            memcpy(out, p + klen + 1, vlen);
+            out[vlen] = '\0';
+            return 1;
+        }
+        p = end + 1;
+    }
+    return 0;
+}
+
+#define REQ_SLOT_ABSENT (-2)
+#define REQ_SLOT_BAD    (-1)
+/* The slot of a request: from the query (slot=1, 2, or 0 / all for every remote), else from a
+ * JSON body ("slot": 0, 1 or 2). The whole request used to be searched for "slot=2" and
+ * "slot=1", so a slot in another form or a typing error meant "all remotes" for unpair. */
+static int req_slot(const char *buf) {
+    char v[16];
+    if (query_param(buf, "slot", v, sizeof(v))) {
+        if (strcmp(v, "1") == 0) return 1;
+        if (strcmp(v, "2") == 0) return 2;
+        if (strcmp(v, "0") == 0 || strcmp(v, "all") == 0) return 0;
+        return REQ_SLOT_BAD;
+    }
+    const char *body = strstr(buf, "\r\n\r\n");
+    if (!body || !body[4]) return REQ_SLOT_ABSENT;
+    cJSON *root = cJSON_Parse(body + 4);
+    if (!root) return REQ_SLOT_ABSENT;
+    cJSON *js = cJSON_IsObject(root) ? cJSON_GetObjectItem(root, "slot") : NULL;
+    int slot = REQ_SLOT_ABSENT;
+    if (js) slot = (cJSON_IsNumber(js) && js->valuedouble >= 0 && js->valuedouble <= 2 &&
+                    js->valuedouble == (double)js->valueint) ? js->valueint : REQ_SLOT_BAD;
+    cJSON_Delete(root);
+    return slot;
+}
+
+/* Routes for which slot 0 (or none) means every remote */
+static bool route_takes_all_slots(const char *buf) {
+    return route_is(buf, "GET /api/rf/pair") || route_is(buf, "POST /api/rf/pair") ||
+           route_is(buf, "GET /api/rf/unpair") || route_is(buf, "POST /api/rf/unpair") ||
+           route_is(buf, "GET /api/rf/sleep") || route_is(buf, "POST /api/rf/sleep") ||
+           route_is(buf, "GET /api/rf/push-icon") || route_is(buf, "POST /api/rf/push-icon");
+}
+
 /* An icon transfer takes from a second (a remote asleep) to half a minute (a 16 KB icon): it runs
  * on its own thread, so the RF API answers other requests meanwhile */
 typedef struct { int slot; char type[32]; char id[32]; } icon_push_job_t;
@@ -274,36 +339,42 @@ void *api_server_worker(void *arg) {
         }
         if (n > 0) {
             buf[n] = '\0';
-            if (strstr(buf, "GET /api/rf/pair") == buf || strstr(buf, "POST /api/rf/pair") == buf) {
+            int qslot = req_slot(buf);
+            if (qslot == REQ_SLOT_BAD || (qslot == 0 && !route_takes_all_slots(buf))) {
+                const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+                                  "{\"error\":\"slot: 1 or 2 (0 or all for every remote where the route allows it)\",\"ok\":false}";
+                write(cli, res, strlen(res));
+            } else if (route_is(buf, "GET /api/rf/pair") || route_is(buf, "POST /api/rf/pair")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    int slot = qslot > 0 ? qslot : 0;
                     start_pairing_mode(slot);
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pairing_started\"}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "GET /api/rf/stop-pair") == buf) {
+            } else if (route_is(buf, "GET /api/rf/stop-pair") || route_is(buf, "POST /api/rf/stop-pair")) {
+                /* both web UIs send POST: it got the status object and the pairing went on */
                 stop_pairing_mode();
                 const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"pairing_stopped\"}";
                 write(cli, res, strlen(res));
-            } else if (strstr(buf, "GET /api/rf/unpair") == buf || strstr(buf, "POST /api/rf/unpair") == buf) {
+            } else if (route_is(buf, "GET /api/rf/unpair") || route_is(buf, "POST /api/rf/unpair")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    int slot = qslot > 0 ? qslot : 0;
                     unpair_device(slot);
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"unpaired\",\"ok\":true}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "GET /api/rf/pull-config") == buf || strstr(buf, "POST /api/rf/pull-config") == buf) {
+            } else if (route_is(buf, "GET /api/rf/pull-config") || route_is(buf, "POST /api/rf/pull-config")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : 1;
+                    int slot = qslot > 0 ? qslot : 1;
                     if (is_companion_slot((uint8_t)slot)) {
                         const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not support config pull\",\"ok\":false}";
                         write(cli, res, strlen(res));
@@ -323,12 +394,12 @@ void *api_server_worker(void *arg) {
                         write(cli, res, rlen);
                     }
                 }
-            } else if (strstr(buf, "GET /api/rf/sleep") == buf || strstr(buf, "POST /api/rf/sleep") == buf) {
+            } else if (route_is(buf, "GET /api/rf/sleep") || route_is(buf, "POST /api/rf/sleep")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                    int slot = qslot > 0 ? qslot : 0;
                     int sent_count = 0;
                     for (int s = 1; s <= 2; s++) {
                         if (slot != 0 && slot != s) continue;
@@ -352,10 +423,10 @@ void *api_server_worker(void *arg) {
                         slot, sent_count);
                     write(cli, res, rlen);
                 }
-            } else if (strstr(buf, "GET /api/rf/log-level") == buf || strstr(buf, "POST /api/rf/log-level") == buf) {
-                char *lp = strstr(buf, "level=");
-                if (lp) {
-                    int lvl = atoi(lp + 6);
+            } else if (route_is(buf, "GET /api/rf/log-level") || route_is(buf, "POST /api/rf/log-level")) {
+                char lv[8];
+                if (query_param(buf, "level", lv, sizeof(lv))) {
+                    int lvl = atoi(lv);
                     if (lvl >= 0 && lvl <= 3) {
                         g_log_level = lvl;
                         g_debug_logging = (g_log_level >= LOG_LEVEL_DEBUG);
@@ -392,30 +463,22 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"sent\"}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "/api/rf/push-icon") == buf || strstr(buf, "GET /api/rf/push-icon") == buf || strstr(buf, "POST /api/rf/push-icon") == buf) {
+            } else if (route_is(buf, "GET /api/rf/push-icon") || route_is(buf, "POST /api/rf/push-icon")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
                     char id_str[32] = {0}, type_str[32] = "activity";
-                    char *qid = strstr(buf, "id=");
-                    if (qid) {
-                        strncpy(id_str, qid + 3, sizeof(id_str) - 1);
-                        char *amp = strpbrk(id_str, "& \r\n");
-                        if (amp) *amp = '\0';
-                    }
-                    char *qtype = strstr(buf, "type=");
-                    if (qtype) {
-                        strncpy(type_str, qtype + 5, sizeof(type_str) - 1);
-                        char *amp = strpbrk(type_str, "& \r\n");
-                        if (amp) *amp = '\0';
-                    }
+                    /* from the query only (an "id=" in a header or in another parameter's value
+                     * was taken too) */
+                    query_param(buf, "id", id_str, sizeof(id_str));
+                    query_param(buf, "type", type_str, sizeof(type_str));
                     if (!rf_icon_id_valid(id_str) || !rf_icon_id_valid(type_str)) {
                         const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
                                           "{\"error\":\"id and type: only A-Z a-z 0-9 _ -, 1..19 characters\",\"ok\":false}";
                         write(cli, res, strlen(res));
                     } else {
-                        int slot = strstr(buf, "slot=2") ? 2 : (strstr(buf, "slot=1") ? 1 : 0);
+                        int slot = qslot > 0 ? qslot : 0;
                         icon_push_job_t *job = calloc(1, sizeof(*job));
                         int started = 0;
                         if (job) {
@@ -440,7 +503,7 @@ void *api_server_worker(void *arg) {
                         write(cli, res, rlen);
                     }
                 }
-            } else if (strstr(buf, "GET /api/rf/push-config") == buf || strstr(buf, "POST /api/rf/push-config") == buf) {
+            } else if (route_is(buf, "GET /api/rf/push-config") || route_is(buf, "POST /api/rf/push-config")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
@@ -464,7 +527,7 @@ void *api_server_worker(void *arg) {
                         : "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"config push not started\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "GET /api/rf/sync") == buf) {
+            } else if (route_is(buf, "GET /api/rf/sync")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"ota_in_progress\",\"ok\":true}";
                     write(cli, res, strlen(res));
@@ -476,8 +539,8 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"synced\"}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "GET /api/rf/remote-config") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
+            } else if (route_is(buf, "GET /api/rf/remote-config")) {
+                int slot = qslot > 0 ? qslot : 1;
                 char res_body[4096] = {0};
                 if (is_companion_slot((uint8_t)slot)) {
                     snprintf(res_body, sizeof(res_body),
@@ -502,13 +565,12 @@ void *api_server_worker(void *arg) {
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", (int)strlen(res_body));
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
-            } else if (strstr(buf, "POST /api/rf/remote-config") == buf) {
+            } else if (route_is(buf, "POST /api/rf/remote-config")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 } else {
-                    int slot = strstr(buf, "slot=2") ? 2 : 1;
-                    if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
+                    int slot = qslot > 0 ? qslot : 1;
                     if (is_companion_slot((uint8_t)slot)) {
                         const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not have screen or motion configuration\",\"ok\":false}";
                         write(cli, res, strlen(res));
@@ -710,8 +772,8 @@ void *api_server_worker(void *arg) {
                     write(cli, res, strlen(res));
                     }
                 }
-            } else if (strstr(buf, "GET /api/rf/remote-direct-buttons") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
+            } else if (route_is(buf, "GET /api/rf/remote-direct-buttons")) {
+                int slot = qslot > 0 ? qslot : 1;
                 char path[64];
                 snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
                 char res_body[4096] = {0};
@@ -728,7 +790,7 @@ void *api_server_worker(void *arg) {
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", (int)strlen(res_body));
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
-            } else if (strstr(buf, "POST /api/rf/remote-direct-buttons") == buf) {
+            } else if (route_is(buf, "POST /api/rf/remote-direct-buttons")) {
                 if (is_ota_busy()) {
                     const char *res = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"RF OTA in progress\",\"ok\":false}";
                     write(cli, res, strlen(res));
@@ -753,7 +815,7 @@ void *api_server_worker(void *arg) {
                     const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}";
                     write(cli, res, strlen(res));
                 }
-            } else if (strstr(buf, "GET /api/rf/ota-status") == buf) {
+            } else if (route_is(buf, "GET /api/rf/ota-status")) {
                 pthread_mutex_lock(&g_ota_lock);
                 char res_body[512];
                 snprintf(res_body, sizeof(res_body),
@@ -772,9 +834,9 @@ void *api_server_worker(void *arg) {
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", (int)strlen(res_body));
                 write(cli, header, hlen);
                 write(cli, res_body, strlen(res_body));
-            } else if (strstr(buf, "POST /api/rf/wake") == buf) {
+            } else if (route_is(buf, "POST /api/rf/wake")) {
                 /* Turn a remote's screen on; tries for about 10 s in the background */
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
+                int slot = qslot > 0 ? qslot : 1;
                 char res[192];
                 int rlen;
                 if (is_ota_busy()) {
@@ -798,9 +860,8 @@ void *api_server_worker(void *arg) {
                         ok ? "202 Accepted" : "500 Internal Server Error", ok ? "waking" : "error", slot, ok ? "true" : "false");
                 }
                 write(cli, res, rlen);
-            } else if (strstr(buf, "POST /api/rf/ota-start") == buf) {
-                int slot = strstr(buf, "slot=2") ? 2 : 1;
-                if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
+            } else if (route_is(buf, "POST /api/rf/ota-start")) {
+                int slot = qslot > 0 ? qslot : 1;
                 if (is_companion_slot((uint8_t)slot)) {
                     char res[256];
                     int rlen = snprintf(res, sizeof(res),
