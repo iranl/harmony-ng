@@ -318,6 +318,69 @@ void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
 }
 
+/* Key event counter, per slot. Key frames are sent once and never acknowledged; a remote that
+ * numbers them (1..255, then 1 again) lets the Hub count the ones that did not arrive. */
+static struct {
+    uint8_t last;        /* counter of the last key frame, 0 = none since hub_rf started */
+    bool restart_hint;   /* the remote may have restarted since that frame */
+    uint16_t down_code;  /* key whose press or hold came last without its release, 0 = none */
+} s_key_track[MAX_PAIRED_REMOTES];
+
+void rf_key_note_restart_hint(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    s_key_track[slot - 1].restart_hint = true;
+}
+
+void rf_key_note_event(uint8_t slot, uint8_t counter, uint16_t key_code, uint8_t state, const char *name) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES || counter == 0) return;
+    remote_link_stats_t *ls = &g_remote_link[slot - 1];
+    const char *action = (state == 0x01) ? "press" : ((state == 0x02) ? "hold" : "release");
+    if (!name) name = "";
+    uint8_t last = s_key_track[slot - 1].last;
+    bool hint = s_key_track[slot - 1].restart_hint;
+    uint16_t down = s_key_track[slot - 1].down_code;
+
+    ls->key_events++;
+    unsigned missing = 0;
+    if (last) {
+        /* Numbers between the one expected and this one, over the ring 1..255 */
+        unsigned gap = (unsigned)(counter + 255 - rf_key_counter_next(last)) % 255;
+        if (counter == last && !(hint && counter == 1)) {
+            /* The same number again is the same frame twice, not 254 lost ones */
+            printf("[!] RF key event received twice: slot %u, #%u (%s %s)\n", slot, counter, action, name);
+            return;
+        }
+        if (hint && counter - 1u <= gap) {
+            /* A restarted remote counts from 1 again: frames 1..counter-1 are the missing ones
+             * (none when this is number 1), and it no longer holds the key it had down */
+            missing = counter - 1u;
+            down = 0;
+        } else {
+            missing = gap;
+        }
+    }
+
+    if (missing) {
+        /* What the frames around the gap tell about the missing ones; each is counted once */
+        unsigned left = missing;
+        if (state == 0x01) {
+            if (down) { ls->key_lost_release++; left--; }       /* the key before never got its release */
+        } else if (down != key_code) {
+            ls->key_lost_press++; left--;                       /* this key's press was not seen */
+            if (down && left) { ls->key_lost_release++; left--; down = 0; } /* nor the release of the key before */
+        }
+        ls->key_lost_other += left;
+        ls->key_events_lost += missing;
+        printf("[!] RF key events lost: slot %u, %u missing before #%u (%s %s)\n", slot, missing, counter, action, name);
+    }
+
+    if (state != 0x00) down = key_code;
+    else if (down == key_code) down = 0;
+    s_key_track[slot - 1].last = counter;
+    s_key_track[slot - 1].restart_hint = false;
+    s_key_track[slot - 1].down_code = down;
+}
+
 int rf_slot_apply_unit_id(uint8_t slot, const uint8_t *payload) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES || !payload) return 0;
     int idx = slot - 1;

@@ -115,6 +115,8 @@ void handle_rf_frame(const rf_frame_t *f) {
 
             printf("[*] BUTTON_PRESS: slot=%d code=0x%04X state=%s name=%s dev=%s\n",
                    slot, key_code, action, name, dev_id[0] ? dev_id : "none");
+            /* Counts the key frames that did not arrive (rf_proto.h RF_KEY_COUNTER_OFF) */
+            rf_key_note_event(slot, f->payload[RF_KEY_COUNTER_OFF], key_code, state, name);
             enqueue_remote_button(slot, name, action, dev_id);
 
             static uint32_t s_last_sync_ms = 0;
@@ -282,6 +284,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             snprintf(vpath, sizeof(vpath), "/data/harmony/remote_slot%d_version.json", slot);
             if (ver_changed || access(vpath, F_OK) != 0) rf_state_save_version_file(slot);
             printf("[*] VERSION_REPORT: Slot %d -> SW v%s, Config v%d, caps 0x%02X\n", slot, g_remote_versions[idx].sw_version, cfg_ver, caps);
+            rf_key_note_restart_hint(slot); /* sent when remote_ui starts: its key counter may begin at 1 again */
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);
@@ -299,6 +302,7 @@ void handle_rf_frame(const rf_frame_t *f) {
             uint8_t slot = f->dev_slot & 0x0F;
             if (slot < 1 || slot > 2) slot = 1;
             if (rf_slot_apply_unit_id(slot, f->payload)) rf_state_save_version_file(slot);
+            rf_key_note_restart_hint(slot); /* follows every version report, which may have been lost */
             rf_frame_t ack;
             rf_build_ack(&ack, slot, f->seq, 0x00);
             rf_send_frame(&ack);

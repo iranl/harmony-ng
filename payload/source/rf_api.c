@@ -153,8 +153,9 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
     pthread_mutex_unlock(&g_ota_lock);
 
     /* Link counters per slot; last_seen_s is -1 before the first frame. Left out of the
-     * change-detection form, like the battery voltage: they change on every frame. */
-    char link_json[MAX_PAIRED_REMOTES][192];
+     * change-detection form, like the battery voltage: they change on every frame, and the key
+     * event counters on every key. */
+    char link_json[MAX_PAIRED_REMOTES][320];
     uint64_t now_ms = get_monotonic_ms();
     int stable = (flags & RF_STATUS_STABLE_ONLY) != 0;
     for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
@@ -164,8 +165,12 @@ int rf_build_status_json(char *body, size_t len, unsigned flags) {
             snprintf(link_json[i], sizeof(link_json[i]), "{}");
         } else {
             snprintf(link_json[i], sizeof(link_json[i]),
-                     "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,\"last_seen_s\":%ld}",
-                     ls->frames_rx, ls->acked_sent, ls->acked_ok, ls->retries, ls->naks, seen);
+                     "{\"frames_rx\":%u,\"acked_sent\":%u,\"acked_ok\":%u,\"retries\":%u,\"naks\":%u,"
+                     "\"key_events\":%u,\"key_events_lost\":%u,\"key_lost_press\":%u,\"key_lost_release\":%u,"
+                     "\"key_lost_other\":%u,\"last_seen_s\":%ld}",
+                     ls->frames_rx, ls->acked_sent, ls->acked_ok, ls->retries, ls->naks,
+                     ls->key_events, ls->key_events_lost, ls->key_lost_press, ls->key_lost_release,
+                     ls->key_lost_other, seen);
         }
     }
 

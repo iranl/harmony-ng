@@ -991,7 +991,9 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
         "equad_id": 16417,
         "has_screen": true,
         "supports_ota": true,
-        "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9, "last_seen_s": 2 }
+        "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9,
+                  "key_events": 640, "key_events_lost": 3, "key_lost_press": 1, "key_lost_release": 0, "key_lost_other": 2,
+                  "last_seen_s": 2 }
       },
       {
         "slot": 2,
@@ -1010,6 +1012,7 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   }
   ```
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
+- `slots[].link.key_*`: key frames of a touchscreen remote since `hub_rf` started. A key frame is sent once, with no acknowledgement and no resend; a remote that numbers its key frames (`docs/HARMONY_RF_PROTOCOL.md`, `RF_MSG_BUTTON_PRESS`) lets the Hub count the ones that did not arrive. `key_events`: key frames received that carry a number. `key_events_lost`: numbers missing between them. The lost ones are split by what the frames around the gap show: `key_lost_press` (a hold or release arrived for a key whose press was not seen: the key did nothing or started late), `key_lost_release` (a key frame arrived while the key before it was still down: that key stayed down), `key_lost_other` (holds, or nothing to tell them by); the three add up to `key_events_lost`. All stay `0` for a remote that does not number its key frames (older remote software, Companion, Smart Control). Each gap is also one line in the Hub log: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. Like the other link counters they are read on request: a change does not send an `rf_status` event.
 
 - `slots[].model`: the product, a stable machine id: `ultimate`, `ultimate_one`, `ultimate_home`,
   `elite`, `950`, `touch` (a touchscreen remote with a skin id the stock table does not list),

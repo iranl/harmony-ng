@@ -2101,6 +2101,7 @@ paths:
       summary: CC2544 RF subsystem status
       description: |
         Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
+        link.key_events counts the key frames received from a remote that numbers them, link.key_events_lost the numbers missing between them (key frames are sent once, without acknowledgement), split into key_lost_press, key_lost_release and key_lost_other; all 0 for a remote that does not number its key frames. docs/API.md 7.1.
         battery.reported_at is the Unix time of the last report (null before the first one or while the clock was not set), battery.restored is true for a value read back from RAM after a hub_rf restart, until the remote reports again. docs/API.md 7.1.
         Per slot, the product: model (ultimate, ultimate_one, ultimate_home, elite, 950, touch,
         companion, smart_control, unknown), model_name (the stock product name, null
@@ -2159,6 +2160,11 @@ paths:
                       acked_ok: 398
                       retries: 14
                       naks: 9
+                      key_events: 0
+                      key_events_lost: 0
+                      key_lost_press: 0
+                      key_lost_release: 0
+                      key_lost_other: 0
                       last_seen_s: 2
                   - slot: 2
                     name: "Harmony Ultimate (Slot 2)"
@@ -2187,6 +2193,11 @@ paths:
                       acked_ok: 82
                       retries: 3
                       naks: 1
+                      key_events: 640
+                      key_events_lost: 3
+                      key_lost_press: 1
+                      key_lost_release: 0
+                      key_lost_other: 2
                       last_seen_s: 14
 
   /api/rf/status-changed:
