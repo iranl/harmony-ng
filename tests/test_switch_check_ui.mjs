@@ -97,5 +97,45 @@ const toCheck = {
     'new UI: nothing to show when only the own account is listed');
   console.log('    ok   new UI dialog: own account left out, Delete per item, Keep all closes');
 }
+// New UI flow: restore -> reply with to_check -> list kept in sessionStorage -> names only while
+// nobody is logged in (the import ended every session), nothing for a user-role login, the full
+// dialog once an admin is logged in (after the Users page login reloads the page)
+{
+  const session = {};
+  globalThis.sessionStorage = { getItem: k => session[k] ?? null, setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
+  const target = new EventTarget();
+  globalThis.window = { addEventListener: (...a) => target.addEventListener(...a), dispatchEvent: (e) => target.dispatchEvent(e) };
+  let who = { authenticated: false };
+  const sent = [];
+  const client = {
+    postJson: async (path, body) => { sent.push([path, body.target]); return { ok: true, auth_enabled: true, to_check: toCheck }; },
+    request: async (path) => { if (path === '/api/auth/me') return who; throw new Error('unexpected ' + path); },
+  };
+  const { createSystemApi } = await import('../frontend/src/api/system.js');
+  const sys = createSystemApi(client);
+  const api = { ...sys, deleteUser: async () => {}, deleteToken: async () => {} };
+  const { installSwitchCheck, showPendingSwitchCheck } = await import('../frontend/src/components/hub-decisions.js');
+  const deletes = () => [...body.walk()].filter(n => n.textContent === 'Delete').length;
+  const clear = () => { body.children = []; };
+  clear();
+  installSwitchCheck(api);
+  await sys.restoreBackup('all', '{"users": {}}', false);
+  await new Promise(r => globalThis.setImmediate ? setImmediate(r) : r());
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(sent, [['/import', 'bundle']], 'new UI: the restore sends target bundle');
+  assert.ok(session.harmony_auth_switch_check, 'new UI: the list is kept for after the login');
+  assert.ok(findText(body, 'Account: ghost (admin)') && deletes() === 0, 'new UI: no login yet: names only, no Delete');
+  clear();
+  who = { authenticated: true, role: 'user' };
+  assert.equal(await showPendingSwitchCheck(api), null, 'new UI: a user-role login gets nothing');
+  assert.ok(session.harmony_auth_switch_check, 'new UI: the list waits for an admin');
+  who = { authenticated: true, role: 'admin' };
+  await showPendingSwitchCheck(api);  // as installSwitchCheck does after the login reload
+  assert.equal(deletes(), 3, 'new UI: an admin gets the dialog with Delete');
+  assert.equal(session.harmony_auth_switch_check, undefined, 'new UI: shown once');
+  clear();
+  assert.equal(await showPendingSwitchCheck(api), null, 'new UI: not again after that');
+  console.log('    ok   new UI flow: restore, list kept, names only before the login, dialog for an admin');
+}
 console.log('    all passed');
 process.exit(0);

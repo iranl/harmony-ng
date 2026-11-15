@@ -4,13 +4,10 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
-import { showSwitchCheck } from '../../components/hub-decisions.js';
+import { installSwitchCheck } from '../../components/hub-decisions.js';
 
 // A restore that turned authentication on (api/system.js): the accounts and tokens to check
-if (typeof window !== 'undefined' && !window.__harmonySwitchCheckListener) {
-  window.__harmonySwitchCheckListener = true;
-  window.addEventListener('harmony:auth-switch-check', (e) => showSwitchCheck(api, e.detail));
-}
+installSwitchCheck(api);
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-backup', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });

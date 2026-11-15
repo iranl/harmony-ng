@@ -2,6 +2,8 @@ export default {
     "act_editor_sub": "Configurar opciones de actividad y secuencias de comandos",
     "auth_check_account": "Cuenta",
     "auth_check_intro": "La autenticación está activada. Revisa las cuentas y los tokens de acceso del Hub y elimina los que no reconozcas.",
+    "auth_check_login_first": "Inicia sesión con una cuenta de administrador en la página Usuarios: esta lista se muestra de nuevo allí, con Eliminar.",
+    "auth_check_owner_gone": "cuenta eliminada",
     "auth_check_title": "Revisar cuentas y tokens de acceso",
     "auth_check_token": "Token de acceso",
     "auth_keep_all": "Conservar todos",

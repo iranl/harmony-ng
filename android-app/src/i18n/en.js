@@ -2,6 +2,7 @@ export default {
     "account_auth": "Account / Authentication",
     "auth_check_account": "Account",
     "auth_check_intro": "Authentication is on. Check the accounts and access tokens that exist on the Hub and delete any you do not recognise.",
+    "auth_check_owner_gone": "account gone",
     "auth_check_title": "Check accounts and access tokens",
     "auth_check_token": "Access token",
     "auth_keep_all": "Keep all",

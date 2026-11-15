@@ -24,7 +24,7 @@ export function checkItems(toCheck, currentUser = '') {
     items.push({ kind: 'user', id: u.username, label: `${t('auth_check_account', 'Account')}: ${u.username} (${u.role})` });
   }
   for (const tk of toCheck?.tokens || []) {
-    const owner = tk.owner ? `, ${tk.owner}` : '';
+    const owner = (tk.owner ? `, ${tk.owner}` : '') + (tk.owner_missing ? `, ${t('auth_check_owner_gone', 'account gone')}` : '');
     items.push({ kind: 'token', id: tk.id, label: `${t('auth_check_token', 'Access token')}: ${tk.name || tk.id} (${tk.role}${owner})` });
   }
   return items;

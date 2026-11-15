@@ -155,3 +155,7 @@ async function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
+// a list of accounts and tokens to check kept from before a reload (the Users page login reloads)
+document.addEventListener('DOMContentLoaded', () => {
+  import('./components/hub-decisions.js').then((m) => m.installSwitchCheck(api)).catch(() => {});
+});

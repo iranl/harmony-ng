@@ -8,15 +8,17 @@ import { toast } from './toast.js';
 import { createModal } from './modal.js';
 
 /* After a request that turned authentication on: the accounts and access tokens to check (the
- * reply's "to_check"), with Delete per item (one already gone, 404, counts as deleted) and Keep all
- * to close. Never the account logged in. Whatever is not deleted keeps working. */
-export function showSwitchCheck(api, toCheck) {
+ * reply's "to_check"). With canDelete: Delete per item (one already gone, 404, counts as deleted)
+ * and Keep all to close; without (no login yet): the names and how to go on. Never the account
+ * logged in. Whatever is not deleted keeps working. */
+export function showSwitchCheck(api, toCheck, canDelete = true) {
   const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+  const gone = t('auth_check_owner_gone', 'account gone');
   const items = [
     ...(toCheck?.users || []).filter((u) => u.username !== me)
       .map((u) => ({ kind: 'user', id: u.username, label: `${t('auth_check_account', 'Account')}: ${u.username} (${u.role})` })),
     ...(toCheck?.tokens || [])
-      .map((tk) => ({ kind: 'token', id: tk.id, label: `${t('auth_check_token', 'Access token')}: ${tk.name || tk.id} (${tk.role}${tk.owner ? `, ${tk.owner}` : ''})` })),
+      .map((tk) => ({ kind: 'token', id: tk.id, label: `${t('auth_check_token', 'Access token')}: ${tk.name || tk.id} (${tk.role}${tk.owner ? `, ${tk.owner}` : ''}${tk.owner_missing ? `, ${gone}` : ''})` })),
   ];
   if (!items.length) return null;
   const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
@@ -26,7 +28,7 @@ export function showSwitchCheck(api, toCheck) {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '8px 12px', margin: 0 },
     }, [
       h('span', { style: { wordBreak: 'break-word' }, text: item.label }),
-      h('button', {
+      canDelete ? h('button', {
         className: 'btn btn-danger btn-sm',
         text: t('delete', 'Delete'),
         onclick: async () => {
@@ -41,7 +43,7 @@ export function showSwitchCheck(api, toCheck) {
           }
           row.remove();
         },
-      }),
+      }) : null,
     ]);
     list.appendChild(row);
   }
@@ -49,10 +51,56 @@ export function showSwitchCheck(api, toCheck) {
     title: t('auth_check_title', 'Check accounts and access tokens'),
     content: h('div', {}, [
       h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '10px' }, text: t('auth_check_intro', 'Authentication is on. Check the accounts and access tokens that exist on the Hub and delete any you do not recognise.') }),
+      canDelete ? null : h('p', { style: { fontSize: '13px', marginBottom: '10px' }, text: t('auth_check_login_first', 'Log in with an admin account on the Users page: this list is shown again there, with Delete.') }),
       list,
     ]),
-    actions: [{ label: t('auth_keep_all', 'Keep all'), variant: 'primary' }],
+    actions: [{ label: canDelete ? t('auth_keep_all', 'Keep all') : 'OK', variant: 'primary' }],
   });
+}
+
+const PENDING_KEY = 'harmony_auth_switch_check';
+
+function readPending() {
+  try {
+    const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(PENDING_KEY) : null;
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/* The list stays in sessionStorage until an admin login exists to act on it: the switch ended
+ * every session, and the Users page login reloads the page. Shows it then (once), the names only
+ * while nobody is logged in, nothing for a user-role login (the list waits for an admin). */
+export async function showPendingSwitchCheck(api) {
+  const pending = readPending();
+  if (!pending) return null;
+  let me = null;
+  try {
+    me = await api.getAuthMe();
+  } catch {
+    me = null;
+  }
+  if (!me?.authenticated) return showSwitchCheck(api, pending, false);
+  if (me.role !== 'admin') return null;
+  try {
+    sessionStorage.removeItem(PENDING_KEY);
+  } catch { /* nothing to remove */ }
+  return showSwitchCheck(api, pending, true);
+}
+
+/* Once per page: the restore reply's list (event from api/system.js) is kept and shown; a list kept
+ * from before a reload is shown now */
+export function installSwitchCheck(api) {
+  if (typeof window === 'undefined' || window.__harmonySwitchCheckInstalled) return;
+  window.__harmonySwitchCheckInstalled = true;
+  window.addEventListener('harmony:auth-switch-check', (e) => {
+    try {
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify(e.detail || {}));
+    } catch { /* shown once below anyway */ }
+    showPendingSwitchCheck(api);
+  });
+  showPendingSwitchCheck(api);
 }
 
 /* Text lines for the users of a device whose delete was refused */

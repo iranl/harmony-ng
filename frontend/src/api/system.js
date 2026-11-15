@@ -171,6 +171,7 @@ export function createSystemApi(client) {
     },
 
     async restoreBackup(target, payload, restoreNetwork = false) {
+      if (target === 'all') target = 'bundle'; /* the Hub's name for the whole backup */
       let parsed = payload;
       if (typeof payload === 'string') {
         try { parsed = JSON.parse(payload); } catch { /* ignore */ }

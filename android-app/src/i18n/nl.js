@@ -2,6 +2,7 @@ export default {
     "account_auth": "Account / Authenticatie",
     "auth_check_account": "Account",
     "auth_check_intro": "Aanmelden staat aan. Controleer de accounts en toegangstokens op de Hub en verwijder alles wat je niet herkent.",
+    "auth_check_owner_gone": "account verwijderd",
     "auth_check_title": "Accounts en toegangstokens controleren",
     "auth_check_token": "Toegangstoken",
     "auth_keep_all": "Alles behouden",

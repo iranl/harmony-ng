@@ -128,8 +128,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       this.showLoginModal(); /* the list stays pending until the login succeeds */
       return;
     }
+    if (session.role !== 'admin') return; /* a user account cannot delete them: the list waits for an admin */
     this.pendingSwitchCheck = null;
-    if (session.role !== 'admin') return; /* a user account cannot delete accounts or tokens */
     const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
     this.lastSwitchCheck = pending;
     await askToCheck(this.client, pending, me);

@@ -2,6 +2,7 @@ export default {
     "account_auth": "Compte / Authentification",
     "auth_check_account": "Compte",
     "auth_check_intro": "L'authentification est activée. Vérifiez les comptes et les jetons d'accès présents sur le Hub et supprimez ceux que vous ne reconnaissez pas.",
+    "auth_check_owner_gone": "compte supprimé",
     "auth_check_title": "Vérifier les comptes et jetons d'accès",
     "auth_check_token": "Jeton d'accès",
     "auth_keep_all": "Tout garder",

@@ -2,6 +2,7 @@ export default {
     "account_auth": "Konto / Authentifizierung",
     "auth_check_account": "Konto",
     "auth_check_intro": "Die Anmeldung ist eingeschaltet. Prüfe die Konten und Zugriffstoken auf dem Hub und lösche alle, die du nicht kennst.",
+    "auth_check_owner_gone": "Konto gelöscht",
     "auth_check_title": "Konten und Zugriffstoken prüfen",
     "auth_check_token": "Zugriffstoken",
     "auth_keep_all": "Alle behalten",

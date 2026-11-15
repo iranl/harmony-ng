@@ -2,6 +2,8 @@ export default {
     "act_editor_sub": "Activiteitsinstellingen en opdrachtreeksen configureren",
     "auth_check_account": "Account",
     "auth_check_intro": "Aanmelden staat aan. Controleer de accounts en toegangstokens op de Hub en verwijder alles wat je niet herkent.",
+    "auth_check_login_first": "Meld je aan met een beheerdersaccount op de pagina Gebruikers: deze lijst wordt daar opnieuw getoond, met Verwijderen.",
+    "auth_check_owner_gone": "account verwijderd",
     "auth_check_title": "Accounts en toegangstokens controleren",
     "auth_check_token": "Toegangstoken",
     "auth_keep_all": "Alles behouden",

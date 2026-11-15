@@ -2,6 +2,8 @@ export default {
     "act_editor_sub": "Configura impostazioni attività e sequenze di comandi",
     "auth_check_account": "Account",
     "auth_check_intro": "L'autenticazione è attiva. Controlla gli account e i token di accesso presenti sull'Hub ed elimina quelli che non riconosci.",
+    "auth_check_login_first": "Accedi con un account amministratore nella pagina Utenti: questo elenco viene mostrato di nuovo lì, con Elimina.",
+    "auth_check_owner_gone": "account eliminato",
     "auth_check_title": "Controlla account e token di accesso",
     "auth_check_token": "Token di accesso",
     "auth_keep_all": "Mantieni tutti",
