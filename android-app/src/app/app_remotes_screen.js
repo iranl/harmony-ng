@@ -824,7 +824,9 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     let preview;
     let module;
     try {
-      preview = await import(/* @vite-ignore */ new URL('assets/remote_preview.js', document.baseURI).href);
+      // Versioned, because the Hub serves /assets/ as immutable: the loader passes the query on
+      // to the module, its WebAssembly and the themes
+      preview = await import(/* @vite-ignore */ new URL(`assets/remote_preview.js?v=${__REMOTE_RENDERER_VERSION__}`, document.baseURI).href);
       module = await preview.loadHubRenderer(this.client?.baseUrl);
     } catch (e) {
       return; // no renderer in this build: keep the HTML mock-up
