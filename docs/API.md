@@ -234,6 +234,13 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
   - `legacy_enabled` (default `false`): the Logitech protocol shim on port 8088 and its SSDP
     responder (1.12). Changing it opens or closes the port at once; turning it off also closes
     every client connected to it.
+  - `ntp_server` (default `pool.ntp.org`): the time server asked first; the public pools
+    (`pool.ntp.org`, `0.pool.ntp.org`, `1.pool.ntp.org`, `time.cloudflare.com`,
+    `time.google.com`) follow. A correction of up to an hour from one server is applied at once.
+    A larger step, and the first time after a boot, needs two servers at different addresses that
+    agree within 5 s; until then the clock is not stepped and the Hub asks again every 5 minutes.
+    When the clock is not set and only one server answers, its time is used for now if it is not
+    later than the firmware's build date plus 5 years, and checked again in 5 minutes.
 
 #### `POST /api/settings`
 Updates global hub settings.

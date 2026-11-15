@@ -23,7 +23,10 @@
 #include <unistd.h>
 
 #define NTP_DELTA 2208988800UL
-#define T_2030 1893456000UL /* 2030-01-01, the time every reply carries */
+
+/* Every reply carries the real time + 10 s (within the correction one server may make alone);
+ * the time of the last reply sent */
+static volatile time_t g_sent;
 
 static int g_failures;
 #define CHECK(c, msg) do { if (c) printf("  PASS %s\n", msg); else { printf("  FAIL %s (line %d)\n", msg, __LINE__); g_failures++; } } while (0)
@@ -67,7 +70,8 @@ static void *server(void *arg) {
     rep[0] = (0 << 6) | (4 << 3) | 4; /* LI 0, version 4, server */
     rep[1] = 2;                        /* stratum 2 */
     memcpy(rep + 24, req + 40, 8);     /* origin = the request's transmit timestamp */
-    uint32_t tx = htonl((uint32_t)(T_2030 + NTP_DELTA));
+    g_sent = time(NULL) + 10;
+    uint32_t tx = htonl((uint32_t)((unsigned long)g_sent + NTP_DELTA));
     memcpy(rep + 40, &tx, 4);
     int fd = g_server_fd;
     switch (g_case) {
@@ -106,12 +110,12 @@ int main(void) {
     g_server_fd = udp_socket(&g_server_port);
     g_other_fd = udp_socket(NULL);
 
-    CHECK(query(R_GOOD) == (time_t)T_2030, "a reply from the server that echoes the request is accepted");
+    CHECK(query(R_GOOD) == g_sent, "a reply from the server that echoes the request is accepted");
     CHECK(query(R_OTHER_PORT) == 0, "a reply from another port is ignored");
     CHECK(query(R_BAD_ORIGIN) == 0, "a reply that does not echo the request's timestamp is ignored");
     CHECK(query(R_CLIENT_MODE) == 0, "a reply that is not in server mode is ignored");
     CHECK(query(R_STRATUM0) == 0, "a reply with stratum 0 (unsynchronized) is ignored");
-    CHECK(query(R_GOOD) == (time_t)T_2030, "and a good reply is accepted again");
+    CHECK(query(R_GOOD) == g_sent, "and a good reply is accepted again");
 
     close(g_server_fd);
     close(g_other_fd);
