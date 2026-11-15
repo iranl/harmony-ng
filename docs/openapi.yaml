@@ -9,7 +9,16 @@ info:
     
     ### Testing Locally
     Use the **Servers** dropdown or "Try it out" to send requests directly to your Harmony Hub.
-    *Default Hub IP*: `harmony.local:8089`
+    The Hub announces itself over mDNS as `harmony-ng-<hub_id>.local` (port 8089).
+
+    ### Authentication
+    Authentication is off after install: until an admin turns it on (API.md 11), every client on
+    the LAN is admin and no credentials are needed, hence the empty alternative in the global
+    `security`. Once it is on, every route under `/api/` (and the legacy `/ir/`, `/bt/`,
+    `/export/`, `/import`, `/wifi`, `/ethernet`, `/system`, `/mqtt` names) needs `basicAuth` or
+    `bearerAuth`, except `POST /api/auth/token` and `GET /health`. Accounts with the `user` role may
+    call only the routes listed in API.md 11.5. Requests from the Hub itself (127.0.0.1) are
+    always admin.
 servers:
   - url: http://{hubIp}:8089
     description: Configurable Harmony Hub IP
@@ -17,12 +26,18 @@ servers:
       hubIp:
         default: 192.168.1.100
         description: IP address or hostname of Harmony Hub
-  - url: http://harmony.local:8089
-    description: Default Hub IP
-  - url: http://harmony.local:8089
+  - url: http://harmony-ng-{hubId}.local:8089
     description: mDNS Hostname
+    variables:
+      hubId:
+        default: 20140101120000-000001
+        description: The Hub's hub_id (GET /api/status)
   - url: http://127.0.0.1:8089
     description: Localhost / SSH Tunnel
+security:
+  - {}
+  - basicAuth: []
+  - bearerAuth: []
 tags:
   - name: System & Status
     description: Hub health, system telemetry, diagnostics, and settings
@@ -199,11 +214,20 @@ paths:
           content:
             application/json:
               example:
+                ok: true
+                hub_name: Living Room Hub
                 uptime: "1d 4h 12m (101520s)"
-                load: "0.12 0.08 0.05"
+                loadavg: "0.12 0.08 0.05"
                 kernel: "Linux version 3.3.8 (mips Atheros AR9344)"
+                firmware: "4.15.600"
+                version: "2.4.2"
+                commit: abc1234
+                build_time: "Nov 14 2026 18:00:00"
                 memory: "Total: 128 MB, Free: 48 MB (Avail: 72 MB)"
-                network: "=== Network Interfaces (/proc/net/dev) ===\n..."
+                mem_total_kb: 131072
+                mem_free_kb: 49152
+                mem_available_kb: 73728
+                network_details: "=== Network Interfaces (/proc/net/dev) ===\n..."
 
   /api/disk-space:
     get:
@@ -329,6 +353,7 @@ paths:
       tags:
         - System & Status
       summary: Hub log tail
+      description: "daemon and rf /tmp/harmony-init.log (the output of hub_daemon and hub_rf), btstack /tmp/hub-btstack.log, network /tmp/harmony-network.log, system logread (or dmesg). Any other value gives the daemon log; source in the reply says which."
       parameters:
         - name: source
           in: query
@@ -346,7 +371,7 @@ paths:
               example:
                 ok: true
                 source: daemon
-                log: "[INFO] Harmony hub daemon listening on port 8089\n..."
+                logs: "[INFO] Harmony hub daemon listening on port 8089\n..."
 
   /api/icons:
     get:
@@ -363,6 +388,22 @@ paths:
                 - receiver.png
                 - gamepad.png
                 - apple_tv.png
+
+  /assets/icons.tar.gz:
+    get:
+      tags:
+        - Custom Icons
+      summary: Download the icon archive (same as GET /api/icons/archive)
+      responses:
+        '200':
+          description: Icons tarball stream
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: The Hub has no icon archive
 
   /api/icons/archive:
     get:
@@ -590,7 +631,6 @@ paths:
       description: Returns active Personal Access Tokens for third-party home automation integrations.
       security:
         - bearerAuth: []
-        - digestAuth: []
         - basicAuth: []
       responses:
         '200':
@@ -612,7 +652,6 @@ paths:
       description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation.
       security:
         - bearerAuth: []
-        - digestAuth: []
         - basicAuth: []
       requestBody:
         required: true
@@ -658,6 +697,28 @@ paths:
               example:
                 ok: true
                 message: Token deleted
+
+  /api/users/delete:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Delete a user account (same as DELETE /api/users)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: {type: string}
+              required: [username]
+      responses:
+        '200':
+          description: Account deleted
+        '400':
+          description: Username missing, or it is the only admin
+        '404':
+          description: Unknown user
 
   /api/users:
     get:
@@ -794,13 +855,12 @@ paths:
               type: object
               properties:
                 hub_name: {type: string}
-                dry_run: {type: boolean}
-                ntp_server: {type: string}
+                dry_run: {type: boolean, description: "Runtime only: never stored as true, so it is off again after a restart or reboot"}
+                ntp_server: {type: string, description: "Default empty (pool.ntp.org). Stored at once, used from the next hub_daemon start"}
                 timezone: {type: string, description: "IANA timezone name or POSIX TZ string"}
                 led_mode:
                   type: string
-                  enum: [green, amber, red, "off"]
-                  description: Front light colour while the Hub runs normally. The older values always_on (green) and always_off (off) are still accepted.
+                  description: "Front light colour while the Hub runs normally: green, amber, red or off. The older values always_on (green) and always_off (off) are still accepted. Stored as sent without a check; a value the Hub does not know shows green."
                 mdns_enabled: {type: boolean, default: true, description: "mDNS responder for _harmony-ng._tcp; takes effect at once"}
                 legacy_enabled: {type: boolean, default: false, description: "Logitech protocol shim on port 8088 (never authenticated) and its SSDP responder; takes effect at once, off closes every 8088 client"}
             example:
@@ -813,11 +873,18 @@ paths:
               legacy_enabled: false
       responses:
         '200':
-          description: Settings saved
+          description: Settings saved; the reply carries ok and every setting, as GET /api/settings
           content:
             application/json:
               example:
                 ok: true
+                hub_name: Living Room Hub
+                dry_run: false
+                ntp_server: ""
+                timezone: Europe/Amsterdam
+                led_mode: green
+                mdns_enabled: true
+                legacy_enabled: false
 
   /api/system-action:
     post:
@@ -895,7 +962,7 @@ paths:
                     controlPort: 0
                     mqttTopic: home/livingroom/tv
                     mqttEnabled: true
-                    mqttPulse: 100
+                    mqttPulseMs: 100
                     commands:
                       - name: PowerToggle
                         raw: "0000 006d 0022 0002 0155 00aa ..."
@@ -923,7 +990,7 @@ paths:
                     controlPort: 0
                     mqttTopic: home/livingroom/tv
                     mqttEnabled: true
-                    mqttPulse: 100
+                    mqttPulseMs: 100
                     commands:
                       - name: PowerToggle
                         raw: "0000 006d 0022 0002 0155 00aa ..."
@@ -951,14 +1018,21 @@ paths:
                 controlPort: {type: integer}
                 mqttTopic: {type: string}
                 mqttEnabled: {type: boolean}
-                mqttPulse: {type: integer}
+                mqttPulseMs: {type: integer, default: 1000, description: "Length of the MQTT pulse in ms (mqttPulse is ignored here)"}
                 interDeviceDelay: {type: integer, minimum: 0, maximum: 10000, default: 500, description: "ms waited before a command to this device after one to another device"}
                 interKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 100, description: "ms between two different commands to this device"}
                 holdInterKeyDelay: {type: integer, minimum: 0, maximum: 10000, default: 200, description: "ms between repeats of the same command"}
-                bt_auto_reconnect: {type: boolean, description: "Auto-reconnect Bluetooth device on activity start"}
-                bt_reconnect_duration_sec: {type: integer, default: 30, description: "Bluetooth reconnect attempt timeout"}
-                bt_reconnect_delay_sec: {type: integer, default: 0, description: "Delay in seconds before attempting Bluetooth reconnection"}
-                transport: {type: string, enum: [ir, bt], default: ir}
+                icon: {oneOf: [{type: string}, {type: integer}]}
+                powerOnDelay: {type: integer}
+                isPowerAlwaysOn: {type: boolean}
+                powerOnSequence: {type: array, items: {type: object}}
+                powerOffSequence: {type: array, items: {type: object}}
+                bdaddr: {type: string, description: "Bluetooth host address of a Bluetooth device (older name btHost)"}
+                btAutoReconnect: {type: boolean, default: true, description: "Reconnect the Bluetooth host when a command is sent to it, or when the trigger command is sent"}
+                btReconnectDurationSec: {type: integer, description: "Reconnect attempts last this many seconds (60 when 0 or missing)"}
+                btReconnectDelaySec: {type: integer, description: "Seconds before the reconnect starts after the trigger command (2 when missing)"}
+                btTriggerDeviceId: {type: string, description: "Device whose command starts the reconnect"}
+                btTriggerCommandName: {type: string, description: "Command that starts the reconnect (also deviceId:Command)"}
               required: [deviceId, name]
             example:
               deviceId: "70321456"
@@ -969,10 +1043,7 @@ paths:
               controlPort: 0
               mqttTopic: home/livingroom/tv
               mqttEnabled: true
-              mqttPulse: 100
-              bt_auto_reconnect: true
-              bt_reconnect_duration_sec: 30
-              bt_reconnect_delay_sec: 0
+              mqttPulseMs: 100
       responses:
         '200':
           description: Device saved
@@ -1276,13 +1347,13 @@ paths:
                 device:
                   type: string
                   description: Device ID
-                on:
+                "on":
                   type: boolean
                   description: Whether the device is already on
-              required: [device, on]
+              required: [device, "on"]
             example:
               device: "4"
-              on: false
+              "on": false
       responses:
         '200':
           description: Answer processed
@@ -1494,7 +1565,10 @@ paths:
       tags:
         - Hardware & IR
       summary: Transmit IR code or device command
-      description: Transmits an IR command by device ID and command name, or raw Pronto hex. Also available under /ir/send.
+      description: |
+        Transmits an IR command by device ID and one command name, or raw Pronto hex. Also
+        available under /ir/send. A list of commands, num_repeats, delay_secs and hold_secs are
+        taken only by the WebSocket and MQTT send_command action (API.md 10.3, 8.1), not here.
       requestBody:
         required: true
         content:
@@ -1502,28 +1576,13 @@ paths:
             schema:
               type: object
               properties:
-                deviceId: {type: string}
-                command:
-                  oneOf:
-                    - type: string
-                    - type: array
-                      items: {type: string}
-                  description: Command name or array of command names
+                deviceId: {type: string, description: "Device id (also accepted as device_id, device or id)"}
+                command: {type: string, description: "One command name (also accepted as name); a list answers 400"}
                 action:
                   type: string
                   enum: [press, down, hold, repeat, release, up, tap]
                   default: tap
                   description: Button action for key holding and repeating
-                num_repeats:
-                  type: integer
-                  default: 1
-                  description: Number of sequence repeats (1-50)
-                delay_secs:
-                  type: number
-                  description: Delay in seconds between successive commands
-                hold_secs:
-                  type: number
-                  description: Button hold duration in seconds
                 pronto: {type: string}
                 port: {type: integer, default: 7}
                 repeats: {type: integer, default: 1}
@@ -1545,6 +1604,12 @@ paths:
             application/json:
               example:
                 ok: true
+                deviceId: "70321456"
+                command: PowerToggle
+        '400':
+          description: Neither deviceId with one command name nor a Pronto code
+        '500':
+          description: The send failed ("error":"IR transmit failed")
 
   /api/ir-raw:
     post:
@@ -1727,7 +1792,7 @@ paths:
       tags:
         - Hardware & IR
       summary: Automated button pulse over MQTT & hardware
-      description: Dispatches button press or MQTT pulse. Also available under /api/mqtt-publish.
+      description: Reports a key press (button event on the WebSocket and MQTT). Also available under /api/mqtt-publish, an older name of the same route with the same role; it publishes nothing by itself.
       requestBody:
         required: true
         content:
@@ -2237,6 +2302,19 @@ paths:
         '403':
           description: Not from loopback
 
+  /api/rf/status:
+    get:
+      tags:
+        - RF & Remote
+      summary: CC2544 RF subsystem status (same object as GET /api/rf)
+      description: |
+        Proxied to hub_rf (port 8092); the object of GET /api/rf. hub_rf answers every /api/rf/
+        request it does not know (another path, or another method than documented) with this
+        status and 200, not 404, and does nothing else.
+      responses:
+        '200':
+          description: RF status (see GET /api/rf)
+
   /api/rf/pair:
     get:
       tags:
@@ -2494,6 +2572,7 @@ paths:
       tags:
         - RF & Remote
       summary: Get touchscreen direct command button grid
+      description: Kept for old clients. Returns the stored file; remote direct mode was removed, so nothing uses it.
       parameters:
         - name: slot
           in: query
@@ -2515,6 +2594,7 @@ paths:
       tags:
         - RF & Remote
       summary: Save touchscreen direct command button grid
+      description: Kept for old clients. Stores the body as remote_slot<N>_direct_buttons.json; remote direct mode was removed (remoteMode is always 0), so nothing reads the file and nothing is pushed to the remote.
       parameters:
         - name: slot
           in: query
@@ -2538,7 +2618,7 @@ paths:
               buttons: {}
       responses:
         '200':
-          description: Saved and pushed if remote is in direct mode
+          description: Saved (never pushed)
           content:
             application/json:
               example:
@@ -2602,12 +2682,11 @@ paths:
           example: "120150000000000000000000000000000000000000000000000000000000"
       responses:
         '200':
-          description: Raw frame transmitted
+          description: Raw frame transmitted. Also the reply when no byte of hex could be read and nothing was transmitted; there is no ok field.
           content:
             application/json:
               example:
-                ok: true
-                sent_hex: "120150..."
+                status: sent
         '409':
           description: RF OTA update in progress
 
@@ -2636,6 +2715,25 @@ paths:
                 status: pairing_stopped
 
   /api/rf/unpair:
+    post:
+      tags:
+        - RF & Remote
+      summary: Unpair remote slot (same as GET)
+      parameters:
+        - name: slot
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [1, 2]
+            default: 1
+      responses:
+        '200':
+          description: Slot unpaired
+          content:
+            application/json:
+              example:
+                status: unpaired
     get:
       tags:
         - RF & Remote
@@ -2751,6 +2849,17 @@ paths:
                 ok: true
 
   /api/rf/push-config:
+    get:
+      tags:
+        - RF & Remote
+      summary: Trigger OTA config sync to remote (same as POST)
+      responses:
+        '200':
+          description: OTA config push started
+          content:
+            application/json:
+              example:
+                status: push_started
     post:
       tags:
         - RF & Remote
@@ -2781,6 +2890,7 @@ paths:
       tags:
         - RF & Remote
       summary: Remote firmware update status
+      description: Returns OTA progress, chunk counts, and the transfer or download status code (API.md 7.5).
       responses:
         '200':
           description: Remote OTA transfer status
@@ -2837,27 +2947,6 @@ paths:
                 slot: 1
                 error: RF OTA already in progress on slot 1
                 ok: false
-
-  /api/rf/ota-status:
-    get:
-      tags:
-        - RF & Remote
-      summary: Query RF remote OTA progress and status
-      description: Returns real-time OTA progress, chunk metrics, and transfer or download status codes.
-      responses:
-        '200':
-          description: OTA status telemetry
-          content:
-            application/json:
-              example:
-                in_progress: false
-                slot: 1
-                status: 0
-                sent_bytes: 0
-                total_bytes: 0
-                sent_chunks: 0
-                total_chunks: 0
-                error: ""
 
   /api/ui-remote-layout:
     get:
@@ -3152,7 +3241,7 @@ paths:
               properties:
                 ssid: {type: string}
                 password: {type: string}
-                apply: {type: string, default: "apply"}
+                apply: {type: string, default: "save", description: "save writes the settings only; reconfigure, apply, 1 or reboot test the connection first and then apply them"}
               required: [ssid]
             example:
               ssid: MyWiFiNetwork
@@ -3172,6 +3261,7 @@ paths:
       tags:
         - Network & MQTT
       summary: Configure USB Ethernet adapter
+      description: Every save rewrites the whole ethernet.conf. A field left out gets its default, not its stored value, so send every field each time.
       requestBody:
         required: true
         content:
@@ -3179,12 +3269,14 @@ paths:
             schema:
               type: object
               properties:
+                eth_enabled: {type: boolean, default: true}
+                eth_fallback_wifi: {type: boolean, default: true}
                 eth_mode: {type: string, enum: [dhcp, static], default: dhcp}
                 eth_ip: {type: string}
                 eth_netmask: {type: string, default: 255.255.255.0}
                 eth_gateway: {type: string}
                 eth_dns: {type: string}
-                apply: {type: string, default: "apply"}
+                apply: {type: string, description: "apply, 1, reconfigure or restart applies the settings now; anything else or nothing only saves them"}
             example:
               eth_mode: dhcp
               eth_ip: 192.168.1.100
@@ -3231,7 +3323,7 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Check online for firmware updates
-      description: Queries GitHub releases or local update state. Also available under /api/update-check-state.
+      description: Downloads the published VERSION from the default update source (the official ota branch). Also available under /api/update-check-state.
       responses:
         '200':
           description: Check result
@@ -3246,7 +3338,7 @@ paths:
       tags:
         - Updates & Maintenance
       summary: Check online for firmware updates (custom repository or version)
-      description: Checks for updates against a specific GitHub repository, API token, or target version.
+      description: Checks for updates against another update source, with a token for a private one, or records a version the client already knows.
       requestBody:
         required: false
         content:
@@ -3256,16 +3348,15 @@ paths:
               properties:
                 repo:
                   type: string
-                  description: Target GitHub repository owner/name
+                  description: "Base URL of the update source (where VERSION, manifest.json and the bundle files are published); default the official ota branch. Only A-Z a-z 0-9 / . : - _ @ ~ are taken, any other value is ignored."
                 token:
                   type: string
-                  description: GitHub personal access token (optional)
+                  description: "Sent as 'Authorization: token <token>' with every download. Letters, digits, - and _ only, else ignored."
                 remote_version:
                   type: string
-                  description: Expected remote version override
+                  description: "A version the client already knows (also accepted as version): stored as the latest version, nothing is downloaded"
             example:
-              repo: "iranl/harmony-ng"
-              remote_version: "2.1.1"
+              repo: "https://raw.githubusercontent.com/iranl/harmony-ng/ota"
       responses:
         '200':
           description: Check result
@@ -3274,8 +3365,9 @@ paths:
               example:
                 ok: true
                 current_version: "2.1.1"
-                version: "2.1.1"
                 remote_version: "2.1.1"
+                message: Hub binaries and WebUI are up to date (v2.1.1).
+                has_update: false
                 update_available: false
 
   /api/update-apply:
@@ -3291,7 +3383,7 @@ paths:
               example:
                 ok: true
                 status: applying
-                message: Software update triggered. Hub services restarting in background.
+                message: Software update triggered. Hub services downloading and applying in background.
         '409':
           description: An update started earlier is still running
           content:
@@ -3300,6 +3392,25 @@ paths:
                 ok: false
                 status: busy
                 error: A software update is already running
+      requestBody:
+        required: false
+        description: |
+          Runs update.sh apply in the background. Only a release whose manifest.json carries a
+          valid signature by a release key built into the firmware is installed (API.md 2.3),
+          whatever server repo names. repo chooses where the firmware is downloaded from, so the
+          route is admin only once authentication is on; with authentication off (the default) any
+          LAN client may call it.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repo:
+                  type: string
+                  description: Base URL of the update source, as for /api/update-check
+                token:
+                  type: string
+                  description: Token for a private update source, as for /api/update-check
 
   /export/{target}:
     get:
@@ -3312,7 +3423,8 @@ paths:
           required: true
           schema:
             type: string
-            enum: [bundle, devices, activities, settings, mqtt, network, wifi, bluetooth, bt_remote_map, elite_remote_map, ui_remote_layout, auth, hub_id]
+            enum: [bundle, devices, activities, settings, mqtt, network, ethernet, wifi, bluetooth, bt_remote_map, remote-mapping, remote_slot1_map, remote_slot2_map, ui_remote_layout, ui-remote-layout, auth, users]
+          description: Any other target answers 404. hub_id is only a section of bundle.
           example: bundle
       responses:
         '200':
@@ -3338,8 +3450,9 @@ paths:
             schema:
               type: object
               properties:
-                target: {type: string, default: "bundle"}
+                target: {type: string, default: "bundle", description: "bundle or a single export target"}
                 payload: {type: object}
+                restore_network: {type: boolean, default: false, description: "In a bundle, write the wifi and network sections too (skipped otherwise)"}
               required: [target, payload]
             example:
               target: bundle
@@ -3363,7 +3476,8 @@ components:
       description: |
         HTTP Basic Authentication for multi-user RBAC.
         When authentication is enabled on the Hub, requests can supply the `Authorization: Basic <base64(user:pass)>` header.
-        Users can have `admin` or `user` roles.
+        Users can have `admin` or `user` roles. The password goes over the network on every request
+        (plain HTTP): prefer a token. Digest authentication is not offered.
     bearerAuth:
       type: http
       scheme: bearer
@@ -3372,9 +3486,3 @@ components:
         OAuth2 Bearer Token Authentication.
         Supports in-memory session tokens (`hht_...` generated via `/api/auth/token`) and persistent Personal Access Tokens (`pat_...` generated via `/api/auth/tokens`).
         Supply header `Authorization: Bearer <token>`.
-    digestAuth:
-      type: http
-      scheme: digest
-      description: |
-        HTTP Digest Authentication (RFC 7616 / RFC 2617) with SHA-256.
-        Standard curl, Postman, Home Assistant digest authentication without sending plaintext credentials over the wire.

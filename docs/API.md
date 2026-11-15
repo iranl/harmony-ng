@@ -84,11 +84,20 @@ Returns Linux system uptime, CPU load average, kernel version, RAM breakdown, an
 - **Response `200 OK`**:
   ```json
   {
+    "ok": true,
+    "hub_name": "Living Room Hub",
     "uptime": "1d 4h 12m (101520s)",
-    "load": "0.12 0.08 0.05",
+    "loadavg": "0.12 0.08 0.05",
     "kernel": "Linux version 3.3.8 (mips Atheros AR9344)",
+    "firmware": "4.15.600",
+    "version": "2.4.2",
+    "commit": "abc1234",
+    "build_time": "Nov 14 2026 18:00:00",
     "memory": "Total: 128 MB, Free: 48 MB (Avail: 72 MB)",
-    "network": "=== Network Interfaces (/proc/net/dev) ===\n..."
+    "mem_total_kb": 131072,
+    "mem_free_kb": 49152,
+    "mem_available_kb": 73728,
+    "network_details": "=== Network Interfaces (/proc/net/dev) ===\n..."
   }
   ```
 
@@ -172,13 +181,13 @@ removes the file and the supervisor starts it again within about 5 s. `GET /api/
 ### 1.7 Hub Logs
 #### `GET /api/logs?source={daemon|btstack|rf|system|network}`
 Returns tail (up to 12KB) of requested daemon or system log.
-- **Parameters**: `source` (default: `daemon`). `daemon` and `rf` read `/tmp/harmony-init.log` (the output of hub_daemon and hub_rf), `btstack` `/tmp/hub-btstack.log`, `network` `/tmp/harmony-network.log`, `system` the kernel and system log.
+- **Parameters**: `source` (default: `daemon`). `daemon` and `rf` read `/tmp/harmony-init.log` (the output of hub_daemon and hub_rf), `btstack` `/tmp/hub-btstack.log`, `network` `/tmp/harmony-network.log`, `system` the output of `logread` (or `dmesg`). Any other value gives the `daemon` log, and `source` in the reply says which one was sent.
 - **Response `200 OK`**:
   ```json
   {
     "ok": true,
     "source": "daemon",
-    "log": "[INFO] Harmony hub daemon listening on port 8089\n..."
+    "logs": "[INFO] Harmony hub daemon listening on port 8089\n..."
   }
   ```
 
@@ -213,6 +222,29 @@ Returns list of available device and activity PNG icon filenames.
   ]
   ```
 
+#### `GET /api/icons/archive` (also `HEAD`, and `GET /assets/icons.tar.gz`)
+The stock icon archive (`icons.tar.gz` from `/cache`, `/data/harmony` or the web UI folder) as
+`application/gzip`; `404` when the Hub has none.
+
+#### `GET /api/custom-icons`
+Lists the uploaded icons: `{"ok": true, "icons": [{"filename", "url", "size", "type", "id"}]}`
+(`type` `activity` or `device` when the file name tells it).
+
+#### `POST /api/custom-icons`
+Uploads one PNG: `{"type": "activity", "id": "12", "image_base64": "<base64 PNG>"}` (or `name`
+instead of `type` and `id`; `data` instead of `image_base64`). Stored as `<type>_<id>.png` (or
+`custom_<name>.png`) in `/data/harmony/custom_icons/`, and `hub_rf` is asked to send it to the
+paired touchscreen remotes. Reply `{"ok": true, "filename", "url", "size"}`; `400` for a missing
+field or data that is not a PNG image.
+
+#### `DELETE /api/custom-icons?filename=<file>` (or `?type=<type>&id=<id>`)
+Deletes an uploaded icon. Reply `{"ok": true, "deleted": "<file>"}`.
+
+#### `GET /api/custom-icons/proxy-fetch?url=<http or https URL>`
+Admin only. The Hub downloads the image at that URL itself and returns it as `image/png`, so the
+web UI can take an icon from another site. Only `http://` and `https://` URLs; `502` when the
+download fails, `413` when the file is empty or over 2 MB.
+
 ### 1.9 System Settings
 #### `GET /api/settings`
 Returns global hub settings from `/data/harmony/config/settings.json`.
@@ -222,13 +254,17 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
     "ok": true,
     "hub_name": "Living Room Hub",
     "dry_run": false,
-    "ntp_server": "pool.ntp.org",
+    "ntp_server": "",
     "timezone": "Europe/Amsterdam",
     "led_mode": "green",
     "mdns_enabled": true,
     "legacy_enabled": false
   }
   ```
+  - `dry_run`: runtime only. It is never stored as `true`, so the Hub always starts with it off
+    (after a restart or reboot real commands go out again).
+  - `ntp_server` (default empty, meaning `pool.ntp.org`): the time server `hub_daemon` takes when it
+    starts; a new value is stored at once but used only after the next restart of `hub_daemon`.
   - `mdns_enabled` (default `true`): the mDNS responder (1.11). Changing it starts or stops the
     responder at once.
   - `legacy_enabled` (default `false`): the Logitech protocol shim on port 8088 and its SSDP
@@ -251,7 +287,8 @@ Updates global hub settings.
   ```
   *Note: `led_mode` sets the Hub's front light while it runs normally: `"green"` (default), `"amber"`, `"red"` or `"off"`. The light flashes green fast while it pairs a remote and alternates red and green slowly during an RF firmware update, then returns to this setting. A pairing that times out or a failed update flashes red slowly for 5 s first. The older values `"always_on"` (green) and `"always_off"` (off) are still accepted, and `"flashing_fast"` and `"flashing_slow"` now mean green.*
   *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`). An `Area/City` name the Hub's table does not know is refused with `400` (it used to run as Central European time).*
-- **Response `200 OK`**: `{"ok": true}`
+  *Note: `led_mode` is stored as sent, without a check: a value the Hub does not know shows green. Fields left out keep their stored values.*
+- **Response `200 OK`**: `ok` plus every setting after the save, in the same form as `GET /api/settings`.
 
 #### `POST /api/bt/reconnect` or `POST /bt/reconnect`
 Triggers on-demand Bluetooth host reconnection supervision. `target` (also accepted as `bdaddr` or `deviceId`) must be a Bluetooth address `XX:XX:XX:XX:XX:XX` or be left out (the default host); anything else answers `400`. `duration` and `delay` are capped at 3600 s.
@@ -396,27 +433,44 @@ Returns running version, commit hash, build date, architecture, and whether an u
 
 ### 2.2 Check for Updates
 #### `GET /api/update-check` or `POST /api/update-check`
-Checks for newer release bundles.
+Checks for newer release bundles (also answered as `/api/update-check-state`).
+- **Request Body** (optional, all fields optional):
+  ```json
+  {"repo": "https://raw.githubusercontent.com/iranl/harmony-ng/ota", "token": "ghp_example", "remote_version": "2.4.2"}
+  ```
+  - `repo`: the update source, the base URL under which `VERSION`, `manifest.json` and the bundle
+    files are published. Default: the official `ota` branch. Only the characters `A-Z a-z 0-9 / . :
+    - _ @ ~` are taken; any other value is ignored (the default is used).
+  - `token`: sent as `Authorization: token <token>` with every download (a private repository).
+    Letters, digits, `-` and `_` only, else ignored.
+  - `remote_version` (or `version`): a version the client already knows; the Hub then stores it
+    as the latest version and downloads nothing.
 - **Response `200 OK`**:
   ```json
   {
     "ok": true,
     "current_version": "1.0.4",
+    "remote_version": "1.0.4",
     "message": "Hub binaries and WebUI are up to date (v1.0.4).",
-    "has_update": false
+    "has_update": false,
+    "update_available": false
   }
   ```
 
 ### 2.3 Apply Update
 #### `POST /api/update-apply`
 Executes `/data/harmony/update.sh` in the background and restarts services.
+- **Request Body** (optional): `{"repo": "...", "token": "..."}`, the same fields and checks as
+  `update-check`. `repo` chooses the server the new firmware is downloaded from, so like every
+  route that changes the Hub this one is for admins once authentication is on (11.5). With
+  authentication off (the default after install) any client on the LAN may call it.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
 - **Response `200 OK`**:
   ```json
   {
     "ok": true,
     "status": "applying",
-    "message": "Software update triggered. Hub services restarting in background."
+    "message": "Software update triggered. Hub services downloading and applying in background."
   }
   ```
 - **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
@@ -443,7 +497,7 @@ Returns all registered devices and basic commands from `/data/harmony/config/dev
         "controlPort": 0,
         "mqttTopic": "home/livingroom/tv",
         "mqttEnabled": true,
-        "mqttPulse": 100,
+        "mqttPulseMs": 100,
         "commands": [
           {"name": "PowerToggle", "raw": "0000 006d ...", "port": 7, "repeats": 3}
         ]
@@ -452,9 +506,19 @@ Returns all registered devices and basic commands from `/data/harmony/config/dev
   }
   ```
 
+#### `GET /api/devices`
+Returns `devices.json` as stored (`{"devices": [...]}`), `404` when it cannot be read.
+
 ### 3.2 Save Device
 #### `POST /api/device-save` or `POST /ir/device`
-Creates or updates a device definition.
+Creates or updates a device definition. A field that is left out keeps its stored value; a field
+with another name than those below is ignored without an error. Also read: `icon`, `powerOnDelay`,
+`isPowerAlwaysOn`, `powerOnSequence`, `powerOffSequence`, and for a Bluetooth device `bdaddr`
+(older name `btHost`), `btAutoReconnect` (default on), `btReconnectDurationSec`,
+`btReconnectDelaySec`, `btTriggerDeviceId` and `btTriggerCommandName`. The MQTT pulse length is
+`mqttPulseMs` (milliseconds, default 1000); only `POST /api/device-mqtt-test` also takes `mqttPulse`.
+Other aliases of this route: `POST /api/new-device`, `/ir/new-device`, `/ir/device-mqtt`,
+`/ir/device-power`.
 - **Request Body**:
   ```json
   {
@@ -466,7 +530,7 @@ Creates or updates a device definition.
     "controlPort": 0,
     "mqttTopic": "home/livingroom/tv",
     "mqttEnabled": true,
-    "mqttPulse": 100,
+    "mqttPulseMs": 100,
     "interDeviceDelay": 500,
     "interKeyDelay": 100,
     "holdInterKeyDelay": 200
@@ -753,7 +817,9 @@ Answers the question for one device of the last Help. `"on": false` sends that d
 
 ### 5.1 Send IR Command
 #### `POST /api/ir-send` or `POST /ir/send`
-Transmits an IR command either by device ID and command name (single string or array of strings), or raw Pronto hex.
+Transmits an IR command either by device ID and one command name, or raw Pronto hex. `command`
+(also accepted as `name`) must be one string: a list answers `400`. The reply also carries
+`deviceId` and `command`; a failed send answers `500` with `"error": "IR transmit failed"`.
 - **Request by Device Command**:
   ```json
   {
@@ -761,7 +827,9 @@ Transmits an IR command either by device ID and command name (single string or a
     "command": "PowerToggle"
   }
   ```
-- **Request with Multi-Command Array, Repeats, and Delays**:
+- **Lists, repeats, delays and holds are not taken by this route.** `num_repeats`, `delay_secs`
+  and `hold_secs` are ignored here. They work with the `send_command` action of the WebSocket
+  (10.3) and MQTT (8.1), which takes this form:
   ```json
   {
     "deviceId": "70321456",
@@ -832,6 +900,8 @@ Sends a captured code once through the IR ports of a device (its `controlPort`, 
 
 ### 5.3 Button Press & MQTT Dispatch
 #### `POST /api/button-press` or `POST /api/mqtt-publish`
+`/api/mqtt-publish` is an older name of the same route: same handler, same role (11.5). Despite
+its name it publishes nothing by itself; MQTT gets the `button` event like every other sink.
 Reports a physical key. Every call gives a `button` event on the WebSocket (10.13) and on MQTT
 (`<base>/remote/<slot>/button`, 8.1) for `action` `press` (the default) and `release`; `hold`
 repeats give nothing (they are sent to the device by `hub_rf` itself). `hub_rf` sends physical
@@ -1001,6 +1071,9 @@ Returns status of connected Bluetooth BLE remote (e.g. Homatics B25).
 #### `POST /api/remote-scan`
 Initiates Bluetooth scan for nearby BLE remotes.
 
+#### `POST /api/remote-scan-stop`
+Stops a running BLE remote scan. Reply `{"ok": true, "state": "idle", "message": "Bluetooth remote scan stopped"}`.
+
 #### `POST /api/remote-pair`
 Pairs with target BLE remote MAC address.
 - **Request Body**: `{"bdaddr": "11:22:33:44:55:66"}`
@@ -1033,6 +1106,20 @@ Saves BLE remote button mapping JSON. The body is stored as the file itself, so 
 ## 7. RF Subsystem & Physical Remotes (`/api/rf/*`, touchscreen remotes, Companion, Smart Control)
 
 Requests starting with `/api/rf/*` are proxied to the native RF daemon `hub_rf` running on port 8092.
+`hub_rf` answers every `/api/rf/...` request it does not know (another path, or another method than
+the one listed here) with the RF status of 7.1 and `200`, not `404`, and does nothing else. Use the
+method and path given in this section: a `POST /api/rf/sync`, for example, only returns the status.
+
+Other `hub_rf` routes:
+- `GET` or `POST /api/rf/pull-config?slot={1|2}`: asks the remote to send its settings back
+  (`RF_MSG_CONFIG_PULL_REQ`). `{"status":"pull_requested","slot":1,"ok":true}`; `400` for a
+  Companion slot, `409` during an RF OTA.
+- `GET` or `POST /api/rf/log-level?level={0..3}`: sets `hub_rf`'s log level (3 = debug) until it
+  restarts; without `level` it only reports it. `{"log_level":1,"ok":true}`.
+- `GET` or `POST /api/rf/push-icon?id=<id>&type=<type>&slot={0|1|2}`: sends a custom icon to the
+  remote (slot `0` or none: every paired remote). `id` and `type` are 1 to 19 characters of
+  `A-Z a-z 0-9 _ -` (`400` otherwise; `type` defaults to `activity`).
+  `{"status":"icon_pushed","id":"<id>","pushed":1,"ok":true}`; `409` during an RF OTA.
 
 ### 7.1 RF Subsystem Status
 #### `GET /api/rf` or `GET /api/rf/status`
@@ -1144,8 +1231,10 @@ accepted by pair, unpair, sleep and push-icon only. Routes match the path exactl
 
 ### 7.3 Raw RF Frame Transmit
 #### `GET /api/rf/send?hex={hex_stream}`
-Transmits raw RF bytes through CC2544 SPI driver.
-- **Response `200 OK`**: `{"status": "sent"}`
+Transmits raw RF bytes through CC2544 SPI driver (up to 64 bytes, read two hex digits at a time
+until the first pair that is not hex).
+- **Response `200 OK`**: `{"status": "sent"}`, also when not one byte could be read and nothing
+  was sent; there is no `ok` field. `409` `{"error":"RF OTA in progress","ok":false}` during an RF OTA.
 
 ### 7.4 RF Remote Configuration & OTA Push
 #### `GET /api/rf/remote-config?slot={1|2}`
@@ -1192,10 +1281,13 @@ Puts paired touchscreen remotes to sleep (immediate Suspend-to-RAM on battery).
 
 ### 7.5 Direct Buttons & Firmware OTA (Touchscreen Remotes)
 #### `GET /api/rf/remote-direct-buttons?slot={1|2}`
-Returns touch screen direct command button grid for touchscreen remotes.
+Returns the stored direct-buttons file of the slot (`/data/harmony/remote_slot<N>_direct_buttons.json`).
 
 #### `POST /api/rf/remote-direct-buttons?slot={1|2}`
-Saves direct touch buttons configuration.
+Stores the request body as that file and answers `{"status":"saved","ok":true}` (`500` when the
+file cannot be written, `409` during an RF OTA). Kept for old clients only:
+the remote's direct mode was removed (every remote runs in activity mode, `remoteMode` is always
+`0`), so nothing reads the file and nothing is pushed to the remote.
 
 #### `GET /api/rf/ota-status`
 Returns remote firmware chunk update progress.
@@ -1240,7 +1332,7 @@ Starts background remote firmware update (touchscreen remotes only).
 #### `GET /api/rf-mapping?slot={1|2}`
 Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
-- **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json` (fallback `/data/harmony/elite_remote_map.json`); Slot 2 uses `/data/harmony/remote_slot2_map.json`.
+- **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json`, slot 2 `/data/harmony/remote_slot2_map.json`. Only `POST /api/rf-mapping-copy` falls back to the old name `/data/harmony/elite_remote_map.json` when slot 1's file is missing.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 
 #### `POST /api/rf-mapping-save?slot={1|2}`
@@ -1259,7 +1351,7 @@ Copies entire button mapping configuration from one remote slot to another.
   ```
 
 #### `POST /api/ui-remote-layout`
-Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored layouts are then kept.
+Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored layouts are then kept. The body is stored as sent in `/data/harmony/web_remote_layouts.json`. `GET /api/ui-remote-layout` returns the stored file, or `{"ok": true, "layouts": {}}` when there is none.
 
 ---
 
@@ -1281,7 +1373,7 @@ account and ACLs that only the Hub and trusted clients have, on a trusted networ
 `harmony/ir/pronto` sends any Pronto code it receives.
 
 #### `POST /api/mqtt-save` or `POST /mqtt`
-- **Request Body** (every field optional; `password` is kept when absent or empty):
+- **Request Body** (every field optional; a field left out keeps its stored value):
   ```json
   {
     "enabled": true,
@@ -1290,29 +1382,38 @@ account and ACLs that only the Hub and trusted clients have, on a trusted networ
     "username": "homeassistant",
     "password": "password",
     "baseTopic": "harmony/hub",
-    "clientId": "harmony_hub",
+    "clientId": "harmony-local-mqtt",
     "discoveryPrefix": "homeassistant",
     "haDiscovery": true
   }
   ```
+  - `enabled`: when neither the request nor the stored file has it, the save turns MQTT on.
+  - `password`: a typed password replaces the stored one; an absent or empty one keeps it. A
+    password is stored only while a user name is set (sent with it or already stored): saving an
+    empty `username` also removes the stored password.
+  - `clientId` (default `harmony-local-mqtt`) is also the base of the discovery identifier.
   `haDiscovery` (default true) publishes the Home Assistant discovery entities under
   `discoveryPrefix`; turning it off clears them. The fields of the old layer with no v2 equivalent
-  (`name`, `keepAlive`, `btRemoteEvents`/`Topic`, `remoteEvents`/`Topic`,
-  `slotNRemoteEvents`/`Topic`) are ignored and removed from the stored file: button events are
-  always published on `<base>/remote/<slot>/button`.
+  (`name`, `deviceName`, `keepAlive`, `btRemoteEvents`/`Topic`, `remoteEvents`/`Topic`,
+  `eliteRemoteEvents`/`Topic`, `slotNRemoteEvents`/`Topic`, `pollSeconds`, `mqttDevices`,
+  `devices`) are ignored and removed from the stored file: button events are always published on
+  `<base>/remote/<slot>/button`.
 - **Response `200 OK`**: `{"ok": true, "message": "MQTT settings saved"}`; the client reconnects.
 
 #### `GET /api/mqtt-status`
 `{"ok": true, "connected": true, "broker": "...", "port": 1883, "baseTopic": "harmony/hub", "v2": true, "config": {...}}`. `config` is the stored MQTT settings without the password (`has_password` tells whether one is stored; saving with an empty password keeps it).
 
 #### Topics
-`<base>` is `baseTopic` (default `harmony/hub`). Payloads are JSON objects with `type`, `seq` and
-`ts` as on the WebSocket (10.8 to 10.13), except `status`.
+`<base>` is `baseTopic` (default `harmony/hub`). Payloads are JSON objects with `type`. The event
+topics (`activity_state`, `progress`, `bt`, `rf`, `remote/<slot>/button`, `ir/received`) carry `seq`
+and `ts` as on the WebSocket (10.8 to 10.13); `hub` and `config` carry `ts` only;
+`inventory/...` and `cmd/response` carry neither; `status` is plain text. A packet larger than
+8 KiB sent to the Hub (for example a long `ir/raw` body) is dropped without a reply.
 
 | Topic | Retained | QoS | Payload |
 | --- | --- | --- | --- |
-| `<base>/status` | yes | 1 | `online` / `offline` (last will) |
-| `<base>/hub` | yes | 1 | `{"type":"hub", ...}`: the `hub` object of the snapshot (10.14) plus `ip`, `device_count`, `command_count`, `ha_discovery` and `discovery_prefix` (whether and where this Hub publishes the discovery entities described below, so a client on MQTT alone can tell the layers apart) and `ts`; published on connect, on the Home Assistant birth message, on a config change, again when the clock is set or jumps (so `boot_time` and `ts` are real times in the retained copy), and when the IR capture mode turns on or off or its `ir_capture_error` changes |
+| `<base>/status` | yes | 0 | `online` / `offline` (last will); both are sent with QoS 0 |
+| `<base>/hub` | yes | 1 | `{"type":"hub", ...}`: the `hub` object of the snapshot (10.14) plus `ip`, `device_count`, `command_count`, `ha_discovery` and `discovery_prefix` (whether and where this Hub publishes the discovery entities described below, so a client on MQTT alone can tell the layers apart) and `ts`; published on connect, on `<base>/sync`, on a config change, again when the clock is set or jumps (so `boot_time` and `ts` are real times in the retained copy), and when the IR capture mode turns on or off or its `ir_capture_error` changes |
 | `<base>/activity_state` | yes | 1 | `activity_state` (10.8) |
 | `<base>/progress` | no | 0 | `activity_progress` (10.9) |
 | `<base>/bt` | yes | 1 | `bt_status` (10.11) |
@@ -1328,7 +1429,9 @@ account and ACLs that only the Hub and trusted clients have, on a trusted networ
 
 `inventory_version` is the first 8 hex digits of the SHA-256 over the device and activity files. A
 device chunk is republished only when its own content changed, a removed device gets an empty
-retained payload, and the index is published last. Retained topics are republished on every
+retained payload on `inventory/<deviceId>` (the `inventory/<deviceId>/<n>` parts of a device that
+was split are not cleared, nor surplus parts when a device shrinks), and the index is published
+last. Retained topics are republished on every
 (re)connect from the bus's last payloads. While the broker is down events are dropped (nothing is
 queued) and the retained state is resent on reconnect.
 
@@ -1356,14 +1459,16 @@ A device of type `MQTT` (or with `mqttEnabled`) is driven through the broker ins
 Bluetooth: a command to it (an activity sequence, `POST /api/ir-send`, the remote, the command
 channel) publishes `"1"` on its topic, then `"0"` after `mqttPulseMs` (default 1000), and raises the
 `button` event (10.13) as well. The topic comes from the device's `mqttTopic` template
-(default `{base_topic}/button/{device}/{command}`; placeholders `{base_topic}` or `{root}`,
-`{device}` or `{device_id}`, `{command}` or `{button}`; a template starting with `/` is appended to
-the base topic). `POST /api/device-save` stores `mqttTopic` and `mqttPulseMs`;
+(default `{base_topic}/button/{device}/{command}`; placeholders `{base_topic}`, `{baseTopic}`,
+`{base}` or `{root}` for the base topic, `{device}`, `{device_id}`, `{deviceId}` or `{deviceName}`
+for the device, all four replaced by the device's name, not its id, and `{command}` or `{button}`;
+a template starting with `/` is appended to the base topic). `POST /api/device-save` stores `mqttTopic` and `mqttPulseMs`;
 `POST /api/device-mqtt-test` (3.8) publishes one pulse.
 
 #### Home Assistant discovery
 With `haDiscovery` on, the Hub publishes retained discovery configs under
-`<discoveryPrefix>/<component>/<ident>_<object>/config` (`ident` = the client id, lower case) on
+`<discoveryPrefix>/<component>/<ident>_<object>/config` (`ident` = the client id in lower case,
+every character other than letters, digits, `-` and `_` replaced by `_`) on
 every connect, on Home Assistant's birth message (`<discoveryPrefix>/status` = `online`), on
 `<base>/sync` and whenever the configuration changes; turning `haDiscovery` off publishes empty
 payloads to the same topics. The object ids are those of the first MQTT layer, so entities created
@@ -1452,7 +1557,7 @@ Tests connection to an AP in memory without modifying `/etc/wpa_supplicant.conf`
 
 #### `POST /api/wifi-save` or `POST /wifi`
 Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.
-When `apply` is `reconfigure`, `apply`, or `reboot`, the Hub automatically runs an in-memory association test first. If the test connection fails, the switch is rejected and existing settings are preserved.
+`apply` defaults to `save`: the settings are written but not applied. When `apply` is `reconfigure`, `apply`, `1` or `reboot`, the Hub automatically runs an in-memory association test first. If the test connection fails, the switch is rejected and existing settings are preserved.
 - **Request Body**:
   ```json
   {
@@ -1471,10 +1576,19 @@ When `apply` is `reconfigure`, `apply`, or `reboot`, the Hub automatically runs 
 
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
-Configures USB Ethernet interface mode (DHCP or static IP).
+Configures USB Ethernet interface mode (DHCP or static IP). Every save rewrites the whole
+`ethernet.conf`; nothing is merged with the stored file. A field left out gets its default, not
+its stored value: `eth_enabled` and `eth_fallback_wifi` become on, `eth_mode` `dhcp`,
+`eth_netmask` `255.255.255.0`, `eth_ip`, `eth_gateway` and `eth_dns` empty (in `dhcp` mode an
+address that is not a valid IPv4 address is stored empty too; in `static` mode it is refused, see
+`400` below). Send every field each time. The settings are
+applied (`network_manager.sh apply`) only when `apply` is `apply`, `1`, `reconfigure` or
+`restart`; without it they take effect at the next network restart.
 - **Request Body**:
   ```json
   {
+    "eth_enabled": true,
+    "eth_fallback_wifi": true,
     "eth_mode": "dhcp",
     "eth_ip": "192.168.1.100",
     "eth_netmask": "255.255.255.0",
@@ -1494,7 +1608,8 @@ Configures USB Ethernet interface mode (DHCP or static IP).
 ### 9.1 Export Configuration
 #### `GET /export/{target}`
 Exports complete hub configuration bundle or individual configuration elements.
-- Targets:
+- Targets (any other name answers `404 "Export target not found"`; `hub_id` is only a section of
+  `bundle`, not a target of its own):
   - `bundle` (Full JSON snapshot of devices, activities, settings, MQTT, network, mappings, keys)
   - `devices`
   - `activities`
@@ -1503,8 +1618,9 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `network`
   - `wifi`
   - `bluetooth`
-  - `bt_remote_map`
-  - `elite_remote_map`
+  - `bt_remote_map` (also `remote-mapping`)
+  - `remote_slot1_map`, `remote_slot2_map`
+  - `users` (the web UI accounts)
   - `ui_remote_layout`
   - `auth`
   - `hub_id`
@@ -1524,6 +1640,10 @@ Imports and atomically applies configuration files or full bundle.
     }
   }
   ```
+- `target` is `bundle` or one of the single export targets of 9.1 (`payload` = that file's
+  content). In a bundle the Wi-Fi (`wifi`) and Ethernet (`network`) sections are skipped unless
+  the request has `"restore_network": true`, so a restore does not cut the Hub off a network it is
+  reached on.
 - Every section is checked before anything is written: `devices` must be an object with a `devices`
   array, `activities` an object with an `activities` array, and `settings`, `mqtt`, `bluetooth`,
   `bt_remote_map`, `remote_slot1_map`, `remote_slot2_map`, `ui_remote_layout` and `users` JSON objects
@@ -1576,7 +1696,11 @@ A client frame may arrive in several pieces; the Hub acts on it once it is compl
   "type": "activity_state",
   "msgId": 2,
   "activity": "123456",
-  "state": 2
+  "state": 2,
+  "stateName": "running",
+  "busy": false,
+  "sending": false,
+  "queued": null
 }
 ```
 
@@ -1611,6 +1735,16 @@ Multiple commands or repeats can be queued as an array:
   "msgId": 3
 }
 ```
+- `deviceId` (also `device_id`, `device` or `dev`): the device id or its name.
+- `command` (also `commands`): one name or a list of up to 32.
+- `num_repeats` (also `repeat` or `repeats`): times through the list, default 1.
+- `delay_secs` (also `delay`): seconds between commands; `hold_secs` (also `hold`): seconds a key
+  is held before its release.
+- `cmdAction` (also `status`, `action_type` or `btnAction`): `press` (or `down`), `hold` (or
+  `repeat`), `release` (or `up`); anything else or nothing is a tap.
+- `ir_send` is another name of this action.
+- A single command with no repeat or hold is sent at once, unless a job is still running.
+
 **Response**:
 ```json
 {
@@ -1639,9 +1773,12 @@ with code 400. Errors: 404 unknown device or command, 409 queue full.
   "type": "ack",
   "action": "start_activity",
   "ok": true,
-  "msgId": 4
+  "msgId": 4,
+  "state": "starting"
 }
 ```
+`activity` names the activity (`id` is taken only when there is no `activity` and it names a
+configured activity). `state` is `queued` while another transition runs (REST 4.3).
 
 #### 10.5 Stop Activity / Power Off
 ```json
@@ -1650,13 +1787,15 @@ with code 400. Errors: 404 unknown device or command, 409 queue full.
   "msgId": 5
 }
 ```
+`power_off` is another name of this action.
 **Response**:
 ```json
 {
   "type": "ack",
   "action": "stop_activity",
   "ok": true,
-  "msgId": 5
+  "msgId": 5,
+  "state": "stopping"
 }
 ```
 
@@ -1667,6 +1806,7 @@ with code 400. Errors: 404 unknown device or command, 409 queue full.
   "msgId": 6
 }
 ```
+`reset_interlock` is another name of this action.
 **Response**:
 ```json
 {
@@ -1748,19 +1888,54 @@ then arrive as `ir_received` (10.13b).
   "msgId": 7
 }
 ```
-- `keyAction`: `"tap"`, `"down"`, `"up"`, or `"release_all"` (releases every key, as `key`
-  `"release_all"` does).
+- `keyAction`: `"tap"` (default), `"down"` (or `"press"`), `"up"` (or `"release"`), or
+  `"release_all"` (releases every key, as `key` `"release_all"` does).
 - `key`: Key name or `"release_all"`; no control characters (`400`).
-- `target`: Optional Bluetooth host MAC address, `XX:XX:XX:XX:XX:XX` (`400` otherwise; the same
-  for `bt_text` and `bt_mouse`). `bt_text` takes at most 240 characters, and the `bt_mouse`
-  `button` is a name without control characters.
+- `target` (also `bdaddr`): Optional Bluetooth host MAC address, `XX:XX:XX:XX:XX:XX` (`400`
+  otherwise; the same for `bt_text` and `bt_mouse`). `bt_text` takes at most 240 characters, and
+  the `bt_mouse` `button` is a name without control characters.
 **Response**:
 ```json
 {
   "type": "ack",
-  "action": "bt_key"
+  "action": "bt_key",
+  "ok": true,
+  "msgId": 7
 }
 ```
+`503` when `hub_btstack` is not running.
+
+#### 10.7a Bluetooth Text and Mouse
+```json
+{"action": "bt_text", "text": "hello", "target": "AA:BB:CC:DD:EE:FF", "msgId": 71}
+{"action": "bt_mouse", "dx": 10, "dy": -5, "buttons": 0, "wheel": 0, "msgId": 72}
+{"action": "bt_mouse", "mouseAction": "click", "button": "left", "msgId": 73}
+```
+- `bt_text`: types `text` (line breaks become spaces). `target` (also `bdaddr`) as for `bt_key`.
+- `bt_mouse`: without `mouseAction`, moves by `dx`, `dy` with the `buttons` bit mask and `wheel`;
+  `mouseAction` `click`, `down` or `up` acts on `button` (default `left`), `wheel` scrolls by
+  `wheel`. `target` as for `bt_key`.
+- **Response**: `{"type": "ack", "action": "bt_text", "ok": true, "msgId": 71}`; `400` without
+  `text`, `503` when `hub_btstack` is not running.
+
+#### 10.7b RF Remote Wake and Sleep
+```json
+{"action": "rf_wake", "slot": 1, "msgId": 81}
+{"action": "rf_sleep", "slot": 2, "msgId": 82}
+```
+`POST /api/rf/wake` and `POST /api/rf/sleep` (7.2, 7.4) for slot `1` (default) or `2` (`400`
+otherwise). `503` when `hub_rf` is not running; another refusal of `hub_rf` keeps its code
+(`409` during an RF OTA).
+
+#### 10.7c Sync
+`{"action": "sync", "msgId": 83}` reloads the configuration from flash and asks `hub_rf` to push it
+to the remotes, as `POST /api/sync`. The ack carries no other field.
+
+#### 10.7d Raw Infrared
+`{"action": "ir_raw", "frequency": 38000, "timings": [9000, -4500, 560, -560], "port": 1, "repeats": 1, "msgId": 84}`
+takes the fields of `POST /api/ir-raw` (5.4). The ack carries `count` and `duration_ms`; an error
+carries the code and `error` of the REST reply (`400` naming the field, `409` busy). A client frame
+can be at most 4095 bytes, so send a long timing list with `POST /api/ir-raw` instead.
 
 ### Server-to-Client Messages (pushed events)
 
@@ -1768,7 +1943,7 @@ Every state change the Hub knows about goes through its event bus and is pushed 
 WebSocket client as one text frame. Each pushed message carries `type`, `seq` (sequence number,
 from 1 per daemon run, increasing across all types) and `ts` (Unix seconds). Nothing is replayed to
 a client that connects later: it fetches the current state over REST (or the `snapshot`, see
-10.10). A client that fails a send is dropped.
+10.14). A client that fails a send is dropped.
 
 #### 10.8 Activity State
 Sent on every change of the orchestrator state, of the current activity or of the queued request
@@ -1818,7 +1993,8 @@ marker of the transition before it: they are sent first, as steps named `Tail of
 ```
 
 #### 10.10 Configuration Changed
-Sent when a configuration file changed on disk (checked once a second by mtime and size):
+Sent when a configuration file was written or replaced on disk (inotify watch on the config
+folders, read once a second):
 `devices`, `activities`, `settings` or `remote_map` (either slot's button map). Reload the
 affected inventory over REST.
 ```json
@@ -1928,6 +2104,19 @@ A client that has not taken its queue within 5 s, or whose queue would pass 256 
 
 Harmony Hub supports a multi-tier authentication model:
 
+**Authentication is off after install.** It is on only once an account file
+(`/data/harmony/config/users.json`, or the older `webui_auth.conf`) enables it, and the installers
+create none. Until then every client on the LAN is admin on every route of port 8089, the
+WebSocket included. To turn it on:
+- web UI, System page, "User Accounts & Access Control": enter the admin user name and password,
+  tick "Require authentication" and save;
+- or `POST /api/system-action` with
+  `{"action": "auth", "authUsername": "admin", "authPassword": "<password>", "authEnabled": true}`
+  (refused with `400` while no admin account exists and no password is given).
+
+Requests from the Hub itself (`127.0.0.1`, `::1`) are always admin. MQTT commands always run as
+admin (8.1), and port 8088 (1.12) is never authenticated.
+
 ### 11.1 Accounts, Basic authentication and rules
 - **Basic** (`Authorization: Basic`) is accepted on every route, under the same failed-login limit as
   `POST /api/auth/token`: after 3 wrong passwords from one address, that address is locked for 2 s,
@@ -2003,10 +2192,51 @@ in the request line:
   need no token, as for every request. With authentication disabled nothing changes.
 - The role of the token is kept for the connection. A `user` role receives every pushed message
   and may send `ping`, `get_state` and `get_snapshot`; its command actions follow the same
-  permission table as the REST equivalents (`send_command` = `/api/ir-send`, `start_activity` =
+  permission table as the REST equivalents (11.5) (`send_command` = `/api/ir-send`, `start_activity` =
   `/api/activity`, `stop_activity` = `/api/poweroff`, `cancel_activity` = `/api/activity-cancel`,
   `bt_key`, `bt_text`, `bt_mouse` = their endpoints). A refused action is answered with
   `{"type": "ack", "action": ..., "ok": false, "error": "Forbidden: Admin access required"}`.
 - Both web UIs pass their session token as `?token=` when they open the WebSocket.
 - Capability flag: `ws_auth`.
 
+### 11.5 Roles per route
+With authentication on, each request is checked before its route runs:
+- **Open without credentials**: `POST /api/auth/token` (login), `GET /`, `GET /health`, and the web
+  UI's static files (every `GET` or `HEAD` outside `/api/`, `/ws` and `/export/`, `/assets/...`
+  included). Everything else under `/api/`, `/ir/`, `/bt/`, `/export/`, and `/import`, `/wifi`,
+  `/ethernet`, `/system`, `/mqtt` needs an account or a token (`401` otherwise).
+- **`user` role**: only the routes below; any other route, method or alias answers `403`
+  `{"ok":false,"error":"Forbidden: Admin access required"}`. The check compares the exact path, so
+  an alias that is not listed (for example `/api/interlock-reset`, `/api/activity-reset`,
+  `/ir/commands-batch`) needs the admin role even when its twin is listed.
+
+  | Method | Paths |
+  | --- | --- |
+  | `GET`, `HEAD` | `/api/status`, `/api/auth/me`, `/api/activities`, `/api/activity`, `/api/current_activity`, `/api/devices`, `/api/inventory`, `/api/icons`, `/api/icons/...`, `/api/icons/archive`, `/api/custom-icons`, `/api/ui-remote-layout`, `/assets/...` |
+  | `POST` | `/api/auth/logout`, `/api/activity`, `/api/activity-start`, `/api/activity-stop`, `/api/poweroff`, `/api/activity-cancel`, `/api/ir-send`, `/ir/send`, `/api/ir-raw`, `/api/button-press`, `/api/mqtt-publish`, `/api/bt-key`, `/api/bt-text`, `/api/bt-mouse`, `/api/v1/bt/mouse` |
+
+  `/api/bt-key` and `/api/bt-text` are not REST routes: the two entries only decide whether a
+  `user` may send the WebSocket `bt_key` and `bt_text` actions.
+
+- **`admin` role**: every route.
+- **WebSocket**: a `user` token may send `ping`, `get_state`, `get_snapshot`, and the actions whose
+  REST twin is in the `POST` row: `send_command`/`ir_send` (`/api/ir-send`), `start_activity`
+  (`/api/activity`), `stop_activity`/`power_off` (`/api/poweroff`),
+  `cancel_activity`/`reset_interlock` (`/api/activity-cancel`), `bt_key`, `bt_text`, `bt_mouse`,
+  `ir_raw`. `ir_capture`, `rf_wake`, `rf_sleep`, `sync`, `update_check`, `update_apply`,
+  `activity_help` and `activity_help_answer` are admin only.
+- A personal access token never has more rights than the account that created it (11.3).
+
+### 11.6 Account and token routes
+- `POST /api/auth/token` `{"username", "password"}`: login, returns a session token (11.2). Open
+  without credentials; wrong passwords count for the failed-login limit (11.1).
+- `GET /api/auth/me`: `{"ok", "auth_enabled", "authenticated", "username", "role"}` of the caller.
+- `POST /api/auth/logout`: ends the caller's session.
+- `GET /api/auth/tokens`, `POST /api/auth/tokens` `{"name", "role"}`, `DELETE /api/auth/tokens?id=<id>`:
+  list, create and revoke personal access tokens (11.3).
+- `GET /api/users`: `{"ok", "auth_enabled", "users": [{"username", "role"}]}`.
+- `POST /api/users` `{"username", "password", "role": "admin"|"user", "auth_enabled"}`: creates an
+  account (a password is required) or changes one (a missing password keeps it); `auth_enabled`,
+  when given, turns authentication on or off. `400` when no admin would be left.
+- `DELETE /api/users?username=<name>` (also `POST /api/users/delete` `{"username"}`): `404` for an
+  unknown name, `400` for the only admin.

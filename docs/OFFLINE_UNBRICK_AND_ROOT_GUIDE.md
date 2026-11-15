@@ -77,12 +77,12 @@ python tools/restore_stock.py
 # Or specify a custom backup file:
 python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
 
-# Optional: To return to 100% pure factory stock with Dropbear SSH removed:
+# Optional: remove SSH access again (Dropbear, /etc/tdeenable, /etc/nowatchdog); the emptied root password stays:
 python tools/restore_stock.py --pure-stock
 ```
 
 The script automatically:
-1. Connects to the Hub over USB HID (`046D:C129`).
+1. Connects to the Hub over USB HID (`046D:C129` only: on a Pro 2400, `046D:C132`, pass `--skip-usb-root --hub-ip <ip>` while SSH works).
 2. Configures Wi-Fi credentials over USB if needed.
 3. Stages the Dropbear payload to `/sys/dropbear` and boots into root SSH.
 4. Kills all running processes except Dropbear to release flash file locks.
@@ -229,7 +229,7 @@ This prints your PC's IP, the MD5 of the file it serves, and begins listening on
 
 ### Step B: Create `/tmp/recv` on the Hub
 In your serial terminal on the Hub, paste the contents of [`tools/unbrick_recovery/upload_recv.sh`](tools/unbrick_recovery/upload_recv.sh):
-*(This script contains 71 lines of `echo -ne "\x..." >> /tmp/recv` and finishes with `chmod +x /tmp/recv`).*
+*(This script has 70 lines: 68 of them `echo -ne "\x..." >> /tmp/recv`, and it finishes with `chmod +x /tmp/recv`).*
 
 Verify on the Hub:
 ```sh

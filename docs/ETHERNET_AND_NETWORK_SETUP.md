@@ -17,7 +17,7 @@ Stock Logitech firmware permanently restricts the Harmony Hub to 2.4 GHz Wi-Fi (
   - **No USB Host Mode Required**: USB controller remains permanently in **USB Gadget Mode (`046D:C132`)**, allowing full PC USB HID control and console access simultaneously with active wired networking!
   - `network_manager.sh` detects onboard `eth1` automatically, manages routing and DNS transitions, and keeps the stock Logitech HAL notified via `/tmp/eth_conn_pipe`.
 - **Automatic Hotplug & Dynamic Failover**: The built-in network monitor (`network_manager.sh`) checks Ethernet PHY carrier state every 3 seconds:
-  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth1` on Pro 2400, or `eth2` / `eth0` on standard Hub). Subnet routes and default gateway are switched to the wired interface.
+  - **Ethernet Connected (Link Up)**: All traffic immediately migrates to Ethernet (`eth1` on Pro 2400; on a standard Hub the USB adapter's interface, usually `eth2`: `network_manager.sh` never takes `eth0` or `eth1` as a USB adapter). Subnet routes and default gateway are switched to the wired interface.
   - **Ethernet Disconnected (Cable Unplugged / Switch Off)**: Traffic automatically falls back to 2.4 GHz Wi-Fi (`ath0`) within 1–2 seconds without dropping daemon services or activities.
 - **Unified Static IP Handover**: When configured with a static IP, the Hub maintains the **exact same IP address** across both Ethernet and Wi-Fi. Upon link handover, gratuitous ARP frames (`arping -U -A`) notify your home router and switches instantly, keeping all open Home Assistant, MQTT, WebSocket, and REST connections alive with zero reconnection delay.
 - **MIPS Big-Endian Offload Correction (`eth_fix`)**: The Hub's MIPS 24Kc big-endian architecture causes hardware TX checksum corruption in vendor USB Ethernet drivers (such as Realtek `r8152.ko`). HarmonyNG includes a dedicated userspace helper ([`eth_fix`](../payload/source/hub_util.c)) that automatically disables buggy hardware offloads via `SIOCETHTOOL` ioctl so that the Linux kernel computes 100% compliant TCP/UDP checksums in software.
@@ -92,8 +92,9 @@ The network subsystem exposes full diagnostic and configuration REST endpoints:
 ### GET `/api/network-status`
 Returns live status for both Ethernet and Wi-Fi interfaces, USB host mode, and active routing
 
-### POST `/api/network/config`
-Updates IP assignment settings without requiring a full Hub reboot
+### POST `/api/ethernet-save` (or `/ethernet`)
+Saves the Ethernet settings and, with `"apply": "apply"`, applies them without a reboot. Every save
+replaces the whole file: send all fields (API.md 8.3)
 
 ---
 
@@ -117,7 +118,7 @@ cat /tmp/harmony-network.log
 ### Offload Check
 If connecting over Ethernet shows successful TCP handshakes but hangs on data reception, ensure `eth_fix` has executed:
 ```bash
-/data/harmony/bin/hub_eth_fix eth2
+/data/harmony/bin/eth_fix eth2
 # Expected output: [+] eth2: TX checksum offload disabled
 ```
 This is automatically handled by `start_usb_eth.sh` and `network_manager.sh`.

@@ -74,6 +74,8 @@ The tool automatically:
 7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network.
 8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
 
+What the root step changes on the Hub besides SSH: it empties the root password in `/etc/passwd` and turns the stock watchdog daemon off (`/etc/nowatchdog`). The backup of step 8 is a tar of the `/cache` and `/data` directories, taken after these changes, and `/etc` and `/usr`, which live on the same flash as `/data`, are not in it: it is a copy of the stock `/cache` and `/data` contents, not an image of the whole Hub.
+
 > [!TIP]
 > You can also check, download, or flash Hub firmware at any time with the standalone tool:
 > ```bash
@@ -94,7 +96,7 @@ exit
 
 ## 3. Stock Backup & Recovery Safety
 
-When rooting via `tools/root_hub_usb.py`, a complete backup of your Hub's stock state (entire `/cache` and `/data` partitions) is automatically saved to:
+When rooting via `tools/root_hub_usb.py`, a backup of your Hub's `/cache` and `/data` directories is automatically saved to:
 ```text
 backups/stock_hub_backup_<timestamp>.tar
 backups/stock_hub_backup_latest.tar
@@ -111,7 +113,7 @@ You can also run manual backups at any time:
 python tools/backup_hub.py <YOUR_HUB_IP>
 ```
 
-This archive preserves your stock Logitech pairings, Wi-Fi configuration, device profiles, and certificates. You can restore from it at any time using `python tools/restore_stock.py`.
+The golden backup holds no `/data/harmony`. Neither kind is a stock image: to return to stock, use the root backup above (`backups/stock_hub_backup_*.tar`) with `python tools/restore_stock.py`.
 
 ---
 
@@ -134,14 +136,18 @@ The installer automatically:
 1. Validates available flash memory before writing.
 2. Installs `hub_daemon` (Hub micro-daemon) to `/data/harmony/bin/`.
 3. Deploys startup scripts and USB Ethernet kernel drivers.
-4. Deploys the lightweight Web UI to `/data/harmony/www/`.
+4. Deploys the lightweight Web UI to `/cache/www/`.
 5. **Auto-extracts Remote UI Icons**: If `build/icons.tar.gz` is not yet built, the script asks:
    ```text
    [?] build/icons.tar.gz not found on host.
-   Download official remote firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)
+   Download official remote firmware, extract the icons, and build build/icons.tar.gz now? (Y/n)
    ```
-   If confirmed, it downloads the official Elite firmware (`remote_111_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
-6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
+   If confirmed, it downloads the official Elite firmware (`remote_111_4.15.330.hfw2`), extracts the device & activity icons (about 1,350) from the internal SquashFS filesystem (7-Zip must be installed), packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
+6. Launches all services and checks with `pidof`, 3 s later, that `hub_daemon`, `hub_rf` and `hub_btstack` run (it requests no API: open `http://<YOUR_HUB_IP>:8089` to check the Hub answers).
+
+The installer also changes the Hub outside `/data/harmony` and removes old files, on every run:
+- links every BusyBox applet the Hub lacks into `/usr/bin`, writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
+- renames `/data/harmony/mqtt_config.json`, `elite_remote_map.json` and `bt_devices.json` to their current names (`mqtt.json`, `remote_slot1_map.json`, `bt-devices.json`) when no file of the new name exists, and deletes them otherwise; deletes other files of older layouts without converting them, among them `/data/harmony/devices.json`, `/data/devices.json` and `/data/activities.json`; the current configuration lives in `/data/harmony/config/`. `--dry-run` lists this step as one line.
 
 ### Stock configuration import
 
@@ -183,6 +189,9 @@ To use the result, back up `/data/harmony` on the Hub first, copy `migrated/conf
 2. Use the header language selector for English, Deutsch, Français, Nederlands, or Español.
 3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
 
+> [!IMPORTANT]
+> **Authentication is off after install.** Until you turn it on, every device on your network is admin on the Hub's API and web UI (port 8089): it can change the configuration, install updates and send any command. Turn it on in the web UI: **System** page, **User Accounts & Access Control**, enter an admin user name and password, tick **Require authentication** and save. Then use a personal access token for Home Assistant and scripts (`docs/API.md`, section 11). Commands sent over MQTT always run as admin, so the MQTT broker must be protected too (`docs/API.md`, section 8.1), and the Logitech protocol port 8088 (off by default) has no authentication at all.
+
 ---
 
 ## 6. Factory Reset & Returning to Stock
@@ -211,6 +220,10 @@ python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
 python tools/restore_stock.py --pure-stock
 ```
 
+`restore_stock.py` looks for the Hub on USB only as `046D:C129` (standard Hub). On a **Harmony Pro 2400** (`046D:C132`) it reports the Hub as not found: with SSH still working, run it with `--skip-usb-root --hub-ip <YOUR_HUB_IP>`.
+
 This automated tool gains root over USB HID, terminates background processes, extracts your backed-up `/cache` and `/data` partitions (plain uncompressed tar stream, no gzip on Hub), flushes SPI flash, and cleanly reboots back into your configured stock Logitech system.
+
+`--pure-stock` removes SSH access again (the Dropbear files and the boot trigger `/etc/tdeenable`) and the watchdog switch `/etc/nowatchdog`. It does not set the root password the root step emptied, so the Hub is close to, not identical with, a factory one.
 
 ---

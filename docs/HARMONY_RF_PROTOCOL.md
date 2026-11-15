@@ -56,9 +56,10 @@ In stock `hal_hub` (`libhal/rf/hot.c`, host mode `DAT_00466f70 == 0`), all bidir
 - **Byte 0 (`0x12`)**: Report ID.
 - **Byte 1 (`Slot`)**: Destination or source remote slot (`0x01` for Slot 1, `0x02` for Slot 2).
 - **Byte 2 (`Hdr/Seq`)**: Header flags and sequence number:
-  - `0x50 | (seq & 0x0F)`: Single frame requesting immediate ACK (Bit 4 = `PacketAck`).
-  - `0x40 | (seq & 0x0F)`: Standard frame without ACK requirement.
-  - `0x60 | (seq & 0x0F)`: Multi-packet data chunk frame.
+  - `0x50 | (seq & 0x0F)`: every frame `rf_build_frame()` builds (Hub and remote), whether or not it asks for an ACK.
+  - `0x40 | (seq & 0x0F)`: `RF_MSG_ACK` frames.
+  - `0x60 | ...`: the windowed RF OTA data frames (section 5.2, "RF OTA transfer").
+  - Whether a frame wants an ACK is decided by the flags byte (`RF_FLAG_ACK_REQ`), not by this byte.
 - **Byte 3 (`Msg Type`)**: Harmony / eQuad message type identifier (`RF_MSG_*`).
 - **Byte 4 (`Flags`)**: Protocol control flags (e.g. `0x00` normal, `0x01` ACK_REQ, `0x02` IS_ACK).
 - **Bytes 5..29**: 25-byte application payload.
@@ -221,15 +222,20 @@ All application messages are encapsulated in the payload section of Report `0x12
 | `0x18` | `RF_MSG_BATTERY_STATUS` | Remote -> Hub | Remote battery percentage, voltage (mV), and charging flag |
 | `0x19` | `RF_MSG_REMOTE_CONFIG_BACKUP` | Remote -> Hub | Remote settings backup push to Hub |
 | `0x1A` | `RF_MSG_VERSION_REPORT` | Remote -> Hub | Remote software and config version report |
+| `0x1B` | `RF_MSG_UNPAIR_NOTIFY` | Both | The sender is about to drop the pairing |
+| `0x1C` | `RF_MSG_CONFIG_PULL_REQ` | Hub -> Remote | Ask the remote to send its settings (`RF_MSG_REMOTE_CONFIG_BACKUP`); `/api/rf/pull-config` |
+| `0x1D` | `RF_MSG_SLEEP_REQ` | Hub -> Remote | Suspend now (on battery); `/api/rf/sleep` |
 | `0x1E` | `RF_MSG_ACK` | Both | Application-level acknowledgment (by SEQ) |
-| `0x1F` | `RF_MSG_PING` | Both | Keepalive / ping query |
+| `0x1F` | `RF_MSG_PING` | Both | Keepalive; both ends handle it, current firmware sends it from neither |
 | `0x22` | `RF_MSG_OTA_START` | Hub -> Remote | Start OTA binary update (size, chunks) |
-| `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | 24-byte binary payload chunk |
-| `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | OTA block completion ACK |
+| `0x23` | `RF_MSG_OTA_CHUNK` | Hub -> Remote | Stop-and-wait OTA chunk: index, length, up to 22 data bytes (`RF_OTA_CHUNK_BYTES`) |
+| `0x24` | `RF_MSG_OTA_BLOCK_ACK` | Remote -> Hub | Defined, not used: OTA chunks are acknowledged with `RF_MSG_ACK` |
 | `0x25` | `RF_MSG_OTA_END` | Hub -> Remote | OTA transfer complete and checksum verify |
-| `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate: type (byte 0), size (1-2), chunks (3-4), id (5-24, zero-terminated). The id must be 1-19 characters of `A-Z a-z 0-9 _ -` (`rf_icon_id_valid()`); otherwise the remote answers status `0x05` and drops the transfer. Icons are at most 16384 bytes |
-| `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk (23 bytes payload) |
-| `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete, checksum verify, save to `/data/assets/custom/{id}.png` |
+| `0x26` | `RF_MSG_ICON_START` | Hub -> Remote | Custom icon transfer initiate: type (byte 0), size (1-2), chunks (3-4), id (5-24, zero-terminated); no checksum here. The id must be 1-19 characters of `A-Z a-z 0-9 _ -` (`rf_icon_id_valid()`); otherwise the remote answers status `0x05` and drops the transfer. Icons are at most 16384 bytes |
+| `0x27` | `RF_MSG_ICON_CHUNK` | Hub -> Remote | Custom icon PNG data chunk: index (bytes 0-1), length (2), up to 22 data bytes (3-24) |
+| `0x28` | `RF_MSG_ICON_END` | Hub -> Remote | Custom icon transfer complete: CRC16 of the PNG (bytes 0-1) to verify, save to `/data/assets/custom/{id}.png` |
+| `0x29` | `RF_MSG_OTA_REQUEST` | Remote -> Hub | The remote asks the Hub to start an RF OTA (Settings, Firmware Update) |
+| `0x2A` | `RF_MSG_UPDATE_NOTIFY` | Hub -> Remote | A config or firmware update is waiting for the remote |
 | `0x2B` | `RF_MSG_ACT_DEVICES_CHUNK` | Hub -> Remote | Devices one activity uses (ACK'd); sent only to remotes that report `RF_CAP_ACT_DEVICES` |
 | `0x2C` | `RF_MSG_NAME_TAIL_CHUNK` | Hub -> Remote | Rest of an activity or device name (ACK'd); sent only to remotes that report `RF_CAP_LONG_NAMES` |
 | `0x2D` | `RF_MSG_HELP_REQUEST` | Remote -> Hub | Help: repair the running activity |
@@ -305,30 +311,55 @@ Help re-sends the running activity's commands except power toggles, then asks ab
 - `payload[0]`: `1` the device is on, `0` it is off
 - `payload[1..8]`: Device ID, NUL-padded
 
-#### `RF_MSG_SETTINGS_PUSH` (`0x0E`) & `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
-Both frames use a 17-byte standardized configuration payload:
+#### `RF_MSG_SETTINGS_PUSH` (`0x0E`)
+Hub -> remote, 24 bytes, ACK'd; built by `rf_build_settings_push()` (`rf_sync.c`) and read by
+`remote_rf_sync.c`:
 - `payload[0]`: Display Brightness (1–5)
-- `payload[1]`: Screen Timeout low byte (seconds)
-- `payload[2]`: Touchscreen Enabled (`0x01` on, `0x00` off)
-- `payload[3..4]`: Nav Toggle Key Linux code (16-bit unsigned little-endian, e.g. `139` = KEY_MENU). Current remote firmware has no NAV toggle: it ignores these bytes and sends `0`; older firmware reads them.
-- `payload[5]`: Nav Toggle Mode (`0x00` Short Press, `0x01` Long Press); ignored and sent as `0` like the key
-- `payload[6]`: USB Ethernet Enabled (`0x01` on, `0x00` off)
-- `payload[7]`: Activity Switch Confirmation (`0x01` Prompt, `0x00` Instant)
-- `payload[8]`: Config Version counter
+- `payload[1]`: Touchscreen Enabled (`1` on, `0` off)
+- `payload[2]`: Gyro/Tilt Wake Enabled (`1` on, `0` off)
+- `payload[3..4]`: Screen Timeout in seconds, 16-bit big-endian (`payload[3]` high byte)
+- `payload[5..6]`: Nav Toggle Key of older firmware (little-endian); the current remote ignores it
+- `payload[7]`: Nav Toggle Mode of older firmware; ignored
+- `payload[8]`: Activity Switch Confirmation (`1` Prompt, `0` Instant)
 - `payload[9]`: Touch Sensitivity (`1` Low, `2` Normal, `3` High)
-- `payload[10]`: Remote Mode (`0` Activity, `1` Direct Device)
-- `payload[11]`: Gyro/Tilt Wake Enabled (`0x01` on, `0x00` off)
-- `payload[12]`: Gyro Sample Rate in Hz (`10`, `25`, `50`)
-- `payload[13]`: Button Backlight Mode (`0` Off, `1` On, `2` Night Schedule)
-- `payload[14]`: Night Schedule Start Hour (`0` to `23`)
-- `payload[15]`: Night Schedule End Hour (`0` to `23`)
-- `payload[16]`: Screen Timeout high byte (seconds)
-- `payload[17]`: No-Screen Mode (`0x01` on, `0x00` off)
-- `payload[18]`: Capacitive Buttons (`1` Enabled, `2` Disabled in push; `1`/`0` in backup)
-- `payload[19]`: Power Debug Log (`1` Enabled, `2` Disabled in push; byte 18 `1`/`0` in backup)
-- `payload[20]`: Language (`0` en, `1` de, `2` fr, `3` nl, `4` es, `5` it); byte 19 in backup
-- `payload[21]`: Theme (`1` classic, `2` dark, `3` light, `4` colourful; `0` in a push keeps the Remote's choice); byte 20 in backup, where `0` means a theme with no id
-- `payload[22]`: Home layout (`1` the theme's, `2` list, `3` grid, `4` carousel; `0` in a push keeps the Remote's choice); byte 21 in backup
+- `payload[10]`: Remote Mode, always `0` (activity mode; direct mode was removed)
+- `payload[11]`: Gyro Sample Rate in Hz (`10`, `25`, `50`, `100`)
+- `payload[12]`: Button Backlight Mode (`0` Off, `1` On, `2` Night)
+- `payload[13]`: Night Start Hour (`0` to `23`)
+- `payload[14]`: Night End Hour (`0` to `23`)
+- `payload[15]`: USB Ethernet flag of older firmware; the current remote ignores it (USB Ethernet starts by itself on USB power)
+- `payload[16]`: Config Version counter
+- `payload[17]`: No-Screen Mode (`1` on, `0` off)
+- `payload[18]`: Capacitive Buttons (`1` enabled, `2` disabled)
+- `payload[19]`: Debug Logging (`1` on, `2` off)
+- `payload[20]`: Language (`0` en, `1` de, `2` fr, `3` nl, `4` es, `5` it)
+- `payload[21]`: Theme (`1` classic, `2` dark, `3` light, `4` colourful; `0` keeps the remote's choice)
+- `payload[22]`: Home layout (`1` the theme's, `2` list, `3` grid, `4` carousel; `0` keeps the remote's choice)
+- `payload[23]`: Physical Button Nav (`1` on, `0` off)
+
+#### `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`)
+Remote -> Hub, 23 bytes, not ACK'd; built by `send_remote_config_backup_rf()` (`remote_rf.c`). A
+different order from the push:
+- `payload[0]`: Display Brightness (1–5)
+- `payload[1]`: Screen Timeout low byte (seconds); `payload[16]` is the high byte
+- `payload[2]`: Touchscreen Enabled (`1`/`0`)
+- `payload[3..5]`: Nav toggle key and mode of older firmware, sent as `0`
+- `payload[6]`: `1` while the remote is on USB power (USB Ethernet up), else `0`
+- `payload[7]`: Activity Switch Confirmation (`1` Prompt, `0` Instant)
+- `payload[8]`: Config Version counter
+- `payload[9]`: Touch Sensitivity (`1` to `3`)
+- `payload[10]`: Remote Mode, always `0`
+- `payload[11]`: Gyro/Tilt Wake Enabled (`1`/`0`)
+- `payload[12]`: Gyro Sample Rate in Hz
+- `payload[13]`: Button Backlight Mode (`0` Off, `1` On, `2` Night)
+- `payload[14]`: Night Start Hour; `payload[15]`: Night End Hour
+- `payload[16]`: Screen Timeout high byte
+- `payload[17]`: Capacitive Buttons (`1`/`0`)
+- `payload[18]`: always `0` (the debug logging setting is not reported)
+- `payload[19]`: Language (as in the push)
+- `payload[20]`: Theme id (as in the push; `0` for a theme with no id)
+- `payload[21]`: Home layout (as in the push)
+- `payload[22]`: Physical Button Nav (`1`/`0`)
 
 #### `RF_MSG_SYNC_REQUEST` (`0x17`)
 - Remote sends every 800ms while screen is active:
@@ -350,7 +381,7 @@ Both frames use a 17-byte standardized configuration payload:
 
 #### `RF_MSG_ACTIVITY_LIST_CHUNK` (`0x0B`)
 - `payload[0]`: Activity index; `payload[1]`: activity count.
-- `payload[2]`: Legacy icon type, `1`..`17` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
+- `payload[2]`: Legacy icon type, `1`..`27` = `watchtv`, `movie`, `music`, `game`, `ps`, `xbox`, `switch`, `shield`, `apple`, `roku`, `firetv`, `pc`, `smarttv`, `sonos`, `receiver`, `light`, `power`, `projector`, `bluray`, `satellite`, `soundbar`, `hifi`, `netflix`, `night`, `fireplace`, `sunrise`, `fan` (`rf_activity_icon_keyword()` in `rf_proto.h`). The remote draws its own icon for each keyword.
 - `payload[3..22]`: Activity ID and name: a 1–2 character ID leaves 17 bytes for the name, a longer ID 12. `RF_MSG_NAME_TAIL_CHUNK` carries the rest.
 - `payload[23..24]`: 16-bit Icon ID (little-endian):
   - `0x0001` .. `0x7FFF`: Stock icon index into canonical stock asset table (`/opt/luadraws/appscommon/asset/...`).
@@ -389,7 +420,7 @@ Both frames use a 17-byte standardized configuration payload:
 - `payload[2..3]` (clear only): Number of chunk frames (`0x0B`, `0x0C`, `0x0D`, `0x11`, `0x12`) that follow, 16-bit little-endian. `0` from Hubs that do not send it; the remote then shows no progress total.
 - A push is: clear, the chunk frames and `RF_MSG_SETTINGS_PUSH`, then complete. Every frame requests an ACK and is retried up to 3 times. The Hub stops pushing to a slot at the first frame that slot never ACKs, so a remote never receives complete for a partial config.
 - The remote accepts chunk frames only between clear and complete, and leaves stray ones unACKed. It applies the config and adopts the version on complete.
-- If no frame arrives for 15 s (45 s when the clear carried no total), the remote abandons the push and restores its last complete config. It then waits 60 s before requesting a full sync on its own again.
+- If no frame arrives for 15 s (30 s when the clear carried no total), the remote abandons the push and restores its last complete config. It then waits 10 s (3 s when it has no config yet) before requesting a full sync on its own again.
 
 #### `RF_MSG_DEVICE_CMD_CHUNK` (`0x12`)
 - Hub sends one per command during a config push, after the `RF_MSG_DEVICE_LIST_CHUNK` frames:
@@ -407,12 +438,12 @@ Both frames use a 17-byte standardized configuration payload:
 - The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
 
 #### `RF_MSG_DEVICE_CMD_REQUEST` (`0x16`)
-- Remote transmits for a screen button (bit 0 of the flags byte set):
+- Remote transmits for a screen button (bit 0 of the flags byte set; `rf_send_screen_button_press()`):
   - `payload[0..9]`: Activity (or device) id of the screen.
   - `payload[10]`: Button index.
   - `payload[11..22]`: Button label (first 12 chars).
   - The Hub sends the button's command from the remote's key map; a button that is not in the map sends nothing.
-- Remote transmits for direct device command execution (flags bit 0 clear):
+- Direct device command execution (flags bit 0 clear). The Hub still accepts it; today's `remote_ui` does not send it:
   - `payload[0..3]`: Shortened Device ID (4 bytes, null-terminated).
   - `payload[4..24]`: Command name (up to 21 chars, null-terminated).
 

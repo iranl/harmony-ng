@@ -8,12 +8,16 @@ Expected standby battery life on a fully charged battery is **~3 days**. This is
 
 ## Hardware Power Breakdown (Subsystems)
 
-| Subsystem | Active Power | Standby (0-30m) | Deep Standby (>30m) | Optimization Mechanism |
+Light standby lasts from the screen blank until the suspend to RAM (deep standby) starts. The
+**Deep Standby** setting chooses when that is: at once by default on battery, or after 15 to 240
+minutes, or never. On the cradle, on USB or while charging the remote never suspends.
+
+| Subsystem | Active Power | Light Standby | Deep Standby (suspend) | Optimization Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
 | **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0. |
 | **Touchscreen** (Synaptics Clearpad) | ~11 mA | < 0.5 mA | < 0.5 mA | `clearpad_sleep()` writes `0x01` to F01 control reg `0x35`. |
 | **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Button LEDs disabled when screen blanks or daytime. |
-| **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Suspended after 30 min; 0 I2C bus transactions. |
+| **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Interrupt only (INT1) while the screen is off; 0 I2C bus transactions. |
 | **CC2544 2.4GHz RF** (`/dev/rfspi`) | ~18 - 24 mA | < 0.5 mA | < 0.5 mA | Radio idle in PM2 sleep; wakes on button event. |
 | **ARM926EJ-S SoC** (TI DaVinci DM365) | ~80 mA | ~12 mA | ~8 mA | `select()` sleeps up to 30s. The standby figures were measured with the processor stepped down to 96 MHz; that step is gone (it could stop the remote dead, see REMOTE.md), so awake with the screen off it now draws more. |
 
@@ -65,16 +69,15 @@ Upon screen wake (`fb_set_blank(false)`), the Clearpad input event descriptor is
 
 The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `remote_ui`, motion wake is entirely **event-driven via hardware interrupt**:
 
-1. **Light Standby (0 - 30 min)**:
-   - Configures LIS3DH INT1 threshold (`int1_threshold=10`, `int1_duration=3`).
+1. **Light Standby** (screen off, before the suspend):
+   - Configures LIS3DH INT1 threshold (`int1_threshold=5`, `int1_duration=1`) at start.
    - Motion assertions route directly to Linux GPIO IRQ 108 (`/dev/input/event1`).
-   - Main event thread `select()` multiplexes `/dev/input/event1` with physical buttons.
+   - Main event thread `select()` multiplexes `/dev/input/event1` with physical buttons whenever the screen is off, Tilt / Pickup Wake is on and the remote is off the cradle.
    - **Zero I2C bus transactions** while stationary (eliminates 18,000 I2C reads/hour, saving ~4.0 mA).
    - Instantaneous wake on pickup when acceleration exceeds threshold.
-2. **Deep Standby (> 30 min)**:
-   - Accelerometer descriptor is removed from `select()` sets.
-   - Prevents accidental nudges from waking the remote during sleep.
-   - **Wake Trigger**: Any physical keypad button instantly wakes the remote from Deep Standby.
+2. **Deep Standby** (suspend to RAM, on battery):
+   - The processor sleeps; motion does not wake it.
+   - **Wake Triggers**: any physical keypad button, cradle or USB power, and the hourly MSP430 alarm.
 
 ---
 
@@ -82,8 +85,8 @@ The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `remo
 
 The remote's UI and input dispatch thread runs an event-driven `select()` loop monitoring `/dev/input/event0` (physical buttons), `/dev/input/event1` (accelerometer motion interrupt), and `/dev/rfspi`.
 - When active: `select()` timeout is **100 ms**.
-- When in Light Standby (0 - 30 min): `select()` timeout scales to **10 seconds**.
-- When in Deep Standby (> 30 min): `select()` timeout scales to **30 seconds**.
+- With the screen off: **2 seconds**.
+- Once deep standby is due on battery: **30 seconds** (the remote then normally suspends).
 - Background `power_manager` sleeps for **10 seconds** in standby (reduced from 1s).
 - Battery voltage sampling (`read_remote_battery()`) throttles from every 60s to **300s (5 min)** in standby.
 
@@ -93,9 +96,9 @@ The remote's UI and input dispatch thread runs an event-driven `select()` loop m
 
 | Standby State | Duration | Wake Triggers | Active Sensors |
 | :--- | :--- | :--- | :--- |
-| **Docked / Charging** | Unlimited | • **Dock Connect / Disconnect** (cradle ↔ battery transition)<br>• **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 & TPS6507x PMIC (AC powered, no battery drain) |
-| **Light Standby** | 0 – 30 minutes | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
-| **Deep Standby** | > 30 minutes | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.)<br>• **Placing on Dock** (cradle connect) | None (Hardware IRQ only) |
+| **Docked / Charging** | Unlimited | • **Dock Connect / Disconnect** (cradle ↔ battery transition)<br>• **Any Physical Button**<br>• **A touch or a capacitive key** (when enabled)<br>• **The Hub** over RF | LIS3DH INT1 & TPS6507x PMIC (AC powered, no battery drain) |
+| **Light Standby** | From the blank until deep standby starts | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button**<br>• **A touch or a capacitive key** (when enabled)<br>• **The Hub** over RF | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
+| **Deep Standby** | Suspend to RAM on battery (at once by default) | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.)<br>• **Placing on Dock** (cradle connect)<br>• **The hourly MSP430 alarm** (reports, then suspends again) | None (Hardware IRQ only) |
 
 *Note: Touchscreen glass tap does not wake the remote in either standby mode because Clearpad is powered down to prevent accidental activation.*
 

@@ -26,7 +26,7 @@ This utility:
 2. Streams base64-encoded static binaries (`dropbear`, `dropbearkey`, `scp`, `remote_sync`) to `/data/`.
 3. Generates Dropbear host keys in `/etc/dropbear/`.
 4. Installs your SSH public key into `/home/root/.ssh/authorized_keys`. Without `--ssh-pubkey` it takes the owner key `setup_remote.py` uses (the newest `~/.ssh/harmony_owner_*.pub`, created when there is none): the stock root password is not known, so without a key nobody could log in.
-5. Installs the emergency-recovery boot script `/etc/init.d/rcS.local`.
+5. Installs the boot script `/etc/init.d/rcS.local` (`remote/rcS.local`).
 6. Starts Dropbear daemon (`/data/dropbear -R`, key logins only).
 
 How the files get there: the stock firmware has no `base64` or `uudecode`, so the tool decodes the small native decoder (`b64dec_tiny`) with the stock Lua and then each file with it, sends the base64 text in short lines, and checks every file with `md5sum` before it gets its final name. A file that does not arrive intact stops the tool, and the boot script already on the remote is left as it is. The Dropbear multi-call binary goes to `/data/dropbearmulti` (`/data/dropbear`, `/data/dropbearkey` and `/data/scp` link to it), the key also to `/etc/dropbear/authorized_keys` and `/root/.ssh/authorized_keys`, and Dropbear is started for key logins only (without `-B`).
@@ -64,11 +64,10 @@ Before it changes anything on the remote, `deploy_remote.py` runs a ready-to-go 
 
 `--check` runs only the check. The deployment installs `busybox` before any other file and unpacks the themes with `/data/busybox tar`.
 
-This script uploads:
-- `remote_ui` (custom framebuffer UI & CC2544 RF engine)
-- `remote_sync` (ARM sync helper, symlinked to `/data/sync` and `/usr/bin/sync`)
-- `remote_rf_query` & `remote_rf_sniff`
-- `/etc/init.d/rcS.local` with panic recovery counter
+This script uploads, to `/data/`:
+- `busybox` (first, for the themes), `remote_ui` (custom framebuffer UI & CC2544 RF engine), `remote_sync` (ARM sync helper, symlinked to `/data/sync` and `/usr/bin/sync`), `dropbear`, `dropbearkey`, `scp`
+- the scripts `init.sh`, `remote_watchdog.sh`, `safe_reboot.sh`, `factory_reset.sh`
+- the themes, and the boot script `remote/rcS.local` as `/etc/init.d/rcS.local`
 
 ---
 
@@ -78,20 +77,24 @@ Builds before the elite -> remote rename used `elite_*` names. Nothing has to be
 - On the remote, `remote_ui` renames them at start (`init.sh start` and `init.sh migrate` do the same): `/data/elite_ui`, `elite_sync`, `elite_watchdog.sh`, `elite_settings.conf`, `elite_ui.conf`, `elite_rf_config.json`, `elite_activity_usage.conf`, `elite_ui.bak` and `elite_conf_p/` become `remote_*`. A file that already exists under the new name is kept. The old binary, sync and watchdog names stay as symlinks, so an older supervisor or a rollback still finds them.
 - An RF update from a remote on an older build works: the package also carries the binary as `elite_ui`, the name older installers look for.
 - `deploy_remote.py` renames the files before it uploads.
-- On the Hub, `hub_rf` renames `elite_slot<N>_version.json`, `elite_slot<N>_config.json` and a staged `elite_ui.ota.gz` / `elite_ui.version`. MQTT settings saved with `eliteRemoteTopic` / `eliteRemoteEvents` keep working (now `remoteTopic` / `remoteEvents`), and the button event source `elite_rf` is still accepted next to `remote_rf`.
+- On the Hub, `hub_rf` renames `elite_slot<N>_version.json`, `elite_slot<N>_config.json` and a staged `elite_ui.ota.gz` / `elite_ui.version`. The per-remote MQTT keys (`eliteRemoteTopic` / `eliteRemoteEvents`, and `remoteTopic` / `remoteEvents`) are ignored and removed at the next MQTT save: button events always go to `<base>/remote/<slot>/button` (API.md 8.1). The button event source `elite_rf` is still accepted next to `remote_rf`.
 - The tools still accept `--target elite` and `compile_all.sh elite` as aliases of `remote`.
 
 ---
 
-## Emergency Recovery (Panic Loop Protection)
-The remote's `/etc/init.d/rcS.local` maintains a persistent reboot counter at `/data/reboot_counter`:
-- On boot, counter increments and writes to `/data/reboot_counter`.
-- If uptime reaches **5 minutes (300 seconds)** without crashing, counter resets to `0`.
-- **Safe Mode**: If the device reboots more than **5 consecutive times** before reaching 5-minute stability (`COUNT > 5`), it enters Emergency Recovery Mode:
-  - Enables **only** USB Ethernet (`/usr/bin/usbeth start`) and Dropbear SSH (`/data/dropbear -R -B`).
-  - Logs alert to `/tmp/emergency_recovery.log`.
-  - Exits boot script **without** launching `remote_ui` or any other software.
-  - Allows full SSH root access at `192.168.2.1` to inspect logs, repair files, or reset the counter (`echo 0 > /data/reboot_counter`).
+## Recovery When `remote_ui` Does Not Start or Keeps Restarting
+The remote has no automatic safe mode. Its boot script (`remote/rcS.local`, installed as
+`/etc/init.d/rcS.local`) deletes `/data/reboot_counter` at every boot and always starts the runtime
+(`/data/init.sh start`). A reboot counter with an emergency mode exists on the Hub only. The ways
+back from a build that crashes or hangs:
+- **USB**: when the remote boots on USB power (or the power source cannot be read), the boot script
+  starts USB Ethernet and Dropbear SSH before the runtime, so `ssh root@192.168.2.1` works even
+  while `remote_ui` crashes. Deploy a working build with `deploy_remote.py`.
+- **Serial console**: `remote/bootstrap_serial.py` (above) installs SSH and the boot script over the
+  serial pad.
+- **Hardware factory reset**: hold `Menu` and `Off` for about 20 s (FIRST_INSTALL_REMOTE.md,
+  section 7). It removes the HarmonyNG files and returns the remote to stock; root it again with
+  `setup_remote.py`.
 
 ---
 
@@ -213,13 +216,12 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
 2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
-   - Configures LIS3DH hardware motion threshold (`int1_threshold=10`, `int1_duration=3`).
+   - Configures LIS3DH hardware motion threshold (`int1_threshold=5`, `int1_duration=1`).
    - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.
-   - Main thread `select()` multiplexes `/dev/input/event1` with physical buttons during Light Standby (0-30m).
+   - The main loop watches `/dev/input/event1` next to the buttons whenever the screen is off, Tilt / Pickup Wake is on and the remote is off the cradle.
    - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
-   - After 30 minutes (Deep Standby), `/dev/input/event1` is detached to prevent accidental motion wakes.
 4. **No processor frequency change**: `remote_ui` used to drop the processor to 96 MHz while the screen was off and go back to 456 MHz at the wake. It no longer does. The stock kernel's I2C driver puts its controller in reset on every frequency change without waiting for a running transfer, on the bus shared by the keypad controller, the PMIC, the touch controller and the accelerometer; two remotes stopped dead at the first blank after a wake from suspend, until their battery was pulled. The stock firmware never changes the frequency. The standby figures in this section were measured with the 96 MHz step, so a remote that stays awake with the screen off (deep standby later than "at once", or never) now draws more than they say; asleep it draws the same.
-5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout scales from 100 ms (active) to 10 s (0-30m standby) to 30 s (>30m Deep Standby). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
+5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout is 100 ms with the screen on, 2 s with the screen off, and 30 s once deep standby is due on battery (the remote then normally suspends). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
 
 ---
 
@@ -273,66 +275,67 @@ Every device configured on the Hub can be controlled directly, without starting 
 
 ## Complete Remote Settings Menu Reference
 
-The remote's settings menu is structured into 5 categories plus an RF sync push action:
+The remote's settings menu has six categories (`payload/source/remote/remote_ui_settings.c`):
 
 ```
 [SETTINGS]
-  ├── 1. ACTIVITIES  --> Confirm switch, remote mode
-  ├── 2. DISPLAY     --> Brightness, timeout, backlight, night schedule
-  ├── 3. TOUCH       --> Touchscreen on/off, capacitive keys, sensitivity
-  ├── 4. POWER       --> Gyro motion wake, sampling rate, battery health
-  ├── 5. SYSTEM      --> USB ethernet, power debug log, pairing, reboot, factory reset
-  └── 6. PUSH TO HUB --> Force immediate RF backup push to Hub
+  ├── 1. CONFIG          --> Confirm switch, language, sync config from Hub, activity order
+  ├── 2. DISPLAY         --> Brightness, timeout, button backlight, night start and end, theme, home layout
+  ├── 3. TOUCH           --> Touchscreen, capacitive buttons, sensitivity, physical button nav
+  ├── 4. POWER           --> Tilt / pickup wake, gyroscope rate, deep standby, battery, debug logging, suspend
+  ├── 5. SYSTEM          --> RF pairing & link, reboot, factory reset
+  └── 6. FIRMWARE UPDATE --> Pull firmware OTA from Hub, check for updates
 ```
 
-Pages have no Back item: swipe left to right, or press `Back`, to return to the categories. From the categories the same goes back to the home screen.
+Pages have no Back item: swipe left to right, or press `Back`, to return to the categories. From the categories the same goes back to the home screen. A change made on the remote is sent to the Hub as a settings backup while the RF link is up (`RF_MSG_REMOTE_CONFIG_BACKUP`, kept in `/data/harmony/remote_slot<slot>_config.json`).
 
-### 1. `ACTIVITIES`
-- **`Confirm Switch`**: `[ PROMPT ]` or `[ INSTANT ]`.
-  - When set to `PROMPT`, initiating an activity change or power-off displays a confirmation dialog with a 3-second timeout before issuing commands.
-- **`Remote Mode`**: `[ ACTIVITY ]` or `[ DIRECT ]`.
-  - `ACTIVITY`: Smart activity-based remote control (AV commands routed according to active activity).
-  - `DIRECT`: Direct device control mode (commands routed directly to selected device).
+### 1. `CONFIG`
+- **`Confirm Switch`**: `[ PROMPT ]` or `[ INSTANT ]`. With `PROMPT`, an activity change or power off asks for confirmation first.
+- **`Language`**: English, Deutsch, Francais, Nederlands, Espanol, Italiano.
+- **`Sync Config from Hub`**: shows the config version (`[NEW]` when the Hub has a newer one) and asks the Hub for a full config push.
+- **`Activity Order`**: `[ YOURS ]` (the Hub's order) or `[ MOST USED ]`.
 
 ### 2. `DISPLAY`
 - **`Display Brightness`**: `[ LVL 1 ]` to `[ LVL 5 ]`. Adjusts LCD backlight PWM duty cycle.
-- **`Display Timeout`**: `[ 10s ]`, `[ 15s ]`, `[ 20s ]`, `[ 30s ]`, `[ 60s ]`, `[ 120s ]`. Screen idle blanking timer.
+- **`Display Timeout`**: `[ 10s ]`, `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 120s ]`. Screen idle blanking timer.
 - **`Button Backlight`**: `[ OFF ]`, `[ ON ]`, `[ NIGHT ]`.
   - `OFF`: Keypad white LEDs disabled.
   - `ON`: Keypad LEDs illuminated while screen is awake.
-  - `NIGHT`: Keypad LEDs illuminated only during configured night hours.
-- **`Night Schedule`**: `[ HH-HH ]` (e.g. `[ 22-07 ]`). Configures the 24-hour window for night backlight behavior.
+  - `NIGHT`: Keypad LEDs illuminated only during the night window below.
+- **`Night Starts`**, **`Night Ends`**: `[ HH:00 ]`, one hour per tap. The window of the `NIGHT` backlight.
 - **`Theme`**: cycles through Classic and the installed themes.
-- **`Home Layout`**: `[ THEME ]` (the theme's layout), `[ LIST ]`, `[ GRID ]` or `[ CAROUSEL ]` (one activity per page, dragged sideways).
+- **`Home Layout`**: `[ THEME ]` (the theme's layout), `[ LIST ]`, `[ GRID ]` or `[ CAROUSEL ]` (one activity per page, dragged sideways). Shows `[ LIST ]` while Physical Button Nav is on.
 
 ### 3. `TOUCH`
 - **`Touchscreen`**: `[ ON ]` or `[ OFF ]`.
   - When `OFF`, the Synaptics Clearpad input device is ignored, and the remote operates exclusively via physical buttons; the bottom keys drive the screen.
-- **`Touch Sensitivity`**: `[ LOW ]`, `[ NORMAL ]`, `[ HIGH ]`.
-  - Adjusts tap slop tolerances (16px / 20px / 25px) and swipe velocity thresholds.
+- **`Capacitive Buttons`**: `[ ON ]` or `[ OFF ]`: the two touch keys below the display.
+- **`Touch Sensitivity`**: `[ LOW ]`, `[ NORMAL ]`, `[ HIGH ]`. Adjusts tap slop tolerances and swipe thresholds.
+- **`Physical Button Nav`**: `[ ON ]` or `[ OFF ]`: drive the screen with the physical keys (see "Physical Button Navigation").
 
 ### 4. `POWER`
-- **`Motion / Gyro Wake`**: `[ ON ]` or `[ OFF ]`.
-  - Enables or disables LIS3DH lift-to-wake in Light Standby.
-- **`Gyro Sampling Rate`**: `[ 10Hz ]`, `[ 25Hz ]`, `[ 50Hz ]`.
-  - Sysfs accelerometer rate when remote is in active or near-standby state.
-- **`Battery Status`**: `[ XX% XXXXmV ]`.
-  - Refreshes live hardware voltage and battery percentage filtered via a 16-sample moving average window.
-  - The percentage (`remote_battery.c`): the voltage maps to a curve through the stock firmware's points for this remote (3.55 V shutdown = 0 %, 3.70 V = 30 %, 3.85 V = 75 %, 3.90 V = 90 %, 3.95 V and up = 100 %, linear between), minus the charging offset while charging (measured at each charging start as the first charging reading minus the last rested one on battery, 0.05 to 0.25 V: about 0.1 V on USB, 0.17 V on the cradle; 0.1 V when the remote starts while already charging). A rested reading (screen off for 30 s) sets it; under load it never rises and falls by at most one point per 2 minutes, because the cell sags 0.1 to 0.15 V within seconds of the screen turning on; while charging it only rises; a change of the charging state keeps the last value, and the state itself counts only after it held for 5 s (lifting the remote off the cradle flips it several times). The remote reports the battery every 5 minutes, at once on a charging change, with the screen on for a change of 2 points or more (at most once a minute), and at once when its link to the Hub comes up and with every version report, so a Hub that restarted gets it as soon as the remote is linked.
+- **`Tilt / Pickup Wake`**: `[ ON ]` or `[ OFF ]`. LIS3DH lift-to-wake while the screen is off.
+- **`Gyroscope Rate`**: `[ 10Hz ]`, `[ 25Hz ]`, `[ 50Hz ]`, `[ 100Hz ]`.
+- **`Deep Standby`**: `[ AT ONCE ]` (default), `[ 15m ]`, `[ 30m ]`, `[ 60m ]`, `[ 120m ]`, `[ 240m ]`, `[ NEVER ]`: when the suspend to RAM starts after the screen blanks, on battery (see "Sleep Behavior").
+- **`Battery Level`**: `[ XX% XXXXmV ]`.
+  - The percentage (`remote_battery.c`): the voltage maps to a curve through the stock firmware's points for this remote (3.55 V shutdown = 0 %, 3.70 V = 30 %, 3.85 V = 75 %, 3.90 V = 90 %, 3.95 V and up = 100 %, linear between them).
+- **`Debug Logging`**: `[ ON ]` or `[ OFF ]`. Verbose power and RF logging to `/tmp/power_debug.log` (RAM, lost at reboot). The Hub can set it in its settings push; the remote does not report it back.
+- **`Suspend to RAM`**: `[ SLEEP ]`, after a confirmation: suspend now.
 
 ### 5. `SYSTEM`
-- **`Software Version`**: Displays current firmware version string (e.g. `v1.3.0`).
-- **`Automatic USB Ethernet`**: Handled automatically in hardware. When connected to a Micro-USB cable, USB Ethernet (`192.168.2.1`) and Dropbear SSH start automatically. When running on battery or in cradle, USB Ethernet and Dropbear are cleanly stopped to ensure minimal/no battery drain.
-- **`Power Debug Log`**: `[ ON ]` or `[ OFF ]`.
-  - Toggles high-resolution power logging to `/tmp/power_debug.log` and `/data/power_debug.log` (logs standby transitions, voltage, CPU frequencies, and wake sources). Local setting, not pushed to Hub.
-- **`RF Pairing Menu`**: `[ LINKED ]` or `[ OPEN ]`.
-  - Opens CC2544 pairing management: inspect remote address, paired Hub address, link RSSI, request pairing, or unpair.
+- **`RF Pairing & Link`**: `[ LINKED ]` or `[ OPEN ]`.
+  - Opens CC2544 pairing management: inspect remote address, paired Hub address, request pairing, or unpair.
 - **`Reboot Remote`**: Clean reboot confirmation -> flushes flash buffers and executes `reboot -f`.
 - **`Factory Reset`**: Two-stage safety confirmation -> removes custom startup scripts, restores stock Logitech UI binaries, and reboots.
   - *Hardware Factory Reset Alternative (No UI / SSH needed)*: Hold **`Menu`** (above `CH+`) and **`Off`** (top power button) simultaneously for ~20 seconds. The remote graphic with circular arrow will flash briefly first—**continue holding until the graphic stays permanently on the screen**. The remote then wipes user configurations and restores factory defaults.
 
-### 6. `PUSH TO HUB`
-- Immediately sends an `RF_MSG_REMOTE_CONFIG_BACKUP` (`0x19`) frame to the Hub to back up all current remote settings into `/data/harmony/remote_slot<slot>_config.json`.
+USB Ethernet and SSH need no setting: they start when the remote boots on USB power (see "Recovery").
+`Reboot Remote` reboots only on the cradle or USB; on battery it restarts `remote_ui` instead (a
+hardware reset on battery switches the remote off).
+
+### 6. `FIRMWARE UPDATE`
+- **`Pull Firmware OTA from Hub`**: asks the Hub to start an RF update (`RF_MSG_OTA_REQUEST`); refused below 40 % battery unless charging.
+- **`Check for Updates`**: sends a version report and a sync query, so the Hub offers a waiting config or firmware.
 
 ---
 
@@ -345,7 +348,7 @@ Settings on the remote can be inspected and updated remotely from the Harmony Hu
 #### 1. Query Remote Configuration
 ```http
 GET /api/rf/remote-config?slot=1 HTTP/1.1
-Host: 192.168.1.1:8088
+Host: 192.168.1.20:8089
 ```
 **Response (`200 OK`)**:
 ```json
@@ -371,14 +374,14 @@ Host: 192.168.1.1:8088
 
 #### 2. Update Remote Configuration from Hub
 ```http
-POST /api/rf/remote-config HTTP/1.1
-Host: 192.168.1.1:8088
+POST /api/rf/remote-config?slot=1 HTTP/1.1
+Host: 192.168.1.20:8089
 Content-Type: application/json
 
 {
   "slot": 1,
   "brightness": 4,
-  "timeout": 20,
+  "timeout": 30,
   "touchEnabled": true,
   "capButtonsEnabled": true,
   "gyroEnabled": true,
@@ -401,33 +404,16 @@ Content-Type: application/json
 ```
 
 ### Bidirectional RF Protocol Synchronization
-The Hub and the remote keep configuration synchronized using 17-byte binary payload structures:
+The Hub and the remote keep the settings in step with two frames (byte layouts in
+`HARMONY_RF_PROTOCOL.md`, section 5.2; the two layouts differ):
 
-1. **Hub -> Remote Push (`RF_MSG_SETTINGS_PUSH`, `0x0E`)**:
-   - Sent when settings are POSTed to the Hub API, or during full config sync (`RF_MSG_CONFIG_END`).
+1. **Hub -> Remote Push (`RF_MSG_SETTINGS_PUSH`, `0x0E`, 24 bytes)**:
+   - Sent when settings are POSTed to the Hub API, and in every full config push (before `RF_MSG_CONFIG_END` complete).
    - Requires ACK from Remote (`RF_FLAG_ACK_REQ`).
    - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/remote_settings.conf`, and repaints the screen.
-2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`)**:
-   - Sent whenever settings are modified in the remote's on-screen menu, or when the user selects `PUSH TO HUB`.
+2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`, 23 bytes)**:
+   - Sent whenever settings are modified in the remote's on-screen menu, and when the Hub asks for them (`RF_MSG_CONFIG_PULL_REQ`, `/api/rf/pull-config`).
    - The Hub receives the frame and persists the configuration to `/data/harmony/remote_slot<slot>_config.json`.
-3. **17-Byte Payload Format**:
-   - `Byte 0`: Display Brightness (1–5)
-   - `Byte 1`: Screen Timeout low byte (seconds)
-   - `Byte 2`: Touchscreen Enable flag (0/1)
-   - `Bytes 3-5`: Nav toggle key and mode of older firmware; current firmware sends 0
-   - `Byte 6`: USB Ethernet Enable flag (0/1)
-   - `Byte 7`: Confirm Activity Switch flag (0/1)
-   - `Byte 8`: Config Version number
-   - `Byte 9`: Touch Sensitivity (1=Low, 2=Normal, 3=High)
-   - `Byte 10`: Remote Mode (0=Activity, 1=Direct)
-   - `Byte 11`: Motion/Gyro Wake Enable flag (0/1)
-   - `Byte 12`: Gyro Sampling Rate in Hz (10, 25, 50)
-   - `Byte 13`: Button Backlight Mode (0=Off, 1=On, 2=Night)
-   - `Byte 14`: Night Start Hour (0–23)
-   - `Byte 15`: Night End Hour (0–23)
-   - `Byte 16`: Screen Timeout high byte (seconds)
-   - `Byte 17`: Capacitive Buttons Enable flag (0/1)
-   - `Byte 18`: Power Debug Log Enable flag (0/1)
 
 ---
 
@@ -475,7 +461,7 @@ When a button is pressed or released on a Companion or Smart Control remote, it 
 ### Per-Slot Configuration & Mapping Copy
 
 - **Independent Mapping Files**:
-  - Slot 1 mappings are stored in `/data/harmony/remote_slot1_map.json` (falling back to legacy `elite_remote_map.json` for backwards compatibility).
+  - Slot 1 mappings are stored in `/data/harmony/remote_slot1_map.json` (`hub_rf` reads only this name; only the copy route falls back to the old `elite_remote_map.json`).
   - Slot 2 mappings are stored in `/data/harmony/remote_slot2_map.json`.
 - **Copy Mappings Between Slots**:
   - If you use identical remotes or want to replicate mappings from Slot 1 to Slot 2, use the **Copy to other slot** button in the Web UI, or invoke `POST /api/rf-mapping-copy?from=1&to=2`.
@@ -498,7 +484,7 @@ python tools/harmony_firmware.py flash --target remote
 ```
 
 ### 2. Extract Official Remote UI Icons for Hub Web UI
-The Elite firmware SquashFS filesystem contains 1,347 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform with Python, without requiring a remote connected over USB or SSH:
+The Elite firmware SquashFS filesystem contains about 1,350 official UI icons (activity icons, command glyphs, power toggles, device branding). You can unpack and archive these directly on any platform, without a remote connected over USB or SSH; the tool needs 7-Zip (`7z` or `7zz`) on the PATH to open the SquashFS image:
 
 ```bash
 python tools/harmony_firmware.py extract-icons --archive build/icons.tar.gz
