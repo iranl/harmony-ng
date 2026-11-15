@@ -1056,7 +1056,10 @@ paths:
               example:
                 ok: true
         '409':
-          description: The device is in use by activities, other devices or remote key bindings; nothing changed
+          description: >-
+            The device is in use by activities, other devices or remote key bindings (not counted:
+            its own map page, which is removed with it, sections of deleted activities, the map of a
+            slot with no paired remote); nothing changed
           content:
             application/json:
               example:
@@ -1472,6 +1475,9 @@ paths:
       tags:
         - Activities
       summary: Delete activity
+      description: >-
+        Also removes the activity's sections (activities/<id>) from remote_slot1_map.json,
+        remote_slot2_map.json and bt_remote_map.json.
       requestBody:
         required: true
         content:

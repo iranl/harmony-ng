@@ -11,6 +11,7 @@
 #include "ir_i2s.h"
 #include "config_sanitize.h"
 #include "cJSON.h"
+#include "bt_common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,9 @@
 #include <strings.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
 
 /* The IR port mask of a device (its controlPort, 0..7), or all ports when it has none */
 static uint8_t device_ir_ports(const char *dev_id) {
@@ -131,10 +135,25 @@ static int tree_uses_device(const cJSON *j, const char *dev_id) {
     return 0;
 }
 
+/* A section of a remote map ("activities/<id>") that no longer has its activity: no editor shows
+ * it, so its bindings cannot be changed and must not hold a device. "-1" and "default" are the
+ * fallback sections. */
+static int stale_activity_section(const char *path, const cJSON *act_ids) {
+    if (strncmp(path, "activities/", 11) != 0 || strchr(path + 11, '/')) return 0;
+    const char *id = path + 11;
+    if (strcmp(id, "-1") == 0 || strcmp(id, "default") == 0) return 0;
+    const cJSON *e;
+    cJSON_ArrayForEach(e, act_ids) {
+        if (cJSON_IsString(e) && strcmp(e->valuestring, id) == 0) return 0;
+    }
+    return 1;
+}
+
 /* Key bindings of a remote map that name the device, as "activities/10/VolumeUp". The map's own
- * page for the device ("devices/<id>") belongs to the device and is not counted. */
+ * page for the device ("devices/<id>") belongs to the device and is not counted, nor are the
+ * sections of activities that no longer exist. */
 static void map_keys_using(const cJSON *j, const char *dev_id, const char *path, int depth,
-                           cJSON *keys, int *count) {
+                           const cJSON *act_ids, cJSON *keys, int *count) {
     const cJSON *c;
     int idx = 0;
     cJSON_ArrayForEach(c, j) {
@@ -143,17 +162,19 @@ static void map_keys_using(const cJSON *j, const char *dev_id, const char *path,
         else snprintf(sub, sizeof(sub), "%s/%d", path, idx);
         idx++;
         if (depth == 1 && strcmp(path, "devices") == 0 && c->string && strcmp(c->string, dev_id) == 0) continue;
+        if (depth == 1 && stale_activity_section(sub, act_ids)) continue;
         if (c->string && (strcmp(c->string, "deviceId") == 0 || strcmp(c->string, "targetDevice") == 0) &&
             names_device(c, dev_id)) {
             if (*count < DEVICE_USER_KEYS_MAX) cJSON_AddItemToArray(keys, cJSON_CreateString(path));
             (*count)++;
             continue;
         }
-        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, keys, count);
+        if (cJSON_IsObject(c) || cJSON_IsArray(c)) map_keys_using(c, dev_id, sub, depth + 1, act_ids, keys, count);
     }
 }
 
-static void add_map_users(cJSON *users, const char *file, const char *type, int slot, const char *dev_id) {
+static void add_map_users(cJSON *users, const char *file, const char *type, int slot, const char *dev_id,
+                          const cJSON *act_ids) {
     size_t len = 0;
     char *txt = read_file_text_alloc(config_store_path(file), 512 * 1024, &len);
     cJSON *map = txt ? cJSON_Parse(txt) : NULL;
@@ -161,7 +182,7 @@ static void add_map_users(cJSON *users, const char *file, const char *type, int 
     if (!map) return;
     cJSON *keys = cJSON_CreateArray();
     int count = 0;
-    map_keys_using(map, dev_id, "", 0, keys, &count);
+    map_keys_using(map, dev_id, "", 0, act_ids, keys, &count);
     cJSON_Delete(map);
     if (count == 0) {
         cJSON_Delete(keys);
@@ -181,15 +202,98 @@ static void id_text(const cJSON *j, char *out, size_t out_sz) {
     else if (cJSON_IsNumber(j)) snprintf(out, out_sz, "%ld", (long)j->valuedouble);
 }
 
-/* What uses the device: activities (sequences, device lists), other devices (Bluetooth trigger),
- * remote key maps (touchscreen slots, Bluetooth remote). NULL when the device does not exist,
- * else an array, empty when nothing uses it. Call with config_store_lock() held. */
-static cJSON *device_users(const char *dev_id) {
+/* Which touchscreen remote slots are paired, from hub_rf (GET /api/rf/status, "slots"[].active).
+ * Returns 0 and fills paired[1..2], or -1 when hub_rf does not answer within a second. */
+static int rf_slots_paired(int paired[3]) {
+    int port = 8092;
+#ifdef TEST_HARNESS
+    const char *tp = getenv("HARMONY_TEST_RF_PORT");
+    if (tp && atoi(tp) > 0) port = atoi(tp);
+#endif
+    paired[1] = paired[2] = 0;
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return -1;
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    static const char req[] = "GET /api/rf/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if (connect(s, (struct sockaddr *)&a, sizeof(a)) != 0 || send(s, req, sizeof(req) - 1, 0) != (ssize_t)(sizeof(req) - 1)) {
+        close(s);
+        return -1;
+    }
+    size_t cap = 65536, len = 0;
+    char *buf = malloc(cap);
+    ssize_t n;
+    while (buf && len < cap - 1 && (n = recv(s, buf + len, cap - 1 - len, 0)) > 0) len += (size_t)n;
+    close(s);
+    if (!buf) return -1;
+    buf[len] = '\0';
+    char *json = strstr(buf, "\r\n\r\n");
+    cJSON *st = json ? cJSON_Parse(json + 4) : NULL;
+    free(buf);
+    const cJSON *slots = st ? cJSON_GetObjectItemCaseSensitive(st, "slots") : NULL;
+    if (!cJSON_IsArray(slots)) {
+        cJSON_Delete(st);
+        return -1;
+    }
+    const cJSON *sl;
+    cJSON_ArrayForEach(sl, slots) {
+        const cJSON *jn = cJSON_GetObjectItemCaseSensitive(sl, "slot");
+        int k = cJSON_IsNumber(jn) ? jn->valueint : 0;
+        if (k >= 1 && k <= 2) paired[k] = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sl, "active"));
+    }
+    cJSON_Delete(st);
+    return 0;
+}
+
+/* Key bindings that use the device, in the maps of paired touchscreen slots and of the Bluetooth
+ * remote. A slot map with no paired remote (an old file) cannot be opened by the editors, so it
+ * does not count. Without an answer from hub_rf, a slot counts when its version file exists.
+ * Read without the configuration lock (the maps are not under it). */
+static cJSON *device_map_users(const char *dev_id) {
+    cJSON *users = cJSON_CreateArray();
+    cJSON *act_ids = cJSON_CreateArray();
+    cJSON *acts_root = config_store_activities_copy();
+    const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
+                                     : cJSON_GetObjectItemCaseSensitive(acts_root, "activities")) : NULL;
+    const cJSON *a;
+    cJSON_ArrayForEach(a, acts) {
+        char aid[64];
+        id_text(cJSON_GetObjectItemCaseSensitive(a, "id"), aid, sizeof(aid));
+        if (aid[0]) cJSON_AddItemToArray(act_ids, cJSON_CreateString(aid));
+    }
+    cJSON_Delete(acts_root);
+
+    int paired[3];
+    int rf_known = (rf_slots_paired(paired) == 0);
+    for (int slot = 1; slot <= 2; slot++) {
+        char name[40];
+        if (!rf_known) {
+            snprintf(name, sizeof(name), "remote_slot%d_version.json", slot);
+            paired[slot] = (access(config_store_path(name), F_OK) == 0);
+        }
+        if (!paired[slot]) continue;
+        snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
+        add_map_users(users, name, "remote_map", slot, dev_id, act_ids);
+    }
+    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id, act_ids);
+    cJSON_Delete(act_ids);
+    return users;
+}
+
+/* What uses the device in the configuration: activities (sequences, device lists) and other
+ * devices (Bluetooth trigger), appended to users. 0 when the device does not exist, else 1.
+ * Call with config_store_lock() held. */
+static int device_config_users(const char *dev_id, cJSON *users) {
     cJSON *devs_root = config_store_devices_copy();
     const cJSON *devs = devs_root ? cJSON_GetObjectItemCaseSensitive(devs_root, "devices") : NULL;
     int exists = 0;
     const cJSON *d;
-    cJSON *users = cJSON_CreateArray();
     cJSON_ArrayForEach(d, devs) {
         char did[64];
         id_text(cJSON_GetObjectItemCaseSensitive(d, "id"), did, sizeof(did));
@@ -208,10 +312,7 @@ static cJSON *device_users(const char *dev_id) {
         }
     }
     cJSON_Delete(devs_root);
-    if (!exists) {
-        cJSON_Delete(users);
-        return NULL;
-    }
+    if (!exists) return 0;
 
     cJSON *acts_root = config_store_activities_copy();
     const cJSON *acts = acts_root ? (cJSON_IsArray(acts_root) ? acts_root
@@ -248,14 +349,33 @@ static cJSON *device_users(const char *dev_id) {
         cJSON_AddItemToArray(users, u);
     }
     cJSON_Delete(acts_root);
+    return 1;
+}
 
-    for (int slot = 1; slot <= 2; slot++) {
-        char name[40];
-        snprintf(name, sizeof(name), "remote_slot%d_map.json", slot);
-        add_map_users(users, name, "remote_map", slot, dev_id);
+void remote_maps_drop_section(const char *section, const char *id) {
+    if (!section || !id || !id[0]) return;
+    static const char *const files[] = { "remote_slot1_map.json", "remote_slot2_map.json", "bt_remote_map.json" };
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+        size_t len = 0;
+        char *txt = read_file_text_alloc(config_store_path(files[i]), 512 * 1024, &len);
+        cJSON *map = txt ? cJSON_Parse(txt) : NULL;
+        free(txt);
+        cJSON *sec = map ? cJSON_GetObjectItemCaseSensitive(map, section) : NULL;
+        if (!cJSON_IsObject(sec) || !cJSON_GetObjectItemCaseSensitive(sec, id)) {
+            cJSON_Delete(map);
+            continue;
+        }
+        cJSON_DeleteItemFromObjectCaseSensitive(sec, id);
+        char *out = cJSON_Print(map);
+        cJSON_Delete(map);
+        if (!out || write_file_atomic_sized(config_store_path(files[i]), out, strlen(out)) != 0) {
+            printf("[-] Could not remove %s/%s from %s\n", section, id, files[i]);
+        } else {
+            printf("[*] Removed %s/%s from %s\n", section, id, files[i]);
+            if (i == 2) hub_send_btstack_cmd("reload_map");
+        }
+        free(out);
     }
-    add_map_users(users, "bt_remote_map.json", "bt_remote_map", 0, dev_id);
-    return users;
 }
 
 static pthread_mutex_t s_capture_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -931,11 +1051,12 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 }
             }
             if (dev_id[0]) {
+                cJSON *users = device_map_users(dev_id); /* the maps are not under the lock */
                 config_store_lock();
                 /* Refused while activities, other devices or remote key maps still use the device
                  * (as agreed in #220): the reply lists them so they can be changed first */
-                cJSON *users = device_users(dev_id);
-                if (users && cJSON_GetArraySize(users) > 0) {
+                int exists = device_config_users(dev_id, users);
+                if (exists && cJSON_GetArraySize(users) > 0) {
                     config_store_unlock();
                     cJSON *err = cJSON_CreateObject();
                     cJSON_AddBoolToObject(err, "ok", 0);
@@ -972,6 +1093,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     cJSON_Delete(root); /* NULL once the store took it */
                 }
                 config_store_unlock();
+                /* its own page in the remote maps: a new device given the same id would inherit it */
+                if (success) remote_maps_drop_section("devices", dev_id);
             }
             cJSON_Delete(p);
         }
