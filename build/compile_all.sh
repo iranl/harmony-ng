@@ -56,6 +56,8 @@ BUILD_STAMP="$OUT/.build_stamp"
 # Extra OTA release key for test builds only, e.g. OTA_KEY_CFLAGS=-DOTA_EXTRA_PUBKEY=0x12,0x34,... (32 bytes)
 OTA_KEY_CFLAGS="${OTA_KEY_CFLAGS:-}"
 COMPAT_SRC=""
+# Build date in UTC (YYYYMMDD) for the time sync in hub_ntp.c: a clock before it is not set yet
+CFLAGS="$CFLAGS -DHUB_BUILD_DATE_UTC=$(date -u +%Y%m%d)"
 
 TARGET="${1:-all}"
 

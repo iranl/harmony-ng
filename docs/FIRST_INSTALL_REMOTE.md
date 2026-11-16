@@ -175,7 +175,7 @@ To reset the remote to factory state without SSH or even if userland software is
 
 ### Software Stock Revert (Over SSH / USB Network)
 
-To cleanly remove HarmonyNG software and restore stock Logitech binaries over SSH:
+To cleanly remove HarmonyNG software and restore stock Logitech binaries over SSH. Every way below, and Settings > Factory Reset on the remote, runs the same script, `remote/factory_reset.sh` (on the remote `/data/factory_reset.sh`). It deletes the remote's settings, the Hub's activity and device names stored on it, its logs and SSH access (authorized keys and host keys); the RF pairing with the Hub is kept by the radio chip, and the stock firmware's own data (`/data/resources`) stays. The hardware button combination above wipes everything.
 
 ```bash
 # Using Python:

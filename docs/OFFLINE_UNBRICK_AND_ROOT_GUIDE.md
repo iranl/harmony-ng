@@ -255,9 +255,11 @@ mv /tmp/dropbearmulti /usr/sbin/dropbearmulti
 Now configure the system so Dropbear starts on every normal boot:
 
 ```sh
-# 1. Make executable and create symlinks
+# 1. Make executable; /usr/sbin/dropbear is a small wrapper that allows key logins only
+#    (-s: no password logins, -g: none for root either)
 chmod 755 /usr/sbin/dropbearmulti
-ln -sf /usr/sbin/dropbearmulti /usr/sbin/dropbear
+printf '#!/bin/sh\nexec /usr/sbin/dropbearmulti dropbear -s -g "$@"\n' > /usr/sbin/dropbear
+chmod 755 /usr/sbin/dropbear
 ln -sf /usr/sbin/dropbearmulti /usr/sbin/dropbearkey
 
 # 2. Generate RSA host key
@@ -273,7 +275,7 @@ touch /etc/tdeenable
 echo "<YOUR_SSH_PUBLIC_KEY>" > /etc/dropbear/authorized_keys
 cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys
 
-# 5. (Optional) Set blank root password for direct console access
+# 5. (Optional) Set blank root password for direct console access (SSH still takes keys only)
 sed -i 's/^root:[^:]*:/root::/' /etc/passwd
 
 ```

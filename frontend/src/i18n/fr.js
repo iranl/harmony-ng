@@ -179,7 +179,6 @@ export default {
     "config_pull_requested": "Demande de configuration envoyée à la télécommande ({slot}). Attendez quelques secondes la réponse et vérifiez l'état.",
     "config_push_started": "Envoi de la configuration par RF à la télécommande Harmony démarré !",
     "config_push_success": "Envoi de la configuration déclenché avec succès.",
-    "configs_are_safe": "Vos configurations sont en sécurité :",
     "configured_activities": "Activités configurées",
     "configured_hubs": "Hubs configurés",
     "confirm": "Confirmer",

@@ -9,7 +9,7 @@ sync_fs() {
 
 # / is a union over /data, so these are flash writes: a file is rewritten only when its content
 # changes (every start used to rewrite them), through a temporary name, so a power cut never
-# leaves it empty (the dropbear wrapper is what starts SSH). Usage: write_if_changed PATH MODE
+# leaves it empty. Usage: write_if_changed PATH MODE
 write_if_changed() {
   _wic_new=$(cat)
   if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$_wic_new" ]; then
@@ -171,6 +171,8 @@ link_if_changed /data/harmony/bin/hub_sync /cache/bin/sync 2>/dev/null || true
 
 [ -f /data/harmony/bin/safe_reboot.sh ] && chmod +x /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
 [ -f /data/harmony/safe_reboot.sh ] && link_if_changed /data/harmony/safe_reboot.sh /data/harmony/bin/safe_reboot.sh 2>/dev/null || true
+# the web UI's factory reset runs /data/harmony/bin/factory_reset.sh; the installers put it here
+[ -f /data/harmony/factory_reset.sh ] && link_if_changed /data/harmony/factory_reset.sh /data/harmony/bin/factory_reset.sh 2>/dev/null || true
 
 mkdir -p /etc/profile.d 2>/dev/null || true
 write_if_changed /etc/profile.d/00-harmony.sh 644 <<'EOF'
@@ -195,16 +197,28 @@ export PATH=/data/harmony/bin:/cache/bin:$PATH
 EOF
 done
 
-_dropbear_bin=""
-[ -x /data/harmony/bin/dropbear ] && _dropbear_bin=/data/harmony/bin/dropbear
-if [ -n "$_dropbear_bin" ]; then
-  write_if_changed /usr/sbin/dropbear 755 <<EOF
-#!/bin/sh
-export PATH=/data/harmony/bin:/cache/bin:\$PATH
-exec "$_dropbear_bin" -K 300 "\$@"
-EOF
+# SSH: /usr/sbin/dropbear is a copy of /data/harmony/hub_sshd (key logins only), as rcS.local sets
+# it at boot, written only when it differs. A server that already runs keeps its options until it
+# is started again (the next boot).
+_sshd_bin=""
+if [ -s /data/harmony/hub_sshd ] && grep -q '^# harmony-ng hub_sshd$' /data/harmony/hub_sshd 2>/dev/null; then
+  _sshd_bin=$(sh /data/harmony/hub_sshd --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+  _sshd_cur=""
+  [ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+  if [ "$_sshd_cur" != "$(cat /data/harmony/hub_sshd)" ]; then
+    cp /data/harmony/hub_sshd /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+      mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+  fi
   if ! ps | grep '[d]ropbear' >/dev/null 2>&1; then
-    /usr/sbin/dropbear
+    # not with this script's ignored SIGHUP: SSH sessions would inherit it. The wrapper directly
+    # when /usr/sbin/dropbear could not be written
+    if [ -x /usr/sbin/dropbear ] && [ -s /usr/sbin/dropbear ]; then
+      (trap - HUP; /usr/sbin/dropbear)
+    else
+      (trap - HUP; sh /data/harmony/hub_sshd)
+    fi
   fi
 fi
 

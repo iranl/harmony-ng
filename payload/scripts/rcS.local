@@ -9,6 +9,29 @@ touch /etc/nowatchdog 2>/dev/null || true
 chmod -x /usr/bin/watchdog /opt/luaworks/luaworks 2>/dev/null || true
 killall -9 watchdog 2>/dev/null || true
 
+# SSH: the stock boot script starts /usr/sbin/dropbear right after this file (the emergency mode
+# below starts it too). It becomes a copy of /data/harmony/hub_sshd (key logins only), written
+# only when it differs; a copy, not a link, so it does not depend on /data/harmony later. Only the
+# stock BusyBox applets are used here (no readlink, no cmp).
+_sshd_src=/data/harmony/hub_sshd
+_sshd_bin=""
+if [ -s "$_sshd_src" ] && grep -q '^# harmony-ng hub_sshd$' "$_sshd_src" 2>/dev/null; then
+	_sshd_bin=$(sh "$_sshd_src" --binary 2>/dev/null)
+fi
+if [ -n "$_sshd_bin" ] && [ -x "$_sshd_bin" ]; then
+	_sshd_cur=""
+	[ -f /usr/sbin/dropbear ] && [ ! -L /usr/sbin/dropbear ] && _sshd_cur=$(cat /usr/sbin/dropbear 2>/dev/null)
+	if [ "$_sshd_cur" != "$(cat "$_sshd_src")" ]; then
+		cp "$_sshd_src" /usr/sbin/dropbear.new 2>/dev/null && chmod 755 /usr/sbin/dropbear.new &&
+			mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+	fi
+elif [ ! -s /usr/sbin/dropbear ] && [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
+	# no usable wrapper and /usr/sbin/dropbear missing, empty or a dangling link: never boot
+	# without SSH while the server binary is there
+	printf '#!/bin/sh\nexec /data/dropbearmulti dropbear -s -g -K 300 "$@"\n' > /usr/sbin/dropbear.new &&
+		chmod 755 /usr/sbin/dropbear.new && mv -f /usr/sbin/dropbear.new /usr/sbin/dropbear
+fi
+
 # 1. Reboot counter emergency check
 COUNT=0
 REBOOT_FILE="/data/harmony/reboot_counter"
@@ -64,15 +87,12 @@ EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
 
-	# Start Dropbear SSH
-	DROPBEAR_BIN="/data/harmony/bin/dropbear"
-	if [ -x "$DROPBEAR_BIN" ]; then
-		echo '#!/bin/sh' > /usr/sbin/dropbear
-		echo "exec $DROPBEAR_BIN -K 300 \"\$@\"" >> /usr/sbin/dropbear
-		chmod 755 /usr/sbin/dropbear
+	# Start Dropbear SSH, key logins only (/usr/sbin/dropbear is set above; the server binary
+	# directly when that file is not usable)
+	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then
 		/usr/sbin/dropbear
-	elif [ -x /usr/sbin/dropbear ]; then
-		/usr/sbin/dropbear
+	elif [ -x /data/dropbearmulti ] && [ -s /data/dropbearmulti ]; then
+		/data/dropbearmulti dropbear -s -g -K 300
 	fi
 
 	exit 0

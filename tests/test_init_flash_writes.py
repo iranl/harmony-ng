@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""init.sh rewrites its profile files, the dropbear wrapper and its links only when they change.
+"""init.sh rewrites its profile files, /usr/sbin/dropbear and its links only when they change.
 
 / on the Hub is a union over /data, so each rewrite is a flash write, and a power cut while a
 file is rewritten could leave it empty. The helper functions and the block "# 3. Shell Profile"
-of payload/scripts/init.sh run twice with sh in a sandbox (paths moved into a temporary root, a
-stand-in dropbear binary, ps and dropbear start replaced): the first run writes every file and
-link; the second leaves all of them untouched (same inode, same modification time), also
-without a readlink command (the stock BusyBox has none).
+of payload/scripts/init.sh run twice with sh in a sandbox (paths moved into a temporary root, the
+SSH wrapper hub_sshd and a stand-in server binary, ps and dropbear start replaced): the first run
+writes every file and link; the second leaves all of them untouched (same inode, same modification
+time), also without a readlink command (the stock BusyBox has none).
 """
 
 from __future__ import annotations
@@ -41,6 +41,10 @@ class InitFlashWrites(unittest.TestCase):
             (r / d).mkdir(parents=True)
         (r / "data" / "harmony" / "bin" / "dropbear").write_text("#!/bin/sh\n")
         (r / "data" / "harmony" / "bin" / "dropbear").chmod(0o755)
+        wrapper = (REPO_DIR / "payload" / "scripts" / "hub_sshd").read_text()
+        wrapper = re.sub(r"(?<![\w/.-])/(data|cache|usr)/", lambda m: f"{r}{m.group(0)}", wrapper)
+        (r / "data" / "harmony" / "hub_sshd").write_text(wrapper)
+        (r / "data" / "harmony" / "hub_sshd").chmod(0o755)
         (r / "data" / "harmony" / "safe_reboot.sh").write_text("#!/bin/sh\n")
         # ps: a dropbear is running, so the block does not start one
         (r / "stub" / "ps").write_text("#!/bin/sh\necho '  1 root dropbear'\n")
@@ -74,7 +78,8 @@ class InitFlashWrites(unittest.TestCase):
         self.run_block()
         for p in self.paths:
             self.assertTrue(os.path.lexists(p), p)
-        self.assertIn("-K 300", (self.root / "usr" / "sbin" / "dropbear").read_text())
+        self.assertFalse((self.root / "usr" / "sbin" / "dropbear").is_symlink())
+        self.assertIn("-s -g -K 300", (self.root / "usr" / "sbin" / "dropbear").read_text())
         self.assertEqual((self.root / "usr" / "sbin" / "dropbear").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.root / "root" / ".profile").stat().st_mode & 0o777, 0o644)
         before = self.state()

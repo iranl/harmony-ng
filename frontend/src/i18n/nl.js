@@ -179,7 +179,6 @@ export default {
     "config_pull_requested": "Configuratieopvraag van afstandsbediening ({slot}) aangevraagd. Wacht enkele seconden op reactie en controleer de status.",
     "config_push_started": "Configuratieoverdracht via RF naar Harmony-afstandsbediening gestart!",
     "config_push_success": "Configuratieoverdracht succesvol gestart.",
-    "configs_are_safe": "Uw configuraties zijn veilig:",
     "configured_activities": "Geconfigureerde activiteiten",
     "configured_hubs": "Geconfigureerde Hubs",
     "confirm": "Bevestigen",

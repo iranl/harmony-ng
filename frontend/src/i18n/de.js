@@ -179,7 +179,6 @@ export default {
     "config_pull_requested": "Konfigurationsabruf von Fernbedienung ({slot}) angefordert. Warten Sie einige Sekunden auf die Antwort und prüfen Sie den Synchronisierungsstatus.",
     "config_push_started": "Konfigurationsübertragung über Funk an Harmony-Fernbedienung gestartet!",
     "config_push_success": "Konfigurationsübertragung erfolgreich ausgelöst.",
-    "configs_are_safe": "Ihre Konfigurationen sind sicher:",
     "configured_activities": "Konfigurierte Aktionen",
     "configured_hubs": "Konfigurierte Hubs",
     "confirm": "Bestätigen",

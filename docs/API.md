@@ -234,6 +234,16 @@ Returns global hub settings from `/data/harmony/config/settings.json`.
   - `legacy_enabled` (default `false`): the Logitech protocol shim on port 8088 and its SSDP
     responder (1.12). Changing it opens or closes the port at once; turning it off also closes
     every client connected to it.
+  - Time sync: `ntp_server` (empty means `pool.ntp.org`) is the time server asked first; the public pools
+    (`pool.ntp.org`, `0.pool.ntp.org`, `1.pool.ntp.org`, `time.cloudflare.com`,
+    `time.google.com`) follow. A correction of up to an hour from one server is applied at once
+    (one server can still move the clock by up to an hour in each round). A larger step, and the
+    first time after a boot, needs two servers at different addresses that agree within 5 s;
+    until then the clock is not stepped. When the clock is not set and only one server answers,
+    its time is used for now if it is not later than the firmware's build date (UTC) plus 5 years.
+    Rounds: every 20 s while the clock is not set; while a time from one server is not checked yet
+    or a step was refused, every 5 minutes for the first hour, then once an hour; otherwise every
+    4 hours.
 
 #### `POST /api/settings`
 Updates global hub settings.
@@ -272,7 +282,7 @@ Executes system maintenance operations.
   ```json
   {"action": "reboot"}
   ```
-- **Factory Reset**:
+- **Factory Reset** (runs `factory_reset.sh` on the Hub, the same script `tools/factory_reset.py` uses): reverts to the stock Logitech firmware (stock `rcS.local` and `/etc/network/interfaces` back) and deletes `/data/harmony` (devices, activities, button maps, accounts and tokens, MQTT settings, Bluetooth keys), the Wi-Fi configuration and SSH access, then reboots. The stock firmware's own data stays. Save a backup first:
   ```json
   {"action": "factory_reset", "confirm": "RESET"}
   ```
