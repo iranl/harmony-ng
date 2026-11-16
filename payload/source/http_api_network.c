@@ -1,9 +1,9 @@
 #include "http_api_network.h"
 #include "hub_network_util.h"
+#include "atomic_file.h"
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
-#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
