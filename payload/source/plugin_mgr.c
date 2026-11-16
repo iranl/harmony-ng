@@ -686,6 +686,86 @@ int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz
     return 0;
 }
 
+int plugin_mgr_resolve_device_plugin(const char *type_or_plugin, char *out_id, size_t out_sz) {
+    if (!type_or_plugin || !type_or_plugin[0]) return 0;
+
+    const char *cand = type_or_plugin;
+    if (strncasecmp(cand, "plugin:", 7) == 0) {
+        cand += 7;
+    }
+
+    /* 1. Direct match on plugin directory name if safe id */
+    if (is_safe_plugin_id(cand)) {
+        char mpath[256];
+        snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, cand);
+        if (access(mpath, F_OK) == 0) {
+            if (out_id && out_sz > 0) snprintf(out_id, out_sz, "%s", cand);
+            return 1;
+        }
+    }
+
+    /* 2. Search installed plugins manifests for device_definition matching device_type or display_name */
+    DIR *d = opendir(HARMONY_PLUGINS_DIR);
+    if (!d) return 0;
+
+    struct dirent *de;
+    int found = 0;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.') continue;
+        if (!is_safe_plugin_id(de->d_name)) continue;
+
+        char mpath[256];
+        snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, de->d_name);
+        size_t flen = 0;
+        char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
+        if (!mtxt) continue;
+
+        cJSON *manifest = cJSON_Parse(mtxt);
+        free(mtxt);
+        if (!manifest) continue;
+
+        cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
+        if (dev_def && cJSON_IsObject(dev_def)) {
+            cJSON *j_dtype = cJSON_GetObjectItemCaseSensitive(dev_def, "device_type");
+            cJSON *j_disp = cJSON_GetObjectItemCaseSensitive(dev_def, "display_name");
+            const char *dt = (j_dtype && cJSON_IsString(j_dtype)) ? j_dtype->valuestring : NULL;
+            const char *dn = (j_disp && cJSON_IsString(j_disp)) ? j_disp->valuestring : NULL;
+
+            if ((dt && strcasecmp(dt, type_or_plugin) == 0) ||
+                (dt && strcasecmp(dt, cand) == 0) ||
+                (dn && strcasecmp(dn, type_or_plugin) == 0) ||
+                (dn && strcasecmp(dn, cand) == 0)) {
+                if (out_id && out_sz > 0) snprintf(out_id, out_sz, "%s", de->d_name);
+                found = 1;
+                cJSON_Delete(manifest);
+                break;
+            }
+        }
+        cJSON_Delete(manifest);
+    }
+    closedir(d);
+    return found;
+}
+
+cJSON *plugin_mgr_get_device_definition(const char *plugin_id) {
+    if (!plugin_id || !is_safe_plugin_id(plugin_id)) return NULL;
+
+    char mpath[256];
+    snprintf(mpath, sizeof(mpath), "%s/%s/manifest.json", HARMONY_PLUGINS_DIR, plugin_id);
+    size_t flen = 0;
+    char *mtxt = read_file_text_alloc(mpath, 32768, &flen);
+    if (!mtxt) return NULL;
+
+    cJSON *manifest = cJSON_Parse(mtxt);
+    free(mtxt);
+    if (!manifest) return NULL;
+
+    cJSON *dev_def = cJSON_GetObjectItemCaseSensitive(manifest, "device_definition");
+    cJSON *copy = dev_def ? cJSON_Duplicate(dev_def, 1) : NULL;
+    cJSON_Delete(manifest);
+    return copy;
+}
+
 int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out, size_t dev_name_sz) {
     if (!plugin_id || !plugin_id[0]) return 0;
     if (device_name_out && dev_name_sz > 0) device_name_out[0] = '\0';
@@ -704,9 +784,11 @@ int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out,
             const char *p_str = (j_plug && cJSON_IsString(j_plug)) ? j_plug->valuestring : "";
 
             int match = 0;
+            char res_id[64] = {0};
             if (p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
             else if (strncasecmp(t_str, "plugin:", 7) == 0 && strcasecmp(t_str + 7, plugin_id) == 0) match = 1;
             else if (strcasecmp(t_str, "plugin") == 0 && p_str[0] && strcasecmp(p_str, plugin_id) == 0) match = 1;
+            else if (t_str[0] && plugin_mgr_resolve_device_plugin(t_str, res_id, sizeof(res_id)) && strcasecmp(res_id, plugin_id) == 0) match = 1;
 
             if (!match) {
                 cJSON *cmds = cJSON_GetObjectItemCaseSensitive(dev, "commands");

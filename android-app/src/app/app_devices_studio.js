@@ -197,6 +197,16 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     }
   }
 
+  getPluginForType(type) {
+    if (!type) return null;
+    const sType = String(type).trim();
+    if (sType.startsWith('plugin:')) {
+      const pid = sType.substring(7);
+      return (this.installedPlugins || []).find(p => p.id === pid) || { id: pid };
+    }
+    return (this.installedPlugins || []).find(p => p.id === sType || (p.device_definition?.device_type && p.device_definition.device_type.toLowerCase() === sType.toLowerCase()) || (p.device_definition?.display_name && p.device_definition.display_name.toLowerCase() === sType.toLowerCase()));
+  }
+
   updateStudioDeviceView() {
     const sel = document.getElementById('manageDeviceSelect');
     if (!sel) return;
@@ -230,8 +240,9 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const portEl = document.getElementById('curDevPortSelect');
     const mqttTopicInput = document.getElementById('devMqttTopic');
     if (nameEl) nameEl.textContent = dev.name || 'Device ' + dev.id;
-    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
-    const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+    const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+    const isPlugin = !!(pluginDef || dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
+    const pluginId = dev.plugin || pluginDef?.id || (dev.type?.startsWith('plugin:') ? dev.type.substring(7) : '');
     if (detailsEl) {
       if (isPlugin) {
         const cfgSummary = dev.config ? Object.entries(dev.config).map(([k, v]) => `${k}: ${v}`).join(', ') : '';
@@ -396,8 +407,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     if (editName) editName.value = dev.name || '';
     if (editType) {
       if (isPlugin) {
-        const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : `plugin:${pluginId}`;
-        let opt = editType.querySelector(`option[value="${plugVal}"]`);
+        const plugVal = (dev.type && dev.type.startsWith('plugin:')) ? dev.type : (pluginId ? `plugin:${pluginId}` : dev.type);
+        let opt = editType.querySelector(`option[value="${plugVal}"]`) || editType.querySelector(`option[value="${dev.type}"]`);
         if (!opt) {
           let optgroup = document.getElementById('editDevTypePluginGroup');
           if (!optgroup) {
@@ -408,10 +419,10 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           }
           opt = document.createElement('option');
           opt.value = plugVal;
-          opt.textContent = `${pluginId} (Plugin)`;
+          opt.textContent = `${pluginDef?.device_definition?.display_name || pluginDef?.name || pluginId} (Plugin)`;
           optgroup.appendChild(opt);
         }
-        editType.value = plugVal;
+        editType.value = opt.value;
       } else if (isBt) {
         editType.value = 'BT';
       } else if (isMqtt) {
@@ -558,7 +569,8 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const rawVal = c.raw || c.keyCode || '';
     document.getElementById('editCmdPayload').value = rawVal;
 
-    const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')) || (rawVal && rawVal.startsWith('PLUGIN:')));
+    const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+    const isPlugin = !!(pluginDef || dev.plugin || (dev.type && dev.type.startsWith('plugin:')) || (rawVal && rawVal.startsWith('PLUGIN:')));
     const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
     const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
     const isIr = !isPlugin && !isBt && !isMqtt;
@@ -605,15 +617,13 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const model = document.getElementById('newDeviceModel')?.value.trim();
     const status = document.getElementById('profileStatus');
 
-    const isPlugin = type.startsWith('plugin:');
+    const pluginDef = this.getPluginForType(type);
+    const isPlugin = !!pluginDef;
+    const pluginId = pluginDef?.id || (type.startsWith('plugin:') ? type.substring(7) : null);
     let effectiveMfg = manufacturer;
     let effectiveModel = model;
-    let pluginId = null;
-    let pluginDef = null;
     if (isPlugin) {
-      pluginId = type.substring(7);
-      pluginDef = (this.installedPlugins || []).find(p => p.id === pluginId);
-      if (!effectiveMfg) effectiveMfg = pluginDef?.author || 'Community';
+      if (!effectiveMfg) effectiveMfg = pluginDef?.author || pluginDef?.name || 'Community';
       if (!effectiveModel) effectiveModel = pluginDef?.device_definition?.device_type || pluginId;
     }
 
@@ -636,21 +646,28 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
         model: effectiveModel || 'Generic',
         icon
       };
-      let pluginId = null;
-      let pluginDef = null;
-      if (type.startsWith('plugin:')) {
-        pluginId = type.substring(7);
+
+      if (isPlugin) {
         devPayload.type = type;
         devPayload.plugin = pluginId;
-        pluginDef = (this.installedPlugins || []).find(p => p.id === pluginId);
         const cfg = {};
         if (pluginDef?.device_definition?.config_fields) {
           for (const f of pluginDef.device_definition.config_fields) {
-            const val = document.getElementById(`plug_cfg_${f.key}`)?.value;
-            cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val || f.default || '');
+            const inp = document.getElementById(`plug_cfg_${f.key}`);
+            const val = inp ? inp.value : '';
+            cfg[f.key] = (f.type === 'number') ? Number(val || f.default || 0) : (val !== undefined && val !== null && val !== '' ? val : (f.default !== undefined ? f.default : ''));
           }
         }
         devPayload.config = cfg;
+
+        const defaultCmds = pluginDef?.device_definition?.default_commands;
+        if (defaultCmds && defaultCmds.length > 0) {
+          devPayload.commands = defaultCmds.map(c => ({
+            name: c.name,
+            keyCode: c.keyCode || `PLUGIN:${pluginId}:${c.name}`,
+            raw: c.raw || c.keyCode || `PLUGIN:${pluginId}:${c.name}`
+          }));
+        }
       }
       if (type === 'MQTT') {
         devPayload.mqttTopic = `{base_topic}/button/${name.toLowerCase().replace(/\s+/g, '_')}/{command}`;
@@ -692,16 +709,6 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
           ];
           for (const m of mqttButtons) {
             await this.client.saveLearnedCommand({ deviceId: newDevId, name: m, raw: `G:MQTT:${m}`, mode: 'raw' }).catch(() => { });
-          }
-        } else if (type.startsWith('plugin:')) {
-          const defaultCmds = pluginDef?.device_definition?.default_commands || [];
-          for (const cmd of defaultCmds) {
-            await this.client.saveLearnedCommand({
-              deviceId: newDevId,
-              name: cmd.name,
-              raw: cmd.keyCode || `PLUGIN:${pluginId}:${cmd.name}`,
-              mode: 'raw'
-            }).catch(() => { });
           }
         }
       }
@@ -856,32 +863,7 @@ export class HarmonyAppDevicesStudio extends HarmonyAppActivitiesSim {
     const filter = (document.getElementById('plugPresetsFilter')?.value || '').toLowerCase().trim();
     const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
     const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-    let defCmds = plug?.device_definition?.default_commands || [];
-
-    if (defCmds.length === 0 && pluginId === 'roku-ecp') {
-      defCmds = [
-        { name: 'Home', keyCode: 'PLUGIN:roku-ecp:Home' },
-        { name: 'Back', keyCode: 'PLUGIN:roku-ecp:Back' },
-        { name: 'Select', keyCode: 'PLUGIN:roku-ecp:Select' },
-        { name: 'DirectionUp', keyCode: 'PLUGIN:roku-ecp:Up' },
-        { name: 'DirectionDown', keyCode: 'PLUGIN:roku-ecp:Down' },
-        { name: 'DirectionLeft', keyCode: 'PLUGIN:roku-ecp:Left' },
-        { name: 'DirectionRight', keyCode: 'PLUGIN:roku-ecp:Right' },
-        { name: 'Play', keyCode: 'PLUGIN:roku-ecp:Play' },
-        { name: 'Rev', keyCode: 'PLUGIN:roku-ecp:Rev' },
-        { name: 'Fwd', keyCode: 'PLUGIN:roku-ecp:Fwd' },
-        { name: 'VolumeUp', keyCode: 'PLUGIN:roku-ecp:VolumeUp' },
-        { name: 'VolumeDown', keyCode: 'PLUGIN:roku-ecp:VolumeDown' },
-        { name: 'VolumeMute', keyCode: 'PLUGIN:roku-ecp:VolumeMute' },
-        { name: 'PowerOff', keyCode: 'PLUGIN:roku-ecp:PowerOff' },
-        { name: 'PowerOn', keyCode: 'PLUGIN:roku-ecp:PowerOn' }
-      ];
-    } else if (defCmds.length === 0 && pluginId === 'ps5-wake') {
-      defCmds = [
-        { name: 'PowerOn', keyCode: 'PLUGIN:ps5-wake:Wake' },
-        { name: 'Wake', keyCode: 'PLUGIN:ps5-wake:Wake' }
-      ];
-    }
+    const defCmds = plug?.device_definition?.default_commands || [];
 
     const existingCmds = dev.commands || [];
     const existingNames = new Set(existingCmds.map(c => (typeof c === 'string' ? c : (c.name || '')).toLowerCase()));

@@ -4,6 +4,7 @@
 #include "cJSON.h"
 #include "bt_common.h"
 #include "json_number.h"
+#include "plugin_mgr.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -98,8 +99,21 @@ void sanitize_devices_json(cJSON *root) {
                        strcasecmp(type_str, "BTHID") == 0);
 
         cJSON *j_plug_src = cJSON_GetObjectItemCaseSensitive(src_d, "plugin");
+        char res_plug_id[64] = {0};
+        const char *src_p_str = (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring) ? j_plug_src->valuestring : "";
+        if (src_p_str[0]) {
+            plugin_mgr_resolve_device_plugin(src_p_str, res_plug_id, sizeof(res_plug_id));
+            if (!res_plug_id[0]) snprintf(res_plug_id, sizeof(res_plug_id), "%s", src_p_str);
+        } else if (type_str && type_str[0]) {
+            plugin_mgr_resolve_device_plugin(type_str, res_plug_id, sizeof(res_plug_id));
+            if (!res_plug_id[0] && strncasecmp(type_str, "plugin:", 7) == 0) {
+                snprintf(res_plug_id, sizeof(res_plug_id), "%s", type_str + 7);
+            }
+        }
+
         int is_plugin = (!is_mqtt && !is_bt) && (
-                       (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring && j_plug_src->valuestring[0]) ||
+                       (res_plug_id[0] != '\0') ||
+                       (src_p_str[0] != '\0') ||
                        (type_str && strncasecmp(type_str, "plugin:", 7) == 0) ||
                        (type_str && strcasecmp(type_str, "plugin") == 0));
 
@@ -115,15 +129,13 @@ void sanitize_devices_json(cJSON *root) {
                                strcasecmp(type_str, "BTHID") == 0 || strcasestr(mfg_str, "bluetooth") != NULL;
             final_type = (type_str && type_str[0] && type_says_bt) ? type_str : "BT";
         } else if (is_plugin) {
-            const char *plug_id = NULL;
-            if (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring && j_plug_src->valuestring[0]) {
-                plug_id = j_plug_src->valuestring;
-            } else if (type_str && strncasecmp(type_str, "plugin:", 7) == 0) {
-                plug_id = type_str + 7;
-            }
-            if (plug_id && plug_id[0]) {
-                snprintf(plug_type_buf, sizeof(plug_type_buf), "plugin:%s", plug_id);
-                final_type = plug_type_buf;
+            if (res_plug_id[0]) {
+                if (type_str && type_str[0] && strncasecmp(type_str, "plugin:", 7) != 0 && strcasecmp(type_str, "plugin") != 0) {
+                    final_type = type_str; /* preserve custom device type, e.g. Roku, PS5 */
+                } else {
+                    snprintf(plug_type_buf, sizeof(plug_type_buf), "plugin:%s", res_plug_id);
+                    final_type = plug_type_buf;
+                }
             } else {
                 final_type = (type_str && type_str[0]) ? type_str : "plugin";
             }
@@ -228,9 +240,10 @@ void sanitize_devices_json(cJSON *root) {
         }
 
         /* Plugin */
-        cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(src_d, "plugin");
-        if (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring && j_plug->valuestring[0]) {
-            cJSON_AddStringToObject(cdev, "plugin", j_plug->valuestring);
+        if (res_plug_id[0]) {
+            cJSON_AddStringToObject(cdev, "plugin", res_plug_id);
+        } else if (j_plug_src && cJSON_IsString(j_plug_src) && j_plug_src->valuestring && j_plug_src->valuestring[0]) {
+            cJSON_AddStringToObject(cdev, "plugin", j_plug_src->valuestring);
         } else if (type_str && strncasecmp(type_str, "plugin:", 7) == 0) {
             cJSON_AddStringToObject(cdev, "plugin", type_str + 7);
         }

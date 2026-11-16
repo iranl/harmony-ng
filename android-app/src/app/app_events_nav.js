@@ -388,26 +388,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       if (!dev) return;
       const pluginId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
       const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-      let defCmds = plug?.device_definition?.default_commands || [];
-      if (defCmds.length === 0 && pluginId === 'roku-ecp') {
-        defCmds = [
-          { name: 'Home', keyCode: 'PLUGIN:roku-ecp:Home' },
-          { name: 'Back', keyCode: 'PLUGIN:roku-ecp:Back' },
-          { name: 'Select', keyCode: 'PLUGIN:roku-ecp:Select' },
-          { name: 'DirectionUp', keyCode: 'PLUGIN:roku-ecp:Up' },
-          { name: 'DirectionDown', keyCode: 'PLUGIN:roku-ecp:Down' },
-          { name: 'DirectionLeft', keyCode: 'PLUGIN:roku-ecp:Left' },
-          { name: 'DirectionRight', keyCode: 'PLUGIN:roku-ecp:Right' },
-          { name: 'Play', keyCode: 'PLUGIN:roku-ecp:Play' },
-          { name: 'Rev', keyCode: 'PLUGIN:roku-ecp:Rev' },
-          { name: 'Fwd', keyCode: 'PLUGIN:roku-ecp:Fwd' },
-          { name: 'VolumeUp', keyCode: 'PLUGIN:roku-ecp:VolumeUp' },
-          { name: 'VolumeDown', keyCode: 'PLUGIN:roku-ecp:VolumeDown' },
-          { name: 'VolumeMute', keyCode: 'PLUGIN:roku-ecp:VolumeMute' },
-          { name: 'PowerOff', keyCode: 'PLUGIN:roku-ecp:PowerOff' },
-          { name: 'PowerOn', keyCode: 'PLUGIN:roku-ecp:PowerOn' }
-        ];
-      }
+      const defCmds = plug?.device_definition?.default_commands || [];
       const existingNames = new Set((dev.commands || []).map(c => (typeof c === 'string' ? c : c.name || '').toLowerCase()));
       const toAdd = defCmds.filter(c => !existingNames.has(c.name.toLowerCase()));
       if (toAdd.length === 0) return alert('All plugin commands are already added to this device.');
@@ -501,7 +482,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           if (typeof this.updateDeviceStudioPluginTypes === 'function') {
             this.updateDeviceStudioPluginTypes();
           }
-          const isPlugin = !!(dev.plugin || (dev.type && dev.type.startsWith('plugin:')));
+          const isPlugin = !!(dev.plugin || (dev.type && (dev.type.startsWith('plugin:') || this.getPluginForType(dev.type))));
           const isBt = (dev.type === 'BT' || dev.type === 'Bluetooth' || dev.isBt);
           const isMqtt = (dev.type === 'MQTT' || dev.mqttEnabled);
           const isIr = !isPlugin && !isBt && !isMqtt;
@@ -517,9 +498,10 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
           const iconInp = document.getElementById('editDevIcon');
           if (nameInp) nameInp.value = dev.name || '';
           if (typeInp) {
-            const plugId = dev.plugin || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
-            const targetTypeVal = plugId ? `plugin:${plugId}` : (dev.type || 'IR');
-            let opt = typeInp.querySelector(`option[value="${targetTypeVal}"]`);
+            const pluginDef = this.getPluginForType(dev.type) || (dev.plugin ? (this.installedPlugins || []).find(p => p.id === dev.plugin) : null);
+            const plugId = dev.plugin || pluginDef?.id || (dev.type && dev.type.startsWith('plugin:') ? dev.type.substring(7) : '');
+            const targetTypeVal = plugId ? (dev.type && dev.type.startsWith('plugin:') ? dev.type : (pluginDef?.device_definition?.device_type && dev.type.toLowerCase() === pluginDef.device_definition.device_type.toLowerCase() ? dev.type : `plugin:${plugId}`)) : (dev.type || 'IR');
+            let opt = typeInp.querySelector(`option[value="${targetTypeVal}"]`) || typeInp.querySelector(`option[value="${dev.type}"]`);
             if (!opt && plugId) {
               let optgroup = document.getElementById('editDevTypePluginGroup');
               if (!optgroup) {
@@ -530,12 +512,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
               }
               opt = document.createElement('option');
               opt.value = targetTypeVal;
-              opt.textContent = `${plugId} (Plugin)`;
+              opt.textContent = `${pluginDef?.device_definition?.display_name || pluginDef?.name || plugId} (Plugin)`;
               optgroup.appendChild(opt);
             }
-            typeInp.value = targetTypeVal;
+            typeInp.value = opt ? opt.value : targetTypeVal;
             if (typeof this.handleEditDeviceTypeChanged === 'function') {
-              this.handleEditDeviceTypeChanged(targetTypeVal, dev.config || dev);
+              this.handleEditDeviceTypeChanged(typeInp.value, dev.config || dev);
             }
           }
           if (mfgInp) mfgInp.value = dev.manufacturer || '';
@@ -575,7 +557,7 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
     document.getElementById('editDevType')?.addEventListener('change', (e) => {
       const val = e.target.value;
       const isBt = (val === 'BT');
-      const isPlugin = val.startsWith('plugin:');
+      const isPlugin = val.startsWith('plugin:') || !!this.getPluginForType(val);
       const isMqtt = (val === 'MQTT');
       const isIr = !isBt && !isPlugin && !isMqtt;
       const devEditBtBox = document.getElementById('devEditBtReconnectBox');
@@ -619,13 +601,9 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
 
       const curDev = (this.inventory?.devices || []).find(d => String(d.id) === String(devId));
-      let pluginId = null;
+      let pluginDef = this.getPluginForType(type) || (curDev?.plugin ? (this.installedPlugins || []).find(p => p.id === curDev.plugin) : null);
+      let pluginId = curDev?.plugin || pluginDef?.id || (type && type.startsWith('plugin:') ? type.substring(7) : null);
       let pluginCfg = null;
-      if (type && type.startsWith('plugin:')) {
-        pluginId = type.substring(7);
-      } else if (type === 'plugin' || curDev?.plugin) {
-        pluginId = curDev?.plugin || (curDev?.type && curDev.type.startsWith('plugin:') ? curDev.type.substring(7) : null);
-      }
       if (pluginId) {
         pluginCfg = {};
         document.querySelectorAll('[id^="edit_plug_cfg_"]').forEach(inp => {

@@ -522,6 +522,13 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
   // --- Device Studio Integration ---
   updateDeviceStudioPluginTypes() {
+    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
+      this.client.getPlugins().then(res => {
+        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+        this.updateDeviceStudioPluginTypes();
+      }).catch(() => {});
+    }
+
     ['newDeviceType', 'editDevType'].forEach(selectId => {
       const select = document.getElementById(selectId);
       if (!select) return;
@@ -598,25 +605,32 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       wrap = row;
     }
 
-    if (!selectedType.startsWith('plugin:')) {
+    let plug = this.getPluginForType(selectedType);
+    if (!plug || !plug.id) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
       return;
     }
 
-    const pluginId = selectedType.substring(7);
-    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-    if (!plug || !plug.device_definition || !plug.device_definition.config_fields) {
+    if ((!this.installedPlugins || this.installedPlugins.length === 0) && this.client && typeof this.client.getPlugins === 'function') {
+      this.client.getPlugins().then(res => {
+        this.installedPlugins = Array.isArray(res) ? res : (res?.plugins || []);
+        this.handleDeviceTypeChanged(selectedType);
+      }).catch(() => {});
+    }
+
+    const fields = plug.device_definition?.config_fields;
+    if (!fields || fields.length === 0) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
       return;
     }
 
-    const fields = plug.device_definition.config_fields;
+    const displayName = plug.device_definition?.display_name || plug.name || plug.id;
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 12px; background: var(--bg-card); border: 1px solid var(--border);">
-        <strong style="font-size: 13px; color: var(--accent); margin-bottom: 8px; display: block;">Plugin Configuration: ${escapeHtml(plug.device_definition.display_name || plug.name)}</strong>
+        <strong style="font-size: 13px; color: var(--accent); margin-bottom: 8px; display: block;">Plugin Configuration: ${escapeHtml(displayName)}</strong>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
           ${fields.map(f => `
             <div>
@@ -644,14 +658,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       wrap = row;
     }
 
-    let pluginId = null;
-    if (selectedType && selectedType.startsWith('plugin:')) {
-      pluginId = selectedType.substring(7);
-    } else if (selectedType === 'plugin' || prefillConfig?.plugin) {
-      pluginId = prefillConfig?.plugin || (prefillConfig?.type && prefillConfig.type.startsWith('plugin:') ? prefillConfig.type.substring(7) : null);
+    let plug = this.getPluginForType(selectedType);
+    if (!plug && prefillConfig?.plugin) {
+      plug = (this.installedPlugins || []).find(p => p.id === prefillConfig.plugin) || { id: prefillConfig.plugin };
     }
 
-    if (!pluginId) {
+    if (!plug || !plug.id) {
       wrap.style.display = 'none';
       wrap.innerHTML = '';
       return;
@@ -674,29 +686,12 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       cfgObj = cfgObj.config;
     }
 
-    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-    let fields = plug?.device_definition?.config_fields;
-
+    let fields = plug.device_definition?.config_fields;
     if (!fields && cfgObj && typeof cfgObj === 'object') {
       const knownKeys = Object.keys(cfgObj).filter(k => !['id', 'name', 'type', 'config', 'commands', 'icon', 'manufacturer', 'model', 'interDeviceDelay', 'interKeyDelay', 'holdInterKeyDelay', 'powerOnDelay', 'isPowerAlwaysOn'].includes(k));
       if (knownKeys.length > 0) {
         fields = knownKeys.map(k => ({ key: k, label: k.replace(/_/g, ' ').toUpperCase(), type: typeof cfgObj[k] === 'number' ? 'number' : 'string' }));
       }
-    }
-    if (!fields && pluginId === 'roku-ecp') {
-      fields = [
-        { key: 'ip_address', label: 'IP Address', type: 'string', placeholder: '192.168.1.50' },
-        { key: 'port', label: 'Port', type: 'number', default: 8060 }
-      ];
-    } else if (!fields && pluginId === 'android-tv') {
-      fields = [
-        { key: 'host', label: 'IP Address', type: 'string', placeholder: '192.168.1.60' },
-        { key: 'port', label: 'Port', type: 'number', default: 6467 }
-      ];
-    } else if (!fields && pluginId === 'ps5-wake') {
-      fields = [
-        { key: 'host_mac', label: 'PS5 Bluetooth MAC Address', type: 'string', placeholder: 'AA:BB:CC:DD:EE:FF' }
-      ];
     }
 
     if (!fields || fields.length === 0) {
@@ -705,7 +700,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
       return;
     }
 
-    const displayName = plug?.device_definition?.display_name || plug?.name || pluginId;
+    const displayName = plug.device_definition?.display_name || plug.name || plug.id;
     wrap.style.display = 'block';
     wrap.innerHTML = `
       <div class="card" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); margin-top: 6px;">

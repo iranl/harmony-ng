@@ -8,6 +8,7 @@
 #include "orchestrator.h"
 #include "hub_events.h"
 #include "ble_adv_payload.h"
+#include "plugin_mgr.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -643,6 +644,8 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
     } else if (j_dtype && cJSON_IsString(j_dtype) && strncasecmp(j_dtype->valuestring, "plugin:", 7) == 0) {
         is_plugin = 1;
         strncpy(plugin_id, j_dtype->valuestring + 7, sizeof(plugin_id) - 1);
+    } else if (j_dtype && cJSON_IsString(j_dtype) && plugin_mgr_resolve_device_plugin(j_dtype->valuestring, plugin_id, sizeof(plugin_id))) {
+        is_plugin = 1;
     } else if (j_dtype && cJSON_IsString(j_dtype) && strcasecmp(j_dtype->valuestring, "plugin") == 0) {
         is_plugin = 1;
         cJSON *j_pid = cJSON_GetObjectItemCaseSensitive(target_dev, "pluginId");

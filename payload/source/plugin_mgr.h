@@ -48,6 +48,14 @@ int plugin_mgr_install_from_url(const char *url, char *err_msg, size_t err_msg_s
 /* Install a dev version of a plugin by downloading raw files from repository URL */
 int plugin_mgr_install_dev_raw(const char *url, char *err_msg, size_t err_msg_sz);
 
+/* Resolve whether type or plugin identifier corresponds to an installed plugin.
+   Matches plugin_id, "plugin:<id>", or device_type / display_name from any installed plugin's device_definition.
+   Writes resolved plugin_id to out_id (if not NULL) up to out_sz. Returns 1 if resolved, 0 otherwise. */
+int plugin_mgr_resolve_device_plugin(const char *type_or_plugin, char *out_id, size_t out_sz);
+
+/* Retrieve cloned device_definition cJSON from an installed plugin. Caller frees with cJSON_Delete. Returns NULL if none. */
+cJSON *plugin_mgr_get_device_definition(const char *plugin_id);
+
 /* Check if a plugin is currently in use by any configured device */
 int plugin_mgr_is_in_use_by_device(const char *plugin_id, char *device_name_out, size_t dev_name_sz);
 

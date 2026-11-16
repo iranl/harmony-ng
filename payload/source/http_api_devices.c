@@ -10,6 +10,7 @@
 #include "hw_action.h"
 #include "ir_i2s.h"
 #include "config_sanitize.h"
+#include "plugin_mgr.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -599,10 +600,16 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     found_dev = cJSON_CreateObject();
                     cJSON_AddStringToObject(found_dev, "id", dev_id);
                     cJSON_AddStringToObject(found_dev, "name", (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : dev_id);
-                    cJSON_AddStringToObject(found_dev, "type", (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "Generic");
+                    const char *init_type = (j_type && cJSON_IsString(j_type)) ? j_type->valuestring : "Generic";
+                    cJSON_AddStringToObject(found_dev, "type", init_type);
                     cJSON_AddStringToObject(found_dev, "manufacturer", (j_mfg && cJSON_IsString(j_mfg)) ? j_mfg->valuestring : "");
                     cJSON_AddStringToObject(found_dev, "model", (j_model && cJSON_IsString(j_model)) ? j_model->valuestring : "");
-                    cJSON_AddNumberToObject(found_dev, "controlPort", cp_val > 0 ? cp_val : 7);
+                    int init_is_plugin = (strncasecmp(init_type, "plugin:", 7) == 0 || strcasecmp(init_type, "plugin") == 0 ||
+                                          plugin_mgr_resolve_device_plugin(init_type, NULL, 0) ||
+                                          (cJSON_GetObjectItemCaseSensitive(p, "plugin") != NULL));
+                    if (!init_is_plugin) {
+                        cJSON_AddNumberToObject(found_dev, "controlPort", cp_val > 0 ? cp_val : 7);
+                    }
                     cJSON_AddItemToObject(found_dev, "commands", cJSON_CreateArray());
                     cJSON_AddItemToArray(devs, found_dev);
                 }
@@ -767,13 +774,25 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                     }
                 }
 
+                char resolved_plug[64] = {0};
                 cJSON *j_plug = cJSON_GetObjectItemCaseSensitive(p, "plugin");
-                if (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring && j_plug->valuestring[0]) {
+                const char *p_val = (j_plug && cJSON_IsString(j_plug) && j_plug->valuestring) ? j_plug->valuestring : "";
+                const char *t_val = (j_type && cJSON_IsString(j_type) && j_type->valuestring) ? j_type->valuestring : "";
+
+                if (p_val[0] && plugin_mgr_resolve_device_plugin(p_val, resolved_plug, sizeof(resolved_plug))) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", j_plug->valuestring);
-                } else if (j_type && cJSON_IsString(j_type) && strncasecmp(j_type->valuestring, "plugin:", 7) == 0) {
+                    cJSON_AddStringToObject(found_dev, "plugin", resolved_plug);
+                } else if (t_val[0] && plugin_mgr_resolve_device_plugin(t_val, resolved_plug, sizeof(resolved_plug))) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
-                    cJSON_AddStringToObject(found_dev, "plugin", j_type->valuestring + 7);
+                    cJSON_AddStringToObject(found_dev, "plugin", resolved_plug);
+                } else if (p_val[0]) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                    cJSON_AddStringToObject(found_dev, "plugin", p_val);
+                    snprintf(resolved_plug, sizeof(resolved_plug), "%s", p_val);
+                } else if (t_val[0] && strncasecmp(t_val, "plugin:", 7) == 0) {
+                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                    cJSON_AddStringToObject(found_dev, "plugin", t_val + 7);
+                    snprintf(resolved_plug, sizeof(resolved_plug), "%s", t_val + 7);
                 }
 
                 /* Also merge flat parameters or custom fields into found_dev->config if present */
@@ -835,10 +854,80 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 /* Plugin devices do not use IR controlPort */
                 cJSON *chk_plug = cJSON_GetObjectItemCaseSensitive(found_dev, "plugin");
                 cJSON *chk_type = cJSON_GetObjectItemCaseSensitive(found_dev, "type");
-                int is_dev_plugin = (chk_plug && cJSON_IsString(chk_plug) && chk_plug->valuestring[0]) ||
-                                    (chk_type && cJSON_IsString(chk_type) && (strncasecmp(chk_type->valuestring, "plugin:", 7) == 0 || strcasecmp(chk_type->valuestring, "plugin") == 0));
+                const char *cp_str = (chk_plug && cJSON_IsString(chk_plug)) ? chk_plug->valuestring : "";
+                const char *ct_str = (chk_type && cJSON_IsString(chk_type)) ? chk_type->valuestring : "";
+
+                if (!resolved_plug[0]) {
+                    if (cp_str[0] && plugin_mgr_resolve_device_plugin(cp_str, resolved_plug, sizeof(resolved_plug))) {
+                    } else if (ct_str[0] && plugin_mgr_resolve_device_plugin(ct_str, resolved_plug, sizeof(resolved_plug))) {
+                    } else if (cp_str[0]) {
+                        snprintf(resolved_plug, sizeof(resolved_plug), "%s", cp_str);
+                    } else if (ct_str[0] && strncasecmp(ct_str, "plugin:", 7) == 0) {
+                        snprintf(resolved_plug, sizeof(resolved_plug), "%s", ct_str + 7);
+                    }
+                }
+
+                int is_dev_plugin = (resolved_plug[0] != '\0') ||
+                                    (chk_plug && cJSON_IsString(chk_plug) && chk_plug->valuestring[0]) ||
+                                    (chk_type && cJSON_IsString(chk_type) && (strncasecmp(chk_type->valuestring, "plugin:", 7) == 0 ||
+                                                                             strcasecmp(chk_type->valuestring, "plugin") == 0));
                 if (is_dev_plugin) {
                     cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "controlPort");
+
+                    if (resolved_plug[0]) {
+                        cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "plugin");
+                        cJSON_AddStringToObject(found_dev, "plugin", resolved_plug);
+
+                        cJSON *dev_def = plugin_mgr_get_device_definition(resolved_plug);
+                        if (dev_def) {
+                            /* Auto-populate config fields defaults if not present */
+                            cJSON *cfg_fields = cJSON_GetObjectItemCaseSensitive(dev_def, "config_fields");
+                            if (cfg_fields && cJSON_IsArray(cfg_fields)) {
+                                cJSON *cur_cfg = cJSON_GetObjectItemCaseSensitive(found_dev, "config");
+                                if (!cur_cfg || !cJSON_IsObject(cur_cfg)) {
+                                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "config");
+                                    cur_cfg = cJSON_CreateObject();
+                                    cJSON_AddItemToObject(found_dev, "config", cur_cfg);
+                                }
+                                cJSON *fld = NULL;
+                                cJSON_ArrayForEach(fld, cfg_fields) {
+                                    cJSON *k = cJSON_GetObjectItemCaseSensitive(fld, "key");
+                                    if (k && cJSON_IsString(k) && k->valuestring[0]) {
+                                        if (!cJSON_GetObjectItemCaseSensitive(cur_cfg, k->valuestring)) {
+                                            cJSON *def_val = cJSON_GetObjectItemCaseSensitive(fld, "default");
+                                            if (def_val && cJSON_IsNumber(def_val)) {
+                                                cJSON_AddNumberToObject(cur_cfg, k->valuestring, def_val->valuedouble);
+                                            } else if (def_val && cJSON_IsString(def_val)) {
+                                                cJSON_AddStringToObject(cur_cfg, k->valuestring, def_val->valuestring);
+                                            } else {
+                                                cJSON_AddStringToObject(cur_cfg, k->valuestring, "");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            /* Auto-populate default commands if empty */
+                            cJSON *cur_cmds = cJSON_GetObjectItemCaseSensitive(found_dev, "commands");
+                            if (!cur_cmds || !cJSON_IsArray(cur_cmds) || cJSON_GetArraySize(cur_cmds) == 0) {
+                                cJSON *def_cmds = cJSON_GetObjectItemCaseSensitive(dev_def, "default_commands");
+                                if (def_cmds && cJSON_IsArray(def_cmds) && cJSON_GetArraySize(def_cmds) > 0) {
+                                    cJSON *cloned_cmds = cJSON_Duplicate(def_cmds, 1);
+                                    cJSON *cmd_it = NULL;
+                                    cJSON_ArrayForEach(cmd_it, cloned_cmds) {
+                                        cJSON *raw = cJSON_GetObjectItemCaseSensitive(cmd_it, "raw");
+                                        cJSON *kc = cJSON_GetObjectItemCaseSensitive(cmd_it, "keyCode");
+                                        if (!raw && kc && cJSON_IsString(kc)) {
+                                            cJSON_AddStringToObject(cmd_it, "raw", kc->valuestring);
+                                        }
+                                    }
+                                    cJSON_DeleteItemFromObjectCaseSensitive(found_dev, "commands");
+                                    cJSON_AddItemToObject(found_dev, "commands", cloned_cmds);
+                                }
+                            }
+                            cJSON_Delete(dev_def);
+                        }
+                    }
                 }
 
                 if (config_store_save_devices(root) == 0) {

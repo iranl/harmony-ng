@@ -95,7 +95,7 @@ def main():
             ])
         }
         st, res = hub.http_post("/ir/new-device", new_dev_payload)
-        check(st == 200 and res.get("ok") is True, "POST /ir/new-device saves plugin device")
+        check(st == 200 and isinstance(res, dict) and res.get("ok") is True, "POST /ir/new-device saves plugin device")
         dev_id = str(res.get("deviceId") or res.get("id"))
         check(len(dev_id) > 0, f"Assigned deviceId {dev_id}")
 
@@ -153,6 +153,73 @@ def main():
         check(os.path.exists(plug_dir), "Plugin files remain intact after rejected uninstall")
 
         # -------------------------------------------------------------
+        # Test 3: Save Roku device with type "Roku"
+        # -------------------------------------------------------------
+        roku_plug_dir = os.path.join(hub.data_dir, "plugins", "roku-ecp")
+        os.makedirs(roku_plug_dir, exist_ok=True)
+        roku_manifest = {
+            "id": "roku-ecp",
+            "name": "Roku ECP Controller",
+            "version": "1.0.0",
+            "entrypoint": "run.sh",
+            "device_definition": {
+                "device_type": "roku",
+                "display_name": "Roku Player / TV",
+                "config_fields": [
+                    {"key": "ip_address", "label": "IP Address", "type": "string"},
+                    {"key": "port", "label": "Port", "type": "number", "default": 8060}
+                ],
+                "default_commands": [
+                    {"name": "Home", "keyCode": "PLUGIN:roku-ecp:Home"},
+                    {"name": "Back", "keyCode": "PLUGIN:roku-ecp:Back"},
+                    {"name": "Select", "keyCode": "PLUGIN:roku-ecp:Select"},
+                    {"name": "DirectionUp", "keyCode": "PLUGIN:roku-ecp:Up"},
+                    {"name": "DirectionDown", "keyCode": "PLUGIN:roku-ecp:Down"},
+                    {"name": "DirectionLeft", "keyCode": "PLUGIN:roku-ecp:Left"},
+                    {"name": "DirectionRight", "keyCode": "PLUGIN:roku-ecp:Right"},
+                    {"name": "Play", "keyCode": "PLUGIN:roku-ecp:Play"},
+                    {"name": "Rev", "keyCode": "PLUGIN:roku-ecp:Rev"},
+                    {"name": "Fwd", "keyCode": "PLUGIN:roku-ecp:Fwd"},
+                    {"name": "PowerOff", "keyCode": "PLUGIN:roku-ecp:PowerOff"}
+                ]
+            }
+        }
+        with open(os.path.join(roku_plug_dir, "manifest.json"), "w") as rf:
+            json.dump(roku_manifest, rf)
+        with open(os.path.join(roku_plug_dir, "run.sh"), "w") as rf:
+            rf.write("#!/bin/sh\nexit 0\n")
+        os.chmod(os.path.join(roku_plug_dir, "run.sh"), 0o755)
+
+        roku_payload = {
+            "name": "My Roku TV",
+            "type": "Roku",
+            "manufacturer": "Roku",
+            "model": "Streaming Stick",
+            "config": json.dumps({"ip_address": "192.168.1.88", "port": 8060})
+        }
+        st, res = hub.http_post("/ir/new-device", roku_payload)
+        check(st == 200 and res.get("ok") is True, "POST /ir/new-device saves Roku device with type Roku")
+        roku_dev_id = str(res.get("deviceId") or res.get("id"))
+        check(len(roku_dev_id) > 0, f"Assigned deviceId {roku_dev_id} for Roku")
+
+        st, dev_res_r = hub.http_get("/api/devices")
+        roku_saved = next((d for d in dev_res_r.get("devices", []) if str(d.get("id")) == roku_dev_id), None)
+        check(roku_saved is not None, "Roku device found in inventory")
+        check(roku_saved.get("type") in ("Roku", "plugin:roku-ecp"), f"Roku device type valid: {roku_saved.get('type')}")
+        check(roku_saved.get("plugin") == "roku-ecp", f"Roku device plugin is roku-ecp: {roku_saved.get('plugin')}")
+        check("controlPort" not in roku_saved, "controlPort not present on Roku device")
+        r_cfg = roku_saved.get("config", {})
+        check(r_cfg.get("ip_address") == "192.168.1.88", f"Roku IP address preserved: {r_cfg}")
+        check(r_cfg.get("port") == 8060 or r_cfg.get("port") == "8060", f"Roku port preserved: {r_cfg}")
+        r_cmds = roku_saved.get("commands", [])
+        check(len(r_cmds) >= 10, f"Roku default commands auto-populated: {len(r_cmds)}")
+        home_cmd = next((c for c in r_cmds if c.get("name") == "Home"), None)
+        check(home_cmd is not None and "PLUGIN:roku-ecp:Home" in home_cmd.get("keyCode", ""), "Home command has valid plugin keyCode")
+        st, del_roku_plug = hub.http_post("/api/plugins/uninstall", {"id": "roku-ecp"})
+        check(st == 400, "Uninstalling roku-ecp rejected while Roku device exists")
+        hub.http_post("/ir/delete-device", {"id": roku_dev_id, "deviceId": roku_dev_id})
+
+        # -------------------------------------------------------------
         # Test 4: Delete device, then uninstall plugin successfully
         # -------------------------------------------------------------
         st, del_dev_res = hub.http_post("/ir/delete-device", {"id": dev_id, "deviceId": dev_id})
@@ -183,6 +250,7 @@ def main():
 
         # Serve mock_repo_dir via local HTTP server
         handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(*args, directory=mock_repo_dir, **kwargs)
+        socketserver.TCPServer.allow_reuse_address = True
         httpd = socketserver.TCPServer(("127.0.0.1", 9993), handler)
         http_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         http_thread.start()
