@@ -513,7 +513,12 @@ int ioctl(int fd, unsigned long request, ...) {
                 if (fscanf(f, "%d", &ms) == 1 && ms > 0 && ms < 10000) usleep((useconds_t)ms * 1000);
                 fclose(f);
             }
-            if (realtime && tx_start_us + tx_len_us > now_us) usleep((useconds_t)(tx_start_us + tx_len_us - now_us));
+            if (realtime) {
+                /* the time now: the sleep above already counts toward the frame's air time */
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                now_us = (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+                if (tx_start_us + tx_len_us > now_us) usleep((useconds_t)(tx_start_us + tx_len_us - now_us));
+            }
         }
         return 0;
     }

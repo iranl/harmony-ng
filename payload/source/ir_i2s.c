@@ -359,8 +359,11 @@ int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8
             loc = repeat_loc;
         }
     } else if (part == IR_BLOB_FINISH) {
+        /* like the repeat: a sequence with a word count of 0 is none (the send would take
+         * every byte after it as words) */
         uint16_t finish_loc = ((uint16_t)blob[14] << 8) | (uint16_t)blob[15];
-        if (finish_loc < 16 || (size_t)finish_loc + 4 > blob_len) return -ENOENT;
+        if (finish_loc < 16 || (size_t)finish_loc + 4 > blob_len ||
+            (!blob[finish_loc] && !blob[finish_loc + 1])) return -ENOENT;
         loc = finish_loc;
     } else if (part != IR_BLOB_START) {
         return -1;

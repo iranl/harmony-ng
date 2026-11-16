@@ -63,6 +63,7 @@ int main(void) {
     CHECK(blast_part(18, IR_BLOB_FINISH, 16, 16, 0) == -ENOENT, "part: a code without a finish sequence has none");
     CHECK(blast_part(18, IR_BLOB_FINISH, 16, 16, 400) == -ENOENT, "part: a finish location past the end counts as none");
     CHECK(blast_part(18, IR_BLOB_FINISH, 16, 16, 16) == -ENOENT, "part: a finish location with no room for a word counts as none");
+    CHECK(blast_part(24, IR_BLOB_FINISH, 16, 16, 18) == -ENOENT, "part: a finish sequence with a word count of 0 counts as none");
     CHECK(blast_part(18, 7, 16, 16, 0) == -1, "part: an unknown part is refused");
     if (g_failures) {
         printf("%d check(s) FAILED\n", g_failures);

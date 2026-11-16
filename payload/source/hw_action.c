@@ -177,7 +177,7 @@ static int ir_hold_press(const char *key, uint8_t *blob, size_t blob_len, uint8_
  * for any other key, or for none, does nothing. */
 static void ir_hold_heartbeat(const char *key) {
     pthread_mutex_lock(&s_ir_hold.lock);
-    if (s_ir_hold.active && !s_ir_hold.stop && strcmp(s_ir_hold.key, key) == 0) {
+    if (s_ir_hold.active && !s_ir_hold.stop && key && strcmp(s_ir_hold.key, key) == 0) {
         s_ir_hold.deadline_ms = ir_hold_now_ms() + HW_IR_HOLD_DEADLINE_MS;
     }
     pthread_mutex_unlock(&s_ir_hold.lock);
