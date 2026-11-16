@@ -2386,17 +2386,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
     post:
       tags:
         - RF & Remote
@@ -2421,17 +2425,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
 
   /api/rf/pull-config:
     get:
@@ -2608,6 +2616,17 @@ paths:
       tags:
         - RF & Remote
       summary: Stop RF pairing mode
+      responses:
+        '200':
+          description: Pairing stopped
+          content:
+            application/json:
+              example:
+                status: pairing_stopped
+    post:
+      tags:
+        - RF & Remote
+      summary: Stop RF pairing mode (POST)
       responses:
         '200':
           description: Pairing stopped

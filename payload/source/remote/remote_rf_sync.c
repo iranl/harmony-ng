@@ -361,7 +361,14 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
 
                 /* Check if this button is mapped to an activity start or stop */
                 if (f->payload[2] == 0x00 && (f->payload[24] == 0x02 || f->payload[24] == 0x03)) {
-                    if (g_act_trigger_count < MAX_ACT_TRIGGERS) {
+                    /* a chunk sent again after a lost ACK must not add the trigger a second time */
+                    bool known = false;
+                    for (int t = 0; t < g_act_trigger_count && !known; t++) {
+                        known = g_act_triggers[t].atype == f->payload[24] &&
+                                strcmp(g_act_triggers[t].button_name, g_rf_buttons[idx].label) == 0 &&
+                                strcmp(g_act_triggers[t].target_act_id, g_rf_buttons[idx].context_id) == 0;
+                    }
+                    if (!known && g_act_trigger_count < MAX_ACT_TRIGGERS) {
                         strncpy(g_act_triggers[g_act_trigger_count].button_name, g_rf_buttons[idx].label, sizeof(g_act_triggers[0].button_name) - 1);
                         g_act_triggers[g_act_trigger_count].atype = f->payload[24];
                         strncpy(g_act_triggers[g_act_trigger_count].target_act_id, g_rf_buttons[idx].context_id, sizeof(g_act_triggers[0].target_act_id) - 1);
@@ -387,21 +394,20 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (chunk_idx == 0) {
                 g_rf_step_count = 0;
             }
-            if (g_rf_step_count < MAX_RF_STEPS) {
-                g_rf_steps[g_rf_step_count].step_idx = f->payload[1];
-                g_rf_steps[g_rf_step_count].total_steps = f->payload[2];
-                strncpy(g_rf_steps[g_rf_step_count].act_id, (char *)&f->payload[3], 9);
-                g_rf_steps[g_rf_step_count].act_id[9] = '\0';
-                g_rf_steps[g_rf_step_count].delay_ms = (uint16_t)f->payload[12] | ((uint16_t)f->payload[13] << 8);
-                strncpy(g_rf_steps[g_rf_step_count].name, (char *)&f->payload[14], 11);
-                g_rf_steps[g_rf_step_count].name[11] = '\0';
-                g_rf_step_count++;
+            /* Stored at its index: a chunk the Hub sends again after a lost ACK replaces itself
+             * instead of adding the step a second time */
+            if (chunk_idx < MAX_RF_STEPS) {
+                rf_act_step_t *st = &g_rf_steps[chunk_idx];
+                st->step_idx = f->payload[1];
+                st->total_steps = f->payload[2];
+                strncpy(st->act_id, (char *)&f->payload[3], 9);
+                st->act_id[9] = '\0';
+                st->delay_ms = (uint16_t)f->payload[12] | ((uint16_t)f->payload[13] << 8);
+                strncpy(st->name, (char *)&f->payload[14], 11);
+                st->name[11] = '\0';
+                if (chunk_idx >= g_rf_step_count) g_rf_step_count = chunk_idx + 1;
                 printf("[*] Step chunk %d: act=%s step=%d/%d del=%d name='%s'\n",
-                       chunk_idx, g_rf_steps[g_rf_step_count - 1].act_id,
-                       g_rf_steps[g_rf_step_count - 1].step_idx,
-                       g_rf_steps[g_rf_step_count - 1].total_steps,
-                       g_rf_steps[g_rf_step_count - 1].delay_ms,
-                       g_rf_steps[g_rf_step_count - 1].name);
+                       chunk_idx, st->act_id, st->step_idx, st->total_steps, st->delay_ms, st->name);
             }
             rf_frame_t ack;
             rf_build_ack(&ack, g_remote_slot, f->seq, 0x00);
@@ -416,7 +422,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             if (g_brightness_val > 5) g_brightness_val = 5;
             g_touch_enabled = (f->payload[1] != 0);
             g_gyro_enabled = (f->payload[2] != 0);
-            g_timeout_seconds = ((int)f->payload[3] << 8) | f->payload[4];
+            g_timeout_seconds = rf_clamp_screen_timeout(((int)f->payload[3] << 8) | f->payload[4]);
             /* payload[5..7]: the NAV toggle key and mode of older firmware, ignored */
             g_confirm_activity = (f->payload[8] != 0);
             if (f->payload[9] >= 1 && f->payload[9] <= 3) g_touch_sensitivity = f->payload[9];
@@ -530,17 +536,16 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t uflags = f->payload[19];
             uint8_t hub_ver = f->payload[20];
             g_hub_config_version = hub_ver;
-            if (hub_ver > g_config_version) {
-                g_update_config_available = true;
-            } else {
-                g_update_config_available = false;
-            }
+            /* Any difference means the Hub has another config: its 8-bit version wraps from 255
+             * to 1 and starts at 1 again when its file is lost, so "higher" missed those pushes.
+             * 0 = the Hub reports no version. */
+            g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
             if ((uflags & 0x02) && g_hub_ota_version[0]) {
                 g_update_ota_available = (harmony_version_compare(g_hub_ota_version, HARMONY_REMOTE_VERSION) > 0);
             } else if (!(uflags & 0x02)) {
                 g_update_ota_available = false;
             }
-            if (hub_ver > g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
+            if (hub_ver != 0 && hub_ver != g_config_version && !g_is_syncing_config && !g_is_ota_updating) {
                 static uint64_t last_ver_check_ms = 0;
                 uint64_t now_ms = get_monotonic_ms();
                 if (!sync_backoff_active(now_ms) && now_ms - last_ver_check_ms > 8000) {
@@ -566,7 +571,7 @@ void handle_hub_frame_remote(const rf_frame_t *f) {
             uint8_t hub_ver = f->payload[1];
             g_hub_config_version = hub_ver;
             if (uflags & 0x01) {
-                g_update_config_available = (hub_ver > g_config_version);
+                g_update_config_available = (hub_ver != 0 && hub_ver != g_config_version);
             } else {
                 g_update_config_available = false;
             }

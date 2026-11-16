@@ -178,6 +178,29 @@ void rf_battery_restore(void) {
     rf_battery_fix_times();
 }
 
+void rf_slot_forget(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    int i = slot - 1;
+    paired_remote_t *p = &g_paired_remotes[i];
+    p->active = false;
+    memset(p->rf_addr, 0, sizeof(p->rf_addr));
+    p->name[0] = '\0';
+    p->equad_id = 0;
+    p->model = REMOTE_MODEL_UNKNOWN;
+    remote_version_t *v = &g_remote_versions[i];
+    snprintf(v->sw_version, sizeof(v->sw_version), "%s", "unknown");
+    v->config_version = 0;
+    v->caps = 0;
+    v->last_report_ms = 0;
+    v->remote_id[0] = '\0';
+    v->skin = 0;
+    memset(&g_remote_batteries[i], 0, sizeof(g_remote_batteries[i]));
+    char path[160];
+    battery_cache_path(slot, path, sizeof(path));
+    unlink(path);
+    rf_state_save_version_file(slot);
+}
+
 int rf_battery_fix_times(void) {
     int64_t wall = wall_now();
     if (!wall) return 0;

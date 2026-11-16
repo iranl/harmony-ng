@@ -21,33 +21,6 @@
 static char g_last_sync_act[32] = "";
 static uint64_t g_last_sync_ms = 0;
 
-void publish_remote_battery_mqtt(uint8_t slot, uint8_t pct, uint8_t chg, uint16_t mv) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return;
-    struct sockaddr_in sin;
-    memset(&sin, 0, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(DAEMON_PORT);
-    sin.sin_addr.s_addr = inet_addr("127.0.0.1");
-    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) != 0) {
-        close(s);
-        return;
-    }
-
-    char body[512];
-    snprintf(body, sizeof(body),
-        "{\"action\":\"mqtt_publish\",\"topic\":\"harmony/hub/remote/%d/battery\","
-        "\"payload\":\"{\\\"battery\\\":%d,\\\"charging\\\":%s,\\\"voltage\\\":%.2f}\",\"retain\":1}",
-        slot, pct, chg ? "true" : "false", (float)mv / 1000.0f);
-
-    char req[768];
-    int rlen = snprintf(req, sizeof(req),
-        "POST /api/action HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
-        DAEMON_PORT, (int)strlen(body), body);
-    write(s, req, rlen);
-    close(s);
-}
-
 void record_config_diff(int slot, const char *old_json_str, cJSON *norm) {
     if (is_companion_slot((uint8_t)slot)) return;
     char diff[256] = {0};
@@ -137,8 +110,8 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     cJSON_AddNumberToObject(root, "nightEnd", night_end);
     int cap_buttons = (p[17] == 0) ? 0 : 1;
     cJSON_AddBoolToObject(root, "capButtonsEnabled", cap_buttons != 0);
-    int power_debug = (p[18] == 1) ? 1 : 0;
-    cJSON_AddBoolToObject(root, "powerDebug", power_debug != 0);
+    /* p[18]: 1 on, 2 off, 0 not reported (what remotes send today): then the stored value stays */
+    if (p[18] == 1 || p[18] == 2) cJSON_AddBoolToObject(root, "powerDebug", p[18] == 1);
 
     int lang_id = (p[19] <= 5) ? p[19] : 0;
     const char *lang_str = "en";
@@ -153,6 +126,28 @@ void save_remote_config_backup(uint8_t slot, const uint8_t *p) {
     int phys_nav = (p[22] == 1) ? 1 : 0;
     cJSON_AddBoolToObject(root, "physicalNavEnabled", phys_nav != 0);
     cJSON_AddNumberToObject(root, "physical_nav", phys_nav);
+
+    /* The remote answers every settings push with this backup, which has no no-screen byte and
+     * no power debug value: keep what the settings API stored for them. Replacing the file with
+     * the frame's view lost both, and the next config push turned no-screen mode and power
+     * logging off again. */
+    FILE *of = fopen(path, "r");
+    if (of) {
+        char old_txt[4096];
+        size_t on = fread(old_txt, 1, sizeof(old_txt) - 1, of);
+        fclose(of);
+        old_txt[on] = '\0';
+        cJSON *old = cJSON_Parse(old_txt);
+        static const char *const keep[] = { "noScreen", "no_screen", "powerDebug", "power_debug",
+                                            "debugLogging", "debug_logging", NULL };
+        for (int k = 0; old && keep[k]; k++) {
+            if (k >= 2 && (p[18] == 1 || p[18] == 2)) continue; /* the frame carried power debug */
+            cJSON *ov = cJSON_GetObjectItem(old, keep[k]);
+            if (ov) cJSON_AddItemToObject(root, keep[k], cJSON_Duplicate(ov, 1));
+        }
+        cJSON_Delete(old);
+    }
+    if (!cJSON_GetObjectItem(root, "powerDebug")) cJSON_AddBoolToObject(root, "powerDebug", 0);
 
     char *txt = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -474,7 +469,7 @@ void rf_send_hub_time_sync(void) {
     }
 }
 
-int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str) {
+static int icon_push_file_unlocked(int target_slot, const char *file_path, const char *id_str) {
     if (target_slot < 1 || target_slot > 2) target_slot = 1;
     if (!id_str || !id_str[0] || !file_path || !file_path[0]) return -1;
     if (!rf_icon_id_valid(id_str)) {
@@ -605,6 +600,29 @@ int rf_push_custom_icon_file(int target_slot, const char *file_path, const char 
 
     printf("[+] RF Custom Icon %s transferred successfully to slot %d!\n", id_str, target_slot);
     return 0;
+}
+
+/* One icon transfer at a time: the remote keeps one icon receiver, and the config push and the
+ * RF API both send icons. A transfer takes seconds, so the next one waits in 20 ms sleeps on this
+ * flag (taken under a short lock): on the Hub, whose kernel has no futex, a thread blocked on a
+ * held mutex spins. */
+static pthread_mutex_t s_icon_tx_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool s_icon_tx_busy;
+
+int rf_push_custom_icon_file(int target_slot, const char *file_path, const char *id_str) {
+    for (;;) {
+        pthread_mutex_lock(&s_icon_tx_lock);
+        bool mine = !s_icon_tx_busy;
+        if (mine) s_icon_tx_busy = true;
+        pthread_mutex_unlock(&s_icon_tx_lock);
+        if (mine) break;
+        usleep(20000);
+    }
+    int rc = icon_push_file_unlocked(target_slot, file_path, id_str);
+    pthread_mutex_lock(&s_icon_tx_lock);
+    s_icon_tx_busy = false;
+    pthread_mutex_unlock(&s_icon_tx_lock);
+    return rc;
 }
 
 int rf_push_custom_icon(int target_slot, const char *type_str, const char *id_str) {

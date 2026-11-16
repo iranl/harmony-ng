@@ -13,7 +13,9 @@
 #define CC2544_FW          "/lib/firmware/cc2544.bin"
 #define DAEMON_PORT        8089
 #define WEBUI_PORT         8089
-#define RF_API_PORT        8092
+#ifndef RF_API_PORT
+#define RF_API_PORT        8092 /* tests build with another port */
+#endif
 #define CURRENT_ACT_FILE       "/data/harmony/current_activity"
 
 #define MAX_PAIRED_REMOTES 2
@@ -132,8 +134,9 @@ extern rf_ota_state_t g_rf_ota;
 extern pthread_mutex_t g_ota_lock;
 extern int g_debug_logging;
 extern uint8_t g_tx_seq;
-extern int g_ack_status;
-extern uint8_t g_ack_payload[25];
+/* Per thread: the ACK of the last rf_send_frame_acked() of the calling thread */
+extern __thread int g_ack_status;
+extern __thread uint8_t g_ack_payload[25];
 
 #ifdef __cplusplus
 extern "C" {
@@ -157,6 +160,10 @@ extern const char *g_rf_version_dir;
 extern time_t (*g_rf_time_fn)(time_t *);
 void rf_battery_note_report(uint8_t slot, uint8_t percent, uint8_t charging, uint16_t voltage_mv);
 void rf_battery_restore(void);
+/* A slot was unpaired: its pairing, identity, version, config version, capabilities and battery
+ * are those of a remote that is gone. All of them are cleared (the version file too), so a remote
+ * paired into the slot later starts from nothing. The slot's settings and key map stay. */
+void rf_slot_forget(uint8_t slot);
 /* Gives a report made before the clock was set its reported_at; returns 1 when it changed one */
 int rf_battery_fix_times(void);
 void mark_remote_slot_active(uint8_t slot);

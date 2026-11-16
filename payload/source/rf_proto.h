@@ -127,6 +127,15 @@
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
 #define RF_CAP_UNIT_ID             0x04  /* sends RF_MSG_UNIT_ID after every version report */
+#define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
+
+/* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
+ * until the battery was empty. The remote's own Settings screen offers 10 to 120 s. */
+#define RF_SCREEN_TIMEOUT_MIN      5
+#define RF_SCREEN_TIMEOUT_MAX      600
+static inline int rf_clamp_screen_timeout(int s) {
+    return s < RF_SCREEN_TIMEOUT_MIN ? RF_SCREEN_TIMEOUT_MIN : (s > RF_SCREEN_TIMEOUT_MAX ? RF_SCREEN_TIMEOUT_MAX : s);
+}
 
 /* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
 #define RF_NAME_SIZE               40

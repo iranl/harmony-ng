@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -27,6 +28,9 @@
 #define OTA_WIN_IN_FLIGHT   64
 #define OTA_WIN_REWIND_MS   300
 #define OTA_WIN_STALL_MS    20000
+/* OTA_END: sent this many times, each waiting this long for the ACK */
+#define OTA_END_ATTEMPTS    3
+#define OTA_END_WAIT_MS     6000
 
 static volatile uint32_t s_win_contig;
 static volatile uint8_t s_win_slot; /* slot of the windowed transfer in progress, 0 = none */
@@ -139,7 +143,17 @@ void ota_set_status(int status, bool in_prog, const char *err) {
     }
 }
 
-static void get_ota_repo_source(char *out_repo, size_t out_sz) {
+/* The update source goes into a shell command between single quotes: only the characters the
+ * update API accepts for it (letters, digits and - _ . / : @ ~) */
+static bool ota_repo_chars_ok(const char *s) {
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (!isalnum(c) && !strchr("-_./:@~", c)) return false;
+    }
+    return true;
+}
+
+void get_ota_repo_source(char *out_repo, size_t out_sz) {
     out_repo[0] = '\0';
     FILE *f = fopen("/data/harmony/update_state.conf", "r");
     if (f) {
@@ -149,14 +163,20 @@ static void get_ota_repo_source(char *out_repo, size_t out_sz) {
                 char *src = line + 7;
                 char *nl = strchr(src, '\r'); if (nl) *nl = '\0';
                 nl = strchr(src, '\n'); if (nl) *nl = '\0';
-                if (*src) strncpy(out_repo, src, out_sz - 1);
+                /* a value that does not fit or has other characters is not used: a cut URL
+                 * is a wrong one */
+                if (*src && strlen(src) < out_sz && ota_repo_chars_ok(src)) {
+                    snprintf(out_repo, out_sz, "%s", src);
+                } else if (*src) {
+                    printf("[-] RF OTA: update source in update_state.conf not usable, using the default\n");
+                }
                 break;
             }
         }
         fclose(f);
     }
     if (!out_repo[0]) {
-        strncpy(out_repo, "https://raw.githubusercontent.com/iranl/harmony-ng/ota", out_sz - 1);
+        snprintf(out_repo, out_sz, "%s", "https://raw.githubusercontent.com/iranl/harmony-ng/ota");
     }
 }
 
@@ -303,7 +323,7 @@ void *rf_ota_sender_worker(void *arg) {
     FILE *f = fopen(ota_path, "rb");
     if (!f) {
         printf("[*] Remote OTA image not found in /tmp. Downloading to %s...\n", ota_path);
-        char repo[256];
+        char repo[256] = {0};
         get_ota_repo_source(repo, sizeof(repo));
         char fetch_cmd[512];
         snprintf(fetch_cmd, sizeof(fetch_cmd), "/data/harmony/update.sh fetch-remote-ota '%s' >/tmp/ota_fetch.log 2>&1", repo);
@@ -460,7 +480,8 @@ void *rf_ota_sender_worker(void *arg) {
     if (windowed) {
         uint32_t tot_data = (tot_bytes + RF_OTA_DATA_BYTES - 1) / RF_OTA_DATA_BYTES;
         uint32_t resume = (uint32_t)g_ack_payload[6] | ((uint32_t)g_ack_payload[7] << 8);
-        if (resume >= tot_data) resume = 0;
+        /* resume == tot_data: the remote has every chunk (its OTA_END was lost), only OTA_END */
+        if (resume > tot_data) resume = 0;
         pthread_mutex_lock(&g_ota_lock);
         g_rf_ota.total_chunks = (uint16_t)tot_data;
         pthread_mutex_unlock(&g_ota_lock);
@@ -478,7 +499,7 @@ void *rf_ota_sender_worker(void *arg) {
         c_idx = tot_chunks;
     } else {
         uint16_t resume_chunk = (uint16_t)g_ack_payload[2] | ((uint16_t)g_ack_payload[3] << 8);
-        if (resume_chunk > 0 && resume_chunk < tot_chunks) {
+        if (resume_chunk > 0 && resume_chunk <= tot_chunks) {
             c_idx = resume_chunk;
             sent_bytes = (uint32_t)resume_chunk * RF_OTA_CHUNK_BYTES;
             fseek(f, (long)sent_bytes, SEEK_SET);
@@ -548,7 +569,17 @@ void *rf_ota_sender_worker(void *arg) {
     end_payload[0] = 0x01; /* Algorithm 1 = SHA-256 (20-byte prefix) */
     memcpy(&end_payload[1], ota_digest, 20);
     rf_build_frame(&frame, target_slot, RF_MSG_OTA_END, ++g_tx_seq, RF_FLAG_ACK_REQ, end_payload, 21);
-    if (rf_send_frame_acked(&frame, 6000) != 0) {
+    /* The remote ACKs OTA_END only after it has checked and installed the image, which can take
+     * longer than one wait, and a lost OTA_END cost a whole second transfer. The same frame
+     * (same sequence number) is sent again, so a late ACK of the first one still counts; a remote
+     * that took the first one ignores the others (it left OTA mode). */
+    int end_ack = -1;
+    for (int attempt = 1; attempt <= OTA_END_ATTEMPTS && g_running && end_ack != 0; attempt++) {
+        end_ack = rf_send_frame_acked(&frame, OTA_END_WAIT_MS);
+        if (end_ack != 0 && attempt < OTA_END_ATTEMPTS)
+            printf("[*] No ACK for OTA_END from slot %d yet (attempt %d/%d)\n", target_slot, attempt, OTA_END_ATTEMPTS);
+    }
+    if (end_ack != 0) {
         ota_set_status(-1, false, "OTA_END ACK timeout");
         return NULL;
     }

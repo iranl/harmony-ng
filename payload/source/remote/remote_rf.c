@@ -363,10 +363,13 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
             }
         }
         if (!found_stop && count < max_steps && strcmp(from_id, "-1") != 0) {
+            /* the callers' arrays are not zeroed: terminate what is copied */
             strncpy(out_steps[count].act_id, from_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = 0x80;
             out_steps[count].delay_ms = 1500;
             strncpy(out_steps[count].name, "Stop old act", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             total += 1500;
             count++;
         }
@@ -394,9 +397,11 @@ int build_combined_activity_sequence(const char *from_id, const char *to_id,
         }
         if (found_start && !found_switched && count < max_steps) {
             strncpy(out_steps[count].act_id, to_id, sizeof(out_steps[count].act_id) - 1);
+            out_steps[count].act_id[sizeof(out_steps[count].act_id) - 1] = '\0';
             out_steps[count].step_idx = (uint8_t)count;
             out_steps[count].delay_ms = 0;
             strncpy(out_steps[count].name, "Activity switched", sizeof(out_steps[count].name) - 1);
+            out_steps[count].name[sizeof(out_steps[count].name) - 1] = '\0';
             count++;
         }
     }
@@ -480,7 +485,7 @@ void send_version_report_rf(void) {
     payload[1] = (uint8_t)min;
     payload[2] = (uint8_t)pat;
     payload[3] = (uint8_t)g_config_version;
-    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID;
+    payload[4] = RF_CAP_ACT_DEVICES | RF_CAP_LONG_NAMES | RF_CAP_UNIT_ID | RF_CAP_DEVICE_CMDS;
     rf_build_frame(&f, g_remote_slot, RF_MSG_VERSION_REPORT, ++g_tx_seq, 0, payload, 5);
     rf_send_frame(&f);
     printf("[*] Sent 24h version report over RF: v%u.%u.%u (cfg=%u)\n", maj, min, pat, g_config_version);

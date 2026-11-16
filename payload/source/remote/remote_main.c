@@ -151,6 +151,18 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     _exit(128 + sig);
 }
 
+/* A thread remote_ui cannot work without: tried twice (a failure means no memory for its stack
+ * at that moment), and said in the log when it did not start; the result was ignored */
+static int start_thread(pthread_t *th, void *(*fn)(void *), const char *what) {
+    int rc = pthread_create(th, NULL, fn, NULL);
+    if (rc != 0) {
+        usleep(200000);
+        rc = pthread_create(th, NULL, fn, NULL);
+    }
+    if (rc != 0) fprintf(stderr, "[-] The %s thread did not start: %s\n", what, strerror(rc));
+    return rc;
+}
+
 static void sig_handler(int sig) {
     (void)sig;
     g_running = false;
@@ -392,7 +404,7 @@ int main(int argc, char **argv) {
         usleep(30000);
 
         pthread_t th_rf_rx;
-        pthread_create(&th_rf_rx, NULL, rf_rx_worker, NULL);
+        start_thread(&th_rf_rx, rf_rx_worker, "RF receive"); /* without it: "No Hub" */
         usleep(30000);
 
         if (do_pairing) {
@@ -450,8 +462,8 @@ int main(int argc, char **argv) {
     printf("[+] Listening on %s for physical buttons...\n", BTN_EVENT_DEV);
 
     pthread_t th_power, th_repeat;
-    pthread_create(&th_power, NULL, power_manager, NULL);
-    pthread_create(&th_repeat, NULL, key_repeat_thread, NULL);
+    start_thread(&th_power, power_manager, "power manager"); /* without it: no blank, no suspend */
+    start_thread(&th_repeat, key_repeat_thread, "key repeat"); /* without it: held keys do not repeat */
 
     if (!is_remote_paired() && g_current_view != VIEW_PAIRING) {
         g_current_view = VIEW_NOT_PAIRED;

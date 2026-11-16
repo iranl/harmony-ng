@@ -992,6 +992,8 @@ void load_settings_conf(void) {
         }
     }
     fclose(f);
+    /* 0 kept the screen on, and the remote awake, until the battery was empty */
+    g_timeout_seconds = rf_clamp_screen_timeout(g_timeout_seconds);
     if (access("/data/debug_logging.conf", F_OK) == 0) {
         g_debug_logging = true;
         g_log_level = LOG_LEVEL_DEBUG;
