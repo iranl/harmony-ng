@@ -316,9 +316,8 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         return 1;
     }
 
-    /* DELETE /api/auth/tokens or POST /api/auth/tokens/delete */
-    if (((strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "DELETE") == 0) ||
-         (strcmp(clean_path, "/api/auth/tokens/delete") == 0 && strcmp(method, "POST") == 0))) {
+    /* DELETE /api/auth/tokens */
+    if (strcmp(clean_path, "/api/auth/tokens") == 0 && strcmp(method, "DELETE") == 0) {
         cJSON *params = parse_request_params(body);
         char del_id[64] = {0};
         if (params) {
