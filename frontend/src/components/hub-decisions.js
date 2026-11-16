@@ -20,7 +20,9 @@ export function showSwitchCheck(api, toCheck, canDelete = true) {
     ...(toCheck?.tokens || [])
       .map((tk) => ({ kind: 'token', id: tk.id, label: `${t('auth_check_token', 'Access token')}: ${tk.name || tk.id} (${tk.role}${tk.owner ? `, ${tk.owner}` : ''}${tk.owner_missing ? `, ${gone}` : ''})` })),
   ];
-  if (!items.length) return null;
+  // the Hub could not read its token file: its tokens are not in the list, say so
+  const tokensUnreadable = Boolean(toCheck?.tokens_unreadable);
+  if (!items.length && !tokensUnreadable) return null;
   const list = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } });
   for (const item of items) {
     const row = h('div', {
@@ -51,6 +53,7 @@ export function showSwitchCheck(api, toCheck, canDelete = true) {
     title: t('auth_check_title', 'Check accounts and access tokens'),
     content: h('div', {}, [
       h('p', { className: 'text-dim', style: { fontSize: '13px', marginBottom: '10px' }, text: t('auth_check_intro', 'Authentication is on. Check the accounts and access tokens that exist on the Hub and delete any you do not recognise.') }),
+      ...(tokensUnreadable ? [h('p', { className: 'auth-tokens-unreadable', style: { fontSize: '12px', marginBottom: '10px', color: 'var(--danger)' }, text: t('auth_tokens_unreadable', 'The Hub cannot read its access token file, so its tokens are not listed. An admin can move the file aside with POST /api/auth/tokens-reset; every token then has to be created again.') })] : []),
       canDelete ? null : h('p', { style: { fontSize: '13px', marginBottom: '10px' }, text: t('auth_check_login_first', 'Log in with an admin account on the Users page: this list is shown again there, with Delete.') }),
       list,
     ]),

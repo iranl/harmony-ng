@@ -817,6 +817,8 @@ export default {
     "users": "Gebruikersaccounts",
     "add_user": "Gebruiker toevoegen",
     "api_tokens": "API-tokens",
+    "token_owner": "Eigenaar: {owner}",
+    "auth_tokens_unreadable": "De Hub kan zijn bestand met toegangstokens niet lezen, dus de tokens worden niet getoond. Een beheerder kan het bestand opzijzetten met POST /api/auth/tokens-reset; daarna moet elk token opnieuw worden gemaakt.",
     "generate_token": "Token aanmaken",
     "delete_user": "Gebruiker verwijderen",
 };

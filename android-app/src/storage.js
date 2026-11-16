@@ -38,19 +38,40 @@ export async function getSavedHubs() {
   return hubs.filter(h => h && h.host && h.host !== 'localhost' && h.host !== '127.0.0.1');
 }
 
+// A Hub profile is stored without a password: the app keeps an access token instead
+// (app_token.js). Older versions stored the password; it is dropped on the next save.
 export async function saveHub(hub) {
   if (!hub || !hub.host || hub.host === 'localhost' || hub.host === '127.0.0.1') {
     return await getSavedHubs();
   }
   const hubs = await getSavedHubs();
   const index = hubs.findIndex(h => h.id === hub.id || h.host === hub.host);
+  const merged = index >= 0 ? { ...hubs[index], ...hub } : { ...hub };
+  delete merged.password;
   if (index >= 0) {
-    hubs[index] = { ...hubs[index], ...hub };
+    hubs[index] = merged;
   } else {
-    hubs.push(hub);
+    hubs.push(merged);
   }
   await prefSet(HUBS_KEY, hubs);
   return hubs;
+}
+
+// Remove every stored password, also from profiles the app no longer lists. Returns how many.
+export async function forgetStoredPasswords() {
+  const hubs = await prefGet(HUBS_KEY);
+  if (!Array.isArray(hubs)) return 0;
+  let n = 0;
+  const clean = hubs.map(h => {
+    if (h && typeof h === 'object' && 'password' in h) {
+      n++;
+      const { password, ...rest } = h;
+      return rest;
+    }
+    return h;
+  });
+  if (n) await prefSet(HUBS_KEY, clean);
+  return n;
 }
 
 export async function deleteHub(hubId) {

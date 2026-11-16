@@ -272,6 +272,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       }
       html += '</div>';
       listEl.innerHTML = html;
+      showTokenOwners(listEl, tokens);
 
       listEl.querySelectorAll('.btn-del-pat').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -342,7 +343,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         const p = document.getElementById('loginPassword')?.value;
         if (errBox) errBox.style.display = 'none';
         try {
-          await this.client.login(u, p);
+          const res = await this.client.login(u, p);
+          if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
+          if (res && res.old_token_kept) showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
           if (modal) modal.style.display = 'none';
           const pInp = document.getElementById('loginPassword');
           if (pInp) pInp.value = '';
@@ -367,7 +370,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       btnSession.addEventListener('click', async () => {
         if (this.client?.token) {
           if (await showConfirm(t('logout_confirm'), { title: t('logout'), okText: t('logout'), danger: false })) {
-            await this.client.logout();
+            const res = await this.client.logout();
+            if (this.client.isNativeApp && this.client.hub && this.client.hub.id) this.activeHub = this.client.hub;
+            if (res && res.revoked === false) showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
             this.checkAuthStatus();
             await this.refreshData();
             this.showLoginModal();
@@ -432,6 +437,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         if (userDisplay) userDisplay.textContent = me.username || 'User';
         if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
         const hasToken = Boolean(this.client.token);
+        // the app's token reports itself as "pat:<token name>": show the account it belongs to
+        if (userDisplay && hasToken && (me.username || '').startsWith('pat:') && this.client.hub?.username) userDisplay.textContent = this.client.hub.username;
         if (!hasToken) {
           this.showLoginModal();
         } else {
@@ -455,4 +462,16 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     }
   }
 
+}
+
+// Adds each token's owner (the account it belongs to and ends with) to its row in the token list
+export function showTokenOwners(listEl, tokens) {
+  listEl.querySelectorAll('.btn-del-pat').forEach(btn => {
+    const tok = tokens.find(x => x.id === btn.getAttribute('data-id'));
+    const meta = btn.parentNode && btn.parentNode.querySelector('.mini.muted');
+    if (!tok || !meta) return;
+    const span = document.createElement('span');
+    span.textContent = ` • ${t('token_owner', 'Owner: {owner}').replace('{owner}', tok.owner || '-')}`;
+    meta.appendChild(span);
+  });
 }

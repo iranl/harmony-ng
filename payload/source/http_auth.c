@@ -11,6 +11,7 @@
 #include <time.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <strings.h>
@@ -276,7 +277,7 @@ static enum http_role validate_pat_token(const char *token, const struct user_ac
 
     const char *path = HARMONY_TOKENS_JSON;
     size_t flen = 0;
-    char *json_txt = read_file_text_alloc(path, 65536, &flen);
+    char *json_txt = read_file_text_alloc(path, HTTP_TOKENS_FILE_MAX, &flen);
     if (!json_txt) return ROLE_NONE;
 
     cJSON *root = cJSON_Parse(json_txt);
@@ -636,6 +637,7 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
     if (strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0) {
         if (strcmp(clean_path, "/api/status") == 0 ||
             strcmp(clean_path, "/api/auth/me") == 0 ||
+            strcmp(clean_path, "/api/auth/tokens") == 0 || /* own tokens only (the handler filters) */
             strcmp(clean_path, "/api/activities") == 0 ||
             strcmp(clean_path, "/api/activity") == 0 ||
             strcmp(clean_path, "/api/current_activity") == 0 ||
@@ -651,6 +653,12 @@ int http_auth_is_user_role_permitted(const char *method, const char *clean_path)
             return 1;
         }
         return 0;
+    }
+
+    /* Own access tokens: the handler limits an operator to tokens of its own account */
+    if ((strcmp(method, "DELETE") == 0 || strcmp(method, "POST") == 0) &&
+        strcmp(clean_path, "/api/auth/tokens") == 0) {
+        return 1;
     }
 
     /* Control only: start and stop activities, send stored or raw commands and keys. Saving
@@ -710,10 +718,13 @@ void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, 
     }
     cJSON_AddItemToObject(o, "users", ua);
     cJSON *ta = cJSON_CreateArray();
-    size_t flen = 0;
-    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
-    cJSON *root = txt ? cJSON_Parse(txt) : NULL;
-    free(txt);
+    cJSON *root = NULL;
+    /* a read without the lock is safe (every write is a rename); nothing is written here */
+    if (http_tokens_load(&root) != 0) {
+        /* the tokens cannot be listed: say so instead of an empty list */
+        printf("[-] AUTH: %s cannot be read, its tokens are not listed\n", HARMONY_TOKENS_JSON);
+        cJSON_AddBoolToObject(o, "tokens_unreadable", 1);
+    }
     const cJSON *toks = root ? cJSON_GetObjectItemCaseSensitive(root, "tokens") : (const cJSON *)0;
     const cJSON *it;
     cJSON_ArrayForEach(it, toks) {
@@ -737,4 +748,161 @@ void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, 
     cJSON_Delete(root);
     cJSON_AddItemToObject(o, "tokens", ta);
     cJSON_AddItemToObject(reply, "to_check", o);
+}
+
+static pthread_mutex_t s_tokens_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int http_tokens_lock(void) {
+    /* The Hub's kernel has no futex, so a contended pthread_mutex_lock() spins at full CPU. Try
+     * the lock and sleep in 2 ms steps instead; a holder only reads and writes one small file. */
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (;;) {
+        if (pthread_mutex_trylock(&s_tokens_lock) == 0) return 0;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long waited_ms = (now.tv_sec - start.tv_sec) * 1000L + (now.tv_nsec - start.tv_nsec) / 1000000L;
+        if (waited_ms >= HTTP_TOKENS_LOCK_WAIT_MS) return -1;
+        usleep(2000);
+    }
+}
+
+/* Token changes per operator account: at most HTTP_TOKENS_WRITES_PER_MIN in a minute (each one
+ * rewrites tokens.json on flash). Called with the token lock held. */
+static struct {
+    char account[MAX_USERNAME_LEN];
+    time_t window;
+    int count;
+} s_token_writes[16];
+
+int http_tokens_rate_check(const char *account, int *retry_after) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    time_t minute = now.tv_sec / 60;
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < (int)(sizeof(s_token_writes) / sizeof(s_token_writes[0])); i++) {
+        if (strcmp(s_token_writes[i].account, account) == 0) {
+            slot = i;
+            break;
+        }
+        if (s_token_writes[i].window < s_token_writes[oldest].window) oldest = i;
+    }
+    if (slot < 0) {
+        slot = oldest;
+        snprintf(s_token_writes[slot].account, sizeof(s_token_writes[slot].account), "%s", account);
+        s_token_writes[slot].window = minute;
+        s_token_writes[slot].count = 0;
+    }
+    if (s_token_writes[slot].window != minute) {
+        s_token_writes[slot].window = minute;
+        s_token_writes[slot].count = 0;
+    }
+    if (s_token_writes[slot].count >= HTTP_TOKENS_WRITES_PER_MIN) {
+        if (retry_after) *retry_after = (int)(60 - now.tv_sec % 60);
+        return -1;
+    }
+    s_token_writes[slot].count++;
+    return 0;
+}
+
+/* Moves an unreadable tokens.json aside (tokens.json.bad) and starts an empty list. Returns 0,
+ * 1 when the file is readable (nothing done), -1 on failure; with the lock held. */
+int http_tokens_reset_unreadable(void) {
+    cJSON *root = NULL;
+    if (http_tokens_load(&root) == 0) {
+        cJSON_Delete(root);
+        return 1;
+    }
+    /* an earlier .bad copy is replaced */
+    if (rename(HARMONY_TOKENS_JSON, HTTP_TOKENS_JSON_BAD) != 0) return -1;
+    root = cJSON_CreateObject();
+    if (root) cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+    /* no file reads as an empty list too: a failed write here still leaves a working state */
+    if (!root || http_tokens_save(root) != 0) printf("[-] AUTH: could not write the empty %s\n", HARMONY_TOKENS_JSON);
+    cJSON_Delete(root);
+    printf("[!] AUTH: unreadable %s moved to %s, empty token list started\n", HARMONY_TOKENS_JSON, HTTP_TOKENS_JSON_BAD);
+    return 0;
+}
+
+int http_tokens_remove_new_names(const struct user_account *before, int before_count,
+                                 const struct user_account *after, int after_count) {
+    int rc = 0;
+    for (int i = 0; after && i < after_count; i++) {
+        int existed = 0;
+        for (int j = 0; before && j < before_count; j++) {
+            if (strcmp(before[j].username, after[i].username) == 0) existed = 1;
+        }
+        if (!existed && http_tokens_remove_owner(after[i].username) < 0) rc = -1;
+    }
+    return rc;
+}
+
+int http_tokens_remove_owner(const char *owner) {
+    if (http_tokens_lock() != 0) return HTTP_TOKENS_BUSY;
+    cJSON *root = NULL;
+    int removed = -1;
+    if (http_tokens_load(&root) == 0) {
+        removed = 0;
+        cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
+        for (int i = cJSON_GetArraySize(arr) - 1; i >= 0; i--) {
+            cJSON *jo = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, i), "owner");
+            if (cJSON_IsString(jo) && strcmp(jo->valuestring, owner) == 0) {
+                cJSON_DeleteItemFromArray(arr, i);
+                removed++;
+            }
+        }
+        if (removed && http_tokens_save(root) != 0) removed = -1;
+    }
+    http_tokens_unlock();
+    cJSON_Delete(root);
+    return removed;
+}
+
+void http_tokens_unlock(void) {
+    pthread_mutex_unlock(&s_tokens_lock);
+}
+
+int http_tokens_load(cJSON **out) {
+    *out = NULL;
+    FILE *f = fopen(HARMONY_TOKENS_JSON, "rb");
+    if (!f) {
+        if (errno != ENOENT) return -1;
+        cJSON *root = cJSON_CreateObject();
+        if (!root) return -1;
+        cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+        *out = root;
+        return 0;
+    }
+    fclose(f);
+    size_t len = 0;
+    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, HTTP_TOKENS_FILE_MAX, &len);
+    if (!txt) return -1; /* larger than any reader accepts, or unreadable */
+    cJSON *root = cJSON_Parse(txt);
+    free(txt);
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return -1;
+    }
+    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "tokens");
+    if (!arr) {
+        cJSON_AddItemToObject(root, "tokens", cJSON_CreateArray());
+    } else if (!cJSON_IsArray(arr)) {
+        cJSON_Delete(root);
+        return -1;
+    }
+    *out = root;
+    return 0;
+}
+
+int http_tokens_save(const cJSON *root) {
+    char *txt = cJSON_Print(root);
+    if (!txt) return -1;
+    size_t n = strlen(txt);
+    int rc = -1;
+    if (n <= HTTP_TOKENS_FILE_MAX) {
+        mkdir("/data/harmony", 0755);
+        mkdir("/data/harmony/config", 0755);
+        rc = write_file_atomic_sized(HARMONY_TOKENS_JSON, txt, n) == 0 ? 0 : -1;
+    }
+    free(txt);
+    return rc;
 }

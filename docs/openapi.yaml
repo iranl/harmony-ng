@@ -717,12 +717,54 @@ paths:
                 ok: true
                 message: Logged out
 
+  /api/auth/tokens-reset:
+    post:
+      tags:
+        - Authentication & Users
+      summary: Move an unreadable token file aside
+      description: >-
+        When config/tokens.json cannot be read or parsed, moves it to config/tokens.json.bad and
+        starts an empty token list. Admin logged in with an account (not a token). Every access
+        token then has to be created again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: File moved aside, empty list started
+          content:
+            application/json:
+              example:
+                ok: true
+                moved_to: config/tokens.json.bad
+        '400':
+          description: confirm is not true
+        '403':
+          description: Not an admin, or called with a token
+        '409':
+          description: The token file is readable (nothing done)
+        '500':
+          description: The file could not be moved or the new list not written
+        '503':
+          description: The token list is busy, try again
+
   /api/auth/tokens:
     get:
       tags:
         - Authentication & Users
-      summary: List Personal Access Tokens (Admin only)
-      description: Returns active Personal Access Tokens for third-party home automation integrations. last_used_at is always 0 (it is set when the token is created and not updated).
+      summary: List Personal Access Tokens
+      description: >-
+        Returns the Personal Access Tokens. An admin sees every token; an operator logged in with
+        its account sees that account's tokens; a role user token sees its owner's tokens only when
+        the owner is an operator account, else only itself. last_used_at is always 0 (it is set when
+        the token is created and not updated).
       security:
         - bearerAuth: []
         - basicAuth: []
@@ -737,13 +779,20 @@ paths:
                   - id: tok_1a2b3c4d
                     name: "Home Assistant"
                     role: admin
+                    owner: admin
                     created_at: 1729940000
                     last_used_at: 0
+        '500':
+          description: The token file exists but cannot be read or parsed (left unchanged)
     post:
       tags:
         - Authentication & Users
-      summary: Generate Personal Access Token (Admin only)
-      description: Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation. Refused while authentication is off. name defaults to "Personal Access Token", role to admin.
+      summary: Generate Personal Access Token
+      description: >-
+        Generates a persistent PAT (`pat_...`). The raw token is returned once upon creation.
+        Refused while authentication is off. name defaults to "Personal Access Token", role to admin.
+        An operator (role `user`) may create tokens for its own account only, logged in with the
+        account (session or Basic, not with a PAT); its tokens always have the role `user`.
       security:
         - bearerAuth: []
         - basicAuth: []
@@ -772,15 +821,24 @@ paths:
                 name: "Home Assistant"
                 role: admin
                 token: "pat_3f8a9b1c2d4e..."
+        '403':
+          description: An operator called with a token instead of an account login
         '409':
-          description: Authentication is off (turn it on before creating access tokens)
+          description: Authentication is off, or the token limit is reached (64 on the Hub, 10 per operator account)
+        '429':
+          description: More than 30 token changes in a minute by this operator account
         '500':
-          description: The token could not be created or saved
+          description: The token file cannot be read or written (left unchanged)
+        '503':
+          description: The token list is busy, try again
     delete:
       tags:
         - Authentication & Users
-      summary: Revoke Personal Access Token (Admin only)
-      description: The id may be given in the query or in a JSON body ({"id":"tok_..."}).
+      summary: Revoke Personal Access Token
+      description: >-
+        The id may be given in the query or in a JSON body ({"id":"tok_..."}).
+        An admin revokes any token. An operator revokes only the tokens of its own account or the
+        token it calls with; any other id answers 404.
       parameters:
         - in: query
           name: id
@@ -799,9 +857,13 @@ paths:
         '400':
           description: No token id given
         '404':
-          description: Token not found
+          description: No such token, or (operator) not a token of this account
+        '429':
+          description: More than 30 token changes in a minute by this operator account
         '500':
-          description: The token list could not be saved
+          description: The token file cannot be read or written (left unchanged)
+        '503':
+          description: The token list is busy, try again
 
   /api/users/delete:
     post:
@@ -889,7 +951,8 @@ paths:
             User account saved. A request with auth_enabled true that turns authentication on also
             returns auth_enabled and "to_check": every other account and every access token, to
             check and delete what is not recognised (while authentication was off anybody could make
-            them).
+            them). "tokens_unreadable": true in it when the token file could not be read (its tokens
+            are not listed).
           content:
             application/json:
               example:
@@ -906,6 +969,10 @@ paths:
           description: Unauthorized
         '403':
           description: Forbidden (Admin role required)
+        '500':
+          description: A new account's name has access tokens left by a deleted account and the token file cannot be changed
+        '503':
+          description: The token list is busy, try again
     delete:
       tags:
         - Authentication & Users
@@ -1078,9 +1145,11 @@ paths:
         '400':
           description: "factory_reset without confirm RESET; auth: a name of 32 bytes or more or with ':' or a line break, a password over 128 bytes, renaming the admin without the password, or turning authentication on with no admin account and no password"
         '409':
-          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.)"
+          description: "reboot while a software update runs (Software update in progress. Manual reboot blocked.); auth: the admin name is taken by another account"
         '500':
-          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved"
+          description: "factory_reset: the reset script is not installed on this Hub; auth: the accounts could not be saved, or the admin name has access tokens left by a deleted account and the token file cannot be changed"
+        '503':
+          description: "auth: the token list is busy, try again"
 
   /api/inventory:
     get:

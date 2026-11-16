@@ -25,12 +25,17 @@ export class HarmonyClientCore {
       }
     }
 
-    const savedToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('harmony_auth_token') : null;
+    // The app keeps its token in the Hub profile (one per Hub); the browser keeps its session
+    // token in localStorage.
+    this.isNativeApp = Boolean(typeof window !== 'undefined' && window.Capacitor &&
+      typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+    const savedToken = (!this.isNativeApp && typeof localStorage !== 'undefined') ? localStorage.getItem('harmony_auth_token') : null;
     this.token = this.hub.token || savedToken || null;
 
     if (this.token) {
       this.authHeader = this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`;
-    } else if (this.hub.username && this.hub.password) {
+    } else if (!this.isNativeApp && this.hub.username && this.hub.password) {
+      // the app never sends a password with its requests: it logs in once (app_token.js)
       this.authHeader = `Basic ${btoa(`${this.hub.username}:${this.hub.password}`)}`;
     } else {
       this.authHeader = null;

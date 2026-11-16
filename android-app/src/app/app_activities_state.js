@@ -218,7 +218,11 @@ export class HarmonyAppActivitiesState extends HarmonyAppEventsActions {
 
       if (stat) {
         if (stat.role) this.userRole = stat.role;
-        if (stat.user) this.currentUser = stat.user;
+        if (stat.user) {
+          // the app's token reports itself as "pat:<token name>": show the account it belongs to
+          const appUser = String(stat.user).startsWith('pat:') && this.client?.hub?.username;
+          this.currentUser = appUser || stat.user;
+        }
         if (typeof stat.auth_enabled !== 'undefined') this.authEnabled = Boolean(stat.auth_enabled);
         this.applyRoleRestrictions();
         if (stat.hub_name) {

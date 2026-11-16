@@ -58,7 +58,10 @@ def toks_owner_missing(tc):
 
 def run_users_route():
     print("[-] POST /api/users turns authentication on")
-    with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": TOKENS}) as hub:
+    # ghost exists before its token: creating an account removes tokens left by a deleted account
+    # of the same name, so the token's owner must already be there
+    ghost = {"auth_enabled": False, "users": [{"username": "ghost", "password": "pw-ghost", "role": "admin"}]}
+    with HubHarness(port=PORT, host=HOST, extra_config_files={"tokens.json": TOKENS, "users.json": ghost}) as hub:
         st, r = hub.http_post("/api/users", {"username": "ghost", "password": "pw-ghost", "role": "admin"})
         check(st == 200 and "to_check" not in r, "account made while off, no list", "%s %s" % (st, r))
         st, r = hub.http_post("/api/users", {"username": "spy", "password": "pw-spy", "role": "user"})

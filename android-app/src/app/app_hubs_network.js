@@ -1,5 +1,6 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
+import { createAppToken, revokeAppToken, hubBaseUrl, loginFields, withLoginCheck, finishReplace } from '../app_token.js';
 import { RemoteEngine } from '../remote-engine.js';
 import {
   getHarmonyManufacturers,
@@ -362,6 +363,10 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
       b.addEventListener('click', async () => {
         const id = b.getAttribute('data-id');
         if (await showConfirm(t('delete_hub_profile_confirm', 'Delete this hub profile?'), { title: t('delete_hub_profile', 'Delete Hub Profile'), okText: t('delete', 'Delete') })) {
+          const gone = hubs.find(x => x.id === id);
+          if (gone && gone.token && !(await revokeAppToken(hubBaseUrl(gone), gone))) {
+            showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
+          }
           await deleteHub(id);
           await this.loadActiveHub();
           this.renderHubsList();
@@ -566,7 +571,8 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         <label>${t('ip_address_host_lbl', 'IP Address / Host')}</label><input id="hubFormHost" class="form-control" value="${escapeHtml(h.host || '')}">
         <label>${t('http_port_lbl', 'HTTP Port')}</label><input id="hubFormPort" type="number" class="form-control" value="${escapeHtml(h.port || 8089)}">
         <label>${t('user_optional_lbl', 'Username (Optional)')}</label><input id="hubFormUser" class="form-control" value="${escapeHtml(h.username || '')}">
-        <label>${t('pwd_optional_lbl', 'Password (Optional)')}</label><input id="hubFormPass" type="password" class="form-control" value="${escapeHtml(h.password || '')}">
+        <label>${t('pwd_optional_lbl', 'Password (Optional)')}</label><input id="hubFormPass" type="password" class="form-control" autocomplete="current-password" placeholder="${h.token ? escapeHtml(t('hub_login_kept_placeholder', 'Logged in: leave empty to keep')) : ''}">
+        <div class="muted mini" style="margin-top:4px;">${t('hub_password_not_saved', 'The password is not saved: the app keeps an access token instead.')}</div>
         <div id="hubTestStatus" class="subtle" style="margin-top:8px;"></div>
         <div class="actions" style="margin-top:14px;display:flex;justify-content:space-between;">
           <div style="display:flex;gap:6px;">
@@ -591,17 +597,63 @@ export class HarmonyAppHubsNetwork extends HarmonyAppAuthUsers {
         username: modal.querySelector('#hubFormUser').value.trim(),
         password: modal.querySelector('#hubFormPass').value.trim()
       });
+      // the app sends no password with requests: a typed one is checked with one login that is
+      // ended at once (nothing is kept)
+      c.testConnection = withLoginCheck(c, modal.querySelector('#hubFormUser').value.trim(), modal.querySelector('#hubFormPass').value);
       const res = await c.testConnection();
       if (res.ok) stat.innerHTML = '<span style="color:var(--success)">✓ Connected!</span>';
       else stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(res.error)}</span>`;
     };
 
     modal.querySelector('#btnHubSave').onclick = async () => {
-      h.name = modal.querySelector('#hubFormName').value.trim() || 'Harmony Hub';
-      h.host = modal.querySelector('#hubFormHost').value.trim() || '127.0.0.1';
-      h.port = Number(modal.querySelector('#hubFormPort').value) || 8089;
-      h.username = modal.querySelector('#hubFormUser').value.trim();
-      h.password = modal.querySelector('#hubFormPass').value.trim();
+      const stat = modal.querySelector('#hubTestStatus');
+      const next = {
+        ...h,
+        name: modal.querySelector('#hubFormName').value.trim() || 'Harmony Hub',
+        host: modal.querySelector('#hubFormHost').value.trim() || '127.0.0.1',
+        port: Number(modal.querySelector('#hubFormPort').value) || 8089,
+        username: modal.querySelector('#hubFormUser').value.trim()
+      };
+      delete next.password;
+      // The login as stored now, in the profile this save replaces (the same id, or the same
+      // address, as saveHub() matches): the dialog's copy can be older than a login made since
+      const stored = await getSavedHubs();
+      const prev = stored.find(x => x.id === next.id || x.host === next.host) || null;
+      next.token = prev && prev.token ? prev.token : null;
+      next.tokenId = prev && prev.tokenId ? prev.tokenId : null;
+      const prevUser = prev ? (prev.username || '') : '';
+      let oldKept = false;
+      const password = modal.querySelector('#hubFormPass').value;
+      if (password) {
+        // The password is used once, to create the app's access token; only the token is saved
+        stat.textContent = t('hub_logging_in', 'Logging in...');
+        let r;
+        const replace = prev && prev.token ? { baseUrl: hubBaseUrl(prev), hub: prev } : null;
+        try {
+          r = await createAppToken(hubBaseUrl(next), next.username, password, { replace });
+        } catch (err) {
+          // the old token is gone on the Hub already: do not keep it in the profile
+          if (err.oldRevoked && prev) await saveHub({ ...prev, token: null, tokenId: null });
+          stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(err.message)}</span>`;
+          return;
+        }
+        oldKept = await finishReplace(r, replace);
+        Object.assign(next, { username: r.username || next.username }, loginFields(r));
+      } else if (prev && prev.token) {
+        if (next.username !== prevUser) {
+          // the token is the other account's login
+          stat.innerHTML = `<span style="color:var(--danger)">✗ ${escapeHtml(t('hub_password_for_user', 'Type the password to log in as the new user.'))}</span>`;
+          return;
+        }
+        if (next.host !== prev.host || next.port !== (prev.port || 8089)) {
+          // a token belongs to one Hub
+          oldKept = !(await revokeAppToken(hubBaseUrl(prev), prev));
+          Object.assign(next, loginFields(null));
+        }
+      }
+      if (oldKept) showToast(t('app_token_not_deleted', 'The previous login could not be deleted on the Hub: an admin can delete it in the token list.'), 'warning', 6000);
+      Object.keys(h).forEach(k => delete h[k]);
+      Object.assign(h, next);
       await saveHub(h);
       await setActiveHubId(h.id);
       await this.loadActiveHub();

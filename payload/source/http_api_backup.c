@@ -343,7 +343,11 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
         int auth_before = 0; /* an import that turns authentication on answers what to check */
-        load_user_accounts(NULL, 0, &auth_before);
+        /* the accounts before: an imported name that is new must not get the tokens a deleted
+         * account of that name left in the token file */
+        struct user_account users_before[MAX_HTTP_USERS];
+        int count_before = load_user_accounts(users_before, MAX_HTTP_USERS, &auth_before);
+        int tokens_left = 0;
         cJSON *import_check = NULL;
         if (params) {
             cJSON *p_tgt = cJSON_GetObjectItemCaseSensitive(params, "target");
@@ -439,6 +443,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (http_tokens_remove_new_names(users_before, count_before, tmp_u, tmp_c) != 0) tokens_left = 1;
                             if (!auth_before && tmp_en && tmp_c > 0) {
                                 import_check = cJSON_CreateObject();
                                 http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
@@ -490,6 +495,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (http_tokens_remove_new_names(users_before, count_before, tmp_u, tmp_c) != 0) tokens_left = 1;
                             if (!auth_before && tmp_en && tmp_c > 0) {
                                 import_check = cJSON_CreateObject();
                                 http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
@@ -520,6 +526,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Restored successfully" : "Import failed");
+        if (tokens_left) {
+            /* they stay refused while the token file cannot be changed (see tokens-reset) */
+            cJSON_AddStringToObject(resp, "warning", "Old access tokens of a restored account name could not be removed from the token file");
+        }
         if (import_check) {
             /* the import turned authentication on: what to check, as the other switches answer */
             cJSON_AddBoolToObject(resp, "auth_enabled", 1);
