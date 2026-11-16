@@ -177,6 +177,36 @@ remove_owner_tokens() {
     _tj="${USERS_JSON%/*}/tokens.json"
     [ -f "$_tj" ] || return 0
     awk -v owner="$1" '
+        # The value of the "owner" key of one token object, "" when it has none. A key is a
+        # string at the top level of the object followed by ":". Text inside a value (a name with
+        # "owner" in it, whose quotes the writers escape as \") and keys of nested values never
+        # count. Returned as written: account names have no characters JSON escapes.
+        function owner_of(obj,    len, j, k, ch, d, ins, es, str, want) {
+            len = length(obj); d = 0; ins = 0; es = 0; str = ""; want = 0
+            for (j = 1; j <= len; j++) {
+                ch = substr(obj, j, 1)
+                if (ins) {
+                    if (es) { es = 0; str = str ch }
+                    else if (ch == "\\") { es = 1; str = str ch }
+                    else if (ch == "\"") {
+                        ins = 0
+                        if (d == 1) {
+                            if (want) return str
+                            k = j + 1
+                            while (k <= len && index(" \t\r\n", substr(obj, k, 1)) > 0) k++
+                            if (str == "owner" && substr(obj, k, 1) == ":") want = 1
+                        }
+                    } else str = str ch
+                    continue
+                }
+                if (ch == "\"") { ins = 1; str = ""; continue }
+                # an owner value that is not a string (a number, null, an object): no owner
+                if (want && ch != ":" && index(" \t\r\n", ch) == 0) want = 0
+                if (ch == "{" || ch == "[") d++
+                else if (ch == "}" || ch == "]") d--
+            }
+            return ""
+        }
         { s = s $0 "\n" }
         END {
             p = index(s, "\"tokens\"")
@@ -200,11 +230,7 @@ remove_owner_tokens() {
                     depth--
                     if (depth == 0) {
                         obj = substr(body, start, i - start + 1)
-                        o = ""
-                        if (match(obj, /"owner"[ \t\r\n]*:[ \t\r\n]*"[^"]*"/)) {
-                            o = substr(obj, RSTART, RLENGTH); sub(/^"owner"[ \t\r\n]*:[ \t\r\n]*"/, "", o); sub(/"$/, "", o)
-                        }
-                        if (o == owner) removed++
+                        if (owner_of(obj) == owner) removed++
                         else kept = kept (kept == "" ? "" : ",\n") "  " obj
                     }
                 } else if (c == "]" && depth == 0) { closed = 1; break }
@@ -311,9 +337,7 @@ case "$cmd" in
         sync_to_json 1 || exit 1
         echo "[+] Admin account configured: $user (Auth enabled)"
         # a name that no account had: tokens left by a deleted account of that name go
-        name_known=0
-        while IFS=: read -r u rest; do [ "$u" = "$user" ] && name_known=1; done < "$ACCOUNTS"
-        if [ "$name_known" = "0" ]; then remove_owner_tokens "$user"; fi
+        if [ "$found" = "0" ]; then remove_owner_tokens "$user"; fi
         ;;
 
     add-user)
