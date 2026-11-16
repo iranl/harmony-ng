@@ -33,6 +33,14 @@ int main(void) {
     CHECK(status_of(big, 4095) == 413, "body larger than the buffer: 413");
     CHECK(status_of("GET /api/rf/status HTTP/1.1\r\nHost: x\r\n\r\n", 4095) == 0, "no body: accepted");
     CHECK(status_of("GET /api/rf/status HTTP/1.1\r\nHost: x\r\n", 4095) == 0, "headers not finished: left to the routes");
+    const char *neg = "POST /api/rf/remote-direct-buttons?slot=1 HTTP/1.1\r\nContent-Length: -5\r\n\r\n{\"a\":1}";
+    CHECK(status_of(neg, 4095) == 400, "negative Content-Length: 400");
+    const char *word = "POST /api/rf/remote-direct-buttons?slot=1 HTTP/1.1\r\nContent-Length: abc\r\n\r\n{\"a\":1}";
+    CHECK(status_of(word, 4095) == 400, "non-numeric Content-Length: 400");
+    const char *tail = "POST /api/rf/remote-direct-buttons?slot=1 HTTP/1.1\r\nContent-Length: 7x\r\n\r\n{\"a\":1}";
+    CHECK(status_of(tail, 4095) == 400, "Content-Length with trailing junk: 400");
+    const char *zero = "POST /api/rf/remote-direct-buttons?slot=1 HTTP/1.1\r\nContent-Length: 0\r\n\r\n";
+    CHECK(status_of(zero, 4095) == 0, "Content-Length 0: accepted");
     if (g_failures) return 1;
     printf("[+] hub_rf API request bodies: all checks passed\n");
     return 0;

@@ -213,9 +213,17 @@ int rf_api_body_status(const char *buf, size_t n, size_t cap) {
     if (!hdr_end) return 0;
     const char *cl = strcasestr(buf, "Content-Length:");
     if (!cl || cl > hdr_end) return 0;
-    long want = atol(cl + 15);
+    /* A negative or non-numeric Content-Length is not a body length: answer 400 rather than
+     * handling the request as if it had no body. */
+    const char *num = cl + 15;
+    char *end = NULL;
+    errno = 0;
+    long want = strtol(num, &end, 10);
+    if (end == num || errno == ERANGE || want < 0) return 400;
+    while (*end == ' ' || *end == '\t') end++;
+    if (*end != '\r') return 400;
     size_t hdr_len = (size_t)(hdr_end + 4 - buf);
-    if (want <= 0 || hdr_len + (size_t)want <= n) return 0;
+    if (want == 0 || hdr_len + (size_t)want <= n) return 0;
     return (hdr_len + (size_t)want > cap) ? 413 : 400;
 }
 
