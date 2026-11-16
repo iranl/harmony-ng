@@ -677,11 +677,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         ${hasPairing ? `
           <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <div>
-              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">📺 TV Pairing</div>
-              <div class="muted mini" id="new_plug_pair_status">Pairing is required to control Android TV / Google TV.</div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || 'Device Pairing')}</div>
+              <div class="muted mini" id="new_plug_pair_status">${escapeHtml(pairingDef.description || `Pairing required for ${displayName}.`)}</div>
             </div>
             <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="plug_cfg_host">
-              🔗 ${escapeHtml(pairingDef.button_label || 'Pair with TV')}
+              🔗 ${escapeHtml(pairingDef.button_label || 'Pair Device')}
             </button>
           </div>
         ` : ''}
@@ -783,11 +783,11 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         ${hasPairing ? `
           <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <div>
-              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">📺 TV Pairing</div>
-              <div class="muted mini" id="edit_plug_pair_status">Pairing is required to control Android TV / Google TV.</div>
+              <div style="font-weight: 600; font-size: 12px; color: var(--text-main);">${escapeHtml(pairingDef.title || 'Device Pairing')}</div>
+              <div class="muted mini" id="edit_plug_pair_status">${escapeHtml(pairingDef.description || `Pairing required for ${displayName}.`)}</div>
             </div>
             <button type="button" class="btn btn-xs btn-primary btn-trigger-plug-pair" data-plugin-id="${escapeHtml(plug.id)}" data-input-id="edit_plug_cfg_host">
-              🔗 ${escapeHtml(pairingDef.button_label || 'Pair with TV')}
+              🔗 ${escapeHtml(pairingDef.button_label || 'Pair Device')}
             </button>
           </div>
         ` : ''}
@@ -805,6 +805,16 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
   }
 
   openPluginPairingModal(pluginId, initialHost = '') {
+    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
+    const dispName = plug?.device_definition?.display_name || plug?.name || pluginId;
+    const pairingDef = plug?.manifest?.pairing || plug?.pairing || {};
+    const titleText = pairingDef.title || `Pair ${dispName}`;
+    const descText = pairingDef.instructions || 'Ensure the target device is powered on and reachable on the local network.';
+    const hostLabelText = pairingDef.host_label || 'Device IP Address / Host';
+    const promptText = pairingDef.prompt || 'Enter the code shown on your device:';
+    const pinLen = Number(pairingDef.pin_length) || 6;
+    const btnLabelText = pairingDef.button_label || 'Pair Device';
+
     let modal = document.getElementById('pluginPairModal');
     if (!modal) {
       modal = document.createElement('div');
@@ -815,17 +825,15 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         <div class="card" style="width: 90%; max-width: 440px; padding: 20px; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
             <h3 style="margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-              <span>🔗</span> <span id="pairModalTitle">Pair TV Device</span>
+              <span>🔗</span> <span id="pairModalTitle">Device Pairing</span>
             </h3>
             <button type="button" class="btn btn-xs btn-ghost" id="pairModalCloseBtn" style="font-size: 16px;">✕</button>
           </div>
 
           <div id="pairStep1">
-            <p class="muted mini" style="margin-bottom: 12px;">
-              Make sure your TV is turned on and connected to the same local network.
-            </p>
+            <p class="muted mini" id="pairModalInstructions" style="margin-bottom: 12px;"></p>
             <div style="margin-bottom: 14px;">
-              <label for="pairModalHost" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">TV IP Address / Host</label>
+              <label for="pairModalHost" id="pairModalHostLabel" style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;"></label>
               <input id="pairModalHost" class="form-control" type="text" placeholder="192.168.1.50" />
             </div>
             <div id="pairStep1Error" style="display: none; color: var(--danger); font-size: 12px; margin-bottom: 10px;"></div>
@@ -837,14 +845,14 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
 
           <div id="pairStep2" style="display: none;">
             <div style="text-align: center; margin-bottom: 16px;">
-              <div style="font-size: 28px; margin-bottom: 6px;">📺</div>
-              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Enter TV Code</div>
-              <div class="muted mini">A 6-character code is shown on your TV screen. Enter it below:</div>
+              <div style="font-size: 28px; margin-bottom: 6px;">🔐</div>
+              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Verification Code</div>
+              <div class="muted mini" id="pairModalPrompt"></div>
             </div>
             <div style="margin-bottom: 18px; text-align: center;">
-              <input id="pairModalPin" class="form-control" type="text" maxlength="6"
+              <input id="pairModalPin" class="form-control" type="text"
                      style="text-align: center; font-size: 24px; font-family: monospace; letter-spacing: 6px; text-transform: uppercase; max-width: 220px; margin: 0 auto;"
-                     placeholder="XXXXXX" autocomplete="off" />
+                     autocomplete="off" />
             </div>
             <div id="pairStep2Error" style="display: none; color: var(--danger); font-size: 12px; text-align: center; margin-bottom: 10px;"></div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -856,7 +864,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
           <div id="pairStep3" style="display: none; text-align: center; padding: 10px 0;">
             <div style="font-size: 32px; color: var(--success); margin-bottom: 8px;">✓</div>
             <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Successfully Paired!</div>
-            <div class="muted mini" id="pairSuccessMsg" style="margin-bottom: 16px;">Your TV is now authenticated and ready to receive remote commands.</div>
+            <div class="muted mini" id="pairSuccessMsg" style="margin-bottom: 16px;">The device is now authenticated and ready to receive commands.</div>
             <button type="button" class="btn btn-sm btn-primary" id="pairModalDoneBtn" style="min-width: 100px;">Done</button>
           </div>
         </div>
@@ -877,7 +885,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const errEl = modal.querySelector('#pairStep1Error');
         errEl.style.display = 'none';
         if (!host) {
-          errEl.textContent = 'Please enter TV IP address';
+          errEl.textContent = 'Please enter device IP address or host';
           errEl.style.display = 'block';
           modal.querySelector('#pairModalHost').focus();
           return;
@@ -909,8 +917,9 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
         const errEl = modal.querySelector('#pairStep2Error');
         errEl.style.display = 'none';
 
-        if (pin.length !== 6) {
-          errEl.textContent = 'Please enter the 6-character code from your TV';
+        const expLen = modal._expectedPinLength || 6;
+        if (pin.length !== expLen) {
+          errEl.textContent = `Please enter the ${expLen}-character verification code`;
           errEl.style.display = 'block';
           modal.querySelector('#pairModalPin').focus();
           return;
@@ -924,7 +933,7 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
           if (res && res.error) throw new Error(res.error);
           modal.querySelector('#pairStep2').style.display = 'none';
           modal.querySelector('#pairStep3').style.display = 'block';
-          showToast('TV paired successfully!', 'success');
+          showToast('Device paired successfully!', 'success');
 
           ['edit_plug_pair_status', 'new_plug_pair_status'].forEach(id => {
             const el = document.getElementById(id);
@@ -952,9 +961,15 @@ export class HarmonyAppPlugins extends HarmonyAppHubsNetwork {
     }
 
     modal._currentPluginId = pluginId;
-    const plug = (this.installedPlugins || []).find(p => p.id === pluginId);
-    const dispName = plug?.device_definition?.display_name || plug?.name || pluginId;
-    modal.querySelector('#pairModalTitle').textContent = `Pair ${dispName}`;
+    modal._expectedPinLength = pinLen;
+    modal.querySelector('#pairModalTitle').textContent = titleText;
+    modal.querySelector('#pairModalInstructions').textContent = descText;
+    modal.querySelector('#pairModalHostLabel').textContent = hostLabelText;
+    modal.querySelector('#pairModalPrompt').textContent = promptText;
+    modal.querySelector('#pairModalStartBtn').textContent = btnLabelText;
+    const pinInput = modal.querySelector('#pairModalPin');
+    pinInput.maxLength = pinLen;
+    pinInput.placeholder = 'X'.repeat(pinLen);
 
     let effHost = initialHost;
     if (!effHost) {
