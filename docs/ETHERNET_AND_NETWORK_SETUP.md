@@ -137,23 +137,3 @@ If connecting over Ethernet shows successful TCP handshakes but hangs on data re
 # Expected output: [+] eth2: TX checksum offload disabled
 ```
 This is automatically handled by `start_usb_eth.sh` and `network_manager.sh`.
-
----
-
-## 6. Recovery Access Point (Fail-safe Mode)
-
-If neither Ethernet nor configured Wi-Fi networks can associate after failover attempts, `recovery_ap.sh` automatically launches a standalone Wi-Fi hotspot on interface `ath1`:
-
-- **SSID**: `Harmony-Recovery-<MAC_SUFFIX>`
-- **IP Address**: `192.168.76.1`
-- **Default WPA2 Passphrase**: `harmonyrecovery`
-
-Connect to this SSID from a laptop or phone, open `http://192.168.76.1` in your browser, and reconfigure your Wi-Fi credentials via the WebUI. That page is the setup portal, which `hub_portal` serves on port 80 while the hotspot is up; it is not the web console of port 8089. The hotspot gives its clients addresses from `192.168.76.100` to `192.168.76.150`, and logs to `/tmp/harmony-recovery.log`.
-
-To customize the recovery AP passphrase, create `/data/harmony/recovery_ap.conf`:
-```sh
-WPA_PASSPHRASE="your_custom_passphrase"
-WPA_ENABLED=1
-```
-
-`WPA_PASSPHRASE` must have 8 to 63 printable characters; any other value is ignored and the default stays. `WPA_ENABLED=0` starts the hotspot open, without a passphrase.

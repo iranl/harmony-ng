@@ -4,8 +4,8 @@
 
 PATH=/cache/bin:/data/harmony/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CONF=/data/harmony/ethernet.conf
-# /etc/wpa_supplicant.conf is the file every writer updates (web UI, recovery portal, backup
-# restore) and the one rcS.local starts wpa_supplicant with; the ath0 copy is only a fallback
+# /etc/wpa_supplicant.conf is the file every writer updates (web UI, backup restore)
+# and the one rcS.local starts wpa_supplicant with; the ath0 copy is only a fallback
 WPA_CONF=/etc/wpa_supplicant.conf
 [ -f "$WPA_CONF" ] || WPA_CONF=/etc/wpa_supplicant.ath0.conf
 
@@ -117,19 +117,6 @@ find_eth_interface() {
   return 1
 }
 
-is_wifi_configured() {
-  if [ -f "$WPA_CONF" ] && grep -q 'network=' "$WPA_CONF" 2>/dev/null; then
-    return 0
-  fi
-  if [ -f /etc/wpa_supplicant.conf ] && grep -q 'network=' /etc/wpa_supplicant.conf 2>/dev/null; then
-    return 0
-  fi
-  if [ -f /etc/wpa_supplicant.ath0.conf ] && grep -q 'network=' /etc/wpa_supplicant.ath0.conf 2>/dev/null; then
-    return 0
-  fi
-  return 1
-}
-
 ensure_wifi() {
   load_config
   log "Ensuring Wi-Fi connection (ath0)..."
@@ -162,7 +149,6 @@ ensure_wifi() {
           send_garp "ath0" "$ETH_IP"
         fi
         set_state "ath0:wifi:$ETH_IP"
-        stop_recovery_ap 2>/dev/null || true
         return 0
         ;;
     esac
@@ -185,7 +171,6 @@ ensure_wifi() {
   if [ -n "$wifi_ip" ]; then
     log "Wi-Fi connected successfully: ath0 has IP $wifi_ip"
     set_state "ath0:wifi:$wifi_ip"
-    stop_recovery_ap 2>/dev/null || true
     return 0
   else
     log "Wi-Fi IP lease pending in background"
@@ -273,7 +258,6 @@ start_eth() {
     write_resolv_conf
     send_garp "$eth_if" "$ETH_IP"
     set_state "$eth_if:ethernet:$ETH_IP"
-    stop_recovery_ap 2>/dev/null || true
     log "Ethernet configured statically: $eth_if has IP $ETH_IP"
     return 0
   else
@@ -291,7 +275,6 @@ start_eth() {
       route del default dev ath0 2>/dev/null || true
       send_garp "$eth_if" "$eth_ip"
       set_state "$eth_if:ethernet:$eth_ip"
-      stop_recovery_ap 2>/dev/null || true
       log "Ethernet connected via DHCP: $eth_if has IP $eth_ip"
       return 0
     else
@@ -316,9 +299,6 @@ stop_eth() {
 }
 
 monitor_wifi() {
-  # Skip while recovery AP is active
-  [ -f /var/run/hub-recovery-ap.pid ] && return 0
-
   # 1. Ensure ath0 interface exists and is up
   if ! ifconfig ath0 >/dev/null 2>&1; then
     log "ath0 missing, creating..."
@@ -548,7 +528,6 @@ migrate_to_ethernet() {
   send_garp "$eth_if" "$target_ip"
   echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
   set_state "$eth_if:ethernet:$target_ip"
-  stop_recovery_ap 2>/dev/null || true
   log "Migration complete: Ethernet ($eth_if) active with IP $target_ip, GW $target_gw"
 }
 
@@ -608,30 +587,6 @@ for s in /data/harmony/scripts/network_monitor.sh /data/harmony/network_monitor.
 done
 [ -n "$NET_MON_SCRIPT" ] && . "$NET_MON_SCRIPT"
 
-start_recovery_ap() {
-  log "Starting recovery captive portal AP..."
-  for s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
-    if [ -x "$s" ]; then
-      "$s" start >> "$LOG" 2>&1 &
-      return 0
-    fi
-  done
-  log "Warning: recovery_ap.sh not found!"
-  return 1
-}
-
-stop_recovery_ap() {
-  if [ -f /var/run/hub-recovery-ap.pid ]; then
-    log "Stopping recovery AP..."
-    for s in /data/harmony/scripts/recovery_ap.sh /data/harmony/recovery_ap.sh /data/harmony/bin/recovery_ap.sh; do
-      if [ -x "$s" ]; then
-        "$s" stop >> "$LOG" 2>&1
-        return 0
-      fi
-    done
-  fi
-}
-
 do_boot() {
   log "Boot initialization started..."
   load_config
@@ -646,13 +601,9 @@ do_boot() {
   fi
 
   # 1. Initialize Wi-Fi immediately
-  has_wifi=0
-  if ensure_wifi; then
-    has_wifi=1
-  fi
+  ensure_wifi
 
   # 2. Initialize Ethernet (Onboard eth1 on Pro 2400, or USB Host mode on standard Hub)
-  has_eth=0
   if is_onboard_eth; then
     log "Starting Onboard Ethernet (eth1)..."
   else
@@ -669,25 +620,12 @@ do_boot() {
     else
       log "USB Ethernet adapter initialized on boot."
     fi
-    has_eth=1
-    stop_recovery_ap 2>/dev/null || true
   else
     log "No active Ethernet link on boot; evaluating Wi-Fi fallback."
     cur_eth=$(find_eth_interface)
     if [ "$ETH_FALLBACK_WIFI" = "1" ] && [ -n "$ETH_IP" ]; then
       log "ETH_FALLBACK_WIFI active: assigning static fallback IP $ETH_IP to ath0..."
       migrate_to_wifi "$cur_eth" "$ETH_IP" "${ETH_NETMASK:-255.255.255.0}" "$ETH_GATEWAY"
-      has_wifi=1
-    fi
-  fi
-
-  # If both Wi-Fi and Ethernet are offline AND Wi-Fi has no credentials, activate recovery AP
-  if [ "$has_wifi" -eq 0 ] && [ "$has_eth" -eq 0 ]; then
-    if ! is_wifi_configured; then
-      log "No active network link and no Wi-Fi credentials found on boot. Spawning recovery AP captive portal..."
-      start_recovery_ap
-    else
-      log "Wi-Fi is configured (association/DHCP pending). Skipping recovery AP; dynamic monitor will maintain link."
     fi
   fi
 
@@ -738,12 +676,6 @@ case "$1" in
     ;;
   ensure_wifi)
     ensure_wifi
-    ;;
-  start_recovery_ap)
-    start_recovery_ap
-    ;;
-  stop_recovery_ap)
-    stop_recovery_ap
     ;;
   monitor)
     run_monitor

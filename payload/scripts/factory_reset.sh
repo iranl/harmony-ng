@@ -84,7 +84,7 @@ for _spid in $(cat /tmp/harmony_supervisors.pid 2>/dev/null); do
     kill -9 "$_spid" 2>/dev/null || true
 done
 rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
-killall -9 init.sh hub_daemon hub_btstack hub_rf hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+killall -9 init.sh hub_daemon hub_btstack hub_rf hal luaworks luadraws lua 2>/dev/null || true
 # let SPI transfers in flight end before the flash writes below (as safe_reboot.sh)
 sleep 2
 

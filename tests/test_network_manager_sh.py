@@ -9,7 +9,10 @@ network commands replaced by shell functions. Checks:
 - a DNS list with two servers becomes two nameserver lines; only blanks or commas leave
   resolv.conf alone, and a "*" is not expanded to file names;
 - wpa_supplicant is (re)started with /etc/wpa_supplicant.conf, the file every writer updates,
-  also when the older wpa_supplicant.ath0.conf copy exists.
+  also when the older wpa_supplicant.ath0.conf copy exists;
+- a boot with no Ethernet link, no Wi-Fi link and no Wi-Fi network stored starts no access
+  point: a recovery_ap.sh left by an older release is not run, and the scripts no longer
+  name it.
 """
 
 from __future__ import annotations
@@ -62,8 +65,8 @@ class NetworkManagerScript(unittest.TestCase):
     def test_boot_skips_ethernet_when_disabled(self):
         stubs = (
             "start_eth() { echo START_ETH; return 1; }\n"
-            "ensure_wifi() { return 0; }\nstart_monitor() { :; }\nstop_recovery_ap() { :; }\n"
-            "start_recovery_ap() { :; }\nkillall() { :; }\nis_onboard_eth() { return 1; }\n"
+            "ensure_wifi() { return 0; }\nstart_monitor() { :; }\n"
+            "killall() { :; }\nis_onboard_eth() { return 1; }\n"
         )
         self.conf.write_text('ETH_ENABLED=0\nETH_MODE="dhcp"\n')
         self.assertNotIn("START_ETH", self.run_sh(stubs + "do_boot"))
@@ -97,6 +100,30 @@ class NetworkManagerScript(unittest.TestCase):
         out = self.run_sh('echo "W=$WPA_CONF"')
         self.assertIn(f"W={self.root}/etc/wpa_supplicant.ath0.conf\n", out)
 
+
+    def test_boot_without_link_starts_no_access_point(self):
+        marker = self.root / "ap_started"
+        # what an older release left on the Hub
+        for d in ("data/harmony", "data/harmony/scripts", "data/harmony/bin"):
+            old = self.root / d / "recovery_ap.sh"
+            old.parent.mkdir(parents=True, exist_ok=True)
+            old.write_text(f"#!/bin/sh\necho \"$*\" >> '{marker}'\n")
+            old.chmod(0o755)
+        stubs = (
+            "start_eth() { return 1; }\nensure_wifi() { return 1; }\nstart_monitor() { echo MONITOR; }\n"
+            "killall() { :; }\nis_onboard_eth() { return 1; }\nfind_eth_interface() { return 1; }\n"
+        )
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        out = self.run_sh(stubs + "do_boot")
+        self.assertIn("MONITOR", out, "the link monitor (Wi-Fi retries, Ethernet) still starts")
+        self.assertFalse(marker.exists(), "an access point script was run")
+        self.assertFalse((self.root / "run" / "hub-recovery-ap.pid").exists())
+        log = self.root / "tmp" / "harmony-network.log"
+        self.assertNotIn("recovery", log.read_text().lower() if log.exists() else "")
+        for name in ("network_manager.sh", "network_monitor.sh", "init.sh"):
+            text = (SCRIPTS / name).read_text()
+            for word in ("recovery_ap", "hub_portal", "hub_dhcpd", "hub-recovery-ap"):
+                self.assertNotIn(word, text, f"{name} still refers to {word}")
 
 if __name__ == "__main__":
     unittest.main()

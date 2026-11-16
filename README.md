@@ -180,7 +180,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 ├── payload/
 │   ├── bin/                # Target MIPS executables for Hub
 │   ├── modules/            # USB Ethernet kernel drivers (r8152, asix, cdc_ether, etc.)
-│   ├── scripts/            # Hub startup (init.sh), network manager, recovery AP
+│   ├── scripts/            # Hub startup (init.sh), network manager
 │   └── source/             # Clean-room native C source code
 │       ├── hub_daemon.c  # Hub micro-daemon and master select() loop
 │       ├── config_store.c  # Atomic JSON device/activity configuration store
@@ -192,7 +192,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── rf_main.c       # hub_rf: CC2544 RF protocol engine (with rf_*.c)
 │       ├── hub_btstack/    # BTstack Bluetooth HID daemon integration
 │       ├── remote/         # Remote framebuffer GUI & input application (remote_ui)
-│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, dhcpd, portal, sntp, ota-verify)
+│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, sntp, ota-verify)
 └── tools/
     ├── backup_hub.py       # Golden and rolling tar backups of the Hub's configuration over SSH
     ├── factory_reset.py    # Revert to stock: runs the device's factory_reset.sh (deletes settings and keys)

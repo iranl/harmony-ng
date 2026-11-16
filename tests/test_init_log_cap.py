@@ -3,8 +3,8 @@
 
 The block after "# 9. Log cap" runs with sh in a sandbox: /tmp is moved under a temporary
 root, the loop runs in the foreground, and a sleep stub sets the stop flag on its second
-call, so exactly one pass runs. harmony-init.log, harmony-network.log and
-harmony-recovery.log start at 2 MB each; all three must end below the cap.
+call, so exactly one pass runs. harmony-init.log and harmony-network.log start at 2 MB
+each; both must end below the cap.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import unittest
 REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 INIT = REPO_DIR / "payload" / "scripts" / "init.sh"
 CAP = 1048576
-LOGS = ("harmony-init.log", "harmony-network.log", "harmony-recovery.log")
+LOGS = ("harmony-init.log", "harmony-network.log")
 
 
 def cap_block() -> str:

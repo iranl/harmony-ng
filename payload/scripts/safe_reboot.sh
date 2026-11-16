@@ -11,7 +11,7 @@ done
 rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
 
 # 1. Terminate RF and background workers immediately to release /dev/rfspi and Bluetooth UART
-killall -9 hub_rf hub_btstack hub_daemon hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+killall -9 hub_rf hub_btstack hub_daemon hal luaworks luadraws lua 2>/dev/null || true
 
 # A requested reboot is not a failed boot: keep it out of the emergency recovery counter
 rm -f /data/harmony/reboot_counter 2>/dev/null || true
