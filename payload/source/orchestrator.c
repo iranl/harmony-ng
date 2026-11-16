@@ -191,8 +191,7 @@ static void orch_check_current_known(void) {
         printf("[!] Orch: activity %s is no longer configured, now PowerOff\n", cur);
         fflush(stdout);
         snprintf(g_current_act, sizeof(g_current_act), "%s", ORCH_POWEROFF_ID);
-        save_current_activity(g_current_act);
-        write_activity_mirror(g_current_act);
+        save_current_activity(g_current_act); /* writes /tmp/current_activity too */
         set_state(ORCH_STATE_IDLE);
     }
     pthread_mutex_unlock(&g_act_lock);
