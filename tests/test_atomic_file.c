@@ -91,6 +91,30 @@ int main(void) {
     snprintf(path, sizeof(path), "%s/missing_dir/file", dir);
     CHECK(atomic_file_write_str(path, "x") == -1, "missing directory reported");
 
+    printf("[-] symbolic link written through\n");
+    char real[128], link[128];
+    snprintf(real, sizeof(real), "%s/real.conf", dir);
+    snprintf(link, sizeof(link), "%s/link.conf", dir);
+    CHECK(atomic_file_write_str(real, "target\n") == 0 && symlink(real, link) == 0, "link made");
+    CHECK(atomic_file_write_str(link, "through\n") == 0, "write to the link");
+    struct stat lst;
+    CHECK(lstat(link, &lst) == 0 && S_ISLNK(lst.st_mode), "link is still a link");
+    CHECK(read_eq(real, "through\n"), "target got the new content");
+
+    printf("[-] atomic_file_write_pair\n");
+    char first[128], second[128];
+    snprintf(first, sizeof(first), "%s/wpa.conf", dir);
+    snprintf(second, sizeof(second), "%s/wpa.ath0.conf", dir);
+    CHECK(atomic_file_write_pair(first, second, "net=1\n", 16384) == 0 &&
+          read_eq(first, "net=1\n") && read_eq(second, "net=1\n"), "both files written");
+    snprintf(second, sizeof(second), "%s/missing_dir/wpa.ath0.conf", dir);
+    CHECK(atomic_file_write_pair(first, second, "net=2\n", 16384) == -1, "second write failing reported");
+    CHECK(read_eq(first, "net=1\n"), "first file back to its old content");
+    char fresh[128];
+    snprintf(fresh, sizeof(fresh), "%s/fresh.conf", dir);
+    CHECK(atomic_file_write_pair(fresh, second, "net=3\n", 16384) == -1 && access(fresh, F_OK) != 0,
+          "first file that did not exist is removed again");
+
     snprintf(path, sizeof(path), "rm -rf %s", dir);
     if (system(path) != 0) return 1;
     if (failed) {

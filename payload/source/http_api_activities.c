@@ -433,6 +433,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
     if (strcmp(clean_path, "/api/activity-save") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         int success = 0;
+        int save_failed = 0; /* valid request, activities.json could not be written: 500, not 400 */
         if (params) {
             cJSON *p_id = cJSON_GetObjectItemCaseSensitive(params, "id");
             if (!p_id) p_id = cJSON_GetObjectItemCaseSensitive(params, "activityId");
@@ -615,6 +616,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     if (config_store_save_activities(root) == 0) {
                         success = 1;
                     } else {
+                        save_failed = 1;
                         cJSON_Delete(root);
                     }
                 } else {
@@ -636,7 +638,8 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Activity saved successfully" : "Failed to save activity");
-        send_cjson_resp(client_fd, success ? 200 : 400, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the activities (flash full?)");
+        send_cjson_resp(client_fd, success ? 200 : (save_failed ? 500 : 400), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
