@@ -184,7 +184,8 @@ int btstack_run_loop_remove_timer(btstack_timer_source_t *ts) { ts->armed = fals
 void btstack_run_loop_set_timer(btstack_timer_source_t *ts, uint32_t ms) { ts->timeout = ms; }
 void btstack_run_loop_set_timer_handler(btstack_timer_source_t *ts, void (*h)(btstack_timer_source_t *)) { ts->process = h; }
 uint32_t btstack_run_loop_get_time_ms(void) { return s_now_ms; }
-void btstack_run_loop_trigger_exit(void) {}
+static int s_exit_calls;
+void btstack_run_loop_trigger_exit(void) { s_exit_calls++; }
 void btstack_run_loop_set_data_source_fd(btstack_data_source_t *ds, int fd) { ds->fd = fd; }
 void btstack_run_loop_set_data_source_handler(btstack_data_source_t *ds, void (*p)(btstack_data_source_t *, btstack_data_source_callback_type_t)) { ds->process = p; }
 void btstack_run_loop_add_data_source(btstack_data_source_t *ds) { UNUSED(ds); }
@@ -443,6 +444,22 @@ static void test_text(void) {
     fire(&g_host_key_release_timer);
     CHECK(s_reports[1] == 0, "the rest of the text still goes to host A, not to the new target B");
     CHECK(s_last_report[0][4] == 0, "and the last character is released");
+
+    /* a second text while the first is being typed: the room of the characters already typed is
+     * used again (the queue holds HOST_TEXT_MAX = 1024) */
+    setup_hosts();
+    char text[1001];
+    memset(text, 'a', 1000);
+    text[1000] = '\0';
+    send_host_text(text);
+    for (int i = 0; i < 899 && s_text_timer.armed; i++) fire(&s_text_timer);
+    CHECK(s_text_len - s_text_pos == 100, "900 of 1000 characters typed, 100 waiting (%zu)", s_text_len - s_text_pos);
+    text[900] = '\0';
+    send_host_text(text);
+    CHECK(s_text_len - s_text_pos == 1000, "a second text of 900 waits whole behind them (%zu waiting)", s_text_len - s_text_pos);
+    while (s_text_timer.armed) fire(&s_text_timer);
+    fire(&g_host_key_release_timer);
+    CHECK(s_text_len == 0 && s_text_pos == 0, "and the queue is empty after both");
 }
 
 static void test_files(void) {
@@ -460,12 +477,14 @@ static void test_files(void) {
     write_file(TLV_DB_PATH, "old");
     init_cmd_socket();
     g_running = 1;
+    s_exit_calls = 0;
     execute_btstack_cmd("reload_map");
-    CHECK(g_running == 1, "reload_map with the same key store keeps running");
+    CHECK(g_running == 1 && s_exit_calls == 0, "reload_map with the same key store keeps running");
     write_file(TEST_DIR "/keys.new", "restored");
     rename(TEST_DIR "/keys.new", TLV_DB_PATH);
     execute_btstack_cmd("reload_map");
     CHECK(g_running == 0, "after a restore replaced the key store, reload_map makes hub_btstack start again");
+    CHECK(s_exit_calls == 1, "and leaves the run loop at once, not at the next command poll");
     g_running = 1;
     cleanup_cmd_socket();
 

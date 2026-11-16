@@ -455,6 +455,14 @@ void send_host_text(const char *text) {
     if (!text || get_target_host_hid_cid() == 0) return;
     bool busy = s_text_pos < s_text_len;
     if (!busy) s_text_len = s_text_pos = 0;
+    else if (s_text_pos > 0) {
+        /* move what is still to be typed to the front: the characters already typed used to
+         * keep their room, so a second text was cut although the queue was nearly empty */
+        memmove(s_text_chars, s_text_chars + s_text_pos, s_text_len - s_text_pos);
+        memmove(s_text_host, s_text_host + s_text_pos, s_text_len - s_text_pos);
+        s_text_len -= s_text_pos;
+        s_text_pos = 0;
+    }
     size_t n = strlen(text), added = 0;
     while (added < n && s_text_len < HOST_TEXT_MAX) {
         s_text_chars[s_text_len] = text[added++];

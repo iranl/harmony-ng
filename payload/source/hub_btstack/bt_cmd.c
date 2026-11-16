@@ -537,6 +537,8 @@ void execute_btstack_cmd(const char *cmd_in) {
              * so that the restored key store is the one in use */
             log_msg("Key store replaced on disk (restore): restarting to load it");
             g_running = 0;
+            /* leave the run loop now; cmd_poll_timeout() would also do it within 100 ms */
+            btstack_run_loop_trigger_exit();
         }
     }
 }
