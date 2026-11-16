@@ -1,5 +1,6 @@
 #include "http_api_network.h"
 #include "hub_network_util.h"
+#include "atomic_file.h"
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
@@ -268,8 +269,14 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                         is_hidden ? "\tscan_ssid=1\n" : "");
                 }
 
-                write_file_content("/etc/wpa_supplicant.conf", wpa_buf);
-                write_file_content("/etc/wpa_supplicant.ath0.conf", wpa_buf);
+                /* both or neither: a failed second write puts the first file back */
+                if (atomic_file_write_pair("/etc/wpa_supplicant.conf", "/etc/wpa_supplicant.ath0.conf",
+                                           wpa_buf, 16384) != 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 500, "Could not save the Wi-Fi settings (flash full?)");
+                    close(client_fd);
+                    return 1;
+                }
 
                 if (strcmp(app_mode, "reboot") == 0) {
                     system("/data/harmony/bin/safe_reboot.sh 2>/dev/null || (killall -9 hub_rf hub_btstack 2>/dev/null; /data/harmony/bin/hub_sync 2>/dev/null; sleep 2; reboot -f) &");
@@ -347,7 +354,12 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                 "ETH_DNS=\"%s\"\n",
                 eth_en, eth_fb, mode_val, valid_ip, valid_mask, valid_gw, valid_dns);
 
-            write_file_content(config_store_path("ethernet.conf"), conf_buf);
+            if (write_file_content(config_store_path("ethernet.conf"), conf_buf) != 0) {
+                cJSON_Delete(params);
+                send_json_error(client_fd, 500, "Could not save the Ethernet settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
 
             cJSON *p_app = cJSON_GetObjectItemCaseSensitive(params, "apply");
             if (p_app && cJSON_IsString(p_app) && (strcmp(p_app->valuestring, "apply") == 0 || strcmp(p_app->valuestring, "1") == 0 || strcmp(p_app->valuestring, "reconfigure") == 0 || strcmp(p_app->valuestring, "restart") == 0)) {

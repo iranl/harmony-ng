@@ -18,6 +18,7 @@
 
 #include "bt_le_pair_window.h"
 #include "bt_state.h"
+#include "../atomic_file.h"
 #include "bt_pairing.h"
 #include "bt_hid.h"
 
@@ -544,10 +545,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
                      * connected last became the default for all devices. It is the only default
                      * host file: bthid_target, a second copy, is no longer written. */
                     if (new_pairing || access("/data/harmony/bthid_host_target", F_OK) != 0) {
-                        FILE *hf = fopen("/data/harmony/bthid_host_target", "w");
-                        if (hf) {
-                            fprintf(hf, "bdaddr=%s\n", bd_addr_to_str(conn_addr));
-                            fclose(hf);
+                        char hline[40];
+                        snprintf(hline, sizeof(hline), "bdaddr=%s\n", bd_addr_to_str(conn_addr));
+                        if (atomic_file_write_str("/data/harmony/bthid_host_target", hline) != 0) {
+                            log_msg("Could not save /data/harmony/bthid_host_target");
                         }
                     }
                     update_status(app_state == APP_READY ? "ready" : "standby");
@@ -675,11 +676,9 @@ static void sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             if (status == ERROR_CODE_SUCCESS) {
                 le_pair_window_close();
                 log_msg("SMP pairing & bonding complete! Connecting HIDS...");
-                FILE *tf = fopen(TARGET_FILE, "w");
-                if (tf) {
-                    fprintf(tf, "%s\n", bd_addr_to_str(remote_device.addr));
-                    fclose(tf);
-                }
+                char tline[32];
+                snprintf(tline, sizeof(tline), "%s\n", bd_addr_to_str(remote_device.addr));
+                if (atomic_file_write_str(TARGET_FILE, tline) != 0) log_msg("Could not save " TARGET_FILE);
                 gap_request_connection_parameter_update(connection_handle, 6, 12, 0, 200);
                 app_state = APP_W4_HIDS;
                 hids_host_connect(connection_handle, handle_gatt_client_event, protocol_mode, &hids_cid);

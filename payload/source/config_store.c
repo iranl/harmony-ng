@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "config_store.h"
+#include "atomic_file.h"
 #include "bt_migrate.h"
 #include "config_sanitize.h"
 #include "hub_led.h"
@@ -43,15 +44,9 @@ char *read_file_text(const char *path, size_t max_bytes) {
     return buf;
 }
 
+/* Synced temporary file renamed over the old one; -1 (old file kept) when anything fails */
 int write_file_atomic(const char *path, const char *content) {
-    if (!path || !content) return -1;
-    char tmp[256];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
-    if (!f) return -1;
-    fputs(content, f);
-    fclose(f);
-    return rename(tmp, path);
+    return atomic_file_write_str(path, content);
 }
 
 const char *config_store_path(const char *rel_path) {
@@ -175,8 +170,14 @@ static int config_store_save(cJSON **cache, cJSON *tree, void (*sanitize)(cJSON 
         config_store_unlock();
         return -1;
     }
-    write_file_atomic(path, out);
+    int rc = write_file_atomic(path, out);
     free(out);
+    if (rc != 0) {
+        /* Not on flash: keep the cache as it was, the caller keeps the tree and reports the error */
+        fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
+        config_store_unlock();
+        return -1;
+    }
     if (*cache && *cache != tree) {
         cJSON_Delete(*cache);
     }
@@ -197,16 +198,11 @@ int config_store_save_activities(cJSON *activities_json) {
 }
 
 void notify_rf_push_config(void) {
-    FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-    if (df) {
-        fprintf(df, "{\"slot\":0,\"diff\":\"Devices and activities updated. Push settings to sync remotes.\"}\n");
-        fclose(df);
-    }
-    FILE *f = fopen("/data/harmony/rf_sync_pending.flag", "w");
-    if (f) {
-        fprintf(f, "%ld\n", (long)time(NULL));
-        fclose(f);
-    }
+    write_file_atomic("/data/harmony/rf_sync_pending_details.json",
+                      "{\"slot\":0,\"diff\":\"Devices and activities updated. Push settings to sync remotes.\"}\n");
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%ld\n", (long)time(NULL));
+    write_file_atomic("/data/harmony/rf_sync_pending.flag", ts);
 }
 
 void config_store_invalidate_cache(void) {

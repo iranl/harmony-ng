@@ -26,6 +26,17 @@
 #include "hw_action.h"
 #include "hub_key_channel.h"
 
+/* Tell hub_rf and the UIs that a slot's saved mappings differ from what the remote has */
+static void mark_rf_sync_pending(int slot, const char *diff) {
+    char details[256], ts[32];
+    snprintf(details, sizeof(details), "{\"slot\":%d,\"diff\":\"%s\"}\n", slot, diff);
+    snprintf(ts, sizeof(ts), "%ld\n", (long)time(NULL));
+    if (write_file_atomic("/data/harmony/rf_sync_pending_details.json", details) != 0 ||
+        write_file_atomic("/data/harmony/rf_sync_pending.flag", ts) != 0) {
+        fprintf(stderr, "[-] Could not mark slot %d as waiting for a push (flash full?)\n", slot);
+    }
+}
+
 int http_api_remotes_handle(int client_fd, const char *method, const char *clean_path,
                             const char *query, const char *body, const char *req) {
     (void)query;
@@ -248,7 +259,9 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             cJSON_AddStringToObject(rem, "bdaddr", bdaddr);
                             char *up = cJSON_Print(mj);
                             if (up) {
-                                write_file_atomic(config_store_path("bt_remote_map.json"), up);
+                                if (write_file_atomic(config_store_path("bt_remote_map.json"), up) != 0) {
+                                    fprintf(stderr, "[-] Could not save bt_remote_map.json (flash full?)\n");
+                                }
                                 free(up);
                             }
                             cJSON_Delete(mj);
@@ -513,7 +526,11 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     if (strcmp(clean_path, "/api/remote-mapping-save") == 0 && strcmp(method, "POST") == 0) {
         if (body && body[0]) {
             system("mkdir -p /data/harmony 2>/dev/null");
-            write_file_atomic(config_store_path("bt_remote_map.json"), body);
+            if (write_file_atomic(config_store_path("bt_remote_map.json"), body) != 0) {
+                send_json_error(client_fd, 500, "Could not save the remote mapping (flash full?)");
+                close(client_fd);
+                return 1;
+            }
             hub_send_btstack_cmd("reload_map");
         }
         cJSON *resp = cJSON_CreateObject();
@@ -537,17 +554,14 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             char fname[64];
             snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
             system("mkdir -p /data/harmony 2>/dev/null");
-            write_file_atomic(config_store_path(fname), body);
-            FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-            if (df) {
-                fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d button mappings updated. Push settings to sync.\"}\n", slot, slot);
-                fclose(df);
+            if (write_file_atomic(config_store_path(fname), body) != 0) {
+                send_json_error(client_fd, 500, "Could not save the button mappings (flash full?)");
+                close(client_fd);
+                return 1;
             }
-            FILE *flag = fopen("/data/harmony/rf_sync_pending.flag", "w");
-            if (flag) {
-                fprintf(flag, "%ld\n", (long)time(NULL));
-                fclose(flag);
-            }
+            char diff[128];
+            snprintf(diff, sizeof(diff), "Remote Slot %d button mappings updated. Push settings to sync.", slot);
+            mark_rf_sync_pending(slot, diff);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
@@ -591,18 +605,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         }
         if (content) {
             system("mkdir -p /data/harmony 2>/dev/null");
-            write_file_atomic(config_store_path(dst_name), content);
+            int wrc = write_file_atomic(config_store_path(dst_name), content);
             free(content);
-            FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-            if (df) {
-                fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d button mappings copied from Slot %d. Push settings to sync.\"}\n", to_slot, to_slot, from_slot);
-                fclose(df);
+            if (wrc != 0) {
+                send_json_error(client_fd, 500, "Could not save the button mappings (flash full?)");
+                close(client_fd);
+                return 1;
             }
-            FILE *flag = fopen("/data/harmony/rf_sync_pending.flag", "w");
-            if (flag) {
-                fprintf(flag, "%ld\n", (long)time(NULL));
-                fclose(flag);
-            }
+            char diff[128];
+            snprintf(diff, sizeof(diff), "Remote Slot %d button mappings copied from Slot %d. Push settings to sync.", to_slot, from_slot);
+            mark_rf_sync_pending(to_slot, diff);
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
             cJSON_AddNumberToObject(resp, "from", from_slot);
@@ -621,7 +633,11 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         if (strcmp(method, "POST") == 0) {
             if (body && body[0]) {
                 system("mkdir -p /data/harmony 2>/dev/null");
-                write_file_atomic(config_store_path("web_remote_layouts.json"), body);
+                if (write_file_atomic(config_store_path("web_remote_layouts.json"), body) != 0) {
+                    send_json_error(client_fd, 500, "Could not save the remote layouts (flash full?)");
+                    close(client_fd);
+                    return 1;
+                }
             }
             cJSON *resp = cJSON_CreateObject();
             cJSON_AddBoolToObject(resp, "ok", 1);
@@ -730,7 +746,11 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             unlink(config_store_path("rf_disabled.conf"));
             system("killall -9 hub_rf 2>/dev/null; /data/harmony/bin/hub_rf &");
         } else {
-            write_file_content(config_store_path("rf_disabled.conf"), "1\n");
+            if (write_file_content(config_store_path("rf_disabled.conf"), "1\n") != 0) {
+                send_json_error(client_fd, 500, "Could not save the RF setting (flash full?)");
+                close(client_fd);
+                return 1;
+            }
             system("killall -9 hub_rf 2>/dev/null");
         }
         cJSON *st = cJSON_CreateObject();
@@ -898,8 +918,10 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                             if (bdaddr[0]) {
                                 cJSON_AddStringToObject(dev_item, "bdaddr", bdaddr);
                             }
-                            if (config_store_save_devices(root) == 0) root = NULL;
-                            success = 1;
+                            if (config_store_save_devices(root) == 0) {
+                                root = NULL;
+                                success = 1;
+                            }
                             break;
                         }
                     }

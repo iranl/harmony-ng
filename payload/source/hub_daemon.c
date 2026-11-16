@@ -223,10 +223,8 @@ int main(int argc, char **argv) {
         cur_ver[strcspn(cur_ver, "\r\n")] = '\0';
     }
     if (strcmp(cur_ver, HARMONY_VERSION) != 0) {
-        FILE *vf = fopen("/data/harmony/VERSION", "w");
-        if (vf) {
-            fprintf(vf, "%s\n", HARMONY_VERSION);
-            fclose(vf);
+        if (write_file_atomic("/data/harmony/VERSION", HARMONY_VERSION "\n") != 0) {
+            fprintf(stderr, "[-] Could not write /data/harmony/VERSION\n");
         }
     }
     hub_info_init(mfg_file);

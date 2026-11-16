@@ -8,6 +8,7 @@
 #include "rf_api.h"
 #include "rf_config_push.h"
 #include "rf_help.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -426,8 +427,9 @@ int main(int argc, char **argv) {
         fclose(vf);
     } else {
         g_config_version = 1;
-        FILE *wf = fopen("/data/harmony/config_version", "w");
-        if (wf) { fprintf(wf, "1\n"); fclose(wf); }
+        if (atomic_file_write_str("/data/harmony/config_version", "1\n") != 0) {
+            fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
+        }
     }
     printf("[+] Hub RF config version: %d\n", g_config_version);
 

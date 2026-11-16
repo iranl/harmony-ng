@@ -192,6 +192,8 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DI
 # Host tool with a fake ssh (tools/backup_hub.py keeps only complete tar archives)
 python3 "$SCRIPT_DIR/test_backup_hub_check.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_icon_registry" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry"
+# Config files replaced through a synced temporary file; a full flash keeps the old file
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_atomic_file" "$SCRIPT_DIR/test_atomic_file.c" && "$BUILD_DIR/test_atomic_file"
 # Remote: custom icon updates free and reuse their PNG cache slots
 build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_png_cache" "$SCRIPT_DIR/test_remote_png_cache.c" \
     "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
@@ -326,6 +328,7 @@ python3 "$SCRIPT_DIR/test_activity_restore.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 python3 "$SCRIPT_DIR/test_activity_save_match.py"
 python3 "$SCRIPT_DIR/test_config_cache_race.py"
+python3 "$SCRIPT_DIR/test_config_safe_writes.py"
 
 # Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
 python3 "$SCRIPT_DIR/test_hub_boot_counter.py"

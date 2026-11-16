@@ -6,6 +6,7 @@
 #include "rf_sync.h"
 #include "rf_pairing.h"
 #include "rf_config_push.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -428,8 +429,11 @@ void *api_server_worker(void *arg) {
                     rf_keymap_invalidate_map(2);
                     g_config_version++;
                     if (g_config_version == 0) g_config_version = 1;
-                    FILE *vf = fopen("/data/harmony/config_version", "w");
-                    if (vf) { fprintf(vf, "%d\n", g_config_version); fclose(vf); }
+                    char vline[16];
+                    snprintf(vline, sizeof(vline), "%d\n", g_config_version);
+                    if (atomic_file_write_str("/data/harmony/config_version", vline) != 0) {
+                        fprintf(stderr, "[-] Could not save /data/harmony/config_version\n");
+                    }
                     pthread_t push_th;
                     pthread_create(&push_th, NULL, config_push_worker, NULL);
                     pthread_detach(push_th);
@@ -487,6 +491,7 @@ void *api_server_worker(void *arg) {
                         const char *res = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Companion remotes do not have screen or motion configuration\",\"ok\":false}";
                         write(cli, res, strlen(res));
                     } else {
+                        int cfg_save_failed = 0;
                         char *body_start = strstr(buf, "\r\n\r\n");
                     if (body_start) {
                         body_start += 4;
@@ -638,12 +643,9 @@ void *api_server_worker(void *arg) {
 
                             char *norm_str = cJSON_Print(norm);
                             if (norm_str) {
-                                if (strcmp(old_cfg, norm_str) != 0) {
-                                    FILE *f = fopen(path, "w");
-                                    if (f) {
-                                        fputs(norm_str, f);
-                                        fclose(f);
-                                    }
+                                if (strcmp(old_cfg, norm_str) != 0 && atomic_file_write_str(path, norm_str) != 0) {
+                                    fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
+                                    cfg_save_failed = 1;
                                 }
                                 free(norm_str);
                             }
@@ -680,7 +682,9 @@ void *api_server_worker(void *arg) {
                             cJSON_Delete(root);
                         }
                     }
-                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved_and_pushed\",\"ok\":true}";
+                    const char *res = cfg_save_failed
+                        ? "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Settings sent to the remote but not saved on the Hub (flash full?)\",\"ok\":false}"
+                        : "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved_and_pushed\",\"ok\":true}";
                     write(cli, res, strlen(res));
                     }
                 }
@@ -709,23 +713,24 @@ void *api_server_worker(void *arg) {
                 } else {
                     int slot = strstr(buf, "slot=2") ? 2 : 1;
                     if (strstr(buf, "\"slot\":2") || strstr(buf, "\"slot\": 2")) slot = 2;
+                    int saved = 1;
                     char *body_start = strstr(buf, "\r\n\r\n");
                     if (body_start) {
                         body_start += 4;
                         char path[64];
                         snprintf(path, sizeof(path), "/data/harmony/remote_slot%d_direct_buttons.json", slot);
-                        FILE *f = fopen(path, "w");
-                        if (f) {
-                            fputs(body_start, f);
-                            fclose(f);
-                        }
-                        if (is_slot_direct_mode(slot)) {
+                        if (atomic_file_write_str(path, body_start) != 0) {
+                            fprintf(stderr, "[-] Could not save %s (flash full?)\n", path);
+                            saved = 0;
+                        } else if (is_slot_direct_mode(slot)) {
                             pthread_t push_th;
                             pthread_create(&push_th, NULL, config_push_worker, NULL);
                             pthread_detach(push_th);
                         }
                     }
-                    const char *res = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}";
+                    const char *res = saved
+                        ? "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"saved\",\"ok\":true}"
+                        : "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Could not save the direct buttons (flash full?)\",\"ok\":false}";
                     write(cli, res, strlen(res));
                 }
             } else if (strstr(buf, "GET /api/rf/ota-status") == buf) {
