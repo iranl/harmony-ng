@@ -347,6 +347,8 @@ int ir_encode_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count,
 
 /* Protocols the NEC encoder below is meant for. "Toshiba 32 Bit" is what the IR
  * database import (irdb.js) writes for NEC, Samsung32 and Pioneer codes. */
+#define IR_HEX_MAX_CHARS 120
+
 static int is_nec_family(const char *proto) {
     for (const char *p = proto; p[0] && p[1] && p[2]; p++) {
         if (toupper((unsigned char)p[0]) == 'N' && toupper((unsigned char)p[1]) == 'E' &&
@@ -397,11 +399,17 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     /* Handle Harmony raw timing format: F<freq_hex>P<mark_hex>S<space_hex>... */
     if ((keycode[0] == 'F' || keycode[0] == 'f') &&
         (strchr(keycode, 'P') || strchr(keycode, 'p') || strchr(keycode, 'S') || strchr(keycode, 's'))) {
-        /* one array (8 KB of stack, as before): parsed signed, then made absolute in place */
-        uint32_t timings[IR_RAW_MAX_TIMINGS];
+        /* one array (8 KB of stack, as before): parsed signed, then made absolute in place. One
+         * entry more than is sent: a code with more timings than that is refused, it used to be
+         * cut and sent as if complete. */
+        uint32_t timings[IR_RAW_MAX_TIMINGS + 1];
         int32_t *signed_t = (int32_t *)timings;
         uint32_t carrier = 0;
-        int n = ir_parse_harmony_raw(keycode, &carrier, signed_t, IR_RAW_MAX_TIMINGS);
+        int n = ir_parse_harmony_raw(keycode, &carrier, signed_t, IR_RAW_MAX_TIMINGS + 1);
+        if (n > IR_RAW_MAX_TIMINGS) {
+            fprintf(stderr, "[!] IR: raw code has more than %d timings, not sent\n", IR_RAW_MAX_TIMINGS);
+            return -2;
+        }
         if (n >= 4) {
             for (int i = 0; i < n; i++) timings[i] = (uint32_t)(signed_t[i] < 0 ? -(int64_t)signed_t[i] : signed_t[i]);
             return ir_encode_raw(carrier ? carrier : 38000, timings, (size_t)n, min_repeats ? min_repeats : 1, out_buf, out_len);
@@ -418,7 +426,7 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         const char *p2 = strchr(p1, ':');
         if (!p2) return -2;
         size_t proto_len = p2 - p1;
-        if (proto_len >= sizeof(proto)) proto_len = sizeof(proto) - 1;
+        if (proto_len >= sizeof(proto)) return -2;
         strncpy(proto, p1, proto_len);
 
         const char *open_p = strchr(p2, '(');
@@ -429,7 +437,7 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                 if (!close_p) break;
                 if (close_p > open_p + 1) {
                     size_t hex_len = close_p - (open_p + 1);
-                    if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
+                    if (hex_len >= sizeof(hex)) return -2; /* was cut and sent as another code */
                     strncpy(hex, open_p + 1, hex_len);
                     break;
                 }
@@ -456,6 +464,9 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
     }
 
     if (!hex[0]) return -3;
+    /* The bit loops below stop at 1000 timings: a longer code was cut there and sent as if
+     * complete. A field of 120 characters (at most 480 bits) always fits. */
+    if (strlen(hex) > IR_HEX_MAX_CHARS) return -2;
     if (!parsed_repeats) parsed_repeats = 3;
 
     uint32_t carrier_hz = 38000;
@@ -489,11 +500,14 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         const char *sep = strchr(hex, '_');
         if (sep) {
             size_t c1_len = sep - hex;
-            if (c1_len >= sizeof(chunk1)) c1_len = sizeof(chunk1) - 1;
-            strncpy(chunk1, hex, c1_len);
-            strncpy(chunk2, sep + 1, sizeof(chunk2) - 1);
+            size_t c2_len = strlen(sep + 1);
+            if (c1_len >= sizeof(chunk1) || c2_len >= sizeof(chunk2)) return -2;
+            memcpy(chunk1, hex, c1_len);
+            memcpy(chunk2, sep + 1, c2_len);
         } else {
-            strncpy(chunk1, hex, sizeof(chunk1) - 1);
+            size_t c1_len = strlen(hex);
+            if (c1_len >= sizeof(chunk1)) return -2;
+            memcpy(chunk1, hex, c1_len);
         }
 
         timings[timing_count++] = 270;
@@ -590,6 +604,7 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         }
         int frames = parsed_repeats < 3 ? 3 : parsed_repeats;
         size_t frame_entries = 2 * (size_t)bits + 2;
+        size_t one_frame = 0;
         for (int f = 0; f < frames && timing_count + frame_entries <= 1024; f++) {
             uint32_t frame_start = timings_sum(timings, timing_count);
             timings_add(timings, &timing_count, 1, 2400);
@@ -598,6 +613,13 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                 timings_add(timings, &timing_count, 1, ((val >> b) & 1) ? 1200 : 600);
             }
             timings_pad_to(timings, &timing_count, frame_start, 45000);
+            if (f == 0) one_frame = timing_count;
+        }
+        /* While the key is held one frame repeats (every 45 ms), not the whole group */
+        if (one_frame > 0 && one_frame % 2 == 0 && one_frame < timing_count && one_frame <= 2 * 32 + 2) {
+            uint32_t repeat[2 * 32 + 2];
+            memcpy(repeat, timings, one_frame * sizeof(uint32_t));
+            return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, one_frame, parsed_repeats, out_buf, out_len);
         }
     } else if (strstr(proto, "Samsung 16 and 20 Bit")) {
         /* Samsung soundbars ("0x<16 bits>_1x<20 bits>"): a 16-bit segment with a header,

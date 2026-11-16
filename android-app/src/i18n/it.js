@@ -1260,4 +1260,5 @@ export default {
     "wifi_credentials_desc": "Inserisci le credenziali della rete Wi-Fi. Funge da connessione wireless o fallback automatico quando Ethernet è scollegato.",
     "wifi_ssid": "Nome rete Wi-Fi (SSID)",
     "wifi_status_lbl": "Stato Wi-Fi",
+    "hold_repeat": "Ripeti tenendo premuto",
 };

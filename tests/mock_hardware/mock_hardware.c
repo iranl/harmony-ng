@@ -3,11 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
 #include <stdarg.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -45,24 +47,31 @@ static int g_rf_mock_fd = -1;
 static int g_i2s_rx_mock_fd = -1;
 static int g_i2s_tx_mock_fd = -1;   /* write-only /dev/i2s: <mock>/i2s_tx, ioctls succeed */
 
+/* Looked up once for the whole process. Threads that call an interposed function at the same
+ * time used to see real_open already set while real_read was still NULL (the old check tested
+ * real_open only) and called a NULL pointer: an occasional crash in tests that start threads. */
+static pthread_once_t s_real_once = PTHREAD_ONCE_INIT;
+
+static void lookup_real_functions(void) {
+    real_open = dlsym(RTLD_NEXT, "open");
+    real_open64 = dlsym(RTLD_NEXT, "open64");
+    real_close = dlsym(RTLD_NEXT, "close");
+    real_read = dlsym(RTLD_NEXT, "read");
+    real_ioctl = dlsym(RTLD_NEXT, "ioctl");
+    real_mmap = dlsym(RTLD_NEXT, "mmap");
+    real_fopen = dlsym(RTLD_NEXT, "fopen");
+    real_fopen64 = dlsym(RTLD_NEXT, "fopen64");
+    real_unlink = dlsym(RTLD_NEXT, "unlink");
+    real_stat = dlsym(RTLD_NEXT, "stat");
+    real_rename = dlsym(RTLD_NEXT, "rename");
+    real_xstat = dlsym(RTLD_NEXT, "__xstat");
+    real_access = dlsym(RTLD_NEXT, "access");
+    if (!real_open64) real_open64 = real_open;
+    if (!real_fopen64) real_fopen64 = real_fopen;
+}
+
 static void init_real_functions(void) {
-    if (!real_open) {
-        real_open = dlsym(RTLD_NEXT, "open");
-        real_open64 = dlsym(RTLD_NEXT, "open64");
-        real_close = dlsym(RTLD_NEXT, "close");
-        real_read = dlsym(RTLD_NEXT, "read");
-        real_ioctl = dlsym(RTLD_NEXT, "ioctl");
-        real_mmap = dlsym(RTLD_NEXT, "mmap");
-        real_fopen = dlsym(RTLD_NEXT, "fopen");
-        real_fopen64 = dlsym(RTLD_NEXT, "fopen64");
-        real_unlink = dlsym(RTLD_NEXT, "unlink");
-        real_stat = dlsym(RTLD_NEXT, "stat");
-        real_rename = dlsym(RTLD_NEXT, "rename");
-        real_xstat = dlsym(RTLD_NEXT, "__xstat");
-        real_access = dlsym(RTLD_NEXT, "access");
-        if (!real_open64) real_open64 = real_open;
-        if (!real_fopen64) real_fopen64 = real_fopen;
-    }
+    pthread_once(&s_real_once, lookup_real_functions);
 }
 
 static const char *get_mock_dir(void) {
@@ -140,6 +149,18 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
     if (strcmp(pathname, "/dev/harmony_ir") == 0 || strcmp(pathname, "/dev/lirc0") == 0) {
         *out_special_type = 6;
         snprintf(resolved, max_len, "%s/ir_blaster.log", md);
+        return resolved;
+    }
+
+    /* 4b. hub_btstack's key pipe: under the mock root when one is set, so a test reads what
+     * hub_daemon hands over and no pipe of the host is touched */
+    if (strcmp(pathname, "/tmp/bthid_input") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
+        snprintf(resolved, max_len, "%s/bthid_input", md);
+        return resolved;
+    }
+    /* and hub_daemon's Bluetooth send log (debug logging) */
+    if (strcmp(pathname, "/tmp/bt_sent.log") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
+        snprintf(resolved, max_len, "%s/bt_sent.log", md);
         return resolved;
     }
 
@@ -497,14 +518,45 @@ int ioctl(int fd, unsigned long request, ...) {
      * (0x80044e31) returns when the signal has gone out; <mock>/i2s_tx_ms makes it take that
      * many milliseconds, so a test can act while a send is running. */
     if (fd == g_i2s_tx_mock_fd && g_i2s_tx_mock_fd >= 0) {
+        /* With <mock>/i2s_tx_realtime a signal takes as long as on a Hub: the clock ioctl
+         * (0x80044e21) gives the bit time (arg * 40 / 65536 ns), the start ioctl (0x80044e30)
+         * the stream length in bytes, and the drain returns when that much time has passed
+         * since the start. Each start adds "<start us> <bytes> <duration us>" to
+         * <mock>/i2s_tx_log (CLOCK_MONOTONIC), so a test can time the frames of a held key. */
+        static unsigned long tx_clk = 0;
+        static long long tx_start_us = 0, tx_len_us = 0;
+        char p[512];
+        snprintf(p, sizeof(p), "%s/i2s_tx_realtime", get_mock_dir());
+        int realtime = access(p, F_OK) == 0;
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        long long now_us = (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+        if (request == 0x80044e21UL) {
+            tx_clk = (unsigned long)arg;
+        } else if (request == 0x80044e30UL && realtime) {
+            unsigned long bytes = (unsigned long)arg & 0xffffUL;
+            tx_start_us = now_us;
+            tx_len_us = (long long)((unsigned long long)bytes * 8ULL * tx_clk * 40ULL / 65536ULL / 1000ULL);
+            snprintf(p, sizeof(p), "%s/i2s_tx_log", get_mock_dir());
+            FILE *f = real_fopen ? real_fopen(p, "a") : NULL;
+            if (f) {
+                fprintf(f, "%lld %lu %lld\n", now_us, bytes, tx_len_us);
+                fclose(f);
+            }
+        }
         if (request == 0x80044e31UL) {
-            char p[512];
             snprintf(p, sizeof(p), "%s/i2s_tx_ms", get_mock_dir());
             FILE *f = real_fopen ? real_fopen(p, "r") : NULL;
             if (f) {
                 int ms = 0;
                 if (fscanf(f, "%d", &ms) == 1 && ms > 0 && ms < 10000) usleep((useconds_t)ms * 1000);
                 fclose(f);
+            }
+            if (realtime) {
+                /* the time now: the sleep above already counts toward the frame's air time */
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                now_us = (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+                if (tx_start_us + tx_len_us > now_us) usleep((useconds_t)(tx_start_us + tx_len_us - now_us));
             }
         }
         return 0;
@@ -614,4 +666,39 @@ int inotify_add_watch(int fd, const char *pathname, uint32_t mask) {
     static int (*real_in_add)(int, const char *, uint32_t) = NULL;
     if (!real_in_add) real_in_add = dlsym(RTLD_NEXT, "inotify_add_watch");
     return real_in_add ? real_in_add(fd, target, mask) : -1;
+}
+
+/* opendir() of a virtualized /data or /cache directory (the custom icon limits count the files of
+ * /data/harmony/custom_icons) */
+DIR *opendir(const char *name) {
+    static DIR *(*real_opendir)(const char *) = NULL;
+    if (!real_opendir) real_opendir = dlsym(RTLD_NEXT, "opendir");
+    char resolved[512];
+    int special_type = 0;
+    const char *target = name;
+    if ((strncmp(name, "/data/", 6) == 0 || strncmp(name, "/cache/", 7) == 0)) {
+        target = resolve_mock_path(name, resolved, sizeof(resolved), &special_type);
+    }
+    if (!real_opendir) {
+        errno = ENOSYS;
+        return NULL;
+    }
+    return real_opendir(target);
+}
+
+/* chmod() of a virtualized /data or /cache path (mqtt.json is made readable by root only) */
+int chmod(const char *path, mode_t mode) {
+    static int (*real_chmod)(const char *, mode_t) = NULL;
+    if (!real_chmod) real_chmod = dlsym(RTLD_NEXT, "chmod");
+    char resolved[512];
+    int special_type = 0;
+    const char *target = path;
+    if (strncmp(path, "/data/", 6) == 0 || strncmp(path, "/cache/", 7) == 0) {
+        target = resolve_mock_path(path, resolved, sizeof(resolved), &special_type);
+    }
+    if (!real_chmod) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return real_chmod(target, mode);
 }

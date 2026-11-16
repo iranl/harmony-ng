@@ -28,7 +28,8 @@ static void cycle_touch_sensitivity(void) {
 }
 
 static void execute_remote_reboot(void) {
-    bool docked = is_remote_docked();
+    /* The power source as it is now: a reboot on battery switches the remote off */
+    bool docked = remote_on_external_power();
     show_notice(tr(docked ? STR_NOTICE_REBOOTING : STR_NOTICE_RESTARTING), 4000);
     render_screen();
     log_power_debug("[*] System reboot initiated from Settings (docked=%d)...\n", docked);
@@ -256,7 +257,7 @@ void execute_settings_action(int idx) {
                     show_notice("Debug Log: ENABLED", 2000);
                 }
                 break;
-            case 5:
+            case SETTINGS_POWER_SUSPEND_ITEM:
                 g_settings_subview = SETTINGS_VIEW_SUSPEND;
                 g_suspend_countdown_start_ms = get_monotonic_ms();
                 g_selected_sub_item = 0;
@@ -274,10 +275,14 @@ void execute_settings_action(int idx) {
                 g_unpair_confirm_active = false;
                 if (g_rf_fd >= 0) {
                     uint8_t q_own[7] = {0x10, 0xFF, 0x83, 0xB5, 0x03, 0x00, 0x00};
+                    pthread_mutex_lock(&g_rf_write_mutex);
                     if (write(g_rf_fd, q_own, sizeof(q_own)) < 0) {}
+                    pthread_mutex_unlock(&g_rf_write_mutex);
                     usleep(10000);
                     uint8_t q_hub[7] = {0x10, 0xFF, 0x83, 0xB5, 0x20, 0x00, 0x00};
+                    pthread_mutex_lock(&g_rf_write_mutex);
                     if (write(g_rf_fd, q_hub, sizeof(q_hub)) < 0) {}
+                    pthread_mutex_unlock(&g_rf_write_mutex);
                 }
                 break;
             case 1:
@@ -330,12 +335,12 @@ void execute_settings_action(int idx) {
         if (idx == 0) {
             g_suspend_countdown_start_ms = 0;
             g_settings_subview = SETTINGS_VIEW_POWER;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
         } else if (idx == 1) {
             g_suspend_countdown_start_ms = 0;
             trigger_manual_suspend_to_ram();
             g_settings_subview = SETTINGS_VIEW_POWER;
-            g_selected_sub_item = 4;
+            g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
         }
         return;
     }

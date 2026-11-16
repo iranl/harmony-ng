@@ -8,6 +8,7 @@
 #include "rf_button_list.h"
 #include "remote_stock_icons.h"
 #include "custom_icon_registry.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -277,6 +278,13 @@ void *config_push_worker(void *arg) {
                                 else if (cJSON_IsString(jid)) strncpy(id_str, jid->valuestring, sizeof(id_str) - 1);
 
                                 if (id_str[0]) {
+                                    if (strlen(id_str) > 4) {
+                                        /* the device list frame carries 4 bytes of the id: the
+                                         * remote's device browser cannot address this device */
+                                        printf("[-] Device id '%s' (%s) is longer than the 4 characters a remote "
+                                               "gets: its commands cannot be sent from the remote's device pages\n",
+                                               id_str, jname->valuestring);
+                                    }
                                     strncpy(devs[dev_count].id, id_str, 7);
                                     devs[dev_count].id[7] = '\0';
                                     strncpy(devs[dev_count].name, jname->valuestring, sizeof(devs[0].name) - 1);
@@ -496,6 +504,7 @@ void *config_push_worker(void *arg) {
                             if (!act_id[0]) continue;
 
                             struct rf_step_send local_steps[8];
+                            memset(local_steps, 0, sizeof(local_steps)); /* the default steps below copy ids and names without a terminator */
                             int local_count = 0;
 
                             /* startSequence -> Modern Harmony format */
@@ -821,12 +830,10 @@ void *config_push_worker(void *arg) {
             uint8_t target_slot = target_slots[t];
             int idx = target_slot - 1;
             if (idx >= 0 && idx < 2 && g_remote_versions[idx].config_version != config_ver) {
-                FILE *df = fopen("/data/harmony/rf_sync_pending_details.json", "w");
-                if (df) {
-                    fprintf(df, "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
-                            target_slot, target_slot);
-                    fclose(df);
-                }
+                char details[128];
+                snprintf(details, sizeof(details), "{\"slot\":%d,\"diff\":\"Remote Slot %d unreachable/asleep. Will sync on wake.\"}\n",
+                         target_slot, target_slot);
+                atomic_file_write_str("/data/harmony/rf_sync_pending_details.json", details);
                 break;
             }
         }

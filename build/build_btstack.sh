@@ -56,20 +56,22 @@ if [ ! -d "$BTSTACK_DIR/src" ]; then
     git -C "$BTSTACK_DIR" fetch -q --depth 1 "$BTSTACK_REPO" "$BTSTACK_COMMIT"
     git -C "$BTSTACK_DIR" checkout -q FETCH_HEAD
 fi
-if [ -f "$BTSTACK_PATCH" ]; then
-    # A patch that does not apply used to be ignored, building hub_btstack without it
-    if (cd "$BTSTACK_DIR" && git apply --check --reverse --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH" 2>/dev/null); then
-        echo "btstack.patch already applied"
-    elif (cd "$BTSTACK_DIR" && git apply --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH"); then
-        echo "Applied btstack.patch"
-    elif (cd "$BTSTACK_DIR" && git checkout -q -- . && git clean -fdq && git apply --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH"); then
-        # A clone left by an earlier build carries the previous version of the patch
-        echo "Applied btstack.patch to a reset clone"
-    else
-        echo "[!] $BTSTACK_PATCH does not apply to BTstack $BTSTACK_COMMIT" >&2
-        exit 1
-    fi
+# >>> patch step (tests/test_build_btstack_patch.sh runs this block on a toy repository)
+# The patch is applied to a clean tree on every build. A check of the current patch against
+# a clone left by an earlier build cannot see a change that was removed from the patch since:
+# it stayed in the clone and was compiled. Resetting the local clone costs nothing.
+if [ ! -f "$BTSTACK_PATCH" ]; then
+    echo "[!] $BTSTACK_PATCH is missing: hub_btstack needs it (four HID host instances and more)" >&2
+    exit 1
 fi
+(cd "$BTSTACK_DIR" && git checkout -q -- . && git clean -fdq)
+if (cd "$BTSTACK_DIR" && git apply --ignore-whitespace --whitespace=nowarn "$BTSTACK_PATCH"); then
+    echo "Applied btstack.patch"
+else
+    echo "[!] $BTSTACK_PATCH does not apply to BTstack $BTSTACK_COMMIT" >&2
+    exit 1
+fi
+# <<< patch step
 
 echo "=== Compiling hub_btstack for MIPS32 ==="
 
@@ -128,6 +130,7 @@ payload/source/hub_btstack/bt_remote.c
 payload/source/hub_btstack/bt_main.c
 payload/source/hub_btstack/bt_reconnect_queue.c
 payload/source/hub_btstack/bt_le_pair_window.c
+payload/source/hub_btstack/bt_hid_queue.c
 "
 
 # Compile and link

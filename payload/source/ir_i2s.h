@@ -29,6 +29,30 @@ extern "C" {
  */
 int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask);
 
+/* The parts of a blob a held key is played from (the header's start, repeat and finish
+ * locations) */
+#define IR_BLOB_START  0   /* sent once at the press: what ir_i2s_blast_blob() sends */
+#define IR_BLOB_REPEAT 1   /* sent again and again while the key is down: the code's repeat
+                              sequence, or the start sequence when it has no other */
+#define IR_BLOB_FINISH 2   /* sent at the release, when the code has one */
+
+/**
+ * Blast one part of a blob, timed for a held key: the stream lasts as long as the sequence
+ * itself (its own lead-in and tail silence come out of the sequence's last space), so the part
+ * sent right after it follows with the code's own repeat period.
+ *
+ * @param part IR_BLOB_START, IR_BLOB_REPEAT or IR_BLOB_FINISH
+ * @return 0 on success, -ENOENT for IR_BLOB_FINISH on a code without one, else negative as
+ *         ir_i2s_blast_blob()
+ */
+int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8_t port_mask);
+
+/**
+ * Marks a held key from its first frame to its last (on 1, then 0): the capture mode treats
+ * the whole time as one send. Calls nest with the marks of the frames themselves.
+ */
+void ir_i2s_tx_hold(int on);
+
 /**
  * Blast raw mark/space durations directly to /dev/i2s.
  *

@@ -9,6 +9,8 @@ extern "C" {
 
 void load_settings_conf(void);
 void save_settings_conf(void);
+/* The accelerometer rates the Settings screen and the web UI offer: 10, 25, 50, 100 Hz */
+bool remote_gyro_rate_valid(int hz);
 void load_rf_config(void);
 /* Builds the home screen's activity list and icon paths from the received RF config */
 void build_activity_list(void);

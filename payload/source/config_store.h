@@ -126,10 +126,16 @@ int run_bt_saved_script(const char *type, const char *bdaddr, const char *script
 int config_store_init(void);
 /*
  * devices.json and activities.json are kept in memory as cJSON trees owned by the config store.
- * Up to 8 HTTP workers and the main loop use them at the same time, so the trees themselves are
- * never handed out:
- *  - a reader gets a deep copy made under the store lock and frees it with cJSON_Delete();
- *  - a writer holds the lock for the whole change, so no other save can slip in between:
+ * Up to 8 HTTP workers and the main loop use them at the same time. A published tree is never
+ * changed: a save publishes a new one (config_snap.h).
+ *  - a reader shares the current tree, read only, without holding the lock while it reads:
+ *        cfg_snap_t *snap = NULL;
+ *        const cJSON *root = config_store_devices_acquire(&snap);  (NULL when out of memory)
+ *        ... read root ...
+ *        config_store_release(&snap);  (on every path; clears snap, NULL is ignored)
+ *    A save meanwhile does not touch it; the old tree is freed at its last release.
+ *  - a writer holds the lock for the whole change, so no other save can slip in between, and
+ *    changes its own deep copy:
  *        config_store_lock();
  *        cJSON *root = config_store_devices_copy();
  *        ... change root ...
@@ -141,6 +147,13 @@ int config_store_init(void);
  */
 void config_store_lock(void);
 void config_store_unlock(void);
+typedef struct cfg_snap cfg_snap_t;
+const cJSON *config_store_devices_acquire(cfg_snap_t **snap);
+const cJSON *config_store_activities_acquire(cfg_snap_t **snap);
+void config_store_release(cfg_snap_t **snap);
+/* References not given back yet (tests check that every acquire was released) */
+int config_store_snapshots_held(void);
+/* A deep copy the caller owns and frees: for a writer, or a reader that changes what it got */
 cJSON *config_store_devices_copy(void);
 cJSON *config_store_activities_copy(void);
 /* Sanitizes and writes the tree and makes it the cached one. Returns 0 when the store took the

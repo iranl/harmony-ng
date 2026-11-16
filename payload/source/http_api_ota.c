@@ -9,6 +9,46 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+#include <sys/stat.h>
+
+/* The flags and latest_version live on flash: written only when they change (an update check
+ * with remote_version could be repeated without limit, each one rewriting them) */
+static void set_flag_file(const char *path, int on) {
+    if (on) {
+        if (access(path, F_OK) == 0) return;
+        FILE *f = fopen(path, "w");
+        if (f) fclose(f);
+    } else if (access(path, F_OK) == 0) {
+        unlink(path);
+    }
+}
+
+static void write_latest_version(const char *ver) {
+    const char *path = config_store_path("latest_version");
+    char cur[64] = {0};
+    FILE *rf = fopen(path, "r");
+    if (rf) {
+        if (fgets(cur, sizeof(cur), rf)) cur[strcspn(cur, "\r\n")] = '\0';
+        fclose(rf);
+        if (strcmp(cur, ver) == 0) return;
+    }
+    FILE *wf = fopen(path, "w");
+    if (wf) {
+        fprintf(wf, "%s\n", ver);
+        fclose(wf);
+    }
+}
+
+/* /tmp/hub_updating.flag: set while update.sh apply runs (its exit removes it). The test build
+ * can point it elsewhere (HARMONY_TEST_UPDATING_FLAG) so a host test never touches /tmp. */
+static const char *updating_flag_path(void) {
+#ifdef TEST_HARNESS
+    const char *p = getenv("HARMONY_TEST_UPDATING_FLAG");
+    if (p && p[0]) return p;
+#endif
+    return "/tmp/hub_updating.flag";
+}
 
 /* GET /api/update-status object */
 cJSON *ota_update_status(void) {
@@ -97,17 +137,8 @@ cJSON *ota_update_check(const cJSON *params) {
         if (src[0] == 'v' || src[0] == 'V') src++;
         strncpy(clean_ver, src, sizeof(clean_ver) - 1);
         const char *save_ver = (harmony_version_compare(clean_ver, HARMONY_VERSION) > 0) ? clean_ver : HARMONY_VERSION;
-        FILE *rf = fopen(config_store_path("latest_version"), "w");
-        if (rf) {
-            fprintf(rf, "%s\n", save_ver);
-            fclose(rf);
-        }
-        if (harmony_version_compare(clean_ver, HARMONY_VERSION) > 0) {
-            FILE *ff = fopen("/data/harmony/update_available.flag", "w");
-            if (ff) fclose(ff);
-        } else {
-            unlink("/data/harmony/update_available.flag");
-        }
+        write_latest_version(save_ver);
+        set_flag_file("/data/harmony/update_available.flag", harmony_version_compare(clean_ver, HARMONY_VERSION) > 0);
     } else {
         char cmd[512] = {0};
         if (access("/data/harmony/update.sh", X_OK) == 0) {
@@ -136,14 +167,8 @@ cJSON *ota_update_check(const cJSON *params) {
             if (strlen(lbuf) > 0) {
                 const char *clean = (lbuf[0] == 'v' || lbuf[0] == 'V') ? lbuf + 1 : lbuf;
                 snprintf(remote_ver, sizeof(remote_ver), "%s", clean);
-                if (harmony_version_compare(clean, HARMONY_VERSION) > 0) {
-                    has_update = 1;
-                    FILE *ff = fopen("/data/harmony/update_available.flag", "w");
-                    if (ff) fclose(ff);
-                } else {
-                    has_update = 0;
-                    unlink("/data/harmony/update_available.flag");
-                }
+                has_update = harmony_version_compare(clean, HARMONY_VERSION) > 0;
+                set_flag_file("/data/harmony/update_available.flag", has_update);
             }
         }
         fclose(rf);
@@ -185,10 +210,26 @@ cJSON *ota_update_apply(const cJSON *params) {
     if (repo[0] && !is_safe_param(repo, "/.:-_@~")) repo[0] = '\0';
     if (token[0] && !is_safe_param(token, "-_")) token[0] = '\0';
 
-#ifndef TEST_HARNESS
-    FILE *uf = fopen("/tmp/hub_updating.flag", "w");
-    if (uf) fclose(uf);
+    /* One update at a time: a second apply while one runs (a double click, two browser tabs)
+     * started a second update.sh in the same work directory. A flag older than 30 minutes is
+     * left from a run that never ended and does not block, nor does one dated in the future
+     * (the clock was set back after it was written): it would have blocked until then. */
+    struct stat fst;
+    time_t now = time(NULL);
+    if (stat(updating_flag_path(), &fst) == 0 && now >= fst.st_mtime && now - fst.st_mtime < 1800) {
+        cJSON *busy = cJSON_CreateObject();
+        cJSON_AddBoolToObject(busy, "ok", 0);
+        cJSON_AddStringToObject(busy, "status", "busy");
+        cJSON_AddStringToObject(busy, "error", "A software update is already running");
+        return busy;
+    }
+#ifdef TEST_HARNESS
+    if (getenv("HARMONY_TEST_UPDATING_FLAG"))
 #endif
+    {
+        FILE *uf = fopen(updating_flag_path(), "w");
+        if (uf) fclose(uf);
+    }
 
     char cmd[512] = {0};
     snprintf(cmd, sizeof(cmd),
@@ -267,7 +308,7 @@ int http_api_ota_handle(int client_fd, const char *method, const char *clean_pat
         cJSON *p = parse_request_params(body);
         cJSON *st = ota_update_apply(p);
         cJSON_Delete(p);
-        send_cjson_resp(client_fd, 200, st);
+        send_cjson_resp(client_fd, cJSON_IsTrue(cJSON_GetObjectItem(st, "ok")) ? 200 : 409, st);
         cJSON_Delete(st);
         close(client_fd);
         return 1;

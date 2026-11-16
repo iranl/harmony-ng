@@ -13,7 +13,9 @@
 #define CC2544_FW          "/lib/firmware/cc2544.bin"
 #define DAEMON_PORT        8089
 #define WEBUI_PORT         8089
-#define RF_API_PORT        8092
+#ifndef RF_API_PORT
+#define RF_API_PORT        8092 /* tests build with another port */
+#endif
 #define CURRENT_ACT_FILE       "/data/harmony/current_activity"
 
 #define MAX_PAIRED_REMOTES 2
@@ -94,6 +96,12 @@ typedef struct {
     uint32_t acked_ok;    /* of those, the ones the remote ACKed */
     uint32_t retries;     /* resends of a frame the remote didn't ACK */
     uint32_t naks;        /* sends the Hub's CC2544 refused */
+    /* Key frames (RF_MSG_BUTTON_PRESS) of a remote that numbers them, see rf_key_note_event() */
+    uint32_t key_events;        /* key frames received that carry a counter */
+    uint32_t key_events_lost;   /* key frames missing between them: the sum of the three below */
+    uint32_t key_lost_press;    /* a hold or release came for a key whose press was not seen */
+    uint32_t key_lost_release;  /* a key frame came while the key before it was still down */
+    uint32_t key_lost_other;    /* the rest: holds, or nothing to tell them by */
 } remote_link_stats_t;
 
 typedef struct {
@@ -126,8 +134,9 @@ extern rf_ota_state_t g_rf_ota;
 extern pthread_mutex_t g_ota_lock;
 extern int g_debug_logging;
 extern uint8_t g_tx_seq;
-extern int g_ack_status;
-extern uint8_t g_ack_payload[25];
+/* Per thread: the ACK of the last rf_send_frame_acked() of the calling thread */
+extern __thread int g_ack_status;
+extern __thread uint8_t g_ack_payload[25];
 
 #ifdef __cplusplus
 extern "C" {
@@ -151,6 +160,10 @@ extern const char *g_rf_version_dir;
 extern time_t (*g_rf_time_fn)(time_t *);
 void rf_battery_note_report(uint8_t slot, uint8_t percent, uint8_t charging, uint16_t voltage_mv);
 void rf_battery_restore(void);
+/* A slot was unpaired: its pairing, identity, version, config version, capabilities and battery
+ * are those of a remote that is gone. All of them are cleared (the version file too), so a remote
+ * paired into the slot later starts from nothing. The slot's settings and key map stay. */
+void rf_slot_forget(uint8_t slot);
 /* Gives a report made before the clock was set its reported_at; returns 1 when it changed one */
 int rf_battery_fix_times(void);
 void mark_remote_slot_active(uint8_t slot);
@@ -188,6 +201,14 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family);
 /* A harmony-ng protocol frame from the slot (only touchscreen remotes speak it): names the
  * family Juniper while neither the EquadID nor earlier traffic named one */
 void rf_slot_saw_protocol_frame(uint8_t slot);
+/* A key frame from the slot with its key event counter (rf_proto.h RF_KEY_COUNTER_OFF), key code
+ * and state (1 press, 2 hold, 0 release); name is for the log. Counts the frame and the numbers
+ * missing before it in g_remote_link, and logs one line per gap. Counter 0 (a remote without the
+ * counter) is not measured. It only measures: the caller dispatches the key as before. */
+void rf_key_note_event(uint8_t slot, uint8_t counter, uint16_t key_code, uint8_t state, const char *name);
+/* The remote in the slot may have restarted (version report, unit id, link up): if its next key
+ * frame fits a counter that began at 1 again better than a gap, it is taken as that */
+void rf_key_note_restart_hint(uint8_t slot);
 /* RF_MSG_UNIT_ID payload (rf_proto.h): stores the unit id and the skin id when they changed.
  * Returns 1 when something changed (the caller saves the version file), else 0. */
 int rf_slot_apply_unit_id(uint8_t slot, const uint8_t *payload);

@@ -160,14 +160,19 @@ Enables or disables the RF CC2544 daemon `hub_rf`.
 - **Response `200 OK`**: `{"ok": true, "rf_enabled": true}`
 
 #### `POST /api/services/bt-toggle` or `POST /api/bt-toggle`
-Enables or disables the Bluetooth stack `hub_btstack`.
+Enables or disables the Bluetooth stack `hub_btstack`. Off writes `/data/harmony/bt_disabled.conf`
+and stops `hub_btstack`; the supervisor in `init.sh` keeps it stopped while the file exists. On
+removes the file and the supervisor starts it again within about 5 s. `GET /api/services` reports
+`bt_enabled` from the file and `bt_running` from the process list.
 - **Request Body**: `{"enable": true}`
-- **Response `200 OK`**: `{"ok": true, "bt_running": true}`
+- **Response `200 OK`**: `{"ok": true, "bt_enabled": true, "bt_running": false}`. `bt_enabled` is
+  the new setting; `bt_running` is the process at the time of the answer, so right after "on" it is
+  usually still `false`: read `GET /api/services` again to see the supervisor start it.
 
 ### 1.7 Hub Logs
 #### `GET /api/logs?source={daemon|btstack|rf|system|network}`
 Returns tail (up to 12KB) of requested daemon or system log.
-- **Parameters**: `source` (default: `daemon`).
+- **Parameters**: `source` (default: `daemon`). `daemon` and `rf` read `/tmp/harmony-init.log` (the output of hub_daemon and hub_rf), `btstack` `/tmp/hub-btstack.log`, `network` `/tmp/harmony-network.log`, `system` the kernel and system log.
 - **Response `200 OK`**:
   ```json
   {
@@ -176,6 +181,24 @@ Returns tail (up to 12KB) of requested daemon or system log.
     "log": "[INFO] Harmony hub daemon listening on port 8089\n..."
   }
   ```
+
+**Debug logs.** While `/data/harmony/debug_logging.conf` (or `/data/harmony/bt_remote_debug`)
+exists on the Hub, two more logs are written. `touch` the file over SSH to turn them on and `rm` it
+to turn them off; no restart is needed. Both are in RAM (`/tmp`, gone after a reboot) and are not
+served by `/api/logs`: read them over SSH.
+- `/tmp/bt_sent.log`: one line per Bluetooth command that `hub_daemon` hands to `hub_btstack`
+  (device, command, action, HID page and usage, result). At 64 KB it becomes `/tmp/bt_sent.log.1`.
+- `/tmp/key_trace.log`: one line per key from a remote that goes to a Bluetooth device, with the
+  time the key spent in each part of the Hub, in milliseconds:
+  ```
+  21:04:07.512 KBD_DOWN 4F      rf>daemon=1 daemon=1 pipe=0 bt=1 total=3 ms
+  ```
+  `rf>daemon`: from `hub_rf` receiving the key from the remote until `hub_daemon` took it from
+  the key channel. `daemon`: until `hub_daemon` wrote the command to the key pipe. `pipe`: until
+  `hub_btstack` read it. `bt`: until the report was handed to the Bluetooth stack; the line ends
+  with `(waiting in the report queue)` when the stack did not take the report at once. `total`:
+  from `hub_rf` to the stack. The time on the radio link before `hub_rf` and after the stack is
+  not in it. At 256 KB the file becomes `/tmp/key_trace.log.1`.
 
 ### 1.8 Hub Assets & Icons
 #### `GET /api/icons`
@@ -227,7 +250,7 @@ Updates global hub settings.
   }
   ```
   *Note: `led_mode` sets the Hub's front light while it runs normally: `"green"` (default), `"amber"`, `"red"` or `"off"`. The light flashes green fast while it pairs a remote and alternates red and green slowly during an RF firmware update, then returns to this setting. A pairing that times out or a failed update flashes red slowly for 5 s first. The older values `"always_on"` (green) and `"always_off"` (off) are still accepted, and `"flashing_fast"` and `"flashing_slow"` now mean green.*
-  *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`).*
+  *Note: `timezone` accepts standard IANA timezone identifiers (e.g. `"Europe/Amsterdam"`, `"America/New_York"`, `"Asia/Tokyo"`) or explicit POSIX TZ strings (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`). An `Area/City` name the Hub's table does not know is refused with `400` (it used to run as Central European time).*
 - **Response `200 OK`**: `{"ok": true}`
 
 #### `POST /api/bt/reconnect` or `POST /bt/reconnect`
@@ -253,6 +276,7 @@ Executes system maintenance operations.
   ```json
   {"action": "factory_reset", "confirm": "RESET"}
   ```
+  Answers `500` when the reset script is not installed where the Hub runs it.
 - **MQTT Direct Publish**:
   ```json
   {
@@ -403,6 +427,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services restarting in background."
   }
   ```
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
 
 ---
 
@@ -460,9 +485,13 @@ Creates or updates a device definition.
   repeats of the same command) are milliseconds from 0 to 10000. The sender waits them out before
   the command, so a save with a value outside that range is refused with `400` and nothing is
   changed; a larger value already in `devices.json` is lowered to 10000 when the file is loaded.
+  The three waits are for commands a program sends (API, MQTT, activity sequences); a key pressed
+  on a remote is sent without them.
 - **Response `200 OK`**: `{"ok": true}`
 - **Response `400`**: `{"ok": false}` when a timing field is not a number (or numeric string) or a
   delay is out of range.
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.3 Delete Device
 #### `POST /api/device-delete` or `POST /ir/delete-device`
@@ -544,6 +573,8 @@ Adds or updates a single command for a device.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.6 Batch Import Commands
 #### `POST /api/commands-batch` or `POST /ir/commands-batch`
@@ -559,6 +590,8 @@ Imports multiple commands into a device in one atomic write.
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "count": 2}`
+- **Response `500`**: `{"ok": false, "count": 0, "error": "..."}` when `devices.json` could not be
+  written (flash full); nothing was stored.
 
 ### 3.7 Delete Command
 #### `POST /api/command-delete` or `POST /ir/delete-command` or `POST /bt/delete-command`
@@ -571,6 +604,8 @@ Deletes a command by name from a device.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `devices.json` could not be written (flash
+  full); the stored devices are kept.
 
 ### 3.8 Device MQTT Test
 Publishes the MQTT pulse of a device once, the way a command to an MQTT-type device does (8.1,
@@ -693,12 +728,17 @@ Saves activity configuration with start and stop sequence steps.
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Response `500`**: `{"ok": false, "error": "..."}` when `activities.json` could not be written
+  (flash full); the stored activities are kept.
 
 ### 4.7 Delete Activity
 #### `POST /api/activity-delete`
 Deletes an activity by ID.
 - **Request Body**: `{"id": "123456"}`
 - **Response `200 OK`**: `{"ok": true}`
+- **Error `409 Conflict`**: the activity is running (its power off is built from its definition):
+  power off or start another activity first. If the activity file loses the running activity in
+  another way (a restore, a reload), the Hub reports PowerOff (`-1`, idle).
 
 ### 4.8 Test Sequence Execution
 #### `POST /api/activity-test-sequence`
@@ -716,7 +756,12 @@ Executes a test sequence immediately without modifying activity state.
 
 ### 4.9 Activity Progress Webhook
 #### `POST /api/activity-progress`
-Internal step progress notification. Broadcasts state payload to WebSockets and MQTT.
+Internal step progress notification: sends an `activity_progress` event (10.9) to the WebSocket
+clients and MQTT. The body is a JSON object; only these fields are taken: `activity` (or
+`activityId`), `state` (name or number, or `stateCode`), `step` (or `currentStep`), `total` (or
+`totalSteps`), `desc` (or `stepDesc`). Anything else in the body is not sent.
+- **Response `200 OK`**: `{"ok": true}`
+- **Error `400`**: the body is not a JSON object.
 
 ### 4.10 Reload / Sync Config
 #### `POST /api/sync` or `POST /api/reload`
@@ -780,6 +825,19 @@ Transmits an IR command either by device ID and command name (single string or a
   - `num_repeats`: Number of times to cycle through the command list (1-50, default: 1).
   - `delay_secs`: Delay in seconds between successive commands (default: 0.25s for multi-commands, 0s for single).
   - `hold_secs`: Button press hold duration in seconds before release (0.0 to 10.0s).
+- **Held key (`"action"` with a device command)**: `press`, `hold` or `release`; `tap`, the
+  default, is one full keystroke. For an infrared command a `press` starts the code and returns
+  at once: the Hub sends the code and then repeats it in the code's own repeat format (its
+  repeat sequence, or the whole frame when it has none) with no pause, as the device's own
+  remote does, until the `release`. A `hold` sends nothing itself: it tells the Hub that the key
+  is still down. With no `hold` and no `release` for 600 ms the Hub stops repeating by itself
+  (a lost release cannot leave a key repeating), so a client that holds a key longer sends a
+  `hold` at least every 300 ms, as the remote does. The repeating always ends after a whole
+  frame, and the start of the code always goes out, also when the release comes sooner. A `tap`,
+  each command of a list and each step of an activity is one send, as before. Another infrared
+  command ends a held key (it waits for the frame on air). A `hold` or `release` for a key that
+  is not held does nothing. For a Bluetooth command `press` is key down, `release` key up and
+  `hold` nothing. The `hold_secs` of `send_command` (10.3, MQTT) sends the holds itself.
 - **Request by Raw Pronto**:
   ```json
   {
@@ -830,15 +888,20 @@ repeats give nothing (they are sent to the device by `hub_rf` itself). `hub_rf` 
 keys on its own local key channel (below) and posts here only when `hub_daemon` has none (an
 older `hub_daemon`): `{"button": <key name>, "action", "source": "remote_rf", "slot"}` plus
 `deviceId` and `command` when the key was mapped to a device command; other callers may keep
-posting the key as `command`.
+posting the key as `command`. Only a request with a `slot` gives an event with a slot: the
+Bluetooth remote's keys (`source` `"bt_remote"`, posted by `hub_btstack`) and other calls without
+one go to `<base>/button`.
 
 **Key channel from `hub_rf`.** One UNIX datagram per press, hold and release on
 `/tmp/hub_daemon_keys.sock`, read in order by one thread of `hub_daemon` (no HTTP worker, no
 main loop): `{"seq", "ts", "slot", "button", "action", "deviceId", "command"}`, `ts` being
 `CLOCK_MONOTONIC` in ms when `hub_rf` received the key. `hub_daemon` sends the device command as
 `POST /api/ir-send` with that `action` does and gives the same button event as this route. A
-press or hold older than 300 ms is skipped (logged), a release always runs. Not an API for other
-callers: format in `payload/source/hub_key_channel.h`.
+press or hold older than 1000 ms is skipped (logged), a release always runs. A key from this
+channel is sent at once: the device's `interDeviceDelay`, `interKeyDelay` and
+`holdInterKeyDelay` apply to commands from every other source (this API, MQTT, activity
+sequences), not to a key the user just pressed on a remote. Not an API for other callers: format
+in `payload/source/hub_key_channel.h`.
 - **Request Body**:
   ```json
   {
@@ -860,16 +923,17 @@ Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
   ```json
   {"frequency": 38000, "timings": [9000, -4500, 560, -560, 560, -1690], "port": 1, "repeats": 1}
   ```
-  - `frequency`: carrier in Hz, `0` for unmodulated, otherwise 20000 to 60000. Default 38000.
+  - `frequency`: carrier in Hz, 20000 to 60000. Default 38000; `0` also means the default (the
+    blaster has no unmodulated output).
   - `timings`: microseconds, 2 to 2048 values, each 1 to 65535 in absolute value. Either signed
     (positive mark, negative space, alternating) or all positive alternating mark/space starting
     with a mark. Mark/space pairs ending with the gap after the frame are the usual form; an odd
     count (ending with a mark) is accepted and the Hub adds 40 ms of silence after the last mark
     (not counted in `duration_ms`).
   - `port`: bitmask as `/api/ir-send` (`1` front blaster, `2` jack 1, `4` jack 2, `7` all). Default 7.
-  - `repeats`: 1 to 10, default 1.
-- **Response `200 OK`**: `{"ok": true, "count": 6, "duration_ms": 17}` (`duration_ms` = sum of the
-  timings times `repeats`).
+  - `repeats`: 1 to 10, default 1. Written into the code; the Hub's IR player sends the frame once.
+- **Response `200 OK`**: `{"ok": true, "count": 6, "frequency": 38000, "duration_ms": 17}`
+  (`frequency` = the carrier sent, `duration_ms` = sum of the timings: the frame that went out).
 - **Error `400`**: `{"ok": false, "error": "<field>: ..."}` naming the offending field.
 - **Error `409`**: `{"ok": false, "error": "busy"}` while another IR transmission holds the I2S
   blaster (the same lock the orchestrator and `/api/ir-send` take).
@@ -955,6 +1019,8 @@ Puts hub HID keyboard emulator into pairing/discoverable mode for target device.
 Connects to a paired Bluetooth host MAC address.
 - **Request Body**: `{"bdaddr": "AA:BB:CC:DD:EE:FF"}`
 - **Response `200 OK`**: `{"ok": true}`
+- **Errors**: `400` when `bdaddr` is given and is not `XX:XX:XX:XX:XX:XX` (the same holds for
+  `POST /api/bt-disconnect`, `POST /api/bt-link-device` and `POST /api/remote-pair`).
 
 ### 6.4 Disconnect Host
 #### `POST /api/bt-disconnect`
@@ -1010,7 +1076,7 @@ The Classic Bluetooth hosts (link keys, `devices.json`) are not touched.
 Returns physical key bindings for BLE remote.
 
 #### `POST /api/remote-mapping-save`
-Saves BLE remote button mapping JSON.
+Saves BLE remote button mapping JSON. The body is stored as the file itself, so it must be one JSON object of less than 262144 bytes (256 KB, what the readers load): `400` otherwise, `413` when larger; the stored mapping is then kept.
 
 ---
 
@@ -1045,7 +1111,9 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
         "equad_id": 16417,
         "has_screen": true,
         "supports_ota": true,
-        "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9, "last_seen_s": 2 }
+        "link": { "frames_rx": 1520, "acked_sent": 412, "acked_ok": 398, "retries": 14, "naks": 9,
+                  "key_events": 640, "key_events_lost": 3, "key_lost_press": 1, "key_lost_release": 0, "key_lost_other": 2,
+                  "last_seen_s": 2 }
       },
       {
         "slot": 2,
@@ -1064,6 +1132,7 @@ Returns CC2544 radio state, paired remote slots, model identification, screen ca
   }
   ```
 - `slots[].link`: RF traffic with the remote since `hub_rf` started: protocol frames received, frames sent that wait for an ACK (resends included) and how many were ACKed, resends, sends the Hub's CC2544 refused (NAK), and seconds since the last frame from the remote (`-1` before the first).
+- `slots[].link.key_*`: key frames of a touchscreen remote since `hub_rf` started. A key frame is sent once, with no acknowledgement and no resend; a remote that numbers its key frames (`docs/HARMONY_RF_PROTOCOL.md`, `RF_MSG_BUTTON_PRESS`) lets the Hub count the ones that did not arrive. `key_events`: key frames received that carry a number. `key_events_lost`: numbers missing between them. The lost ones are split by what the frames around the gap show: `key_lost_press` (a hold or release arrived for a key whose press was not seen: the key did nothing or started late), `key_lost_release` (a key frame arrived while the key before it was still down: that key stayed down), `key_lost_other` (holds, or nothing to tell them by); the three add up to `key_events_lost`. All stay `0` for a remote that does not number its key frames (older remote software, Companion, Smart Control). Each gap is also one line in the Hub log: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. Like the other link counters they are read on request: a change does not send an `rf_status` event.
 
 - `slots[].model`: the product, a stable machine id: `ultimate`, `ultimate_one`, `ultimate_home`,
   `elite`, `950`, `touch` (a touchscreen remote with a skin id the stock table does not list),
@@ -1110,13 +1179,18 @@ Initiates RF pairing beacon on slot 1 or slot 2 for Harmony touchscreen remotes 
 #### `POST /api/rf/wake?slot={1|2}`
 Turns the remote's screen on over RF (`RF_MSG_WAKE`), as a key press would; with the screen already on it restarts the idle timeout. Returns `202` `{"status":"waking","slot":1,"ok":true}` at once and tries for about 10 s in the background; `hub_rf` logs whether the remote acknowledged it. One wake runs at a time (`202` `already_waking` while one runs); `409` during an RF OTA, `400` for a Companion slot. Remotes without this message do not answer. A remote in deep standby (suspended to RAM on battery) does not receive it either: it reports again at its next hourly alarm or key press. An RF OTA start (`/api/rf/ota-start`) sends the same request first (4 attempts). Over USB/SSH the same is `touch /tmp/trigger_wake` on the remote.
 
-#### `GET /api/rf/stop-pair`
+#### `GET /api/rf/stop-pair` or `POST /api/rf/stop-pair`
 Stops active pairing mode.
 - **Response `200 OK`**: `{"status": "pairing_stopped"}`
 
 #### `GET /api/rf/unpair?slot={1|2}` or `POST /api/rf/unpair`
-Unpairs target remote slot.
+Unpairs target remote slot; without a slot (or with `slot=0` / `slot=all`) every remote.
 - **Response `200 OK`**: `{"status": "unpaired"}`
+
+The RF routes read `slot` from the query, or from a JSON body (`"slot": 1`) when the query has
+none. A value other than `1` or `2` is answered with `400`; `0` and `all` ("every remote") are
+accepted by pair, unpair, sleep and push-icon only. Routes match the path exactly
+(`/api/rf/pairing-state` is not `/api/rf/pair`).
 
 ### 7.3 Raw RF Frame Transmit
 #### `GET /api/rf/send?hex={hex_stream}`
@@ -1218,9 +1292,10 @@ Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 - **File Persistence**: Slot 1 uses `/data/harmony/remote_slot1_map.json` (fallback `/data/harmony/elite_remote_map.json`); Slot 2 uses `/data/harmony/remote_slot2_map.json`.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
+- **Which mapping a key uses**: the running activity's entry under `activities`. A key that activity does not map, or any key while nothing runs, uses the `"-1"` entry, then `"default"`, then the map's only activity when the map has exactly one. With several activities and neither `"-1"` nor `"default"`, the key is not sent. The "only activity" counts the non-empty entries in the map. A `"-1"` or `"default"` entry, or a key binding, that is not an object (`null` in a hand-edited map) binds nothing and ends the search. This also covers `activity_start` bindings: a Companion or Smart Control activity key bound in one activity's entry starts nothing from Off or from the other activities; put keys meant for every activity and for Off under `"-1"`. `PowerOffActivity` is handled before the map and always works. A key pressed while the remote browses a device uses that device's entry under `devices`, then the device command with the button's name.
 
 #### `POST /api/rf-mapping-save?slot={1|2}`
-Saves button assignments for the specified slot.
+Saves button assignments for the specified slot. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored mapping is then kept.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
 #### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
@@ -1235,7 +1310,7 @@ Copies entire button mapping configuration from one remote slot to another.
   ```
 
 #### `POST /api/ui-remote-layout`
-Saves virtual remote keypad layout for WebUI and Android App.
+Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored layouts are then kept.
 
 ---
 
@@ -1369,7 +1444,7 @@ Publish to `<base>/cmd`:
 `id` is an opaque client string (up to 64 characters), echoed in the reply; a request without `id`
 is executed and not answered. Actions and fields mirror the WebSocket actions (section 10):
 `ping`, `get_state`, `get_snapshot` (the reply carries the snapshot), `start_activity` (`activity`),
-`stop_activity`, `cancel_activity`, `send_command` (`deviceId`, `command`, `status` = `press`,
+`stop_activity`, `cancel_activity`, `cancel_commands`, `send_command` (`deviceId`, `command`, `status` = `press`,
 `hold`, `release` or omitted for a tap), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
 `bt_mouse`, `rf_wake` (`slot`), `rf_sleep` (`slot`), `sync`, `ir_raw` (fields of 5.4),
 `ir_capture` (`enabled`, 5.5; the reply carries `enabled`),
@@ -1424,7 +1499,7 @@ Tests connection to an AP in memory without modifying `/etc/wpa_supplicant.conf`
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi test connection successful"}`
-- **Response `400 Bad Request`**: `{"ok": false, "error": "Authentication failed: incorrect Wi-Fi password"}`
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Authentication failed: incorrect Wi-Fi password"}`, also when the SSID or the password cannot be used (see `POST /api/wifi-save`) or another test is running.
 
 #### `POST /api/wifi-save` or `POST /wifi`
 Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.
@@ -1443,6 +1518,7 @@ When `apply` is `reconfigure`, `apply`, or `reboot`, the Hub automatically runs 
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi settings verified and applied"}`
 - **Response `400 Bad Request`**: `{"ok": false, "error": "Wi-Fi test connection failed: Connection timed out. Settings not changed."}`
+- **Values**: the SSID and the password are written as typed (wpa_supplicant reads a quoted value without escapes). Refused with `400` and the reason: an SSID that is empty or longer than 32 bytes, a password outside 8 to 63 characters (unless the network is open, or the password is the 64 hex digit raw key, which is written unquoted), and a line break or another control character in either.
 
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
@@ -1459,6 +1535,8 @@ Configures USB Ethernet interface mode (DHCP or static IP).
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Ethernet configuration saved"}`
+- **Response `400 Bad Request`** (static mode only): an invalid address, a netmask that is not a mask, the network or broadcast address of the subnet, a gateway outside the address's subnet, or a DNS entry that is not an IPv4 address (`eth_dns` may list several, separated by spaces or commas). Nothing is saved. A static address is used on Wi-Fi as well as on Ethernet.
+- `eth_enabled` (default `true`) off: the Hub does not start Ethernet (a standard Hub keeps its USB port in device mode). `eth_fallback_wifi` (default `true`): a static address moves to Wi-Fi when the Ethernet link is down.
 
 ---
 
@@ -1594,6 +1672,10 @@ Multiple commands or repeats can be queued as an array:
   "msgId": 3
 }
 ```
+A list, repeats or a hold run as a job of the command sequencer, one job after the other (at most
+16 waiting). The ack of a job carries `"state": "started"`, or `"queued"` when another job runs
+first. A job may last at most 300 s (commands x repeats x (gap + hold)); a longer one is refused
+with code 400. Errors: 404 unknown device or command, 409 queue full.
 
 #### 10.4 Start Activity
 ```json
@@ -1643,9 +1725,13 @@ Multiple commands or repeats can be queued as an array:
   "type": "ack",
   "action": "cancel_activity",
   "ok": true,
+  "commandsCancelled": 0,
   "msgId": 6
 }
 ```
+`cancel_activity` also drops the command jobs of 10.3 (`commandsCancelled` = how many; a held
+command is released first). `cancel_commands` drops the jobs only, with the same reply; it needs
+the rights of `send_command`.
 
 #### 10.6a Firmware Update Check and Install
 `update_check` runs the check of `POST /api/update-check` (optional `repo`, `token`,
@@ -1654,8 +1740,8 @@ check, plus the check's `message`. The check runs `update.sh check` or downloads
 version, which takes seconds: the action runs it on a thread and the reply comes when it ends
 (other actions are answered meanwhile). One check at a time; another request meanwhile gets
 `409`. `update_apply` starts `POST /api/update-apply` (optional `repo`, `token`) and answers at
-once with its `status` (`applying`) and `message`; the Hub restarts its services when the update
-is installed. Both are admin actions, like their REST endpoints.
+once with its `status` (`applying`) and `message`, or `409` while an update is already running;
+the Hub restarts its services when the update is installed. Both are admin actions, like their REST endpoints.
 ```json
 {"action": "update_check", "msgId": 41}
 ```
@@ -1721,9 +1807,12 @@ then arrive as `ir_received` (10.13b).
   "msgId": 7
 }
 ```
-- `keyAction`: `"tap"`, `"down"`, `"up"`, or `"release_all"`.
-- `key`: Key name or `"release_all"`.
-- `target`: Optional Bluetooth host MAC address.
+- `keyAction`: `"tap"`, `"down"`, `"up"`, or `"release_all"` (releases every key, as `key`
+  `"release_all"` does).
+- `key`: Key name or `"release_all"`; no control characters (`400`).
+- `target`: Optional Bluetooth host MAC address, `XX:XX:XX:XX:XX:XX` (`400` otherwise; the same
+  for `bt_text` and `bt_mouse`). `bt_text` takes at most 240 characters, and the `bt_mouse`
+  `button` is a name without control characters.
 **Response**:
 ```json
 {
@@ -1765,6 +1854,10 @@ or `stopping`) or is dropped.
 
 #### 10.9 Activity Progress
 One frame per executed step of an activity switch (unchanged shape, now carrying `seq` and `ts`).
+A step whose command could not be sent (unknown device -5, unknown command -6, IR or Bluetooth
+send failed) carries `"error": <code>`; the `Transition completed` frame carries `failedSteps`,
+the number of such steps. A new request no longer drops the commands that follow the Switched
+marker of the transition before it: they are sent first, as steps named `Tail of the last switch:`.
 ```json
 {
   "type": "activity_progress",

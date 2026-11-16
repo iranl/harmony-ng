@@ -52,6 +52,7 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
+import { credentialsError } from './form_limits.js';
 import { HarmonyAppSettingsSystem } from './app_settings_system.js';
 import { askToCheck, checkItems } from './decision_dialogs.js';
 
@@ -172,6 +173,11 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       if (stat) stat.innerHTML = '<span style="color:var(--danger)">Username and password required</span>';
       return;
     }
+    const problem = credentialsError(username, password);
+    if (problem) {
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${escapeHtml(problem)}</span>`;
+      return;
+    }
 
     if (stat) stat.textContent = 'Adding user...';
     try {
@@ -191,6 +197,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const on = document.getElementById('authEnabledCheck')?.checked ? 1 : 0;
     const u = document.getElementById('authUsername')?.value.trim();
     const p = document.getElementById('authPassword')?.value;
+    // A name the Hub cannot keep would turn on authentication for an admin that can never log in
+    const problem = u ? credentialsError(u, p) : null;
+    if (problem) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(problem)}</span>`;
+      return;
+    }
     try {
       const authReply = await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
       if (status) {

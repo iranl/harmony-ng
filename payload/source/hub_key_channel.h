@@ -13,12 +13,17 @@
  * are present when hub_rf mapped the key to a device command.
  *
  * hub_daemon sends the device command and gives the button event, as POST /api/ir-send and
- * POST /api/button-press do. A press or hold older than HUB_KEY_STALE_MS is skipped: by then
- * the remote has sent the next repeat or the release, and running it late is what makes a
- * key run on after the user let go. A release always runs.
+ * POST /api/button-press do, without the gaps between commands that sequences get
+ * (interDeviceDelay, interKeyDelay, holdInterKeyDelay). A press or hold older than HUB_KEY_STALE_MS is skipped:
+ * by then the remote has sent the next repeat or the release, and running it late is what
+ * makes a key run on after the user let go. A release always runs.
+ *
+ * HUB_KEY_STALE_MS was 300: a press that waited that long behind the send of the key before it
+ * (an infrared command with repeats takes longer than that) was dropped, and a key pressed
+ * right after another did nothing.
  */
 #define HUB_KEY_SOCK      "/tmp/hub_daemon_keys.sock"
-#define HUB_KEY_STALE_MS  300
+#define HUB_KEY_STALE_MS  1000
 #define HUB_KEY_MAX_DGRAM 512
 
 #endif /* HUB_KEY_CHANNEL_H */

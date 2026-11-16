@@ -232,8 +232,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                     "Access-Control-Allow-Origin: *\r\n"
                     "Connection: close\r\n\r\n",
                     crc, jlen);
-                send(client_fd, header, (size_t)hlen, 0);
-                send(client_fd, json_out, jlen, 0);
+                if (http_send_all(client_fd, header, (size_t)hlen) == 0) http_send_all(client_fd, json_out, jlen);
                 free(json_out);
                 close(client_fd);
                 return 1;
@@ -321,8 +320,7 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                     "Access-Control-Allow-Origin: *\r\n"
                     "Connection: close\r\n\r\n",
                     ctype, download_name, flen);
-                send(client_fd, header, (size_t)hlen, 0);
-                send(client_fd, content_ptr, flen, 0);
+                if (http_send_all(client_fd, header, (size_t)hlen) == 0) http_send_all(client_fd, content_ptr, flen);
                 if (buf) free(buf);
                 close(client_fd);
                 return 1;

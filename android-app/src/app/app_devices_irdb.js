@@ -183,32 +183,21 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const targetPort = targetDev ? ((targetDev.controlPort !== undefined) ? targetDev.controlPort : 7) : 7;
 
     const cmdPayloads = [];
-    const lines = [];
     document.querySelectorAll('.irdb-cmd-cb:checked').forEach(cb => {
       const name = prefix + cb.getAttribute('data-name');
       const raw = cb.getAttribute('data-raw');
       const key = cb.getAttribute('data-keycode');
       if (raw) {
-        lines.push(`${name}|raw|${raw}`);
         cmdPayloads.push({ name, raw, repeats: 3, port: targetPort });
       } else if (key) {
-        lines.push(`${name}|${key}`);
         cmdPayloads.push({ name, raw: key, repeats: 3, port: targetPort });
       }
     });
 
     if (!cmdPayloads.length) return alert(t("no_cmds_selected"));
     try {
-      let ok = false;
-      try {
-        const res = await this.client.saveBatchCommands(devId, cmdPayloads);
-        if (res && res.ok) ok = true;
-      } catch {
-        ok = false;
-      }
-      if (!ok) {
-        await this.client.importIrdb({ deviceId: devId, payload: lines.join('\n') });
-      }
+      const res = await this.client.saveBatchCommands(devId, cmdPayloads);
+      if (!res || !res.ok) throw new Error(res?.error || 'the Hub did not save the commands');
       alert(t("imported_cmds_to").replace("{count}", cmdPayloads.length).replace("{device}", targetDev?.name || devId));
       await this.refreshData();
       this.renderIrView(devId);

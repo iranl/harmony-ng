@@ -7,6 +7,8 @@ hub_daemon died (SIGSEGV within a second). This test drives readers and writers 
 parallel against an AddressSanitizer build of hub_daemon_test and checks that
 
   - no AddressSanitizer report is written and the daemon is still up;
+  - key presses and releases (the remote's path) read the shared device list while it is saved,
+    and every shared tree a reader took is given back;
   - no save is lost: commands added to one device by parallel requests are all there at the end;
   - the files on disk are valid JSON and match what the API returns.
 """
@@ -102,6 +104,12 @@ def main():
         hub.http_get("/api/device-commands?deviceId=1")
         count("reads")
 
+    def keys(hub):
+        for cmd in ("VolumeUp", "VolumeDown"):
+            hub.http_post("/api/ir-send", {"deviceId": "1", "command": cmd, "action": "press"})
+            hub.http_post("/api/ir-send", {"deviceId": "1", "command": cmd, "action": "release"})
+        count("key press+release")
+
     def sync(hub):
         hub.http_post("/api/sync", {})
         count("sync")
@@ -110,7 +118,7 @@ def main():
     with HubHarness(port=PORT, hub_bin=ASAN_BIN, env=env) as hub:
         stop = threading.Event()
         errors = []
-        fns = [save_cmd, save_cmd, batch, device_save, activity_save, reads, reads, reads, sync]
+        fns = [save_cmd, save_cmd, batch, device_save, activity_save, reads, reads, keys, keys, sync]
         threads = [threading.Thread(target=worker, args=(hub, stop, errors, fn)) for fn in fns]
         for t in threads:
             t.start()
@@ -134,8 +142,18 @@ def main():
             with open(os.path.join(log_dir, reports[0])) as f:
                 detail = "\n" + "".join(f.readlines()[:12])
         check(not reports, "no AddressSanitizer report", detail)
-        check(counts.get("reads", 0) > 20 and counts.get("command save+delete", 0) > 10,
-              "both readers and writers ran", str(counts))
+        check(counts.get("reads", 0) > 20 and counts.get("command save+delete", 0) > 10 and
+              counts.get("key press+release", 0) > 10, "readers, key sends and writers ran", str(counts))
+        if alive:
+            # a worker may still be closing its last connection: wait for the count to settle
+            held = None
+            for _ in range(20):
+                st, body = hub.http_get("/api/test/config-snapshots-held")
+                held = body.get("held") if st == 200 and isinstance(body, dict) else None
+                if held == 0:
+                    break
+                time.sleep(0.05)
+            check(held == 0, "every shared configuration tree was released", "held=%s" % held)
 
         if alive:
             # Lost updates: commands added to one device by parallel requests must all be kept

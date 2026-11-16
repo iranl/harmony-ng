@@ -2,6 +2,7 @@
 #include "rf_state.h"
 #include "rf_proto.h"
 #include "cJSON.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +178,29 @@ void rf_battery_restore(void) {
     rf_battery_fix_times();
 }
 
+void rf_slot_forget(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    int i = slot - 1;
+    paired_remote_t *p = &g_paired_remotes[i];
+    p->active = false;
+    memset(p->rf_addr, 0, sizeof(p->rf_addr));
+    p->name[0] = '\0';
+    p->equad_id = 0;
+    p->model = REMOTE_MODEL_UNKNOWN;
+    remote_version_t *v = &g_remote_versions[i];
+    snprintf(v->sw_version, sizeof(v->sw_version), "%s", "unknown");
+    v->config_version = 0;
+    v->caps = 0;
+    v->last_report_ms = 0;
+    v->remote_id[0] = '\0';
+    v->skin = 0;
+    memset(&g_remote_batteries[i], 0, sizeof(g_remote_batteries[i]));
+    char path[160];
+    battery_cache_path(slot, path, sizeof(path));
+    unlink(path);
+    rf_state_save_version_file(slot);
+}
+
 int rf_battery_fix_times(void) {
     int64_t wall = wall_now();
     if (!wall) return 0;
@@ -316,6 +340,69 @@ void rf_note_slot_family(uint8_t slot, remote_model_t family) {
 void rf_slot_saw_protocol_frame(uint8_t slot) {
     if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
     if (g_paired_remotes[slot - 1].equad_id == 0) rf_note_slot_family(slot, REMOTE_MODEL_JUNIPER);
+}
+
+/* Key event counter, per slot. Key frames are sent once and never acknowledged; a remote that
+ * numbers them (1..255, then 1 again) lets the Hub count the ones that did not arrive. */
+static struct {
+    uint8_t last;        /* counter of the last key frame, 0 = none since hub_rf started */
+    bool restart_hint;   /* the remote may have restarted since that frame */
+    uint16_t down_code;  /* key whose press or hold came last without its release, 0 = none */
+} s_key_track[MAX_PAIRED_REMOTES];
+
+void rf_key_note_restart_hint(uint8_t slot) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES) return;
+    s_key_track[slot - 1].restart_hint = true;
+}
+
+void rf_key_note_event(uint8_t slot, uint8_t counter, uint16_t key_code, uint8_t state, const char *name) {
+    if (slot < 1 || slot > MAX_PAIRED_REMOTES || counter == 0) return;
+    remote_link_stats_t *ls = &g_remote_link[slot - 1];
+    const char *action = (state == 0x01) ? "press" : ((state == 0x02) ? "hold" : "release");
+    if (!name) name = "";
+    uint8_t last = s_key_track[slot - 1].last;
+    bool hint = s_key_track[slot - 1].restart_hint;
+    uint16_t down = s_key_track[slot - 1].down_code;
+
+    ls->key_events++;
+    unsigned missing = 0;
+    if (last) {
+        /* Numbers between the one expected and this one, over the ring 1..255 */
+        unsigned gap = (unsigned)(counter + 255 - rf_key_counter_next(last)) % 255;
+        if (counter == last && !(hint && counter == 1)) {
+            /* The same number again is the same frame twice, not 254 lost ones */
+            printf("[!] RF key event received twice: slot %u, #%u (%s %s)\n", slot, counter, action, name);
+            return;
+        }
+        if (hint && counter - 1u <= gap) {
+            /* A restarted remote counts from 1 again: frames 1..counter-1 are the missing ones
+             * (none when this is number 1), and it no longer holds the key it had down */
+            missing = counter - 1u;
+            down = 0;
+        } else {
+            missing = gap;
+        }
+    }
+
+    if (missing) {
+        /* What the frames around the gap tell about the missing ones; each is counted once */
+        unsigned left = missing;
+        if (state == 0x01) {
+            if (down) { ls->key_lost_release++; left--; }       /* the key before never got its release */
+        } else if (down != key_code) {
+            ls->key_lost_press++; left--;                       /* this key's press was not seen */
+            if (down && left) { ls->key_lost_release++; left--; down = 0; } /* nor the release of the key before */
+        }
+        ls->key_lost_other += left;
+        ls->key_events_lost += missing;
+        printf("[!] RF key events lost: slot %u, %u missing before #%u (%s %s)\n", slot, missing, counter, action, name);
+    }
+
+    if (state != 0x00) down = key_code;
+    else if (down == key_code) down = 0;
+    s_key_track[slot - 1].last = counter;
+    s_key_track[slot - 1].restart_hint = false;
+    s_key_track[slot - 1].down_code = down;
 }
 
 int rf_slot_apply_unit_id(uint8_t slot, const uint8_t *payload) {
@@ -468,16 +555,13 @@ int rf_state_version_json(int slot, char *buf, size_t len) {
 void rf_state_save_version_file(int slot) {
     char buf[256];
     if (rf_state_version_json(slot, buf, sizeof(buf)) < 0) return;
-    /* written to a temporary file and renamed, like the battery cache: a power cut during the
-     * write must not leave an empty or cut file on the flash */
-    char vpath[160], tmp[176];
+    /* synced temporary file renamed over the old one (atomic_file.h): a power cut or a full
+     * flash during the write must not leave an empty or cut file */
+    char vpath[160];
     snprintf(vpath, sizeof(vpath), "%s/remote_slot%d_version.json", g_rf_version_dir, slot);
-    snprintf(tmp, sizeof(tmp), "%s.tmp", vpath);
-    FILE *vf = fopen(tmp, "w");
-    if (!vf) return;
-    fputs(buf, vf);
-    fclose(vf);
-    rename(tmp, vpath);
+    if (atomic_file_write_str(vpath, buf) != 0) {
+        fprintf(stderr, "[-] Could not save %s\n", vpath);
+    }
 }
 
 /* A config push delivered: the remote applies it on receipt but reports its version only on link

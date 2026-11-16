@@ -18,7 +18,7 @@ cJSON *hub_ws_snapshot_object(int msg_id);
 
 void on_orch_progress(const char *activity_id, orch_state_t state,
                       int current_step, int total_steps,
-                      const char *step_desc, void *user_data);
+                      const char *step_desc, int step_error, int failed_steps, void *user_data);
 void handle_ws_client_message(int cfd);
 
 #ifdef __cplusplus

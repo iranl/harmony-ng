@@ -21,10 +21,13 @@ Hardware Factory Reset Alternative (No SSH Required):
         4. Release once the graphic stays on screen. The remote wipes all user data and reboots.
 
 Usage:
-    python tools/factory_reset.py --target hub [--hub-ip 192.168.1.1]
+    python tools/factory_reset.py --target hub --hub-ip 192.168.1.20
     python tools/factory_reset.py --target remote [--remote-ip 192.168.2.1]
-    python tools/factory_reset.py --target all
+    python tools/factory_reset.py --target all --hub-ip 192.168.1.20
     python tools/factory_reset.py --restore-backup
+
+The Hub reset deletes /data/harmony (devices, activities, button maps, Bluetooth keys). A
+backup is saved first with tools/backup_hub.py; --no-backup skips it.
 """
 
 from __future__ import annotations
@@ -39,26 +42,38 @@ import time
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent
 
-DEFAULT_HUB_IP = os.environ.get("HUB_IP", "192.168.1.1")
+# No default Hub address: a wrong guess (a router at 192.168.1.1) would get the Hub steps
+DEFAULT_HUB_IP = os.environ.get("HUB_IP") or None
 DEFAULT_REMOTE_IP = "192.168.2.1"
+
+
+def find_default_ssh_key() -> pathlib.Path | None:
+    """Same choice as deploy_hub.py and backup_hub.py: $SSH_KEY, else the newest
+    ~/.ssh/harmony_owner_* key."""
+    env_key = os.environ.get("SSH_KEY")
+    if env_key and os.path.isfile(env_key):
+        return pathlib.Path(env_key)
+    ssh_dir = pathlib.Path.home() / ".ssh"
+    if ssh_dir.is_dir():
+        keys = sorted([p for p in ssh_dir.glob("harmony_owner_*") if p.is_file() and not p.name.endswith(".pub")],
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        if keys:
+            return keys[0]
+    return None
 
 
 def get_ssh_opts(key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
+        # Never wait for a password prompt the user cannot see (output is captured)
+        "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=5",
     ]
-    if key_path and key_path.is_file():
-        opts.extend(["-i", str(key_path)])
-    else:
-        # Search ~/.ssh/ for harmony_owner_* or id_rsa
-        ssh_dir = pathlib.Path.home() / ".ssh"
-        if ssh_dir.is_dir():
-            keys = sorted([p for p in ssh_dir.glob("harmony_owner_*") if p.is_file() and not p.name.endswith(".pub")])
-            if keys:
-                opts.extend(["-i", str(keys[0])])
+    key = key_path if key_path and key_path.is_file() else find_default_ssh_key()
+    if key:
+        opts.extend(["-i", str(key)])
     return opts
 
 
@@ -71,29 +86,64 @@ def run_ssh_cmd(target: str, cmd: str, ssh_opts: list[str]) -> subprocess.Comple
 REBOOT_CMD = "(sleep 1; reboot -f) </dev/null >/dev/null 2>&1 &"
 
 
+STEP_MARK = "factory-reset-step"
+DONE_MARK = "factory-reset-steps-done"
+
+
+def reset_script(commands: list[str]) -> str:
+    """All steps and the reboot as one command, for one SSH login. On the remote the first
+    step stops the runtime, and with it the feeding of the 10 s hardware watchdog: separate
+    logins for each step could outlast it. Each step prints a mark when it has run; the
+    reboot comes only after the last one."""
+    parts = [f"{c}; echo {STEP_MARK} {i}" for i, c in enumerate(commands, 1)]
+    return "; ".join(parts + [f"echo {DONE_MARK}", REBOOT_CMD])
+
+
 def run_steps(target: str, commands: list[str], ssh_opts: list[str], device: str) -> bool:
-    """Run each reset step in its own SSH call. Every step ends in "|| true", so a non-zero
-    exit code means the SSH call itself failed: stop there, before the reboot."""
-    for i, c in enumerate(commands, 1):
-        res = run_ssh_cmd(target, c, ssh_opts)
-        if res.stdout.strip():
-            print(res.stdout.strip())
-        if res.returncode != 0:
-            print(f"[-] Step {i} of {len(commands)} failed on the {device} (exit code {res.returncode}): {res.stderr.strip()}")
-            print(f"    The factory reset of the {device} is INCOMPLETE and it was not rebooted. Run the tool again.")
-            return False
+    """Run every reset step and the reboot in one SSH login (see reset_script()). Every step
+    ends in "|| true"; a missing mark means the login ended before that step."""
+    res = run_ssh_cmd(target, reset_script(commands), ssh_opts)
+    done = 0
+    finished = False
+    for line in res.stdout.splitlines():
+        if line.startswith(STEP_MARK + " "):
+            done = int(line.split()[-1])
+        elif line.strip() == DONE_MARK:
+            finished = True
+        elif line.strip():
+            print(line)
+    if not finished or res.returncode != 0:
+        print(f"[-] The {device} ran {done} of {len(commands)} reset steps (exit code {res.returncode}): {res.stderr.strip()}")
+        print(f"    The factory reset of the {device} is INCOMPLETE and it was not rebooted by this tool. Run the tool again.")
+        return False
+    print(f"[*] Rebooting the {device} into stock firmware...")
     return True
 
 
-def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
+def device_machine(target: str, ssh_opts: list[str]) -> subprocess.CompletedProcess[str]:
+    return run_ssh_cmd(target, "uname -m", ssh_opts)
+
+
+def reset_hub(hub_ip: str, ssh_opts: list[str], backup: bool = True) -> bool:
     target = f"root@{hub_ip}"
     print(f"\n[*] Probing Harmony Hub at {target}...")
-    probe = run_ssh_cmd(target, "uname -a", ssh_opts)
+    probe = device_machine(target, ssh_opts)
     if probe.returncode != 0:
         print(f"[-] Cannot reach Hub over SSH at {target}: {probe.stderr.strip()}")
         return False
+    if not probe.stdout.strip().startswith("mips"):
+        print(f"[-] {hub_ip} is not a Harmony Hub (uname -m: {probe.stdout.strip() or 'no answer'}); nothing was changed.")
+        return False
 
-    print(f"[+] Connected to Hub: {probe.stdout.strip()}")
+    print(f"[+] Connected to Hub ({probe.stdout.strip()})")
+    if backup:
+        sys.path.insert(0, str(SCRIPT_DIR))
+        import backup_hub
+        print("[*] Saving a backup of the Hub before /data/harmony is deleted...")
+        key = next((ssh_opts[i + 1] for i, o in enumerate(ssh_opts) if o == "-i"), None)
+        if not backup_hub.backup_hub(hub_host=hub_ip, ssh_key=key):
+            print("[-] No backup was made, so nothing was reset. Run again with --no-backup to reset without one.")
+            return False
     print("[*] Performing Hub factory reset sequence:")
 
     commands = [
@@ -128,11 +178,6 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
 
     if not run_steps(target, commands, ssh_opts, "Hub"):
         return False
-
-    print("[*] Rebooting Harmony Hub into stock firmware...")
-    if run_ssh_cmd(target, REBOOT_CMD, ssh_opts).returncode != 0:
-        print("[-] The reboot command did not reach the Hub; reboot it by hand (power cycle).")
-        return False
     print("[+] Hub reboot signal delivered. Hub will boot into stock Logitech environment.")
     return True
 
@@ -140,13 +185,16 @@ def reset_hub(hub_ip: str, ssh_opts: list[str]) -> bool:
 def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
     target = f"root@{remote_ip}"
     print(f"\n[*] Probing Harmony remote at {target}...")
-    probe = run_ssh_cmd(target, "uname -a", ssh_opts)
+    probe = device_machine(target, ssh_opts)
     if probe.returncode != 0:
         print(f"[-] Cannot reach the remote over SSH at {target}: {probe.stderr.strip()}")
         print("    Ensure remote is connected via USB and PC adapter is set to 192.168.2.2.")
         return False
+    if not probe.stdout.strip().startswith("arm"):
+        print(f"[-] {remote_ip} is not a Harmony remote (uname -m: {probe.stdout.strip() or 'no answer'}); nothing was changed.")
+        return False
 
-    print(f"[+] Connected to remote: {probe.stdout.strip()}")
+    print(f"[+] Connected to remote ({probe.stdout.strip()})")
     print("[*] Performing remote factory reset sequence:")
 
     commands = [
@@ -186,16 +234,11 @@ def reset_remote(remote_ip: str, ssh_opts: list[str]) -> bool:
 
     if not run_steps(target, commands, ssh_opts, "remote"):
         return False
-
-    print("[*] Rebooting the Harmony remote into stock firmware...")
-    if run_ssh_cmd(target, REBOOT_CMD, ssh_opts).returncode != 0:
-        print("[-] The reboot command did not reach the remote; reboot it by hand.")
-        return False
     print("[+] Remote reboot signal delivered. Remote will boot into stock Logitech UI.")
     return True
 
 
-def confirm_prompt(device_label: str) -> bool:
+def confirm_prompt(device_label: str, backup: bool) -> bool:
     print("\n" + "!" * 70)
     print(f" WARNING: FACTORY RESET FOR {device_label.upper()}")
     print("!" * 70)
@@ -204,6 +247,11 @@ def confirm_prompt(device_label: str) -> bool:
     print("  2. Restore original stock startup scripts and daemon permissions.")
     print("  3. Restore stock watchdog and power management behavior.")
     print("  4. Reboot device(s) back into official Logitech stock mode.")
+    if device_label in ("hub", "all"):
+        print("  5. DELETE the Hub configuration in /data/harmony: devices, activities,")
+        print("     learned codes, button maps and Bluetooth keys, and the Hub's SSH access.")
+        print("     " + ("A backup is saved first (tools/backup_hub.py)." if backup else
+                         "NO backup is saved (--no-backup)."))
     print("!" * 70)
 
     val = input(f"\nType 'FACTORY-RESET' to confirm reverting {device_label} to stock: ").strip()
@@ -212,15 +260,23 @@ def confirm_prompt(device_label: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Revert Harmony Hub and/or remote to factory stock")
-    parser.add_argument("--target", choices=["hub", "remote", "elite", "all"], default="all",
-                        help="Target device to factory reset (default: all)")
-    parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP, help=f"Hub IP address (default: {DEFAULT_HUB_IP})")
+    parser.add_argument("--target", choices=["hub", "remote", "elite", "all"],
+                        help="Device to factory reset (required)")
+    parser.add_argument("--hub-ip", default=DEFAULT_HUB_IP,
+                        help="Hub IP address (required for --target hub/all; default: $HUB_IP)")
+    parser.add_argument("--no-backup", action="store_true", help="Reset the Hub without saving a backup first")
     parser.add_argument("--remote-ip", "--elite-ip", dest="remote_ip", default=DEFAULT_REMOTE_IP,
                         help=f"Remote IP address (default: {DEFAULT_REMOTE_IP}; --elite-ip accepted for compatibility)")
     parser.add_argument("--key", type=pathlib.Path, help="Path to SSH private key")
     parser.add_argument("--restore-backup", nargs="?", const="latest", help="Restore stock Hub configuration from backup using all-in-one restore tool")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
     args = parser.parse_args()
+
+    if not args.restore_backup:
+        if not args.target:
+            parser.error("--target is required (hub, remote or all)")
+        if args.target in ("hub", "all") and not args.hub_ip:
+            parser.error("--hub-ip (or $HUB_IP) is required to reset the Hub")
 
     if args.restore_backup:
         restore_script = SCRIPT_DIR / "restore_stock.py"
@@ -229,7 +285,7 @@ def main() -> None:
             restore_cmd.extend(["--backup", args.restore_backup])
         if args.force:
             restore_cmd.append("--force")
-        if args.hub_ip and args.hub_ip != DEFAULT_HUB_IP:
+        if args.hub_ip:
             restore_cmd.extend(["--hub-ip", args.hub_ip])
         print(f"[*] Delegating to all-in-one restore tool: {' '.join(restore_cmd)}")
         sys.exit(subprocess.run(restore_cmd).returncode)
@@ -240,7 +296,7 @@ def main() -> None:
     print("=" * 70)
 
     if not args.force:
-        if not confirm_prompt(args.target):
+        if not confirm_prompt(args.target, not args.no_backup):
             print("[-] Confirmation string mismatch. Aborting factory reset.")
             sys.exit(1)
 
@@ -249,7 +305,7 @@ def main() -> None:
     failed = []
     if args.target in ("hub", "all"):
         print(f"\n>>> PROCESSING HUB ({args.hub_ip}) <<<")
-        if not reset_hub(args.hub_ip, ssh_opts):
+        if not reset_hub(args.hub_ip, ssh_opts, backup=not args.no_backup):
             failed.append(f"Hub ({args.hub_ip})")
 
     if args.target in ("remote", "elite", "all"):  # elite: the name before the rename
@@ -267,6 +323,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

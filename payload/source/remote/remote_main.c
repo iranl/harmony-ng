@@ -32,6 +32,61 @@
 #include <linux/fb.h>
 #include <linux/input.h>
 
+/* The crash handler runs on the faulting thread, often inside malloc or stdio after a heap
+ * corruption: it may only use calls that are async-signal-safe (open, read, write, close, time,
+ * clock_gettime). A stdio or localtime call would wait for a lock that thread already holds, the
+ * process would hang there instead of exiting, and the supervisor would never restart it. So the
+ * record is built by hand in a buffer on the stack; the time is the epoch. */
+typedef struct { char buf[1024]; size_t len; } crash_rec_t;
+
+static void crash_put(crash_rec_t *r, const char *s) {
+    while (s && *s && r->len < sizeof(r->buf)) r->buf[r->len++] = *s++;
+}
+
+static void crash_put_n(crash_rec_t *r, const char *s, size_t max) {
+    for (size_t i = 0; s && i < max && s[i] && r->len < sizeof(r->buf); i++) r->buf[r->len++] = s[i];
+}
+
+static void crash_put_u(crash_rec_t *r, unsigned long long v) {
+    char d[24];
+    int n = 0;
+    do { d[n++] = (char)('0' + v % 10); v /= 10; } while (v && n < (int)sizeof(d));
+    while (n > 0 && r->len < sizeof(r->buf)) r->buf[r->len++] = d[--n];
+}
+
+static void crash_put_i(crash_rec_t *r, long long v) {
+    if (v < 0) { crash_put(r, "-"); crash_put_u(r, (unsigned long long)(-(v + 1)) + 1); }
+    else crash_put_u(r, (unsigned long long)v);
+}
+
+static void crash_put_hex(crash_rec_t *r, uintptr_t v) {
+    char d[2 * sizeof(v)];
+    int n = 0;
+    do { d[n++] = "0123456789abcdef"[v & 0xF]; v >>= 4; } while (v && n < (int)sizeof(d));
+    crash_put(r, "0x");
+    while (n > 0 && r->len < sizeof(r->buf)) r->buf[r->len++] = d[--n];
+}
+
+/* The VmPeak, VmSize, VmRSS and Threads lines of /proc/self/status */
+static void crash_put_status(crash_rec_t *r) {
+    char st[2048];
+    int fd = open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return;
+    ssize_t n = read(fd, st, sizeof(st) - 1);
+    close(fd);
+    if (n <= 0) return;
+    st[n] = '\0';
+    for (char *line = st; *line;) {
+        char *nl = strchr(line, '\n');
+        size_t len = nl ? (size_t)(nl - line + 1) : strlen(line);
+        if (strncmp(line, "VmPeak:", 7) == 0 || strncmp(line, "VmSize:", 7) == 0 ||
+            strncmp(line, "VmRSS:", 6) == 0 || strncmp(line, "Threads:", 8) == 0) {
+            crash_put_n(r, line, len);
+        }
+        line += len;
+    }
+}
+
 static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
     (void)ucontext;
     int bfd = open("/sys/class/backlight/ap3156_backlight/brightness", O_WRONLY);
@@ -45,14 +100,8 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
         close(lfd);
     }
 
-    FILE *cf = fopen("/data/crash.log", "a");
-    if (cf) {
-        time_t now = time(NULL);
-        char tbuf[32] = {0};
-        struct tm *tm = localtime(&now);
-        if (tm) strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", tm);
-        else snprintf(tbuf, sizeof(tbuf), "epoch=%ld", (long)now);
-
+    int cfd = open("/data/crash.log", O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (cfd >= 0) {
         const char *signame = "UNKNOWN";
         if (sig == SIGSEGV) signame = "SIGSEGV (Segmentation Fault)";
         else if (sig == SIGBUS) signame = "SIGBUS (Bus Error)";
@@ -60,37 +109,58 @@ static void crash_sig_handler(int sig, siginfo_t *info, void *ucontext) {
         else if (sig == SIGFPE) signame = "SIGFPE (Floating Point Exception)";
         else if (sig == SIGILL) signame = "SIGILL (Illegal Instruction)";
 
-        void *fault_addr = info ? info->si_addr : NULL;
-        int code = info ? info->si_code : 0;
-
-        fprintf(cf, "=== CRASH %s ===\n", tbuf);
-        fprintf(cf, "Signal: %d (%s), Code: %d, Fault Addr: %p\n", sig, signame, code, fault_addr);
-        fprintf(cf, "State: act='%s', view=%d, screen_on=%d, no_screen=%d, rf_conn=%d, slot=%d\n",
-                g_active_activity_id, g_current_view, g_screen_on ? 1 : 0, g_no_screen_mode ? 1 : 0,
-                g_rf_link_connected ? 1 : 0, g_remote_slot);
-        fprintf(cf, "Uptime mono: %llums\n", (unsigned long long)get_monotonic_ms());
-
-        FILE *sf = fopen("/proc/self/status", "r");
-        if (sf) {
-            char sline[128];
-            while (fgets(sline, sizeof(sline), sf)) {
-                if (strncmp(sline, "VmPeak:", 7) == 0 ||
-                    strncmp(sline, "VmSize:", 7) == 0 ||
-                    strncmp(sline, "VmRSS:", 6) == 0 ||
-                    strncmp(sline, "Threads:", 8) == 0) {
-                    fputs(sline, cf);
-                }
-            }
-            fclose(sf);
+        crash_rec_t r;
+        r.len = 0;
+        crash_put(&r, "=== CRASH epoch=");
+        crash_put_i(&r, (long long)time(NULL));
+        crash_put(&r, " ===\nSignal: ");
+        crash_put_i(&r, sig);
+        crash_put(&r, " (");
+        crash_put(&r, signame);
+        crash_put(&r, "), Code: ");
+        crash_put_i(&r, info ? info->si_code : 0);
+        crash_put(&r, ", Fault Addr: ");
+        crash_put_hex(&r, (uintptr_t)(info ? info->si_addr : NULL));
+        crash_put(&r, "\nState: act='");
+        crash_put_n(&r, g_active_activity_id, sizeof(g_active_activity_id));
+        crash_put(&r, "', view=");
+        crash_put_i(&r, (int)g_current_view);
+        crash_put(&r, ", screen_on=");
+        crash_put_i(&r, g_screen_on ? 1 : 0);
+        crash_put(&r, ", no_screen=");
+        crash_put_i(&r, g_no_screen_mode ? 1 : 0);
+        crash_put(&r, ", rf_conn=");
+        crash_put_i(&r, g_rf_link_connected ? 1 : 0);
+        crash_put(&r, ", slot=");
+        crash_put_i(&r, g_remote_slot);
+        crash_put(&r, "\nUptime mono: ");
+        crash_put_u(&r, (unsigned long long)get_monotonic_ms());
+        crash_put(&r, "ms\n");
+        crash_put_status(&r);
+        crash_put(&r, "========================================\n\n");
+        for (size_t off = 0; off < r.len;) {
+            ssize_t w = write(cfd, r.buf + off, r.len - off);
+            if (w <= 0) break;
+            off += (size_t)w;
         }
-        fprintf(cf, "========================================\n\n");
-        fflush(cf);
-        fclose(cf);
+        close(cfd);
     }
 
     sync();
     flightlog_crash(sig); /* never waits for the recorder's lock, so _exit() below is always reached */
     _exit(128 + sig);
+}
+
+/* A thread remote_ui cannot work without: tried twice (a failure means no memory for its stack
+ * at that moment), and said in the log when it did not start; the result was ignored */
+static int start_thread(pthread_t *th, void *(*fn)(void *), const char *what) {
+    int rc = pthread_create(th, NULL, fn, NULL);
+    if (rc != 0) {
+        usleep(200000);
+        rc = pthread_create(th, NULL, fn, NULL);
+    }
+    if (rc != 0) fprintf(stderr, "[-] The %s thread did not start: %s\n", what, strerror(rc));
+    return rc;
 }
 
 static void sig_handler(int sig) {
@@ -165,7 +235,10 @@ int main(int argc, char **argv) {
      * may have started this binary as /data/elite_ui: rename them before any config is read */
     remote_migrate_legacy("/data");
 
-    int lock_fd = open("/var/run/remote_ui.lock", O_CREAT | O_RDWR, 0644);
+    /* Every long-lived fd is close-on-exec: dropbear and the other helpers started with system()
+     * must not hold the lock (the execv restart would find it taken), /dev/rfspi (one user only),
+     * the framebuffer or the input devices */
+    int lock_fd = open("/var/run/remote_ui.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock_fd >= 0) {
         if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -262,7 +335,7 @@ int main(int argc, char **argv) {
     }
 
     if (!g_no_screen_mode) {
-        g_fb_fd = open(FB_DEV, O_RDWR);
+        g_fb_fd = open(FB_DEV, O_RDWR | O_CLOEXEC);
         if (g_fb_fd >= 0) {
             struct fb_fix_screeninfo finfo;
             struct fb_var_screeninfo vinfo;
@@ -282,7 +355,6 @@ int main(int argc, char **argv) {
         reset_idle_timer();
         load_wallpaper_asset();
 
-        clearpad_hw_init();
         g_touch_fd = find_touchscreen_fd();
         if (g_touch_fd < 0) {
             perror("[-] Failed to open touchscreen node");
@@ -294,7 +366,7 @@ int main(int argc, char **argv) {
             set_backlight_level(g_brightness_val);
         }
 
-        g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        g_gyro_fd = open(GYRO_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (g_gyro_fd >= 0) {
             init_gyro_interrupt();
         }
@@ -308,7 +380,7 @@ int main(int argc, char **argv) {
      * thread. remote_ui must be the sole process accessing RFSPI_DEV; supervisor
      * scripts must killall -9 any previous instances prior to starting this process.
      */
-    g_rf_fd = open(RFSPI_DEV, O_RDWR);
+    g_rf_fd = open(RFSPI_DEV, O_RDWR | O_CLOEXEC);
     if (g_rf_fd >= 0) {
         printf("[+] Opened %s for RF TX/RX\n", RFSPI_DEV);
         uint8_t pkt_init[7] = {0x10, 0xFF, 0x80, 0x00, 0x00, 0x01, 0x00};
@@ -331,7 +403,7 @@ int main(int argc, char **argv) {
         usleep(30000);
 
         pthread_t th_rf_rx;
-        pthread_create(&th_rf_rx, NULL, rf_rx_worker, NULL);
+        start_thread(&th_rf_rx, rf_rx_worker, "RF receive"); /* without it: "No Hub" */
         usleep(30000);
 
         if (do_pairing) {
@@ -340,8 +412,11 @@ int main(int argc, char **argv) {
             uint8_t pkt_dongle0[10] = {0x12, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             uint8_t pkt_dongle1[10] = {0x12, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             printf("[*] Writing Dongle Active Sync (10 bytes)...\n");
+            /* The RF thread already runs and writes ACKs: every write to the CC2544 takes the lock */
+            pthread_mutex_lock(&g_rf_write_mutex);
             if (write(g_rf_fd, pkt_dongle0, sizeof(pkt_dongle0)) < 0) { perror("write dongle sync 0"); }
             if (write(g_rf_fd, pkt_dongle1, sizeof(pkt_dongle1)) < 0) { perror("write dongle sync 1"); }
+            pthread_mutex_unlock(&g_rf_write_mutex);
             fflush(stdout);
 
             for (int w = 0; w < 10 && !g_rf_link_connected; w++) {
@@ -374,7 +449,7 @@ int main(int argc, char **argv) {
     }
 
     for (int retry = 0; retry < 30 && g_btn_fd < 0; retry++) {
-        g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK);
+        g_btn_fd = open(BTN_EVENT_DEV, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (g_btn_fd < 0) {
             usleep(100000);
         }
@@ -386,8 +461,8 @@ int main(int argc, char **argv) {
     printf("[+] Listening on %s for physical buttons...\n", BTN_EVENT_DEV);
 
     pthread_t th_power, th_repeat;
-    pthread_create(&th_power, NULL, power_manager, NULL);
-    pthread_create(&th_repeat, NULL, key_repeat_thread, NULL);
+    start_thread(&th_power, power_manager, "power manager"); /* without it: no blank, no suspend */
+    start_thread(&th_repeat, key_repeat_thread, "key repeat"); /* without it: held keys do not repeat */
 
     if (!is_remote_paired() && g_current_view != VIEW_PAIRING) {
         g_current_view = VIEW_NOT_PAIRED;
@@ -466,11 +541,7 @@ int main(int argc, char **argv) {
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_show_switch_target();
                 g_screen_dirty = true;
             } else if (now_ms - last_progress_render_ms >= 100) {
                 g_screen_dirty = true;
@@ -587,16 +658,7 @@ int main(int argc, char **argv) {
                 last_ota_stall_sync_ms = now_ms;
                 rf_wake_and_reconnect();
             }
-            if (ota_quiet_ms >= 60000) {
-                printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
-                ota_set_updating(false);
-                if (g_ota_file) {
-                    fflush(g_ota_file);
-                    fclose(g_ota_file);
-                    g_ota_file = NULL;
-                }
-                g_screen_dirty = true;
-            }
+            if (ota_quiet_ms >= 60000) ota_check_timeout();
         }
 
         /* Redraw once when the charging page times out */
@@ -621,8 +683,9 @@ int main(int argc, char **argv) {
             if (elapsed_s >= 10) {
                 g_suspend_countdown_start_ms = 0;
                 trigger_manual_suspend_to_ram();
-                g_settings_subview = SETTINGS_VIEW_SYSTEM;
-                g_selected_sub_item = 0;
+                /* Back on the page the countdown was started from, at its item */
+                g_settings_subview = SETTINGS_VIEW_POWER;
+                g_selected_sub_item = SETTINGS_POWER_SUSPEND_ITEM;
                 g_screen_dirty = true;
             } else {
                 static uint64_t s_last_cd_render = 0;
@@ -640,6 +703,11 @@ int main(int argc, char **argv) {
         }
 
         frame_timing_poll();
+        static uint64_t last_log_check_ms = 0;
+        if (now_ms - last_log_check_ms >= 60000) {
+            last_log_check_ms = now_ms;
+            remote_log_rotate(REMOTE_UI_LOG, REMOTE_UI_LOG_MAX);
+        }
         if (access("/tmp/trigger_rf_pair", F_OK) == 0) {
             unlink("/tmp/trigger_rf_pair");
             printf("[*] External trigger: starting RF pairing...\n");
@@ -893,7 +961,7 @@ int main(int argc, char **argv) {
             bool allow_gyro_wake = !is_docked;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
-                reset_idle_timer(); /* wakes and redraws; a second fb_set_blank(false) would reset the touch controller again */
+                reset_idle_timer(); /* wakes and redraws; no second fb_set_blank(false) */
             }
         }
     }

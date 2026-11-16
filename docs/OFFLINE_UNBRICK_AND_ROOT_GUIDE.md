@@ -95,7 +95,7 @@ If you wish to reinstall HarmonyNG after a clean reset:
 
 ```bash
 # 1. Provision Wi-Fi and gain root over USB (with automatic stock backup):
-python tools/root_hub_usb.py --wifi-ssid "YourNetwork" --wifi-pass "YourPassword"
+python tools/root_hub_usb.py --wifi-ssid "YourNetwork"   # asks for the Wi-Fi password
 
 # 2. Deploy HarmonyNG firmware:
 python build/deploy_hub.py <HUB_IP>
@@ -223,9 +223,9 @@ All required tools are stored in [`tools/unbrick_recovery/`](tools/unbrick_recov
 ### Step A: Start the TCP Server on your PC
 On your computer (connected to the same Wi-Fi/LAN), run:
 ```bash
-python tools/unbrick_recovery/serve_dropbear.py
+python tools/unbrick_recovery/serve_dropbear.py --hub <HUB_IP>
 ```
-This prints your PC's IP and begins listening on port `9999`.
+This prints your PC's IP, the MD5 of the file it serves, and begins listening on port `9999`. With `--hub` only the Hub's address gets the file (another host that connects first is turned away); add `--bind <PC_IP>` when the printed address is not the one the Hub can reach (VPN, several networks).
 
 ### Step B: Create `/tmp/recv` on the Hub
 In your serial terminal on the Hub, paste the contents of [`tools/unbrick_recovery/upload_recv.sh`](tools/unbrick_recovery/upload_recv.sh):
@@ -240,12 +240,12 @@ ls -l /tmp/recv
 ### Step C: Pull `dropbearmulti` over Wi-Fi
 On the Hub, run:
 ```sh
-/tmp/recv <YOUR_PC_IP> 9999 > /usr/sbin/dropbearmulti
+/tmp/recv <YOUR_PC_IP> 9999 > /tmp/dropbearmulti
 ```
-Verify the downloaded binary:
+Verify the downloaded binary against the MD5 the server printed, and move it into place only if it matches (a transfer cut short leaves a shorter file):
 ```sh
-ls -l /usr/sbin/dropbearmulti
-# Output should show: 577296 bytes
+md5sum /tmp/dropbearmulti
+mv /tmp/dropbearmulti /usr/sbin/dropbearmulti
 ```
 
 ---

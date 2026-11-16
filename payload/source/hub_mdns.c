@@ -14,8 +14,10 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -392,6 +394,22 @@ static int g_enabled = 1;
 static mdns_info_t g_info;
 static char g_name_suffix[32];
 static struct hub_settings g_settings;
+
+/* Settings saved by an HTTP worker (POST /api/settings) wait here for the main loop, which owns
+ * the responder socket and its state: the worker used to close and reopen the socket and rebuild
+ * the record while the main loop was reading the socket and sending from the record. */
+static struct hub_settings g_settings_next;
+static int g_settings_next_pending;
+static pthread_mutex_t g_settings_next_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int take_settings_next(struct hub_settings *out) {
+    pthread_mutex_lock(&g_settings_next_lock);
+    int pending = g_settings_next_pending;
+    if (pending) *out = g_settings_next;
+    g_settings_next_pending = 0;
+    pthread_mutex_unlock(&g_settings_next_lock);
+    return pending;
+}
 static int g_have_settings;
 static enum { ST_OFF, ST_PROBING, ST_ANNOUNCING, ST_RUNNING } g_state = ST_OFF;
 static int g_probes_sent;
@@ -457,6 +475,7 @@ static void start_probing(void) {
 static int open_socket(void) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) return -1;
+    fcntl(fd, F_SETFD, FD_CLOEXEC); /* a helper started with system() never reads it, so it fills up */
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in sin;
@@ -537,6 +556,7 @@ int hub_mdns_init(int port) {
         g_off_for_good = 1;
         printf("[*] mDNS: off in the test build (pass --mdns-port N, N != %d, to test it)\n", MDNS_PORT);
     }
+    if (take_settings_next(&g_settings)) g_have_settings = 1;
     if (!g_have_settings) {
         config_store_get_settings(&g_settings);
         g_have_settings = 1;
@@ -561,6 +581,14 @@ void hub_mdns_shutdown(void) {
 
 void hub_mdns_apply_settings(const struct hub_settings *s) {
     if (!s) return;
+    pthread_mutex_lock(&g_settings_next_lock);
+    g_settings_next = *s;
+    g_settings_next_pending = 1;
+    pthread_mutex_unlock(&g_settings_next_lock);
+}
+
+/* Main loop: the settings of the last hub_mdns_apply_settings() */
+static void apply_settings_now(const struct hub_settings *s) {
     g_settings = *s;
     g_have_settings = 1;
     /* apply_hub_settings() runs at daemon start before hub_mdns_init(): only keep the settings */
@@ -641,7 +669,7 @@ void hub_mdns_handle(void) {
     mdns_query_t q;
     if (mdns_parse_query(pkt, (size_t)n, &q) != 0) return;
     if (q.flags & 0x8000) {
-        if (g_state != ST_OFF && is_conflict(&q, &from)) handle_conflict();
+        if (g_state != ST_OFF && is_conflict(&q, &from) && net_source_is_local(&from)) handle_conflict();
         return;
     }
     if (g_state != ST_RUNNING && g_state != ST_ANNOUNCING) return; /* not ours yet while probing */
@@ -673,6 +701,8 @@ void hub_mdns_handle(void) {
         }
     }
     if (!answers) return;
+    /* a unicast answer goes only to a sender on our own link (RFC 6762 section 11) */
+    if (unicast && !net_source_is_local(&from)) return;
     uint8_t out[MDNS_MAX_PACKET];
     /* legacy unicast queries get the query id back; multicast responses carry 0 */
     int len = mdns_build_response(&g_info, answers, additionals, 0, unicast ? q.id : 0, out, sizeof(out));
@@ -680,6 +710,8 @@ void hub_mdns_handle(void) {
 }
 
 void hub_mdns_tick(void) {
+    struct hub_settings next;
+    if (take_settings_next(&next)) apply_settings_now(&next);
     uint64_t now = now_ms();
     if (g_fd < 0) {
         /* enabled but not running: no address yet (or the socket failed), retry every 2 s */

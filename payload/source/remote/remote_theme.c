@@ -63,7 +63,9 @@ static font_aa_t *load_font(const char *path) {
         return NULL;
     }
     uint32_t data_len = file[6] | file[7] << 8 | (uint32_t)file[8] << 16 | (uint32_t)file[9] << 24;
-    if (size < head + glyphs + (long)data_len) {
+    /* Unsigned and without a sum: on the remote long is 32 bits, so (long)data_len went negative
+     * for a length of 2 GiB or more, the check passed, and the allocation below wrapped */
+    if (data_len > (unsigned long)(size - head - glyphs)) {
         free(file);
         return NULL;
     }

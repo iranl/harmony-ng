@@ -24,6 +24,8 @@ void append_orch_step(orch_step_t *steps, size_t *count, const struct activity_s
         snprintf(steps[*count].description, sizeof(steps[*count].description), "%s: Delay %dms", prefix, st->delay_ms);
     } else if (strcasecmp(st->type, "BTCommand") == 0) {
         steps[*count].type = STEP_ACT_BTHID;
+        /* the device picks the Bluetooth host the key goes to (orchestrator.c) */
+        strncpy(steps[*count].device_id, st->device_id, sizeof(steps[*count].device_id) - 1);
         strncpy(steps[*count].command_name, st->command, sizeof(steps[*count].command_name) - 1);
         steps[*count].delay_ms = st->delay_ms > 0 ? (uint32_t)st->delay_ms : 250;
         snprintf(steps[*count].description, sizeof(steps[*count].description), "%s: %s", prefix, st->command);
@@ -51,6 +53,24 @@ static void append_bt_disconnect(orch_step_t *steps, size_t *count, size_t max, 
     snprintf(s->description, sizeof(s->description), "Power off %s: close the Bluetooth link", dev->name);
     *t_sim += s->delay_ms;
     (*count)++;
+}
+
+/* A power command in a copied stop (on = 0) or start (on = 1) sequence for a device that both
+ * activities use. Sections 2 and 3 below leave such a device alone, but the copied sequences
+ * still switched it off and on again on every switch between the two (or toggled it off). */
+static int shared_device_power_step(const struct activity_step *st, const struct activity_item *a,
+                                    const struct activity_item *b, int on) {
+    if (!a || !b || !st->device_id[0]) return 0;
+    if (strcasecmp(st->command, on ? "PowerOn" : "PowerOff") != 0 &&
+        strcasecmp(st->command, "PowerToggle") != 0 && strcasecmp(st->command, "Power") != 0) return 0;
+    int in_a = 0, in_b = 0;
+    for (int i = 0; i < a->device_count && !in_a; i++) in_a = (strcmp(a->device_ids[i], st->device_id) == 0);
+    for (int i = 0; i < b->device_count && !in_b; i++) in_b = (strcmp(b->device_ids[i], st->device_id) == 0);
+    if (in_a && in_b) {
+        printf("[*] Orch: %s of device %s left out: both activities use it\n", st->command, st->device_id);
+        return 1;
+    }
+    return 0;
 }
 
 int orch_build_steps(const char *current_id, const char *target_id,
@@ -126,6 +146,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
 
         int stop_limit = (sw1_idx >= 0) ? sw1_idx : leaving_act->stop_count;
         for (int k = 0; k < stop_limit && main_count < max_main; k++) {
+            if (shared_device_power_step(&leaving_act->stop_steps[k], leaving_devs, entering_devs, 0)) continue;
             append_orch_step(main_steps, &main_count, &leaving_act->stop_steps[k], "Stop");
             t_sim += main_steps[main_count - 1].delay_ms;
         }
@@ -146,6 +167,8 @@ int orch_build_steps(const char *current_id, const char *target_id,
                 uint32_t dl = st->delay_ms ? (uint32_t)st->delay_ms : (is_dl ? 50 : 250);
                 if (is_dl) {
                     cur_offset += dl;
+                } else if (shared_device_power_step(st, leaving_devs, entering_devs, 0)) {
+                    continue;
                 } else if (bg_steps && bg_count < max_bg) {
                     orch_bg_step_t *b = &bg_steps[bg_count++];
                     memset(b, 0, sizeof(*b));
@@ -375,6 +398,7 @@ int orch_build_steps(const char *current_id, const char *target_id,
         int start_limit = (sw4_idx >= 0) ? sw4_idx : entering_act->start_count;
         const char *pfx = (strcmp(entering_id, ORCH_POWEROFF_ID) == 0) ? "PowerOff" : "Starting";
         for (int k = 0; k < start_limit && main_count < max_main; k++) {
+            if (shared_device_power_step(&entering_act->start_steps[k], leaving_devs, entering_devs, 1)) continue;
             append_orch_step(main_steps, &main_count, &entering_act->start_steps[k], pfx);
             t_sim += main_steps[main_count - 1].delay_ms;
         }
@@ -396,6 +420,8 @@ int orch_build_steps(const char *current_id, const char *target_id,
                 uint32_t dl = st->delay_ms ? (uint32_t)st->delay_ms : (is_dl ? 50 : 250);
                 if (is_dl) {
                     cur_offset += dl;
+                } else if (shared_device_power_step(st, leaving_devs, entering_devs, 1)) {
+                    continue;
                 } else if (bg_steps && bg_count < max_bg) {
                     orch_bg_step_t *b = &bg_steps[bg_count++];
                     memset(b, 0, sizeof(*b));

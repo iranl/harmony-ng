@@ -29,14 +29,22 @@ rmmod ath_udc 2>/dev/null || true
 # Load official unpatched EHCI host driver (high-speed 480Mbps support)
 insmod /lib/modules/2.6.31-g89d565c/kernel/drivers/usb/host/ehci-hcd.ko 2>/dev/null || true
 
-# Register dormant platform device ar7240-ehci.0 via sys_call_table ONLY if not already bound
-if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ]; then
+# Register dormant platform device ar7240-ehci.0 via sys_call_table ONLY if not already bound.
+# Never twice in one boot: when ehci-hcd did not load, the device is registered but has no
+# driver, and the "driver" test alone let every later start (each "init.sh restart")
+# register the same static device again, which stop_usb_eth.sh notes can crash. The marker is
+# in /tmp (RAM), so a reboot clears it; a registration that left no device can be retried.
+REG_MARKER=/tmp/harmony_ehci_registered
+if [ ! -d /sys/devices/platform/ar7240-ehci.0/driver ] && \
+   ! { [ -f "$REG_MARKER" ] && [ -d /sys/devices/platform/ar7240-ehci.0 ]; }; then
   REG_BIN=""
   for b in "$BIN_DIR/register_ehci" /cache/bin/register_ehci /usr/sbin/register_ehci; do
     if [ -x "$b" ]; then REG_BIN="$b"; break; fi
   done
   if [ -n "$REG_BIN" ]; then
+    touch "$REG_MARKER" 2>/dev/null
     "$REG_BIN"
+    echo "[USB_ETH] register_ehci exit code $?"
   else
     echo "[USB_ETH] Error: register_ehci not found!" >&2
   fi

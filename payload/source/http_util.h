@@ -11,8 +11,14 @@ extern "C" {
 
 void send_cjson_resp(int fd, int code, cJSON *obj);
 void send_json_error(int fd, int code, const char *msg);
+/* send() until every byte is out. A send that takes only part of the data (the socket's send
+ * timeout passed while a slow client read) is continued; returns -1 when the peer is gone or
+ * takes nothing within the send timeout. */
+int http_send_all(int fd, const void *buf, size_t len);
 char *url_decode(const char *src);
 cJSON *parse_request_params(const char *body);
+/* The decoded value of one query parameter (split at '&', matched by its whole name), or "" */
+void http_query_param(const char *query, const char *name, char *out, size_t out_sz);
 int write_file_content(const char *filepath, const char *content);
 int write_file_atomic_sized(const char *filepath, const char *content, size_t len);
 char *read_file_text_alloc(const char *path, size_t max_sz, size_t *out_len);
@@ -21,7 +27,6 @@ unsigned char *b64_decode(const char *src, size_t *out_len);
 uint32_t crc32_simple(const unsigned char *buf, size_t len);
 int is_safe_param(const char *str, const char *allowed_extra);
 int is_safe_ipv4(const char *ip);
-void escape_wpa_str(const char *src, char *dst, size_t dst_len);
 int get_client_ip(int fd, char *ip_buf, size_t buf_len);
 int http_header_value(const char *req, const char *name, char *out, size_t out_len);
 int http_origin_is_allowed(const char *origin, const char *host);

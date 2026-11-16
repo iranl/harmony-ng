@@ -247,6 +247,8 @@ All application messages are encapsulated in the payload section of Report `0x12
   - `0x01` `RF_CAP_ACT_DEVICES`: understands `RF_MSG_ACT_DEVICES_CHUNK`
   - `0x02` `RF_CAP_LONG_NAMES`: understands `RF_MSG_NAME_TAIL_CHUNK`
   - `0x04` `RF_CAP_UNIT_ID`: sends `RF_MSG_UNIT_ID` after every version report
+  - `0x08` `RF_CAP_DEVICE_CMDS`: stores and ACKs `RF_MSG_DEVICE_CMD_CHUNK` (device browsing); for
+    such a remote a device command frame without an ACK fails the config push like any other frame
 
 The remote sends this report when its link first comes up, every 24 hours, and before each full config request, so a Hub that restarted learns the capabilities before it builds the push. The Hub keeps them in `/data/harmony/remote_slot<N>_version.json` (`caps`). A remote drops frame types it doesn't know without an ACK, so the Hub must not send newer frame types to a remote that doesn't report them.
 
@@ -334,8 +336,10 @@ Both frames use a 17-byte standardized configuration payload:
 
 #### `RF_MSG_ACTIVITY_SYNC` (`0x0A`)
 - Hub broadcasts upon activity change or sync query:
-  - `payload[0..11]`: Activity ID string (null-terminated, e.g. `"12345678"` or `"-1"` for PowerOff).
-  - `payload[12..24]`: Activity friendly name string (null-terminated, e.g. `"Watch TV"`).
+  - ID of 1 or 2 characters, or `"-1"` for PowerOff: `payload[0..2]` ID, `payload[3..23]` name (21 bytes).
+  - Longer ID (e.g. `"12345678"`): `payload[0..9]` ID (10 bytes), `payload[10..23]` name (14 bytes).
+  - `payload[24]`: `1` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0` = the activity just changed.
+- The remote opens the activity's screen (or home for `"-1"`) only while it shows home or an activity screen. In Settings, pairing or the device browser it records the new activity and keeps the page; the activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
 
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:
@@ -370,9 +374,16 @@ Both frames use a 17-byte standardized configuration payload:
 #### `RF_MSG_BUTTON_PRESS` (`0x14`)
 - Remote transmits on key events:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
-  - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
+  - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release). While the key is down a hold follows the press after 300 ms and then every 300 ms: the Hub repeats a held infrared command by itself and stops when no hold arrived for 600 ms.
   - `payload[3..18]`: Short button name string (up to 16 chars).
+  - `payload[19]`: Key event counter. The remote numbers every key frame it sends (press, hold and release alike): `1`..`255`, then `1` again. `0` means the remote does not count (older remotes). The counter starts at `1` when `remote_ui` starts and is not reset by a resume from suspend.
   - `payload[20..24]`: Device context ID string (up to 4 chars + NUL) when the remote is browsing a device in the Hub Device Browser view (`VIEW_DEVICE_BROWSER`). Hub routes physical buttons to this device or falls back to matching command names. When not browsing a device, bytes 20..24 are zeroed.
+
+- Key frames are sent once: the Hub does not acknowledge them and the remote does not resend them. A lost press is a key that does nothing, a lost release leaves the key down.
+- The counter only measures that loss. For each slot the Hub compares the number of a key frame with the one before it and adds the numbers in between (over the ring `1`..`255`) to `key_events_lost` in the RF status (`GET /api/rf/status`, `slots[].link`), with one log line per gap: `[!] RF key events lost: slot 1, 2 missing before #57 (release DirectionRight)`. The first key frame after `hub_rf` starts only sets the reference.
+- A remote that restarted counts from `1` again. After a version report, a unit id frame or a link-up report from the CC2544, the Hub takes the next key frame `#n` as the restarted counter (`n - 1` frames missing, none for `#1`) when that is the smaller gap. Without such a hint a counter that goes back is counted as a gap around the ring. The same number twice in a row is logged as a frame received twice, not as a loss (`#1` twice with such a hint in between is a restart).
+- The Hub also sorts the missing frames by what the frames around the gap show: a hold or release of a key whose press it did not see (`key_lost_press`), a key frame while the key before it is still down (`key_lost_release`), and the rest, holds or frames it cannot tell (`key_lost_other`). Only the last key that went down is tracked per slot.
+- A frame with counter `0` is not measured at all. A Hub without the counter ignores the byte.
 
 #### `RF_MSG_CONFIG_END` (`0x0F`) and the config push
 - `payload[0]`: `0x00` clear (opens the push), `0x01` complete (closes it).
@@ -388,7 +399,7 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[1]`: Command index (position in the device's `commands` array in `devices.json`).
   - `payload[2]`: Number of commands for the device.
   - `payload[3..24]`: Command name (up to 22 chars, NUL-padded).
-- A remote without device browsing does not ACK this type; the Hub stops sending device commands to that slot when the first one gets no ACK.
+- A remote without device browsing does not ACK this type. For a remote that does not report `RF_CAP_DEVICE_CMDS`, the Hub stops sending device commands to that slot when the first one gets no ACK; for one that reports it, a missing ACK fails the push (it is not taken for a remote without device browsing).
 
 #### `RF_MSG_DEVICE_CMD_INDEX` (`0x13`)
 - Remote transmits when a command is chosen in the device browser:
@@ -398,7 +409,12 @@ Both frames use a 17-byte standardized configuration payload:
 - The Hub sends the command at that index if its name matches the prefix, otherwise the first command whose name matches the prefix.
 
 #### `RF_MSG_DEVICE_CMD_REQUEST` (`0x16`)
-- Remote transmits for direct device command execution:
+- Remote transmits for a screen button (bit 0 of the flags byte set):
+  - `payload[0..9]`: Activity (or device) id of the screen.
+  - `payload[10]`: Button index.
+  - `payload[11..22]`: Button label (first 12 chars).
+  - The Hub sends the button's command from the remote's key map; a button that is not in the map sends nothing.
+- Remote transmits for direct device command execution (flags bit 0 clear):
   - `payload[0..3]`: Shortened Device ID (4 bytes, null-terminated).
   - `payload[4..24]`: Command name (up to 21 chars, null-terminated).
 
@@ -409,10 +425,10 @@ Both frames use a 17-byte standardized configuration payload:
   - `payload[2..3]`: Voltage in millivolts (16-bit unsigned little-endian).
 
 #### RF OTA transfer (`0x22`..`0x25` and the `0x60` data frame)
-- `RF_MSG_OTA_START` (`0x22`, ACK'd): `payload[0..3]` image size, `payload[4..5]` chunk count for the stop-and-wait transfer (22-byte chunks), `payload[6..9]` CRC32 of the image (identifies a checkpoint). The remote's ACK: `payload[1]` status (`0x02` low battery, `0x03` cannot write), `payload[2..3]` the 22-byte chunk to resume from (checkpoint made by a stop-and-wait transfer), `payload[4]` = `0xF1` (`RF_OTA_WINDOWED`) if the remote supports the windowed transfer, `payload[6..7]` the 26-byte chunk to resume from (checkpoint made by a windowed transfer). A remote cannot continue a checkpoint with the other kind of frames; it starts over.
+- `RF_MSG_OTA_START` (`0x22`, ACK'd): `payload[0..3]` image size, `payload[4..5]` chunk count for the stop-and-wait transfer (22-byte chunks), `payload[6..9]` CRC32 of the image (identifies a checkpoint). The remote's ACK: `payload[1]` status (`0x02` low battery, `0x03` cannot write, also when `/tmp` has no room for the image), `payload[2..3]` the 22-byte chunk to resume from (checkpoint made by a stop-and-wait transfer), `payload[4]` = `0xF1` (`RF_OTA_WINDOWED`) if the remote supports the windowed transfer, `payload[6..7]` the 26-byte chunk to resume from (checkpoint made by a windowed transfer). A remote cannot continue a checkpoint with the other kind of frames; it starts over.
 - Stop-and-wait transfer (`RF_MSG_OTA_CHUNK` `0x23`): `payload[0..1]` chunk index, `payload[2]` length, `payload[3..24]` up to 22 data bytes. The Hub asks for an ACK on every 4th chunk and waits for it (15 retries with backoff and CC2544 wake pulses), 15 ms between chunks. About 20 chunks/s (440 B/s) on a Harmony Ultimate. Used for remotes that do not announce `0xF1`.
 - Windowed transfer (remote announced `0xF1`): the Hub sets CC2544 power mode `0x30` on both ends (section 4.2) and streams **OTA data frames**, which have no message type: like Logitech's own HOT continuation packets they use the header byte `0x60`: `12 <slot> <0x60 | idx[3:0] | ack> <idx[11:4]> <data[26]>` (30-byte Hub frame; the remote reads it as `20 <pipe> 12 <slot> <hdr> <idx[11:4]> <data[26]>`). `ack` = `0x10` asks for an ACK; the chunk index is 12 bits and the remote completes it from the chunk it expects next; the last chunk is shorter (the remote knows the image size). Every ACK carries the remote's contiguous chunk count in `payload[2..3]` and `0xF1` in `payload[4]`. The Hub streams with 2 ms between frames (the Hub's CC2544 queues 8 and drops frames beyond that), asks for an ACK every 16th chunk without waiting, stays at most 64 chunks ahead of the contiguous count, and resends from that count when it has not advanced for 300 ms (go-back-N). It gives up (resumable) after 20 s without progress. A remote accepts these frames only while in OTA mode. Measured on a Harmony Ultimate: about 250 frames/s, 6.5 KB/s, the 667 KB image in about 100 s.
-- `RF_MSG_OTA_END` (`0x25`, ACK'd): `payload[0]` = `0x01`, `payload[1..20]` first 20 bytes of the image's SHA-256. The remote checks it has every chunk (`0x05` otherwise), verifies the digest (`0x06` on mismatch), installs (`0x07` when the image is good but cannot be put in place, for example no space left on `/data`: the current binary is kept) and reboots.
+- `RF_MSG_OTA_END` (`0x25`, ACK'd): `payload[0]` = `0x01`, `payload[1..20]` first 20 bytes of the image's SHA-256. The remote checks it has every chunk (`0x05` otherwise) and that the image was written to `/tmp` (`0x03` otherwise), verifies the digest (`0x06` on mismatch, and also when `payload[0]` is not `0x01`: an image is never installed without the digest; Hubs send it since v2.0.0), installs (`0x07` when the image is good but cannot be put in place, for example no space left on `/data`: the current binary is kept) and reboots. The ACK comes after the install, so the Hub sends the same frame (same sequence number) up to 3 times, waiting 6 s each; a remote that already took it ignores the others. A remote whose checkpoint holds every chunk (its OTA_END was lost) answers OTA_START with the chunk count as the resume chunk, and the Hub then sends only OTA_END.
 
 ## 6. Reverse Engineering Reference Mapping
 

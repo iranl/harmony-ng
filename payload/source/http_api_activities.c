@@ -6,6 +6,7 @@
 #include "orchestrator.h"
 #include "hw_action.h"
 #include "ws_server.h"
+#include "hub_ws.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -211,7 +212,8 @@ int activity_help_answer(const cJSON *req, cJSON **out) {
 
 static void device_name(const char *id, char *out, size_t len) {
     snprintf(out, len, "%s", id);
-    cJSON *root = config_store_devices_copy();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_devices_acquire(&snap);
     cJSON *devs = root ? cJSON_GetObjectItemCaseSensitive(root, "devices") : NULL;
     cJSON *d = NULL;
     cJSON_ArrayForEach(d, devs) {
@@ -225,7 +227,7 @@ static void device_name(const char *id, char *out, size_t len) {
             break;
         }
     }
-    cJSON_Delete(root);
+    config_store_release(&snap);
 }
 
 /* The "error" string of a Help reply, or a plain text when the reply has none (out of memory) */
@@ -274,9 +276,43 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
 
     /* Route: POST /api/activity-progress */
     if (strcmp(clean_path, "/api/activity-progress") == 0 && strcmp(method, "POST") == 0) {
-        if (body && body[0]) {
-            ws_broadcast_text(body);
+        /* An activity_progress frame built from the known fields and sent through the event bus
+         * (WebSocket and MQTT, from the main loop). The body used to go to every WebSocket client
+         * as it was, from this worker thread: any text, as any event type. */
+        cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        if (!req_j || !cJSON_IsObject(req_j)) {
+            cJSON_Delete(req_j);
+            send_json_error(client_fd, 400, "JSON object required");
+            close(client_fd);
+            return 1;
         }
+        char act[32] = "-1", desc[128] = "";
+        const cJSON *ja = cJSON_GetObjectItemCaseSensitive(req_j, "activity");
+        if (!ja) ja = cJSON_GetObjectItemCaseSensitive(req_j, "activityId");
+        if (ja && cJSON_IsString(ja) && ja->valuestring && ja->valuestring[0]) snprintf(act, sizeof(act), "%s", ja->valuestring);
+        else if (ja && cJSON_IsNumber(ja)) snprintf(act, sizeof(act), "%ld", (long)ja->valuedouble);
+        const cJSON *jd = cJSON_GetObjectItemCaseSensitive(req_j, "desc");
+        if (!jd) jd = cJSON_GetObjectItemCaseSensitive(req_j, "stepDesc");
+        if (jd && cJSON_IsString(jd) && jd->valuestring) snprintf(desc, sizeof(desc), "%s", jd->valuestring);
+        orch_state_t st = orch_get_state();
+        const cJSON *js = cJSON_GetObjectItemCaseSensitive(req_j, "stateCode");
+        if (!js || !cJSON_IsNumber(js)) js = cJSON_GetObjectItemCaseSensitive(req_j, "state");
+        if (js && cJSON_IsNumber(js) && js->valueint >= ORCH_STATE_IDLE && js->valueint <= ORCH_STATE_STOPPING) {
+            st = (orch_state_t)js->valueint;
+        } else if (js && cJSON_IsString(js) && js->valuestring) {
+            if (strcasecmp(js->valuestring, "starting") == 0) st = ORCH_STATE_STARTING;
+            else if (strcasecmp(js->valuestring, "running") == 0) st = ORCH_STATE_RUNNING;
+            else if (strcasecmp(js->valuestring, "stopping") == 0) st = ORCH_STATE_STOPPING;
+            else if (strcasecmp(js->valuestring, "idle") == 0) st = ORCH_STATE_IDLE;
+        }
+        const cJSON *jstep = cJSON_GetObjectItemCaseSensitive(req_j, "step");
+        if (!jstep) jstep = cJSON_GetObjectItemCaseSensitive(req_j, "currentStep");
+        const cJSON *jtot = cJSON_GetObjectItemCaseSensitive(req_j, "total");
+        if (!jtot) jtot = cJSON_GetObjectItemCaseSensitive(req_j, "totalSteps");
+        int step = (jstep && cJSON_IsNumber(jstep)) ? jstep->valueint : 0;
+        int total = (jtot && cJSON_IsNumber(jtot)) ? jtot->valueint : 0;
+        cJSON_Delete(req_j);
+        on_orch_progress(act, st, step, total, desc, 0, -1, NULL);
         cJSON *ok = cJSON_CreateObject();
         cJSON_AddBoolToObject(ok, "ok", 1);
         send_cjson_resp(client_fd, 200, ok);
@@ -433,6 +469,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
     if (strcmp(clean_path, "/api/activity-save") == 0 && strcmp(method, "POST") == 0) {
         cJSON *params = parse_request_params(body);
         int success = 0;
+        int save_failed = 0; /* valid request, activities.json could not be written: 500, not 400 */
         if (params) {
             cJSON *p_id = cJSON_GetObjectItemCaseSensitive(params, "id");
             if (!p_id) p_id = cJSON_GetObjectItemCaseSensitive(params, "activityId");
@@ -615,6 +652,7 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     if (config_store_save_activities(root) == 0) {
                         success = 1;
                     } else {
+                        save_failed = 1;
                         cJSON_Delete(root);
                     }
                 } else {
@@ -636,7 +674,8 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Activity saved successfully" : "Failed to save activity");
-        send_cjson_resp(client_fd, success ? 200 : 400, resp);
+        if (save_failed) cJSON_AddStringToObject(resp, "error", "Could not save the activities (flash full?)");
+        send_cjson_resp(client_fd, success ? 200 : (save_failed ? 500 : 400), resp);
         cJSON_Delete(resp);
         close(client_fd);
         return 1;
@@ -725,6 +764,15 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                     snprintf(id_buf, sizeof(id_buf), "%ld", (long)p_id->valuedouble);
                     act_id_str = id_buf;
                 }
+                /* The running activity's definition is what its power off is built from: deleted,
+                 * the Hub stayed "running" in it and Off sent nothing */
+                if (act_id_str[0] && strcmp(act_id_str, ORCH_POWEROFF_ID) != 0 &&
+                    strcmp(act_id_str, orch_get_current_activity()) == 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 409, "Activity is running: power off or start another activity first");
+                    close(client_fd);
+                    return 1;
+                }
                 config_store_lock();
                 cJSON *root = config_store_activities_copy();
                 if (root) {
@@ -739,8 +787,10 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                             else if (jid && cJSON_IsString(jid)) strncpy(item_id, jid->valuestring, sizeof(item_id) - 1);
                             if (strcmp(item_id, act_id_str) == 0) {
                                 cJSON_DeleteItemFromArray(acts, i);
-                                if (config_store_save_activities(root) == 0) root = NULL;
-                                success = 1;
+                                if (config_store_save_activities(root) == 0) {
+                                    root = NULL;
+                                    success = 1;
+                                }
                                 break;
                             }
                         }

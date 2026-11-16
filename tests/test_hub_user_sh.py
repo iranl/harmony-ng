@@ -117,6 +117,48 @@ class HubUserScript(unittest.TestCase):
         self.assertEqual(self.run_cmd("add-user", "kid", "pw").returncode, 0)
         self.assertEqual(self.names(), ["admin", "guest", "kid"])
 
+    def test_missing_hash_tool_refused(self):
+        # a PATH with the tools the script needs, but no sha256sum
+        import os
+        import shutil
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        for tool in ("awk", "mv", "rm", "cp", "grep", "cat", "mkdir", "tr"):
+            path = shutil.which(tool)
+            if path:
+                (bindir / tool).symlink_to(path)
+        r = subprocess.run(["/bin/sh", str(self.script), "set-admin", "admin", "secret"],
+                           capture_output=True, text=True, timeout=30, env=dict(os.environ, PATH=str(bindir)))
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("configured", r.stdout)
+        self.assertFalse(self.users_json.exists())
+        self.assertFalse(self.auth_conf.exists() and self.auth_conf.read_text().strip())
+
+    def test_delete_last_account(self):
+        self.auth_conf.parent.mkdir(parents=True, exist_ok=True)
+        self.auth_conf.write_text(f"guest:{HA1_GUEST}:user\n")
+        r = self.run_cmd("delete", "guest")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("guest", self.auth_conf.read_text())
+        self.assertEqual(self.users()["users"], [])
+        self.assertFalse(self.users()["auth_enabled"], "no account left: authentication off")
+
+    def test_set_admin_keeps_other_admins(self):
+        self.auth_conf.parent.mkdir(parents=True, exist_ok=True)
+        self.auth_conf.write_text(f"a1:{HA1_ADMIN}:admin\na2:{HA1_GUEST}:admin\n")
+        self.assertEqual(self.run_cmd("set-admin", "bob", "secret").returncode, 0)
+        self.assertEqual(self.names(), ["a1", "a2", "bob"])
+        self.assertEqual(self.run_cmd("set-admin", "a2", "newpw").returncode, 0)
+        users = {u["username"]: u for u in self.users()["users"]}
+        self.assertEqual(sorted(users), ["a1", "a2", "bob"])
+        self.assertNotEqual(users["a2"]["ha1"], HA1_GUEST, "the password of a2 changed")
+
+    def test_bad_user_names_refused(self):
+        for name in ('bad"name', "a:b", "x" * 32):
+            r = self.run_cmd("add-user", name, "pw")
+            self.assertNotEqual(r.returncode, 0, name)
+        self.assertFalse(self.users_json.exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

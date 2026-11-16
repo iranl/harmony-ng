@@ -131,6 +131,11 @@
           "acked_ok": 12,
           "retries": 0,
           "naks": 0,
+          "key_events": 0,
+          "key_events_lost": 0,
+          "key_lost_press": 0,
+          "key_lost_release": 0,
+          "key_lost_other": 0,
           "last_seen_s": 2
         }
       },
@@ -162,6 +167,11 @@
           "acked_ok": 0,
           "retries": 0,
           "naks": 0,
+          "key_events": 0,
+          "key_events_lost": 0,
+          "key_lost_press": 0,
+          "key_lost_release": 0,
+          "key_lost_other": 0,
           "last_seen_s": -1
         }
       }

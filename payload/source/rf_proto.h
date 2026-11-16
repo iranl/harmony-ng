@@ -109,6 +109,13 @@
 #define RF_UNIT_ID_MAX             24
 #define RF_UNIT_ID_SKIN_OFF        24
 
+/* RF_MSG_BUTTON_PRESS payload[RF_KEY_COUNTER_OFF]: the key event counter. The remote numbers
+ * every key frame it sends (press, hold, release) 1..255 and then 1 again; 0 = a remote without
+ * the counter. Key frames are sent once and never acknowledged, so the Hub counts the gaps to
+ * measure how many are lost (rf_state.c rf_key_note_event). The byte lies between the short name
+ * (payload[3..18]) and the device context (payload[20..24]); older Hubs do not read it. */
+#define RF_KEY_COUNTER_OFF         19
+
 /* RF_MSG_HELP_STATUS payload[0] */
 #define RF_HELP_QUESTION           0x00  /* [1] index, [2] count, [3..10] device id, [11..24] name */
 #define RF_HELP_STARTED            0x01  /* re-sending the activity's commands */
@@ -120,6 +127,15 @@
 #define RF_CAP_ACT_DEVICES         0x01  /* RF_MSG_ACT_DEVICES_CHUNK */
 #define RF_CAP_LONG_NAMES          0x02  /* RF_MSG_NAME_TAIL_CHUNK */
 #define RF_CAP_UNIT_ID             0x04  /* sends RF_MSG_UNIT_ID after every version report */
+#define RF_CAP_DEVICE_CMDS         0x08  /* stores and ACKs RF_MSG_DEVICE_CMD_CHUNK (device browsing) */
+
+/* Screen timeout of the remote settings, in seconds: 0 kept the screen on (and the remote awake)
+ * until the battery was empty. The remote's own Settings screen offers 10 to 120 s. */
+#define RF_SCREEN_TIMEOUT_MIN      5
+#define RF_SCREEN_TIMEOUT_MAX      600
+static inline int rf_clamp_screen_timeout(int s) {
+    return s < RF_SCREEN_TIMEOUT_MIN ? RF_SCREEN_TIMEOUT_MIN : (s > RF_SCREEN_TIMEOUT_MAX ? RF_SCREEN_TIMEOUT_MAX : s);
+}
 
 /* Activity and device names, including the NUL, on remotes that report RF_CAP_LONG_NAMES */
 #define RF_NAME_SIZE               40
@@ -154,6 +170,11 @@ static inline void rf_build_frame(rf_frame_t *f, uint8_t dev_slot, uint8_t type,
         if (payload_len > sizeof(f->payload)) payload_len = sizeof(f->payload);
         memcpy(f->payload, payload, payload_len);
     }
+}
+
+/* The key event counter after c: 1..255, then 1 again (0 is never sent by a counting remote) */
+static inline uint8_t rf_key_counter_next(uint8_t c) {
+    return (uint8_t)(c >= 255 ? 1 : c + 1);
 }
 
 /* Helper: validate received frame */

@@ -46,6 +46,22 @@ def find_default_ssh_key() -> str | None:
     return None
 
 
+ELF_MACHINE_MIPS = 8
+
+
+def elf_machine(path: pathlib.Path) -> int | None:
+    """The ELF e_machine of a file, or None when it is not an ELF file."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b"\x7fELF":
+        return None
+    order = "little" if head[5] == 1 else "big"
+    return int.from_bytes(head[18:20], order)
+
+
 def get_file_md5(path: pathlib.Path) -> str:
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -101,8 +117,9 @@ class HubDeployer:
         # Resolve paths
         self.script_dir = pathlib.Path(__file__).resolve().parent
         self.repo_root = self.script_dir.parent
+        self.bundle_layout = (self.script_dir / "bin").is_dir()
 
-        if (self.script_dir / "bin").is_dir():
+        if self.bundle_layout:
             # Release bundle layout
             self.bin_dir = self.script_dir / "bin"
             self.www_dir = self.script_dir / "www"
@@ -111,6 +128,8 @@ class HubDeployer:
             self.config_dir = self.script_dir / "config"
             self.fw_tool = self.script_dir / "tools" / "harmony_firmware.py"
             self.icons_tar = self.script_dir / "icons.tar.gz"
+            # The bundle is self-contained: never take files from the folder it was unpacked in
+            self.version_file = self.script_dir / "VERSION"
         else:
             # Repository layout
             self.bin_dir = self.repo_root / "payload" / "bin"
@@ -120,11 +139,19 @@ class HubDeployer:
             self.config_dir = self.repo_root / "payload" / "config"
             self.fw_tool = self.repo_root / "tools" / "harmony_firmware.py"
             self.icons_tar = self.repo_root / "build" / "icons.tar.gz"
+            self.version_file = self.repo_root / "VERSION"
+            if not self.icons_tar.is_file() and (self.script_dir / "icons.tar.gz").is_file():
+                self.icons_tar = self.script_dir / "icons.tar.gz"
 
-        if (self.repo_root / "build" / "icons.tar.gz").is_file():
-            self.icons_tar = self.repo_root / "build" / "icons.tar.gz"
-        elif (self.script_dir / "icons.tar.gz").is_file():
-            self.icons_tar = self.script_dir / "icons.tar.gz"
+    def wrong_arch_binaries(self) -> list[str]:
+        """Local binaries this tool would install that are not built for the Hub (MIPS)."""
+        wrong = []
+        if self.bin_dir.is_dir():
+            for f in sorted(self.bin_dir.iterdir()):
+                m = elf_machine(f) if f.is_file() else None
+                if m is not None and m != ELF_MACHINE_MIPS:
+                    wrong.append(f.name)
+        return wrong
 
     def get_ssh_cmd(self, cmd_str: str) -> list[str]:
         cmd = [
@@ -280,9 +307,21 @@ class HubDeployer:
         # Connection check
         if self.dry_run:
             print("Dry run: Hub is only read, nothing is changed")
-        probe = self.run_ssh("true")
+        probe = self.run_ssh("uname -m")
         if probe.returncode != 0:
             print(f"[-] Cannot reach {self.hub_user}@{self.hub_host} over SSH.", file=sys.stderr)
+            return False
+        # The Hub is a MIPS board. The remote (ARM) answers at 192.168.2.1 with the same key:
+        # the Hub's boot script and binaries would leave it without a UI and without SSH.
+        machine = probe.stdout.strip()
+        if not machine.startswith("mips"):
+            print(f"[-] {self.hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}). Nothing was changed. "
+                  "For the remote use remote/deploy_remote.py.", file=sys.stderr)
+            return False
+        wrong = [] if self.webui_only else self.wrong_arch_binaries()
+        if wrong:
+            print(f"[-] Not built for the Hub (MIPS) in {self.bin_dir}: {', '.join(wrong)}. Nothing was changed.",
+                  file=sys.stderr)
             return False
 
         if not self.webui_only:
@@ -293,13 +332,20 @@ class HubDeployer:
                     try:
                         # Import and run backup_hub directly
                         # Release bundle: tools/ next to this script; repository: <repo>/tools
-                        for tools_dir in (self.repo_root / "tools", self.script_dir / "tools"):
-                            if (tools_dir / "backup_hub.py").is_file():
-                                sys.path.insert(0, str(tools_dir))
+                        tools_dir = (self.script_dir if self.bundle_layout else self.repo_root) / "tools"
+                        sys.path.insert(0, str(tools_dir))
                         import backup_hub as bkp_mod
-                        bkp_mod.backup_hub(hub_host=self.hub_host, hub_user=self.hub_user, ssh_key=self.ssh_key)
-                    except Exception as e:
-                        print(f"[!] Warning running backup: {e}")
+                        backed_up = bkp_mod.backup_hub(hub_host=self.hub_host, hub_user=self.hub_user, ssh_key=self.ssh_key)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[-] Backup failed: {type(e).__name__}: {e}", file=sys.stderr)
+                        backed_up = False
+                    # Nothing on the Hub has been changed yet: stop here rather than deploy without a backup
+                    if not backed_up:
+                        print("[-] No backup of the Hub was made, so nothing was deployed. Fix the cause above, or "
+                              "deploy without a backup with --no-backup.", file=sys.stderr)
+                        return False
+            else:
+                print("[!] --no-backup: deploying without a backup of the Hub.")
 
             # Keep stock startup script
             if not self.dry_skip("save stock /etc/init.d/rcS.local to /data/stock_backup (if not saved yet)"):
@@ -354,10 +400,7 @@ class HubDeployer:
                 has_stock_res = self.run_ssh("[ -f /data/resources/DeviceList.json ] && echo 1 || echo 0")
                 has_stock = has_stock_res.stdout.strip() == "1"
                 mig_script = None
-                for cand in (
-                    self.script_dir / "tools" / "migrate_hub_configs.py",
-                    self.repo_root / "tools" / "migrate_hub_configs.py",
-                ):
+                for cand in ((self.script_dir if self.bundle_layout else self.repo_root) / "tools" / "migrate_hub_configs.py",):
                     if cand.is_file():
                         mig_script = cand
                         break
@@ -458,7 +501,7 @@ class HubDeployer:
                         self.deploy_file_if_changed(sc, f"/data/harmony/{sc.name}", "755")
 
             # Deploy VERSION
-            ver_file = self.repo_root / "VERSION"
+            ver_file = self.version_file
             if ver_file.is_file():
                 print("[*] Syncing VERSION file to /data/harmony/VERSION...")
                 self.deploy_file_if_changed(ver_file, "/data/harmony/VERSION", "644")
@@ -530,13 +573,12 @@ class HubDeployer:
                 print(f"    [dry-run] would build web UI ({self.ui_choice}) first; comparison below uses files currently in payload/www")
             else:
                 ui_src_dir = self.repo_root / ("android-app" if self.ui_choice == "legacy" else "frontend")
-                if shutil.which("emcc"):
-                    render_sh = self.repo_root / "tools" / "remote_render" / "build.sh"
-                    if render_sh.is_file():
-                        subprocess.run(["bash", str(render_sh), "--wasm", str(ui_src_dir / "public" / "assets")], capture_output=True)
-                    theme_py = self.repo_root / "tools" / "remote_render" / "build_theme.py"
-                    if theme_py.is_file():
-                        subprocess.run([sys.executable, str(theme_py), "--tar", str(ui_src_dir / "public" / "assets" / "themes")], capture_output=True)
+                # One copy of the build steps for build_webui.py and this tool (same folder)
+                sys.path.insert(0, str(self.script_dir))
+                import build_webui
+                if not build_webui.build_extras(ui_src_dir, self.repo_root):
+                    print("[-] WebUI build failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
                 print(f"[*] Compiling frontend bundle with Vite ({ui_src_dir.name})...")
                 npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
@@ -545,29 +587,9 @@ class HubDeployer:
                     print(f"[-] WebUI build failed in {ui_src_dir.name}. Nothing deployed from this step.", file=sys.stderr)
                     return False
 
-                self.www_dir.mkdir(parents=True, exist_ok=True)
-                for p in self.www_dir.iterdir():
-                    if p.is_file():
-                        p.unlink(missing_ok=True)
-                assets_d = self.www_dir / "assets"
-                if assets_d.is_dir():
-                    shutil.rmtree(assets_d, ignore_errors=True)
-
-                dist_d = ui_src_dir / "dist"
-                for item in dist_d.iterdir():
-                    dest = self.www_dir / item.name
-                    if item.is_dir():
-                        shutil.copytree(item, dest, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(item, dest)
-
-                icons_sub = assets_d / "icons"
-                if icons_sub.is_dir():
-                    shutil.rmtree(icons_sub, ignore_errors=True)
-
-                gzip_script = self.repo_root / "build" / "gzip_assets.py"
-                if gzip_script.is_file():
-                    subprocess.run([sys.executable, str(gzip_script), str(self.www_dir)], capture_output=True)
+                if not build_webui.sync_dist_to_www(ui_src_dir / "dist", self.www_dir, self.repo_root):
+                    print("[-] WebUI packaging failed. Nothing deployed from this step.", file=sys.stderr)
+                    return False
 
         if not self.dry_run:
             self.run_ssh(
@@ -711,6 +733,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

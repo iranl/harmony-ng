@@ -55,6 +55,17 @@ static void get_cache_space_kb(uint64_t *total_kb, uint64_t *free_kb) {
     }
 }
 
+/* /etc is on flash: rewrite only when the content changes (every start applies the settings) */
+static void write_file_if_changed(const char *path, const char *text) {
+    size_t len = 0;
+    char *cur = read_file_text_alloc(path, 4096, &len);
+    int same = cur && len == strlen(text) && memcmp(cur, text, len) == 0;
+    free(cur);
+    if (!same && write_file_content(path, text) != 0) {
+        fprintf(stderr, "[-] Could not write %s\n", path);
+    }
+}
+
 void apply_hub_settings(const struct hub_settings *s) {
     if (!s) return;
     hub_mdns_apply_settings(s);
@@ -64,20 +75,16 @@ void apply_hub_settings(const struct hub_settings *s) {
     if (s->timezone[0]) {
         char posix_tz[64];
         timezone_to_posix(s->timezone, posix_tz, sizeof(posix_tz));
-        FILE *tzf = fopen("/etc/TZ", "w");
-        if (tzf) {
-            fprintf(tzf, "%s\n", posix_tz);
-            fclose(tzf);
-        }
+        char line[80];
+        snprintf(line, sizeof(line), "%s\n", posix_tz);
+        write_file_if_changed("/etc/TZ", line);
         setenv("TZ", posix_tz, 1);
         tzset();
     }
     if (s->ntp_server[0] && !g_dry_run) {
-        FILE *ntpf = fopen("/etc/ntp.conf", "w");
-        if (ntpf) {
-            fprintf(ntpf, "server %s\n", s->ntp_server);
-            fclose(ntpf);
-        }
+        char line[160];
+        snprintf(line, sizeof(line), "server %s\n", s->ntp_server);
+        write_file_if_changed("/etc/ntp.conf", line);
     }
 }
 
@@ -199,17 +206,18 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
     /* Route: GET /api/logs */
     if (strcmp(clean_path, "/api/logs") == 0 && strcmp(method, "GET") == 0) {
         const char *src = "daemon";
-        if (query) {
-            if (strstr(query, "source=btstack")) src = "btstack";
-            else if (strstr(query, "source=rf")) src = "rf";
-            else if (strstr(query, "source=system")) src = "system";
-            else if (strstr(query, "source=network")) src = "network";
-        }
+        char qsrc[16];
+        http_query_param(query, "source", qsrc, sizeof(qsrc));
+        if (strcmp(qsrc, "btstack") == 0) src = "btstack";
+        else if (strcmp(qsrc, "rf") == 0) src = "rf";
+        else if (strcmp(qsrc, "system") == 0) src = "system";
+        else if (strcmp(qsrc, "network") == 0) src = "network";
 
-        const char *filepath = "/tmp/hub_daemon.log";
+        /* init.sh sends the output of hub_daemon and hub_rf to harmony-init.log (hub_btstack keeps
+         * its own file), the network scripts write harmony-network.log */
+        const char *filepath = "/tmp/harmony-init.log";
         if (strcmp(src, "btstack") == 0) filepath = "/tmp/hub-btstack.log";
-        else if (strcmp(src, "rf") == 0) filepath = "/tmp/harmony-init.log";
-        else if (strcmp(src, "network") == 0) filepath = "/tmp/hub-network.log";
+        else if (strcmp(src, "network") == 0) filepath = "/tmp/harmony-network.log";
 
         char log_buf[16384] = {0};
         if (strcmp(src, "system") == 0) {
@@ -473,9 +481,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
             cJSON_DeleteItemFromObject(cfg, "mqttDevices");
             cJSON_DeleteItemFromObject(cfg, "devices");
 
-            config_store_save_mqtt_json(cfg);
+            int save_rc = config_store_save_mqtt_json(cfg);
             cJSON_Delete(cfg);
             cJSON_Delete(params);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the MQTT settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
 
             daemon_sync_mqtt();
 
@@ -518,6 +531,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
                 if (p_conf && cJSON_IsString(p_conf) && strcmp(p_conf->valuestring, "RESET") == 0) {
                     cJSON_Delete(params);
+                    /* The installers do not put the script here: say so instead of answering
+                     * "initiated" for a reset that never runs */
+                    if (access("/data/harmony/bin/factory_reset.sh", X_OK) != 0) {
+                        send_json_error(client_fd, 500, "Factory reset script not installed on this Hub");
+                        close(client_fd);
+                        return 1;
+                    }
                     cJSON *resp = cJSON_CreateObject();
                     cJSON_AddBoolToObject(resp, "ok", 1);
                     cJSON_AddStringToObject(resp, "message", "Factory reset initiated. Reverting to stock firmware and rebooting.");
@@ -621,7 +641,12 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                     return 1;
                 }
 
-                save_user_accounts(ulist, ucnt, new_auth_enabled);
+                if (!save_user_accounts(ulist, ucnt, new_auth_enabled)) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 500, "Could not save the user accounts (flash full?)");
+                    close(client_fd);
+                    return 1;
+                }
                 if (new_auth_enabled != curr_auth_enabled) http_auth_drop_all_sessions();
                 cJSON_Delete(params);
 
@@ -690,6 +715,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 s.ntp_server[sizeof(s.ntp_server) - 1] = '\0';
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "timezone");
+            if (item && cJSON_IsString(item) && item->valuestring && !timezone_is_known(item->valuestring)) {
+                /* it used to be stored and silently run as Central European time */
+                cJSON_Delete(p);
+                send_json_error(client_fd, 400, "Unknown timezone: use a name from the list or a POSIX TZ string");
+                close(client_fd);
+                return 1;
+            }
             if (item && cJSON_IsString(item) && item->valuestring) {
                 strncpy(s.timezone, item->valuestring, sizeof(s.timezone) - 1);
                 s.timezone[sizeof(s.timezone) - 1] = '\0';
@@ -709,9 +741,14 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 if (cJSON_IsBool(item)) s.legacy_enabled = cJSON_IsTrue(item) ? 1 : 0;
                 else if (cJSON_IsNumber(item)) s.legacy_enabled = item->valueint ? 1 : 0;
             }
-            config_store_save_settings(&s);
-            apply_hub_settings(&s);
+            int save_rc = config_store_save_settings(&s);
             cJSON_Delete(p);
+            if (save_rc != 0) {
+                send_json_error(client_fd, 500, "Could not save the settings (flash full?)");
+                close(client_fd);
+                return 1;
+            }
+            apply_hub_settings(&s);
         }
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);

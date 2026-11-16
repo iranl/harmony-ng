@@ -51,6 +51,9 @@ export class HarmonyClientCore {
 
   connectWebSocket(force = false) {
     if (!this.wsUrl) return;
+    // A forced connect (login, logout, a new Hub) starts again after a refused login
+    if (force) this.wsPaused = false;
+    if (this.wsPaused) return;
 
     if (!force && this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
@@ -102,6 +105,7 @@ export class HarmonyClientCore {
 
   scheduleWsReconnect() {
     if (this.wsReconnectTimer) clearTimeout(this.wsReconnectTimer);
+    if (this.wsPaused) return;
     this.wsReconnectTimer = setTimeout(() => {
       this.connectWebSocket();
     }, 3000);
@@ -124,9 +128,35 @@ export class HarmonyClientCore {
     }
   }
 
+  // Drops the local session data only; the caller tells the Hub (logout) if it wants to
+  clearStoredToken() {
+    const hadToken = Boolean(this.token);
+    this.token = null;
+    if (this.authHeader && this.authHeader.startsWith('Bearer ')) this.authHeader = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('harmony_auth_token');
+      localStorage.removeItem('harmony_auth_user');
+      localStorage.removeItem('harmony_auth_role');
+    }
+    return hadToken;
+  }
+
+  // The Hub refused the credentials (expired or revoked session, Hub restarted, auth turned on):
+  // forget the token, stop retrying the WebSocket with it until the next login, and let the app
+  // ask for a login
+  handleUnauthorized() {
+    this.clearStoredToken();
+    this.wsPaused = true;
+    this.disconnectWebSocket();
+    if (this.onWsStatus) this.onWsStatus(false);
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
+    }
+  }
+
   getHeaders(extra = {}) {
     const headers = { ...extra };
-    if (this.authHeader) {
+    if (this.authHeader && !headers['Authorization']) {
       headers['Authorization'] = this.authHeader;
     }
     return headers;
@@ -134,8 +164,9 @@ export class HarmonyClientCore {
 
   async request(path, options = {}) {
     const url = this.buildUrl(path);
+    const { ignoreUnauthorized, ...fetchOptions } = options;
     const opts = {
-      ...options,
+      ...fetchOptions,
       headers: this.getHeaders(options.headers || {})
     };
 
@@ -147,9 +178,7 @@ export class HarmonyClientCore {
       const res = await fetch(url, opts);
       clearTimeout(timeout);
       if (res.status === 401) {
-        if (typeof window !== 'undefined' && window.dispatchEvent) {
-          window.dispatchEvent(new CustomEvent('harmony:unauthorized'));
-        }
+        if (!ignoreUnauthorized) this.handleUnauthorized();
         throw new Error('Authentication failed. Check hub credentials.');
       }
       const text = await res.text();

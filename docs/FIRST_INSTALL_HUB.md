@@ -10,7 +10,7 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 - **Harmony Hub**: Standard Hub (Model O-R0004, USB `046D:C129`) or Harmony Pro 2400 (PoE/RJ45, USB `046D:C132`).
 - **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
-- **Python 3.11 or newer**: Installed on host PC (no external libraries needed; uses standard library).
+- **Python 3.13 or newer**: Installed on host PC (no external libraries needed; uses standard library). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
 - **Local Network**: 2.4 GHz 802.11b/g/n Wi-Fi, or direct RJ45 Ethernet cable (Pro 2400).
 
 ### Choose Your Installation Method
@@ -56,7 +56,7 @@ Run the all-in-one root tool:
 python tools/root_hub_usb.py --hub-ip <YOUR_HUB_IP>
 
 # If your Hub is factory-reset or needs Wi-Fi credentials configured:
-python tools/root_hub_usb.py --wifi-ssid "YourNetworkName" --wifi-pass "YourPassword"
+python tools/root_hub_usb.py --wifi-ssid "YourNetworkName"   # asks for the Wi-Fi password
 ```
 
 The tool automatically:
@@ -102,6 +102,8 @@ backups/stock_hub_backup_latest.tar
 
 > [!NOTE]
 > **No gzip compression**: Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). The embedded BusyBox on the Hub has limited RAM and flash bandwidth; omitting gzip avoids CPU exhaustion and out-of-memory kernel panics during tar extraction.
+
+The backup that `tools/backup_hub.py` makes (also before every `deploy_hub.py` run) holds `/data/harmony` (devices, activities, button maps, Bluetooth keys, certificates), the stock `/data/resources`, the Wi-Fi configuration, the SSH host keys and the saved stock boot script. The files are named after the Hub (its Wi-Fi MAC), so several Hubs can share one `backups/` folder: `golden_hub_backup_<hub>.tar` is the first backup of each Hub and is never replaced (a `golden_hub_backup.tar` from older versions of the tool is kept as the golden backup, and no new one is made next to it), and of the `hub_backup_<hub>_<time>.tar` files the newest five are kept, plus the newest of each of the eight weeks before them. `deploy_hub.py` makes such a backup before every deployment and stops without changing the Hub when it cannot make one (`--no-backup` skips it). You can restore from it at any time using `python tools/restore_stock.py`.
 
 You can also run manual backups at any time:
 ```bash

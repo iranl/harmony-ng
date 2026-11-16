@@ -35,6 +35,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/stat.h>
 
 #define MQTT_V2_MARKER "/data/harmony/mqtt_v2_migrated"
@@ -90,6 +91,9 @@ static void set_str(char *dst, size_t cap, const cJSON *j, const char *dflt) {
 /* enabled, host, port, username, password, baseTopic, clientId, discoveryPrefix, haDiscovery.
  * Returns 1 when MQTT is enabled and has a host. */
 static int load_mqtt_config(void) {
+    /* It holds the broker password: readable by root only (also a file saved by an older
+     * firmware, at the next start) */
+    chmod(HARMONY_MQTT_FILE, 0600);
     cJSON *root = config_store_get_mqtt_json();
     if (!root) return 0;
     cJSON *en = cJSON_GetObjectItemCaseSensitive(root, "enabled");
@@ -530,6 +534,7 @@ static void handle_activity_set(const char *payload) {
  * "repeats", "delay"/"delay_ms", "hold"/"hold_ms", "action"}; a list, repeats or a hold run
  * from the sequencer in hub_mqtt_tick() */
 #define MQTT_SEQ_QUEUE_MAX 16
+#define MQTT_SEQ_MAX_JOB_SECS 300 /* longest job: commands x repeats x (gap + hold) */
 
 typedef struct {
     char dev[128];
@@ -544,6 +549,7 @@ typedef struct {
     uint32_t hold_ms;
     uint32_t delay_ms;
     uint64_t next_exec_ms;
+    uint64_t release_ms; /* state 1: when the held command is released */
 } mqtt_cmd_seq_t;
 
 static mqtt_cmd_seq_t g_mqtt_queue[MQTT_SEQ_QUEUE_MAX];
@@ -559,6 +565,9 @@ static uint64_t mono_ms(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
+
+/* How often a hold job repeats the hold while its command is held */
+#define SEQ_HOLD_BEAT_MS 300
 
 static void seq_send(const mqtt_cmd_seq_t *q, const char *cmd, int action) {
     if (!q || !cmd || !cmd[0]) return;
@@ -582,7 +591,16 @@ static void seq_tick(void) {
                    cmd);
             seq_send(q, cmd, HW_BTN_ACTION_PRESS);
             q->state = 1;
-            q->next_exec_ms = mono_ms() + q->hold_ms;
+            q->release_ms = mono_ms() + q->hold_ms;
+            q->next_exec_ms = q->release_ms;
+            if (q->hold_ms > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
+            return;
+        } else if (q->state == 1 && now < q->release_ms) {
+            /* still held: the hold a remote sends while a key is down. A held IR command
+             * repeats only as long as these arrive (HW_IR_HOLD_DEADLINE_MS). */
+            seq_send(q, cmd, HW_BTN_ACTION_REPEAT);
+            q->next_exec_ms = q->release_ms;
+            if (q->release_ms - now > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
             return;
         } else if (q->state == 1) {
             printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [RELEASE]\n",
@@ -623,6 +641,19 @@ static void seq_tick(void) {
     }
 }
 
+int hub_mqtt_queue_clear(void) {
+    int dropped = g_mqtt_q_count;
+    if (dropped > 0) {
+        mqtt_cmd_seq_t *q = &g_mqtt_queue[g_mqtt_q_head];
+        /* a held command is released, so no key stays down */
+        if (q->hold_ms > 0 && q->state == 1) seq_send(q, q->cmd_list[q->cur_cmd], HW_BTN_ACTION_RELEASE);
+        printf("[*] MQTT send_command: %d queued job(s) cancelled\n", dropped);
+    }
+    g_mqtt_q_head = 0;
+    g_mqtt_q_count = 0;
+    return dropped;
+}
+
 static double num_of(const cJSON *root, const char *k1, const char *k2, const char *k3, double dflt) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(root, k1);
     if (!j && k2) j = cJSON_GetObjectItemCaseSensitive(root, k2);
@@ -659,6 +690,14 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     if (delay_secs > 60.0) delay_secs = 60.0;
     if (hold_secs > 10.0) hold_secs = 10.0;
     if (hold_secs < 0.0) hold_secs = 0.0;
+    /* Each factor alone was capped, not the whole job: 32 commands, 50 repeats and 60 s apart
+     * held the sequencer for more than a day, and every later command waited behind it */
+    double gap = delay_secs < 0.1 ? 0.1 : delay_secs;
+    double total = (double)cmd_count * (double)num_repeats * (gap + hold_secs);
+    if (total > MQTT_SEQ_MAX_JOB_SECS) {
+        printf("[-] MQTT send_command: job of about %.0f s refused (limit %d s)\n", total, MQTT_SEQ_MAX_JOB_SECS);
+        return -3;
+    }
 
     int slot = (g_mqtt_q_head + g_mqtt_q_count) % MQTT_SEQ_QUEUE_MAX;
     mqtt_cmd_seq_t *q = &g_mqtt_queue[slot];
@@ -842,27 +881,39 @@ struct mqtt_pulse_entry {
     int active;
 };
 static struct mqtt_pulse_entry g_pulse_queue[16];
+/* Filled by the thread of the button press (an HTTP worker), emptied by the main loop: two
+ * presses at once took the same slot and one release was never published */
+static pthread_mutex_t g_pulse_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void queue_pulse_off(const char *topic, int pulse_ms) {
     uint64_t deadline = mono_ms() + (pulse_ms > 0 ? (uint64_t)pulse_ms : 50ULL);
+    pthread_mutex_lock(&g_pulse_lock);
     for (int i = 0; i < 16; i++) {
         if (!g_pulse_queue[i].active) {
             snprintf(g_pulse_queue[i].topic, sizeof(g_pulse_queue[i].topic), "%s", topic);
             g_pulse_queue[i].off_deadline_ms = deadline;
             g_pulse_queue[i].active = 1;
+            pthread_mutex_unlock(&g_pulse_lock);
             return;
         }
     }
+    pthread_mutex_unlock(&g_pulse_lock);
     mqtt_publish_ex(topic, "0", 1, 0, 0); /* queue full: release at once */
 }
 
 static void pulse_tick(void) {
     uint64_t now = mono_ms();
     for (int i = 0; i < 16; i++) {
+        char topic[sizeof(g_pulse_queue[0].topic)];
+        int due = 0;
+        pthread_mutex_lock(&g_pulse_lock);
         if (g_pulse_queue[i].active && now >= g_pulse_queue[i].off_deadline_ms) {
-            mqtt_publish_ex(g_pulse_queue[i].topic, "0", 1, 0, 0);
+            memcpy(topic, g_pulse_queue[i].topic, sizeof(topic));
             g_pulse_queue[i].active = 0;
+            due = 1;
         }
+        pthread_mutex_unlock(&g_pulse_lock);
+        if (due) mqtt_publish_ex(topic, "0", 1, 0, 0);
     }
 }
 
@@ -893,7 +944,8 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
     if (topic_in && topic_in[0]) {
         snprintf(topic_pattern, sizeof(topic_pattern), "%s", topic_in);
     } else if (dev_id && dev_id[0]) {
-        cJSON *droot = config_store_devices_copy();
+        cfg_snap_t *dsnap = NULL;
+        const cJSON *droot = config_store_devices_acquire(&dsnap);
         cJSON *darr = droot ? cJSON_GetObjectItemCaseSensitive(droot, "devices") : NULL;
         const cJSON *di;
         if (darr) cJSON_ArrayForEach(di, darr) {
@@ -909,7 +961,7 @@ int mqtt_dispatch_button_pulse_topic(const char *dev_id, const char *dev_name_in
                 break;
             }
         }
-        cJSON_Delete(droot);
+        config_store_release(&dsnap);
     }
     if (req_pulse_ms > 0) pulse_ms = req_pulse_ms;
 
@@ -1075,7 +1127,16 @@ int hub_mqtt_init(void) {
     return 1;
 }
 
+/* Settings saved: applied by the main loop (hub_mqtt_tick), which owns the MQTT state. The HTTP
+ * worker that saved them used to disconnect and set up the client itself while the main loop
+ * was reading the same socket. */
+static int g_sync_pending;
+
 void daemon_sync_mqtt(void) {
+    __atomic_store_n(&g_sync_pending, 1, __ATOMIC_SEQ_CST);
+}
+
+static void sync_mqtt_now(void) {
     int was_enabled = g_mqtt_enabled;
     g_mqtt_enabled = load_mqtt_config();
     if (mqtt_is_connected() || was_enabled) {
@@ -1098,6 +1159,7 @@ void daemon_sync_mqtt(void) {
 
 void hub_mqtt_tick(void) {
     seq_tick();
+    if (__atomic_exchange_n(&g_sync_pending, 0, __ATOMIC_SEQ_CST)) sync_mqtt_now();
     if (!g_mqtt_enabled) return;
     if (mqtt_is_connected()) {
         if (!g_last_mqtt_connected) {

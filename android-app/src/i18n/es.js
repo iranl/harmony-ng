@@ -1260,4 +1260,5 @@ export default {
     "wifi_credentials_desc": "Introduce las credenciales de la red Wi-Fi. Sirve como conexión inalámbrica o respaldo automático cuando se desconecta Ethernet.",
     "wifi_ssid": "Nombre de red Wi-Fi (SSID)",
     "wifi_status_lbl": "Estado Wi-Fi",
+    "hold_repeat": "Repetir al mantener",
 };

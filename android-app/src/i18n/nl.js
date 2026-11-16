@@ -1260,4 +1260,5 @@ export default {
     "wifi_credentials_desc": "Voer Wi-Fi-netwerkgegevens in. Dient als draadloze verbinding of automatische terugval wanneer Ethernet is losgekoppeld.",
     "wifi_ssid": "Wi-Fi netwerknaam (SSID)",
     "wifi_status_lbl": "Wi-Fi-status",
+    "hold_repeat": "Herhalen bij vasthouden",
 };

@@ -49,6 +49,42 @@ static size_t b64_decode_buffer(const char *src, size_t src_len, uint8_t *dst, s
     return out_len;
 }
 
+/* Custom icons on flash: the remote takes at most RF_ICON_MAX_BYTES per icon (the web UIs make
+ * 40 x 40 images of a few KB), and /data is small */
+#define CUSTOM_ICON_MAX_BYTES 16384
+#define CUSTOM_ICONS_MAX_COUNT 128
+#define CUSTOM_ICONS_MAX_TOTAL (512 * 1024)
+
+/* 1 when adding a file named name of size bytes keeps /data/harmony/custom_icons within its limits
+ * (a file of the same name is replaced, so it does not count) */
+static int custom_icons_room_for(const char *name, size_t size) {
+    DIR *d = opendir("/data/harmony/custom_icons");
+    if (!d) return 1;
+    size_t count = 0, total = 0;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_name[0] == '.' || strcmp(de->d_name, name) == 0) continue;
+        char p[320];
+        struct stat st;
+        snprintf(p, sizeof(p), "/data/harmony/custom_icons/%s", de->d_name);
+        if (stat(p, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        count++;
+        total += (size_t)st.st_size;
+    }
+    closedir(d);
+    return count + 1 <= CUSTOM_ICONS_MAX_COUNT && total + size <= CUSTOM_ICONS_MAX_TOTAL;
+}
+
+/* An icon file name the upload route can make: letters, digits, '-', '_', ending in ".png" */
+static int custom_icon_name_ok(const char *fn) {
+    size_t n = strlen(fn);
+    if (n <= 4 || strcmp(fn + n - 4, ".png") != 0) return 0;
+    for (size_t i = 0; i < n - 4; i++) {
+        if (!isalnum((unsigned char)fn[i]) && fn[i] != '-' && fn[i] != '_') return 0;
+    }
+    return 1;
+}
+
 static volatile int g_icons_extracting = 0;
 
 static void *extract_icons_thread(void *arg) {
@@ -257,9 +293,17 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             snprintf(id_str, sizeof(id_str), "%s", name_str);
         }
 
-        uint8_t png_data[16384];
+        /* One byte more than allowed: an image that fills it is too large (it used to be saved
+         * cut at the buffer size and answered ok) */
+        uint8_t png_data[CUSTOM_ICON_MAX_BYTES + 1];
         size_t png_len = b64_decode_buffer(j_b64->valuestring, strlen(j_b64->valuestring), png_data, sizeof(png_data));
         cJSON_Delete(root);
+
+        if (png_len > CUSTOM_ICON_MAX_BYTES) {
+            send_json_error(client_fd, 413, "Icon image too large (16 KB at most)");
+            close(client_fd);
+            return 1;
+        }
 
         if (png_len < 8) {
             send_json_error(client_fd, 400, "Decoded image data too small");
@@ -291,21 +335,25 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             snprintf(main_name, sizeof(main_name), "%s_%s.png", type_str, id_str);
         }
 
+        if (!custom_icons_room_for(main_name, png_len)) {
+            send_json_error(client_fd, 507, "No room for more custom icons (128 icons or 512 KB): delete some first");
+            close(client_fd);
+            return 1;
+        }
+
         char p_data[256], p_cache[256], p_tmp[256];
         snprintf(p_data, sizeof(p_data), "/data/harmony/custom_icons/%s", main_name);
         snprintf(p_cache, sizeof(p_cache), "/cache/www/assets/icons/%s", main_name);
         snprintf(p_tmp, sizeof(p_tmp), "/tmp/www/assets/icons/%s", main_name);
 
-        FILE *f = fopen(p_data, "wb");
-        if (!f) {
+        if (write_file_atomic_sized(p_data, (const char *)png_data, png_len) != 0) {
             send_json_error(client_fd, 500, "Failed to write custom icon to flash storage");
             close(client_fd);
             return 1;
         }
-        fwrite(png_data, 1, png_len, f);
-        fclose(f);
-        FILE *fc = fopen(p_cache, "wb");
-        if (fc) { fwrite(png_data, 1, png_len, fc); fclose(fc); }
+        if (write_file_atomic_sized(p_cache, (const char *)png_data, png_len) != 0) {
+            fprintf(stderr, "[-] Could not copy custom icon to %s\n", p_cache);
+        }
         FILE *ft = fopen(p_tmp, "wb");
         if (ft) { fwrite(png_data, 1, png_len, ft); fclose(ft); }
 
@@ -348,33 +396,18 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
     /* Route: DELETE /api/custom-icons */
     if (strcmp(clean_path, "/api/custom-icons") == 0 && strcmp(method, "DELETE") == 0) {
         char fn[64] = {0};
-        if (query) {
-            const char *qfn = strstr(query, "filename=");
-            if (qfn) {
-                strncpy(fn, qfn + 9, sizeof(fn) - 1);
-                char *amp = strchr(fn, '&');
-                if (amp) *amp = '\0';
-            } else {
-                const char *qid = strstr(query, "id=");
-                const char *qtype = strstr(query, "type=");
-                char id_val[32] = {0}, type_val[32] = "activity";
-                if (qid) {
-                    strncpy(id_val, qid + 3, sizeof(id_val) - 1);
-                    char *amp = strchr(id_val, '&');
-                    if (amp) *amp = '\0';
-                }
-                if (qtype) {
-                    strncpy(type_val, qtype + 5, sizeof(type_val) - 1);
-                    char *amp = strchr(type_val, '&');
-                    if (amp) *amp = '\0';
-                }
-                if (id_val[0]) {
-                    snprintf(fn, sizeof(fn), "%s_%s.png", type_val, id_val);
-                }
-            }
+        char id_val[32] = {0};
+        http_query_param(query, "filename", fn, sizeof(fn));
+        if (!fn[0]) {
+            char type_val[32] = {0};
+            http_query_param(query, "id", id_val, sizeof(id_val));
+            http_query_param(query, "type", type_val, sizeof(type_val));
+            if (id_val[0]) snprintf(fn, sizeof(fn), "%s_%s.png", type_val[0] ? type_val : "activity", id_val);
         }
 
-        if (!fn[0] || strstr(fn, "..") || strchr(fn, '/')) {
+        /* Only names the upload route makes, and only files it made: the stock icons share
+         * /cache/www/assets/icons, and any of them could be deleted by name */
+        if (!fn[0] || !custom_icon_name_ok(fn)) {
             send_json_error(client_fd, 400, "Invalid or missing icon identifier");
             close(client_fd);
             return 1;
@@ -382,15 +415,22 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
 
         char path_buf[256];
         snprintf(path_buf, sizeof(path_buf), "/data/harmony/custom_icons/%s", fn);
-        unlink(path_buf);
-        snprintf(path_buf, sizeof(path_buf), "/cache/www/assets/icons/%s", fn);
-        unlink(path_buf);
-        snprintf(path_buf, sizeof(path_buf), "/tmp/www/assets/icons/%s", fn);
-        unlink(path_buf);
+        if (unlink(path_buf) == 0) {
+            snprintf(path_buf, sizeof(path_buf), "/cache/www/assets/icons/%s", fn);
+            unlink(path_buf);
+            snprintf(path_buf, sizeof(path_buf), "/tmp/www/assets/icons/%s", fn);
+            unlink(path_buf);
+        }
 
-        const char *under = strchr(fn, '_');
-        if (under) {
-            snprintf(path_buf, sizeof(path_buf), "/data/harmony/custom_icons/%s", under + 1);
+        /* The same icon under its older name: "<id>.png" for an icon deleted by id and type (older
+         * firmware saved it so), "<name>.png" for "custom_<name>.png" (the icon registry takes
+         * both). The part after the first '_' of any other name can be a different icon:
+         * deleting "activity_watch_tv.png" by file name removed "watch_tv.png". */
+        char legacy[64] = {0};
+        if (id_val[0]) snprintf(legacy, sizeof(legacy), "%s.png", id_val);
+        else if (strncmp(fn, "custom_", 7) == 0) snprintf(legacy, sizeof(legacy), "%s", fn + 7);
+        if (legacy[0] && strcmp(legacy, fn) != 0 && custom_icon_name_ok(legacy)) {
+            snprintf(path_buf, sizeof(path_buf), "/data/harmony/custom_icons/%s", legacy);
             unlink(path_buf);
         }
 
@@ -411,20 +451,15 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             close(client_fd);
             return 1;
         }
-        const char *qurl = strstr(query, "url=");
-        if (!qurl || !*(qurl + 4)) {
+        char raw_url[512] = {0};
+        http_query_param(query, "url", raw_url, sizeof(raw_url)); /* decoded */
+        if (!raw_url[0]) {
             send_json_error(client_fd, 400, "Missing url parameter");
             close(client_fd);
             return 1;
         }
-        char raw_url[512] = {0};
-        strncpy(raw_url, qurl + 4, sizeof(raw_url) - 1);
-        char *amp = strchr(raw_url, '&');
-        if (amp) *amp = '\0';
-        char *space = strchr(raw_url, ' ');
-        if (space) *space = '\0';
 
-        char *decoded_url = url_decode(raw_url);
+        char *decoded_url = strdup(raw_url);
         if (!decoded_url) {
             send_json_error(client_fd, 400, "Failed to decode url parameter");
             close(client_fd);
@@ -504,12 +539,12 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
             "Cache-Control: no-cache\r\n"
             "Connection: close\r\n\r\n",
             fsz);
-        send(client_fd, header, (size_t)hlen, 0);
+        http_send_all(client_fd, header, (size_t)hlen);
 
         char buf[8192];
         size_t nr;
         while ((nr = fread(buf, 1, sizeof(buf), f)) > 0) {
-            if (send(client_fd, buf, nr, 0) < 0) break;
+            if (http_send_all(client_fd, buf, nr) != 0) break;
         }
         fclose(f);
         unlink(tmp_path);
@@ -543,12 +578,12 @@ int http_api_custom_icons_handle(int client_fd, const char *method, const char *
                     "Cache-Control: public, max-age=604800, immutable\r\n"
                     "Connection: close\r\n\r\n",
                     tsz);
-                send(client_fd, hdr, (size_t)hlen, 0);
+                http_send_all(client_fd, hdr, (size_t)hlen);
                 if (strcmp(method, "GET") == 0) {
                     char buf[16384];
                     size_t nr;
                     while ((nr = fread(buf, 1, sizeof(buf), tf)) > 0) {
-                        if (send(client_fd, buf, nr, 0) < 0) break;
+                        if (http_send_all(client_fd, buf, nr) != 0) break;
                     }
                 }
                 fclose(tf);

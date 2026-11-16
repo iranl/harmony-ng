@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
+#include <poll.h>
 #include <time.h>
 
 #define I2S_DEVICE "/dev/i2s"
@@ -20,6 +21,7 @@
 static int i2s_lock_acquire(void) {
     int lfd = open(I2S_LOCK_FILE, O_RDWR | O_CREAT, 0666);
     if (lfd < 0) return -1;
+    fcntl(lfd, F_SETFD, FD_CLOEXEC); /* close-on-exec: helpers started with system() must not hold it */
     for (int i = 0; i < 50; i++) {
         if (flock(lfd, LOCK_EX | LOCK_NB) == 0) {
             return lfd;
@@ -59,6 +61,7 @@ int ir_i2s_init(void) {
     if (s_i2s_tx_fd >= 0) return 0;
     s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
     if (s_i2s_tx_fd < 0) return -1;
+    fcntl(s_i2s_tx_fd, F_SETFD, FD_CLOEXEC); /* close-on-exec: helpers started with system() must not hold it */
     if (ioctl(s_i2s_tx_fd, I2S_FREQ, I2S_FREQ_CAP) < 0) {
         close(s_i2s_tx_fd);
         s_i2s_tx_fd = -1;
@@ -226,6 +229,7 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     const bit_stream_t bs = *bsp;
     if (s_i2s_tx_fd < 0) {
         s_i2s_tx_fd = open(I2S_DEVICE, O_WRONLY);
+        if (s_i2s_tx_fd >= 0) fcntl(s_i2s_tx_fd, F_SETFD, FD_CLOEXEC);
     }
     int fd = s_i2s_tx_fd;
     if (fd < 0) {
@@ -270,9 +274,11 @@ static int ir_i2s_blast_locked(const bit_stream_t *bsp, uint8_t port_mask, uint3
     return 0;
 }
 
-int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
-    if (!blob || blob_len < 16) return -1;
-
+/* Sends one timing sequence of a blob: the word count at loc, then that many duration words.
+ * chained: the lead-in and the tail silence every stream carries are taken out of the
+ * sequence's last space, so the stream lasts as long as the sequence itself and the next part
+ * of a held key follows with the code's own timing. */
+static int ir_i2s_blast_blob_sequence(const uint8_t *blob, size_t blob_len, uint16_t loc, int chained, uint8_t port_mask) {
     /* Parse 16-byte Logitech IR header */
     uint32_t period_ns = ((uint32_t)blob[1] << 24) |
                          ((uint32_t)blob[2] << 16) |
@@ -280,13 +286,11 @@ int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
                          ((uint32_t)blob[4]);
     uint8_t duty = blob[5];
     uint16_t pre_silence_us = ((uint16_t)blob[6] << 8) | (uint16_t)blob[7];
-    uint16_t start_loc = ((uint16_t)blob[10] << 8) | (uint16_t)blob[11];
-    if (start_loc < 16 || (size_t)start_loc + 2 > blob_len) start_loc = 16;
-    /* the word count at start_loc must be inside the blob (a 16- or 17-byte blob has none) */
-    if ((size_t)start_loc + 2 > blob_len) return -2;
-    uint16_t word_count = ((uint16_t)blob[start_loc] << 8) | (uint16_t)blob[start_loc + 1];
+    /* the word count at loc must be inside the blob (a 16- or 17-byte blob has none) */
+    if ((size_t)loc + 2 > blob_len) return -2;
+    uint16_t word_count = ((uint16_t)blob[loc] << 8) | (uint16_t)blob[loc + 1];
 
-    size_t words_offset = start_loc + 2;
+    size_t words_offset = loc + 2;
     if (words_offset >= blob_len) return -2;
 
     size_t actual_words = (blob_len - words_offset) / 2;
@@ -315,9 +319,60 @@ int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
         words[w_idx++] = (45000 & 0x7FFF); /* Trailing space: 45ms */
     }
 
+    if (chained && carrier_hz > 0) {
+        /* the lead-in above and the 500 carrier periods of silence ir_i2s_blast_words() appends */
+        uint32_t cut_us = pre_silence_us + (uint32_t)((1000000000ULL / carrier_hz) * 500ULL / 1000ULL);
+        while (cut_us > 0 && w_idx > 1 && !(words[w_idx - 1] & 0x8000)) {
+            uint16_t us = words[w_idx - 1] & 0x7FFF;
+            if (us > cut_us) {
+                words[w_idx - 1] = (uint16_t)(us - cut_us);
+                cut_us = 0;
+            } else {
+                cut_us -= us;   /* a short last space: the stream's own silence stands for it */
+                w_idx--;
+            }
+        }
+    }
+
     int rc = ir_i2s_blast_words(carrier_hz, duty, words, w_idx, port_mask);
     free(words);
     return rc;
+}
+
+/* Where the sequence sent at a press starts: the header's start location, or the first
+ * sequence when the header has none (a Pronto code with a repeat sequence only) */
+static uint16_t ir_blob_start_loc(const uint8_t *blob, size_t blob_len) {
+    uint16_t start_loc = ((uint16_t)blob[10] << 8) | (uint16_t)blob[11];
+    if (start_loc < 16 || (size_t)start_loc + 2 > blob_len) start_loc = 16;
+    return start_loc;
+}
+
+int ir_i2s_blast_blob(const uint8_t *blob, size_t blob_len, uint8_t port_mask) {
+    if (!blob || blob_len < 16) return -1;
+    return ir_i2s_blast_blob_sequence(blob, blob_len, ir_blob_start_loc(blob, blob_len), 0, port_mask);
+}
+
+int ir_i2s_blast_blob_part(const uint8_t *blob, size_t blob_len, int part, uint8_t port_mask) {
+    if (!blob || blob_len < 16) return -1;
+    uint16_t loc = ir_blob_start_loc(blob, blob_len);
+    if (part == IR_BLOB_REPEAT) {
+        /* the code's repeat sequence; a code without one repeats its whole frame */
+        uint16_t repeat_loc = ((uint16_t)blob[12] << 8) | (uint16_t)blob[13];
+        if (repeat_loc >= 16 && (size_t)repeat_loc + 4 <= blob_len &&
+            (blob[repeat_loc] || blob[repeat_loc + 1])) {
+            loc = repeat_loc;
+        }
+    } else if (part == IR_BLOB_FINISH) {
+        /* like the repeat: a sequence with a word count of 0 is none (the send would take
+         * every byte after it as words) */
+        uint16_t finish_loc = ((uint16_t)blob[14] << 8) | (uint16_t)blob[15];
+        if (finish_loc < 16 || (size_t)finish_loc + 4 > blob_len ||
+            (!blob[finish_loc] && !blob[finish_loc + 1])) return -ENOENT;
+        loc = finish_loc;
+    } else if (part != IR_BLOB_START) {
+        return -1;
+    }
+    return ir_i2s_blast_blob_sequence(blob, blob_len, loc, 1, port_mask);
 }
 
 /*
@@ -371,6 +426,54 @@ static int ir_rx_block_lit(const uint8_t *b, size_t n) {
  */
 #define IR_RX_STALL_MS 2000
 
+/*
+ * No futex on the Hub. Its kernel has no futex system call, so every wait built on it
+ * (pthread_cond_wait, pthread_join, sem_wait) returns at once there and the waiting thread
+ * spins at full CPU. The threads here wake each other through a pipe and sleep in poll();
+ * a thread that has to be waited for sets a flag as its last action, and the waiter detaches
+ * it once the flag is set instead of joining it.
+ */
+typedef struct {
+    int rd, wr;   /* -1 when the pipe could not be made: waits then sleep in short steps */
+} ir_wake_t;
+
+static void ir_wake_open(ir_wake_t *w) {
+    int fds[2];
+    w->rd = w->wr = -1;
+    if (pipe(fds) != 0) return;
+    for (int i = 0; i < 2; i++) {
+        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+    }
+    w->rd = fds[0];
+    w->wr = fds[1];
+}
+
+static void ir_wake_close(ir_wake_t *w) {
+    if (w->rd >= 0) close(w->rd);
+    if (w->wr >= 0) close(w->wr);
+    w->rd = w->wr = -1;
+}
+
+static void ir_wake_signal(ir_wake_t *w) {
+    if (w->wr >= 0) {
+        ssize_t n = write(w->wr, "w", 1);   /* a full pipe already holds a wake */
+        (void)n;
+    }
+}
+
+/* Sleeps until a wake or timeout_ms (-1: no limit), then empties the pipe */
+static void ir_wake_wait(ir_wake_t *w, int timeout_ms) {
+    if (w->rd < 0) {
+        usleep(timeout_ms >= 0 && timeout_ms < 5 ? (useconds_t)timeout_ms * 1000 : 5000);
+        return;
+    }
+    struct pollfd pfd = { w->rd, POLLIN, 0 };
+    if (poll(&pfd, 1, timeout_ms) > 0) {
+        char buf[16];
+        while (read(w->rd, buf, sizeof(buf)) > 0) {}
+    }
+}
 
 typedef struct {
     pthread_t target;
@@ -378,6 +481,8 @@ typedef struct {
     volatile int in_read;
     volatile long long read_started_ms;
     volatile int fired;
+    ir_wake_t wake;           /* ends the watchdog's sleep when the session closes */
+    volatile int exited;      /* the watchdog's last write: it no longer touches this struct */
 } ir_rx_watch_t;
 
 static long long ir_rx_now_ms(void) {
@@ -394,7 +499,8 @@ static void *ir_rx_watch(void *arg) {
     ir_rx_watch_t *w = (ir_rx_watch_t *)arg;
     long long last_kick = 0;
     while (!w->done) {
-        usleep(100000);
+        ir_wake_wait(&w->wake, 100);
+        if (w->done) break;
         long long now = ir_rx_now_ms();
         if (w->in_read && now - w->read_started_ms > IR_RX_STALL_MS && now - last_kick >= 1000) {
             w->fired = 1;
@@ -402,6 +508,8 @@ static void *ir_rx_watch(void *arg) {
             pthread_kill(w->target, SIGUSR2);
         }
     }
+    __sync_synchronize();
+    w->exited = 1;   /* nothing of w is touched after this */
     return NULL;
 }
 
@@ -455,6 +563,7 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     /* The transmit handle stays open: receive and transmit coexist (measured on a Hub), and
      * closing the transmit side can hang in ath_i2s_close (see ir_i2s_blast_words). */
     s->fd = open(I2S_DEVICE, O_RDONLY);
+    if (s->fd >= 0) fcntl(s->fd, F_SETFD, FD_CLOEXEC);
     if (s->fd < 0) {
         snprintf(err, errlen, "Failed to open " I2S_DEVICE ": %s", strerror(errno));
         free(s->chunk);
@@ -474,7 +583,9 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     }
     ioctl(s->fd, I2S_START, 0);
     s->watch.target = pthread_self();
+    ir_wake_open(&s->watch.wake);
     s->watching = pthread_create(&s->watch_thread, NULL, ir_rx_watch, &s->watch) == 0;
+    if (!s->watching) ir_wake_close(&s->watch.wake);
     return 0;
 }
 
@@ -496,7 +607,12 @@ static ssize_t ir_rx_session_read(ir_rx_session_t *s) {
 static void ir_rx_session_close(ir_rx_session_t *s) {
     if (s->watching) {
         s->watch.done = 1;
-        pthread_join(s->watch_thread, NULL);
+        ir_wake_signal(&s->watch.wake);
+        /* the watchdog leaves its poll() at once and only checks the flags before it ends */
+        while (!s->watch.exited) usleep(1000);
+        __sync_synchronize();
+        pthread_detach(s->watch_thread);
+        ir_wake_close(&s->watch.wake);
         s->watching = 0;
     }
     if (s->fd >= 0) {
@@ -610,7 +726,8 @@ static int ir_rx_wait_quiet(ir_rx_session_t *s, int (*stop)(void)) {
 /* ---- Capture mode (spec 3.14) and the one-shot capture exclude each other ---- */
 
 static pthread_mutex_t s_rx_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t s_rx_cond = PTHREAD_COND_INITIALIZER;
+static ir_wake_t s_mode_wake = { -1, -1 };  /* the mode thread reports its open and its end */
+static int s_mode_exited = 0;             /* under s_rx_lock: the mode thread has ended */
 static int s_oneshot_running = 0;
 static int s_mode_on = 0;                 /* the mode thread exists */
 static volatile int s_mode_stop = 0;
@@ -629,15 +746,31 @@ static void *s_mode_user = NULL;
 static volatile int s_tx_active = 0;
 static volatile long long s_rx_discard_until_ms = 0;
 static volatile int s_rx_refreq = 0;
+/* A held key marks the whole hold (ir_i2s_tx_hold) around the marks of its frames: the receiver
+ * then stays deaf, and leaves the shared clock alone, in the few ms between two frames too. */
+static pthread_mutex_t s_tx_mark_lock = PTHREAD_MUTEX_INITIALIZER;
+static int s_tx_depth = 0;
 
 static void ir_rx_tx_begin(void) {
+    pthread_mutex_lock(&s_tx_mark_lock);
+    s_tx_depth++;
     s_tx_active = 1;
+    pthread_mutex_unlock(&s_tx_mark_lock);
 }
 
 static void ir_rx_tx_end(void) {
-    s_rx_discard_until_ms = ir_rx_now_ms() + IR_RX_TX_GUARD_MS;
-    s_rx_refreq = 1;
-    s_tx_active = 0;
+    pthread_mutex_lock(&s_tx_mark_lock);
+    if (s_tx_depth > 0 && --s_tx_depth == 0) {
+        s_rx_discard_until_ms = ir_rx_now_ms() + IR_RX_TX_GUARD_MS;
+        s_rx_refreq = 1;
+        s_tx_active = 0;
+    }
+    pthread_mutex_unlock(&s_tx_mark_lock);
+}
+
+void ir_i2s_tx_hold(int on) {
+    if (on) ir_rx_tx_begin();
+    else ir_rx_tx_end();
 }
 
 static int ir_mode_should_stop(void) {
@@ -673,8 +806,7 @@ static void ir_mode_set_error(const char *msg) {
     if (changed && on) ir_mode_notify();
 }
 
-static void *ir_mode_thread(void *arg) {
-    (void)arg;
+static void ir_mode_run(void) {
     char out[8192];
     int first = 1;
     while (!s_mode_stop) {
@@ -685,10 +817,10 @@ static void *ir_mode_thread(void *arg) {
             pthread_mutex_lock(&s_rx_lock);
             s_mode_open_rc = orc;
             snprintf(s_mode_open_err, sizeof(s_mode_open_err), "%s", err);
-            pthread_cond_broadcast(&s_rx_cond);
             pthread_mutex_unlock(&s_rx_lock);
+            ir_wake_signal(&s_mode_wake);
             first = 0;
-            if (orc != 0) return NULL;   /* the enable request reports it */
+            if (orc != 0) return;   /* the enable request reports it */
         }
         if (orc != 0) {
             ir_mode_set_error(err);
@@ -740,7 +872,29 @@ static void *ir_mode_thread(void *arg) {
         }
     }
     fprintf(stderr, "[*] IR: capture mode stopped\n");
+}
+
+static void *ir_mode_thread(void *arg) {
+    (void)arg;
+    ir_mode_run();
+    /* wake first, then the flag: once the flag is set the waiter closes the pipe */
+    ir_wake_signal(&s_mode_wake);
+    pthread_mutex_lock(&s_rx_lock);
+    s_mode_exited = 1;
+    pthread_mutex_unlock(&s_rx_lock);
     return NULL;
+}
+
+/* s_rx_lock held; returns with it held. Waits for the mode thread to end (a read returns within
+ * ~10 ms, a stalled one within 3 s), then lets it go and closes the wake pipe. */
+static void ir_mode_wait_exit_locked(pthread_t t) {
+    while (!s_mode_exited) {
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_wake_wait(&s_mode_wake, 1000);
+        pthread_mutex_lock(&s_rx_lock);
+    }
+    pthread_detach(t);
+    ir_wake_close(&s_mode_wake);
 }
 
 static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
@@ -752,10 +906,7 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
             return 0;
         }
         s_mode_stop = 1;
-        pthread_t t = s_mode_thread;
-        pthread_mutex_unlock(&s_rx_lock);
-        pthread_join(t, NULL);   /* a read returns within ~10 ms, a stalled one within 3 s */
-        pthread_mutex_lock(&s_rx_lock);
+        ir_mode_wait_exit_locked(s_mode_thread);
         s_mode_on = 0;
         s_mode_error[0] = '\0';
         pthread_mutex_unlock(&s_rx_lock);
@@ -778,17 +929,24 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     s_mode_stop = 0;
     s_mode_open_rc = 1;
     s_mode_error[0] = '\0';
+    s_mode_exited = 0;
+    ir_wake_open(&s_mode_wake);
     if (pthread_create(&s_mode_thread, NULL, ir_mode_thread, NULL) != 0) {
+        ir_wake_close(&s_mode_wake);
         pthread_mutex_unlock(&s_rx_lock);
         if (err) snprintf(err, errlen, "Could not start the capture thread");
         return -4;
     }
-    while (s_mode_open_rc == 1) pthread_cond_wait(&s_rx_cond, &s_rx_lock);
+    while (s_mode_open_rc == 1) {
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_wake_wait(&s_mode_wake, 1000);
+        pthread_mutex_lock(&s_rx_lock);
+    }
     int rc = s_mode_open_rc;
     if (rc != 0) {
         if (err) snprintf(err, errlen, "%s", s_mode_open_err);
+        ir_mode_wait_exit_locked(s_mode_thread);   /* it ends right after reporting the error */
         pthread_mutex_unlock(&s_rx_lock);
-        pthread_join(s_mode_thread, NULL);
         return rc;
     }
     s_mode_on = 1;

@@ -47,6 +47,12 @@ if [ -n "$PYTHON" ] && [ -f "$REPO_ROOT/scripts/bump_version.py" ]; then
 fi
 
 CFLAGS="-Wall -Os -static -s -DNDEBUG"
+# The commit the Hub reports (/api/status and the OTA status said "dev" for every release)
+GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
+CFLAGS="$CFLAGS -DHARMONY_COMMIT=\"$GIT_COMMIT\""
+# Binaries newer than this stamp were built by this run (see "Copying binaries" below)
+BUILD_STAMP="$OUT/.build_stamp"
+: > "$BUILD_STAMP"
 # Extra OTA release key for test builds only, e.g. OTA_KEY_CFLAGS=-DOTA_EXTRA_PUBKEY=0x12,0x34,... (32 bytes)
 OTA_KEY_CFLAGS="${OTA_KEY_CFLAGS:-}"
 COMPAT_SRC=""
@@ -182,20 +188,28 @@ build_remote() {
     # "elite_ui" in the package and installs it as /data/elite_ui; init.sh migrate (run by that
     # binary at start) then moves it to /data/remote_ui. Drop this copy once no such remote is left.
     cp -f "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/build/tmp/remote_ota_pkg/elite_ui"
-    cp -f "$REPO_ROOT/remote/rcS.local" "$REPO_ROOT/remote/init.sh" "$REPO_ROOT/remote/remote_watchdog.sh" "$REPO_ROOT/remote/factory_reset.sh" "$REPO_ROOT/remote/safe_reboot.sh" "$REPO_ROOT/build/tmp/remote_ota_pkg/" 2>/dev/null || true
-    sed -i 's/\r$//' "$REPO_ROOT/build/tmp/remote_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/remote_ota_pkg"/rcS.local 2>/dev/null || true
-    # Theme packages. Building them needs a host C compiler and the
-    # pinned downloads; without them, themes built earlier into build/tmp/remote-themes are used.
+    # The scripts are part of the package: a missing one stops the build (the remote's installer
+    # would otherwise keep its old copy next to the new remote_ui, with no error anywhere)
+    cp -f "$REPO_ROOT/remote/rcS.local" "$REPO_ROOT/remote/init.sh" "$REPO_ROOT/remote/remote_watchdog.sh" "$REPO_ROOT/remote/factory_reset.sh" "$REPO_ROOT/remote/safe_reboot.sh" "$REPO_ROOT/build/tmp/remote_ota_pkg/"
+    sed -i 's/\r$//' "$REPO_ROOT/build/tmp/remote_ota_pkg"/*.sh "$REPO_ROOT/build/tmp/remote_ota_pkg"/rcS.local
+    # Theme packages. Building them needs a host C compiler and the pinned downloads; without
+    # them, themes built earlier into build/tmp/remote-themes are used on a developer machine.
+    # In CI (CI=true) or with REQUIRE_THEMES=1 a failed theme build stops the build.
     echo "[-] Building remote themes..."
-    python3 "$REPO_ROOT/tools/remote_render/build_theme.py" >/dev/null \
-        || echo "[!] Theme build failed; packaging themes from an earlier build, if any." >&2
+    if ! python3 "$REPO_ROOT/tools/remote_render/build_theme.py" >/dev/null; then
+        if [ "${CI:-}" = "true" ] || [ "${REQUIRE_THEMES:-0}" = "1" ]; then
+            echo "[!] Theme build failed." >&2
+            exit 1
+        fi
+        echo "[!] Theme build failed; packaging themes from an earlier build, if any (they may not match this build)." >&2
+    fi
     rm -rf "$REPO_ROOT/remote/bin/themes"
     if [ -d "$REPO_ROOT/build/tmp/remote-themes" ]; then
         cp -R "$REPO_ROOT/build/tmp/remote-themes" "$REPO_ROOT/remote/bin/themes"
         cp -R "$REPO_ROOT/build/tmp/remote-themes" "$REPO_ROOT/build/tmp/remote_ota_pkg/themes"
     fi
     tar -czf "$REPO_ROOT/remote/bin/remote_ui.ota.gz" -C "$REPO_ROOT/build/tmp/remote_ota_pkg" .
-    cp -f "$REPO_ROOT/remote/bin/remote_ui.ota.gz" "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/remote/bin/remote_sync" "$REPO_ROOT/build/output/remote/" 2>/dev/null || true
+    cp -f "$REPO_ROOT/remote/bin/remote_ui.ota.gz" "$REPO_ROOT/remote/bin/remote_ui" "$REPO_ROOT/remote/bin/remote_sync" "$REPO_ROOT/build/output/remote/"
     rm -rf "$REPO_ROOT/build/output/remote/themes"
     [ -d "$REPO_ROOT/remote/bin/themes" ] && cp -R "$REPO_ROOT/remote/bin/themes" "$REPO_ROOT/build/output/remote/themes"
     rm -rf "$REPO_ROOT/build/tmp/remote_ota_pkg"
@@ -205,6 +219,7 @@ build_remote() {
 case "$TARGET" in
     remote|elite)
         build_remote
+        rm -f "$BUILD_STAMP"
         exit 0
         ;;
     daemon)
@@ -246,6 +261,8 @@ case "$TARGET" in
         mkdir -p "$OUT"
         cp -f app/build/outputs/apk/debug/app-debug.apk "$OUT/app-debug.apk"
         echo "[+] APK copied to $OUT/app-debug.apk"
+        rm -f "$BUILD_STAMP"
+        exit 0
         ;;
     eth_fix)
         build_eth_fix
@@ -272,13 +289,30 @@ echo "Copying binaries to build/output..."
 if [ -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" ] && [ ! -f "$BIN/dropbearmulti" ]; then
     cp -f "$REPO_ROOT/tools/bin/dropbearmulti_mips" "$BIN/dropbearmulti"
 fi
-cp -a "$BIN"/hub_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$BIN"/sync "$BIN"/dropbearmulti "$OUT"/ 2>/dev/null || cp -f "$BIN"/hub_* "$BIN"/register_ehci "$BIN"/eth_fix "$BIN"/mknod "$BIN"/sync "$BIN"/dropbearmulti "$OUT"/ 2>/dev/null || true
+# Only what this run built (plus the dropbear blob, which is never built here): a binary that
+# an earlier build left in payload/bin is not copied, and its old copy in build/output goes,
+# so build/output and MANIFEST.txt describe one build
+BUILT=""
+for f in hub_util hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod dropbearmulti; do
+    if [ -e "$BIN/$f" ] && { [ "$f" = dropbearmulti ] || [ "$BIN/$f" -nt "$BUILD_STAMP" ] || \
+            { [ -L "$BIN/$f" ] && [ "$BIN/$(readlink "$BIN/$f")" -nt "$BUILD_STAMP" ]; }; }; then
+        cp -a "$BIN/$f" "$OUT/" 2>/dev/null || cp -f "$BIN/$f" "$OUT/"
+        BUILT="$BUILT $f"
+    else
+        rm -f "$OUT/$f"
+    fi
+done
+rm -f "$BUILD_STAMP"
 
 echo "Updating MANIFEST.txt and FILES..."
 cd "$BIN"
-file hub_util hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod > FILES 2>/dev/null || true
-ls -l hub_util hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod | sed -E 's/ [a-zA-Z0-9_-]+ [a-zA-Z0-9_-]+ / root root /' > MANIFEST.txt 2>/dev/null || true
-md5sum hub_util hub_btstack hub_dhcpd hub_portal hub_daemon hub_sntp hub_rf dropbearmulti register_ehci mknod >> MANIFEST.txt 2>/dev/null || true
+if [ -n "$BUILT" ]; then
+    if command -v file >/dev/null 2>&1; then
+        file $BUILT > FILES
+    fi
+    ls -l $BUILT | sed -E 's/ [a-zA-Z0-9_-]+ [a-zA-Z0-9_-]+ / root root /' > MANIFEST.txt
+    md5sum $BUILT >> MANIFEST.txt
+fi
 
 echo "=== Build finished successfully! ==="
 ls -lh "$BIN"/hub_* "$BIN"/register_ehci "$BIN"/mknod 2>/dev/null || true

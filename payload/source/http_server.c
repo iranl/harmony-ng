@@ -37,8 +37,10 @@
 #define STATIC_CACHE_MAX_SIZE (384 * 1024)
 
 /* Files served from flash, kept in memory. An entry remembers the file it was read from and
- * is dropped when that file changes, so a Web UI deploy is served without a restart. A
+ * is dropped when that file changes, so a Web UI deploy is served without a restart: the file
+ * is looked at (stat, no data read) at most once every STATIC_CACHE_CHECK_SEC per entry. A
  * request holds an entry while it sends it; a dropped entry is freed by its last user. */
+#define STATIC_CACHE_CHECK_SEC 2
 struct static_cache_entry {
     char rel_path[128];
     int is_gzip;
@@ -48,6 +50,7 @@ struct static_cache_entry {
     char src_path[520];
     time_t src_mtime;
     off_t src_size;
+    time_t checked; /* monotonic seconds of the last look at src_path */
     int users;
     int stale;
 };
@@ -77,6 +80,12 @@ void static_cache_flush(void) {
     pthread_mutex_unlock(&g_static_cache_mutex);
 }
 
+static time_t static_cache_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec;
+}
+
 /* The entry for rel_path, held for the caller until static_cache_release(); NULL when there is
    none or its file changed */
 static struct static_cache_entry *static_cache_find(const char *rel_path, int is_gzip) {
@@ -85,6 +94,15 @@ static struct static_cache_entry *static_cache_find(const char *rel_path, int is
     for (int i = 0; i < g_static_cache_count; i++) {
         struct static_cache_entry *e = &g_static_cache[i];
         if (!e->data || e->stale || e->is_gzip != is_gzip || strcmp(e->rel_path, rel_path) != 0) continue;
+        time_t now = static_cache_now();
+        if (now - e->checked >= STATIC_CACHE_CHECK_SEC) {
+            struct stat st;
+            if (stat(e->src_path, &st) != 0 || st.st_mtime != e->src_mtime || st.st_size != e->src_size) {
+                static_cache_drop(e);
+                break;
+            }
+            e->checked = now;
+        }
         e->users++;
         found = e;
         break;
@@ -134,6 +152,7 @@ static void static_cache_insert(const char *rel_path, int is_gzip, const char *m
         slot->mime = mime;
         slot->src_mtime = src->st_mtime;
         slot->src_size = src->st_size;
+        slot->checked = static_cache_now();
         slot->stale = 0;
         slot->users = 0;
     }
@@ -236,14 +255,9 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
             keep_alive ? "keep-alive" : "close",
             keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
 
-        send(client_fd, header, (size_t)hlen, 0);
-        if (strncmp(req, "HEAD ", 5) != 0 && cached->size > 0) {
-            size_t sent = 0;
-            while (sent < cached->size) {
-                ssize_t s = send(client_fd, cached->data + sent, cached->size - sent, 0);
-                if (s <= 0) break;
-                sent += (size_t)s;
-            }
+        if (http_send_all(client_fd, header, (size_t)hlen) == 0 && strncmp(req, "HEAD ", 5) != 0 &&
+            cached->size > 0) {
+            http_send_all(client_fd, cached->data, cached->size);
         }
         static_cache_release(cached);
         return 1;
@@ -364,21 +378,17 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         keep_alive ? "keep-alive" : "close",
         keep_alive ? "Keep-Alive: timeout=2, max=64\r\n" : "");
 
-    send(client_fd, header, (size_t)hlen, 0);
+    if (http_send_all(client_fd, header, (size_t)hlen) != 0) {
+        fclose(f);
+        return 1; /* the client is gone */
+    }
 
     if (fsize > 0 && fsize <= STATIC_CACHE_MAX_SIZE) {
         char *file_buf = (char *)malloc((size_t)fsize);
         if (file_buf) {
             size_t nr = fread(file_buf, 1, (size_t)fsize, f);
             if (nr > 0) {
-                if (strncmp(req, "HEAD ", 5) != 0) {
-                    size_t sent = 0;
-                    while (sent < nr) {
-                        ssize_t s = send(client_fd, file_buf + sent, nr - sent, 0);
-                        if (s <= 0) break;
-                        sent += (size_t)s;
-                    }
-                }
+                if (strncmp(req, "HEAD ", 5) != 0) http_send_all(client_fd, file_buf, nr);
                 struct stat src;
                 if (strncmp(file_path, "/tmp/", 5) != 0 && fstat(fileno(f), &src) == 0) {
                     static_cache_insert(rel_path, is_gzip, mime, file_buf, nr, src_path, &src);
@@ -394,11 +404,27 @@ static int serve_static_file(int client_fd, const char *req, const char *path, i
         char chunk[16384];
         size_t nr;
         while ((nr = fread(chunk, 1, sizeof(chunk), f)) > 0) {
-            if (send(client_fd, chunk, nr, 0) < 0) break;
+            if (http_send_all(client_fd, chunk, nr) != 0) break;
         }
     }
     fclose(f);
     return 1;
+}
+
+/* 1 when the request announces a body that did not arrive whole: the client stopped sending or
+ * closed, the body is larger than what the server reads, or the length is not a number >= 0.
+ * The routes read the body as text, so a NUL byte counts as its end. */
+static int http_body_incomplete(const char *req) {
+    const char *hdr_end = strstr(req, "\r\n\r\n");
+    if (!hdr_end) return 0;
+    const char *cl = strcasestr(req, "Content-Length:");
+    if (!cl || cl > hdr_end) return 0;
+    cl += 15;
+    while (*cl == ' ' || *cl == '\t') cl++;
+    char *end = NULL;
+    long n = strtol(cl, &end, 10);
+    if (end == cl || n < 0) return 1;
+    return strlen(hdr_end + 4) < (size_t)n;
 }
 
 static void http_process_request(int client_fd, const char *req) {
@@ -490,15 +516,18 @@ static void http_process_request(int client_fd, const char *req) {
             return;
         }
         if (auth_role == ROLE_USER && !http_auth_is_user_role_permitted(method, clean_path)) {
-            const char *forbidden =
+            static const char forbidden_body[] = "{\"ok\":false,\"error\":\"Forbidden: Admin access required\"}";
+            char forbidden[512];
+            int flen = snprintf(forbidden, sizeof(forbidden),
                 "HTTP/1.1 403 Forbidden\r\n"
                 "Content-Type: application/json\r\n"
                 "Access-Control-Allow-Origin: *\r\n"
                 "Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, Accept, Origin\r\n"
-                "Content-Length: 53\r\n"
+                "Content-Length: %zu\r\n"
                 "Connection: close\r\n\r\n"
-                "{\"ok\":false,\"error\":\"Forbidden: Admin access required\"}";
-            send(client_fd, forbidden, strlen(forbidden), 0);
+                "%s",
+                sizeof(forbidden_body) - 1, forbidden_body);
+            http_send_all(client_fd, forbidden, (size_t)flen);
             close(client_fd);
             return;
         }
@@ -664,11 +693,25 @@ void http_handle_client(int client_fd) {
             }
         }
 
+        /* A body cut short used to be handled as if it were whole, and some routes saved it */
+        int bad_request = http_body_incomplete(req);
+        char method[16] = {0}, path[256] = {0};
+        int have_target = sscanf(req, "%15s %255s", method, path) == 2;
+        /* Every path is joined to a directory name: one that does not start with '/' named a
+         * file next to the web root ("GET .bak/x" read /cache/www.bak/x) */
+        if (have_target && path[0] != '/') bad_request = 1;
+        if (bad_request) {
+            send_json_error(client_fd, 400, "Bad request");
+            close(client_fd);
+            if (dyn_buf) free(dyn_buf);
+            free(init_buf);
+            return;
+        }
+
         int keep_alive = is_http_keep_alive(req);
         int handled_static = 0;
 
-        char method[16] = {0}, path[256] = {0};
-        if (sscanf(req, "%15s %255s", method, path) == 2) {
+        if (have_target) {
             char clean_path[256] = {0};
             strncpy(clean_path, path, sizeof(clean_path) - 1);
             char *qmark = strchr(clean_path, '?');

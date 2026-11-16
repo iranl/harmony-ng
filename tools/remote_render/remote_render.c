@@ -12,6 +12,7 @@
  * ICONDIR is a path on the remote's filesystem (for example /data/themes/phosphor) holding
  * <keyword>.png for the activity icon keywords; "classic" means the stock assets.
  * See tools/remote_render/README.md. */
+#include <sys/stat.h>
 #include "render_state.h"
 #include "remote_fb.h"
 #include "remote_ui.h"
@@ -53,9 +54,40 @@ static void usage(void) {
     exit(2);
 }
 
+/* Host tool: a failed allocation or read ends the run with a message, not a crash */
+static void *xmalloc(size_t n) {
+    void *p = malloc(n ? n : 1);
+    if (!p) { fprintf(stderr, "[-] out of memory (%zu bytes)\n", n); exit(1); }
+    return p;
+}
+
+static void *xcalloc(size_t n, size_t size) {
+    void *p = calloc(n ? n : 1, size ? size : 1);
+    if (!p) { fprintf(stderr, "[-] out of memory (%zu bytes)\n", n * size); exit(1); }
+    return p;
+}
+
+/* The whole file in a buffer with a trailing NUL; NULL (and a message) when it cannot be read */
+static unsigned char *read_whole_file(const char *path, size_t *len_out) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
+    /* Only a regular file: fopen() also opens a directory, whose size on ext4 reads as LONG_MAX */
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode)) { fclose(f); fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
+    long n = -1;
+    if (fseek(f, 0, SEEK_END) == 0) n = ftell(f);
+    if (n < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
+    unsigned char *buf = xmalloc((size_t)n + 1);
+    if (fread(buf, 1, (size_t)n, f) != (size_t)n) { fclose(f); free(buf); fprintf(stderr, "[-] cannot read %s\n", path); return NULL; }
+    fclose(f);
+    buf[n] = '\0';
+    if (len_out) *len_out = (size_t)n;
+    return buf;
+}
+
 static void png_write(const char *path, const uint8_t *rgb, int w, int h, int scale) {
     int sw = w * scale, sh = h * scale;
-    uint8_t *out = malloc((size_t)sw * sh * 3);
+    uint8_t *out = xmalloc((size_t)sw * sh * 3);
     for (int y = 0; y < sh; y++) {
         for (int x = 0; x < sw; x++) {
             memcpy(&out[((size_t)y * sw + x) * 3], &rgb[((size_t)(y / scale) * w + x / scale) * 3], 3);
@@ -69,21 +101,15 @@ static void png_write(const char *path, const uint8_t *rgb, int w, int h, int sc
 }
 
 static void write_backbuffer(const char *path, int scale) {
-    uint8_t *rgb = malloc(FB_WIDTH * FB_HEIGHT * 3);
+    uint8_t *rgb = xmalloc((size_t)FB_WIDTH * FB_HEIGHT * 3);
     render_copy_out(rgb, FB_WIDTH, 0, 0, 3);
     png_write(path, rgb, FB_WIDTH, FB_HEIGHT, scale);
     free(rgb);
 }
 
 static int cmd_rasterize(const char *svg, int size, const char *color, float pad, const char *out) {
-    FILE *f = fopen(svg, "rb");
-    if (!f) { fprintf(stderr, "[-] cannot read %s\n", svg); return 1; }
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)n + 1);
-    buf[fread(buf, 1, (size_t)n, f)] = '\0';
-    fclose(f);
+    char *buf = (char *)read_whole_file(svg, NULL);
+    if (!buf) return 1;
     NSVGimage *img = nsvgParse(buf, "px", 96.0f);
     free(buf);
     if (!img || img->width <= 0 || img->height <= 0) { fprintf(stderr, "[-] cannot parse %s\n", svg); return 1; }
@@ -100,7 +126,7 @@ static int cmd_rasterize(const char *svg, int size, const char *color, float pad
     float inner = size * (1.0f - 2.0f * pad);
     float scale = inner / (img->width > img->height ? img->width : img->height);
     float tx = (size - img->width * scale) / 2.0f, ty = (size - img->height * scale) / 2.0f;
-    unsigned char *px = calloc((size_t)size * size, 4);
+    unsigned char *px = xcalloc((size_t)size * size, 4);
     NSVGrasterizer *rast = nsvgCreateRasterizer();
     nsvgRasterize(rast, img, tx, ty, scale, px, size, size, size * 4);
     int ok = stbi_write_png(out, size, size, 4, px, size * 4);
@@ -115,14 +141,8 @@ static int cmd_rasterize(const char *svg, int size, const char *color, float pad
    32..126 at px pixels per em, in lines height pixels tall with the baseline baseline pixels
    below the top, the layout of the built-in fonts (main: 15/12, title: 19/15) */
 static int cmd_font(const char *ttf, float px, int height, int baseline, const char *out) {
-    FILE *f = fopen(ttf, "rb");
-    if (!f) { fprintf(stderr, "[-] cannot read %s\n", ttf); return 1; }
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    unsigned char *data = malloc((size_t)n);
-    if (fread(data, 1, (size_t)n, f) != (size_t)n) { fclose(f); fprintf(stderr, "[-] cannot read %s\n", ttf); return 1; }
-    fclose(f);
+    unsigned char *data = read_whole_file(ttf, NULL);
+    if (!data) return 1;
     stbtt_fontinfo info;
     if (!stbtt_InitFont(&info, data, stbtt_GetFontOffsetForIndex(data, 0))) { fprintf(stderr, "[-] not a font: %s\n", ttf); return 1; }
     float scale = stbtt_ScaleForMappingEmToPixels(&info, px);
@@ -240,7 +260,7 @@ int main(int argc, char **argv) {
         const int gap = 8;
         int cw = set_count * FB_WIDTH + (set_count + 1) * gap;
         int ch = 2 * FB_HEIGHT + 3 * gap;
-        uint8_t *rgb = malloc((size_t)cw * ch * 3);
+        uint8_t *rgb = xmalloc((size_t)cw * ch * 3);
         memset(rgb, 0x30, (size_t)cw * ch * 3);
         for (int s = 0; s < set_count; s++) {
             char label[64];

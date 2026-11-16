@@ -112,7 +112,7 @@ int __wrap_open(const char *path, int flags, ...) {
         va_end(ap);
     }
     /* never the host's own nodes and files */
-    if (path && (strcmp(path, "/dev/watchdog") == 0 || strcmp(path, "/dev/i2c-1") == 0 ||
+    if (path && (strcmp(path, "/dev/watchdog") == 0 ||
                  strcmp(path, "/dev/input/event3") == 0 || strcmp(path, "/etc/TZ") == 0 ||
                  strncmp(path, "/var/run/", 9) == 0)) {
         errno = ENOENT;

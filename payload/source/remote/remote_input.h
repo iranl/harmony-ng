@@ -7,6 +7,10 @@
 extern "C" {
 #endif
 
+/* While a key that goes to the Hub is down, a hold frame follows the press after this long and
+ * then at this rate (the stock remote's timing) */
+#define KEY_HOLD_INTERVAL_MS 300
+
 extern uint16_t g_held_rf_code;
 extern pthread_mutex_t g_repeat_mutex;
 extern pthread_cond_t g_repeat_cond;

@@ -53,6 +53,29 @@ static volatile int g_connected = 0;
 static uint16_t g_packet_id = 1;
 static time_t g_last_ping = 0;
 
+/* One lock over the connection state: the main loop reads and publishes (mqtt_tick), HTTP
+ * workers publish (MQTT-type devices) and the connect worker installs a new socket. Recursive:
+ * a message callback run by mqtt_tick may publish, or end the connection (settings saved over
+ * MQTT). Never held while connecting: the connect worker builds its socket from a copy of the
+ * settings and installs it only if nothing replaced or ended the connection meanwhile (g_gen). */
+static pthread_mutex_t g_lock;
+static pthread_once_t g_lock_once = PTHREAD_ONCE_INIT;
+static unsigned int g_gen;
+static void lock_init(void) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&g_lock, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void client_lock(void) {
+    pthread_once(&g_lock_once, lock_init);
+    pthread_mutex_lock(&g_lock);
+}
+static void client_unlock(void) {
+    pthread_mutex_unlock(&g_lock);
+}
+
 static mqtt_sub_entry_t g_subs[MQTT_MAX_SUBS];
 static size_t g_sub_count = 0;
 
@@ -116,6 +139,8 @@ static size_t decode_remaining_len(const uint8_t *buf, size_t buf_len, size_t *o
 static char g_last_fail[128];
 
 int mqtt_init(const char *host, int port, const char *client_id, const char *user, const char *pass) {
+    client_lock();
+    g_gen++; /* a connect still running for the old settings must not install its socket */
     /* Every call replaces all four: a cleared user or password must not survive from the last
      * configuration (the settings page reconnects through here after each save) */
     snprintf(g_host, sizeof(g_host), "%s", host ? host : "");
@@ -130,10 +155,12 @@ int mqtt_init(const char *host, int port, const char *client_id, const char *use
     g_fd = -1;
     g_rxlen = 0;
     g_rx_skip = 0;
+    client_unlock();
     return 0;
 }
 
 void mqtt_set_lwt(const char *topic, const char *payload, int retain) {
+    client_lock();
     if (topic && topic[0]) {
         strncpy(g_lwt_topic, topic, sizeof(g_lwt_topic) - 1);
         if (payload) strncpy(g_lwt_payload, payload, sizeof(g_lwt_payload) - 1);
@@ -144,9 +171,11 @@ void mqtt_set_lwt(const char *topic, const char *payload, int retain) {
         g_lwt_payload[0] = 0;
         g_lwt_retain = 0;
     }
+    client_unlock();
 }
 
 void mqtt_set_birth(const char *topic, const char *payload, int retain) {
+    client_lock();
     if (topic && topic[0]) {
         strncpy(g_birth_topic, topic, sizeof(g_birth_topic) - 1);
         if (payload) strncpy(g_birth_payload, payload, sizeof(g_birth_payload) - 1);
@@ -157,13 +186,19 @@ void mqtt_set_birth(const char *topic, const char *payload, int retain) {
         g_birth_payload[0] = 0;
         g_birth_retain = 0;
     }
+    client_unlock();
 }
 
 int mqtt_is_connected(void) {
-    return g_connected && (g_fd >= 0);
+    client_lock();
+    int c = g_connected && (g_fd >= 0);
+    client_unlock();
+    return c;
 }
 
 void mqtt_disconnect(void) {
+    client_lock();
+    g_gen++;
     int fd = g_fd;
     g_connected = 0;
     g_fd = -1;
@@ -174,24 +209,28 @@ void mqtt_disconnect(void) {
         send(fd, disc, 2, MSG_NOSIGNAL);
         close(fd);
     }
+    client_unlock();
 }
 
 static volatile int s_connecting = 0;
 
 int mqtt_is_connecting(void) {
-    return s_connecting;
+    return __atomic_load_n(&s_connecting, __ATOMIC_SEQ_CST);
 }
 
+static int connect_failed(int sock, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static int connect_failed(int sock, const char *fmt, ...) {
     char why[128];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(why, sizeof(why), fmt, ap);
     va_end(ap);
+    client_lock();
     if (strcmp(why, g_last_fail) != 0) {
         snprintf(g_last_fail, sizeof(g_last_fail), "%s", why);
         fprintf(stderr, "[-] MQTT: cannot connect to %s:%d: %s\n", g_host, g_port, why);
     }
+    client_unlock();
     if (sock >= 0) close(sock);
     return -1;
 }
@@ -209,21 +248,36 @@ static const char *connack_reason(uint8_t rc) {
 }
 
 int mqtt_connect(void) {
+    /* The settings of this attempt: the globals may be replaced (mqtt_init) while it waits */
+    client_lock();
     mqtt_disconnect();
+    unsigned int gen = g_gen;
+    char c_host[sizeof(g_host)], c_client_id[sizeof(g_client_id)], c_user[sizeof(g_user)], c_pass[sizeof(g_pass)];
+    char c_lwt_topic[sizeof(g_lwt_topic)], c_lwt_payload[sizeof(g_lwt_payload)];
+    int c_port = g_port, c_lwt_retain = g_lwt_retain;
+    memcpy(c_host, g_host, sizeof(c_host));
+    memcpy(c_client_id, g_client_id, sizeof(c_client_id));
+    memcpy(c_user, g_user, sizeof(c_user));
+    memcpy(c_pass, g_pass, sizeof(c_pass));
+    memcpy(c_lwt_topic, g_lwt_topic, sizeof(c_lwt_topic));
+    memcpy(c_lwt_payload, g_lwt_payload, sizeof(c_lwt_payload));
+    client_unlock();
 
     struct sockaddr_in saddr;
     memset(&saddr, 0, sizeof(saddr));
     saddr.sin_family = AF_INET;
-    saddr.sin_port = htons(g_port);
+    saddr.sin_port = htons(c_port);
 
-    if (inet_aton(g_host, &saddr.sin_addr) == 0) {
-        struct hostent *he = gethostbyname(g_host);
+    if (inet_aton(c_host, &saddr.sin_addr) == 0) {
+        struct hostent *he = gethostbyname(c_host);
         if (!he || !he->h_addr_list || !he->h_addr_list[0]) return connect_failed(-1, "host name not resolved");
         memcpy(&saddr.sin_addr, he->h_addr_list[0], sizeof(saddr.sin_addr));
     }
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return connect_failed(-1, "socket: %s", strerror(errno));
+    /* close-on-exec: a helper started with system() kept the connection open after a reconnect */
+    fcntl(sock, F_SETFD, FD_CLOEXEC);
 
     /* Set 64KB send buffer to absorb burst discovery publishes without drop */
     int sndbuf = 65536;
@@ -269,25 +323,25 @@ int mqtt_connect(void) {
     };
 
     uint8_t flags = 0x02;
-    if (g_lwt_topic[0]) {
+    if (c_lwt_topic[0]) {
         flags |= 0x04; /* Will Flag */
-        if (g_lwt_retain) flags |= 0x20; /* Will Retain */
+        if (c_lwt_retain) flags |= 0x20; /* Will Retain */
     }
     /* MQTT 3.1.1 3.1.2.9: no password without a user name (the broker would close the
      * connection), even if a stale password is loaded */
-    int send_pass = g_user[0] && g_pass[0];
-    if (g_user[0]) flags |= 0x80;
+    int send_pass = c_user[0] && c_pass[0];
+    if (c_user[0]) flags |= 0x80;
     if (send_pass) flags |= 0x40;
     var_hdr[7] = flags;
 
-    size_t cid_len = strlen(g_client_id);
+    size_t cid_len = strlen(c_client_id);
     size_t payload_len = 2 + cid_len;
-    if (g_lwt_topic[0]) {
-        payload_len += 2 + strlen(g_lwt_topic);
-        payload_len += 2 + strlen(g_lwt_payload);
+    if (c_lwt_topic[0]) {
+        payload_len += 2 + strlen(c_lwt_topic);
+        payload_len += 2 + strlen(c_lwt_payload);
     }
-    if (g_user[0]) payload_len += 2 + strlen(g_user);
-    if (send_pass) payload_len += 2 + strlen(g_pass);
+    if (c_user[0]) payload_len += 2 + strlen(c_user);
+    if (send_pass) payload_len += 2 + strlen(c_pass);
 
     size_t rem_len = sizeof(var_hdr) + payload_len;
     uint8_t pkt[1024];
@@ -300,39 +354,39 @@ int mqtt_connect(void) {
     /* Client ID */
     *p++ = (uint8_t)((cid_len >> 8) & 0xFF);
     *p++ = (uint8_t)(cid_len & 0xFF);
-    memcpy(p, g_client_id, cid_len);
+    memcpy(p, c_client_id, cid_len);
     p += cid_len;
 
     /* Will Topic & Message */
-    if (g_lwt_topic[0]) {
-        size_t wtlen = strlen(g_lwt_topic);
+    if (c_lwt_topic[0]) {
+        size_t wtlen = strlen(c_lwt_topic);
         *p++ = (uint8_t)((wtlen >> 8) & 0xFF);
         *p++ = (uint8_t)(wtlen & 0xFF);
-        memcpy(p, g_lwt_topic, wtlen);
+        memcpy(p, c_lwt_topic, wtlen);
         p += wtlen;
 
-        size_t wplen = strlen(g_lwt_payload);
+        size_t wplen = strlen(c_lwt_payload);
         *p++ = (uint8_t)((wplen >> 8) & 0xFF);
         *p++ = (uint8_t)(wplen & 0xFF);
-        memcpy(p, g_lwt_payload, wplen);
+        memcpy(p, c_lwt_payload, wplen);
         p += wplen;
     }
 
     /* Username */
-    if (g_user[0]) {
-        size_t ulen = strlen(g_user);
+    if (c_user[0]) {
+        size_t ulen = strlen(c_user);
         *p++ = (uint8_t)((ulen >> 8) & 0xFF);
         *p++ = (uint8_t)(ulen & 0xFF);
-        memcpy(p, g_user, ulen);
+        memcpy(p, c_user, ulen);
         p += ulen;
     }
 
     /* Password */
     if (send_pass) {
-        size_t plen = strlen(g_pass);
+        size_t plen = strlen(c_pass);
         *p++ = (uint8_t)((plen >> 8) & 0xFF);
         *p++ = (uint8_t)(plen & 0xFF);
-        memcpy(p, g_pass, plen);
+        memcpy(p, c_pass, plen);
         p += plen;
     }
 
@@ -349,14 +403,20 @@ int mqtt_connect(void) {
     }
     if (ack[3] != 0x00) {
         return connect_failed(sock, "%s (code %u)%s", connack_reason(ack[3]), (unsigned)ack[3],
-                              (ack[3] == 4 || ack[3] == 5) && !g_pass[0] ? ", no password stored" : "");
+                              (ack[3] == 4 || ack[3] == 5) && !c_pass[0] ? ", no password stored" : "");
     }
-    g_last_fail[0] = '\0';
-
     /* Switch to non-blocking */
     int f = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, f | O_NONBLOCK);
 
+    client_lock();
+    if (gen != g_gen) {
+        /* new settings or a disconnect came while this attempt ran: its socket is stale */
+        client_unlock();
+        close(sock);
+        return -1;
+    }
+    g_last_fail[0] = '\0';
     g_rxlen = 0;
     g_rx_skip = 0;
     g_fd = sock;
@@ -366,37 +426,42 @@ int mqtt_connect(void) {
      * order, so whoever sees "online" can send a command and it reaches a subscription. With the
      * birth first (clean session), a command sent right after "online" was dropped. */
     for (size_t i = 0; i < g_sub_count; i++) {
-        if (subscribe_packet(g_subs[i].topic) != 0) return -1;
+        if (subscribe_packet(g_subs[i].topic) != 0) {
+            client_unlock();
+            return -1;
+        }
     }
 
     if (g_birth_topic[0] &&
         publish_packet(g_birth_topic, g_birth_payload, strlen(g_birth_payload), 0, g_birth_retain) != 0) {
+        client_unlock();
         return -1;
     }
 
     /* Only now may the main loop publish (see g_connected) */
     __sync_synchronize();
     g_connected = 1;
+    client_unlock();
     return 0;
 }
 
 static void *mqtt_async_connect_worker(void *arg) {
     (void)arg;
     mqtt_connect();
-    s_connecting = 0;
+    __sync_lock_release(&s_connecting);
     return NULL;
 }
 
 int mqtt_connect_async(void) {
-    if (s_connecting || mqtt_is_connected()) return 0;
-    s_connecting = 1;
+    if (mqtt_is_connected()) return 0;
+    if (__sync_lock_test_and_set(&s_connecting, 1)) return 0; /* one attempt at a time */
 
     pthread_t tid;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     if (pthread_create(&tid, &attr, mqtt_async_connect_worker, NULL) != 0) {
-        s_connecting = 0;
+        __sync_lock_release(&s_connecting);
         pthread_attr_destroy(&attr);
         return -1;
     }
@@ -421,8 +486,10 @@ int mqtt_publish_ex(const char *topic, const char *payload, size_t plen, int qos
                (int)(plen > 200 ? 200 : plen), payload ? payload : "", retain);
         return 0;
     }
-    if (!mqtt_is_connected() || !topic) return -1;
-    return publish_packet(topic, payload, plen, qos, retain);
+    client_lock();
+    int rc = (!mqtt_is_connected() || !topic) ? -1 : publish_packet(topic, payload, plen, qos, retain);
+    client_unlock();
+    return rc;
 }
 
 /* Builds and sends one PUBLISH on the current socket (no connected check: mqtt_connect() sends
@@ -477,6 +544,7 @@ int mqtt_publish(const char *topic, const char *payload, int retain) {
 
 int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
     if (!topic) return -1;
+    client_lock();
 
     int found = 0;
     for (size_t i = 0; i < g_sub_count; i++) {
@@ -494,8 +562,9 @@ int mqtt_subscribe(const char *topic, mqtt_msg_cb cb, void *user_data) {
         g_sub_count++;
     }
 
-    if (!mqtt_is_connected()) return 0;
-    return subscribe_packet(topic);
+    int rc = mqtt_is_connected() ? subscribe_packet(topic) : 0;
+    client_unlock();
+    return rc;
 }
 
 /* Sends one SUBSCRIBE on the current socket (mqtt_connect() resubscribes before the connection
@@ -546,7 +615,16 @@ static int mqtt_topic_matches(const char *sub, const char *pub) {
     return (*sub == '\0' && *pub == '\0');
 }
 
+static int mqtt_tick_locked(void);
+
 int mqtt_tick(void) {
+    client_lock();
+    int rc = mqtt_tick_locked();
+    client_unlock();
+    return rc;
+}
+
+static int mqtt_tick_locked(void) {
     if (!mqtt_is_connected()) {
         return 0;
     }

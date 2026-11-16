@@ -3,6 +3,7 @@
 #include "hbus_config.h"
 #include "config_store.h"
 #include "sha256.h"
+#include "json_number.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,11 +45,10 @@ static const char *obj_str(const cJSON *o, const char *k) {
 static void id_of(const cJSON *d, char *out, size_t cap) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(d, "id");
     if (j && cJSON_IsString(j) && j->valuestring) snprintf(out, cap, "%s", j->valuestring);
-    else if (j && cJSON_IsNumber(j)) snprintf(out, cap, "%ld", (long)j->valuedouble);
-    else out[0] = '\0';
+    else if (!json_number_text(j, out, cap)) out[0] = '\0';
 }
 
-static cJSON *list_of(cJSON *root, const char *key) {
+static const cJSON *list_of(const cJSON *root, const char *key) {
     if (!root) return NULL;
     return cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, key);
 }
@@ -56,10 +56,11 @@ static cJSON *list_of(cJSON *root, const char *key) {
 int hbus_resolve_id(const char *numeric, char *out, size_t cap) {
     if (!numeric) return 0;
     const char *keys[2] = { "devices", "activities" };
-    cJSON *roots[2] = { config_store_devices_copy(), config_store_activities_copy() };
+    cfg_snap_t *snaps[2] = { NULL, NULL };
+    const cJSON *roots[2] = { config_store_devices_acquire(&snaps[0]), config_store_activities_acquire(&snaps[1]) };
     int found = 0;
     for (int r = 0; r < 2 && !found; r++) {
-        cJSON *list = list_of(roots[r], keys[r]);
+        const cJSON *list = list_of(roots[r], keys[r]);
         cJSON *it = NULL;
         cJSON_ArrayForEach(it, list) {
             char id[32], num[32];
@@ -73,8 +74,8 @@ int hbus_resolve_id(const char *numeric, char *out, size_t cap) {
             }
         }
     }
-    cJSON_Delete(roots[0]);
-    cJSON_Delete(roots[1]);
+    config_store_release(&snaps[0]);
+    config_store_release(&snaps[1]);
     if (!found) snprintf(out, cap, "%s", numeric);
     return found;
 }
@@ -182,7 +183,7 @@ static cJSON *device_control_groups(const cJSON *dev, const char *dev_numeric) {
     return groups;
 }
 
-static const cJSON *find_device(cJSON *devs, const char *id) {
+static const cJSON *find_device(const cJSON *devs, const char *id) {
     cJSON *d = NULL;
     cJSON_ArrayForEach(d, devs) {
         char did[32];
@@ -202,8 +203,7 @@ int hbus_activity_devices(const cJSON *act, char ids[16][32]) {
             char did[32];
             const cJSON *j = cJSON_GetObjectItemCaseSensitive(st, "deviceId");
             if (j && cJSON_IsString(j) && j->valuestring) snprintf(did, sizeof(did), "%s", j->valuestring);
-            else if (j && cJSON_IsNumber(j)) snprintf(did, sizeof(did), "%ld", (long)j->valuedouble);
-            else continue;
+            else if (!json_number_text(j, did, sizeof(did))) continue;
             int dup = 0;
             for (int i = 0; i < n; i++) if (strcmp(ids[i], did) == 0) dup = 1;
             if (!dup && n < 16) snprintf(ids[n++], 32, "%s", did);
@@ -219,7 +219,7 @@ int hbus_activity_devices(const cJSON *act, char ids[16][32]) {
     return n;
 }
 
-static cJSON *make_activity(const cJSON *act, cJSON *devs, int is_power_off) {
+static cJSON *make_activity(const cJSON *act, const cJSON *devs, int is_power_off) {
     cJSON *a = cJSON_CreateObject();
     char id[32], num[32];
     if (is_power_off) {
@@ -269,10 +269,11 @@ static cJSON *make_activity(const cJSON *act, cJSON *devs, int is_power_off) {
 }
 
 cJSON *hbus_build_config(const char *remote_id, const char *inventory_version) {
-    cJSON *droot = config_store_devices_copy();
-    cJSON *aroot = config_store_activities_copy();
-    cJSON *devs = list_of(droot, "devices");
-    cJSON *acts = list_of(aroot, "activities");
+    cfg_snap_t *dsnap = NULL, *asnap = NULL;
+    const cJSON *droot = config_store_devices_acquire(&dsnap);
+    const cJSON *aroot = config_store_activities_acquire(&asnap);
+    const cJSON *devs = list_of(droot, "devices");
+    const cJSON *acts = list_of(aroot, "activities");
     cJSON *root = cJSON_CreateObject();
     cJSON *activity = cJSON_AddArrayToObject(root, "activity");
     cJSON *a = NULL;
@@ -314,7 +315,7 @@ cJSON *hbus_build_config(const char *remote_id, const char *inventory_version) {
     cJSON_AddStringToObject(global, "locale", "en-US");
     cJSON_AddObjectToObject(root, "content");
     cJSON_AddArrayToObject(root, "sequence");
-    cJSON_Delete(droot);
-    cJSON_Delete(aroot);
+    config_store_release(&dsnap);
+    config_store_release(&asnap);
     return root;
 }

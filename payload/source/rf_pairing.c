@@ -88,12 +88,16 @@ void hub_led_show_failure(void) {
 
 static void stop_pairing(bool timed_out);
 
+/* Counts pairing windows: the timer of a window that was stopped must not end a later one that
+ * opened within its last second */
+static volatile unsigned s_pairing_window;
+
 static void *pairing_timeout_worker(void *arg) {
-    (void)arg;
-    for (int i = 0; i < 30 && g_running && g_pairing_mode; i++) {
+    unsigned window = (unsigned)(uintptr_t)arg;
+    for (int i = 0; i < 30 && g_running && g_pairing_mode && s_pairing_window == window; i++) {
         sleep(1);
     }
-    if (g_pairing_mode) {
+    if (g_pairing_mode && s_pairing_window == window) {
         printf("[*] Pairing mode timed out after 30s\n");
         stop_pairing(true);
     }
@@ -107,13 +111,19 @@ void start_pairing_mode(int slot) {
     uint8_t open_lock[7] = {0x10, 0xFF, 0x80, 0xB2, 0x01, 0x00, duration_sec};
     printf("[*] Opening pairing lock (duration=%ds, 10 FF 80 B2 01 00 %02X)...\n", duration_sec, duration_sec);
     rf_write_cmd(open_lock, sizeof(open_lock));
+    unsigned window = ++s_pairing_window;
     g_pairing_mode = true;
 
     hub_led_show(HUB_LED_GREEN_FAST);
 
     pthread_t timer_th;
-    if (pthread_create(&timer_th, NULL, pairing_timeout_worker, NULL) == 0) {
+    if (pthread_create(&timer_th, NULL, pairing_timeout_worker, (void *)(uintptr_t)window) == 0) {
         pthread_detach(timer_th);
+    } else {
+        /* without the timer nothing would end the pairing mode: the CC2544 closes its lock
+         * after 30 s by itself, and start_pairing_mode() refused every request until a stop */
+        printf("[-] Pairing timer not started, closing the pairing lock\n");
+        stop_pairing(true);
     }
 }
 
@@ -189,30 +199,10 @@ void unpair_device(int slot) {
     uint8_t unpair[] = { 0x10, 0xFF, 0x80, 0xB2, 0x03, s, 0x00 };
     RF_LOG(LOG_LEVEL_INFO, "[*] Unpairing remote (slot=%d, 10 FF 80 B2 03 %02X 00)...\n", slot, s);
     rf_write_cmd(unpair, sizeof(unpair));
-    if (slot == 1 || slot == 0) {
-        g_paired_remotes[0].active = false;
-        memset(g_paired_remotes[0].rf_addr, 0, 4);
-        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
-        g_paired_remotes[0].equad_id = 0;
-        g_paired_remotes[0].model = REMOTE_MODEL_UNKNOWN;
-        if (g_remote_versions[0].remote_id[0] || g_remote_versions[0].skin) {
-            g_remote_versions[0].remote_id[0] = '\0';
-            g_remote_versions[0].skin = 0;
-            rf_state_save_version_file(1);
-        }
-    }
-    if (slot == 2 || slot == 0) {
-        g_paired_remotes[1].active = false;
-        memset(g_paired_remotes[1].rf_addr, 0, 4);
-        /* the identity goes with the pairing: unit id, skin id, EquadID and family */
-        g_paired_remotes[1].equad_id = 0;
-        g_paired_remotes[1].model = REMOTE_MODEL_UNKNOWN;
-        if (g_remote_versions[1].remote_id[0] || g_remote_versions[1].skin) {
-            g_remote_versions[1].remote_id[0] = '\0';
-            g_remote_versions[1].skin = 0;
-            rf_state_save_version_file(2);
-        }
-    }
+    /* everything known about the remote goes with the pairing (the same cleanup as for an
+     * unpair the remote asked for) */
+    if (slot == 1 || slot == 0) rf_slot_forget(1);
+    if (slot == 2 || slot == 0) rf_slot_forget(2);
     if (!g_paired_remotes[0].active && !g_paired_remotes[1].active) {
         g_has_paired_device = false;
         memset(g_paired_addr, 0, sizeof(g_paired_addr));

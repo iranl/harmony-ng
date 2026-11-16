@@ -51,12 +51,17 @@ void btstack_run_loop_add_timer(btstack_timer_source_t *ts) { UNUSED(ts); }
 int btstack_run_loop_remove_timer(btstack_timer_source_t *ts) { UNUSED(ts); return 0; }
 void btstack_run_loop_set_timer(btstack_timer_source_t *ts, uint32_t ms) { ts->timeout = ms; }
 void btstack_run_loop_set_timer_handler(btstack_timer_source_t *ts, void (*h)(btstack_timer_source_t *)) { ts->process = h; }
-void hid_device_send_interrupt_message(uint16_t cid, const uint8_t *msg, uint16_t len) {
+uint8_t hid_device_send_interrupt_message(uint16_t cid, const uint8_t *msg, uint16_t len) {
     UNUSED(cid);
     s_reports++;
     s_last_len = len < sizeof(s_last_report) ? len : (int)sizeof(s_last_report);
     memcpy(s_last_report, msg, (size_t)s_last_len);
+    return 0;
 }
+uint32_t btstack_run_loop_get_time_ms(void) { return 0; }
+void hid_device_request_can_send_now_event(uint16_t cid) { UNUSED(cid); }
+void log_msg(const char *msg) { UNUSED(msg); }
+
 int is_null_bd_addr(const bd_addr_t addr) { UNUSED(addr); return 1; }
 int get_pinned_host_target(bd_addr_t addr) { UNUSED(addr); return 0; }
 uint16_t get_target_host_hid_cid(void) { return 0x41; }
@@ -66,6 +71,7 @@ void update_bthid_status(void) {}
 void hub_bt_log_debug(const char *msg) { UNUSED(msg); }
 
 #include "../payload/source/hub_btstack/bt_hid.c"
+#include "../payload/source/hub_btstack/bt_hid_queue.c"
 
 static int s_fail;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("[-] FAIL: " __VA_ARGS__); printf("\n"); s_fail = 1; } } while (0)

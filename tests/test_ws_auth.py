@@ -10,7 +10,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hub_harness import HubHarness, WsClient, WsHandshakeError  # noqa: E402
+from hub_harness import HubHarness, WsClient, WsHandshakeError, _http  # noqa: E402
 
 PORT = 8995
 USERS = {
@@ -94,7 +94,7 @@ def main():
             c.close()
 
         # revoked PAT
-        st, r = hub.http_post("/api/auth/tokens/delete", {"id": pat_id}, headers=bearer)
+        st, r = _http(hub.host, hub.port, "DELETE", "/api/auth/tokens?id=%s" % pat_id, None, bearer, 3.0)
         check(st == 200, "PAT revoked (%s)" % st, str(r))
         status, c = try_upgrade("127.0.0.2", PORT, "/ws?token=%s" % pat_token)
         check(status == 401, "revoked PAT: 401 (%s)" % status)

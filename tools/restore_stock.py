@@ -15,7 +15,7 @@ Automated 5-Step Pipeline:
 Usage:
     python tools/restore_stock.py
     python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
-    python tools/restore_stock.py --wifi-ssid "MyNetwork" --wifi-pass "Secret123"
+    python tools/restore_stock.py --wifi-ssid "MyNetwork"   # asks for the Wi-Fi password
     python tools/restore_stock.py --pure-stock   # Completely removes Dropbear SSH
     python tools/restore_stock.py --force        # Bypass confirmation prompt
 """
@@ -23,7 +23,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import getpass
 import gzip
 import hashlib
 import os
@@ -48,13 +47,17 @@ from tools.root_hub_usb import (
     check_tcp_port,
     find_busybox_binary,
     find_hub_lan_ip,
+    private_key_path,
     resolve_ssh_key,
     wait_for_ssh,
+    wifi_password,
+    WIFI_PASS_ENV,
 )
 
 
 def get_ssh_opts(priv_key_path: pathlib.Path | None = None) -> list[str]:
     opts = [
+        "-o", "BatchMode=yes",  # never wait at a password prompt the user cannot see
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
         "-o", "LogLevel=ERROR",
@@ -94,11 +97,14 @@ def find_latest_stock_backup(specified_path: str | None = None) -> pathlib.Path:
     if stock_backups:
         return stock_backups[0]
 
-    # Fallback to golden backup if present
-    for ext in ("tar", "tar.gz"):
-        golden = BACKUP_DIR / f"golden_hub_backup.{ext}"
-        if golden.is_file():
-            return golden
+    # Fallback to a golden backup if present (one per Hub: golden_hub_backup_<hub>.tar)
+    goldens = sorted(
+        [p for p in BACKUP_DIR.glob("golden_hub_backup*.*") if p.is_file() and p.name.endswith((".tar", ".tar.gz"))],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if goldens:
+        return goldens[0]
 
     # Fallback to any hub_backup_*.tar*
     other_backups = sorted(
@@ -169,10 +175,7 @@ def gain_root_over_usb(
                 while not target_ssid:
                     target_ssid = input("SSID cannot be empty. Enter Wi-Fi SSID: ").strip()
 
-            target_pass = args.wifi_pass
-            if target_pass is None and args.wifi_enc.upper() not in ("NONE", "OPEN"):
-                print("Note: If password contains special characters, interactive prompt preserves them literally.")
-                target_pass = getpass.getpass(f"Enter Wi-Fi password for '{target_ssid}': ")
+            target_pass = wifi_password(args, target_ssid)
 
             print(f"[*] Provisioning Wi-Fi SSID '{target_ssid}' over USB HID...")
             if not hid.provision_wifi(target_ssid, target_pass or "", args.wifi_enc):
@@ -263,6 +266,12 @@ def restore_stock_configuration(
 ) -> None:
     ssh_opts = get_ssh_opts(priv_key_path)
     target = f"root@{hub_ip}"
+
+    # The Hub is a MIPS board; the remote (ARM) answers at 192.168.2.1 with the same key
+    arch = run_ssh_cmd(target, "uname -m", ssh_opts)
+    machine = arch.stdout.strip()
+    if arch.returncode != 0 or not machine.startswith("mips"):
+        raise RuntimeError(f"{hub_ip} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was changed")
 
     # Step 2: Kill all processes, except dropbear
     print("\n[*] [Step 2/5] Stopping all background daemons (preserving Dropbear SSH)...")
@@ -406,7 +415,9 @@ def main() -> None:
     )
     parser.add_argument("--backup", help="Path to stock backup archive (.tar.gz)")
     parser.add_argument("--wifi-ssid", help="Wi-Fi SSID to provision over USB")
-    parser.add_argument("--wifi-pass", default=None, help="Wi-Fi password (prompted if omitted)")
+    parser.add_argument("--wifi-pass", default=None,
+                        help=f"Wi-Fi password (better: leave it out to be asked, or set ${WIFI_PASS_ENV})")
+    parser.add_argument("--pubkey", help="SSH public key to authorise and use (default: the newest ~/.ssh/harmony_owner_*.pub)")
     parser.add_argument("--wifi-enc", default="WPA2-PSK", help="Wi-Fi encryption (default: WPA2-PSK)")
     parser.add_argument("--hub-ip", help="Known Hub LAN IP address")
     parser.add_argument("--pure-stock", action="store_true", help="Remove Dropbear SSH to return to 100%% factory state")
@@ -435,8 +446,12 @@ def main() -> None:
             sys.exit(1)
 
     # 2. Resolve SSH keys
-    pub_path, pub_str = resolve_ssh_key()
-    priv_key_path = pub_path.with_suffix("")
+    try:
+        pub_path, pub_str = resolve_ssh_key(args.pubkey)
+        priv_key_path = private_key_path(pub_path)
+    except (OSError, ValueError) as e:
+        print(f"[-] SSH key: {e}")
+        sys.exit(1)
 
     # 3. Determine Hub IP & Gain Root
     hub_ip = args.hub_ip
@@ -470,6 +485,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit(f"This tool needs Python 3.11 or newer (this is Python {sys.version.split()[0]}).")
+    if sys.version_info < (3, 13):
+        sys.exit(f"This tool needs Python 3.13 or newer (this is Python {sys.version.split()[0]}).")
     main()

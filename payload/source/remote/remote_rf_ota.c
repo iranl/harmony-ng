@@ -19,6 +19,8 @@
 
 #define OTA_MAX_CHUNKS 65536 /* every 16-bit chunk index; OTA_START rejects larger images */
 #define OTA_BITMAP_SIZE (OTA_MAX_CHUNKS / 8)
+/* Free space kept in /tmp (RAM: logs, the unpacked package) besides the image */
+#define OTA_TMP_FREE_MARGIN (64 * 1024)
 static uint8_t s_ota_bitmap[OTA_BITMAP_SIZE];
 static uint32_t s_current_file_crc = 0;
 
@@ -217,6 +219,16 @@ static void ota_mark_progress_render(void) {
     }
 }
 
+/* A chunk that could not be written (/tmp full) is not counted as received */
+static void ota_note_write_error(void) {
+    static uint64_t s_last_ms = 0;
+    uint64_t now = get_monotonic_ms();
+    if (s_last_ms == 0 || ms_since(now, s_last_ms) > 5000) {
+        s_last_ms = now;
+        printf("[-] RF OTA: a chunk could not be written to /tmp/remote_ui.ota.gz: %s\n", strerror(errno));
+    }
+}
+
 /* RF_OTA_DATA frame as read from /dev/rfspi: 20 <pipe> 12 <slot> <0x60|idx[3:0]|ack> <idx[11:4]> <data[26]> */
 void handle_ota_data_frame(const uint8_t *pkt) {
     if (!g_is_ota_updating || !g_ota_file) return;
@@ -235,8 +247,10 @@ void handle_ota_data_frame(const uint8_t *pkt) {
     uint32_t off = idx * RF_OTA_DATA_BYTES;
     uint32_t d_len = g_ota_total_bytes - off;
     if (d_len > RF_OTA_DATA_BYTES) d_len = RF_OTA_DATA_BYTES;
-    fseek(g_ota_file, (long)off, SEEK_SET);
-    fwrite(&pkt[6], 1, d_len, g_ota_file);
+    if (fseek(g_ota_file, (long)off, SEEK_SET) != 0 || fwrite(&pkt[6], 1, d_len, g_ota_file) != d_len) {
+        ota_note_write_error();
+        return; /* not received: the contiguous count stops here and the Hub sends it again */
+    }
     if (!ota_is_chunk_received((uint16_t)idx)) {
         ota_mark_chunk_received((uint16_t)idx);
         g_ota_received_bytes += d_len;
@@ -471,6 +485,26 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 return true;
             }
 
+            /* /tmp is RAM and also holds the logs: an image that does not fit was received to the
+             * end, failed the digest, and both sides started over */
+            {
+                struct stat cur;
+                uint64_t have = (stat("/tmp/remote_ui.ota.gz", &cur) == 0 && cur.st_size > 0) ? (uint64_t)cur.st_size : 0;
+                uint64_t need = (uint64_t)tot_b > have ? (uint64_t)tot_b - have : 0;
+                struct statvfs vfs;
+                if (statvfs("/tmp", &vfs) == 0) {
+                    uint64_t avail = (uint64_t)vfs.f_bavail * (uint64_t)vfs.f_frsize;
+                    if (avail < need + OTA_TMP_FREE_MARGIN) {
+                        printf("[-] RF OTA REJECTED: %llu bytes free in /tmp, %llu needed\n",
+                               (unsigned long long)avail, (unsigned long long)(need + OTA_TMP_FREE_MARGIN));
+                        rf_frame_t ack;
+                        rf_build_ack(&ack, g_remote_slot, f->seq, 0x03);
+                        rf_send_frame(&ack);
+                        return true;
+                    }
+                }
+            }
+
             if (g_ota_file) {
                 fclose(g_ota_file);
                 g_ota_file = NULL;
@@ -482,7 +516,9 @@ bool handle_ota_frame(const rf_frame_t *f) {
             if (stat("/tmp/remote_ui.ota.gz", &st) == 0 && st.st_size > 0) {
                 if (ota_load_meta(tot_b, file_crc, &resume_chunk)) {
                     uint16_t have_c = ota_chunks_for(tot_b, s_chunk_bytes);
-                    if (resume_chunk > 0 && resume_chunk < have_c) {
+                    /* resume_chunk == have_c: every chunk is here (the Hub's OTA_END was lost):
+                     * the Hub sends OTA_END only, instead of the whole image again */
+                    if (resume_chunk > 0 && resume_chunk <= have_c) {
                         g_ota_file = fopen("/tmp/remote_ui.ota.gz", "r+b");
                         if (g_ota_file) {
                             can_resume = true;
@@ -547,12 +583,22 @@ bool handle_ota_frame(const rf_frame_t *f) {
             uint16_t c_idx = (uint16_t)f->payload[0] | ((uint16_t)f->payload[1] << 8);
             uint8_t d_len = f->payload[2];
             if (d_len > RF_OTA_CHUNK_BYTES) d_len = RF_OTA_CHUNK_BYTES;
+            /* Only chunks of the announced image, and the last one no longer than what is left
+             * of it (the windowed frames are checked the same way) */
+            uint32_t c_off = (uint32_t)c_idx * RF_OTA_CHUNK_BYTES;
+            if (c_idx >= g_ota_total_chunks || c_off >= g_ota_total_bytes) d_len = 0;
+            else if (d_len > g_ota_total_bytes - c_off) d_len = (uint8_t)(g_ota_total_bytes - c_off);
+            bool write_failed = false;
 
             if (d_len > 0) {
                 /* Seek to precise chunk offset for idempotency against retransmissions */
-                fseek(g_ota_file, (long)c_idx * RF_OTA_CHUNK_BYTES, SEEK_SET);
-                fwrite(&f->payload[3], 1, d_len, g_ota_file);
-
+                if (fseek(g_ota_file, (long)c_off, SEEK_SET) != 0 || fwrite(&f->payload[3], 1, d_len, g_ota_file) != d_len) {
+                    ota_note_write_error();
+                    write_failed = true;
+                    d_len = 0; /* not received */
+                }
+            }
+            if (d_len > 0) {
                 bool already_had = ota_is_chunk_received(c_idx);
                 if (!already_had) {
                     ota_mark_chunk_received(c_idx);
@@ -561,16 +607,34 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 }
             }
 
-            if (f->flags & RF_FLAG_ACK_REQ) ota_send_chunk_ack(f->seq);
+            if (write_failed && (f->flags & RF_FLAG_ACK_REQ)) {
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x03); /* cannot write: the Hub sends it again */
+                rf_send_frame(&ack);
+            } else if (f->flags & RF_FLAG_ACK_REQ) {
+                ota_send_chunk_ack(f->seq);
+            }
             ota_mark_progress_render();
             return true;
         }
 
         case RF_MSG_OTA_END: {
             if (!g_is_ota_updating || !g_ota_file) return true;
-            fflush(g_ota_file);
-            fclose(g_ota_file);
+            /* stdio reports a write that did not fit in /tmp only here */
+            bool write_err = (fflush(g_ota_file) != 0) || ferror(g_ota_file);
+            if (fclose(g_ota_file) != 0) write_err = true;
             g_ota_file = NULL;
+            if (write_err) {
+                printf("[-] OTA END rejected: the image could not be written to /tmp (no space?)\n");
+                unlink("/tmp/remote_ui.ota.gz");
+                unlink("/tmp/remote_ui.ota.meta");
+                rf_frame_t ack;
+                rf_build_ack(&ack, g_remote_slot, f->seq, 0x03);
+                rf_send_frame(&ack);
+                ota_set_updating(false);
+                g_screen_dirty = true;
+                return true;
+            }
 
             /* Check that all chunks were actually received */
             uint16_t contig = ota_get_highest_contiguous_chunk(g_ota_total_chunks);
@@ -604,10 +668,13 @@ bool handle_ota_frame(const rf_frame_t *f) {
                 fclose(vfile);
             }
 
-            /* Check integrity if Hub provided SHA-256 digest (type 0x01) */
-            if (f->payload[0] == 0x01) {
-                if (memcmp(&f->payload[1], actual_digest, 20) != 0) {
-                    printf("[-] OTA SHA-256 digest mismatch! Corrupted transfer or untrusted payload.\n");
+            /* The image is installed only with the SHA-256 digest (type 0x01) and only when it
+             * matches: an OTA_END without the digest marker skipped the check and the image was
+             * installed after a 4-byte ELF test. Hubs send the digest since v2.0.0. */
+            {
+                if (f->payload[0] != 0x01 || memcmp(&f->payload[1], actual_digest, 20) != 0) {
+                    printf("[-] OTA %s! Corrupted transfer or untrusted payload.\n",
+                           f->payload[0] != 0x01 ? "END without a SHA-256 digest" : "SHA-256 digest mismatch");
                     system("rm -rf /tmp/remote_ota_pkg /data/remote_ui.new /tmp/remote_ui.ota.gz /tmp/remote_ui.ota.meta 2>/dev/null || true");
                     rf_frame_t ack;
                     rf_build_ack(&ack, g_remote_slot, f->seq, 0x06);
@@ -716,7 +783,7 @@ bool handle_ota_frame(const rf_frame_t *f) {
                     g_rf_fd = -1;
                 }
                 read_remote_battery();
-                if (!is_remote_docked()) {
+                if (!remote_on_external_power()) {
                     /* On battery a reboot switches the remote off (the SoC reset makes the PMIC
                      * cut power; only the Off key turns it back on), as Settings > Reboot already
                      * knows: start the new binary in place instead. Scripts and themes are
@@ -865,14 +932,23 @@ bool handle_icon_frame(const rf_frame_t *f) {
             uint8_t d_len = f->payload[2];
             if (d_len > 22) d_len = 22;
 
-            if (g_icon_rx_bytes + d_len > RF_ICON_MAX_BYTES) {
-                printf("[-] Remote RF ICON_CHUNK: icon larger than %d bytes, transfer dropped\n", RF_ICON_MAX_BYTES);
+            /* Written at its offset: a chunk the Hub sends again after a lost ACK replaces itself
+             * (appended, it made the file 22 bytes longer and the CRC check at ICON_END failed) */
+            uint32_t c_off = (uint32_t)c_idx * 22;
+            if (c_off + d_len > RF_ICON_MAX_BYTES || (g_icon_rx_tot_bytes && c_off + d_len > g_icon_rx_tot_bytes)) {
+                printf("[-] Remote RF ICON_CHUNK: chunk %u outside the icon (%u bytes, at most %d), transfer dropped\n",
+                       c_idx, g_icon_rx_tot_bytes, RF_ICON_MAX_BYTES);
                 icon_rx_drop();
                 return true;
             }
             if (d_len > 0) {
-                fwrite(&f->payload[3], 1, d_len, g_icon_rx_file);
-                g_icon_rx_bytes += d_len;
+                if (fseek(g_icon_rx_file, (long)c_off, SEEK_SET) != 0 ||
+                    fwrite(&f->payload[3], 1, d_len, g_icon_rx_file) != d_len) {
+                    printf("[-] Remote RF ICON_CHUNK: write failed, transfer dropped\n");
+                    icon_rx_drop();
+                    return true;
+                }
+                if (c_off + d_len > g_icon_rx_bytes) g_icon_rx_bytes = c_off + d_len;
                 g_icon_rx_chunks++;
             }
 
@@ -957,4 +1033,23 @@ bool handle_icon_frame(const rf_frame_t *f) {
         default:
             return false;
     }
+}
+
+void ota_check_timeout(void) {
+    /* A frame handler holds the lock: frames are arriving, so this is no timeout. The main loop
+     * never waits here (an install holds the lock for seconds). */
+    if (pthread_mutex_trylock(&g_ota_lock) != 0) return;
+    /* Again under the lock, with the time read now: an OTA_START handled since the main loop
+     * read its clock is a new transfer, and its file must not be closed under it */
+    if (g_is_ota_updating && ms_since(get_monotonic_ms(), g_ota_last_packet_ms) >= 60000) {
+        printf("[!] OTA update timed out (60s without packets). UI unlocked (progress saved for resume).\n");
+        ota_set_updating(false);
+        if (g_ota_file) {
+            fflush(g_ota_file);
+            fclose(g_ota_file);
+            g_ota_file = NULL;
+        }
+        g_screen_dirty = true;
+    }
+    pthread_mutex_unlock(&g_ota_lock);
 }

@@ -30,6 +30,38 @@ static inline int hub_valid_bdaddr(const char *s) {
     return 1;
 }
 
+/* A value that goes into a line of the hub_btstack key pipe (/tmp/bthid_input), where every line
+ * is a command: no line break or other control character, which would start another command */
+static inline int hub_bt_pipe_value_ok(const char *s) {
+    if (!s) return 0;
+    for (; *s; s++) {
+        if ((unsigned char)*s < 0x20 || (unsigned char)*s == 0x7f) return 0;
+    }
+    return 1;
+}
+
+/* Longest text accepted for typing on a Bluetooth host: one "TEXT ..." pipe line must stay short
+ * enough to be read in one piece */
+#define HUB_BT_TEXT_MAX 240
+
+/* One command for hub_btstack on the key pipe, with "TARGET <address>" in front when target is set.
+ * Both lines go out in one write() (shorter than PIPE_BUF, so the kernel writes it whole or not at
+ * all): with two writes another writer's line could come between them, and when the pipe was
+ * full the command went to the previous host. Returns 1 when the whole command was written. */
+static inline int hub_bt_pipe_send(const char *target, const char *line) {
+    char buf[320];
+    int len;
+    if (!line) return 0;
+    if (target && target[0]) len = snprintf(buf, sizeof(buf), "TARGET %s\n%s", target, line);
+    else len = snprintf(buf, sizeof(buf), "%s", line);
+    if (len <= 0 || len >= (int)sizeof(buf)) return 0;
+    int fd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
+    if (fd < 0) return 0;
+    ssize_t w = write(fd, buf, (size_t)len);
+    close(fd);
+    return w == (ssize_t)len;
+}
+
 extern int g_dry_run;
 
 /* Send IPC command to hub_btstack: Unix domain datagram socket first, file fallback */

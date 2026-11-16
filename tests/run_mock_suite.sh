@@ -112,6 +112,10 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT/payload/source/sha256.c" \
     "$REPO_ROOT/payload/source/timezone_db.c" \
     -lpthread -lm -o "$BUILD_DIR/test_remote_key_release" && "$BUILD_DIR/test_remote_key_release"
+# Remote: key event counter in every key frame (payload[19], 1..255 then 1), in the order written
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_key_counter" "$SCRIPT_DIR/test_remote_key_counter.c" \
+    "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
+    "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && "$BUILD_DIR/test_remote_key_counter"
 
 # The remote's main loop (the real remote_main.c) on the mock: a hard key pressed with the screen
 # off is sent before the screen is lit
@@ -185,9 +189,9 @@ build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -I"$REPO_R
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_remote_activity_sync" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_activity_sync"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_flightlog" "$SCRIPT_DIR/test_remote_flightlog.c" "$REPO_ROOT/payload/source/remote/remote_flightlog.c" && "$BUILD_DIR/test_remote_flightlog"
-# Host tool with a fake ssh (tools/backup_hub.py keeps only complete tar archives)
-python3 "$SCRIPT_DIR/test_backup_hub_check.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_custom_icon_registry" "$SCRIPT_DIR/test_custom_icon_registry.c" "$REPO_ROOT/payload/source/custom_icon_registry.c" "$REPO_ROOT/payload/source/cJSON.c" "$REPO_ROOT/payload/source/sha256.c" -lm && LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_custom_icon_registry"
+# Config files replaced through a synced temporary file; a full flash keeps the old file
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_atomic_file" "$SCRIPT_DIR/test_atomic_file.c" && "$BUILD_DIR/test_atomic_file"
 # Remote: custom icon updates free and reuse their PNG cache slots
 build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_png_cache" "$SCRIPT_DIR/test_remote_png_cache.c" \
     "$REPO_ROOT"/payload/source/remote/{remote_config,remote_fb,remote_i18n,remote_input,remote_power,remote_battery,remote_flightlog,remote_present,remote_rf,remote_rf_ota,remote_rf_sync,remote_state,remote_ui,remote_ui_activities,remote_ui_devices,remote_ui_pairing,remote_ui_menu,remote_ui_help,remote_ui_activity,remote_link,remote_ui_settings,remote_ui_settings_actions,remote_theme,remote_ui_scroll,remote_transition,remote_nav}.c \
@@ -195,13 +199,9 @@ build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -I"$REPO_R
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_remote_png_cache" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_png_cache"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sanitize_activity_steps" "$SCRIPT_DIR/test_sanitize_activity_steps.c" "$REPO_ROOT/payload/source/config_sanitize.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_sanitize_activity_steps"
-# Host tool with the device calls replaced (remote/setup_remote.py --no-screen writes remote_settings.conf)
-python3 "$SCRIPT_DIR/test_setup_remote_no_screen.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sha256" "$SCRIPT_DIR/test_sha256.c" "$REPO_ROOT/payload/source/sha256.c" && "$BUILD_DIR/test_sha256"
 build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_sntp_reply" "$SCRIPT_DIR/test_sntp_reply.c" "$REPO_ROOT/payload/source/hub_ntp.c" && "$BUILD_DIR/test_sntp_reply"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mqtt_connect_flags" "$SCRIPT_DIR/test_mqtt_connect_flags.c" "$REPO_ROOT/payload/source/mqtt_client.c" && "$BUILD_DIR/test_mqtt_connect_flags"
-# Host tool in the release bundle layout (remote/setup_remote.py finds init.sh and remote_watchdog.sh)
-python3 "$SCRIPT_DIR/test_setup_remote_bundle.py"
 build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_encoder" "$SCRIPT_DIR/test_ir_encoder.c" "$REPO_ROOT/payload/source/ir_encoder.c" "$REPO_ROOT/payload/source/ir_i2s.c" && "$BUILD_DIR/test_ir_encoder"
 # Remote: images too large in pixels are refused before they are decoded
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_png_pixel_limit" "$SCRIPT_DIR/test_remote_png_pixel_limit.c" \
@@ -209,8 +209,6 @@ build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/
     "$REPO_ROOT"/payload/source/{remote_stock_icons,cJSON,sha256,timezone_db}.c -lpthread -lm && \
     HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_remote_png_pixel_limit"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_button_list" "$SCRIPT_DIR/test_rf_button_list.c" "$REPO_ROOT/payload/source/rf_button_list.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_rf_button_list"
-# Host tool (tools/migrate_hub_configs.py keeps tar.gz members inside its extraction folder)
-python3 "$SCRIPT_DIR/test_migrate_tar_paths.py"
 build_test -Wall -O2 -fsanitize=address -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_keymap_lock" "$SCRIPT_DIR/test_rf_keymap_lock.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm
 # Remote: a redraw requested while a frame is drawn (fb_present wrapped by the test)
 build_test -Wall -O2 -Wl,--wrap=fb_present -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_redraw_request" "$SCRIPT_DIR/test_remote_redraw_request.c" \
@@ -234,8 +232,6 @@ python3 "$SCRIPT_DIR/test_init_log_cap.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_bt_state_migrate" "$SCRIPT_DIR/test_bt_state_migrate.c" "$REPO_ROOT/payload/source/bt_migrate.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_bt_state_migrate"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_hid_hex" "$SCRIPT_DIR/test_bt_hid_hex.c" && "$BUILD_DIR/test_bt_hid_hex"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mfg" "$SCRIPT_DIR/test_mfg.c" "$REPO_ROOT/payload/source/mfg_id.c" && "$BUILD_DIR/test_mfg"
-# Host tool with a fake USB HID transport (tools/harmony_hid.py reports a cut file write)
-python3 "$SCRIPT_DIR/test_hid_write_result.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ws_read_frame" "$SCRIPT_DIR/test_ws_read_frame.c" "$REPO_ROOT/payload/source/ws_server.c" -lpthread && "$BUILD_DIR/test_ws_read_frame"
 # Remote: windowed OTA data frames that arrive outside OTA mode (real RF receive thread)
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_stray_ota_data" "$SCRIPT_DIR/test_remote_stray_ota_data.c" \
@@ -251,8 +247,13 @@ HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}
 build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_mqtt_client_io" "$SCRIPT_DIR/test_mqtt_client_io.c" "$REPO_ROOT/payload/source/mqtt_client.c" && "$BUILD_DIR/test_mqtt_client_io"
 python3 "$SCRIPT_DIR/test_switched_marker.py"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_hbus_config" "$SCRIPT_DIR/test_hbus_config.c" "$REPO_ROOT/payload/source/hbus_config.c" "$REPO_ROOT/payload/source/sha256.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_hbus_config" "$SCRIPT_DIR/fixtures/ha/sample_config"
-# Host tool with a fake ssh (tools/factory_reset.py stops and exits non-zero when a step fails)
-python3 "$SCRIPT_DIR/test_factory_reset_tool.py"
+# Configuration trees shared by readers: a save never frees a tree a reader still holds (AddressSanitizer + LeakSanitizer)
+build_test -Wall -Wextra -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_snap" "$SCRIPT_DIR/test_config_snap.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_config_snap"
+# Key presses read the shared device list without copying it
+build_test -Wall -O1 -g -fsanitize=address -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_config_keypath" "$SCRIPT_DIR/test_config_keypath.c" \
+    "$REPO_ROOT"/payload/source/{config_store,resource_cache,hw_action,bt_migrate,config_sanitize,cJSON}.c -lm
+ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_config_keypath" 2>/dev/null | grep libasan | awk '{print $3}' || true)
+LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_config_keypath"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_hub_events" "$SCRIPT_DIR/test_hub_events.c" "$REPO_ROOT/payload/source/hub_events.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_hub_events"
 # hub_rf frame handler on a DEVICE_CMD_REQUEST with no screen button (all hub_rf sources as build/compile_all.sh lists them, main renamed)
 build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_device_cmd_frame" "$SCRIPT_DIR/test_rf_device_cmd_frame.c" \
@@ -260,11 +261,11 @@ build_test -Wall -O2 -fsanitize=address -include sys/stat.h -include time.h -Dma
 ASAN_PRELOAD=$(ldd "$BUILD_DIR/test_rf_device_cmd_frame" 2>/dev/null | grep libasan | awk '{print $3}' || true)
 HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="${ASAN_PRELOAD:+$ASAN_PRELOAD:}$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_device_cmd_frame"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_status_json" "$SCRIPT_DIR/test_rf_status_json.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_status_json"
-# Host tool with ssh and npm replaced (build/deploy_hub.py starts the services again after an early end)
-python3 "$SCRIPT_DIR/test_deploy_hub_restart.py"
+# hub_rf: key frames lost between the remote and the Hub, counted from the key event counter (all hub_rf sources as build/compile_all.sh lists them, main renamed)
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_counter" "$SCRIPT_DIR/test_rf_key_counter.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" "$BUILD_DIR/test_rf_key_counter"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_model" "$SCRIPT_DIR/test_rf_model.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_model"
-# Host tool (tools/migrate_hub_configs.py keeps transport and isMacro on the codex and bundle paths)
-python3 "$SCRIPT_DIR/test_migrate_keep_transport.py"
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_battery" "$SCRIPT_DIR/test_rf_battery.c" "$REPO_ROOT/payload/source/rf_state.c" "$REPO_ROOT/payload/source/rf_api.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_battery"
 # Remote: home selection and pending confirmation across a config push that rebuilds the list
 build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -I"$REPO_ROOT/payload/source/remote" -o "$BUILD_DIR/test_remote_selection_rebuild" "$SCRIPT_DIR/test_remote_selection_rebuild.c" \
@@ -291,6 +292,17 @@ build_test -Wall -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_release_timers" "$SCRIPT_DIR/test_bt_release_timers.c" && "$BUILD_DIR/test_bt_release_timers"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_reconnect_queue" "$SCRIPT_DIR/test_bt_reconnect_queue.c" "$REPO_ROOT/payload/source/hub_btstack/bt_reconnect_queue.c" && "$BUILD_DIR/test_bt_reconnect_queue"
 build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_le_pair_window" "$SCRIPT_DIR/test_bt_le_pair_window.c" "$REPO_ROOT/payload/source/hub_btstack/bt_le_pair_window.c" && "$BUILD_DIR/test_bt_le_pair_window"
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_hid_queue" "$SCRIPT_DIR/test_bt_hid_queue.c" "$REPO_ROOT/payload/source/hub_btstack/bt_hid_queue.c" && "$BUILD_DIR/test_bt_hid_queue"
+# The key pipe: hub_btstack's reader (bt_cmd.c with stubs), and hub_daemon's hand-off in one checked write
+build_test -Wall -Wextra -Wno-format-truncation -Wno-stringop-truncation -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_pipe" "$SCRIPT_DIR/test_bt_key_pipe.c" && "$BUILD_DIR/test_bt_key_pipe"
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -Wl,--wrap=open -o "$BUILD_DIR/test_bt_key_handoff" "$SCRIPT_DIR/test_bt_key_handoff.c" "$REPO_ROOT/payload/source/hw_action.c" "$REPO_ROOT/payload/source/cJSON.c" -lm && "$BUILD_DIR/test_bt_key_handoff"
+# hub_rf's key queue: a quick tap keeps its press, a queued key is sent at once, the idle worker sleeps
+build_test -Wall -O2 -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_key_queue" "$SCRIPT_DIR/test_rf_key_queue.c" "$REPO_ROOT/payload/source/rf_keymap.c" "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && "$BUILD_DIR/test_rf_key_queue"
+# hub_daemon: a key from a remote goes out without the gaps between commands (daemon in --dry-run, mock key pipe)
+python3 "$SCRIPT_DIR/test_live_key_gaps.py"
+# Key trace (debug logging): the TS line from hub_daemon, and hub_btstack's line per key
+python3 "$SCRIPT_DIR/test_key_trace.py"
+build_test -Wall -Wextra -O2 -I"$REPO_ROOT/payload/source/hub_btstack" -o "$BUILD_DIR/test_bt_key_trace" "$SCRIPT_DIR/test_bt_key_trace.c" && "$BUILD_DIR/test_bt_key_trace"
 
 # 4d. safe_reboot.sh in a host sandbox (supervisor loops stopped before reboot -f)
 python3 "$SCRIPT_DIR/test_safe_reboot.py"
@@ -302,8 +314,6 @@ python3 "$SCRIPT_DIR/test_bt_connect_commands.py"
 echo "[-] Launching Full Hub & Remote Co-Simulation..."
 python3 "$SCRIPT_DIR/test_config_unreadable.py"
 python3 "$SCRIPT_DIR/test_co_simulation.py"
-# Host tool with a fake remote (remote/deploy_remote.py stops before the restart when an upload fails)
-python3 "$SCRIPT_DIR/test_deploy_remote_failures.py"
 
 # USB Ethernet adapters listed in the network guide reach a driver that binds them (start_usb_eth.sh in a host sandbox)
 python3 "$SCRIPT_DIR/test_usb_eth_table.py"
@@ -318,6 +328,7 @@ python3 "$SCRIPT_DIR/test_activity_restore.py"
 python3 "$SCRIPT_DIR/test_activity_switch_timing.py"
 python3 "$SCRIPT_DIR/test_activity_save_match.py"
 python3 "$SCRIPT_DIR/test_config_cache_race.py"
+python3 "$SCRIPT_DIR/test_config_safe_writes.py"
 
 # Hub boot scripts in a host sandbox (reboot counter, emergency recovery mode)
 python3 "$SCRIPT_DIR/test_hub_boot_counter.py"
@@ -348,20 +359,16 @@ python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 python3 "$SCRIPT_DIR/test_bt_reconnect_pidfile.py"
 python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 python3 "$SCRIPT_DIR/test_rf_key_channel.py"
+# A held infrared key repeats until its release (real sends through the mock transmitter, timed)
+python3 "$SCRIPT_DIR/test_ir_hold.py"
+# The held-key player sleeps while idle also where futex waits never sleep (the Hub's kernel)
+python3 "$SCRIPT_DIR/test_ir_hold_idle_cpu.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_cmd_actions.py"
-# Host tool with a fake USB device (tools/harmony_firmware.py flash flow)
-python3 "$SCRIPT_DIR/test_harmony_firmware_flash.py"
 python3 "$SCRIPT_DIR/test_rf_status_push.py"
-# Web UI packaging (build/gzip_assets.py output does not change between builds of the same input)
-python3 "$SCRIPT_DIR/test_gzip_assets_reproducible.py"
 python3 "$SCRIPT_DIR/test_boot_time.py"
-# USB root boot scripts in a host sandbox (refuse the other device class)
-python3 "$SCRIPT_DIR/test_root_boot_scripts.py"
 python3 "$SCRIPT_DIR/test_hbus.py"
-# Host tool against a fake Hub root (tools/restore_stock.py, no network)
-python3 "$SCRIPT_DIR/test_restore_stock.py"
 python3 "$SCRIPT_DIR/test_ssdp.py"
 # New web UI dialogs with a failing Hub call (Node, stand-in DOM, no Hub)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_modal_errors.mjs"; else echo "    (node not found, test_frontend_modal_errors.mjs skipped)"; fi
@@ -370,15 +377,24 @@ python3 "$SCRIPT_DIR/test_save_json_types.py"
 python3 "$SCRIPT_DIR/test_icon_proxy_limits.py"
 python3 "$SCRIPT_DIR/test_device_delay_limits.py"
 
-# 5c. Host tools (no device contact)
-# setup_remote.py SSH key pair names (ssh-keygen replaced)
-python3 "$SCRIPT_DIR/test_host_tools_ssh.py"
-python3 "$SCRIPT_DIR/test_deploy_hub_space.py"
 # Web UI log viewers offer only sources GET /api/logs serves
 python3 "$SCRIPT_DIR/test_webui_log_sources.py"
 
-# Host tools stop with a clear message on Python older than 3.11 (docs/FIRST_INSTALL_*.md)
-python3 "$SCRIPT_DIR/test_python_minimum.py"
+
+# 5d. No futex-based waits in Hub code: the Hub's kernel has no futex system call, so such a
+# wait never sleeps there and spins. The behaviour tests run under tests/no_futex_exec, which
+# makes every futex wait return at once, as on the Hub (skipped where seccomp is not available).
+python3 "$SCRIPT_DIR/test_hub_no_futex_waits.py"
+gcc -Wall -O2 -o "$BUILD_DIR/no_futex_exec" "$SCRIPT_DIR/no_futex_exec.c"
+NO_FUTEX="$BUILD_DIR/no_futex_exec"
+"$NO_FUTEX" /bin/true 2>/dev/null || { echo "    (seccomp not available: futex waits sleep in the tests below)"; NO_FUTEX=""; }
+# hub_rf's wait for a remote's ACK (all hub_rf sources as build/compile_all.sh lists them, main renamed)
+build_test -Wall -O2 -include sys/stat.h -include time.h -Dmain=hub_rf_main -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_rf_ack_wait" "$SCRIPT_DIR/test_rf_ack_wait.c" \
+    $(sed -n 's/^ *RF_SRCS="\(.*\)"$/\1/p' "$REPO_ROOT/build/compile_all.sh" | sed "s|payload/|$REPO_ROOT/payload/|g") "$REPO_ROOT/payload/source/cJSON.c" -lpthread -lm && \
+    $NO_FUTEX "$BUILD_DIR/test_rf_ack_wait"
+# IR capture mode turned off while the receiver's read is stalled
+build_test -Wall -Wextra -O2 -pthread -I"$REPO_ROOT/payload/source" -o "$BUILD_DIR/test_ir_rx_wait_cpu" "$SCRIPT_DIR/test_ir_rx_wait_cpu.c" "$REPO_ROOT/payload/source/ir_i2s.c" && \
+    HARMONY_MOCK_DIR="/tmp/harmony_mock" LD_PRELOAD="$BUILD_DIR/libmock_hardware.so" $NO_FUTEX "$BUILD_DIR/test_ir_rx_wait_cpu"
 
 # 6. Run OpenAPI Specification Contract Validation (docs/openapi.yaml must parse as YAML)
 python3 "$SCRIPT_DIR/test_ethernet_apply.py"
@@ -396,8 +412,10 @@ python3 "$SCRIPT_DIR/test_hub_user_sh.py"
 
 # 8. Test groups kept in their own files, sourced in name order (tests/suite.d/*.sh).
 # A new group adds a file there instead of a line here, so branches do not touch this list.
+# Parts named *host-tools* test the host tools and run in tests/run_host_tools.sh instead.
 for suite_part in "$SCRIPT_DIR"/suite.d/*.sh; do
     [ -e "$suite_part" ] || continue
+    case "$suite_part" in *host-tools*) continue ;; esac
     echo "[-] Test group $(basename "$suite_part" .sh)"
     . "$suite_part"
 done

@@ -321,7 +321,8 @@ paths:
             application/json:
               example:
                 ok: true
-                bt_running: true
+                bt_enabled: true
+                bt_running: false
 
   /api/logs:
     get:
@@ -1368,7 +1369,10 @@ paths:
       tags:
         - Activities
       summary: Broadcast activity switching progress
-      description: Relays transition progress events to WebSocket clients and publishes to MQTT topic harmony/hub/activity/status.
+      description: >-
+        Sends an activity_progress event to the WebSocket clients and MQTT, built from the known
+        fields of the body (activity or activityId, state or stateCode, step or currentStep, total
+        or totalSteps, desc or stepDesc); nothing else of the body is sent.
       requestBody:
         required: true
         content:
@@ -1377,17 +1381,19 @@ paths:
               type: object
             example:
               activityId: "123456"
-              state: switching
-              progress: 50
+              state: starting
               step: 2
               totalSteps: 4
+              desc: TV PowerOn
       responses:
         '200':
-          description: Progress broadcasted
+          description: Progress event sent
           content:
             application/json:
               example:
                 ok: true
+        '400':
+          description: The body is not a JSON object
 
   /api/activity-save:
     post:
@@ -1459,6 +1465,8 @@ paths:
             application/json:
               example:
                 ok: true
+        '409':
+          description: The activity is running; power off or start another activity first
 
   /api/activity-test-sequence:
     post:
@@ -1588,14 +1596,14 @@ paths:
               type: object
               required: [timings]
               properties:
-                frequency: {type: integer, default: 38000, description: "Carrier in Hz: 0 (unmodulated) or 20000 to 60000"}
+                frequency: {type: integer, default: 38000, description: "Carrier in Hz, 20000 to 60000; 0 is the default (no unmodulated output)"}
                 timings:
                   type: array
                   minItems: 2
                   maxItems: 2048
                   items: {type: integer, minimum: -65535, maximum: 65535}
                 port: {type: integer, minimum: 1, maximum: 7, default: 7}
-                repeats: {type: integer, minimum: 1, maximum: 10, default: 1}
+                repeats: {type: integer, minimum: 1, maximum: 10, default: 1, description: "Written into the code; the frame is sent once"}
             example:
               frequency: 38000
               timings: [9000, -4500, 560, -560, 560, -1690]
@@ -1609,6 +1617,7 @@ paths:
               example:
                 ok: true
                 count: 6
+                frequency: 38000
                 duration_ms: 17
         '400':
           description: Validation error, the error names the field
@@ -2133,6 +2142,7 @@ paths:
       summary: CC2544 RF subsystem status
       description: |
         Proxied to hub_rf (port 8092). Returns remote RF status, paired slots, battery telemetry, and RF link statistics (frames_rx, acked_sent, acked_ok, retries, naks, last_seen_s).
+        link.key_events counts the key frames received from a remote that numbers them, link.key_events_lost the numbers missing between them (key frames are sent once, without acknowledgement), split into key_lost_press, key_lost_release and key_lost_other; all 0 for a remote that does not number its key frames. docs/API.md 7.1.
         battery.reported_at is the Unix time of the last report (null before the first one or while the clock was not set), battery.restored is true for a value read back from RAM after a hub_rf restart, until the remote reports again. docs/API.md 7.1.
         Per slot, the product: model (ultimate, ultimate_one, ultimate_home, elite, 950, touch,
         companion, smart_control, unknown), model_name (the stock product name, null
@@ -2191,6 +2201,11 @@ paths:
                       acked_ok: 398
                       retries: 14
                       naks: 9
+                      key_events: 0
+                      key_events_lost: 0
+                      key_lost_press: 0
+                      key_lost_release: 0
+                      key_lost_other: 0
                       last_seen_s: 2
                   - slot: 2
                     name: "Harmony Ultimate (Slot 2)"
@@ -2219,6 +2234,11 @@ paths:
                       acked_ok: 82
                       retries: 3
                       naks: 1
+                      key_events: 640
+                      key_events_lost: 3
+                      key_lost_press: 1
+                      key_lost_release: 0
+                      key_lost_other: 2
                       last_seen_s: 14
 
   /api/rf/status-changed:
@@ -2398,17 +2418,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
     post:
       tags:
         - RF & Remote
@@ -2433,17 +2457,21 @@ paths:
             enum: [0, 1, 2]
             default: 0
       responses:
-        '200':
-          description: Icon push dispatched
+        '202':
+          description: Icon push started in the background (the result is in the hub_rf log)
           content:
             application/json:
               example:
-                status: icon_pushed
+                status: icon_push_started
                 id: "123456"
-                pushed: 1
+                slot: 0
                 ok: true
+        '400':
+          description: id or type not 1..19 of A-Z a-z 0-9 _ -, or slot not 0, 1 or 2
         '409':
           description: RF OTA update in progress
+        '500':
+          description: The background worker could not be started
 
   /api/rf/pull-config:
     get:
@@ -2620,6 +2648,17 @@ paths:
       tags:
         - RF & Remote
       summary: Stop RF pairing mode
+      responses:
+        '200':
+          description: Pairing stopped
+          content:
+            application/json:
+              example:
+                status: pairing_stopped
+    post:
+      tags:
+        - RF & Remote
+      summary: Stop RF pairing mode (POST)
       responses:
         '200':
           description: Pairing stopped
@@ -3289,6 +3328,14 @@ paths:
                 ok: true
                 status: applying
                 message: Software update triggered. Hub services restarting in background.
+        '409':
+          description: An update started earlier is still running
+          content:
+            application/json:
+              example:
+                ok: false
+                status: busy
+                error: A software update is already running
 
   /export/{target}:
     get:
