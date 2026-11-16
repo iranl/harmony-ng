@@ -57,7 +57,15 @@ cJSON *hw_test_last_raw_json(void);
 int hw_ir_send_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count, uint8_t ports, uint8_t repeats);
 
 /*
- * Cancels active IR transmission on specified ports.
+ * A held IR key (HW_BTN_ACTION_PRESS) repeats until its release. It also stops by itself when
+ * no hold (HW_BTN_ACTION_REPEAT, the heartbeat of the key that is down) came for this long:
+ * a lost release must not leave a key repeating. The stock firmware allows 500 ms for holds
+ * 300 ms apart; remotes on older harmony-ng firmware send their first hold after 450 ms.
+ */
+#define HW_IR_HOLD_DEADLINE_MS 600
+
+/*
+ * Ends the held IR key, if any, after the frame on air (does not wait for it).
  */
 int hw_ir_cancel(uint8_t ports);
 

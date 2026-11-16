@@ -370,7 +370,7 @@ Both frames use a 17-byte standardized configuration payload:
 #### `RF_MSG_BUTTON_PRESS` (`0x14`)
 - Remote transmits on key events:
   - `payload[0..1]`: 16-bit Linux input event key code (big-endian).
-  - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release).
+  - `payload[2]`: State (`0x01` press, `0x02` hold, `0x00` release). While the key is down a hold follows the press after 300 ms and then every 300 ms: the Hub repeats a held infrared command by itself and stops when no hold arrived for 600 ms.
   - `payload[3..18]`: Short button name string (up to 16 chars).
   - `payload[19]`: Key event counter. The remote numbers every key frame it sends (press, hold and release alike): `1`..`255`, then `1` again. `0` means the remote does not count (older remotes). The counter starts at `1` when `remote_ui` starts and is not reset by a resume from suspend.
   - `payload[20..24]`: Device context ID string (up to 4 chars + NUL) when the remote is browsing a device in the Hub Device Browser view (`VIEW_DEVICE_BROWSER`). Hub routes physical buttons to this device or falls back to matching command names. When not browsing a device, bytes 20..24 are zeroed.

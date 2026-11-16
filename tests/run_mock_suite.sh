@@ -377,6 +377,10 @@ python3 "$SCRIPT_DIR/test_no_lan_responders.py"
 python3 "$SCRIPT_DIR/test_bt_reconnect_pidfile.py"
 python3 "$SCRIPT_DIR/test_mqtt_v2.py"
 python3 "$SCRIPT_DIR/test_rf_key_channel.py"
+# A held infrared key repeats until its release (real sends through the mock transmitter, timed)
+python3 "$SCRIPT_DIR/test_ir_hold.py"
+# The held-key player sleeps while idle also where futex waits never sleep (the Hub's kernel)
+python3 "$SCRIPT_DIR/test_ir_hold_idle_cpu.py"
 # New web UI Wi-Fi form against a stubbed fetch (Node, no Hub)
 if command -v node >/dev/null 2>&1; then node "$SCRIPT_DIR/test_frontend_wifi_save.mjs"; else echo "    (node not found, test_frontend_wifi_save.mjs skipped)"; fi
 python3 "$SCRIPT_DIR/test_cmd_actions.py"

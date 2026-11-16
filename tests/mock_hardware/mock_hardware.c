@@ -517,14 +517,45 @@ int ioctl(int fd, unsigned long request, ...) {
      * (0x80044e31) returns when the signal has gone out; <mock>/i2s_tx_ms makes it take that
      * many milliseconds, so a test can act while a send is running. */
     if (fd == g_i2s_tx_mock_fd && g_i2s_tx_mock_fd >= 0) {
+        /* With <mock>/i2s_tx_realtime a signal takes as long as on a Hub: the clock ioctl
+         * (0x80044e21) gives the bit time (arg * 40 / 65536 ns), the start ioctl (0x80044e30)
+         * the stream length in bytes, and the drain returns when that much time has passed
+         * since the start. Each start adds "<start us> <bytes> <duration us>" to
+         * <mock>/i2s_tx_log (CLOCK_MONOTONIC), so a test can time the frames of a held key. */
+        static unsigned long tx_clk = 0;
+        static long long tx_start_us = 0, tx_len_us = 0;
+        char p[512];
+        snprintf(p, sizeof(p), "%s/i2s_tx_realtime", get_mock_dir());
+        int realtime = access(p, F_OK) == 0;
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        long long now_us = (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+        if (request == 0x80044e21UL) {
+            tx_clk = (unsigned long)arg;
+        } else if (request == 0x80044e30UL && realtime) {
+            unsigned long bytes = (unsigned long)arg & 0xffffUL;
+            tx_start_us = now_us;
+            tx_len_us = (long long)((unsigned long long)bytes * 8ULL * tx_clk * 40ULL / 65536ULL / 1000ULL);
+            snprintf(p, sizeof(p), "%s/i2s_tx_log", get_mock_dir());
+            FILE *f = real_fopen ? real_fopen(p, "a") : NULL;
+            if (f) {
+                fprintf(f, "%lld %lu %lld\n", now_us, bytes, tx_len_us);
+                fclose(f);
+            }
+        }
         if (request == 0x80044e31UL) {
-            char p[512];
             snprintf(p, sizeof(p), "%s/i2s_tx_ms", get_mock_dir());
             FILE *f = real_fopen ? real_fopen(p, "r") : NULL;
             if (f) {
                 int ms = 0;
                 if (fscanf(f, "%d", &ms) == 1 && ms > 0 && ms < 10000) usleep((useconds_t)ms * 1000);
                 fclose(f);
+            }
+            if (realtime) {
+                /* the time now: the sleep above already counts toward the frame's air time */
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                now_us = (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+                if (tx_start_us + tx_len_us > now_us) usleep((useconds_t)(tx_start_us + tx_len_us - now_us));
             }
         }
         return 0;

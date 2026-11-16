@@ -544,6 +544,7 @@ typedef struct {
     uint32_t hold_ms;
     uint32_t delay_ms;
     uint64_t next_exec_ms;
+    uint64_t release_ms; /* state 1: when the held command is released */
 } mqtt_cmd_seq_t;
 
 static mqtt_cmd_seq_t g_mqtt_queue[MQTT_SEQ_QUEUE_MAX];
@@ -559,6 +560,9 @@ static uint64_t mono_ms(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 }
+
+/* How often a hold job repeats the hold while its command is held */
+#define SEQ_HOLD_BEAT_MS 300
 
 static void seq_send(const mqtt_cmd_seq_t *q, const char *cmd, int action) {
     if (!q || !cmd || !cmd[0]) return;
@@ -582,7 +586,16 @@ static void seq_tick(void) {
                    cmd);
             seq_send(q, cmd, HW_BTN_ACTION_PRESS);
             q->state = 1;
-            q->next_exec_ms = mono_ms() + q->hold_ms;
+            q->release_ms = mono_ms() + q->hold_ms;
+            q->next_exec_ms = q->release_ms;
+            if (q->hold_ms > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
+            return;
+        } else if (q->state == 1 && now < q->release_ms) {
+            /* still held: the hold a remote sends while a key is down. A held IR command
+             * repeats only as long as these arrive (HW_IR_HOLD_DEADLINE_MS). */
+            seq_send(q, cmd, HW_BTN_ACTION_REPEAT);
+            q->next_exec_ms = q->release_ms;
+            if (q->release_ms - now > SEQ_HOLD_BEAT_MS) q->next_exec_ms = mono_ms() + SEQ_HOLD_BEAT_MS;
             return;
         } else if (q->state == 1) {
             printf("[*] MQTT seq [%d/%d] (repeat %d/%d): dev='%s' (%s) cmd='%s' [RELEASE]\n",

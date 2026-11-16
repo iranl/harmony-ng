@@ -116,6 +116,15 @@ static void check_frames(const char *keycode, uint32_t carrier_hz, const segment
     check(keycode, carrier_hz, &w, NULL);
 }
 
+/* A press sends `frames` frames; while the key is held one frame repeats */
+static void check_frames_repeat_one(const char *keycode, uint32_t carrier_hz, const segment_t *s, int bits,
+                                    unsigned long value, int frames) {
+    wave_t w = { { 0 }, 0 }, one = { { 0 }, 0 };
+    for (int f = 0; f < frames; f++) wave_add_segment(&w, s, bits, value);
+    wave_add_segment(&one, s, bits, value);
+    check(keycode, carrier_hz, &w, &one);
+}
+
 static void check_rc5ex(const char *keycode, unsigned long address, unsigned long command) {
     wave_t w = { { 0 }, 0 };
     wave_add_segment(&w, &RC5EX, 7, address);
@@ -135,8 +144,8 @@ int main(void) {
 
     /* Sony projector: the 15-bit code has a leading 0 hex bit that must not be sent,
      * and receivers need the frame repeated (the keycode asks for 3) */
-    check_frames("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 3);
-    check_frames("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 3);
+    check_frames_repeat_one("G:Sony 15 Bit:()(0x7C2A)():3", 40000, &SONY, 15, 0x7C2A, 3);
+    check_frames_repeat_one("G:Sony 20 Bit:()(0xDCB54)():3", 40000, &SONY, 20, 0xDCB54, 3);
 
     /* Apple TV: two frames once per press, then the repeat code */
     wave_t start = { { 0 }, 0 }, repeat = { { 0 }, 0 };

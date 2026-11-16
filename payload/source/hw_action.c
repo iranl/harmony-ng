@@ -21,6 +21,174 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <poll.h>
+
+/*
+ * Held IR key. A press hands the encoded code to one player thread and returns. The thread
+ * sends the code's start sequence, then its repeat sequence again and again with the code's
+ * own timing, as the device's own remote does while a key is down. It ends when the key is
+ * released, when no hold (the remote's heartbeat while the key is down) came for
+ * HW_IR_HOLD_DEADLINE_MS, or when another command needs the transmitter; then it sends the
+ * finish sequence if the code has one. It always ends after a whole frame and never before the
+ * start sequence is out, so a quick tap still sends what a tap sends. The command lock is not
+ * held while it plays, so the release gets in.
+ *
+ * No condition variables: the Hub's kernel has no futex system call, so pthread_cond_wait()
+ * returns at once and a thread waiting on one spins at full CPU. The player sleeps in poll()
+ * on a pipe instead, and a caller waiting for the player to finish checks every few ms.
+ */
+#define IR_HOLD_IDLE_POLL_US 2000
+static struct {
+    pthread_mutex_t lock;
+    int wake_rd, wake_wr;   /* a byte: a key was handed over */
+    int thread_up;
+    int active;             /* a key is handed over and has not ended */
+    int stop;               /* it ends after the frame on air */
+    uint64_t deadline_ms;   /* it ends when no hold came by then */
+    char key[200];          /* "<device id>/<command>" */
+    uint8_t *blob;
+    size_t blob_len;
+    uint8_t ports;
+} s_ir_hold = { PTHREAD_MUTEX_INITIALIZER, -1, -1, 0, 0, 0, 0, {0}, NULL, 0, 0 };
+
+static uint64_t ir_hold_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+/* s_ir_hold.lock held on entry and on return; returns when a key is handed over */
+static void ir_hold_wait_for_key(void) {
+    while (!s_ir_hold.active) {
+        pthread_mutex_unlock(&s_ir_hold.lock);
+        struct pollfd p = { s_ir_hold.wake_rd, POLLIN, 0 };
+        if (poll(&p, 1, 1000) > 0) {   /* the timeout only guards against a lost byte */
+            char b[16];
+            while (read(s_ir_hold.wake_rd, b, sizeof(b)) > 0) {}
+        }
+        pthread_mutex_lock(&s_ir_hold.lock);
+    }
+}
+
+/* s_ir_hold.lock held on entry and on return; returns when no key plays (the one playing ends
+ * after its frame on air) */
+static void ir_hold_wait_idle(void) {
+    while (s_ir_hold.active) {
+        s_ir_hold.stop = 1;
+        pthread_mutex_unlock(&s_ir_hold.lock);
+        usleep(IR_HOLD_IDLE_POLL_US);
+        pthread_mutex_lock(&s_ir_hold.lock);
+    }
+}
+
+static void *ir_hold_thread(void *arg) {
+    (void)arg;
+    pthread_mutex_lock(&s_ir_hold.lock);
+    for (;;) {
+        ir_hold_wait_for_key();
+        uint8_t *blob = s_ir_hold.blob;
+        size_t blob_len = s_ir_hold.blob_len;
+        uint8_t ports = s_ir_hold.ports;
+        pthread_mutex_unlock(&s_ir_hold.lock);
+
+        /* one send for the capture mode, from the first frame to the last */
+        ir_i2s_tx_hold(1);
+        int part = IR_BLOB_START, frames = 0, rc, timed_out = 0;
+        for (;;) {
+            rc = ir_i2s_blast_blob_part(blob, blob_len, part, ports);
+            if (rc != 0) break;
+            frames++;
+            pthread_mutex_lock(&s_ir_hold.lock);
+            int stop = s_ir_hold.stop;
+            if (!stop && ir_hold_now_ms() >= s_ir_hold.deadline_ms) timed_out = 1;
+            pthread_mutex_unlock(&s_ir_hold.lock);
+            if (stop || timed_out) break;
+            part = IR_BLOB_REPEAT;
+        }
+        if (rc == 0) ir_i2s_blast_blob_part(blob, blob_len, IR_BLOB_FINISH, ports); /* -ENOENT: the code has none */
+        ir_i2s_tx_hold(0);
+
+        pthread_mutex_lock(&s_ir_hold.lock);
+        if (rc != 0) {
+            printf("[!] IR held key %s: send failed (%d) after %d frame(s)\n", s_ir_hold.key, rc, frames);
+        } else if (timed_out) {
+            printf("[*] IR held key %s: no hold or release for %d ms, stopped after %d frame(s)\n",
+                   s_ir_hold.key, HW_IR_HOLD_DEADLINE_MS, frames);
+        }
+        ir_free_encoded(blob);
+        s_ir_hold.blob = NULL;
+        s_ir_hold.active = 0;
+    }
+    return NULL;
+}
+
+/* Ends the held key, if any, and returns when its frame on air is out */
+static void ir_hold_stop_wait(void) {
+    pthread_mutex_lock(&s_ir_hold.lock);
+    ir_hold_wait_idle();
+    pthread_mutex_unlock(&s_ir_hold.lock);
+}
+
+/* Starts a held key; the player frees blob. A key still playing ends first (its frame on air
+ * goes out whole). -1 without a player thread: blob stays the caller's. */
+static int ir_hold_press(const char *key, uint8_t *blob, size_t blob_len, uint8_t ports) {
+    pthread_mutex_lock(&s_ir_hold.lock);
+    if (!s_ir_hold.thread_up) {
+        if (s_ir_hold.wake_rd < 0) {
+            int fds[2];
+            if (pipe(fds) != 0) {
+                pthread_mutex_unlock(&s_ir_hold.lock);
+                return -1;
+            }
+            for (int i = 0; i < 2; i++) {
+                fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+                fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+            }
+            s_ir_hold.wake_rd = fds[0];
+            s_ir_hold.wake_wr = fds[1];
+        }
+        pthread_t th;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 128 * 1024);
+        int err = pthread_create(&th, &attr, ir_hold_thread, NULL);
+        pthread_attr_destroy(&attr);
+        if (err != 0) {
+            pthread_mutex_unlock(&s_ir_hold.lock);
+            return -1;
+        }
+        s_ir_hold.thread_up = 1;
+    }
+    ir_hold_wait_idle();
+    snprintf(s_ir_hold.key, sizeof(s_ir_hold.key), "%s", key);
+    s_ir_hold.blob = blob;
+    s_ir_hold.blob_len = blob_len;
+    s_ir_hold.ports = ports;
+    s_ir_hold.deadline_ms = ir_hold_now_ms() + HW_IR_HOLD_DEADLINE_MS;
+    s_ir_hold.stop = 0;
+    s_ir_hold.active = 1;
+    if (write(s_ir_hold.wake_wr, "k", 1) < 0) { /* full pipe: a byte is already waiting */ }
+    pthread_mutex_unlock(&s_ir_hold.lock);
+    return 0;
+}
+
+/* The hold of the key that is playing: it goes on for another HW_IR_HOLD_DEADLINE_MS. A hold
+ * for any other key, or for none, does nothing. */
+static void ir_hold_heartbeat(const char *key) {
+    pthread_mutex_lock(&s_ir_hold.lock);
+    if (s_ir_hold.active && !s_ir_hold.stop && key && strcmp(s_ir_hold.key, key) == 0) {
+        s_ir_hold.deadline_ms = ir_hold_now_ms() + HW_IR_HOLD_DEADLINE_MS;
+    }
+    pthread_mutex_unlock(&s_ir_hold.lock);
+}
+
+/* The release of key (NULL: of whatever plays): it ends after the frame on air. Does not wait. */
+static void ir_hold_release(const char *key) {
+    pthread_mutex_lock(&s_ir_hold.lock);
+    if (s_ir_hold.active && (!key || strcmp(s_ir_hold.key, key) == 0)) s_ir_hold.stop = 1;
+    pthread_mutex_unlock(&s_ir_hold.lock);
+}
 
 
 
@@ -53,6 +221,7 @@ int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) {
         ir_free_encoded(bin);
         return 0;
     }
+    ir_hold_stop_wait(); /* a held key ends for this send */
     int ret = ir_i2s_blast_blob(bin, bin_len, port_mask);
 
     ir_free_encoded(bin);
@@ -116,6 +285,7 @@ int hw_ir_send_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count, u
         ir_free_encoded(bin);
         return 0;
     }
+    ir_hold_stop_wait(); /* a held key ends for this send */
     int ret = ir_i2s_blast_blob(bin, bin_len, port_mask);
 
     ir_free_encoded(bin);
@@ -124,10 +294,13 @@ int hw_ir_send_raw(uint32_t freq_hz, const uint32_t *timings_us, size_t count, u
 
 int hw_ir_cancel(uint8_t ports) {
     (void)ports;
+    ir_hold_release(NULL);
     return 0;
 }
 
-int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats) {
+/* held_key NULL: one blocking send of the code's start sequence (a tap, a sequence step).
+ * Else the press of that key: the send starts and goes on in the player. */
+static int ir_send_keycode(const char *keycode, uint8_t ports, uint8_t repeats, const char *held_key) {
     if (!keycode || !keycode[0]) return -1;
     if (ports == 0) return 0; /* 0 = No blasters / IR disabled */
 
@@ -144,10 +317,16 @@ int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repea
         ir_free_encoded(bin);
         return 0;
     }
+    if (held_key && ir_hold_press(held_key, bin, bin_len, port_mask) == 0) return 0;
+    ir_hold_stop_wait(); /* a held key ends for this send */
     int ret = ir_i2s_blast_blob(bin, bin_len, port_mask);
 
     ir_free_encoded(bin);
     return ret;
+}
+
+int hw_ir_send_harmony_keycode(const char *keycode, uint8_t ports, uint8_t repeats) {
+    return ir_send_keycode(keycode, ports, repeats, NULL);
 }
 
 static int is_bt_device_connected(const char *target_bdaddr) {
@@ -753,8 +932,16 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         }
         ret = 0;
     } else if (keycode_str[0]) {
+        /* A press starts the code and returns; the player repeats it until the release. A hold
+         * is only the heartbeat of the key that plays and sends nothing itself: each one used to
+         * be another blocking send, so a held key reached the device as separate bursts. */
+        char held_key[200];
+        snprintf(held_key, sizeof(held_key), "%s/%s", actual_dev_id, command);
         if (action == HW_BTN_ACTION_RELEASE) {
-            hw_ir_cancel(ir_ports);
+            ir_hold_release(held_key);
+            ret = 0;
+        } else if (action == HW_BTN_ACTION_REPEAT) {
+            ir_hold_heartbeat(held_key);
             ret = 0;
         } else {
             uint8_t repeats = 1;
@@ -762,7 +949,7 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
             if (j_rep && cJSON_IsNumber(j_rep) && j_rep->valuedouble > 0 && j_rep->valuedouble <= 20) {
                 repeats = (uint8_t)j_rep->valuedouble;
             }
-            ret = hw_ir_send_harmony_keycode(keycode_str, ir_ports, repeats);
+            ret = ir_send_keycode(keycode_str, ir_ports, repeats, action == HW_BTN_ACTION_PRESS ? held_key : NULL);
         }
     }
 

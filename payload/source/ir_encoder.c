@@ -590,6 +590,7 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
         }
         int frames = parsed_repeats < 3 ? 3 : parsed_repeats;
         size_t frame_entries = 2 * (size_t)bits + 2;
+        size_t one_frame = 0;
         for (int f = 0; f < frames && timing_count + frame_entries <= 1024; f++) {
             uint32_t frame_start = timings_sum(timings, timing_count);
             timings_add(timings, &timing_count, 1, 2400);
@@ -598,6 +599,13 @@ int ir_encode_harmony_keycode(const char *keycode, uint8_t min_repeats,
                 timings_add(timings, &timing_count, 1, ((val >> b) & 1) ? 1200 : 600);
             }
             timings_pad_to(timings, &timing_count, frame_start, 45000);
+            if (f == 0) one_frame = timing_count;
+        }
+        /* While the key is held one frame repeats (every 45 ms), not the whole group */
+        if (one_frame > 0 && one_frame % 2 == 0 && one_frame < timing_count && one_frame <= 2 * 32 + 2) {
+            uint32_t repeat[2 * 32 + 2];
+            memcpy(repeat, timings, one_frame * sizeof(uint32_t));
+            return ir_encode_sequences(carrier_hz, timings, timing_count, repeat, one_frame, parsed_repeats, out_buf, out_len);
         }
     } else if (strstr(proto, "Samsung 16 and 20 Bit")) {
         /* Samsung soundbars ("0x<16 bits>_1x<20 bits>"): a 16-bit segment with a header,

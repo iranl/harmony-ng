@@ -102,7 +102,11 @@ void *key_repeat_thread(void *arg) {
         uint16_t key = g_held_rf_code;
         pthread_mutex_unlock(&g_repeat_mutex);
 
-        usleep(450000); /* 450ms initial hold delay (prevents accidental double taps) */
+        /* The hold is the Hub's sign that the key is still down: sent KEY_HOLD_INTERVAL_MS
+         * after the press and then at that rate, as the stock remote does. The Hub repeats a
+         * held infrared command by itself and only needs these to go on; they were sent after
+         * 450 ms and then every 150 ms, when each one was one more send of the command. */
+        usleep(KEY_HOLD_INTERVAL_MS * 1000);
 
         while (g_running) {
             pthread_mutex_lock(&g_repeat_mutex);
@@ -113,7 +117,7 @@ void *key_repeat_thread(void *arg) {
             pthread_mutex_unlock(&g_repeat_mutex);
 
             rf_send_button_event(key, 2);
-            usleep(150000); /* 150ms repeat rate */
+            usleep(KEY_HOLD_INTERVAL_MS * 1000);
         }
     }
     return NULL;
