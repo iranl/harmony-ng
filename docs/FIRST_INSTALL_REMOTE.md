@@ -19,7 +19,7 @@ This guide covers initial USB rooting and installation of the **HarmonyNG** cust
 - **Micro-USB Cable**: Connect directly to the remote's bottom port (NOT the charging cradle base).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **USB network adapter with a static IP**: Windows needs the RNDIS driver; macOS and Linux need no driver. All need a static IP on the remote's subnet (see [`RNDIS_AND_NETWORK_SETUP.md`](RNDIS_AND_NETWORK_SETUP.md)).
-- **Python 3.11 or newer**: Installed on host PC (`pip install pyusb`).
+- **Python 3.13 or newer**: Installed on host PC (`pip install pyusb`). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
 
 ### Choose Your Installation Method
 
