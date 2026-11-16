@@ -7,6 +7,8 @@ What hub_daemon hands to hub_btstack, checked on the way:
 - WebSocket bt_key, bt_mouse and bt_text: a line break in key, button or target is refused (it
   started another hub_btstack command), target must be an address, text is at most 240 characters
 - bt_key keyAction "release_all" releases (it tapped the key)
+- the TARGET line and the command reach the key pipe in one write (two writes left a TARGET alone
+  in a full pipe, and another writer's line could come between them)
 - a button event without a slot (the Bluetooth remote, source "bt_remote") carries no slot (it was
   published as a key of RF remote slot 1)
 - POST /api/bt-toggle keeps Bluetooth off with the supervisor's flag file
@@ -15,6 +17,7 @@ flock /tmp/hng_suite.lock (it is skipped when another reader owns the pipe).
 """
 
 import errno
+import fcntl
 import json
 import os
 import shutil
@@ -97,6 +100,22 @@ def open_pipe_reader(path=PIPE):
     return os.open(path, os.O_RDONLY | os.O_NONBLOCK)
 
 
+def fill_pipe(path, room=30):
+    """Fills the FIFO at path (its reader is open) up to room bytes in its last page; returns the
+    writer to close afterwards. Linux keeps a pipe in pages: a small write goes into the room left
+    in the last one, a write larger than that needs a new page and there is none."""
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return None
+    size = fcntl.fcntl(fd, 1032)  # F_GETPIPE_SZ
+    page = 4096
+    for _ in range(size // page - 1):
+        os.write(fd, b"x" * page)
+    os.write(fd, b"x" * (page - room))
+    return fd
+
+
 def read_pipe(fd, seconds=1.0):
     out = b""
     deadline = time.time() + seconds
@@ -163,6 +182,21 @@ def main():
                     r = ws_ack(ws, {"action": "bt_text", "msgId": 7, "text": "a" * 240, "target": BOX})
                     lines = sent()
                     check(r and r.get("ok") is True and ("TEXT " + "a" * 240 + "\n") in lines, "a text of 240 characters is sent", repr(lines[:60]))
+
+                    # target and command in one write: with the pipe nearly full (room for the
+                    # TARGET line, not for both) nothing is written; two writes left a TARGET
+                    # behind, and the next writer's command went to that host
+                    writers = [w for w in (fill_pipe(PIPE), fill_pipe(mock_pipe) if mock_fd is not None else None) if w is not None]
+                    r = ws_ack(ws, {"action": "bt_key", "msgId": 8, "key": "Home", "target": BOX})
+                    for w in writers:
+                        os.close(w)
+                    lines = sent().replace("x", "")
+                    check(r and r.get("ok") is False and r.get("code") == 503 and "TARGET" not in lines,
+                          "a full pipe takes the target and the key whole or not at all", "%s %r" % (r, lines))
+                    r = ws_ack(ws, {"action": "bt_key", "msgId": 9, "key": "Home", "target": BOX})
+                    lines = sent()
+                    check(r and r.get("ok") is True and ("TARGET %s\nKEY Home\n" % BOX) in lines,
+                          "with room again they arrive together", repr(lines))
                 finally:
                     os.close(fd)
                     os.unlink(PIPE)
@@ -190,6 +224,10 @@ def main():
             st2, sv = hub.http_get("/api/services")
             check(st == 200 and not os.path.exists(flag) and sv.get("bt_enabled") is True,
                   "on removes it (the supervisor starts hub_btstack)", "%s %s" % (r, sv))
+            # no hub_btstack runs here: the answer says enabled, and not running yet (it said
+            # running before the supervisor had started it)
+            check(r.get("bt_enabled") is True and r.get("bt_running") is False,
+                  "the answer to on reports the setting and the process as they are", str(r))
     finally:
         shutil.rmtree(cfg, ignore_errors=True)
     if failed:

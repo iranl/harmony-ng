@@ -126,19 +126,6 @@ static int rf_request(const char *method, const char *path, const char *body) {
     return -1;
 }
 
-static int pipe_write(const char *target, const char *line) {
-    int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-    if (bfd < 0) return 0;
-    if (target && target[0]) {
-        char thdr[64];
-        snprintf(thdr, sizeof(thdr), "TARGET %s\n", target);
-        if (write(bfd, thdr, strlen(thdr)) < 0) { /* ignore */ }
-    }
-    int ok = write(bfd, line, strlen(line)) > 0;
-    close(bfd);
-    return ok;
-}
-
 /* ------------------------------------------------------------------------------------------ */
 /* ir_capture (spec 3.14)                                                                     */
 
@@ -550,7 +537,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         } else {
             snprintf(line, sizeof(line), "KEY %s\n", k);
         }
-        int ok = pipe_write(tgt, line);
+        int ok = hub_bt_pipe_send(tgt, line);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
     if (strcmp(action, "bt_text") == 0) {
@@ -564,7 +551,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         sprintf(line, "TEXT %s\n", t);
         /* one pipe line per command: a line break in the text would start another command */
         for (char *c = line + 5; *c && c[1]; c++) if (*c == '\n' || *c == '\r') *c = ' ';
-        int ok = pipe_write(tgt, line);
+        int ok = hub_bt_pipe_send(tgt, line);
         free(line);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
@@ -590,7 +577,7 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
         else if (strcasecmp(act, "up") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", bname);
         else if (strcasecmp(act, "wheel") == 0) snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
         else snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
-        int ok = pipe_write(tgt, pipe_cmd);
+        int ok = hub_bt_pipe_send(tgt, pipe_cmd);
         return ok ? ack(req, action, 1, 200, NULL) : ack(req, action, 0, 503, "Bluetooth stack not running");
     }
     if (strcmp(action, "rf_wake") == 0 || strcmp(action, "rf_sleep") == 0) {

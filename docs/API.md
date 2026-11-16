@@ -161,7 +161,9 @@ and stops `hub_btstack`; the supervisor in `init.sh` keeps it stopped while the 
 removes the file and the supervisor starts it again within about 5 s. `GET /api/services` reports
 `bt_enabled` from the file and `bt_running` from the process list.
 - **Request Body**: `{"enable": true}`
-- **Response `200 OK`**: `{"ok": true, "bt_running": true}`
+- **Response `200 OK`**: `{"ok": true, "bt_enabled": true, "bt_running": false}`. `bt_enabled` is
+  the new setting; `bt_running` is the process at the time of the answer, so right after "on" it is
+  usually still `false`: read `GET /api/services` again to see the supervisor start it.
 
 ### 1.7 Hub Logs
 #### `GET /api/logs?source={daemon|btstack|rf|system|network}`

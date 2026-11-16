@@ -763,9 +763,12 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             }
             system("killall -9 hub_btstack 2>/dev/null");
         }
+        /* bt_running is the process now, not the request: after "on" the supervisor starts
+         * hub_btstack within about 5 s, so it is usually still false here */
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
-        cJSON_AddBoolToObject(st, "bt_running", enable);
+        cJSON_AddBoolToObject(st, "bt_enabled", enable);
+        cJSON_AddBoolToObject(st, "bt_running", enable ? is_proc_running("hub_btstack") : 0);
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
@@ -972,32 +975,22 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        int ok = 0;
-        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-        if (bfd >= 0) {
-            if (target[0]) {
-                char thdr[64];
-                snprintf(thdr, sizeof(thdr), "TARGET %s\n", target);
-                write(bfd, thdr, strlen(thdr));
-            }
-            char pipe_cmd[128];
-            if (strcasecmp(action, "click") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", b);
-            } else if (strcasecmp(action, "down") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", b);
-            } else if (strcasecmp(action, "up") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", b);
-            } else if (strcasecmp(action, "wheel") == 0) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
-            } else {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
-            }
-            if (write(bfd, pipe_cmd, strlen(pipe_cmd)) > 0) ok = 1;
-            close(bfd);
+        char pipe_cmd[128];
+        if (strcasecmp(action, "click") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", b);
+        } else if (strcasecmp(action, "down") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", b);
+        } else if (strcasecmp(action, "up") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", b);
+        } else if (strcasecmp(action, "wheel") == 0) {
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
+        } else {
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
         }
+        int ok = hub_bt_pipe_send(target, pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", ok);
         send_cjson_resp(client_fd, 200, st);
