@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <time.h>
 #include <stdarg.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -45,24 +46,31 @@ static int g_rf_mock_fd = -1;
 static int g_i2s_rx_mock_fd = -1;
 static int g_i2s_tx_mock_fd = -1;   /* write-only /dev/i2s: <mock>/i2s_tx, ioctls succeed */
 
+/* Looked up once for the whole process. Threads that call an interposed function at the same
+ * time used to see real_open already set while real_read was still NULL (the old check tested
+ * real_open only) and called a NULL pointer: an occasional crash in tests that start threads. */
+static pthread_once_t s_real_once = PTHREAD_ONCE_INIT;
+
+static void lookup_real_functions(void) {
+    real_open = dlsym(RTLD_NEXT, "open");
+    real_open64 = dlsym(RTLD_NEXT, "open64");
+    real_close = dlsym(RTLD_NEXT, "close");
+    real_read = dlsym(RTLD_NEXT, "read");
+    real_ioctl = dlsym(RTLD_NEXT, "ioctl");
+    real_mmap = dlsym(RTLD_NEXT, "mmap");
+    real_fopen = dlsym(RTLD_NEXT, "fopen");
+    real_fopen64 = dlsym(RTLD_NEXT, "fopen64");
+    real_unlink = dlsym(RTLD_NEXT, "unlink");
+    real_stat = dlsym(RTLD_NEXT, "stat");
+    real_rename = dlsym(RTLD_NEXT, "rename");
+    real_xstat = dlsym(RTLD_NEXT, "__xstat");
+    real_access = dlsym(RTLD_NEXT, "access");
+    if (!real_open64) real_open64 = real_open;
+    if (!real_fopen64) real_fopen64 = real_fopen;
+}
+
 static void init_real_functions(void) {
-    if (!real_open) {
-        real_open = dlsym(RTLD_NEXT, "open");
-        real_open64 = dlsym(RTLD_NEXT, "open64");
-        real_close = dlsym(RTLD_NEXT, "close");
-        real_read = dlsym(RTLD_NEXT, "read");
-        real_ioctl = dlsym(RTLD_NEXT, "ioctl");
-        real_mmap = dlsym(RTLD_NEXT, "mmap");
-        real_fopen = dlsym(RTLD_NEXT, "fopen");
-        real_fopen64 = dlsym(RTLD_NEXT, "fopen64");
-        real_unlink = dlsym(RTLD_NEXT, "unlink");
-        real_stat = dlsym(RTLD_NEXT, "stat");
-        real_rename = dlsym(RTLD_NEXT, "rename");
-        real_xstat = dlsym(RTLD_NEXT, "__xstat");
-        real_access = dlsym(RTLD_NEXT, "access");
-        if (!real_open64) real_open64 = real_open;
-        if (!real_fopen64) real_fopen64 = real_fopen;
-    }
+    pthread_once(&s_real_once, lookup_real_functions);
 }
 
 static const char *get_mock_dir(void) {
