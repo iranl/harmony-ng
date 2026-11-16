@@ -4,7 +4,9 @@
  * a second sender took the first one's ACK, so a wake to a sleeping remote was reported as
  * acknowledged, and a frame the remote never ACKed as delivered. Runs the real hub_rf sources
  * (main renamed) with /dev/rfspi replaced by a socket pair: rx_worker() reads the "radio" end,
- * where a thread plays two remotes, slot 1 awake (ACKs after 20 ms) and slot 2 asleep. */
+ * where a thread plays two remotes, slot 1 awake (ACKs after 20 ms) and slot 2 asleep.
+ * Also checks the link counters: a resend is a retry of the thread that sends it, whatever
+ * other threads send in between. */
 #undef main
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +65,31 @@ static void *stream_worker(void *arg) {
         if (r == 0 && s_lossy && i % 5 == 0) st->lost_reported_ok++;
     }
     st->done = 1;
+    return NULL;
+}
+
+/* Sends one frame to the sleeping remote in slot 2 twice, as a sender resends a frame that got
+ * no ACK */
+static volatile int s_resend_done;
+static void *resend_worker(void *arg) {
+    (void)arg;
+    rf_frame_t f;
+    uint8_t pl[1] = {7};
+    rf_build_frame(&f, 2, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, pl, sizeof(pl));
+    rf_send_frame_acked(&f, 200);
+    rf_send_frame_acked(&f, 200);
+    s_resend_done = 1;
+    return NULL;
+}
+
+static volatile int s_other_done;
+static void *other_worker(void *arg) {
+    (void)arg;
+    rf_frame_t f;
+    uint8_t pl[1] = {8};
+    rf_build_frame(&f, 2, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, pl, sizeof(pl));
+    rf_send_frame_acked(&f, 200);
+    s_other_done = 1;
     return NULL;
 }
 
@@ -129,6 +156,20 @@ int main(void) {
     rf_build_frame(&f, 1, RF_MSG_SETTINGS_PUSH, ++g_tx_seq, RF_FLAG_ACK_REQ, pl, sizeof(pl));
     CHECK(rf_send_frame_acked(&f, 500) == 0 && g_ack_status == 0, "the ACK of the remote in slot 1 was not taken");
 
+    /* 5. Link counters: one thread resends its frame to slot 2 while another thread's frame
+     * to slot 2 waits for its turn. The resend is a retry; the other frame is not. With one
+     * shared record of the last frame, the waiting thread overwrote it and the retry was missed. */
+    uint32_t sent0 = g_remote_link[1].acked_sent, retries0 = g_remote_link[1].retries;
+    pthread_create(&ta, NULL, resend_worker, NULL);
+    usleep(50000);
+    pthread_create(&tb, NULL, other_worker, NULL);
+    wait_flag(&s_resend_done);
+    wait_flag(&s_other_done);
+    CHECK(g_remote_link[1].acked_sent - sent0 == 3, "3 ACKed sends to slot 2, counted %u",
+          g_remote_link[1].acked_sent - sent0);
+    CHECK(g_remote_link[1].retries - retries0 == 1, "1 resend to slot 2, counted %u retries",
+          g_remote_link[1].retries - retries0);
+
     s_stop = 1;
     g_running = false;
     shutdown(sv[1], SHUT_RDWR);
@@ -138,6 +179,6 @@ int main(void) {
         printf("[-] test_rf_ack_match: %d failure(s)\n", s_failures);
         return 1;
     }
-    printf("[+] test_rf_ack_match: each ACKed send gets its own ACK, from its own slot\n");
+    printf("[+] test_rf_ack_match: each ACKed send gets its own ACK, from its own slot, and counts its own resends\n");
     return 0;
 }

@@ -144,15 +144,17 @@ static void ack_pipe_drain(void) {
 }
 
 int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
-    /* A send of the same frame as the last one to this remote is a retry */
-    static struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
+    /* A send of the same frame as this thread's last one to this remote is a retry. Kept per
+     * thread: each sender resends only its own frames, and with one shared record another
+     * thread's send in between (even one still waiting for the busy flag) hid the retry. */
+    static __thread struct { uint8_t seq, type; bool valid; } s_last[MAX_PAIRED_REMOTES];
     int li = link_idx(frame->dev_slot ? frame->dev_slot : (g_remote_slot ? g_remote_slot : 0x01));
+    bool retry = false;
     if (li >= 0) {
-        if (s_last[li].valid && s_last[li].seq == frame->seq && s_last[li].type == frame->msg_type) g_remote_link[li].retries++;
+        retry = s_last[li].valid && s_last[li].seq == frame->seq && s_last[li].type == frame->msg_type;
         s_last[li].seq = frame->seq;
         s_last[li].type = frame->msg_type;
         s_last[li].valid = true;
-        g_remote_link[li].acked_sent++;
     }
 
     pthread_mutex_lock(&g_ack_mutex);
@@ -162,6 +164,11 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
         pthread_mutex_lock(&g_ack_mutex);
     }
     g_acked_tx_busy = 1;
+    /* the link counters change under g_ack_mutex: several threads send */
+    if (li >= 0) {
+        g_remote_link[li].acked_sent++;
+        if (retry) g_remote_link[li].retries++;
+    }
     ack_pipe_open_locked();
     ack_pipe_drain();   /* a byte from an earlier ACK must not end this wait */
     g_pending_ack_seq = frame->seq;
@@ -201,10 +208,10 @@ int rf_send_frame_acked(rf_frame_t *frame, int timeout_ms) {
     if (ok) {
         g_ack_status = g_ack_result_status;
         memcpy(g_ack_payload, g_ack_result_payload, sizeof(g_ack_payload));
+        if (li >= 0) g_remote_link[li].acked_ok++;
     }
     g_acked_tx_busy = 0;
     pthread_mutex_unlock(&g_ack_mutex);
-    if (ok && li >= 0) g_remote_link[li].acked_ok++;
     return ok ? 0 : -1;
 }
 
