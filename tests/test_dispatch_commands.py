@@ -4,7 +4,7 @@ Command dispatch and IR codes (daemon in --dry-run, sends read from its log):
 - device matching tries every id before any name
 - Connect / Disconnect are accepted for a job only when the device lists them, as the sender
 - dry run: the delayed Bluetooth reconnect script is not started
-- long codes are sent whole or refused, never cut
+- long codes are sent whole or refused, never cut; a raw Harmony code given to ir-send is sent
 - command jobs: total length capped, a queued command says so, cancel_commands / cancel_activity
   drop the jobs
 """
@@ -170,6 +170,11 @@ def main():
                   "a saved code of %d characters is sent whole" % len(full), "%s" % st)
             st, r = hub.http_post("/api/ir-send", {"deviceId": "1", "command": "TooLong"})
             check(st == 500, "a raw code with more timings than the encoder takes is refused", "%s %s" % (st, r))
+            mark = log_len(log_path)
+            st, r = hub.http_post("/api/ir-send", {"raw": OTHER_POWERON})
+            log = log_since(log_path, mark)
+            check(st == 200 and ("IR Keycode simulated: " + OTHER_POWERON + " (") in log,
+                  "a raw Harmony code (F<carrier>P..S..) given to ir-send is sent", "%s %s" % (st, r))
             st, r = hub.http_post("/api/ir-test-learned", {"deviceId": "1", "raw": long_raw(1100)})
             check(st == 400, "ir-test-learned refuses it too, instead of playing a cut copy", "%s %s" % (st, r))
             mark = log_len(log_path)

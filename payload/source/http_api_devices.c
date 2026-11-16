@@ -252,7 +252,9 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         int rc = -1;
         if (pronto_buf) {
             rc = hw_ir_send_pronto(pronto_buf, (uint8_t)port, (uint8_t)repeats);
-            if (rc != 0 && strncmp(pronto_buf, "G:", 2) == 0) {
+            /* Harmony codes (G:<protocol>:... and the raw timing form F<carrier>P..S..) are not
+             * Pronto: the keycode sender takes them */
+            if (rc != 0 && (strncmp(pronto_buf, "G:", 2) == 0 || pronto_buf[0] == 'F' || pronto_buf[0] == 'f')) {
                 rc = hw_ir_send_harmony_keycode(pronto_buf, (uint8_t)port, (uint8_t)repeats);
             }
             free(pronto_buf);
