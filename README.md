@@ -262,7 +262,8 @@ python -m pip install pyyaml aioharmony==1.0.8
 ./tests/run_host_tools.sh     # host tools tests
 ```
 
-CI runs both on Python 3.13, as two jobs. The firmware tests run on every change: they need
+CI runs both on Python 3.13. The firmware tests run on every change, split in four groups on
+separate machines at the same time (`SUITE_GROUP=1` to `4` runs one group locally): they need
 `gcc`, build `hub_daemon` and the other firmware code for the PC and run it against mock
 hardware. The host tools tests (install, deploy, backup, recovery, migration and build tools)
 run when a `.py` file or `build/`, `remote/`, `scripts/` or `tools/` changes. Neither needs a
