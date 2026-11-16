@@ -702,7 +702,8 @@ static int send_match_in(cJSON *root, const char *target, int match_mode, const 
                 close(bfd);
                 ret = (w == mlen) ? 0 : -1;
                 if (ret != 0) {
-                    printf("[!] Bluetooth key not handed to hub_btstack (%s): %s", w < 0 ? strerror(werr) : "short write", pipe_cmd);
+                    printf("[!] Bluetooth key not handed to hub_btstack (%s): %.*s\n", w < 0 ? strerror(werr) : "short write",
+                           (int)strcspn(pipe_cmd, "\n"), pipe_cmd);
                 }
             } else {
                 ret = -1;

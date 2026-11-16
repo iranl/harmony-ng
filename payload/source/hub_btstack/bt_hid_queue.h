@@ -42,7 +42,9 @@ int hidq_pending_any(void);
 unsigned hidq_waits(void);   /* reports that had to wait, since start */
 unsigned hidq_dropped(void); /* reports dropped because a queue was full, since start */
 
-/* A release report: everything after the report id is zero */
+/* A release report: everything after the report id is zero. Holds for the reports of the
+ * Hub's HID descriptor (keyboard, consumer, mouse: no key and no button = all zero); a report
+ * added later whose idle state is not all zero needs its own rule here. */
 int hidq_is_release(const uint8_t *report, uint16_t len);
 
 #endif
