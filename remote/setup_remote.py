@@ -40,6 +40,14 @@ REPO_DIR = SCRIPT_DIR.parent
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
+# Shared SSH host key policy: tools/ssh_hostkeys.py (this file is in tools/ in a release bundle)
+for _hk_dir in (SCRIPT_DIR, SCRIPT_DIR.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
+
 from tools.usb_state import (
     detect_remote_usb_state,
     print_usb_state_banner,
@@ -284,14 +292,27 @@ def wait_for_ssh(ip: str = REMOTE_IP, port: int = 22, timeout_s: int = 60) -> bo
 def remote_ssh_cmd(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> list[str]:
     return [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(ip),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
         "-o", "LogLevel=ERROR",
         "-i", str(priv_path),
         f"root@{ip}",
     ]
+
+
+def forget_remote_host_key() -> None:
+    """Rooting a remote and installing SSH on it gives it a new host key, and every remote
+    answers at the same address: forget the recorded key, so the next connection records
+    the key of the remote that is on the USB cable now."""
+    try:
+        removed = ssh_hostkeys.forget_host(REMOTE_IP)
+    except OSError as e:
+        # Never end the setup here: the next connection names --reset-host-key if the old key stays
+        print(f"[!] Could not forget the recorded SSH host key of {REMOTE_IP}: {e.strerror or e}")
+        return
+    if removed:
+        print(f"[*] Forgot the recorded SSH host key of {REMOTE_IP} (SSH was just installed on this remote).")
 
 
 def find_local_arm_busybox() -> pathlib.Path | None:
@@ -346,6 +367,12 @@ def backup_remote(priv_path: pathlib.Path, ip: str = REMOTE_IP) -> pathlib.Path 
     ssh = remote_ssh_cmd(priv_path, ip)
     staged = False
     try:
+        reach = subprocess.run(ssh + ["true"], capture_output=True, text=True, timeout=30, check=False)
+        if reach.returncode != 0:
+            if not ssh_hostkeys.report_failure(reach.stderr, ip):
+                print(f"[-] Cannot log in to the remote over SSH: {(reach.stderr or '').strip()}")
+            print("[-] Backup skipped.")
+            return None
         bb = find_remote_tar_busybox(ssh)
         if not bb:
             local_bb = find_local_arm_busybox()
@@ -519,6 +546,7 @@ def step1_enable_usb_debug(pubkey_str: str, skip_fw_check: bool = False) -> bool
             print("[+] Remote is rebooting into rooted firmware multi-user mode!")
         except Exception as e:
             print(f"[-] Reboot exception (expected if device disconnects): {e}")
+        forget_remote_host_key()
         return True
     except Exception as e:
         print(f"[-] Error over USB HID: {e}")
@@ -658,16 +686,20 @@ def ensure_ssh_key(key_path: pathlib.Path | None = None) -> pathlib.Path:
 def update_ssh_config(key_path: pathlib.Path, write: bool = False) -> None:
     """Offer a Host entry for ~/.ssh/config; write it only when asked (--ssh-config).
 
-    Every remote has the same address over USB and a new host key after each rooting, so
-    the entry does not pin the key (as the project's tools do not)."""
+    The entry uses the host key policy of the project's tools: the key is recorded in the
+    project's known_hosts file and checked. Every remote answers at the same address and
+    gets a new host key when it is rooted; setup_remote.py forgets the old key when it
+    installs SSH, and the tools' --reset-host-key does it by hand."""
     config_path = pathlib.Path.home() / ".ssh" / "config"
     config_entry = (
         f"\nHost {REMOTE_IP} harmony-remote\n"
         f"    HostName {REMOTE_IP}\n"
         f"    User root\n"
         f"    IdentityFile {key_path}\n"
-        f"    StrictHostKeyChecking no\n"
-        f"    UserKnownHostsFile /dev/null\n"
+        f"    StrictHostKeyChecking accept-new\n"
+        f"    UserKnownHostsFile {ssh_hostkeys.known_hosts_value()}\n"
+        f"    HostKeyAlias {ssh_hostkeys.entry_name(REMOTE_IP)}\n"
+        f"    CheckHostIP no\n"
     )
     try:
         existing = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
@@ -809,12 +841,12 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     rce("killall -9 dropbearmulti dropbear 2>/dev/null; /usr/sbin/dropbear -R -p 0.0.0.0:22")
     time.sleep(1)
 
-    # 9. Verify SSH connection
+    # 9. Verify SSH connection (the first connection records the remote's host key)
+    forget_remote_host_key()
     print("[*] Verifying SSH connectivity...")
     test_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", str(pub_path.with_suffix("")),
@@ -825,7 +857,8 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
         res = subprocess.run(test_cmd, capture_output=True, text=True, check=True)
         print(f"[+] Remote response:\n    {res.stdout.strip()}")
     except subprocess.CalledProcessError as e:
-        print(f"[-] SSH verification error: {e.stderr.strip()}")
+        if not ssh_hostkeys.report_failure(e.stderr, REMOTE_IP):
+            print(f"[-] SSH verification error: {e.stderr.strip()}")
         return False
 
     # Back up the remote before the HarmonyNG runtime changes /data
@@ -838,8 +871,7 @@ def step2_install_permanent_ssh(pub_path: pathlib.Path, no_screen: bool = False,
     print("=" * 70)
     priv_path = pub_path.with_suffix("")
     ssh_opts = [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
+        *ssh_hostkeys.ssh_options(REMOTE_IP),
         "-o", "BatchMode=yes",
         "-i", str(priv_path),
     ]
@@ -946,6 +978,7 @@ def main():
     parser.add_argument("--no-backup", action="store_true", help="Do not back up the remote after SSH comes up.")
     parser.add_argument("--ssh-config", action="store_true",
                         help="Add a 'harmony-remote' entry to ~/.ssh/config (otherwise it is only printed).")
+    ssh_hostkeys.add_reset_option(parser, f"the remote ({REMOTE_IP})")
     args = parser.parse_args()
 
     # Pre-execution USB & Network State Detection
@@ -999,6 +1032,11 @@ def main():
         print("[+] The reset script arrived intact and runs now: the remote reboots into the official")
         print("    stock firmware when it is done.")
         sys.exit(0)
+
+    # Before step 1 or 2 change the remote: a stop here leaves it untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(REMOTE_IP)
 
     pub_path = ensure_ssh_key(args.key)
     priv_path = pub_path.with_suffix("")

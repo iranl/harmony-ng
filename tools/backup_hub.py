@@ -26,6 +26,12 @@ import subprocess
 import sys
 import tarfile
 
+# Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
+_HK_DIR = pathlib.Path(__file__).resolve().parent
+if str(_HK_DIR) not in sys.path:
+    sys.path.append(str(_HK_DIR))
+import ssh_hostkeys  # noqa: E402
+
 
 def find_default_ssh_key() -> str | None:
     """Find newest harmony_owner key or standard SSH key."""
@@ -53,7 +59,8 @@ def find_default_ssh_key() -> str | None:
 
 
 def get_ssh_cmd(host: str, user: str = "root", key_path: str | None = None) -> list[str]:
-    cmd = ["ssh", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+    # LogLevel=ERROR, not -q: a host key failure must still be printed
+    cmd = ["ssh", "-o", "LogLevel=ERROR", "-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(host)]
     if key_path and os.path.isfile(key_path):
         cmd.extend(["-i", key_path])
     cmd.append(f"{user}@{host}")
@@ -168,6 +175,8 @@ def backup_hub(
     # The Hub is a MIPS board; the remote (ARM) answers on the same key at 192.168.2.1
     arch = subprocess.run(ssh_base + ["uname -m"], capture_output=True, text=True)
     machine = (arch.stdout or "").strip()
+    if arch.returncode != 0 and ssh_hostkeys.report_failure(arch.stderr, hub_host):
+        return False
     if arch.returncode != 0 or not machine.startswith("mips"):
         print(f"[-] {hub_host} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was saved. "
               "For the remote use remote/setup_remote.py --backup.")
@@ -283,7 +292,12 @@ def main() -> None:
     parser.add_argument("--key", help="Path to SSH private key")
     parser.add_argument("--backup-dir", type=pathlib.Path, help="Custom local backup directory")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be backed up without saving files")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(args.host)
 
     success = backup_hub(
         hub_host=args.host,

@@ -21,6 +21,14 @@ import sys
 import tarfile
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+
+# Shared SSH host key policy: tools/ssh_hostkeys.py (tools/ next to this script in a release bundle)
+for _hk_dir in (SCRIPT_DIR, SCRIPT_DIR / "tools", SCRIPT_DIR.parent / "tools"):
+    if (_hk_dir / "ssh_hostkeys.py").is_file():
+        if str(_hk_dir) not in sys.path:
+            sys.path.append(str(_hk_dir))
+        break
+import ssh_hostkeys  # noqa: E402
 BIN_DIR = SCRIPT_DIR / "bin"
 RCS_LOCAL_FILE = SCRIPT_DIR / "rcS.local"
 THEMES_DIR = BIN_DIR / "themes"
@@ -255,7 +263,12 @@ def main() -> None:
                         help="Run only the ready-to-go check, which changes nothing on the remote")
     parser.add_argument("--no-screen", action="store_true",
                         help="Run remote_ui in no-screen mode (for remotes with a broken screen)")
+    ssh_hostkeys.add_reset_option(parser, "the remote")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(args.ip)
 
     if not args.factory_reset:
         wrong = wrong_arch_files()
@@ -265,7 +278,7 @@ def main() -> None:
 
     target = f"{args.user}@{args.ip}"
     # The keepalive ends a command within 15 s if the remote resets, rather than waiting forever
-    ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+    ssh_opts = ["-o", "BatchMode=yes", *ssh_hostkeys.ssh_options(args.ip), "-o", "LogLevel=ERROR",
                 "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
     key = args.key if args.key and args.key.is_file() else default_ssh_key()
     if key:
@@ -284,8 +297,9 @@ def main() -> None:
     print("[*] Testing SSH connection...")
     probe = run_cmd(["ssh"] + ssh_opts + [target, "uname -a"])
     if probe.returncode != 0:
-        print(f"[-] Cannot connect to {target} over SSH: {probe.stderr.strip()}")
-        print("    Verify USB cable is connected and PC interface is set to 192.168.2.2/24.")
+        if not ssh_hostkeys.report_failure(probe.stderr, args.ip):
+            print(f"[-] Cannot connect to {target} over SSH: {probe.stderr.strip()}")
+            print("    Verify USB cable is connected and PC interface is set to 192.168.2.2/24.")
         sys.exit(1)
     print(f"[+] Remote system online: {probe.stdout.strip()}")
 

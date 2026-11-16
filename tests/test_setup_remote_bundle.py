@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import pathlib
 import shutil
 import subprocess
@@ -25,11 +26,16 @@ REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 class SetupRemoteBundle(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        # Host keys go to a private file, never to the user's ~/.ssh
+        env = mock.patch.dict(os.environ, {"HARMONY_KNOWN_HOSTS": str(pathlib.Path(self.tmp.name) / "known_hosts")})
+        env.start()
+        self.addCleanup(env.stop)
         bundle = pathlib.Path(self.tmp.name) / "bundle"
         (bundle / "tools").mkdir(parents=True)
         (bundle / "bin").mkdir()
         shutil.copy(REPO_DIR / "remote" / "setup_remote.py", bundle / "tools" / "setup_remote.py")
         shutil.copy(REPO_DIR / "tools" / "usb_state.py", bundle / "tools" / "usb_state.py")
+        shutil.copy(REPO_DIR / "tools" / "ssh_hostkeys.py", bundle / "tools" / "ssh_hostkeys.py")
         for name in ("rcS.local", "init.sh", "remote_watchdog.sh"):
             shutil.copy(REPO_DIR / "remote" / name, bundle / name)
         shutil.copy(REPO_DIR / "remote" / "b64dec_tiny", bundle / "bin" / "b64dec_tiny")

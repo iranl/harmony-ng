@@ -37,7 +37,8 @@ from typing import Any, Dict, List, Optional, Tuple
 TRANSPORT_IR = 1
 TRANSPORT_BT = 32
 
-# Device ids longer than this never match on the Hub's RF side (shorten_stock_device_ids())
+# The RF protocol carries this many bytes of a device id: a longer id never matches on the
+# Hub's RF side, so the migration gives such devices short ids (shorten_long_device_ids())
 RF_DEVICE_ID_MAX = 4
 
 # Delay for migrated input steps when the stock InputFeature has none (ms)
@@ -276,9 +277,10 @@ def migrate_stock_devices(device_list_path: str, function_list_path: Optional[st
                 "keyCode": key_code,
                 "raw": raw_str
             }
+            # No "repeats": stock keeps a repeat count per device (PressMinRepeats), not per
+            # command, and a held key repeats on the Hub by itself. The Hub's default applies.
             if not is_bt and not is_mqtt:
                 cmd_obj["port"] = control_port
-                cmd_obj["repeats"] = _int(c.get("Repeats"), 3)
 
             clean_cmds.append(cmd_obj)
 
@@ -535,12 +537,21 @@ def migrate_stock_activities(activity_list_path: str, device_list_path: Optional
     return {"activities": clean_activities}, id_map
 
 
+# Keys whose value is a device id: steps, power sequences, Bluetooth trigger, remote map buttons
+DEVICE_REF_KEYS = ("deviceId", "DeviceId", "DeviceId-", "btTriggerDeviceId", "targetDevice")
+
+
+def rf_id_too_long(device_id: Any) -> bool:
+    """True when the id does not fit the RF device id field (bytes, not characters)."""
+    return len(str(device_id).encode("utf-8")) > RF_DEVICE_ID_MAX
+
+
 def _remap_device_refs(obj: Any, dev_map: Dict[str, str]) -> Any:
     """Recursively rewrite device id references (deviceId / DeviceId / DeviceId- keys)."""
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
-            if k in ("deviceId", "DeviceId", "DeviceId-", "btTriggerDeviceId") and str(v) in dev_map:
+            if k in DEVICE_REF_KEYS and str(v) in dev_map:
                 out[k] = dev_map[str(v)]
             else:
                 out[k] = _remap_device_refs(v, dev_map)
@@ -548,6 +559,27 @@ def _remap_device_refs(obj: Any, dev_map: Dict[str, str]) -> Any:
     if isinstance(obj, list):
         return [_remap_device_refs(v, dev_map) for v in obj]
     return obj
+
+
+def apply_device_id_map(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]],
+                        dev_map: Dict[str, str]) -> None:
+    """Rewrite device ids (old -> new) in the devices and every reference to them in the
+    devices (power sequences, Bluetooth trigger) and the activities, in place."""
+    if not dev_map:
+        return
+    devices_obj["devices"] = [_remap_device_refs(d, dev_map) for d in devices_obj.get("devices", [])]
+    for d in devices_obj["devices"]:
+        old_id = str(d.get("id", ""))
+        if old_id in dev_map:
+            d["id"] = dev_map[old_id]
+
+    if activities_obj:
+        acts = []
+        for a in activities_obj.get("activities", []):
+            a = _remap_device_refs(a, dev_map)
+            a["deviceIds"] = [dev_map.get(str(did), str(did)) for did in a.get("deviceIds", [])]
+            acts.append(a)
+        activities_obj["activities"] = acts
 
 
 def shorten_stock_device_ids(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -565,22 +597,7 @@ def shorten_stock_device_ids(devices_obj: Dict[str, Any], activities_obj: Option
             continue
         dev_map[old_id] = str(next_id)
         next_id += 1
-    if not dev_map:
-        return dev_map
-
-    devices_obj["devices"] = [_remap_device_refs(d, dev_map) for d in devices_obj.get("devices", [])]
-    for d in devices_obj["devices"]:
-        old_id = str(d.get("id", ""))
-        if old_id in dev_map:
-            d["id"] = dev_map[old_id]
-
-    if activities_obj:
-        acts = []
-        for a in activities_obj.get("activities", []):
-            a = _remap_device_refs(a, dev_map)
-            a["deviceIds"] = [dev_map.get(str(did), str(did)) for did in a.get("deviceIds", [])]
-            acts.append(a)
-        activities_obj["activities"] = acts
+    apply_device_id_map(devices_obj, activities_obj, dev_map)
     return dev_map
 
 
@@ -767,22 +784,72 @@ def remap_remote_map_devices(map_obj: Any, dev_map: Dict[str, str]) -> Any:
     return out
 
 
-def shorten_long_device_ids(devices_obj: Optional[Dict[str, Any]], activities_obj: Optional[Dict[str, Any]],
-                            warnings: List[str]) -> Dict[str, str]:
-    """Shorten device ids the RF config push cannot carry, on any import path.
+def collect_device_refs(obj: Any) -> set:
+    """Every device id an object refers to: DEVICE_REF_KEYS values, "deviceIds" lists and the
+    keys of a remote map's "devices" object."""
+    refs: set = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in DEVICE_REF_KEYS and isinstance(v, (str, int)) and not isinstance(v, bool):
+                refs.add(str(v))
+            elif k == "deviceIds" and isinstance(v, list):
+                refs.update(str(x) for x in v if isinstance(x, (str, int)) and not isinstance(x, bool))
+            elif k == "devices" and isinstance(v, dict):
+                refs.update(str(x) for x in v)
+            refs |= collect_device_refs(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            refs |= collect_device_refs(v)
+    return refs
 
-    An import made before stock ids were shortened still holds 8-digit ids. Returns the
-    old -> new map (empty when every id already fits)."""
+
+def shorten_long_device_ids(devices_obj: Optional[Dict[str, Any]], activities_obj: Optional[Dict[str, Any]],
+                            warnings: List[str], maps: Optional[List[Any]] = None) -> Dict[str, str]:
+    """Give a short id to every device whose id the RF protocol cannot carry, on any import path.
+
+    A harmony-ng config or bundle can hold long ids (an import made before stock ids were
+    shortened, or devices added by other tools). Devices whose id already fits keep it; each
+    long id gets the lowest free number that no device has and nothing refers to: a reference
+    left over from a deleted device (in the activities, the devices or the remote maps given in
+    maps) never ends up pointing at a renumbered device, and map keys never collide. Every
+    reference follows (activities, power sequences, Bluetooth trigger; the caller remaps the
+    remote maps). Returns the old -> new map (empty when every id already fits)."""
     if not devices_obj:
         return {}
-    if not any(len(str(d.get("id", ""))) > RF_DEVICE_ID_MAX for d in devices_obj.get("devices", [])
-               if isinstance(d, dict)):
-        return {}
-    dev_map = shorten_stock_device_ids(devices_obj, activities_obj)
+    devs = [d for d in devices_obj.get("devices", []) if isinstance(d, dict)]
+    used = {str(d.get("id", "")) for d in devs if not rf_id_too_long(d.get("id", ""))}
+    used |= collect_device_refs(devices_obj) | collect_device_refs(activities_obj) | collect_device_refs(maps or [])
+    dev_map: Dict[str, str] = {}
+    next_id = 1
+    for d in devs:
+        old_id = str(d.get("id", ""))
+        if not rf_id_too_long(old_id) or old_id in dev_map:
+            continue
+        while str(next_id) in used:
+            next_id += 1
+        dev_map[old_id] = str(next_id)
+        used.add(str(next_id))
     if dev_map:
-        warnings.append(f"device ids longer than {RF_DEVICE_ID_MAX} characters were renumbered: "
+        apply_device_id_map(devices_obj, activities_obj, dev_map)
+        warnings.append(f"device ids longer than the {RF_DEVICE_ID_MAX} bytes the RF protocol carries were renumbered: "
                         + ", ".join(f"{o} -> {n}" for o, n in dev_map.items()))
     return dev_map
+
+
+def _read_config_maps(cfg_dir: Optional[str]) -> List[Any]:
+    """The remote maps of a config folder, read only for the device ids they refer to."""
+    maps: List[Any] = []
+    if not cfg_dir:
+        return maps
+    for name in ("remote_slot1_map.json", "elite_remote_map.json", "remote_slot2_map.json", "bt_remote_map.json"):
+        path = os.path.join(cfg_dir, name)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    maps.append(json.load(f))
+            except (OSError, ValueError):
+                pass  # read again (and reported) when the map itself is migrated
+    return maps
 
 
 def check_step_commands(devices_obj: Dict[str, Any], activities_obj: Optional[Dict[str, Any]],
@@ -1085,6 +1152,18 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         activities_obj, id_map = migrate_stock_activities(act_list, dev_list, warnings)
         activities_from_stock = True
 
+    # Legacy bt-devices.json: its host addresses go into devices.json. Its ids are the ids of
+    # the same config's devices.json, so it is merged before any id is renumbered.
+    if cfg_dir and devices_obj and not devices_from_stock:
+        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
+            if os.path.isfile(cand_b):
+                try:
+                    with open(cand_b, "r", encoding="utf-8") as f:
+                        merge_bt_device_hosts(devices_obj, json.load(f))
+                except (OSError, ValueError) as e:
+                    warnings.append(f"{os.path.basename(cand_b)} not merged: {e}")
+                break
+
     # Stock device ids are 8+ digits; give them short ids like the activities
     dev_map: Dict[str, str] = {}
     if devices_from_stock and devices_obj:
@@ -1092,7 +1171,7 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         check_step_commands(devices_obj, activities_obj, warnings)
     else:
         # A config from an older import can still hold stock ids; its maps follow the new ids
-        dev_map = shorten_long_device_ids(devices_obj, activities_obj, warnings)
+        dev_map = shorten_long_device_ids(devices_obj, activities_obj, warnings, _read_config_maps(cfg_dir))
     cfg_dev_map = {} if devices_from_stock else dev_map
 
     # Stock remote maps (MapList.json) and activity roles, for a full stock import
@@ -1104,17 +1183,6 @@ def migrate_directory(source_root: str, dest_harmony: str) -> Dict[str, Any]:
         map_list = os.path.join(res_dir, "MapList.json")
         if os.path.isfile(map_list):
             stock_maps = generate_stock_remote_maps(map_list, devices_obj, dev_map, id_map, warnings)
-
-    # Legacy bt-devices.json: its host addresses go into devices.json
-    if cfg_dir and devices_obj:
-        for cand_b in [os.path.join(cfg_dir, "bt-devices.json"), os.path.join(cfg_dir, "bt_devices.json")]:
-            if os.path.isfile(cand_b):
-                try:
-                    with open(cand_b, "r", encoding="utf-8") as f:
-                        merge_bt_device_hosts(devices_obj, json.load(f))
-                except (OSError, ValueError) as e:
-                    warnings.append(f"{os.path.basename(cand_b)} not merged: {e}")
-                break
 
     # Write devices.json and activities.json
     if devices_obj:
@@ -1257,7 +1325,9 @@ def migrate_bundle_file(bundle_path: str, dest_harmony: str) -> Dict[str, Any]:
         act_obj, id_map = sanitize_activities_json(act_data)
 
     # A bundle from an older import can still hold stock device ids
-    dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings)
+    dev_map = shorten_long_device_ids(dev_obj, act_obj, warnings,
+                                      [bundle.get(k) for k in ("remote_slot1_map", "elite_remote_map",
+                                                               "remote_slot2_map", "bt_remote_map")])
 
     if dev_obj:
         with open(os.path.join(dest_harmony, "config", "devices.json"), "w", encoding="utf-8") as f:

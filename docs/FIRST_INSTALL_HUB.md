@@ -179,7 +179,7 @@ On the first deploy (no `/data/harmony/config/devices.json` on the Hub yet), the
 
 | Stock | HarmonyNG |
 | :--- | :--- |
-| Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...) |
+| Devices and their commands (`DeviceList.json`) | `devices.json`, with short device ids (`1`, `2`, ...). IR commands get no `repeats` field: stock keeps one repeat count per device. The Hub fills its default (`repeats: 3`) when it loads the file, so the IR frames sent per press do not change |
 | Power settings (`PowerFeature`): power-on delay, discrete on/off actions | Each device's `powerOnDelay`, `powerOnSequence` and `powerOffSequence`. Toggle-only devices keep empty sequences and use their `PowerToggle` command |
 | Activities, their devices and the input each device is set to (`ActivityList.json` roles) | `activities.json`, with the input commands at the start of each activity's start sequence |
 | Remote button maps (`MapList.json`) | `remote_slot1_map.json`: the keys of each activity, the keys of each device (device browser) and each activity's screen buttons |
@@ -201,6 +201,19 @@ python3 tools/migrate_hub_configs.py --src stock/resources --dest migrated
 ```
 
 To use the result, back up `/data/harmony` on the Hub first, copy `migrated/config/*` to `/data/harmony/config/` and `migrated/*.json` to `/data/harmony/`, then reboot the Hub.
+
+The tool also takes a HarmonyNG configuration folder or a backup bundle (`--src`). The RF protocol carries 4 bytes of a device id, so a device whose id is longer gets the lowest free number as its id (a number no device has and no activity or remote map refers to, so a reference left over from a deleted device never points at it); devices whose id fits keep it, and every reference follows (activities, power sequences, the Bluetooth trigger, the remote maps and the hosts of an old `bt-devices.json`). The migration lists each renumbered id in its warnings.
+
+### SSH host keys
+
+The host tools (`deploy_hub.py`, `backup_hub.py`, `root_hub_usb.py`, `restore_stock.py`, `factory_reset.py`, `deploy_remote.py`, `setup_remote.py`) record a device's SSH host key the first time they connect, in `~/.ssh/harmony_ng_known_hosts` (`$HARMONY_KNOWN_HOSTS` names another file), and refuse to connect when the device later shows a different key. A device that was rooted again, factory reset or replaced has a new key: the tool then stops and names `--reset-host-key`, which forgets the recorded key of that address, so the next connection records the new one. Check that the device at that address is yours before you reset its key.
+
+- The key is recorded under the address or name you give the tool, in lower case (`HostKeyAlias`), so `--reset-host-key` with the same address finds it. A Hub used by name and by address has one entry for each: after its key changed, reset it under each spelling you use.
+- The file belongs to the account that runs the tool: Windows and WSL, or a run with `sudo` and one without, each have their own. A key forgotten in one is still recorded in the other, and the tools run from there stop and name `--reset-host-key`.
+- If the file cannot be written (for example a `~/.ssh` owned by root after a run with `sudo`), the tools stop at their start, before any USB or device work, and name the file; fix its owner or set `$HARMONY_KNOWN_HOSTS`.
+- `accept-new` needs OpenSSH 7.6 or newer (Windows 10 and 11 ship a newer one). An older client refuses the option, and the tools report that they cannot reach the device.
+- An entry for the remote that an older `setup_remote.py` wrote to `~/.ssh/config` is not changed; only `ssh` by hand uses it.
+- If `root_hub_usb.py` meets a changed key after rooting, the Hub is rooted and only the stock backup is missing: `python tools/backup_hub.py <YOUR_HUB_IP> --reset-host-key` records the new key.
 
 ---
 

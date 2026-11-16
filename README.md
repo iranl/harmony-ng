@@ -197,9 +197,17 @@ While HarmonyNG restores complete local independence and dramatically reduces me
     ├── backup_hub.py       # Golden and rolling tar backups of the Hub's configuration over SSH
     ├── factory_reset.py    # Revert to stock: runs the device's factory_reset.sh (deletes settings and keys)
     ├── harmony_firmware.py # SUS firmware check, download, flasher & icon extractor
+    ├── harmony_hid.py      # USB HID client for the Hub and the touchscreen remotes (no dependencies)
+    ├── migrate_hub_configs.py # Stock, v1.x and backup-bundle configurations to today's devices/activities
+    ├── ota_sign.c          # Ed25519 key and signature tool for the OTA manifest (release workflow)
+    ├── remote_render/      # Draws the remote's screens on a computer with the firmware's code (PNG)
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
+    ├── rf_debug/           # rf_query and rf_sniff: CC2544 radio debug tools for the Hub
     ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
-    └── unbrick_recovery/   # SPI flash and Dropbear emergency recovery tools
+    ├── setup_remote_driver.ps1 # Windows: RNDIS driver and 192.168.2.2 for the remote's USB network
+    ├── ssh_hostkeys.py     # SSH host key policy shared by the host tools (--reset-host-key)
+    ├── unbrick_recovery/   # Tools to get Dropbear back onto a Hub without SSH (file receiver + sender)
+    └── usb_state.py        # USB device state, Windows driver and IP checks for the host tools
 ```
 
 ---

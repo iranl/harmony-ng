@@ -54,12 +54,16 @@ from tools.root_hub_usb import (
     WIFI_PASS_ENV,
 )
 
+# Shared SSH host key policy (tools/ssh_hostkeys.py, next to this file)
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.append(str(SCRIPT_DIR))
+import ssh_hostkeys  # noqa: E402
 
-def get_ssh_opts(priv_key_path: pathlib.Path | None = None) -> list[str]:
+
+def get_ssh_opts(priv_key_path: pathlib.Path | None, host: str) -> list[str]:
     opts = [
         "-o", "BatchMode=yes",  # never wait at a password prompt the user cannot see
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=" + ("NUL" if sys.platform == "win32" else "/dev/null"),
+        *ssh_hostkeys.ssh_options(host),
         "-o", "LogLevel=ERROR",
         "-o", "ConnectTimeout=10",
     ]
@@ -264,11 +268,13 @@ def restore_stock_configuration(
     backup_file: pathlib.Path,
     pure_stock: bool = False,
 ) -> None:
-    ssh_opts = get_ssh_opts(priv_key_path)
+    ssh_opts = get_ssh_opts(priv_key_path, hub_ip)
     target = f"root@{hub_ip}"
 
     # The Hub is a MIPS board; the remote (ARM) answers at 192.168.2.1 with the same key
     arch = run_ssh_cmd(target, "uname -m", ssh_opts)
+    if arch.returncode != 0 and ssh_hostkeys.report_failure(arch.stderr, hub_ip):
+        raise RuntimeError(f"the SSH host key of {hub_ip} does not match; nothing was changed")
     machine = arch.stdout.strip()
     if arch.returncode != 0 or not machine.startswith("mips"):
         raise RuntimeError(f"{hub_ip} is not a Harmony Hub (uname -m: {machine or 'no answer'}); nothing was changed")
@@ -423,7 +429,10 @@ def main() -> None:
     parser.add_argument("--pure-stock", action="store_true", help="Remove Dropbear SSH to return to 100%% factory state")
     parser.add_argument("--force", action="store_true", help="Bypass interactive confirmation prompt")
     parser.add_argument("--skip-usb-root", action="store_true", help="Skip USB HID root (use if Hub SSH is already online)")
+    ssh_hostkeys.add_reset_option(parser, "the Hub")
     args = parser.parse_args()
+    # Before any USB or device work: a stop here leaves the device untouched
+    ssh_hostkeys.require_known_hosts()
 
     print("=" * 72)
     print(" HARMONY HUB ALL-IN-ONE STOCK & CONFIGURATION RESTORE TOOL")
@@ -469,6 +478,9 @@ def main() -> None:
         if not hub_ip:
             print("[-] --skip-usb-root requires --hub-ip to be specified.")
             sys.exit(1)
+
+    if args.reset_host_key:
+        ssh_hostkeys.reset_host(hub_ip)
 
     # 4. Restore configuration
     try:
