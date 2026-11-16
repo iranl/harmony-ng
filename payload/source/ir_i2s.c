@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
+#include <poll.h>
 #include <time.h>
 
 #define I2S_DEVICE "/dev/i2s"
@@ -425,6 +426,54 @@ static int ir_rx_block_lit(const uint8_t *b, size_t n) {
  */
 #define IR_RX_STALL_MS 2000
 
+/*
+ * No futex on the Hub. Its kernel has no futex system call, so every wait built on it
+ * (pthread_cond_wait, pthread_join, sem_wait) returns at once there and the waiting thread
+ * spins at full CPU. The threads here wake each other through a pipe and sleep in poll();
+ * a thread that has to be waited for sets a flag as its last action, and the waiter detaches
+ * it once the flag is set instead of joining it.
+ */
+typedef struct {
+    int rd, wr;   /* -1 when the pipe could not be made: waits then sleep in short steps */
+} ir_wake_t;
+
+static void ir_wake_open(ir_wake_t *w) {
+    int fds[2];
+    w->rd = w->wr = -1;
+    if (pipe(fds) != 0) return;
+    for (int i = 0; i < 2; i++) {
+        fcntl(fds[i], F_SETFL, fcntl(fds[i], F_GETFL) | O_NONBLOCK);
+        fcntl(fds[i], F_SETFD, FD_CLOEXEC);
+    }
+    w->rd = fds[0];
+    w->wr = fds[1];
+}
+
+static void ir_wake_close(ir_wake_t *w) {
+    if (w->rd >= 0) close(w->rd);
+    if (w->wr >= 0) close(w->wr);
+    w->rd = w->wr = -1;
+}
+
+static void ir_wake_signal(ir_wake_t *w) {
+    if (w->wr >= 0) {
+        ssize_t n = write(w->wr, "w", 1);   /* a full pipe already holds a wake */
+        (void)n;
+    }
+}
+
+/* Sleeps until a wake or timeout_ms (-1: no limit), then empties the pipe */
+static void ir_wake_wait(ir_wake_t *w, int timeout_ms) {
+    if (w->rd < 0) {
+        usleep(timeout_ms >= 0 && timeout_ms < 5 ? (useconds_t)timeout_ms * 1000 : 5000);
+        return;
+    }
+    struct pollfd pfd = { w->rd, POLLIN, 0 };
+    if (poll(&pfd, 1, timeout_ms) > 0) {
+        char buf[16];
+        while (read(w->rd, buf, sizeof(buf)) > 0) {}
+    }
+}
 
 typedef struct {
     pthread_t target;
@@ -432,6 +481,8 @@ typedef struct {
     volatile int in_read;
     volatile long long read_started_ms;
     volatile int fired;
+    ir_wake_t wake;           /* ends the watchdog's sleep when the session closes */
+    volatile int exited;      /* the watchdog's last write: it no longer touches this struct */
 } ir_rx_watch_t;
 
 static long long ir_rx_now_ms(void) {
@@ -448,7 +499,8 @@ static void *ir_rx_watch(void *arg) {
     ir_rx_watch_t *w = (ir_rx_watch_t *)arg;
     long long last_kick = 0;
     while (!w->done) {
-        usleep(100000);
+        ir_wake_wait(&w->wake, 100);
+        if (w->done) break;
         long long now = ir_rx_now_ms();
         if (w->in_read && now - w->read_started_ms > IR_RX_STALL_MS && now - last_kick >= 1000) {
             w->fired = 1;
@@ -456,6 +508,8 @@ static void *ir_rx_watch(void *arg) {
             pthread_kill(w->target, SIGUSR2);
         }
     }
+    __sync_synchronize();
+    w->exited = 1;   /* nothing of w is touched after this */
     return NULL;
 }
 
@@ -529,7 +583,9 @@ static int ir_rx_session_open(ir_rx_session_t *s, char *err, size_t errlen) {
     }
     ioctl(s->fd, I2S_START, 0);
     s->watch.target = pthread_self();
+    ir_wake_open(&s->watch.wake);
     s->watching = pthread_create(&s->watch_thread, NULL, ir_rx_watch, &s->watch) == 0;
+    if (!s->watching) ir_wake_close(&s->watch.wake);
     return 0;
 }
 
@@ -551,7 +607,12 @@ static ssize_t ir_rx_session_read(ir_rx_session_t *s) {
 static void ir_rx_session_close(ir_rx_session_t *s) {
     if (s->watching) {
         s->watch.done = 1;
-        pthread_join(s->watch_thread, NULL);
+        ir_wake_signal(&s->watch.wake);
+        /* the watchdog leaves its poll() at once and only checks the flags before it ends */
+        while (!s->watch.exited) usleep(1000);
+        __sync_synchronize();
+        pthread_detach(s->watch_thread);
+        ir_wake_close(&s->watch.wake);
         s->watching = 0;
     }
     if (s->fd >= 0) {
@@ -665,7 +726,8 @@ static int ir_rx_wait_quiet(ir_rx_session_t *s, int (*stop)(void)) {
 /* ---- Capture mode (spec 3.14) and the one-shot capture exclude each other ---- */
 
 static pthread_mutex_t s_rx_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t s_rx_cond = PTHREAD_COND_INITIALIZER;
+static ir_wake_t s_mode_wake = { -1, -1 };  /* the mode thread reports its open and its end */
+static int s_mode_exited = 0;             /* under s_rx_lock: the mode thread has ended */
 static int s_oneshot_running = 0;
 static int s_mode_on = 0;                 /* the mode thread exists */
 static volatile int s_mode_stop = 0;
@@ -744,8 +806,7 @@ static void ir_mode_set_error(const char *msg) {
     if (changed && on) ir_mode_notify();
 }
 
-static void *ir_mode_thread(void *arg) {
-    (void)arg;
+static void ir_mode_run(void) {
     char out[8192];
     int first = 1;
     while (!s_mode_stop) {
@@ -756,10 +817,10 @@ static void *ir_mode_thread(void *arg) {
             pthread_mutex_lock(&s_rx_lock);
             s_mode_open_rc = orc;
             snprintf(s_mode_open_err, sizeof(s_mode_open_err), "%s", err);
-            pthread_cond_broadcast(&s_rx_cond);
             pthread_mutex_unlock(&s_rx_lock);
+            ir_wake_signal(&s_mode_wake);
             first = 0;
-            if (orc != 0) return NULL;   /* the enable request reports it */
+            if (orc != 0) return;   /* the enable request reports it */
         }
         if (orc != 0) {
             ir_mode_set_error(err);
@@ -811,7 +872,29 @@ static void *ir_mode_thread(void *arg) {
         }
     }
     fprintf(stderr, "[*] IR: capture mode stopped\n");
+}
+
+static void *ir_mode_thread(void *arg) {
+    (void)arg;
+    ir_mode_run();
+    /* wake first, then the flag: once the flag is set the waiter closes the pipe */
+    ir_wake_signal(&s_mode_wake);
+    pthread_mutex_lock(&s_rx_lock);
+    s_mode_exited = 1;
+    pthread_mutex_unlock(&s_rx_lock);
     return NULL;
+}
+
+/* s_rx_lock held; returns with it held. Waits for the mode thread to end (a read returns within
+ * ~10 ms, a stalled one within 3 s), then lets it go and closes the wake pipe. */
+static void ir_mode_wait_exit_locked(pthread_t t) {
+    while (!s_mode_exited) {
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_wake_wait(&s_mode_wake, 1000);
+        pthread_mutex_lock(&s_rx_lock);
+    }
+    pthread_detach(t);
+    ir_wake_close(&s_mode_wake);
 }
 
 static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *err, size_t errlen) {
@@ -823,10 +906,7 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
             return 0;
         }
         s_mode_stop = 1;
-        pthread_t t = s_mode_thread;
-        pthread_mutex_unlock(&s_rx_lock);
-        pthread_join(t, NULL);   /* a read returns within ~10 ms, a stalled one within 3 s */
-        pthread_mutex_lock(&s_rx_lock);
+        ir_mode_wait_exit_locked(s_mode_thread);
         s_mode_on = 0;
         s_mode_error[0] = '\0';
         pthread_mutex_unlock(&s_rx_lock);
@@ -849,17 +929,24 @@ static int capture_mode_set(int enable, ir_rx_signal_cb cb, void *user, char *er
     s_mode_stop = 0;
     s_mode_open_rc = 1;
     s_mode_error[0] = '\0';
+    s_mode_exited = 0;
+    ir_wake_open(&s_mode_wake);
     if (pthread_create(&s_mode_thread, NULL, ir_mode_thread, NULL) != 0) {
+        ir_wake_close(&s_mode_wake);
         pthread_mutex_unlock(&s_rx_lock);
         if (err) snprintf(err, errlen, "Could not start the capture thread");
         return -4;
     }
-    while (s_mode_open_rc == 1) pthread_cond_wait(&s_rx_cond, &s_rx_lock);
+    while (s_mode_open_rc == 1) {
+        pthread_mutex_unlock(&s_rx_lock);
+        ir_wake_wait(&s_mode_wake, 1000);
+        pthread_mutex_lock(&s_rx_lock);
+    }
     int rc = s_mode_open_rc;
     if (rc != 0) {
         if (err) snprintf(err, errlen, "%s", s_mode_open_err);
+        ir_mode_wait_exit_locked(s_mode_thread);   /* it ends right after reporting the error */
         pthread_mutex_unlock(&s_rx_lock);
-        pthread_join(s_mode_thread, NULL);
         return rc;
     }
     s_mode_on = 1;
