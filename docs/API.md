@@ -957,7 +957,7 @@ The Classic Bluetooth hosts (link keys, `devices.json`) are not touched.
 Returns physical key bindings for BLE remote.
 
 #### `POST /api/remote-mapping-save`
-Saves BLE remote button mapping JSON. The body is stored as the file itself, so it must be one JSON object of less than 200000 bytes (what the readers load): `400` otherwise, `413` when larger; the stored mapping is then kept.
+Saves BLE remote button mapping JSON. The body is stored as the file itself, so it must be one JSON object of less than 262144 bytes (256 KB, what the readers load): `400` otherwise, `413` when larger; the stored mapping is then kept.
 
 ---
 
@@ -1167,7 +1167,7 @@ Returns physical button and screen mappings for the remote in Slot 1 or Slot 2.
 - **Remote Model Awareness**: Mappings apply to any paired remote in that slot: a Harmony touchscreen remote (Elite, Ultimate), Harmony Companion, or Harmony Smart Control.
 
 #### `POST /api/rf-mapping-save?slot={1|2}`
-Saves button assignments for the specified slot. The body must be one JSON object of less than 200000 bytes: `400` otherwise, `413` when larger; the stored mapping is then kept.
+Saves button assignments for the specified slot. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored mapping is then kept.
 - **Query Parameter**: `slot` (`1` or `2`, defaults to `1`).
 
 #### `POST /api/rf-mapping-copy?from={1|2}&to={1|2}`
@@ -1182,7 +1182,7 @@ Copies entire button mapping configuration from one remote slot to another.
   ```
 
 #### `POST /api/ui-remote-layout`
-Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 200000 bytes: `400` otherwise, `413` when larger; the stored layouts are then kept.
+Saves virtual remote keypad layout for WebUI and Android App. The body must be one JSON object of less than 262144 bytes (256 KB): `400` otherwise, `413` when larger; the stored layouts are then kept.
 
 ---
 
