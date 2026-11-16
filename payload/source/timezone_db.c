@@ -3,6 +3,7 @@
 #include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef struct {
     const char *name;
@@ -215,6 +216,51 @@ static const tz_entry_t s_iana_mappings[] = {
     { "Africa/Addis_Ababa",         "EAT-3" },
 };
 
+/* A POSIX zone name: three or more letters, or <...> with three or more letters, digits, '+'
+ * or '-' inside. Returns the length, 0 when there is none. */
+static size_t posix_tz_name(const char *s) {
+    size_t n = 0;
+    if (s[0] == '<') {
+        n = 1;
+        while (isalnum((unsigned char)s[n]) || s[n] == '+' || s[n] == '-') n++;
+        return (n >= 4 && s[n] == '>') ? n + 1 : 0;
+    }
+    while (isalpha((unsigned char)s[n])) n++;
+    return n >= 3 ? n : 0;
+}
+
+/* A POSIX offset: optional sign, hours 0-24, optional :mm and :ss. Returns the length, 0 when
+ * there is none. */
+static size_t posix_tz_offset(const char *s) {
+    size_t n = 0;
+    if (s[n] == '+' || s[n] == '-') n++;
+    size_t d = n;
+    while (isdigit((unsigned char)s[n])) n++;
+    if (n == d || n - d > 2 || atoi(s + d) > 24) return 0;
+    for (int part = 0; part < 2 && s[n] == ':'; part++) {
+        if (!isdigit((unsigned char)s[n + 1]) || !isdigit((unsigned char)s[n + 2]) ||
+            isdigit((unsigned char)s[n + 3]) || atoi(s + n + 1) > 59) return 0;
+        n += 3;
+    }
+    return n;
+}
+
+/* "std offset [dst [offset]]" filling the first len characters of s (the part before the rules) */
+static int posix_tz_head_ok(const char *s, size_t len) {
+    size_t n = posix_tz_name(s);
+    if (!n) return 0;
+    size_t o = posix_tz_offset(s + n);
+    if (!o) return 0;
+    n += o;
+    if (n < len) {
+        size_t dn = posix_tz_name(s + n);
+        if (!dn) return 0;
+        n += dn;
+        if (n < len) n += posix_tz_offset(s + n);
+    }
+    return n == len;
+}
+
 /* The POSIX string for in; returns 0 when in is a name the table does not know (out is then the
  * default) */
 static int tz_resolve(const char *in, char *out, size_t out_sz) {
@@ -258,13 +304,14 @@ static int tz_resolve(const char *in, char *out, size_t out_sz) {
 
     /* 3. If it already contains comma rules (full POSIX TZ), preserve it */
     const char *comma1 = strchr(clean, ',');
-    if (comma1 && strchr(comma1 + 1, ',')) {
+    if (comma1 && strchr(comma1 + 1, ',') && posix_tz_head_ok(clean, (size_t)(comma1 - clean))) {
         snprintf(out, out_sz, "%s", clean);
         return 1;
     }
 
-    /* 4. If it's a fixed offset POSIX string (e.g. UTC, JST-9, MST7, MSK-3), preserve it */
-    if (!strchr(clean, '/')) {
+    /* 4. If it's a fixed offset POSIX string (e.g. UTC0, JST-9, MST7, MSK-3), preserve it; a
+     * plain word ("unknown") is not one */
+    if (!comma1 && posix_tz_head_ok(clean, strlen(clean))) {
         snprintf(out, out_sz, "%s", clean);
         return 1;
     }

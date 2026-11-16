@@ -84,6 +84,12 @@ int main(void) {
     CHECK(timezone_is_known("UTC"), "UTC known");
     CHECK(timezone_is_known(""), "empty means the default");
     CHECK(!timezone_is_known("America/Argentina/Buenos_Aires"), "unlisted Area/City reported");
+    CHECK(timezone_is_known("JST-9") && timezone_is_known("MST7") && timezone_is_known("UTC0") &&
+          timezone_is_known("<+0530>-5:30") && timezone_is_known("EST5EDT"), "fixed offset POSIX strings known");
+    CHECK(!timezone_is_known("unknown"), "plain word reported");
+    CHECK(!timezone_is_known("AB-1"), "zone name shorter than three letters reported");
+    CHECK(!timezone_is_known("CET-99"), "offset over 24 hours reported");
+    CHECK(!timezone_is_known("x,y,z"), "rules without a zone name and offset reported");
     char out[64];
     timezone_to_posix("America/New_York", out, sizeof(out));
     CHECK(strcmp(out, "EST5EDT,M3.2.0,M11.1.0") == 0, "conversion unchanged");
