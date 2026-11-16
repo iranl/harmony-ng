@@ -139,4 +139,34 @@ await t.check('a user name the Hub cannot keep is refused before saving', async 
   view.remove();
 });
 
+await t.check('opening the Users page again does not add another 401 listener', async () => {
+  login();
+  closeDialogs();
+  stubFetch({ '/api/users': { body: [] }, '/api/auth/tokens': { body: [] } });
+  const add = window.addEventListener;
+  let added = 0;
+  window.addEventListener = (name, fn, opts) => {
+    if (name === 'harmony:unauthorized') added++;
+    return add(name, fn, opts);
+  };
+  let view;
+  try {
+    for (let i = 0; i < 4; i++) {
+      if (view) view.remove();
+      view = createUsersView();
+      body.appendChild(view);
+    }
+  } finally {
+    window.addEventListener = add;
+  }
+  assert.ok(added <= 1, `${added} listeners added for 4 visits`);
+  await tick(10);
+  // the open view still follows a 401: its card says logged out
+  stubFetch({ '/api/settings': { status: 401 } });
+  await assert.rejects(api.request('/api/settings'));
+  assert.ok(buttonByText(view, 'Log In'), 'the open view did not redraw after the 401');
+  closeDialogs();
+  view.remove();
+});
+
 t.finish();

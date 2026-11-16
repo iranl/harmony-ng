@@ -7,6 +7,11 @@ import { confirm } from '../../components/confirm.js';
 import { createModal } from '../../components/modal.js';
 import { openLoginModal, credentialsError, MAX_USERNAME_BYTES } from '../../components/login-modal.js';
 
+// One window listener for every Users view: a new view replaces the renderer instead of adding
+// a listener per visit (each kept its detached view alive)
+let renderCurrentAuthCard = null;
+let unauthorizedListening = false;
+
 export function createView() {
   const container = h('div', { className: 'setup-subview-users', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
 
@@ -43,9 +48,13 @@ export function createView() {
     );
   }
   renderAuthCard();
-  window.addEventListener('harmony:unauthorized', () => {
+  renderCurrentAuthCard = () => {
     if (container.isConnected) renderAuthCard();
-  });
+  };
+  if (!unauthorizedListening) {
+    unauthorizedListening = true;
+    window.addEventListener('harmony:unauthorized', () => renderCurrentAuthCard?.());
+  }
 
   // Users Card
   const usersCard = h('div', { className: 'card' }, [

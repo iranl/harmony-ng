@@ -41,7 +41,7 @@ export class FakeNode {
   set textContent(v) { this.children.forEach(c => { c.parentNode = null; }); this.children = []; this._text = String(v ?? ''); }
   get innerHTML() { return this._html ?? ''; }
   set innerHTML(v) { this.textContent = ''; this._html = String(v ?? ''); }
-  get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n === globalThis.document?.body; }
+  get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; const d = globalThis.document; return n === d?.documentElement || n === d?.body; }
   get firstChild() { return this.children[0] || null; }
   appendChild(child) { if (child.parentNode) child.parentNode.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
   append(...nodes) { nodes.forEach(n => this.appendChild(typeof n === 'string' ? globalThis.document.createTextNode(n) : n)); }
