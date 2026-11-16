@@ -308,6 +308,10 @@ void hub_ssdp_handle(void) {
         st[i] = '\0';
     }
     if (strcasecmp(st, "ssdp:all") != 0 && strcasecmp(st, "upnp:rootdevice") != 0 && strcasecmp(st, SSDP_URN) != 0) return;
+    /* the answer is unicast to the sender: only to a private address (our own links, or another
+     * private network routed to ours, where a relay forwards the multicast search), never to a
+     * public one (reflection, and the Hub's details to any host) */
+    if (!net_source_is_private(&from)) return;
     char out[512];
     int len = hub_ssdp_build_response(st, g_ip, g_shim_port, out, sizeof(out));
     send_to(out, len, &from);

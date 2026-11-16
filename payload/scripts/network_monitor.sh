@@ -21,7 +21,8 @@ run_monitor() {
     sleep 3
     load_config
 
-    cur_eth=$(find_eth_interface)
+    cur_eth=""
+    [ "$ETH_ENABLED" = "1" ] && cur_eth=$(find_eth_interface)
     if [ -n "$cur_eth" ]; then
       # Ensure interface is up administratively for PHY auto-negotiation & carrier
       ifconfig "$cur_eth" up 2>/dev/null || true

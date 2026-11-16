@@ -282,18 +282,6 @@ int is_safe_ipv4(const char *ip) {
     return 1;
 }
 
-void escape_wpa_str(const char *src, char *dst, size_t dst_len) {
-    if (!src || !dst || dst_len == 0) return;
-    size_t j = 0;
-    for (size_t i = 0; src[i] && j + 2 < dst_len; i++) {
-        if (src[i] == '"' || src[i] == '\\' || src[i] == '$' || src[i] == '`') {
-            dst[j++] = '\\';
-        }
-        dst[j++] = src[i];
-    }
-    dst[j] = '\0';
-}
-
 /* Peer address of an accepted connection. Fails closed: when getpeername() fails (for
  * example the client reset the connection right after sending its request) ip_buf is left
  * empty and -1 is returned. Never fall back to a loopback address: loopback callers are

@@ -685,7 +685,8 @@ cJSON *hub_cmd_execute_from(const cJSON *req, int role, int origin) {
     }
     if (strcmp(action, "update_apply") == 0) {
         cJSON *rest = ota_update_apply(req);
-        cJSON *r = ack_with(req, action, rest ? 200 : 500, rest);
+        int code = !rest ? 500 : cJSON_IsTrue(cJSON_GetObjectItem(rest, "ok")) ? 200 : 409;
+        cJSON *r = ack_with(req, action, code, rest);
         cJSON_Delete(rest);
         return r;
     }

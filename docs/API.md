@@ -414,6 +414,7 @@ Executes `/data/harmony/update.sh` in the background and restarts services.
     "message": "Software update triggered. Hub services restarting in background."
   }
   ```
+- **Response `409 Conflict`**: `{"ok": false, "status": "busy", "error": "A software update is already running"}` while an update started earlier is still running (its flag is less than 30 minutes old). `update.sh apply` also runs only once at a time.
 
 ---
 
@@ -1433,7 +1434,7 @@ Tests connection to an AP in memory without modifying `/etc/wpa_supplicant.conf`
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi test connection successful"}`
-- **Response `400 Bad Request`**: `{"ok": false, "error": "Authentication failed: incorrect Wi-Fi password"}`
+- **Response `400 Bad Request`**: `{"ok": false, "error": "Authentication failed: incorrect Wi-Fi password"}`, also when the SSID or the password cannot be used (see `POST /api/wifi-save`) or another test is running.
 
 #### `POST /api/wifi-save` or `POST /wifi`
 Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.ath0.conf`.
@@ -1452,6 +1453,7 @@ When `apply` is `reconfigure`, `apply`, or `reboot`, the Hub automatically runs 
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Wi-Fi settings verified and applied"}`
 - **Response `400 Bad Request`**: `{"ok": false, "error": "Wi-Fi test connection failed: Connection timed out. Settings not changed."}`
+- **Values**: the SSID and the password are written as typed (wpa_supplicant reads a quoted value without escapes). Refused with `400` and the reason: an SSID that is empty or longer than 32 bytes, a password outside 8 to 63 characters (unless the network is open, or the password is the 64 hex digit raw key, which is written unquoted), and a line break or another control character in either.
 
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
@@ -1468,6 +1470,8 @@ Configures USB Ethernet interface mode (DHCP or static IP).
   }
   ```
 - **Response `200 OK`**: `{"ok": true, "message": "Ethernet configuration saved"}`
+- **Response `400 Bad Request`** (static mode only): an invalid address, a netmask that is not a mask, the network or broadcast address of the subnet, a gateway outside the address's subnet, or a DNS entry that is not an IPv4 address (`eth_dns` may list several, separated by spaces or commas). Nothing is saved. A static address is used on Wi-Fi as well as on Ethernet.
+- `eth_enabled` (default `true`) off: the Hub does not start Ethernet (a standard Hub keeps its USB port in device mode). `eth_fallback_wifi` (default `true`): a static address moves to Wi-Fi when the Ethernet link is down.
 
 ---
 
@@ -1670,8 +1674,8 @@ check, plus the check's `message`. The check runs `update.sh check` or downloads
 version, which takes seconds: the action runs it on a thread and the reply comes when it ends
 (other actions are answered meanwhile). One check at a time; another request meanwhile gets
 `409`. `update_apply` starts `POST /api/update-apply` (optional `repo`, `token`) and answers at
-once with its `status` (`applying`) and `message`; the Hub restarts its services when the update
-is installed. Both are admin actions, like their REST endpoints.
+once with its `status` (`applying`) and `message`, or `409` while an update is already running;
+the Hub restarts its services when the update is installed. Both are admin actions, like their REST endpoints.
 ```json
 {"action": "update_check", "msgId": 41}
 ```

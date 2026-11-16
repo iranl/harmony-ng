@@ -36,6 +36,10 @@
 #include <linux/ethtool.h>
 
 #include "hub_ntp.h"
+#include "wpa_conf.h"
+#include <signal.h>
+#include <strings.h>
+#include <sys/time.h>
 
 #ifndef SO_BINDTODEVICE
 #define SO_BINDTODEVICE 25
@@ -77,8 +81,13 @@ static int run_mknod(int argc, char **argv) {
         return 1;
     }
     mode_t mode = 0666;
-    if (argv[2][0] == 'c') mode |= S_IFCHR;
-    else if (argv[2][0] == 'b') mode |= S_IFBLK;
+    if (strcmp(argv[2], "c") == 0) mode |= S_IFCHR;
+    else if (strcmp(argv[2], "b") == 0) mode |= S_IFBLK;
+    else {
+        /* any other type used to create a regular file in place of the device node */
+        fprintf(stderr, "%s: type must be c or b, not '%s'\n", argv[0], argv[2]);
+        return 1;
+    }
     unsigned int maj = (unsigned int)atoi(argv[3]);
     unsigned int min = (unsigned int)atoi(argv[4]);
     dev_t dev = ((maj & 0xfff) << 8) | (min & 0xff);
@@ -161,33 +170,33 @@ static int run_eth_fix(int argc, char **argv) {
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
-    struct ethtool_value eval;
-
-    eval.cmd = ETHTOOL_STXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
-        printf("[+] %s: TX checksum offload disabled\n", ifname);
-    } else {
-        perror("[-] ETHTOOL_STXCSUM");
+    /* every offload is switched off on its own; the result says which ones failed (the
+     * success line used to be printed whatever the ioctl calls returned) */
+    static const struct { uint32_t cmd; const char *name; } offloads[] = {
+        { ETHTOOL_STXCSUM, "TX checksum offload" },
+        { ETHTOOL_SRXCSUM, "RX checksum offload" },
+        { ETHTOOL_SSG, "scatter-gather" },
+        { ETHTOOL_STSO, "TCP segmentation offload" },
+    };
+    int failed = 0;
+    for (size_t i = 0; i < sizeof(offloads) / sizeof(offloads[0]); i++) {
+        struct ethtool_value eval;
+        eval.cmd = offloads[i].cmd;
+        eval.data = 0;
+        ifr.ifr_data = (caddr_t)&eval;
+        if (ioctl(fd, SIOCETHTOOL, &ifr) == 0) {
+            printf("[+] %s: %s disabled\n", ifname, offloads[i].name);
+        } else {
+            fprintf(stderr, "[-] %s: could not disable %s: %s\n", ifname, offloads[i].name, strerror(errno));
+            failed++;
+        }
     }
 
-    eval.cmd = ETHTOOL_SRXCSUM;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_SSG;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
-    eval.cmd = ETHTOOL_STSO;
-    eval.data = 0;
-    ifr.ifr_data = (caddr_t)&eval;
-    ioctl(fd, SIOCETHTOOL, &ifr);
-
     close(fd);
+    if (failed) {
+        fprintf(stderr, "[-] %s: %d of 4 offload settings could not be changed\n", ifname, failed);
+        return 1;
+    }
     printf("[+] %s: All checksum and segmentation offloads disabled successfully\n", ifname);
     return 0;
 }
@@ -363,7 +372,12 @@ static int run_dhcpd(int argc, char **argv) {
 /* =========================================================================
  * Subcommand: portal / hub_portal
  * ========================================================================= */
+#ifdef TEST_HARNESS
+/* host test build: never touch /etc and never reboot (tests/test_recovery_portal.py) */
+#define WPA_CONF (getenv("HARMONY_PORTAL_WPA_CONF") ? getenv("HARMONY_PORTAL_WPA_CONF") : "/nonexistent/wpa_supplicant.conf")
+#else
 #define WPA_CONF "/etc/wpa_supplicant.conf"
+#endif
 
 static const char *HTML_FORM =
     "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
@@ -446,9 +460,35 @@ static int portal_save_wifi_config(const char *ssid, const char *psk, int hidden
     return atomic_file_write(WPA_CONF, conf, (size_t)n);
 }
 
+/* Reads one request: the header, then the body up to its Content-Length (as far as buf holds).
+ * A body sent in a second segment used to be lost, and the form came back without an error.
+ * The socket has a receive timeout (run_portal), so a client that stops sending ends the read. */
+static ssize_t portal_read_request(int fd, char *buf, size_t cap) {
+    size_t got = 0;
+    buf[0] = '\0';
+    while (got + 1 < cap) {
+        ssize_t n = recv(fd, buf + got, cap - 1 - got, 0);
+        if (n <= 0) break;
+        got += (size_t)n;
+        buf[got] = '\0';
+        char *hdr_end = strstr(buf, "\r\n\r\n");
+        if (!hdr_end) continue;
+        unsigned long clen = 0;
+        for (const char *line = buf; line && line < hdr_end;) {
+            if (strncasecmp(line, "Content-Length:", 15) == 0) clen = strtoul(line + 15, NULL, 10);
+            const char *nl = strstr(line, "\r\n");
+            line = nl ? nl + 2 : NULL;
+        }
+        if (got >= (size_t)(hdr_end + 4 - buf) + clen) break;
+    }
+    return got ? (ssize_t)got : -1;
+}
+
 static int run_portal(int argc, char **argv) {
     int port = (argc > 1) ? atoi(argv[1]) : 80;
     if (port <= 0) port = 80;
+    /* a client that closes before the answer must not end the portal (send() raised SIGPIPE) */
+    signal(SIGPIPE, SIG_IGN);
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { perror("socket"); return 1; }
@@ -460,7 +500,11 @@ static int run_portal(int argc, char **argv) {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
+#ifdef TEST_HARNESS
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); /* a host test never listens on the LAN */
+#else
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
+#endif
 
     if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         perror("bind");
@@ -481,9 +525,14 @@ static int run_portal(int argc, char **argv) {
         socklen_t clen = sizeof(client);
         int cfd = accept(srv, (struct sockaddr *)&client, &clen);
         if (cfd < 0) continue;
+        /* one client at a time: one that connects and sends nothing (a browser preconnect, a
+         * stalled captive-portal probe) must not hold the portal for everybody else */
+        struct timeval tmo = { .tv_sec = 5, .tv_usec = 0 };
+        setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
+        setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &tmo, sizeof(tmo));
 
         char buf[2048] = {0};
-        ssize_t n = recv(cfd, buf, sizeof(buf) - 1, 0);
+        ssize_t n = portal_read_request(cfd, buf, sizeof(buf));
         if (n <= 0) { close(cfd); continue; }
 
         if (strncmp(buf, "GET ", 4) == 0) {
@@ -498,6 +547,9 @@ static int run_portal(int argc, char **argv) {
             char ssid[128] = {0}, psk[128] = {0}, hid_str[16] = {0};
             portal_extract_param(body, "ssid", ssid, sizeof(ssid));
             portal_extract_param(body, "psk", psk, sizeof(psk));
+            /* values wpa_supplicant cannot take as written here (a line break, a pass phrase
+             * outside 8 to 63 characters, a raw 64 hex digit key): the form is shown again */
+            if (wpa_conf_value_error(ssid, 0) || (psk[0] && (wpa_conf_value_error(psk, 1) || wpa_psk_is_hex(psk)))) ssid[0] = '\0';
             portal_extract_param(body, "hidden", hid_str, sizeof(hid_str));
 
             if (ssid[0] && portal_save_wifi_config(ssid, psk, hid_str[0] == '1') != 0) {
@@ -508,8 +560,12 @@ static int run_portal(int argc, char **argv) {
                 close(cfd);
 
                 sync();
+#ifndef TEST_HARNESS
                 sleep(2);
-                system("reboot");
+                /* the safe reboot (supervisors and daemons stopped, flash flushed and
+                 * remounted read-only), as the other reboot paths; plain reboot without it */
+                system("(/data/harmony/bin/safe_reboot.sh || reboot) >/dev/null 2>&1 &");
+#endif
                 break;
             }
         }
