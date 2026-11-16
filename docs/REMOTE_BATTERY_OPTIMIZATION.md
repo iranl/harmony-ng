@@ -18,7 +18,7 @@ minutes, or never. On the cradle, on USB or while charging the remote never susp
 | :--- | :--- | :--- | :--- | :--- |
 | **LCD & Backlight** (`ap3156_backlight`) | ~120 - 180 mA | 0 mA | 0 mA | `FB_BLANK_POWERDOWN` (`val=4`) + PWM backlight to 0. |
 | **Touchscreen** (Synaptics Clearpad) | ~11 mA | in its own doze (not measured) | in its own doze (not measured) | Left to the kernel's `clearpad` driver, which never puts it into sleep mode (section 2). |
-| **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Button LEDs disabled when screen blanks or daytime. |
+| **Buttons LED** (`tps6507x:white`) | ~35 mA | 0 mA | 0 mA | Off when the screen blanks. With the screen on: OFF never, ON always, NIGHT (the default) only inside the night window. |
 | **Accelerometer / Gyro** (`i2c-1/1-0019`) | ~15 mA | ~4.0 mA (1-5 Hz) | 0 mA (0 Hz) | Interrupt only (INT1) while the screen is off; 0 I2C bus transactions. |
 | **CC2544 2.4GHz RF** (`/dev/rfspi`) | ~18 - 24 mA | < 0.5 mA | < 0.5 mA | Radio idle in PM2 sleep; wakes on button event. |
 | **ARM926EJ-S SoC** (TI DaVinci DM365) | ~80 mA | ~12 mA | ~8 mA | `select()` sleeps up to 30s. The standby figures were measured with the processor stepped down to 96 MHz; that step is gone (it could stop the remote dead, see REMOTE.md), so awake with the screen off it now draws more. |
