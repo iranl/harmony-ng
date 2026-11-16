@@ -113,11 +113,16 @@ jobs:
   test-mock-system:
     # Firmware code (Hub daemons, remote UI, device scripts, web UI) built and run on the host
     # against mock hardware; Python only drives the tests. Runs on every change. The host tools
-    # have their own workflow (host-tools.yml).
-    name: Firmware Tests (mock hardware)
+    # have their own workflow (host-tools.yml). The tests are split in four groups that run on
+    # separate machines at the same time (tests/run_mock_suite.sh, SUITE_GROUP).
+    name: Firmware Tests (group ${{ matrix.group }} of 4)
     # The host gcc builds every test: a pinned image keeps it from changing under the suite
     # (implicit declarations are errors from gcc 14 on; the suite treats them as errors anyway)
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
@@ -128,7 +133,9 @@ jobs:
         run: python -m pip install pyyaml aioharmony==1.0.8
       - name: Show the host compiler
         run: gcc --version
-      - name: Run Firmware Test Suite
+      - name: Run Firmware Test Suite (group ${{ matrix.group }} of 4)
+        env:
+          SUITE_GROUP: ${{ matrix.group }}
         run: |
           chmod +x tests/run_mock_suite.sh
           ./tests/run_mock_suite.sh
