@@ -242,10 +242,13 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
             sun.sun_family = AF_UNIX;
             strncpy(sun.sun_path, sock_path, sizeof(sun.sun_path) - 1);
 
+            int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
+            const char *fwd_action = is_pin ? "finish_pair" : "start_pair";
+
             cJSON *cmd_obj = cJSON_CreateObject();
             cJSON_AddStringToObject(cmd_obj, "plugin_id", id);
             cJSON_AddStringToObject(cmd_obj, "command", "pair");
-            cJSON_AddStringToObject(cmd_obj, "action", (strcmp(act, "pin") == 0 ? "finish_pair" : "start_pair"));
+            cJSON_AddStringToObject(cmd_obj, "action", fwd_action);
             cJSON_AddStringToObject(cmd_obj, "host", host);
             cJSON_AddNumberToObject(cmd_obj, "port", port);
             if (pin[0]) cJSON_AddStringToObject(cmd_obj, "pin", pin);
@@ -261,13 +264,14 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
         cJSON_Delete(json);
 
-        /* Wait up to 3 seconds for status file update */
+        /* Wait up to 5 seconds for status file update */
         char stat_path[128];
         snprintf(stat_path, sizeof(stat_path), "/tmp/plugins/%s.status", id);
 
+        int is_pin = (strcasecmp(act, "pin") == 0 || strcasecmp(act, "finish_pair") == 0);
         cJSON *res_obj = NULL;
-        for (int i = 0; i < 30; i++) {
-            usleep(100000); /* 100ms * 30 = 3s max */
+        for (int i = 0; i < 50; i++) {
+            usleep(100000); /* 100ms * 50 = 5s max */
             size_t slen = 0;
             char *stxt = read_file_text_alloc(stat_path, 4096, &slen);
             if (stxt) {
@@ -275,9 +279,10 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
                 free(stxt);
                 if (sj) {
                     cJSON *sj_act = cJSON_GetObjectItemCaseSensitive(sj, "action");
-                    if (!sj_act || strcmp(sj_act->valuestring, act) == 0 ||
-                        (strcmp(act, "start") == 0 && cJSON_GetObjectItemCaseSensitive(sj, "stage")) ||
-                        (strcmp(act, "pin") == 0 && cJSON_GetObjectItemCaseSensitive(sj, "paired"))) {
+                    const char *sa = (sj_act && cJSON_IsString(sj_act)) ? sj_act->valuestring : "";
+                    if (!sa[0] || strcasecmp(sa, act) == 0 ||
+                        (!is_pin && (strcasecmp(sa, "start") == 0 || strcasecmp(sa, "start_pair") == 0)) ||
+                        (is_pin && (strcasecmp(sa, "pin") == 0 || strcasecmp(sa, "finish_pair") == 0))) {
                         res_obj = sj;
                         break;
                     }
@@ -288,12 +293,18 @@ int http_api_plugins_handle(int client_fd, const char *method, const char *path,
 
         if (!res_obj) {
             res_obj = cJSON_CreateObject();
-            cJSON_AddBoolToObject(res_obj, "ok", 1);
-            cJSON_AddStringToObject(res_obj, "stage", strcmp(act, "pin") == 0 ? "paired" : "need_pin");
-            cJSON_AddStringToObject(res_obj, "message", strcmp(act, "pin") == 0 ? "Pairing complete" : "Enter PIN shown on TV");
+            cJSON_AddBoolToObject(res_obj, "ok", 0);
+            cJSON_AddStringToObject(res_obj, "stage", "error");
+            cJSON_AddStringToObject(res_obj, "message", "Device did not respond or pairing timed out");
         }
 
-        send_cjson_resp(client_fd, 200, res_obj);
+        int resp_code = 200;
+        cJSON *j_ok = cJSON_GetObjectItemCaseSensitive(res_obj, "ok");
+        if (j_ok && !cJSON_IsTrue(j_ok)) {
+            resp_code = 400;
+        }
+
+        send_cjson_resp(client_fd, resp_code, res_obj);
         cJSON_Delete(res_obj);
         close(client_fd);
         return 1;
