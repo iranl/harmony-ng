@@ -562,7 +562,9 @@ static int run_portal(int argc, char **argv) {
                 sync();
 #ifndef TEST_HARNESS
                 sleep(2);
-                system("reboot");
+                /* the safe reboot (supervisors and daemons stopped, flash flushed and
+                 * remounted read-only), as the other reboot paths; plain reboot without it */
+                system("(/data/harmony/bin/safe_reboot.sh || reboot) >/dev/null 2>&1 &");
 #endif
                 break;
             }

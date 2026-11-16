@@ -211,9 +211,11 @@ cJSON *ota_update_apply(const cJSON *params) {
 
     /* One update at a time: a second apply while one runs (a double click, two browser tabs)
      * started a second update.sh in the same work directory. A flag older than 30 minutes is
-     * left from a run that never ended and does not block. */
+     * left from a run that never ended and does not block, nor does one dated in the future
+     * (the clock was set back after it was written): it would have blocked until then. */
     struct stat fst;
-    if (stat(updating_flag_path(), &fst) == 0 && time(NULL) - fst.st_mtime < 1800) {
+    time_t now = time(NULL);
+    if (stat(updating_flag_path(), &fst) == 0 && now >= fst.st_mtime && now - fst.st_mtime < 1800) {
         cJSON *busy = cJSON_CreateObject();
         cJSON_AddBoolToObject(busy, "ok", 0);
         cJSON_AddStringToObject(busy, "status", "busy");

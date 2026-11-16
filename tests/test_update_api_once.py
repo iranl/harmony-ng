@@ -3,7 +3,7 @@
 
 - a second update-apply while one runs gets 409 "busy" (the "updating" flag of the first run is
   present and recent); a flag older than 30 minutes, left by a run that never ended, does not
-  block. The test build points the flag at a temporary file (HARMONY_TEST_UPDATING_FLAG) and
+  block, nor does one dated in the future (clock set back). The test build points the flag at a temporary file (HARMONY_TEST_UPDATING_FLAG) and
   never runs the updater;
 - update-check with remote_version writes latest_version and update_available.flag only when
   they change: repeating the same check leaves both files untouched (flash writes).
@@ -43,6 +43,11 @@ def main():
             os.utime(flag, (old, old))
             st, r = hub.http_post("/api/update-apply", {})
             check(st == 200 and r.get("status") == "applying", "a flag older than 30 minutes does not block", (st, r))
+            future = time.time() + 3600
+            os.utime(flag, (future, future))
+            st, r = hub.http_post("/api/update-apply", {})
+            check(st == 200 and r.get("status") == "applying",
+                  "a flag dated in the future (clock set back) does not block", (st, r))
             if os.path.exists(flag):
                 os.unlink(flag)
 
