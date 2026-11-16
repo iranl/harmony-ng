@@ -23,7 +23,6 @@
 #ifdef __linux__ /* the host and WebAssembly renderer builds have no device headers */
 #include <linux/input.h>
 #include <linux/fb.h>
-#include <linux/i2c-dev.h>
 #endif
 
 #include "cJSON.h"

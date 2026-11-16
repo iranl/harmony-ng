@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Verify Version Sync
         run: |
           python scripts/bump_version.py --sync
@@ -111,27 +111,24 @@ jobs:
           ls -lh payload/bin/hub_* payload/bin/register_ehci payload/bin/eth_fix payload/bin/mknod
 
   test-mock-system:
-    # The host tools run on the user's own Python: test the oldest supported version (see
-    # docs/FIRST_INSTALL_*.md) and a current one.
-    name: Full User-Space Mocking & Integration Tests (Python ${{ matrix.python }})
+    # Firmware code (Hub daemons, remote UI, device scripts, web UI) built and run on the host
+    # against mock hardware; Python only drives the tests. Runs on every change. The host tools
+    # have their own workflow (host-tools.yml).
+    name: Firmware Tests (mock hardware)
     # The host gcc builds every test: a pinned image keeps it from changing under the suite
     # (implicit declarations are errors from gcc 14 on; the suite treats them as errors anyway)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.13'
       - name: Install PyYAML (docs/openapi.yaml validation) and aioharmony (Logitech shim test)
         run: python -m pip install pyyaml aioharmony==1.0.8
       - name: Show the host compiler
         run: gcc --version
-      - name: Run Full Automated Mock Test Suite
+      - name: Run Firmware Test Suite
         run: |
           chmod +x tests/run_mock_suite.sh
           ./tests/run_mock_suite.sh

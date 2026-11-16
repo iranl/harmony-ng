@@ -355,7 +355,6 @@ int main(int argc, char **argv) {
         reset_idle_timer();
         load_wallpaper_asset();
 
-        clearpad_hw_init();
         g_touch_fd = find_touchscreen_fd();
         if (g_touch_fd < 0) {
             perror("[-] Failed to open touchscreen node");
@@ -542,11 +541,7 @@ int main(int argc, char **argv) {
                 g_is_switching_activity = false;
                 g_last_switch_completed_ms = now_ms;
                 strncpy(g_last_switch_target_id, g_switching_target_id, sizeof(g_last_switch_target_id) - 1);
-                if (strcmp(g_switching_target_id, "-1") != 0) {
-                    g_current_view = VIEW_DEVICES;
-                } else {
-                    g_current_view = VIEW_ACTIVITIES;
-                }
+                remote_show_switch_target();
                 g_screen_dirty = true;
             } else if (now_ms - last_progress_render_ms >= 100) {
                 g_screen_dirty = true;
@@ -966,7 +961,7 @@ int main(int argc, char **argv) {
             bool allow_gyro_wake = !is_docked;
             if (n > 0 && !g_screen_on && g_gyro_enabled && allow_gyro_wake) {
                 log_power_debug("[*] Accelerometer INT1 motion interrupt, waking display\n");
-                reset_idle_timer(); /* wakes and redraws; a second fb_set_blank(false) would reset the touch controller again */
+                reset_idle_timer(); /* wakes and redraws; no second fb_set_blank(false) */
             }
         }
     }

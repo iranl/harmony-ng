@@ -10,7 +10,7 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 - **Harmony Hub**: Standard Hub (Model O-R0004, USB `046D:C129`) or Harmony Pro 2400 (PoE/RJ45, USB `046D:C132`).
 - **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
-- **Python 3.11 or newer**: Installed on host PC (no external libraries needed; uses standard library).
+- **Python 3.13 or newer**: Installed on host PC (no external libraries needed; uses standard library). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
 - **OpenSSH client**: `ssh`, `scp` and `ssh-keygen` in the PATH. The tools run these programs.
 - **7-Zip** (`7z` or `7zz` in the PATH): only for the icon archive of the deploy (section 4).
 - **Linux only**: read and write access to the Hub's `/dev/hidraw*` node, so run the USB tools as root or add a udev rule for `046d`. Without it the tools report "Harmony Hub not detected on USB".

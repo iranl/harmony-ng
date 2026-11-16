@@ -11,10 +11,6 @@ extern volatile sig_atomic_t g_wake_requested;
 extern char g_timezone_str[64];
 
 void set_backlight_level(int level);
-void clearpad_hw_init(void);
-void clearpad_wake(bool full_reset);
-void clearpad_doze(void);
-void clearpad_sleep(void);
 bool is_remote_docked(void);
 /* The power source read now (cradle or USB), for the reboot decision: is_remote_docked() also
  * counts the debounced charging flag, which stays set for seconds after the remote leaves the

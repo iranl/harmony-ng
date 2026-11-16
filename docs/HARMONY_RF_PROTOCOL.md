@@ -379,8 +379,10 @@ while the link is up, also one applied from a settings push, and when the Hub as
 
 #### `RF_MSG_ACTIVITY_SYNC` (`0x0A`)
 - Hub broadcasts upon activity change or sync query:
-  - `payload[0..11]`: Activity ID string (null-terminated, e.g. `"12345678"` or `"-1"` for PowerOff).
-  - `payload[12..24]`: Activity friendly name string (null-terminated, e.g. `"Watch TV"`).
+  - ID of 1 or 2 characters, or `"-1"` for PowerOff: `payload[0..2]` ID, `payload[3..23]` name (21 bytes).
+  - Longer ID (e.g. `"12345678"`): `payload[0..9]` ID (10 bytes), `payload[10..23]` name (14 bytes).
+  - `payload[24]`: `1` = answer to a `RF_MSG_SYNC_REQUEST` (catch-up, no switch overlay), `0` = the activity just changed.
+- The remote opens the activity's screen (or home for `"-1"`) only while it shows home or an activity screen. In Settings, pairing or the device browser it records the new activity and keeps the page; the activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
 
 #### `RF_MSG_TIME_SYNC` (`0x10`)
 - Hub transmits time and timezone configuration:

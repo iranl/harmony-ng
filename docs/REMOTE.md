@@ -229,9 +229,9 @@ The Harmony Elite remote features a **1,300 mAh (3.7V Li-ion, ~4.81 Wh)** batter
 
 | Standby Tier | Timeout Range | Hardware State | Wake Triggers |
 | :--- | :--- | :--- | :--- |
-| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-50 Hz | N/A |
-| **Light Standby** | **0 – 30 minutes** after screen blank | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, Clearpad Touch ASLEEP, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button** |
-| **Deep Standby** | **> 30 minutes** after screen blank | Gyro I2C polling **completely suspended (0 Hz)**, `select()` timeout scaled to 30s, CPU in deep WFI | • **Any Physical Button ONLY** (Power, Activities, Devices, OK, Vol, D-pad, etc.) |
+| **Active** | While interacting | Screen ON (PWM 1-5), CPU @ 456 MHz, Clearpad touch active, gyro polling @ 10-100 Hz (setting) | N/A |
+| **Light Standby** | From the blank until deep standby is due (2 s with the default "at once"; for ever with "never" or while the remote is powered) | Screen OFF (`FB_BLANK_POWERDOWN`), Backlight 0, ClearPad touch in its own doze between touches, CPU in WFI, LIS3DH INT1 IRQ active (0 I2C reads) | • **Pickup / Motion** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button**<br>• **Touch and the capacitive keys** (when enabled)<br>• **The Hub over RF** (wake request) |
+| **Deep Standby** | When the Deep standby setting is due (default: 2 s after the blank), on battery only | Kernel suspend to RAM: processor stopped, the MSP430 keeps the keys and the alarm | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, D-pad, etc.)<br>• **The cradle**<br>• **The hourly MSP430 alarm** (reports, then sleeps again) |
 
 Deep standby is the kernel's suspend to RAM, on battery only. The **Deep standby** setting picks
 when it starts after the screen blanks: **at once** (the default since 2026-11, as the stock
@@ -255,7 +255,7 @@ unblanks the display and draws the first frame. A release that is already waitin
 the unblank as well. Touches and the capacitive keys only wake the screen.
 
 > [!NOTE]
-> Touchscreen taps do **not** wake the remote in either standby mode. The Synaptics Clearpad sensor is put into hardware sleep mode (`0x35 = 0x01`) upon display blanking to prevent accidental touches and save ~10.5 mA.
+> In light standby a touch on the glass wakes the screen when touch is enabled in Settings (the touch is not acted on). A suspended remote (deep standby) does not wake on touch: the kernel's `clearpad` driver masks the touch interrupt at a suspend and unmasks it at the resume. `remote_ui` never writes to the touch controller.
 
 ### Power Optimizations & Measured Run Times
 
@@ -265,11 +265,11 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 | :--- | :---: | :---: | :---: | :---: |
 | **Baseline (Unpatched)** | **7.8% / hour** | ~101 mA | **~12.8 hours** | Baseline (`FB_BLANK_NORMAL` failed with `EINVAL`, LCD DMA active) |
 | **Stage 1 (LCD Controller Shutdown)** | **2.5% / hour** | ~32.5 mA | **~40.0 hours (1.7 days)** | **3.1x longer** (Verified: 13% drop across 5h 08m uninterrupted sleep) |
-| **Stage 2 (Clearpad Sleep + Deep Standby)** | **~1.31% / hour** | **~17.0 mA** | **~76.5 hours (~3.2 days)** | **~6.0x longer** (>30m gyro suspended, 30s select loop, touch matrix off) |
+| **Stage 2 (Clearpad Sleep + Deep Standby; measured with the touch sleep writes, since removed)** | **~1.31% / hour** | **~17.0 mA** | **~76.5 hours (~3.2 days)** | **~6.0x longer** (>30m gyro suspended, 30s select loop, touch matrix off) |
 
 ### Key Power Mechanisms in `remote_ui`
 1. **`FB_BLANK_POWERDOWN` (4)**: The TI DaVinci DM365 framebuffer driver rejects standard `FB_BLANK_NORMAL` (1) with `EINVAL`. Calling `ioctl(fb_fd, FBIOBLANK, 4)` completely powers down the DaVinci LCD raster controller and halts DDR memory DMA transfers.
-2. **Clearpad Touch Controller Sleep**: Upon screen blank, `clearpad_sleep()` writes `0x01` (Sleep Mode) to F01 Control register `0x35` at I2C address `0x20` on `/dev/i2c-1`, reducing touchscreen draw to < 0.5 mA.
+2. **Touch controller left to its kernel driver**: `remote_ui` no longer writes to the Synaptics ClearPad over raw I2C (`/dev/i2c-1`, address `0x20`). The stock firmware never does. The kernel's `clearpad` driver owns the controller: at a suspend it masks the touch interrupt, at the resume it reads the controller once and unmasks it. Nobody puts the controller into its sleep mode, on stock either; it dozes by itself between touches. The raw writes (sensor sleep before each suspend) only ran on remotes where `/dev/i2c-1` had been created by hand, so remotes behaved differently. On those remotes the controller now stays in its doze during a suspend, so deep standby may draw slightly more (not measured). The Stage 2 figures above were measured with the writes.
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
    - Configures LIS3DH hardware motion threshold (`int1_threshold=5`, `int1_duration=1`).
    - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.
@@ -313,6 +313,7 @@ Every device configured on the Hub can be controlled directly, without starting 
   2. `Devices` key: the Hub Device Browser, listing all devices configured on the Hub. Pressing it inside a device returns to the list.
   3. `Off` key: powers off the current activity.
   4. Tapping the running activity on the activity list opens its screen buttons, as does starting an activity. An activity without screen buttons shows a card with its icon, name and devices.
+- **Activity changed elsewhere** (web UI, app, automation, another remote): on the activity list or an activity's screen the remote shows the switch and then the new activity's screen (the list after a power off). In Settings, pairing or the Device Browser it keeps the page the user is on and draws no progress bar over it; the new activity is there when the user goes back. A switch started on the remote itself always ends on its target screen.
 - **Status bar**: the gear at the left opens the menu (`Help` while an activity runs, and `Settings`); the time is at the right. A NAV indicator appears while touch is disabled.
 - **Help**: re-sends the running activity's commands except power toggles, then asks "Is it on?" for each device whose only power command is a toggle; `No` sends the toggle. Answer by tapping `Yes` or `No`, or with the D-pad and `OK`; `Back`, `Activities` or `Devices` closes Help. A summary shows for 3 s, then the activity screen.
 - **RF link indicator**: four bars show the link to the Hub over the last 30 s, from the share of CC2544 link reports that say "established" and the share of the remote's sync queries (every 800 ms while the screen is on) that the Hub answers within 1 s; the lower share sets the bars (≥ 90 % four, ≥ 70 % three, ≥ 40 % two, otherwise one amber bar). A red `NO HUB` shows when the link has been lost for 6 s, and a red `HUB?` when the link is up in at least 90 % of reports but the Hub has answered none of the last 10 s of queries. Tapping the indicator opens a panel with both shares and the time since the last frame from the Hub; any tap or key closes it.
@@ -323,6 +324,7 @@ Every device configured on the Hub can be controlled directly, without starting 
 - **Hub Mapping & Auto-Fallback**:
   - The Hub WebUI provides a **Mapping Scope** toggle (`Per Activity` vs `Per Device (Device Browser)`) to configure custom physical button actions per device.
   - If a physical button is not explicitly mapped for a device, the Hub automatically matches standard button names (e.g. `VolumeUp`, `Mute`, `Play`, `DirectionUp`, `Select`) against available device commands in `devices.json`.
+  - Outside the Device Browser a key uses the running activity's mapping. A key that activity does not map (or any key while nothing runs) uses the map's `-1` (all off) entry, then a `default` entry, then the map's only activity when it has exactly one. With several activities and none of those entries, the key does nothing: with everything off, a map without a `-1` entry sends nothing for ordinary hard keys, and an activity key of a Companion or Smart Control (`WatchTVActivity`, `MusicActivity`, `MovieActivity`) bound in one activity's entry starts nothing from Off or from the other activities. `Off` (`PowerOffActivity`) always works, and the activity and Off keys of a touchscreen remote are not affected. Keys that must work in every activity and with everything off (Companion activity keys, volume) belong under **Off / Idle (Default)** in the legacy web UI, **No activity (defaults for all activities)** in the new one (`-1`). The "only activity" counts the non-empty entries in the map, not the activities on the Hub.
 - **Shortened Device IDs**: Device IDs are automatically migrated and shortened (`"1"`, `"2"`, ...) across all config files, freeing RF payload space for longer device names. Names longer than the list chunk holds arrive in `RF_MSG_NAME_TAIL_CHUNK` frames, up to 39 characters.
 - **Back**: Swipe left-to-right; with touch disabled, press `Prev Tab` (`KEY_PROG2`) or `Back`. At the root device list, going back opens the running activity's screen, or the activity list when none is running.
 
