@@ -58,6 +58,44 @@ esac
 
 KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOTESTKEYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
+WINDOWS = sys.platform == "win32"
+IS_ROOT = hasattr(os, "geteuid") and os.geteuid() == 0
+ROOT_WRITES = "root can write anywhere"
+# The host tools also run on Windows (docs/FIRST_INSTALL_*.md); what Windows cannot do:
+NO_FOLDER_MODES = "Windows ignores the mode bits of a folder (NTFS), so a folder cannot be made read-only"
+NO_WRITE_ONLY = "Windows has no write-only file: chmod only sets or clears the read-only attribute"
+NO_FAKE_SSH = ("the tools start ssh and scp by name, and Windows then starts only an .exe (CreateProcess adds "
+               ".exe, never .cmd), so a fake ssh script cannot take the place of ssh.exe")
+
+
+def kh_option(path: pathlib.Path) -> str:
+    """The UserKnownHostsFile option the tools must pass for path: in double quotes, with
+    forward slashes on Windows."""
+    text = path.as_posix() if WINDOWS else str(path)
+    return f'UserKnownHostsFile="{text}"'
+
+
+def locked_folder(test: unittest.TestCase, path: pathlib.Path) -> pathlib.Path:
+    """A folder the known_hosts check cannot write in: mode 0555 on POSIX. Windows ignores the
+    mode of a folder, so there it is a plain file: nothing can be made under it either."""
+    if WINDOWS:
+        path.write_text("")
+    else:
+        path.mkdir()
+        path.chmod(0o555)
+        test.addCleanup(lambda: path.exists() and path.chmod(0o755))
+    return path
+
+
+def symlink_or_skip(test: unittest.TestCase, link: pathlib.Path, target: pathlib.Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as e:
+        if WINDOWS:
+            test.skipTest(f"this Windows account cannot make symbolic links (Developer Mode or an "
+                          f"administrator is needed): {e}")
+        raise
+
 
 def hashed_name(name: str, salt: bytes = b"0123456789abcdefghij") -> str:
     mac = hmac.new(salt, name.encode(), hashlib.sha1).digest()
@@ -78,19 +116,16 @@ class HelperTests(unittest.TestCase):
     def test_options(self):
         opts = ssh_hostkeys.ssh_options("root@HarmonyHub.Local")
         self.assertIn("StrictHostKeyChecking=accept-new", opts)
-        self.assertIn(f'UserKnownHostsFile="{self.kh}"', opts)
+        self.assertIn(kh_option(self.kh), opts)
         self.assertIn("HashKnownHosts=no", opts)
         # The key is recorded under the name the tool was given, in lower case
         self.assertIn("HostKeyAlias=harmonyhub.local", opts)
         self.assertIn("CheckHostIP=no", opts)
         self.assertTrue(self.kh.parent.is_dir(), "folder of the known_hosts file not created")
 
-    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
+    @unittest.skipIf(IS_ROOT, ROOT_WRITES)
     def test_unwritable_file_stops_the_tool(self):
-        locked = pathlib.Path(self.tmp.name) / "locked"
-        locked.mkdir()
-        locked.chmod(0o555)
-        self.addCleanup(lambda: locked.exists() and locked.chmod(0o755))
+        locked = locked_folder(self, pathlib.Path(self.tmp.name) / "locked")
         for kh in (locked / "sub" / "known_hosts", locked / "known_hosts"):
             with self.subTest(file=str(kh)), mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(kh)}):
                 with self.assertRaises(SystemExit) as cm:
@@ -118,63 +153,77 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         cfg = dict(line.split(" ", 1) for line in res.stdout.splitlines() if " " in line)
         self.assertEqual(cfg.get("stricthostkeychecking"), "accept-new")
-        # One file, the path with its space kept whole
-        self.assertEqual(cfg.get("userknownhostsfile"), str(self.kh))
+        # The file the tools gave (ssh -G prints it without quotes; on Windows with forward slashes)
+        self.assertEqual(pathlib.Path(cfg.get("userknownhostsfile", "")), self.kh)
         self.assertEqual(cfg.get("hostkeyalias"), "myhub")
         self.assertEqual(cfg.get("checkhostip"), "no")
 
-    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
-    def test_writability_is_tried_not_guessed(self):
-        base = pathlib.Path(self.tmp.name)
-        # A writable file in a folder this account cannot write: ssh can append, so no stop
-        ro_dir = base / "ro_dir"
+    @unittest.skipIf(WINDOWS, NO_FOLDER_MODES)
+    @unittest.skipIf(IS_ROOT, ROOT_WRITES)
+    def test_writable_file_in_read_only_folder(self):
+        # Writability is tried, not guessed: ssh can append to a writable file in a folder this
+        # account cannot write, so no stop, and --reset-host-key rewrites such a file in place
+        ro_dir = pathlib.Path(self.tmp.name) / "ro_dir"
         ro_dir.mkdir()
         (ro_dir / "known_hosts").write_text("")
         ro_dir.chmod(0o555)
         self.addCleanup(lambda: ro_dir.exists() and ro_dir.chmod(0o755))
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(ro_dir / "known_hosts")}):
             self.assertIn("StrictHostKeyChecking=accept-new", ssh_hostkeys.ssh_options("192.168.1.20"))
-            # --reset-host-key rewrites such a file in place
             (ro_dir / "known_hosts").write_bytes(b"192.168.1.20 ssh-ed25519 " + KEY.encode() + b"\r\n# keep\r\n")
             ssh_hostkeys.reset_host("192.168.1.20")
             self.assertEqual((ro_dir / "known_hosts").read_bytes(), b"# keep\r\n")
-            # Any other error while forgetting: a clear stop, no traceback
-            with self.assertRaises(SystemExit) as cm:
-                with mock.patch.object(ssh_hostkeys, "forget_host", side_effect=PermissionError(13, "Permission denied")):
-                    ssh_hostkeys.reset_host("192.168.1.20")
-            self.assertIn(ssh_hostkeys.RESET_OPTION, str(cm.exception.code))
+
+    def test_error_while_forgetting_is_a_clear_stop(self):
+        # Any other error while forgetting: a clear stop, no traceback
+        with self.assertRaises(SystemExit) as cm:
+            with mock.patch.object(ssh_hostkeys, "forget_host", side_effect=PermissionError(13, "Permission denied")):
+                ssh_hostkeys.reset_host("192.168.1.20")
+        self.assertIn(ssh_hostkeys.RESET_OPTION, str(cm.exception.code))
+
+    def test_link_into_missing_folder_stops(self):
         # A link to a file in a folder that does not exist: ssh could not write it
+        base = pathlib.Path(self.tmp.name)
         link = base / "dangling_known_hosts"
-        link.symlink_to(base / "missing" / "known_hosts")
+        symlink_or_skip(self, link, base / "missing" / "known_hosts")
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(link)}):
             with self.assertRaises(SystemExit) as cm:
                 ssh_hostkeys.ssh_options("192.168.1.20")
             self.assertIn(str(link), str(cm.exception.code))
+
+    def test_link_to_file_made_later_passes(self):
         # A link to a file not created yet, in a folder that exists: ssh would create it, so it passes
+        base = pathlib.Path(self.tmp.name)
         made_later = base / "later"
         made_later.mkdir()
         link2 = base / "link_to_later"
-        link2.symlink_to(made_later / "known_hosts")
+        symlink_or_skip(self, link2, made_later / "known_hosts")
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(link2)}):
             ssh_hostkeys.ssh_options("192.168.1.20")
         self.assertFalse((made_later / "known_hosts").exists(), "the check left the link target behind")
+
+    @unittest.skipIf(WINDOWS, NO_WRITE_ONLY)
+    @unittest.skipIf(IS_ROOT, ROOT_WRITES)
+    def test_write_only_file_stops(self):
         # A file this account can write but not read: ssh could not check keys in it
-        wo = base / "write_only_known_hosts"
+        wo = pathlib.Path(self.tmp.name) / "write_only_known_hosts"
         wo.write_text("")
         wo.chmod(0o200)
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(wo)}):
             with self.assertRaises(SystemExit):
                 ssh_hostkeys.ssh_options("192.168.1.20")
-        # A FIFO: no hang, a stop
-        if hasattr(os, "mkfifo"):
-            fifo = base / "fifo_known_hosts"
-            os.mkfifo(fifo)
-            with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fifo)}):
-                with self.assertRaises(SystemExit) as cm:
-                    ssh_hostkeys.ssh_options("192.168.1.20")
-                self.assertIn("not a regular file", str(cm.exception.code))
-        # The check leaves nothing behind
-        fresh = base / "fresh" / "known_hosts"
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "no FIFOs here")
+    def test_fifo_stops_without_hanging(self):
+        fifo = pathlib.Path(self.tmp.name) / "fifo_known_hosts"
+        os.mkfifo(fifo)
+        with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fifo)}):
+            with self.assertRaises(SystemExit) as cm:
+                ssh_hostkeys.ssh_options("192.168.1.20")
+            self.assertIn("not a regular file", str(cm.exception.code))
+
+    def test_check_leaves_nothing_behind(self):
+        fresh = pathlib.Path(self.tmp.name) / "fresh" / "known_hosts"
         with mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(fresh)}):
             ssh_hostkeys.ssh_options("192.168.1.20")
         self.assertEqual(list(fresh.parent.iterdir()), [])
@@ -258,6 +307,7 @@ class ToolSources(unittest.TestCase):
             self.assertIn("tools/ssh_hostkeys.py", line, staging)
 
 
+@unittest.skipIf(WINDOWS, NO_FAKE_SSH)
 class ToolRuns(unittest.TestCase):
     """The tools against a fake ssh: options used, changed key reported, reset option."""
 
@@ -328,7 +378,7 @@ class ToolRuns(unittest.TestCase):
                 for c in calls:
                     self.assertIn("StrictHostKeyChecking=accept-new", c)
                     self.assertIn(f"HostKeyAlias={host}", c)
-                    self.assertIn(f'UserKnownHostsFile="{self.kh}"', c)
+                    self.assertIn(kh_option(self.kh), c)
 
     def test_reset_option_forgets_the_target_only(self):
         for name, (args, host) in self.CASES.items():
@@ -348,12 +398,9 @@ class ToolRuns(unittest.TestCase):
         self.assertEqual(self.kh.read_text(), "")
         self.assertIn("HostKeyAlias=harmonyhub.local", self.calls()[0])
 
-    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
+    @unittest.skipIf(IS_ROOT, ROOT_WRITES)
     def test_unwritable_known_hosts_stops_before_ssh(self):
-        locked = self.base / "locked"
-        locked.mkdir()
-        locked.chmod(0o555)
-        self.addCleanup(lambda: locked.exists() and locked.chmod(0o755))
+        locked = locked_folder(self, self.base / "locked")
         env = dict(self.env, FAKE_MODE="down", **{ssh_hostkeys.KNOWN_HOSTS_ENV: str(locked / "kh" / "known_hosts")})
         res = subprocess.run([sys.executable, str(REPO_DIR / "build" / "deploy_hub.py"), "192.168.1.20"],
                              capture_output=True, text=True, env=env, timeout=60, cwd=str(self.base))
@@ -536,18 +583,15 @@ class RootHubBackupHint(unittest.TestCase):
         self.assertIn(f"tools/backup_hub.py 192.168.1.20 {ssh_hostkeys.RESET_OPTION}", err.getvalue())
 
 
-@unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write anywhere")
+@unittest.skipIf(IS_ROOT, ROOT_WRITES)
 class StopBeforeDeviceWork(unittest.TestCase):
     """With a known_hosts file that cannot be written, every tool stops in main() before its
     first USB or device action, so "Nothing was changed" is true."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        locked = pathlib.Path(self.tmp.name) / "locked"
-        locked.mkdir()
-        locked.chmod(0o555)
         self.addCleanup(self.tmp.cleanup)
-        self.addCleanup(locked.chmod, 0o755)
+        locked = locked_folder(self, pathlib.Path(self.tmp.name) / "locked")
         env = mock.patch.dict(os.environ, {ssh_hostkeys.KNOWN_HOSTS_ENV: str(locked / "sub" / "known_hosts")})
         env.start()
         self.addCleanup(env.stop)
