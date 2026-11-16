@@ -1324,6 +1324,51 @@ Associates a logical device ID with a paired Bluetooth MAC address. An empty or 
   }
   ```
 - **Response `200 OK`**: `{"ok": true}`
+- **Errors**: `400` without `deviceId` or with a `bdaddr` that is not an address; `404` when there
+  is no device with that id; `500` when `devices.json` could not be saved. (Older builds answered
+  `200`: `{"ok": false}` without a device id or for an unknown device, `{"ok": true}` after a failed
+  save.)
+
+`hub_daemon` is the only writer of `devices.json`. When a new pairing links a device, `hub_btstack`
+sends this request on loopback; when `hub_daemon` does not answer, or answers anything but `200`,
+`400` or `404` (restarting, busy, the save failed), `hub_btstack` keeps the link and sends it again
+after 1 s, then with a pause that doubles up to 60 s, until it is saved. It never writes the file
+itself. Only a `404` or `400` drops the link, and three `200 {"ok": false}` answers (an older
+`hub_daemon`'s "no such device"). A newer link of the same device waits for the answer to the older
+one (or its 3 s timeout), so that the older address is not applied after it.
+
+### 6.5a Forget Host
+#### `POST /api/bt-forget-host`
+Removes a paired Bluetooth host for good (a TV or box that was sold, or a device that paired by
+mistake). Admin only.
+- **Request Body**: `{"addr": "AA:BB:CC:DD:EE:FF"}` (`bdaddr` is accepted too)
+- **Response `200 OK`**:
+  ```json
+  {"ok": true, "addr": "AA:BB:CC:DD:EE:FF", "devices_cleared": 1, "default_host_cleared": true}
+  ```
+- **Errors**: `400` when `addr` is not `XX:XX:XX:XX:XX:XX` or is `00:00:00:00:00:00`; `403` for a
+  user account; `503` when `hub_btstack` is not running (Bluetooth off): nothing is changed, since
+  the link key lives there; `500` when `devices.json` could not be saved, or when `hub_btstack` did
+  not take the command (the devices are cleared but the link key is kept: send the request again).
+
+In order: every device linked to the host loses its `bdaddr` (or legacy `btHost`) in
+`devices.json` (`devices_cleared` counts them), `bthid_host_target` is removed when it names the
+host (`default_host_cleared`), then the running `hub_btstack` gets `host_forget <addr>` and, right
+after the answer, drops the host's link key, closes its HID channels and its link, removes it from
+the host list, stops reconnecting to it (also when a connection to it was being set up), drops a
+key kept for it and a device link waiting for it, and removes `bthid_host_target` too if a
+connection wrote it again in between.
+
+The devices that were linked to the host have no host of their own any more: their keys go to the
+default host (`bthid_host_target`, the last host paired) when there is one, and that can be another
+TV or box. Link them to another host (`POST /api/bt-link-device`) or pair them again. If the forgotten
+host was itself the default host, their keys are dropped until a host connects; that host then
+becomes the default.
+
+Afterwards the host can only come back through a new pairing (pairing mode); outside pairing mode
+its pairing requests are refused. Remove the Hub ("Harmony Keyboard") from the host's own Bluetooth
+list too: the host keeps its key and keeps trying to connect, and a later pairing can fail until it
+is removed there.
 
 ### 6.6 Bluetooth Remote (B25) Status & Pairing
 #### `GET /api/remote-status` or `GET /api/remote-pair-status`

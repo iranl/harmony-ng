@@ -320,6 +320,11 @@ export class HarmonyClientActivitiesDevices extends HarmonyClientCore {
     return this.postJson('/api/bt-disconnect', { bdaddr: bdaddr || '' });
   }
 
+  // Remove a paired host: its link key, its link and the devices' links to it (admin)
+  async forgetBtHost(addr) {
+    return this.postJson('/api/bt-forget-host', { addr: String(addr || '') });
+  }
+
   async linkBtDevice(bdaddr, deviceId) {
     return this.postJson('/api/bt-link-device', { bdaddr, deviceId });
   }

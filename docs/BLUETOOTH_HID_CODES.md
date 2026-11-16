@@ -108,8 +108,17 @@ A command with one of the names below is not a key. It tells the Hub to open or 
 
 | Action | Command name | Description |
 |:---|:---|:---|
-| **Connect** | `Connect` or `BT_CONNECT` | Connects or reconnects to the paired Bluetooth host |
-| **Disconnect** | `Disconnect` or `BT_DISCONNECT` | Disconnects the active Bluetooth HID session |
+| **Connect** | `Connect` or `BT_CONNECT` | Connects (or reconnects) the Hub to the Bluetooth host of this command's device |
+| **Disconnect** | `Disconnect` or `BT_DISCONNECT` | Closes the link to the Bluetooth host of this command's device |
+
+### Removing a paired host
+**Forget** next to a host in the web UI's Bluetooth host list (or `POST /api/bt-forget-host`,
+admin only, see [API.md](API.md)) removes the host for good: its link key, its link, its entry in the
+host list, and the link of every device that used it. Bluetooth must be on. Those devices then send
+their keys to the default host (the last host paired), which can be another TV or box: link them to
+another host or pair them again. Also remove the Hub ("Harmony Keyboard") from the host's own
+Bluetooth list. A forgotten host can only come back through a new pairing in pairing mode.
+Disconnect only closes the link; the host stays paired and reconnects.
 
 ---
 

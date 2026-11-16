@@ -2296,6 +2296,53 @@ paths:
             application/json:
               example:
                 ok: true
+        '400':
+          description: deviceId missing, or bdaddr is not a Bluetooth address
+        '404':
+          description: no device with that id
+        '500':
+          description: devices.json could not be saved
+
+  /api/bt-forget-host:
+    post:
+      tags:
+        - Bluetooth HID
+      summary: Forget a paired Bluetooth host
+      description: >-
+        Admin only. Clears the bdaddr of the devices linked to the host, removes the default host
+        file when it names it, then hub_btstack drops the host's link key, closes its link and
+        removes it from the host list. The devices that used it send their keys to the default
+        host (the last host paired) until linked again. The host can only come back through a new
+        pairing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addr: {type: string, description: "XX:XX:XX:XX:XX:XX (bdaddr is accepted too)"}
+              required: [addr]
+            example:
+              addr: "AA:BB:CC:DD:EE:FF"
+      responses:
+        '200':
+          description: Host forgotten
+          content:
+            application/json:
+              example:
+                ok: true
+                addr: "AA:BB:CC:DD:EE:FF"
+                devices_cleared: 1
+                default_host_cleared: true
+        '400':
+          description: addr is not a Bluetooth address, or is 00:00:00:00:00:00
+        '403':
+          description: not an admin account
+        '500':
+          description: devices.json could not be saved, or hub_btstack did not take the command (send it again)
+        '503':
+          description: hub_btstack is not running (Bluetooth off); nothing was changed
 
   /api/remote-status:
     get:

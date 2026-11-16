@@ -428,6 +428,15 @@ void execute_btstack_cmd(const char *cmd_in) {
         stop_user_scan();
     } else if (strncasecmp(cmd, "scan", 4) == 0) {
         start_user_scan();
+    } else if (strncasecmp(cmd, "host_forget", 11) == 0) {
+        /* A classic host (POST /api/bt-forget-host). The word does not start with "forget": an
+         * older hub_btstack, which reads any "forget..." as the BLE remote, ignores it. */
+        bd_addr_t tgt;
+        if (cmd_addr_arg(cmd + 11, tgt, false) != 1) {
+            log_msg("host_forget: not a Bluetooth address, ignored");
+            return;
+        }
+        forget_classic_host(tgt);
     } else if (strncasecmp(cmd, "forget", 6) == 0) {
         forget_ble_remote();
     } else if (strncasecmp(cmd, "pair ", 5) == 0) {

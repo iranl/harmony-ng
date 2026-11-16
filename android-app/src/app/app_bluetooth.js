@@ -1,6 +1,7 @@
 import { HarmonyClient } from '../api.js';
 import { getSavedHubs, saveHub, deleteHub, getActiveHub, setActiveHubId } from '../storage.js';
 import { RemoteEngine } from '../remote-engine.js';
+import { forgetBtHostFlow } from './bt_forget.js';
 import {
   getHarmonyManufacturers,
   searchHarmonyManufacturers,
@@ -177,6 +178,7 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
               <div class="muted mini">${escapeHtml(h.addr)} • <span style="color:${h.connected ? 'var(--success)' : (h.paired === false ? 'var(--warning)' : 'var(--text-dim)')}">${h.connected ? 'Connected' : (h.paired === false ? 'Not paired (no link key)' : 'Paired')}</span></div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <button type="button" class="btn btn-xs btn-danger btn-bt-forget" data-addr="${escapeHtml(h.addr)}" data-name="${escapeHtml(resolveHostDeviceName(h))}">${escapeHtml(t('bt_forget_host', 'Forget'))}</button>
               <select class="form-control form-control-sm host-assign-sel" data-addr="${escapeHtml(h.addr)}" style="font-size:11px; max-width:180px;">
                 <option value="">-- Assign Device --</option>
                 ${devs.map(d => `<option value="${escapeHtml(d.id)}" ${assigned && String(assigned.id) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name || d.id)}</option>`).join('')}
@@ -212,6 +214,15 @@ export class HarmonyAppBluetooth extends HarmonyAppLab {
             } else {
               await this.client.connectBt(addr);
             }
+            this.loadBtView();
+          });
+        });
+
+        list.querySelectorAll('.btn-bt-forget').forEach(b => {
+          b.addEventListener('click', async () => {
+            const addr = b.getAttribute('data-addr');
+            const name = b.getAttribute('data-name') || addr;
+            if (await forgetBtHostFlow({ client: this.client, addr, name, t, showConfirm, showToast })) await this.refreshData();
             this.loadBtView();
           });
         });
