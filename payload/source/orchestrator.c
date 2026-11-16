@@ -331,11 +331,15 @@ int orch_is_sending(void) {
     return g_queue_len > 0 || g_bg_len > 0;
 }
 
+/* Returns a copy taken under the lock, one buffer per thread (as config_store.c does): a caller
+ * on an HTTP worker reads it while the main loop may be switching the activity. The copy stays
+ * valid until the same thread calls again. */
 const char *orch_get_current_activity(void) {
+    static __thread char s_copy[sizeof(g_current_act)];
     pthread_mutex_lock(&g_act_lock);
-    const char *ret = g_current_act;
+    snprintf(s_copy, sizeof(s_copy), "%s", g_current_act);
     pthread_mutex_unlock(&g_act_lock);
-    return ret;
+    return s_copy;
 }
 
 orch_state_t orch_get_state(void) {
