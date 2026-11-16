@@ -3,6 +3,7 @@
 #include "http_util.h"
 #include "config_store.h"
 #include "cJSON.h"
+#include "atomic_file.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -268,8 +269,9 @@ int http_api_network_handle(int client_fd, const char *method, const char *clean
                         is_hidden ? "\tscan_ssid=1\n" : "");
                 }
 
-                if (write_file_content("/etc/wpa_supplicant.conf", wpa_buf) != 0 ||
-                    write_file_content("/etc/wpa_supplicant.ath0.conf", wpa_buf) != 0) {
+                /* both or neither: a failed second write puts the first file back */
+                if (atomic_file_write_pair("/etc/wpa_supplicant.conf", "/etc/wpa_supplicant.ath0.conf",
+                                           wpa_buf, 16384) != 0) {
                     cJSON_Delete(params);
                     send_json_error(client_fd, 500, "Could not save the Wi-Fi settings (flash full?)");
                     close(client_fd);

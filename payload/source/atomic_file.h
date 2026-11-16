@@ -104,4 +104,43 @@ static inline int atomic_file_write_str(const char *path, const char *text) {
     return atomic_file_write(path, text, strlen(text));
 }
 
+/* The same text into two files that must stay alike (the two Wi-Fi files). When the second
+ * write fails, the first file gets its old content back (or is removed when it did not exist),
+ * so the pair is never left half changed; -1 is returned. Old content larger than max_old bytes
+ * is not restored. */
+static inline int atomic_file_write_pair(const char *first, const char *second, const char *text, size_t max_old) {
+    if (!first || !second || !text) return -1;
+    char *old = NULL;
+    size_t old_len = 0;
+    int had_old = 0;
+    FILE *f = fopen(first, "rb");
+    if (f) {
+        had_old = 1;
+        if (fseek(f, 0, SEEK_END) == 0) {
+            long sz = ftell(f);
+            if (sz >= 0 && (size_t)sz <= max_old && fseek(f, 0, SEEK_SET) == 0) {
+                old = (char *)malloc((size_t)sz + 1);
+                if (old) old_len = fread(old, 1, (size_t)sz, f);
+                if (old && old_len != (size_t)sz) {
+                    free(old);
+                    old = NULL;
+                }
+            }
+        }
+        fclose(f);
+    }
+    if (atomic_file_write_str(first, text) != 0) {
+        free(old);
+        return -1;
+    }
+    if (atomic_file_write_str(second, text) != 0) {
+        if (old) (void)atomic_file_write(first, old, old_len);
+        else if (!had_old) unlink(first);
+        free(old);
+        return -1;
+    }
+    free(old);
+    return 0;
+}
+
 #endif /* ATOMIC_FILE_H */

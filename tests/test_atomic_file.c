@@ -101,6 +101,20 @@ int main(void) {
     CHECK(lstat(link, &lst) == 0 && S_ISLNK(lst.st_mode), "link is still a link");
     CHECK(read_eq(real, "through\n"), "target got the new content");
 
+    printf("[-] atomic_file_write_pair\n");
+    char first[128], second[128];
+    snprintf(first, sizeof(first), "%s/wpa.conf", dir);
+    snprintf(second, sizeof(second), "%s/wpa.ath0.conf", dir);
+    CHECK(atomic_file_write_pair(first, second, "net=1\n", 16384) == 0 &&
+          read_eq(first, "net=1\n") && read_eq(second, "net=1\n"), "both files written");
+    snprintf(second, sizeof(second), "%s/missing_dir/wpa.ath0.conf", dir);
+    CHECK(atomic_file_write_pair(first, second, "net=2\n", 16384) == -1, "second write failing reported");
+    CHECK(read_eq(first, "net=1\n"), "first file back to its old content");
+    char fresh[128];
+    snprintf(fresh, sizeof(fresh), "%s/fresh.conf", dir);
+    CHECK(atomic_file_write_pair(fresh, second, "net=3\n", 16384) == -1 && access(fresh, F_OK) != 0,
+          "first file that did not exist is removed again");
+
     snprintf(path, sizeof(path), "rm -rf %s", dir);
     if (system(path) != 0) return 1;
     if (failed) {
