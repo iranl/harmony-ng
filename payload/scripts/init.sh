@@ -19,8 +19,12 @@ write_if_changed() {
 }
 
 # A symlink is replaced only when it does not point there already. Usage: link_if_changed TARGET LINK
+# The stock BusyBox has no readlink (the extended one in /cache/bin has): ls -l tells it then.
+link_target() {
+  readlink "$1" 2>/dev/null || ls -l "$1" 2>/dev/null | sed -n 's/.* -> //p'
+}
 link_if_changed() {
-  if [ -L "$2" ] && [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then
+  if [ -L "$2" ] && [ "$(link_target "$2")" = "$1" ]; then
     return 0
   fi
   ln -sf "$1" "$2"

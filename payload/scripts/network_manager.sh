@@ -55,10 +55,19 @@ load_config() {
 }
 load_config
 
-# ETH_DNS may list several servers (space or comma separated): one nameserver line each
+# ETH_DNS may list several servers (space or comma separated): one nameserver line each.
+# Only blanks or commas leave /etc/resolv.conf alone (printf wrote an empty "nameserver" line);
+# set -f keeps a "*" in the value from expanding to file names.
 write_resolv_conf() {
-  [ -n "$ETH_DNS" ] || return 0
-  printf 'nameserver %s\n' $(echo "$ETH_DNS" | tr ',' ' ') > /etc/resolv.conf
+  _resolv=""
+  set -f
+  for _dns in $(echo "$ETH_DNS" | tr ',' ' '); do
+    _resolv="${_resolv}nameserver $_dns
+"
+  done
+  set +f
+  [ -n "$_resolv" ] || return 0
+  printf '%s' "$_resolv" > /etc/resolv.conf
 }
 
 configure_arp_isolation() {

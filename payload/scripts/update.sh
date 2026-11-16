@@ -476,12 +476,26 @@ do_remote_ota() {
 
 # One apply at a time: every run uses /tmp/ota_update and its exit removes it, so a second
 # run (a double click, two browser tabs) deleted the files the first was installing. The lock
-# is a directory with the owner's pid; one left by a run that was killed is taken over.
+# is a directory with the owner's pid and start time; one left by a run that was killed is taken
+# over. The start time (field 22 of /proc/<pid>/stat) tells the owner from a later process that
+# got the same pid; a lock written without it falls back to the command line.
 APPLY_LOCK=/tmp/ota_update.lock
+proc_start() {
+  sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '{print $20}'
+}
+apply_lock_owner_runs() {
+  _owner=$(cat "$APPLY_LOCK/pid" 2>/dev/null)
+  _start=$(cat "$APPLY_LOCK/start" 2>/dev/null)
+  [ -n "$_owner" ] && [ -d "/proc/$_owner" ] || return 1
+  if [ -n "$_start" ]; then
+    [ "$(proc_start "$_owner")" = "$_start" ]
+  else
+    grep -q 'update.sh' "/proc/$_owner/cmdline" 2>/dev/null
+  fi
+}
 apply_locked() {
   if ! mkdir "$APPLY_LOCK" 2>/dev/null; then
-    _owner=$(cat "$APPLY_LOCK/pid" 2>/dev/null)
-    if [ -n "$_owner" ] && [ -d "/proc/$_owner" ] && grep -q 'update.sh' "/proc/$_owner/cmdline" 2>/dev/null; then
+    if apply_lock_owner_runs; then
       echo "[-] Another software update is running (pid $_owner); not starting a second one."
       return 1
     fi
@@ -492,6 +506,7 @@ apply_locked() {
     fi
   fi
   echo "$$" > "$APPLY_LOCK/pid"
+  proc_start $$ > "$APPLY_LOCK/start"
   ( do_apply )
   _rc=$?
   rm -rf "$APPLY_LOCK" 2>/dev/null

@@ -120,6 +120,10 @@ EOF
 
 stop_ap() {
   log "stopping recovery ap"
+  # end the portal loop itself: in its 2 s wait it outlived the stop, and a start within that
+  # time gave it its pid file back (two loops, two portals on port 80)
+  _loop=$(cat /var/run/hub-recovery-ap.pid 2>/dev/null)
+  [ -n "$_loop" ] && kill -9 "$_loop" 2>/dev/null
   rm -f /var/run/hub-recovery-ap.pid /tmp/hostapd-recovery.conf
   killall -9 hub_portal hub_dhcpd hostapd 2>/dev/null || true
   ifconfig "$AP_IF" down 2>/dev/null

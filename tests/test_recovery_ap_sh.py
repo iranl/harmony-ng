@@ -4,7 +4,8 @@
 - /data/harmony/recovery_ap.conf is read as KEY=VALUE data: shell code in it is never run,
   a valid pass phrase and WPA_ENABLED are taken, an invalid pass phrase keeps the default;
 - the Wi-Fi portal is started again when it ends while the AP is up, and stays stopped after
-  "stop" (before, a portal that died left nobody able to enter Wi-Fi values).
+  "stop" (before, a portal that died left nobody able to enter Wi-Fi values); "stop" ends
+  the loop itself, also in its 2 s wait between two portal runs.
 """
 
 from __future__ import annotations
@@ -99,6 +100,30 @@ class RecoveryApScript(unittest.TestCase):
         runs = len(count.read_text().split())
         time.sleep(3)
         self.assertEqual(len(count.read_text().split()), runs, "the portal came back after stop")
+
+    def test_stop_ends_the_portal_loop(self):
+        stub = self.root / "stub"
+        for cmd in ("wlanconfig", "iwpriv", "iwconfig", "ifconfig", "killall"):
+            (stub / cmd).write_text("#!/bin/sh\nexit 0\n")
+        portal = self.root / "data" / "harmony" / "bin" / "hub_portal"
+        portal.write_text("#!/bin/sh\nexit 1\n")  # ends at once: the loop sits in its 2 s wait
+        for f in list(stub.iterdir()) + [portal]:
+            f.chmod(0o755)
+        env = dict(os.environ, PATH=f"{stub}:/usr/bin:/bin")
+        subprocess.run(["sh", str(self.script), "start"], env=env, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.5)
+        loop = int((self.root / "run" / "hub-recovery-ap.pid").read_text().strip())
+        subprocess.run(["sh", str(self.script), "stop"], env=env, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.2)
+        alive = True
+        try:
+            os.kill(loop, 0)
+            alive = pathlib.Path(f"/proc/{loop}/stat").read_text().split(") ")[1][0] != "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            alive = False
+        self.assertFalse(alive, "the portal loop outlived the stop")
 
 
 if __name__ == "__main__":

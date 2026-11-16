@@ -5,8 +5,8 @@ temporary directory and busybox replaced by a stub whose wget records its argume
 - a token is sent as one header argument ("Authorization: token <value>"); it used to be split
   into separate words, so wget got the token as an extra URL and every download failed;
 - one apply at a time: with the lock held by a running update.sh, a second apply stops before
-  it touches anything; a lock left by a run that no longer exists is taken over and removed
-  at the end.
+  it touches anything; a lock left by a run that no longer exists, or whose pid now belongs
+  to another process (other start time), is taken over and removed at the end.
 """
 
 from __future__ import annotations
@@ -78,6 +78,36 @@ class UpdateScript(unittest.TestCase):
         self.assertNotIn("Starting software update", res.stdout)
         self.assertFalse((self.root / "tmp" / "hub_updating.flag").exists())
         self.assertTrue(self.lock.exists(), "the running update keeps its lock")
+
+    def start_of(self, pid: int) -> str:
+        return pathlib.Path(f"/proc/{pid}/stat").read_text().split(") ")[1].split()[19]
+
+    def test_owner_with_its_start_time_keeps_the_lock(self):
+        self.holder = subprocess.Popen(["sh", "-c", "sleep 30; :"])
+        time.sleep(0.2)
+        self.lock.mkdir()
+        (self.lock / "pid").write_text(f"{self.holder.pid}\n")
+        (self.lock / "start").write_text(self.start_of(self.holder.pid) + "\n")
+        res = self.run_update("apply")
+        self.assertIn("Another software update is running", res.stdout)
+
+    def test_pid_reused_by_another_process_taken_over(self):
+        # the pid is alive and its command line names update.sh (an editor on the file), but it
+        # started at another time than the run that wrote the lock
+        self.holder = subprocess.Popen(["sh", "-c", "sleep 30; :", "vi", "update.sh"])
+        time.sleep(0.2)
+        self.lock.mkdir()
+        (self.lock / "pid").write_text(f"{self.holder.pid}\n")
+        (self.lock / "start").write_text("1\n")
+        res = self.run_update("apply")
+        self.assertIn("Starting software update", res.stdout)
+
+    def test_lock_records_the_start_time(self):
+        text = self.script.read_text().replace("( do_apply )", "( cat \"$APPLY_LOCK/pid\" \"$APPLY_LOCK/start\" )")
+        self.script.write_text(text)
+        res = self.run_update("apply")
+        pid, start = res.stdout.split()[:2]
+        self.assertTrue(pid.isdigit() and start.isdigit(), res.stdout)
 
     def test_stale_lock_taken_over(self):
         self.lock.mkdir()

@@ -26,6 +26,8 @@ for _spid in $(cat /tmp/harmony_supervisors.pid 2>/dev/null); do
 done
 rm -f /tmp/harmony_supervisors.pid 2>/dev/null || true
 killall -9 init.sh hub_daemon hub_btstack hub_rf hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+# let SPI transfers in flight end before the flash writes below (as safe_reboot.sh)
+sleep 2
 
 echo "[*] Restoring startup scripts..."
 if [ -f /data/stock_backup/rcS.local.orig ]; then
@@ -56,6 +58,7 @@ fi
 echo "[*] Removing custom binaries and temporary state..."
 # the flush tool lives in /data/harmony/bin, removed below: keep a copy in RAM for the end
 cp -f /data/harmony/bin/hub_util /tmp/hub_sync 2>/dev/null || true
+chmod 755 /tmp/hub_sync 2>/dev/null || true
 rm -f /etc/nowatchdog /usr/sbin/dropbear /usr/sbin/dropbearkey /data/rf_pair_test /data/test_hub_tx /data/hub_rf 2>/dev/null || true
 rm -rf /data/harmony/bin /data/harmony/www /data/harmony-backups /cache/*.log /cache/crashlog-*.json 2>/dev/null || true
 rm -f /data/harmony/*.conf /data/harmony/current_activity /data/harmony/config_version 2>/dev/null || true

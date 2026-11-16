@@ -5,7 +5,8 @@
 file is rewritten could leave it empty. The helper functions and the block "# 3. Shell Profile"
 of payload/scripts/init.sh run twice with sh in a sandbox (paths moved into a temporary root, a
 stand-in dropbear binary, ps and dropbear start replaced): the first run writes every file and
-link; the second leaves all of them untouched (same inode, same modification time).
+link; the second leaves all of them untouched (same inode, same modification time), also
+without a readlink command (the stock BusyBox has none).
 """
 
 from __future__ import annotations
@@ -81,6 +82,17 @@ class InitFlashWrites(unittest.TestCase):
         self.run_block()
         self.assertEqual(self.state(), before, "files or links rewritten although unchanged")
         self.assertFalse(list(self.root.rglob("*.tmp")), "temporary files left")
+
+    def test_links_kept_without_readlink(self):
+        # the stock BusyBox has no readlink: a missing one must not make every start relink
+        ro = self.root / "stub" / "readlink"
+        ro.write_text("#!/bin/sh\nexit 127\n")
+        ro.chmod(0o755)
+        self.run_block()
+        before = self.state()
+        time.sleep(0.05)
+        self.run_block()
+        self.assertEqual(self.state(), before, "links rewritten although unchanged (no readlink)")
 
     def test_changed_content_is_replaced(self):
         self.run_block()

@@ -6,7 +6,8 @@ command dispatch is cut off, and the functions are called from a small driver wi
 network commands replaced by shell functions. Checks:
 - ETH_ENABLED and ETH_FALLBACK_WIFI from ethernet.conf are read (they were fixed at 1);
 - with Ethernet turned off, the boot does not start Ethernet (no USB host mode switch);
-- a DNS list with two servers becomes two nameserver lines;
+- a DNS list with two servers becomes two nameserver lines; only blanks or commas leave
+  resolv.conf alone, and a "*" is not expanded to file names;
 - wpa_supplicant is (re)started with /etc/wpa_supplicant.conf, the file every writer updates,
   also when the older wpa_supplicant.ath0.conf copy exists.
 """
@@ -74,6 +75,18 @@ class NetworkManagerScript(unittest.TestCase):
         self.run_sh("load_config; write_resolv_conf")
         resolv = (self.root / "etc" / "resolv.conf").read_text()
         self.assertEqual(resolv, "nameserver 192.168.1.1\nnameserver 9.9.9.9\n")
+
+    def test_dns_blank_keeps_resolv_conf(self):
+        resolv = self.root / "etc" / "resolv.conf"
+        resolv.write_text("nameserver 192.168.1.1\n")
+        self.conf.write_text('ETH_MODE="static"\nETH_DNS=" , "\n')
+        self.run_sh("load_config; write_resolv_conf")
+        self.assertEqual(resolv.read_text(), "nameserver 192.168.1.1\n", "only blanks and commas: no empty nameserver line")
+
+    def test_dns_wildcard_not_expanded(self):
+        self.conf.write_text('ETH_MODE="static"\nETH_DNS="*"\n')
+        self.run_sh("load_config; write_resolv_conf")
+        self.assertEqual((self.root / "etc" / "resolv.conf").read_text(), "nameserver *\n", "a * stays a *, not the file names")
 
     def test_wpa_conf_is_the_main_file(self):
         (self.root / "etc" / "wpa_supplicant.conf").write_text("network={\n}\n")

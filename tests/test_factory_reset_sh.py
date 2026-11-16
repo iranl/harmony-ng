@@ -4,9 +4,11 @@ killall, mount, reboot and sleep replaced by stubs that record their calls.
 
 - the init.sh supervisor loops are stopped before the daemons are killed (they would start
   them again 5 s later while the script deletes their files);
+- the daemons are killed (kill -9, .agents/rules/embedded_devices.md) and 2 s pass before
+  the first flash write, as in safe_reboot.sh;
 - the file systems are flushed with hub_sync (kept in RAM before /data/harmony/bin is
-  removed) and remounted read-only before "reboot -f"; the old path of an earlier project
-  name is gone;
+  removed, executable also under a umask that clears x) and remounted read-only before
+  "reboot -f"; the old path of an earlier project name is gone;
 - when the stock rcS.local cannot be restored nothing is removed and the services are started
   again.
 """
@@ -73,8 +75,18 @@ class FactoryResetScript(unittest.TestCase):
         remount = [i for i, c in enumerate(calls) if c.startswith("mount -o remount,ro") and "/data" in c]
         self.assertTrue(remount and remount[0] < reboot, calls)
         self.assertLess(calls.index("flush hub_sync"), reboot)
+        kill = next(i for i, c in enumerate(calls) if c.startswith("killall -9 init.sh"))
+        self.assertEqual(calls[kill + 1], "sleep 2", "a wait for SPI transfers in flight after the kill")
         self.assertNotIn("codex", SCRIPT.read_text())
         self.assertFalse((self.root / "data" / "harmony" / "bin").exists())
+
+    def test_flush_copy_runs_with_a_strict_umask(self):
+        # cp gives the copy the source's mode minus the umask: with one that clears x the RAM copy
+        # of hub_sync could not run and the flush fell back to a plain sync
+        res = subprocess.run(["sh", "-c", f"umask 177; exec sh '{self.script}' --confirm"], env=self.env,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("flush hub_sync", self.calls.read_text().splitlines())
 
     def test_failed_restore_removes_nothing(self):
         (self.root / "etc" / "init.d").rmdir()  # cp to /etc/init.d/rcS.local fails
