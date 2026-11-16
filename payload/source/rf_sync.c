@@ -432,15 +432,6 @@ static void send_time_sync_payload(uint8_t slot, const uint8_t *payload) {
     memcpy(s_time_sync_last_payload[idx], payload, TIME_SYNC_PAYLOAD_LEN);
 }
 
-void rf_send_hub_time_sync_slot(uint8_t slot) {
-    if (g_rf_fd < 0 || !g_has_paired_device) return;
-    if (is_companion_slot(slot)) return;
-
-    uint8_t payload[26] = {0};
-    build_time_sync_payload(slot, payload);
-    send_time_sync_payload(slot, payload);
-}
-
 void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
     if (g_rf_fd < 0 || !g_has_paired_device) return;
     if (is_companion_slot(slot)) return;
@@ -455,18 +446,6 @@ void rf_send_hub_time_sync_slot_if_due(uint8_t slot) {
                /* bytes 4.. (timezone, flags, config version, Hub address); 0..3 is the time */
                memcmp(&payload[4], &s_time_sync_last_payload[idx][4], TIME_SYNC_PAYLOAD_LEN - 4) != 0;
     if (due) send_time_sync_payload(slot, payload);
-}
-
-void rf_send_hub_time_sync(void) {
-    if (g_rf_fd < 0 || !g_has_paired_device) return;
-
-    for (int i = 0; i < MAX_PAIRED_REMOTES; i++) {
-        if (g_paired_remotes[i].active && !g_paired_remotes[i].link_lost) {
-            if (is_companion_slot(g_paired_remotes[i].slot)) continue;
-            rf_send_hub_time_sync_slot(g_paired_remotes[i].slot);
-            usleep(10000);
-        }
-    }
 }
 
 static int icon_push_file_unlocked(int target_slot, const char *file_path, const char *id_str) {

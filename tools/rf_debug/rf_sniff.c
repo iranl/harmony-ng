@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/time.h>
+
+#include "rf_lock.h"
 #include <time.h>
 #include <signal.h>
 
@@ -56,6 +58,8 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    if (rf_debug_take_lock() < 0) return 2;
 
     int do_flash = 0;
     if (argc > 1 && strcmp(argv[1], "--flash") == 0) {

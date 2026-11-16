@@ -541,13 +541,14 @@ int main(void) {
     {
         uint64_t ms = 2000000;
         #define SETTLE() do { for (int f = 0; f < 60 && list_scroll_settling(); f++) { ms += 28; list_scroll_tick(ms); } } while (0)
-        g_rf_device_count = 20;
+        /* as many devices as the remote can hold (g_rf_devices has MAX_RF_DEVICES entries) */
+        g_rf_device_count = MAX_RF_DEVICES;
         g_rf_dev_cmd_count = 0;
-        for (int i = 0; i < 20; i++) snprintf(g_rf_devices[i].name, sizeof(g_rf_devices[i].name), "Device %d", i + 1);
+        for (int i = 0; i < MAX_RF_DEVICES; i++) snprintf(g_rf_devices[i].name, sizeof(g_rf_devices[i].name), "Device %d", i + 1);
         open_device_browser();
         list_geom_t g;
-        assert(list_geometry(&g) && g.rows == 7 && g.count == 20 && list_scroll_offset() == 0);
-        int max = 13 * LIST_ROW_PITCH;
+        assert(list_geometry(&g) && g.rows == 7 && g.count == MAX_RF_DEVICES && list_scroll_offset() == 0);
+        int max = (MAX_RF_DEVICES - 7) * LIST_ROW_PITCH;
 
         /* A slow drag moves the list with the finger and comes to rest with a row at the top */
         list_scroll_touch_down(120, 250, ms);
@@ -597,11 +598,11 @@ int main(void) {
         assert(list_scroll_offset() % LIST_ROW_PITCH == 0);
 
         /* Keys scroll the selection into view: a wrap from the last row jumps, a step slides */
-        g_browse_sel = 18;
+        g_browse_sel = MAX_RF_DEVICES - 2;
         device_browser_move(1);
         list_scroll_reveal(ms);
         SETTLE();
-        assert(g_browse_sel == 19 && list_scroll_offset() == max);
+        assert(g_browse_sel == MAX_RF_DEVICES - 1 && list_scroll_offset() == max);
         device_browser_move(1);
         list_scroll_reveal(ms);
         assert(g_browse_sel == 0 && list_scroll_offset() == 0 && !list_scroll_settling());

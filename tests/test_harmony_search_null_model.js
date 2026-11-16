@@ -51,37 +51,6 @@ async function runTests() {
     assert.strictEqual(ps5Res[0].m, 'PlayStation 5');
   }
 
-  // 3. Test exact lookup logic matching app_harmony_search.js triggerDeviceLookup()
-  const mockModels = [
-    { f: 'device-1.json', id: 1, m: 'PlayStation 4' },
-    { f: 'device-234951.json', id: 234951, m: null },
-    { f: 'PlayStation_5.json', id: 496914, m: 'PlayStation 5' }
-  ];
-
-  const modelName = 'PlayStation 5';
-  const targetModel = modelName.toLowerCase();
-  const match = mockModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase() === targetModel) ||
-    mockModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase().includes(targetModel));
-
-  assert.ok(match, 'Expected PlayStation 5 match to be found');
-  assert.strictEqual(match.id, 496914);
-  assert.strictEqual(match.f, 'PlayStation_5.json');
-
-  // 4. Live Sony index check (if network is available)
-  try {
-    const res = await fetch('https://cdn.jsdelivr.net/gh/pickysysadmin/logitech-harmony-ir-archive@main/devices/Sony/index.json');
-    if (res.ok) {
-      const liveSonyModels = await res.json();
-      const liveMatch = liveSonyModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase() === targetModel) ||
-        liveSonyModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase().includes(targetModel));
-      assert.ok(liveMatch, 'PlayStation 5 must be found in live Sony index');
-      assert.strictEqual(liveMatch.f, 'PlayStation_5.json');
-      console.log('✓ Live Sony index search for PlayStation 5 passed (20,006 models).');
-    }
-  } catch {
-    // Network optional
-  }
-
   console.log('✓ All harmony search null model tests passed for android-app and frontend.');
 }
 

@@ -29,7 +29,8 @@ on:
 jobs:
   test-host-tools:
     name: Host Tools Tests (Python 3.13)
-    runs-on: ubuntu-latest
+    # Same pinned image as the firmware tests (the remote_render test builds with the host gcc)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Set up Python

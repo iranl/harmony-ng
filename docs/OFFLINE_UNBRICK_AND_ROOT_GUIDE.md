@@ -47,6 +47,9 @@ When a hub is factory reset, `/data/resources/Context.json` is erased. In this s
 
 To revert any changes, fix a boot-loop, or recover an unresponsive Hub without opening the case:
 
+> [!TIP]
+> **Try SSH first.** A Hub with HarmonyNG counts its boots. When 5 boots in a row did not stay up for 5 minutes, the next boot is an emergency boot: the boot script starts only Wi-Fi and Dropbear SSH, none of the HarmonyNG services, and writes `/tmp/emergency_recovery.log`. The Hub then still answers `ssh`, so you can look at it or deploy again (`deploy_hub.py`) without a reset. The two boots after an emergency boot are normal tries again.
+
 ### Step 1.1: Initiate Factory Reset
 1. **Unplug the micro-USB cable** from the rear of the Harmony Hub (Hub powered OFF).
 2. Locate the circular **Pair/Reset** button on the back panel (next to the micro-USB port and 3.5mm IR blaster jacks).
@@ -77,18 +80,24 @@ python tools/restore_stock.py
 # Or specify a custom backup file:
 python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
 
-# Optional: To return to 100% pure factory stock with Dropbear SSH removed:
+# Optional: remove SSH access again (Dropbear, /etc/tdeenable, /etc/nowatchdog); the emptied root password stays:
 python tools/restore_stock.py --pure-stock
 ```
 
 The script automatically:
-1. Connects to the Hub over USB HID (`046D:C129`).
+1. Connects to the Hub over USB HID (`046D:C129` only: on a Pro 2400, `046D:C132`, pass `--skip-usb-root --hub-ip <ip>` while SSH works; after a reset root it first with `python tools/root_hub_usb.py --no-backup`).
 2. Configures Wi-Fi credentials over USB if needed.
 3. Stages the Dropbear payload to `/sys/dropbear` and boots into root SSH.
-4. Kills all running processes except Dropbear to release flash file locks.
+4. Kills the stock and HarmonyNG daemons (a fixed list; Dropbear keeps running) to release flash file locks.
 5. Transfers and extracts your backed-up `/cache` and `/data` partitions (plain uncompressed tar, no gzip on Hub).
 6. Safely flushes eraseblock buffers (`sync; sync; sleep 2; verify /bin/sh -c 'true'`).
 7. Reboots the Hub into fully configured stock Logitech firmware.
+
+Before it starts:
+- The script asks you to type `RESTORE` before it changes anything (`--force` skips the question).
+- A factory-reset Hub has no BusyBox with `tar`, so the script copies one from the PC: `bin/busybox` of the release bundle. In a git checkout build it first with `./build/build_busybox.sh mips`; without it the restore stops.
+- The PC must reach the Hub's Wi-Fi address (port 8088 or 22), so both must be on the same network.
+- Without `--backup` the script takes `backups/stock_hub_backup_latest.tar`. Every run of `tools/root_hub_usb.py` replaces that file, so if you rooted the Hub again after the reset, name the dated backup with `--backup`.
 
 #### Option B: Re-Root and Deploy HarmonyNG
 If you wish to reinstall HarmonyNG after a clean reset:
@@ -97,9 +106,11 @@ If you wish to reinstall HarmonyNG after a clean reset:
 # 1. Provision Wi-Fi and gain root over USB (with automatic stock backup):
 python tools/root_hub_usb.py --wifi-ssid "YourNetwork"   # asks for the Wi-Fi password
 
-# 2. Deploy HarmonyNG firmware:
+# 2. Deploy HarmonyNG firmware (from the extracted release zip: python deploy_hub.py <HUB_IP>):
 python build/deploy_hub.py <HUB_IP>
 ```
+
+The backup that step 1 takes is of the reset Hub, and it replaces `backups/stock_hub_backup_latest.tar`. The dated `stock_hub_backup_<timestamp>.tar` files of earlier runs stay; pass `--no-backup` in step 1 to keep the latest one as it is.
 
 ---
 
@@ -130,7 +141,7 @@ The J2 header is a 10-pin test point header:
 | **8** | **GND** | Ground | Connect to adapter **GND** |
 
 > [!CAUTION]
-> The AR9331 uses **3.3V TTL logic**. Ensure your USB-UART adapter is set to **3.3V** (never 5V). Do not connect VCC; power the Hub normally through its micro-USB port.
+> The Hub's UART uses **3.3V TTL logic**. Ensure your USB-UART adapter is set to **3.3V** (never 5V). Do not connect VCC; power the Hub normally through its micro-USB port.
 
 ### Serial Terminal Settings
 - **Baud Rate**: `115200`
@@ -218,7 +229,7 @@ Lease of <Hub_IP> obtained, lease time ...
 
 The factory SquashFS on Harmony Hub does not include `dropbear`. We use a tiny 4 KB TCP receiver helper that can be pasted over serial, which then pulls the full 577 KB `dropbearmulti` binary over Wi-Fi in 1 second.
 
-All required tools are stored in [`tools/unbrick_recovery/`](tools/unbrick_recovery):
+All required tools are stored in [`tools/unbrick_recovery/`](../tools/unbrick_recovery) of the git repository. The release bundles do not contain them, so sections 6 to 8 need a git checkout:
 
 ### Step A: Start the TCP Server on your PC
 On your computer (connected to the same Wi-Fi/LAN), run:
@@ -228,8 +239,8 @@ python tools/unbrick_recovery/serve_dropbear.py --hub <HUB_IP>
 This prints your PC's IP, the MD5 of the file it serves, and begins listening on port `9999`. With `--hub` only the Hub's address gets the file (another host that connects first is turned away); add `--bind <PC_IP>` when the printed address is not the one the Hub can reach (VPN, several networks).
 
 ### Step B: Create `/tmp/recv` on the Hub
-In your serial terminal on the Hub, paste the contents of [`tools/unbrick_recovery/upload_recv.sh`](tools/unbrick_recovery/upload_recv.sh):
-*(This script contains 71 lines of `echo -ne "\x..." >> /tmp/recv` and finishes with `chmod +x /tmp/recv`).*
+In your serial terminal on the Hub, paste the contents of [`tools/unbrick_recovery/upload_recv.sh`](../tools/unbrick_recovery/upload_recv.sh):
+*(This script has 70 lines: 68 of them `echo -ne "\x..." >> /tmp/recv`, and it finishes with `chmod +x /tmp/recv`).*
 
 Verify on the Hub:
 ```sh

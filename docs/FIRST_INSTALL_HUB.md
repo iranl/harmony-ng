@@ -11,6 +11,9 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 - **Micro-USB Cable**: Data-capable cable (not charge-only).
 - **Host PC**: Windows 10/11, macOS, or Linux.
 - **Python 3.13 or newer**: Installed on host PC (no external libraries needed; uses standard library). Ubuntu 24.04 and Debian 12 ship an older Python: there, install 3.13 from python.org or with `uv python install 3.13`.
+- **OpenSSH client**: `ssh`, `scp` and `ssh-keygen` in the PATH. The tools run these programs.
+- **7-Zip** (`7z` or `7zz` in the PATH): only for the icon archive of the deploy (section 4).
+- **Linux only**: read and write access to the Hub's `/dev/hidraw*` node, so run the USB tools as root or add a udev rule for `046d`. Without it the tools report "Harmony Hub not detected on USB".
 - **Local Network**: 2.4 GHz 802.11b/g/n Wi-Fi, or direct RJ45 Ethernet cable (Pro 2400).
 
 ### Choose Your Installation Method
@@ -25,10 +28,17 @@ This guide walks you through rooting and installing **HarmonyNG** (`hub_daemon`)
 git clone https://github.com/iranl/harmony-ng.git
 cd harmony-ng
 
-# 1. Compile MIPS userspace binaries
-./build/compile_all.sh hub
+# 0. Bootlin MIPS toolchain (the one the release build uses), unpacked into build/toolchains/
+mkdir -p build/toolchains
+curl -fsSLO https://toolchains.bootlin.com/downloads/releases/toolchains/mips32/tarballs/mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2
+tar -xjf mips32--uclibc--stable-2017.05-toolchains-1-1.tar.bz2 -C build/toolchains/
 
-# 2. Compile WebUI bundle
+# 1. Compile MIPS userspace binaries (no target = "all"; the "hub" target leaves out
+#    hub_btstack, and the deploy then installs no Bluetooth daemon). Fetches BTstack with git.
+./build/compile_all.sh
+
+# 2. Compile WebUI bundle (deploy_hub.py runs "npm run build" again itself, so npm and
+#    "npm install" are needed in any case)
 cd android-app && npm install && npm run build && cd ..
 ```
 
@@ -74,6 +84,8 @@ The tool automatically:
 7. Hub restarts with Dropbear SSH permanently enabled on port 22 on your local network, for key logins only (the key the tool installs; password logins are refused). A Hub rooted before this change gets key-only SSH from the first boot after harmony-ng is deployed; the server that already runs keeps its options until then.
 8. **Automatically backs up stock partitions**: Streams the entire `/cache` and `/data` partitions to `backups/stock_hub_backup_<timestamp>.tar` and `backups/stock_hub_backup_latest.tar`, and on the first run also `backups/golden_hub_backup.tar` (uncompressed tar; no gzip is used to avoid memory/CPU exhaustion and BusyBox compression incompatibilities on embedded MIPS).
 
+What the root step changes on the Hub besides SSH: it empties the root password in `/etc/passwd` and turns the stock watchdog daemon off (`/etc/nowatchdog`). The backup of step 8 is a tar of the `/cache` and `/data` directories, taken after these changes, and `/etc` and `/usr`, which live on the same flash as `/data`, are not in it: it is a copy of the stock `/cache` and `/data` contents, not an image of the whole Hub.
+
 > [!TIP]
 > You can also check, download, or flash Hub firmware at any time with the standalone tool:
 > ```bash
@@ -81,6 +93,14 @@ The tool automatically:
 > python tools/harmony_firmware.py flash --target hub
 > ```
 > `flash` writes a bundle only when its intended skins list the skin the device reports over USB (a remote without a bundle of its own gets the remote bundle the tool picks for it); `--force` overrides that check.
+> Other subcommands and options: `check --all-skins` (every known skin), `download` (`--target hub|remote`, `--skin <id>`, `--out-dir <folder>`, `--extract-ezhex`), and for `flash`: `--firmware <file.hfw2>`, `--dry-run` (checks the bundle, writes nothing) and `--yes` (no confirmation question). Downloads go to the `firmware/` folder next to `tools/`.
+
+What the root tool needs, and when it stops:
+- It reads the Hub's Wi-Fi state over USB. When the Hub is not connected, it asks for the SSID and the password, and stops without rooting if the Hub is not connected 40 seconds later.
+- It stops without rooting when the PC cannot reach the Hub's address on port 8088 or 22, so the PC and the Hub must be on the same network.
+- The stock backup of step 8 is taken only when SSH answers within 60 seconds after the reboot. If the tool prints a timeout instead, no backup was taken.
+
+Other options of `tools/root_hub_usb.py`: `--pubkey <file.pub>` (authorize this key; default: the newest `~/.ssh/harmony_owner_*.pub`, created as `harmony_owner_ed25519` when there is none), `--wifi-pass <password>` or the environment variable `HARMONY_WIFI_PASS` (instead of the password prompt), `--wifi-enc` (default `WPA2-PSK`; `NONE` or `OPEN` for a network without a password), `--wifi-only` (set up Wi-Fi and reboot, without SSH), `--no-reboot` and `--no-backup`.
 
 ### Step 2.3: Verify SSH Access
 Test SSH connectivity over your local network:
@@ -94,16 +114,18 @@ exit
 
 ## 3. Stock Backup & Recovery Safety
 
-When rooting via `tools/root_hub_usb.py`, a complete backup of your Hub's stock state (entire `/cache` and `/data` partitions) is automatically saved to:
+When rooting via `tools/root_hub_usb.py`, a backup of your Hub's `/cache` and `/data` directories is automatically saved to:
 ```text
 backups/stock_hub_backup_<timestamp>.tar
 backups/stock_hub_backup_latest.tar
 ```
 
+When `backups/golden_hub_backup.tar` does not exist yet, the root tool also copies the archive to that name; later runs never replace it. Every run replaces `stock_hub_backup_latest.tar`: after a factory reset and a new rooting it holds the reset Hub, and the backup with your stock configuration is the dated file (or the golden one).
+
 > [!NOTE]
 > **No gzip compression**: Backups and restores use uncompressed tar archives (`.tar`, not `.tar.gz`). The embedded BusyBox on the Hub has limited RAM and flash bandwidth; omitting gzip avoids CPU exhaustion and out-of-memory kernel panics during tar extraction.
 
-The backup that `tools/backup_hub.py` makes (also before every `deploy_hub.py` run) holds `/data/harmony` (devices, activities, button maps, Bluetooth keys, certificates), the stock `/data/resources`, the Wi-Fi configuration, the SSH host keys and the saved stock boot script. The files are named after the Hub (its Wi-Fi MAC), so several Hubs can share one `backups/` folder: `golden_hub_backup_<hub>.tar` is the first backup of each Hub and is never replaced (a `golden_hub_backup.tar` from older versions of the tool is kept as the golden backup, and no new one is made next to it), and of the `hub_backup_<hub>_<time>.tar` files the newest five are kept, plus the newest of each of the eight weeks before them. `deploy_hub.py` makes such a backup before every deployment and stops without changing the Hub when it cannot make one (`--no-backup` skips it). You can restore from it at any time using `python tools/restore_stock.py`.
+The backup that `tools/backup_hub.py` makes (also before every `deploy_hub.py` run) holds `/data/harmony` (devices, activities, button maps, Bluetooth keys, certificates), the stock `/data/resources`, the Wi-Fi configuration, the SSH host keys and the saved stock boot script. The files are named after the Hub (its Wi-Fi MAC), so several Hubs can share one `backups/` folder: `golden_hub_backup_<hub>.tar` is the first backup of each Hub and is never replaced (a `golden_hub_backup.tar` in the same folder is kept as the golden backup, and no new one is made next to it: older versions of the tool wrote that file, and `tools/root_hub_usb.py` still writes it, so a Hub rooted from this folder gets no `golden_hub_backup_<hub>.tar`), and of the `hub_backup_<hub>_<time>.tar` files the newest five are kept, plus the newest of each of the eight weeks before them. `deploy_hub.py` makes such a backup before every deployment and stops without changing the Hub when it cannot make one (`--no-backup` skips it; a `--webui-only` run makes none). To put such an archive back on the Hub, name it: `python tools/restore_stock.py --hub-ip <YOUR_HUB_IP> --backup backups/hub_backup_<hub>_<time>.tar` (without `--backup` the tool takes the stock backup; with `--hub-ip` it uses SSH when the Hub answers there, without the USB step). The tool empties `/cache` first and these archives hold no `/cache`, so run `deploy_hub.py` again afterwards.
 
 You can also run manual backups at any time:
 ```bash
@@ -111,7 +133,9 @@ You can also run manual backups at any time:
 python tools/backup_hub.py <YOUR_HUB_IP>
 ```
 
-This archive preserves your stock Logitech pairings, Wi-Fi configuration, device profiles, and certificates. You can restore from it at any time using `python tools/restore_stock.py`.
+Options: `--key <file>` (the SSH private key), `--user`, `--backup-dir <folder>` (instead of `backups/`) and `--dry-run` (shows what it would save). Always give the Hub's address: without one the tool tries `192.168.1.1`.
+
+The golden backup holds no `/data/harmony`. Neither kind is a stock image: to return to stock, use the root backup above (`backups/stock_hub_backup_*.tar`) with `python tools/restore_stock.py`.
 
 ---
 
@@ -130,18 +154,24 @@ python deploy_hub.py <YOUR_HUB_IP>
 
 Add `--dry-run` (or `-n`) to see what a deployment would change without changing anything: it reads the Hub's checksums, lists the files it would upload or purge and the steps it would run (backup, service stop, restart or reboot), and leaves the Hub and the local tree as they are. It does not build the web UI; from the repository it compares the files already in `payload/www`.
 
+Other options: `--key <file>` or `-k` (the SSH private key; default: the file named by `$SSH_KEY`, else the newest `~/.ssh/harmony_owner_*` key), `--user`, `--ui legacy|new` (the web UI a git checkout builds and deploys; default `legacy`), `--webui-only` (uploads only the web UI: no backup, no service stop before the upload; the services are still restarted at the end), `--reboot` (reboots the Hub instead of restarting the services), `--no-backup` and `--stage-remote-ota` (copies a local `remote_ui.ota.gz` to `/tmp/remote_ui.ota.gz` on the Hub, in RAM, as the image for a remote update). From a git checkout the deploy builds the web UI itself, so `npm` must be installed and `npm install` done in `android-app/` (or `frontend/` for `--ui new`).
+
 The installer automatically:
 1. Validates available flash memory before writing.
 2. Installs `hub_daemon` (Hub micro-daemon) to `/data/harmony/bin/`.
 3. Deploys startup scripts and USB Ethernet kernel drivers.
-4. Deploys the lightweight Web UI to `/data/harmony/www/`.
-5. **Auto-extracts Remote UI Icons**: If `build/icons.tar.gz` is not yet built, the script asks:
+4. Deploys the lightweight Web UI to `/cache/www/`.
+5. **Auto-extracts Remote UI Icons**: If the icon archive is not yet built (`icons.tar.gz` in the folder of the release bundle, `build/icons.tar.gz` in a git checkout), the script asks:
    ```text
-   [?] build/icons.tar.gz not found on host.
-   Download official remote firmware, extract 1,350 icons, and build build/icons.tar.gz now? (Y/n)
+   [?] icons.tar.gz not found on host.
+   Download official remote firmware, extract 1,350 icons, and build icons.tar.gz now? [Y/n]
    ```
-   If confirmed, it downloads the official Elite firmware (`remote_111_4.15.330.hfw2`), extracts all 1,347 device & activity icons from the internal SquashFS filesystem, packages them into `build/icons.tar.gz`, and stages them to `/cache/icons.tar.gz` on the Hub.
-6. Launches all services and verifies `http://<YOUR_HUB_IP>:8089/api/status`.
+   If confirmed, it downloads the official Elite firmware (`remote_111_4.15.330.hfw2`), extracts the device & activity icons (about 1,350) from the internal SquashFS filesystem (7-Zip must be installed), packages them into that archive, and stages them to `/cache/icons.tar.gz` on the Hub. Without 7-Zip, or when you answer `n`, the deploy goes on and leaves the Hub's icons as they are.
+6. Restarts the services (`init.sh restart`) and checks with `pidof`, for up to about 11 s, that a Hub daemon runs (`hub_daemon`, `hub_rf` or `hub_btstack`). With `--reboot` it reboots the Hub and checks nothing. It requests no API: open `http://<YOUR_HUB_IP>:8089` to check the Hub answers.
+
+The installer also changes the Hub outside `/data/harmony` and removes old files, on every run:
+- links every BusyBox applet the Hub lacks into `/usr/bin`, writes `/etc/profile.d/00-harmony.sh` (PATH) and rewrites `/root/.profile` and `/home/root/.profile`;
+- renames `/data/harmony/mqtt_config.json`, `elite_remote_map.json` and `bt_devices.json` to their current names (`mqtt.json`, `remote_slot1_map.json`, `bt-devices.json`) when no file of the new name exists, and deletes them otherwise; deletes other files of older layouts without converting them, among them `/data/harmony/devices.json`, `/data/devices.json` and `/data/activities.json`; the current configuration lives in `/data/harmony/config/`. `--dry-run` lists this step as one line.
 
 ### Stock configuration import
 
@@ -166,7 +196,7 @@ The deploy only imports when the Hub has no configuration yet. To run the import
 
 ```bash
 mkdir -p stock
-scp -O -r root@<YOUR_HUB_IP>:/data/resources stock/
+scp -O -r -i ~/.ssh/harmony_owner_ed25519 root@<YOUR_HUB_IP>:/data/resources stock/
 python3 tools/migrate_hub_configs.py --src stock/resources --dest migrated
 ```
 
@@ -180,8 +210,11 @@ To use the result, back up `/data/harmony` on the Hub first, copy `migrated/conf
    ```text
    http://<YOUR_HUB_IP>:8089
    ```
-2. Use the header language selector for English, Deutsch, Français, Nederlands, or Español.
+2. Use the header language selector for English, Deutsch, Français, Nederlands, Español, or Italiano.
 3. Download the Android companion app (`harmony-hub-release.apk`) from the [**Releases Page**](https://github.com/iranl/harmony-ng/releases) to control devices and activities directly from your phone.
+
+> [!IMPORTANT]
+> **Authentication is off after install.** Until you turn it on, every device on your network is admin on the Hub's API and web UI (port 8089): it can change the configuration, install updates and send any command. Turn it on in the web UI: **System** page, **User Accounts & Access Control**, enter an admin user name and password, tick **Require authentication** and save. Then use a personal access token for Home Assistant and scripts (`docs/API.md`, section 11). Commands sent over MQTT always run as admin, so the MQTT broker must be protected too (`docs/API.md`, section 8.1), and the Logitech protocol port 8088 (off by default) has no authentication at all.
 
 ---
 
@@ -205,7 +238,7 @@ It removes harmony-ng's data only. The stock firmware's own data stays (`/data/r
 6. When complete, the front LED pulses red slowly.
 
 ### Restore Stock with Full Configuration
-To restore all your original Wi-Fi settings, devices, and activities from your automatic backup:
+To restore all your original Wi-Fi settings, devices, and activities from your automatic backup, run `restore_stock.py` after a factory reset: the hardware reset above, or the software reset `python tools/factory_reset.py --target hub --hub-ip <YOUR_HUB_IP>` (it asks you to type `FACTORY-RESET`, `--force` skips the question; it saves a `backup_hub.py` backup first, `--no-backup` skips that; then it deletes `/data/harmony` and puts the stock boot script back). On a Hub that still runs HarmonyNG, `restore_stock.py` does not bring the stock system back by itself: it only replaces the contents of `/cache` and `/data`, so the HarmonyNG boot script (`/etc/init.d/rcS.local`) and `/data/harmony` stay.
 
 ```bash
 # All-in-one restoration:
@@ -218,6 +251,17 @@ python tools/restore_stock.py --backup backups/stock_hub_backup_latest.tar
 python tools/restore_stock.py --pure-stock
 ```
 
+`restore_stock.py` looks for the Hub on USB only as `046D:C129` (standard Hub). On a **Harmony Pro 2400** (`046D:C132`) it reports the Hub as not found: with SSH still working, run it with `--skip-usb-root --hub-ip <YOUR_HUB_IP>`. After a factory reset, root the Pro 2400 again first with `python tools/root_hub_usb.py --no-backup` (without `--no-backup` that run replaces `stock_hub_backup_latest.tar` with a backup of the reset Hub), then run `restore_stock.py` with `--skip-usb-root --hub-ip <YOUR_HUB_IP>`.
+
 This automated tool gains root over USB HID, terminates background processes, extracts your backed-up `/cache` and `/data` partitions (plain uncompressed tar stream, no gzip on Hub), flushes SPI flash, and cleanly reboots back into your configured stock Logitech system.
+
+What to expect when you run it:
+- It asks you to type `RESTORE` before it changes anything (`--force` skips the question).
+- Without `--backup` it takes `backups/stock_hub_backup_latest.tar`, else the newest `stock_hub_backup_*` file.
+- After a factory reset the Hub has no BusyBox with `tar`, so the tool copies one from the PC: `bin/busybox` of the release bundle. In a git checkout build it first with `./build/build_busybox.sh mips`; without it the restore stops.
+- The PC must reach the Hub's Wi-Fi address (port 8088 or 22), so both must be on the same network. `--wifi-ssid`, `--wifi-pass` and `--wifi-enc` work as in the root tool.
+- When SSH on the Hub already works, `--skip-usb-root --hub-ip <YOUR_HUB_IP>` leaves out the USB step.
+
+`--pure-stock` removes SSH access again (the Dropbear files and the boot trigger `/etc/tdeenable`) and the watchdog switch `/etc/nowatchdog`. It does not set the root password the root step emptied, so the Hub is close to, not identical with, a factory one.
 
 ---

@@ -3,21 +3,15 @@
 *.md text eol=lf
 *.c text eol=lf
 *.h text eol=lf
-*.lua text eol=lf
 *.json text eol=lf
 *.sh text eol=lf
 *rcS.local text eol=lf
 remote/*.sh text eol=lf
 remote/rcS.local text eol=lf
 payload/scripts/* text eol=lf
-payload/bin/FILES text eol=lf
-payload/bin/MANIFEST.txt text eol=lf
 
 *.ps1 text eol=crlf
 
-payload/bin/hub_* binary
-payload/bin/dropbearmulti binary
-payload/bin/register_ehci binary
 payload/modules/*.ko binary
 tools/unbrick_recovery/** binary
 # ...except the PC-side server: a plain Python file, LF endings (a CRLF shebang line does not run).

@@ -33,7 +33,6 @@ struct user_account {
 extern "C" {
 #endif
 
-void http_auth_init(void);
 void compute_ha1(const char *username, const char *realm, const char *password, char ha1_out[65]);
 int load_user_accounts(struct user_account *users, int max_users, int *auth_enabled);
 int save_user_accounts(const struct user_account *users, int count, int auth_enabled);

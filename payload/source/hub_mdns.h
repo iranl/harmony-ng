@@ -95,7 +95,6 @@ void hub_mdns_tick(void);            /* once per loop iteration */
 void hub_mdns_apply_settings(const struct hub_settings *s); /* mdns_enabled, TXT values */
 void hub_mdns_notify_change(void);   /* a TXT value may have changed (auth, MQTT) */
 void hub_mdns_shutdown(void);        /* goodbye + close */
-const char *hub_mdns_instance(void); /* current instance name, for tests and logs */
 
 #ifdef __cplusplus
 }
