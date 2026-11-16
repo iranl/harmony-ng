@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import { copyText } from '../clipboard.js';
 import iconMetadata from '../icon-metadata.json';
 import {
@@ -78,7 +78,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       if (!listEl) return;
 
       if (nonAdmins.length === 0) {
-        listEl.innerHTML = '<div class="subtle mini" style="padding: 4px 0;">No non-admin accounts configured yet.</div>';
+        listEl.innerHTML = `<div class="subtle mini" style="padding: 4px 0;">${t('no_non_admin_configured')}</div>`;
         return;
       }
 
@@ -88,9 +88,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
             <div>
               <span style="font-weight: 600; font-size: 13px;">${escapeHtml(u.username)}</span>
-              <span class="badge" style="margin-left: 8px; font-size: 10px; background: rgba(59, 130, 246, 0.15); color: var(--accent);">Restricted User</span>
+              <span class="badge" style="margin-left: 8px; font-size: 10px; background: rgba(59, 130, 246, 0.15); color: var(--accent);">${t('restricted_user_badge')}</span>
             </div>
-            <button type="button" class="btn btn-xs btn-danger btn-del-user" data-username="${escapeHtml(u.username)}">Delete</button>
+            <button type="button" class="btn btn-xs btn-danger btn-del-user" data-username="${escapeHtml(u.username)}">${t('delete')}</button>
           </div>`;
       }
       html += '</div>';
@@ -99,7 +99,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       listEl.querySelectorAll('.btn-del-user').forEach(btn => {
         btn.addEventListener('click', async () => {
           const uname = btn.getAttribute('data-username');
-          if (!await showConfirm(t("delete_user_confirm").replace("{name}", uname), { title: t("delete_user") || 'Delete User', okText: t("delete") || 'Delete' })) return;
+          if (!await showConfirm(tf("delete_user_confirm", { name: uname }), { title: t('delete_user'), okText: t('delete') })) return;
           try {
             await this.client.deleteUser(uname);
             await this.loadUserAccounts();
@@ -109,7 +109,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         });
       });
     } catch (err) {
-      if (listEl) listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load users: ${err.message}</div>`;
+      if (listEl) listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">${tfHtml('failed_load_users', { error: err.message })}</div>`;
     }
   }
 
@@ -170,7 +170,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const password = pInp?.value;
 
     if (!username || !password) {
-      if (stat) stat.innerHTML = '<span style="color:var(--danger)">Username and password required</span>';
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${t('user_pwd_required')}</span>`;
       return;
     }
     const problem = credentialsError(username, password);
@@ -179,16 +179,16 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       return;
     }
 
-    if (stat) stat.textContent = 'Adding user...';
+    if (stat) stat.textContent = t('adding_user');
     try {
       await this.client.saveUser({ username, password, role: 'user' });
       if (uInp) uInp.value = '';
       if (pInp) pInp.value = '';
-      if (stat) stat.innerHTML = '<span style="color:var(--success)">User added!</span>';
+      if (stat) stat.innerHTML = `<span style="color:var(--success)">${t('user_added')}</span>`;
       setTimeout(() => { if (stat) stat.textContent = ''; }, 3000);
       await this.loadUserAccounts();
     } catch (err) {
-      if (stat) stat.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (stat) stat.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
     }
   }
 
@@ -206,7 +206,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     try {
       const authReply = await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
       if (status) {
-        status.innerHTML = `<span style="color:var(--success)">${on ? 'Authentication requirement enabled & admin saved!' : 'Authentication requirement disabled!'}</span>`;
+        status.innerHTML = `<span style="color:var(--success)">${on ? t('auth_enabled_admin_saved') : t('auth_disabled_saved')}</span>`;
         setTimeout(() => { if (status) status.textContent = ''; }, 3500);
       }
       const passInp = document.getElementById('authPassword');
@@ -232,8 +232,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       this.checkAuthStatus();
       this.applyRoleRestrictions();
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
-      if (err.message && (err.message.includes('Authentication') || err.message.includes('401'))) {
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${tfHtml('error_msg', { error: err.message })}</span>`;
+      if (err?.status === 401 || (err.message && (err.message.includes('Authentication') || err.message.includes('401')))) {
         this.showLoginModal();
       }
     }
@@ -246,28 +246,28 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     try {
       const data = await this.client.getTokens();
       if (!data || !data.ok) {
-        listEl.innerHTML = '<div class="subtle mini">Unable to retrieve tokens.</div>';
+        listEl.innerHTML = `<div class="subtle mini">${t('unable_retrieve_tokens')}</div>`;
         return;
       }
       const tokens = data.tokens || [];
       if (tokens.length === 0) {
-        listEl.innerHTML = '<div class="subtle mini" style="padding: 4px 0;">No Personal Access Tokens generated yet.</div>';
+        listEl.innerHTML = `<div class="subtle mini" style="padding: 4px 0;">${t('no_pat_yet')}</div>`;
         return;
       }
 
       let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
-      for (const t of tokens) {
-        const createdDate = t.created_at ? new Date(t.created_at * 1000).toLocaleDateString() : 'Unknown';
-        const lastUsed = t.last_used_at ? new Date(t.last_used_at * 1000).toLocaleString() : 'Never';
+      for (const tok of tokens) {
+        const createdDate = tok.created_at ? new Date(tok.created_at * 1000).toLocaleDateString() : t('unknown');
+        const lastUsed = tok.last_used_at ? new Date(tok.last_used_at * 1000).toLocaleString() : t('never');
         html += `
           <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.04); border-radius: 4px; border: 1px solid var(--border);">
             <div>
-              <div style="font-weight: 600; font-size: 13px;">${escapeHtml(t.name || 'Unnamed Token')}</div>
+              <div style="font-weight: 600; font-size: 13px;">${escapeHtml(tok.name || t('unnamed_token'))}</div>
               <div class="mini muted" style="font-size: 10px; margin-top: 2px;">
-                <span>ID: ${t.id}</span> • <span>Role: ${t.role}</span> • <span>Created: ${createdDate}</span> • <span>Last used: ${lastUsed}</span>
+                <span>${escapeHtml(tf('id_value', { id: tok.id }))}</span> • <span>${escapeHtml(tf('token_meta_role', { role: tok.role }))}</span> • <span>${tfHtml('token_meta_created', { date: createdDate })}</span> • <span>${tfHtml('token_meta_last_used', { date: lastUsed })}</span>
               </div>
             </div>
-            <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name || t.id)}">Revoke</button>
+            <button type="button" class="btn btn-xs btn-danger btn-del-pat" data-id="${escapeHtml(tok.id)}" data-name="${escapeHtml(tok.name || tok.id)}">${t('revoke')}</button>
           </div>`;
       }
       html += '</div>';
@@ -278,7 +278,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         btn.addEventListener('click', async () => {
           const tid = btn.getAttribute('data-id');
           const tname = btn.getAttribute('data-name');
-          if (!await showConfirm(t('revoke_token_confirm').replace('{name}', tname), { title: t('revoke_token'), okText: t('revoke') })) return;
+          if (!await showConfirm(tf('revoke_token_confirm', { name: tname }), { title: t('revoke_token'), okText: t('revoke') })) return;
           try {
             await this.client.deleteToken(tid);
             await this.loadPersonalAccessTokens();
@@ -288,7 +288,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         });
       });
     } catch (err) {
-      listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load tokens: ${err.message}</div>`;
+      listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">${tfHtml('failed_load_tokens', { error: err.message })}</div>`;
     }
   }
 
@@ -297,7 +297,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     const roleSel = document.getElementById('newTokenRole');
     const box = document.getElementById('newlyCreatedTokenBox');
     const outInp = document.getElementById('newlyCreatedTokenInput');
-    const name = nameInp?.value.trim() || 'Personal Access Token';
+    const name = nameInp?.value.trim() || 'Personal Access Token';  // i18n-ok: default token name stored on the Hub
     const role = roleSel?.value || 'admin';
 
     try {
@@ -359,7 +359,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           }
         } catch (err) {
           if (errBox) {
-            errBox.textContent = err.message || 'Invalid username or password';
+            errBox.textContent = err.message || t('invalid_username_password');
             errBox.style.display = 'block';
           }
         }
@@ -394,12 +394,12 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         const inp = document.getElementById('newlyCreatedTokenInput');
         if (inp && inp.value) {
           const ok = await copyText(inp.value);
-          btnCopyPat.textContent = ok ? 'Copied!' : 'Select and copy by hand';
+          btnCopyPat.textContent = ok ? t('copied_excl') : t('select_copy_by_hand');
           if (!ok) {
             inp.focus();
             inp.select();
           }
-          setTimeout(() => { btnCopyPat.textContent = 'Copy'; }, ok ? 2000 : 4000);
+          setTimeout(() => { btnCopyPat.textContent = t('copy_btn'); }, ok ? 2000 : 4000);
         }
       });
     }
@@ -434,8 +434,8 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       if (me && me.auth_enabled) {
         this.authEnabled = true;
         if (btnSession) btnSession.style.display = 'inline-flex';
-        if (userDisplay) userDisplay.textContent = me.username || 'User';
-        if (btnAction) btnAction.textContent = this.client.token ? 'Logout' : 'Login';
+        if (userDisplay) userDisplay.textContent = me.username || t('role_user');
+        if (btnAction) btnAction.textContent = this.client.token ? t('logout') : t('login_action');
         const hasToken = Boolean(this.client.token);
         // the app's token reports itself as "pat:<token name>": show the account it belongs to
         if (userDisplay && hasToken && (me.username || '').startsWith('pat:') && this.client.hub?.username) userDisplay.textContent = this.client.hub.username;
@@ -452,11 +452,11 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         if (modal) modal.style.display = 'none';
       }
     } catch (e) {
-      if (e?.message && (e.message.includes('Authentication') || e.message.includes('401'))) {
+      if (e?.status === 401 || (e?.message && (e.message.includes('Authentication') || e.message.includes('401')))) {
         this.authEnabled = true;
         if (btnSession) btnSession.style.display = 'inline-flex';
-        if (userDisplay) userDisplay.textContent = 'Auth required';
-        if (btnAction) btnAction.textContent = 'Login';
+        if (userDisplay) userDisplay.textContent = t('auth_required_short');
+        if (btnAction) btnAction.textContent = t('login_action');
         this.showLoginModal();
       }
     }

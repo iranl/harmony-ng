@@ -141,14 +141,14 @@ export function showConfirm(message, options = {}) {
     const closeBtn = document.getElementById('btnConfirmClose');
     const iconEl = document.getElementById('confirmModalIcon');
 
-    if (titleEl) titleEl.textContent = options.title || 'Confirmation';
+    if (titleEl) titleEl.textContent = options.title || t('confirm_title');
     if (msgEl) msgEl.textContent = message || '';
     if (okBtn) {
-      okBtn.textContent = options.okText || (options.hideCancel ? 'OK' : 'Confirm');
+      okBtn.textContent = options.okText || (options.hideCancel ? t('btn_ok') : t('confirm'));
       okBtn.className = `btn btn-sm ${options.danger !== false && !options.hideCancel ? 'btn-danger' : 'btn-primary'}`;
     }
     if (cancelBtn) {
-      cancelBtn.textContent = options.cancelText || 'Cancel';
+      cancelBtn.textContent = options.cancelText || t('cancel');
       cancelBtn.style.display = options.hideCancel ? 'none' : '';
     }
     if (iconEl) iconEl.textContent = options.icon || (options.hideCancel ? 'ℹ️' : (options.danger !== false ? '⚠️' : '❓'));
@@ -196,8 +196,8 @@ export function showConfirm(message, options = {}) {
 
 export function showAlert(message, options = {}) {
   return showConfirm(message, {
-    title: options.title || 'Notice',
-    okText: options.okText || 'OK',
+    title: options.title || t('notice_title'),
+    okText: options.okText || t('btn_ok'),
     danger: false,
     icon: options.icon || 'ℹ️',
     hideCancel: true,

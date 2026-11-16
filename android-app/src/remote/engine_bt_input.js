@@ -1,5 +1,5 @@
 import { RemoteEngineBase } from './engine_base.js';
-import { t } from '../i18n.js';
+import { t, tf } from '../i18n.js';
 import { escapeHtml } from '../html_escape.js';
 
 export class RemoteEngineBtInput extends RemoteEngineBase {
@@ -8,14 +8,14 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
     view.className = 'keyboard-panel';
 
     const btDev = this.getBluetoothDevice();
-    const devName = btDev ? (btDev.name || btDev.label || 'Bluetooth Device') : 'Bluetooth';
+    const devName = btDev ? (btDev.name || btDev.label || t('bluetooth_device_default')) : 'Bluetooth';
     const devId = btDev ? btDev.id : null;
 
     view.innerHTML = `
       <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
         <div class="keyboard-device-badge">
           <span class="bt-dot"></span>
-          <span>Target: <strong>${escapeHtml(devName)}</strong></span>
+          <span>${t('kb_target_label')} <strong>${escapeHtml(devName)}</strong></span>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
@@ -39,7 +39,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
 
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-bottom:14px;">
         <div class="keyboard-nav-section card" style="padding:10px; margin:0;">
-          <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">Navigation</div>
+          <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">${t('kb_section_navigation')}</div>
           <div class="keyboard-dpad-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; max-width:210px; margin:0 auto;">
             <div class="btn-spacer"></div>
             <button type="button" class="remote-btn kb-nav-btn" data-nav="up" data-code="up">▲</button>
@@ -52,30 +52,30 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
             <div class="btn-spacer"></div>
           </div>
           <div style="display:flex; justify-content:center; gap:8px; margin-top:8px;">
-            <button type="button" class="remote-btn kb-btn-action" data-code="escape" data-fallback="Back,Return,Exit" style="padding:4px 10px; font-size:11px;">Back</button>
-            <button type="button" class="remote-btn kb-btn-action" data-code="home" data-fallback="Home" style="padding:4px 10px; font-size:11px;">Home</button>
-            <button type="button" class="remote-btn kb-btn-action" data-code="menu" data-fallback="Menu" style="padding:4px 10px; font-size:11px;">Menu</button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="escape" data-fallback="Back,Return,Exit" style="padding:4px 10px; font-size:11px;">${t('back')}</button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="home" data-fallback="Home" style="padding:4px 10px; font-size:11px;">${t('home')}</button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="menu" data-fallback="Menu" style="padding:4px 10px; font-size:11px;">${t('menu')}</button>
           </div>
         </div>
 
         <div class="keyboard-quick-section card" style="padding:10px; margin:0;">
-          <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">Media & Actions</div>
+          <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">${t('kb_section_media_actions')}</div>
           <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
-            <button type="button" class="remote-btn kb-btn-action" data-code="play_pause" data-fallback="Play,Pause,Play/Pause"><span>⏯</span><span class="mini">Play/Pause</span></button>
-            <button type="button" class="remote-btn kb-btn-action" data-code="mute" data-fallback="Mute"><span>🔇</span><span class="mini">Mute</span></button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="play_pause" data-fallback="Play,Pause,Play/Pause"><span>⏯</span><span class="mini">${t('play_pause_btn')}</span></button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="mute" data-fallback="Mute"><span>🔇</span><span class="mini">${t('mute')}</span></button>
             <button type="button" class="remote-btn kb-btn-action" data-code="enter" data-fallback="Select,OK,Enter"><span>⏎</span><span class="mini">Enter</span></button>
             <button type="button" class="remote-btn kb-btn-action" data-code="vol_down" data-fallback="VolumeDown"><span>🔉</span><span class="mini">Vol -</span></button>
             <button type="button" class="remote-btn kb-btn-action" data-code="vol_up" data-fallback="VolumeUp"><span>🔊</span><span class="mini">Vol +</span></button>
             <button type="button" class="remote-btn kb-btn-action" data-code="backspace" data-fallback="Back,Return,Clear"><span>⌫</span><span class="mini">Backspace</span></button>
-            <button type="button" class="remote-btn kb-btn-action" data-code="prev_track" data-fallback="PrevTrack,Previous"><span>⏮</span><span class="mini">Prev</span></button>
-            <button type="button" class="remote-btn kb-btn-action" data-code="next_track" data-fallback="NextTrack,Next"><span>⏭</span><span class="mini">Next</span></button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="prev_track" data-fallback="PrevTrack,Previous"><span>⏮</span><span class="mini">${t('kb_prev_track')}</span></button>
+            <button type="button" class="remote-btn kb-btn-action" data-code="next_track" data-fallback="NextTrack,Next"><span>⏭</span><span class="mini">${t('kb_next_track')}</span></button>
             <button type="button" class="remote-btn kb-btn-action" data-code="space" data-fallback="Space"><span>␣</span><span class="mini">Space</span></button>
           </div>
         </div>
       </div>
 
       <div class="card" style="padding:10px; margin-bottom:12px;">
-        <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">Virtual Keyboard</div>
+        <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">${t('kb_section_virtual_keyboard')}</div>
         <div class="kb-panel" style="overflow-x:auto; padding-bottom:6px; -webkit-overflow-scrolling:touch;">
           <div class="kb-row">
             <button type="button" class="kb-key kb-125" data-code="escape">Esc</button>
@@ -139,7 +139,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
             <button type="button" class="kb-key kb-15" data-code="delete">Del</button>
           </div>
           <div class="kb-row">
-            <button type="button" class="kb-key kb-125" data-code="home">Home</button>
+            <button type="button" class="kb-key kb-125" data-code="home" translate="no">Home</button>
             <button type="button" class="kb-key kb-sp" data-code="space" style="flex-grow:1;">Space</button>
             <button type="button" class="kb-key kb-125" data-code="end">End</button>
           </div>
@@ -195,7 +195,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
         await this.triggerHaptic();
         if (this.client && typeof this.client.sendBtKey === 'function') {
           await this.client.sendBtKey('release_all', 'tap');
-          showFeedback('Released all held keys');
+          showFeedback(t('released_all_held_keys'));
         }
       });
     }
@@ -208,14 +208,14 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
         if (this.client && typeof this.client.sendBtText === 'function') {
           const res = await this.client.sendBtText(text);
           if (res && res.error) {
-            showFeedback(`Error: ${res.error}`, true);
+            showFeedback(tf('error_msg', { error: res.error }), true);
           } else {
-            showFeedback(`✓ Sent "${text}"`);
+            showFeedback(`✓ ${tf('kb_sent_text', { text: text })}`);
             input.value = '';
           }
         }
       } catch (err) {
-        showFeedback(`Failed: ${err.message || err}`, true);
+        showFeedback(tf('failed_msg', { error: err.message || err }), true);
       } finally {
         sendBtn.disabled = false;
         input.focus();
@@ -264,7 +264,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
     view.className = 'keyboard-panel';
 
     const btDev = this.getBluetoothDevice();
-    const devName = btDev ? (btDev.name || btDev.label || 'Bluetooth Device') : 'Bluetooth';
+    const devName = btDev ? (btDev.name || btDev.label || t('bluetooth_device_default')) : 'Bluetooth';
     const devId = btDev ? btDev.id : null;
     const btTarget = btDev ? (btDev.btMac || btDev.mac || btDev.addr || btDev.bt_mac || '') : '';
 
@@ -272,7 +272,7 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
       <div class="keyboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
         <div class="keyboard-device-badge">
           <span class="bt-dot"></span>
-          <span>Target: <strong>${escapeHtml(devName)}</strong></span>
+          <span>${t('kb_target_label')} <strong>${escapeHtml(devName)}</strong></span>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
           <div class="subtabs-group" style="display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
@@ -321,11 +321,11 @@ export class RemoteEngineBtInput extends RemoteEngineBase {
       </div>
 
       <div class="card" style="padding:10px; margin-bottom:12px;">
-        <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">Quick Shortcuts</div>
+        <div class="keyboard-section-title" style="font-size:12px; font-weight:600; margin-bottom:8px;">${t('quick_shortcuts')}</div>
         <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px;">
-          <button type="button" class="remote-btn kb-btn-action" data-code="escape" data-fallback="Back,Return,Exit" style="padding:8px 4px; font-size:11px;">Back</button>
-          <button type="button" class="remote-btn kb-btn-action" data-code="home" data-fallback="Home" style="padding:8px 4px; font-size:11px;">Home</button>
-          <button type="button" class="remote-btn kb-btn-action" data-code="play_pause" data-fallback="Play,Pause,Play/Pause" style="padding:8px 4px; font-size:11px;">⏯ Play</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="escape" data-fallback="Back,Return,Exit" style="padding:8px 4px; font-size:11px;">${t('back')}</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="home" data-fallback="Home" style="padding:8px 4px; font-size:11px;">${t('home')}</button>
+          <button type="button" class="remote-btn kb-btn-action" data-code="play_pause" data-fallback="Play,Pause,Play/Pause" style="padding:8px 4px; font-size:11px;">⏯ ${t('play')}</button>
           <button type="button" class="remote-btn kb-btn-action" data-code="vol_down" data-fallback="VolumeDown" style="padding:8px 4px; font-size:11px;">🔉 Vol-</button>
           <button type="button" class="remote-btn kb-btn-action" data-code="vol_up" data-fallback="VolumeUp" style="padding:8px 4px; font-size:11px;">🔊 Vol+</button>
         </div>

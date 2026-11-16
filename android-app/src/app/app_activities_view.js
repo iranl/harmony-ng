@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf, tfHtml } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -104,7 +104,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
           <p class="muted" style="font-size: 13px; margin-bottom: 16px;">${t('hub_poweroff_hint')}</p>
           <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
             ${realActs.map(a => `
-              <button type="button" class="btn btn-sm btn-primary btn-start-act-idle" data-act-id="${escapeHtml(a.id)}" style="display:inline-flex; align-items:center; gap:6px;">${getActivityIconSvg(a.icon, a.type, 16)}<span>Start ${escapeHtml(a.name || a.label)}</span></button>
+              <button type="button" class="btn btn-sm btn-primary btn-start-act-idle" data-act-id="${escapeHtml(a.id)}" style="display:inline-flex; align-items:center; gap:6px;">${getActivityIconSvg(a.icon, a.type, 16)}<span>${escapeHtml(tf('start_activity_name', { name: a.name || a.label }))}</span></button>
             `).join('')}
           </div>
         </div>
@@ -144,29 +144,29 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
     const actDet = document.getElementById('dashActiveActDetail');
 
     if (actName) actName.textContent = this.activitiesData.currentName || 'PowerOff';
-    if (actDet) actDet.textContent = `ID: ${this.activitiesData.currentId || '-1'}`;
+    if (actDet) actDet.textContent = tf('id_value', { id: this.activitiesData.currentId || '-1' });
 
     const devs = this.inventory.devices || [];
     let totalCmds = 0;
     devs.forEach(d => { totalCmds += (d.commands || []).length; });
-    if (invVal) invVal.textContent = `${devs.length} devices`;
-    if (cmdVal) cmdVal.textContent = `${totalCmds} commands`;
+    if (invVal) invVal.textContent = tf('count_devices', { count: devs.length });
+    if (cmdVal) cmdVal.textContent = tf('count_commands', { count: totalCmds });
 
     try {
       const mq = await this.client.getMqttStatus();
       if (mqBadge) {
         mqBadge.className = `badge ${mq.connected ? 'ok' : 'bad'}`;
-        mqBadge.textContent = mq.connected ? 'Connected' : 'Disconnected';
+        mqBadge.textContent = mq.connected ? t('connected') : t('disconnected');
       }
       const ovMqBadge = document.getElementById('overviewMqttBadge');
       if (ovMqBadge) {
         ovMqBadge.className = `badge ${mq.connected ? 'ok' : 'bad'}`;
-        ovMqBadge.textContent = mq.connected ? 'Connected' : 'Disconnected';
+        ovMqBadge.textContent = mq.connected ? t('connected') : t('disconnected');
       }
-      if (mqDet) mqDet.textContent = mq.broker ? `${mq.broker}:${mq.port}` : (mq.enabled ? 'Bridge enabled' : 'Bridge disabled');
+      if (mqDet) mqDet.textContent = mq.broker ? `${mq.broker}:${mq.port}` : (mq.enabled ? t('mqtt_bridge_enabled') : t('mqtt_bridge_disabled'));
       const dashMqPrev = document.getElementById('dashMqttBrokerPreview');
       if (dashMqPrev) {
-        dashMqPrev.textContent = mq.broker ? `${mq.broker}:${mq.port || 1883}` : (mq.enabled ? 'Enabled (no host)' : 'Disabled');
+        dashMqPrev.textContent = mq.broker ? `${mq.broker}:${mq.port || 1883}` : (mq.enabled ? t('enabled_no_host') : t('disabled'));
       }
       const hIn = document.getElementById('ovMqttHost');
       const pIn = document.getElementById('ovMqttPort');
@@ -202,7 +202,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
         uptStr += `${mins}m`;
         if (utEl) utEl.textContent = uptStr || `${sec}s`;
       } else if (utEl) {
-        utEl.textContent = 'Online';
+        utEl.textContent = t('online');
       }
     } catch { }
 
@@ -212,21 +212,21 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       const flDet = document.getElementById('dashFlashDetail');
       const hasCache = (disk.cacheTotalMb && disk.cacheTotalMb !== '0.0') || (disk.cacheFreeMb && disk.cacheFreeMb !== '0.0');
       if (flVal) {
-        flVal.textContent = `${(hasCache && disk.totalCombinedFreeMb) ? disk.totalCombinedFreeMb : (disk.freeMb || '2.0')} MB Free`;
+        flVal.textContent = tf('disk_mb_free_caps', { mb: (hasCache && disk.totalCombinedFreeMb) ? disk.totalCombinedFreeMb : (disk.freeMb || '2.0') });
       }
       if (flDet) {
         if (hasCache) {
-          flDet.textContent = `Data: ${disk.freeMb}M/${disk.totalMb}M • Cache: ${disk.cacheFreeMb}M/${disk.cacheTotalMb}M`;
+          flDet.textContent = tf('disk_data_cache_short', { data_free: disk.freeMb, data_total: disk.totalMb, cache_free: disk.cacheFreeMb, cache_total: disk.cacheTotalMb });
         } else {
-          flDet.textContent = `${disk.usedMb || '3.0'} MB used (${disk.totalMb || '5.0'} MB total)`;
+          flDet.textContent = tf('disk_used_total', { used: disk.usedMb || '3.0', total: disk.totalMb || '5.0' });
         }
       }
       const ovDisk = document.getElementById('ovDiskVal');
       if (ovDisk) {
         if (hasCache) {
-          ovDisk.textContent = `Data: ${disk.freeMb}MB free • Cache: ${disk.cacheFreeMb}MB free`;
+          ovDisk.textContent = tf('disk_data_cache_free', { data_free: disk.freeMb, cache_free: disk.cacheFreeMb });
         } else {
-          ovDisk.textContent = `${disk.freeMb || '2.0'} MB free`;
+          ovDisk.textContent = tf('disk_mb_free', { mb: disk.freeMb || '2.0' });
         }
       }
     } catch { }
@@ -241,15 +241,15 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       if (rfBadge) {
         if (svcs && svcs.rf_enabled === false) {
           rfBadge.className = 'badge bad';
-          rfBadge.textContent = 'RF Disabled';
+          rfBadge.textContent = t('rf_disabled_badge');
         } else {
           const rf = await this.client.getRfStatus().catch(() => null);
           if (rf) {
             rfBadge.className = `badge ${rf.paired ? 'ok' : 'subtle'}`;
-            rfBadge.textContent = rf.paired ? 'RF Paired' : (rf.pairing_active ? 'RF Pairing' : 'RF Ready');
+            rfBadge.textContent = rf.paired ? t('rf_paired_badge') : (rf.pairing_active ? t('rf_pairing_badge') : t('rf_ready_badge'));
           } else {
             rfBadge.className = 'badge subtle';
-            rfBadge.textContent = 'RF Ready';
+            rfBadge.textContent = t('rf_ready_badge');
           }
         }
       }
@@ -260,23 +260,23 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       const hostBadge = document.getElementById('dashBtHostBadge');
       const kbBadge = document.getElementById('dashBtKbBadge');
       if (svcs && svcs.bt_enabled === false) {
-        if (btBadge) { btBadge.className = 'badge bad'; btBadge.textContent = 'BT Disabled'; }
-        if (hostBadge) { hostBadge.className = 'badge bad'; hostBadge.textContent = 'BT Disabled'; }
-        if (kbBadge) { kbBadge.className = 'badge bad'; kbBadge.textContent = 'BT Disabled'; }
+        if (btBadge) { btBadge.className = 'badge bad'; btBadge.textContent = t('bt_disabled_badge'); }
+        if (hostBadge) { hostBadge.className = 'badge bad'; hostBadge.textContent = t('bt_disabled_badge'); }
+        if (kbBadge) { kbBadge.className = 'badge bad'; kbBadge.textContent = t('bt_disabled_badge'); }
       } else {
         const bt = await this.client.getBtRemotePairStatus().catch(() => null);
         if (btBadge && bt) {
           btBadge.className = `badge ${bt.paired ? 'ok' : 'subtle'}`;
-          btBadge.textContent = bt.paired ? 'BLE Paired' : 'BLE Remote';
+          btBadge.textContent = bt.paired ? t('ble_paired_badge') : t('ble_remote_badge');
         }
         const btHost = await this.client.request('/api/bt-status').catch(() => null);
         if (hostBadge && btHost) {
           hostBadge.className = `badge ${btHost.connected ? 'ok' : 'subtle'}`;
-          hostBadge.textContent = btHost.connected ? 'Connected' : 'HID Ready';
+          hostBadge.textContent = btHost.connected ? t('connected') : t('hid_ready_badge');
         }
         if (kbBadge) {
           kbBadge.className = `badge ${btHost && btHost.connected ? 'ok' : 'subtle'}`;
-          kbBadge.textContent = btHost && btHost.connected ? 'Ready' : 'Virtual KB';
+          kbBadge.textContent = btHost && btHost.connected ? t('ready') : t('virtual_kb_badge');
         }
       }
     } catch { }
@@ -290,10 +290,10 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       if (upBadge) {
         if (this.hasUpdate) {
           upBadge.className = 'badge warn';
-          upBadge.textContent = 'Update Available';
+          upBadge.textContent = t('update_available_badge');
         } else {
           upBadge.className = 'badge ok';
-          upBadge.textContent = 'Up to date';
+          upBadge.textContent = t('up_to_date');
         }
       }
     } catch { }
@@ -309,10 +309,10 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
     const badgeEl = document.getElementById('actCurrentStatusBadge');
 
     if (curNameEl) curNameEl.textContent = this.activitiesData.currentName || 'PowerOff';
-    if (curMetaEl) curMetaEl.textContent = `Activity ID: ${this.activitiesData.currentId || '-1'}`;
+    if (curMetaEl) curMetaEl.textContent = tf('activity_id_value', { id: this.activitiesData.currentId || '-1' });
     if (badgeEl) {
       badgeEl.className = `badge ${this.activitiesData.isTransitioning ? 'warn' : 'ok'}`;
-      badgeEl.textContent = this.activitiesData.isTransitioning ? 'Switching...' : 'Idle';
+      badgeEl.textContent = this.activitiesData.isTransitioning ? t('switching') : t('idle');
     }
 
     const grid = document.getElementById('actGrid');
@@ -334,7 +334,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
     }
 
     if (!acts.length) {
-      grid.innerHTML = '<div class="muted">No configured activities found.</div>';
+      grid.innerHTML = `<div class="muted">${t('no_activities_found')}</div>`;
       return;
     }
 
@@ -354,7 +354,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
       const isRunning = isPowerOff ?
         (String(this.activitiesData.currentId) === '-1' || !this.activitiesData.currentId) :
         (String(a.id) === String(this.activitiesData.currentId));
-      const statusBadgeText = isPowerOff ? (isRunning ? 'Off' : 'Standby') : (isRunning ? 'Active' : 'Configured');
+      const statusBadgeText = isPowerOff ? (isRunning ? t('front_led_off') : t('status_standby')) : (isRunning ? t('active_lc') : t('status_configured'));
       return `
         <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; gap: 10px;">
           <div>
@@ -362,15 +362,15 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
               <strong style="font-size: 15px; display: inline-flex; align-items: center; gap: 6px;">${getActivityIconSvg(a.icon, a.type, 18)}${escapeHtml(a.name || a.label)}</strong>
               <span class="badge ${isRunning ? 'ok' : ''}">${statusBadgeText}</span>
             </div>
-            <div class="muted mini" style="margin-bottom: 8px;">${startCount} start steps • ${stopCount} stop steps • ${devIds.length} devices</div>
+            <div class="muted mini" style="margin-bottom: 8px;">${tfHtml('act_card_counts', { start: startCount, stop: stopCount, devices: devIds.length })}</div>
             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
               ${devObjs.map(d => `<span style="background:var(--bg-btn); font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid var(--border); display:inline-flex; align-items:center; gap:4px;">${d.iconSvg}<span>${escapeHtml(d.name)}</span></span>`).join('')}
             </div>
           </div>
           <div style="display: flex; gap: 6px; margin-top: 6px;">
-            <button type="button" class="btn btn-xs ${isPowerOff ? 'btn-danger' : (isRunning ? 'btn-ghost' : 'btn-primary')} btn-act-run" data-id="${a.id}" style="flex: 1;">${isRunning ? (isPowerOff ? 'Powered Off' : 'Active') : (isPowerOff ? 'Turn Off' : 'Run')}</button>
-            <button type="button" class="btn btn-xs btn-secondary btn-act-edit" data-id="${a.id}" style="flex: 1;">Edit & Steps</button>
-            <button type="button" class="btn btn-xs btn-secondary btn-act-icon" data-id="${a.id}" title="Change Icon" style="padding: 0 8px;">🎨</button>
+            <button type="button" class="btn btn-xs ${isPowerOff ? 'btn-danger' : (isRunning ? 'btn-ghost' : 'btn-primary')} btn-act-run" data-id="${a.id}" style="flex: 1;">${isRunning ? (isPowerOff ? t('powered_off') : t('active_lc')) : (isPowerOff ? t('turn_off_btn') : t('run_btn'))}</button>
+            <button type="button" class="btn btn-xs btn-secondary btn-act-edit" data-id="${a.id}" style="flex: 1;">${t('edit_and_steps')}</button>
+            <button type="button" class="btn btn-xs btn-secondary btn-act-icon" data-id="${a.id}" title="${t('change_icon')}" style="padding: 0 8px;">🎨</button>
           </div>
         </div>
       `;
@@ -404,7 +404,7 @@ export class HarmonyAppActivitiesView extends HarmonyAppActivitiesState {
           act.icon = selectedIcon;
           try {
             await this.client.updateActivity({ ...act, icon: selectedIcon });
-            showToast(t('updated_icon_for', 'Updated icon for "{name}"').replace('{name}', act.name), 'success');
+            showToast(tf('updated_icon_for', { name: act.name }, 'Updated icon for "{name}"'), 'success');
             await this.refreshData();
             await this.loadActivitiesView();
           } catch (e) {

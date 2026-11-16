@@ -4,6 +4,7 @@
  * full official Logitech Harmony IR Archive integration (276,236 devices).
  */
 import harmonyManufacturers from './harmony_manufacturers.json';
+import { t } from './i18n.js';
 
 export const HARMONY_ARCHIVE_CDN = 'https://cdn.jsdelivr.net/gh/pickysysadmin/logitech-harmony-ir-archive@main/';
 export const HARMONY_ARCHIVE_RAW = 'https://raw.githubusercontent.com/pickysysadmin/logitech-harmony-ir-archive/main/';
@@ -150,17 +151,18 @@ export function buildDeviceFromHarmony(deviceDetail, codesetData, customName) {
   };
 }
 
+// Shown in the search results; project names stay as they are
 export function sourceLabel(s) {
   return ({
-    harmony: 'Logitech Harmony Official Archive (276k devices)',
+    harmony: t('irdb_src_harmony'),
     irdb: 'probonopd/irdb CSV',
     flipper: 'Flipper-IRDB',
-    lirc: 'LIRC remotes',
+    lirc: t('irdb_src_lirc'),
     smartir: 'SmartIR JSON',
     remotecentral: 'RemoteCentral',
-    custom: 'Pasted file or URL',
-    stored: 'Saved device'
-  }[s] || s || 'Unknown source');
+    custom: t('irdb_src_custom'),
+    stored: t('irdb_src_stored')
+  }[s] || s || t('irdb_src_unknown'));
 }
 
 export function safeImportName(s) {

@@ -18,7 +18,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -110,7 +110,7 @@ export class HarmonyAppCore {
   }
 
   recordFailure(err) {
-    if (err?.message && (err.message.includes('Authentication') || err.message.includes('401'))) {
+    if (err?.status === 401 || (err?.message && (err.message.includes('Authentication') || err.message.includes('401')))) {
       if (!this.isHubOnline) this.setHubStatus(true);
       return;
     }
@@ -120,9 +120,23 @@ export class HarmonyAppCore {
       this.setHubStatus(false);
       const desc = document.getElementById('offlineBannerDesc');
       if (desc && this.activeHub) {
-        desc.textContent = `Hub unreachable (${this.activeHub.host}): ${err?.message || 'Connection lost'}`;
+        desc.textContent = tf('hub_unreachable_detail', { host: this.activeHub.host, error: err?.message || t('connection_lost') });
       }
     }
+  }
+
+  // Tooltips of the Hub status dot, selector and pill, in the current language
+  updateHubStatusTitles() {
+    const online = this.isHubOnline;
+    const dot = document.getElementById('activeHubStatusDot');
+    if (dot) dot.title = online ? t('hub_is_online') : t('hub_is_offline');
+    const name = this.activeHub ? this.activeHub.name : 'Hub';
+    const statusText = tf('hub_name_status', { name: name, status: online ? t('online') : t('offline') });
+    const title = this.isNative ? tf('tap_to_manage_hubs', { status: statusText }) : statusText;
+    const hubBtn = document.getElementById('hubSelectorBtn');
+    if (hubBtn) hubBtn.title = title;
+    const pill = document.getElementById('hubStatusPill');
+    if (pill) pill.title = title;
   }
 
   setHubStatus(online) {
@@ -135,28 +149,16 @@ export class HarmonyAppCore {
       if (this.activitiesData) this.activitiesData.isOffline = true;
     }
     const dot = document.getElementById('activeHubStatusDot');
-    const hubBtn = document.getElementById('hubSelectorBtn');
     const banner = document.getElementById('hubOfflineBanner');
     const desc = document.getElementById('offlineBannerDesc');
     const content = document.querySelector('.app-content');
 
-    if (dot) {
-      dot.className = online ? 'hub-status-dot online' : 'hub-status-dot offline';
-      dot.title = online ? 'Hub is online' : 'Hub is offline';
-    }
-    const name = this.activeHub ? this.activeHub.name : 'Hub';
-    const statusText = `${name}: ${online ? 'Online' : 'Offline'}`;
-    if (hubBtn) {
-      hubBtn.title = this.isNative ? `${statusText} (Tap to manage hubs)` : statusText;
-    }
-    const pill = document.getElementById('hubStatusPill');
-    if (pill) {
-      pill.title = this.isNative ? `${statusText} (Tap to manage hubs)` : statusText;
-    }
+    if (dot) dot.className = online ? 'hub-status-dot online' : 'hub-status-dot offline';
+    this.updateHubStatusTitles();
     if (banner) {
       banner.style.display = online ? 'none' : 'flex';
       if (!online && this.activeHub && desc) {
-        desc.textContent = `Cannot reach hub at ${this.activeHub.host || 'specified address'}. Reconnecting automatically...`;
+        desc.textContent = tf('cannot_reach_hub_at', { host: this.activeHub.host || t('specified_address') });
       }
     }
     if (content) {
@@ -253,7 +255,7 @@ export class HarmonyAppCore {
     if (manual) {
       if (btn) btn.disabled = true;
       if (spinner) spinner.style.display = 'inline-block';
-      if (label) label.textContent = 'Connecting...';
+      if (label) label.textContent = t('connecting_ellipsis');
     }
 
     try {
@@ -265,16 +267,18 @@ export class HarmonyAppCore {
             this.client.connectWebSocket();
           }
           await this.refreshData();
-          if (manual && label) label.textContent = 'Connected!';
+          if (manual && label) label.textContent = t('connected_excl');
         } else {
-          throw new Error(testRes.error || 'Connection timed out');
+          const testErr = new Error(testRes.error || t('connection_timed_out'));
+          testErr.status = testRes.status;
+          throw testErr;
         }
       }
     } catch (err) {
       if (manual) {
         const desc = document.getElementById('offlineBannerDesc');
         if (desc && this.activeHub) {
-          desc.textContent = `Hub unreachable (${this.activeHub.host}): ${err.message || 'Offline'}`;
+          desc.textContent = tf('hub_unreachable_detail', { host: this.activeHub.host, error: err.message || t('offline') });
         }
       }
       this.recordFailure(err);
@@ -284,7 +288,7 @@ export class HarmonyAppCore {
         setTimeout(() => {
           if (btn) btn.disabled = false;
           if (spinner) spinner.style.display = 'none';
-          if (label) label.textContent = 'Retry Connection';
+          if (label) label.textContent = t('retry_connection');
         }, 1000);
       }
     }
@@ -411,6 +415,18 @@ export class HarmonyAppCore {
     }
   }
 
+  // A language change: the static data-i18n texts are already switched; the open view built some
+  // texts in JS, so redrawForLanguage() draws what can be drawn again without losing input.
+  watchLanguage() {
+    window.addEventListener('harmony-lang-changed', () => this.onLanguageChanged());
+  }
+
+  onLanguageChanged() {
+    this.updateHubStatusTitles();
+    this.updateActivityBanner();
+    this.redrawForLanguage();
+  }
+
   async init() {
     setLanguage(getInitialLanguage());
     this.startHealthMonitoring();
@@ -434,7 +450,7 @@ export class HarmonyAppCore {
       if (pill) {
         pill.setAttribute('role', 'button');
         pill.setAttribute('tabindex', '0');
-        pill.title = 'Manage Hubs';
+        pill.title = t('manage_hubs_btn');
       }
     } else {
       document.body.classList.add('is-webui');
@@ -442,7 +458,7 @@ export class HarmonyAppCore {
       if (pill) {
         pill.removeAttribute('role');
         pill.removeAttribute('tabindex');
-        pill.title = 'Hub Status';
+        pill.title = t('hub_status_title');
       }
     }
     this.bindEvents();
@@ -451,10 +467,7 @@ export class HarmonyAppCore {
         const tab = e.state?.tab || window.location.hash.replace('#', '') || 'activity-remote';
         this.switchTab(tab, false);
       });
-      window.addEventListener('harmony-lang-changed', () => {
-        this.updateActivityBanner();
-        if (this.currentTab === 'overview') this.loadDashboard();
-      });
+      this.watchLanguage();
     }
 
     if (this.isNative) {

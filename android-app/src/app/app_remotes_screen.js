@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -66,7 +66,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       if (svcs && svcs.rf_enabled === false) {
         if (rfBanner) rfBanner.style.display = 'block';
         if (rfBadge) {
-          rfBadge.textContent = 'RF DISABLED';
+          rfBadge.textContent = t('badge_rf_disabled');
           rfBadge.className = 'badge';
           rfBadge.style.background = 'rgba(255,183,3,0.15)';
           rfBadge.style.color = 'var(--warning)';
@@ -124,8 +124,8 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         const tab2 = document.getElementById('rfSlotSelect2Btn');
         const lbl1 = document.getElementById('rfSlotSelect1Label');
         const lbl2 = document.getElementById('rfSlotSelect2Label');
-        if (lbl1) lbl1.textContent = s1?.name || 'Slot 1: Remote 1';
-        if (lbl2) lbl2.textContent = s2?.name || 'Slot 2: Remote 2';
+        if (lbl1) lbl1.textContent = s1?.name || t('slot_1_remote_1');
+        if (lbl2) lbl2.textContent = s2?.name || t('slot_2_remote_2');
         if (tab1) tab1.classList.toggle('active', this.selectedRemoteSlot === 1);
         if (tab2) tab2.classList.toggle('active', this.selectedRemoteSlot === 2);
       } else {
@@ -174,7 +174,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       if (sameType) {
         const otherSlot = curSlot === 1 ? 2 : 1;
         copyBtn.style.display = 'inline-block';
-        copyBtn.textContent = `📋 Copy Mappings from Slot ${otherSlot}`;
+        copyBtn.textContent = `📋 ${tf('copy_mappings_from_slot', { slot: otherSlot })}`;
       } else {
         copyBtn.style.display = 'none';
       }
@@ -189,7 +189,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       return idStr !== '-1' && name !== 'poweroff';
     });
     if (sel) {
-      sel.innerHTML = '<option value="-1">Off / Idle (Default)</option>' +
+      sel.innerHTML = `<option value="-1">${t('off_idle_default')}</option>` +
         filteredActs.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.label)}</option>`).join('');
       if (prevActVal && (prevActVal === '-1' || filteredActs.some(a => String(a.id) === String(prevActVal)))) {
         sel.value = prevActVal;
@@ -245,14 +245,14 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const curSlot = this.selectedRemoteSlot || 1;
     const otherSlot = curSlot === 1 ? 2 : 1;
     const confirmed = await showConfirm(
-      t('copy_mappings_confirm').replace('{other}', otherSlot).replace('{cur}', curSlot),
+      tf('copy_mappings_confirm', { other: otherSlot, cur: curSlot }),
       { title: t('copy_button_mappings'), okText: t('copy_mappings') }
     );
     if (!confirmed) return;
 
     try {
       await this.client.copyRFMapping(otherSlot, curSlot);
-      showToast(t('mappings_copied_slots').replace('{other}', otherSlot).replace('{cur}', curSlot), 'success');
+      showToast(tf('mappings_copied_slots', { other: otherSlot, cur: curSlot }), 'success');
       await this.loadRemoteView();
     } catch (err) {
       showToast(t('push_failed') + (err.message || err), 'danger');
@@ -265,7 +265,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const isReserved = isPhysNav && physNavKeys.has(btnId);
 
     if (isReserved && openModal) {
-      showToast(`${btnId} is reserved for physical navigation on the remote.`, 'warning');
+      showToast(tf('btn_reserved_physical_nav', { button: btnId }), 'warning');
       return;
     }
 
@@ -281,7 +281,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       actSel.value = this.remoteSelectedActivityId;
     }
     const actId = this.remoteSelectedActivityId || actSel?.value || '-1';
-    const actName = actSel ? actSel.options[actSel.selectedIndex]?.text || 'Off / Idle' : 'Off / Idle';
+    const actName = actSel ? actSel.options[actSel.selectedIndex]?.text || t('off_idle') : t('off_idle');
     const modalActLbl = document.getElementById('remoteModalActivityName');
     if (modalActLbl) modalActLbl.textContent = actName;
 
@@ -290,7 +290,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       const devSel = document.getElementById('remoteDeviceSelect');
       const devId = this.remoteSelectedDeviceId || devSel?.value || (this.inventory.devices?.[0]?.id);
       const devName = devSel ? devSel.options[devSel.selectedIndex]?.text || devId : devId;
-      if (modalActLbl) modalActLbl.textContent = `Device: ${devName}`;
+      if (modalActLbl) modalActLbl.textContent = tf('device_with_name', { name: devName });
       mapping = this.remoteMapData?.devices?.[devId]?.[btnId];
     } else {
       if (modalActLbl) modalActLbl.textContent = actName;
@@ -353,11 +353,11 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     if (stat) {
       if (isReserved) {
         stat.className = 'badge warning';
-        stat.textContent = 'Reserved (Physical Nav)';
+        stat.textContent = t('badge_reserved_physical_nav');
       } else {
         const isMapped = Boolean(mapping);
         stat.className = `badge ${isMapped ? 'ok' : 'subtle'}`;
-        stat.textContent = isMapped ? 'Mapped' : 'Unmapped';
+        stat.textContent = isMapped ? t('badge_mapped') : t('unmapped');
       }
     }
 
@@ -489,7 +489,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       b.classList.toggle('disabled', isReserved);
       b.classList.toggle('nav-reserved', isReserved);
       if (isReserved) {
-        b.setAttribute('title', `${id} (Reserved for Physical Navigation)`);
+        b.setAttribute('title', tf('btn_reserved_physical_nav_title', { button: id }));
         b.setAttribute('aria-disabled', 'true');
       }
     });
@@ -497,11 +497,11 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     if (stat) {
       if (isPhysNav && physNavKeys.has(this.remoteSelectedBtn)) {
         stat.className = 'badge warning';
-        stat.textContent = 'Reserved (Physical Nav)';
+        stat.textContent = t('badge_reserved_physical_nav');
       } else {
         const isMapped = Boolean(actMap[this.remoteSelectedBtn]);
         stat.className = `badge ${isMapped ? 'ok' : 'subtle'}`;
-        stat.textContent = isMapped ? 'Mapped' : 'Unmapped';
+        stat.textContent = isMapped ? t('badge_mapped') : t('unmapped');
       }
     }
   }
@@ -514,7 +514,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     this.remoteMapLoadError = null;
     try {
       const reply = await this.client.getRFMapping(slot);
-      if (!reply || typeof reply !== 'object' || Array.isArray(reply)) throw new Error('unexpected reply');
+      if (!reply || typeof reply !== 'object' || Array.isArray(reply)) throw new Error(t('unexpected_reply'));
       const m = { ...reply }; // a copy: the reply object itself is left as the client returned it
       delete m.ok; delete m.mappings; // the Hub's reply when it has no map yet
       if (!m.activities) m.activities = {};
@@ -524,7 +524,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       console.warn(`Failed to load slot ${slot} mappings:`, e);
       this.remoteMapLoadError = e?.message || String(e);
       this.remoteMapData = { activities: {}, devices: {} };
-      showToast(`Cannot load the key map of slot ${slot}: ${this.remoteMapLoadError}. Saving is off until it loads.`, 'danger');
+      showToast(tf('keymap_load_failed_slot', { slot: slot, error: this.remoteMapLoadError }), 'danger');
     }
     const btn = document.getElementById('remoteSaveAllBtn');
     if (btn) btn.disabled = Boolean(this.remoteMapLoadError);
@@ -534,24 +534,24 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const btn = document.getElementById('remoteSaveAllBtn');
     const slot = this.selectedRemoteSlot || 1;
     if (this.remoteMapLoadError) {
-      showToast(`Not saved: the Hub's key map was not loaded (${this.remoteMapLoadError}). Open the slot again to retry.`, 'danger');
+      showToast(tf('keymap_not_saved_retry_slot', { error: this.remoteMapLoadError }), 'danger');
       return;
     }
     try {
-      if (btn) btn.textContent = 'Saving...';
+      if (btn) btn.textContent = t('saving_ellipsis');
       await this.client.saveRFMapping(this.remoteMapData, slot);
       showToast(t('rf_config_saved'), 'success');
     } catch (err) {
       showToast(t('save_failed') + (err.message || err), 'danger');
     } finally {
-      if (btn) btn.textContent = 'Save All to Hub';
+      if (btn) btn.textContent = t('save_all_to_hub_btn');
     }
   }
 
   async pushRemoteConfiguration() {
     const btn = document.getElementById('remotePushRemoteBtn');
     try {
-      if (btn) btn.textContent = 'Pushing...';
+      if (btn) btn.textContent = t('pushing_ellipsis');
       const res = await this.client.pushRfConfig();
       if (res && res.status === 'push_started') {
         showToast(t('config_push_started', 'Configuration push started over RF to Harmony remote!'), 'success');
@@ -615,7 +615,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     });
 
     this.updateRemoteButtonStates();
-    alert(t("auto_mapped_remote").replace("{count}", mapped));
+    alert(tf("auto_mapped_remote", { count: mapped }));
   }
 
   renderRemoteScreenButtons() {
@@ -627,12 +627,12 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const titleEl = document.getElementById('remoteScreenSectionTitle');
     const helpEl = document.getElementById('remoteScreenSectionHelp');
     if (titleEl) {
-      titleEl.textContent = isDevScope ? 'Touch Screen Buttons (Device Commands)' : 'On-Screen "DEVICES" Touch Buttons';
+      titleEl.textContent = isDevScope ? t('screen_btns_title_device') : t('screen_btns_title_activity');
     }
     if (helpEl) {
       helpEl.textContent = isDevScope
-        ? 'Buttons shown on the remote\'s touchscreen when browsing this device (commands can be reordered, renamed, or deleted).'
-        : 'Buttons shown on the remote\'s touchscreen when pressing "DEVICES" during this activity (up to 240 buttons, 6 per page).';
+        ? t('screen_btns_help_device')
+        : t('touchscreen_devices_btn_desc');
     }
 
     let sbtns = [];
@@ -677,13 +677,13 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
         preview.innerHTML = `
           <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90px;color:#64748b;font-size:8px;text-align:center;padding:12px 4px;gap:4px;">
             <span style="font-size:12px;opacity:0.6;">📱</span>
-            <span>No Screen Buttons</span>
-            <span style="font-size:7px;opacity:0.7;">Add buttons below</span>
+            <span>${t('no_screen_buttons')}</span>
+            <span style="font-size:7px;opacity:0.7;">${t('add_buttons_below')}</span>
           </div>
         `;
       } else {
         preview.innerHTML = sbtns.slice(0, 6).map((b, idx) => {
-          const text = b.label || 'Btn ' + (idx + 1);
+          const text = b.label || 'Btn ' + (idx + 1);  // i18n-ok: the default label the Hub stores
           return `
             <div class="remote-screen-tile" title="${escapeHtml(text)}" style="display:flex;align-items:center;justify-content:center;gap:4px;overflow:hidden;padding:0 3px;">
               ${getScreenBtnIconSvg(b.icon, b.label, 11)}
@@ -700,8 +700,8 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     if (!sbtnsList) return;
     if (sbtns.length === 0) {
       const msg = isDevScope
-        ? `No touch buttons configured for this device yet. Click "+ Add Screen Button" above.`
-        : `No touch buttons configured for this activity yet. Click "+ Add Screen Button" above.`;
+        ? escapeHtml(t('screen_btns_none_device'))
+        : escapeHtml(t('screen_btns_none_activity'));
       sbtnsList.innerHTML = `<div class="subtle" style="font-size: 13px; padding: 8px 0;">${msg}</div>`;
       return;
     }
@@ -714,18 +714,18 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       const cmds = targetDev?.commands || [];
       const cmdOpts = cmds.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === btn.command ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
       const iconUrl = btn.icon ? getStockIconUrl(btn.icon) : '';
-      const iconDispName = btn.icon ? this.formatIconDisplayName(btn.icon) : 'Pick Icon';
+      const iconDispName = btn.icon ? this.formatIconDisplayName(btn.icon) : t('pick_icon');
       const shouldInvert = isDarkMonochromeIcon(btn.icon);
 
       return `
         <div class="screen-btn-row" data-idx="${idx}">
           <span class="screen-btn-num">${idx + 1}</span>
           <div style="display: flex; gap: 2px;">
-            <button type="button" class="btn btn-xs btn-ghost screen-btn-up" title="Move Up" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▲</button>
-            <button type="button" class="btn btn-xs btn-ghost screen-btn-down" title="Move Down" ${idx === sbtns.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▼</button>
+            <button type="button" class="btn btn-xs btn-ghost screen-btn-up" title="${escapeHtml(t('move_up'))}" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▲</button>
+            <button type="button" class="btn btn-xs btn-ghost screen-btn-down" title="${escapeHtml(t('move_down'))}" ${idx === sbtns.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>▼</button>
           </div>
-          <input type="text" class="form-control screen-btn-label" maxlength="32" value="${escapeHtml(btn.label || '')}" placeholder="Label (max 32)" style="font-size: 12px; padding: 4px 8px;">
-          <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="Choose Icon" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
+          <input type="text" class="form-control screen-btn-label" maxlength="32" value="${escapeHtml(btn.label || '')}" placeholder="${escapeHtml(t('screen_btn_label_ph'))}" style="font-size: 12px; padding: 4px 8px;">
+          <button type="button" class="btn btn-xs btn-secondary btn-screen-btn-icon" title="${escapeHtml(t('choose_icon'))}" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; height: 30px; text-align: left; overflow: hidden;">
             ${iconUrl ? `<img src="${iconUrl}" data-icon-key="${escapeHtml(btn.icon)}" class="stock-icon-img ${shouldInvert ? 'invert-white' : ''}" style="width: 16px; height: 16px; flex-shrink: 0;" onload="if(window.__harmonyAutoInvert)window.__harmonyAutoInvert(this)" onerror="this.style.display='none'" />` : '<span style="opacity: 0.6; font-size: 13px;">🖼</span>'}
             <span class="screen-btn-icon-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95px;">${escapeHtml(iconDispName)}</span>
           </button>
@@ -735,7 +735,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
           <select class="form-control screen-btn-cmd" style="font-size: 12px; padding: 4px 6px;">
             ${cmdOpts}
           </select>
-          <button type="button" class="btn btn-xs btn-ghost screen-btn-del" title="Remove" style="color: var(--danger); font-size: 14px; padding: 2px 6px;">✕</button>
+          <button type="button" class="btn btn-xs btn-ghost screen-btn-del" title="${escapeHtml(t('remove_btn'))}" style="color: var(--danger); font-size: 14px; padding: 2px 6px;">✕</button>
         </div>
       `;
     }).join('');
@@ -908,7 +908,7 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
       return alert(t("max_screen_buttons"));
     }
     sbtns.push({
-      label: `Btn ${sbtns.length + 1}`,
+      label: `Btn ${sbtns.length + 1}`,  // i18n-ok: default label stored on the Hub
       icon: '',
       deviceId: targetDevId,
       command: firstCmd

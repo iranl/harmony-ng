@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -60,17 +60,24 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const badge = document.getElementById('mqttConnBadge');
     if (!badge || !st) return;
     badge.className = `badge ${st.connected ? 'ok' : 'bad'}`;
-    badge.textContent = st.connected ? 'Connected' : (st.enabled ? 'Disconnected' : 'Disabled');
+    badge.textContent = st.connected ? t('connected') : (st.enabled ? t('disconnected') : t('disabled'));
+  }
+
+  // The MQTT status badge only (a language change: the form keeps what was typed)
+  async refreshMqttStatus() {
+    try {
+      this.setMqttBadge(await this.client.getMqttStatus());
+    } catch (err) {
+      const badge = document.getElementById('mqttConnBadge');
+      if (badge) badge.textContent = t('offline');
+    }
   }
 
   async loadMqttView() {
     const badge = document.getElementById('mqttConnBadge');
     try {
       const st = await this.client.getMqttStatus();
-      if (badge) {
-        badge.className = `badge ${st.connected ? 'ok' : 'bad'}`;
-        badge.textContent = st.connected ? 'Connected' : 'Disconnected';
-      }
+      this.setMqttBadge(st);
       if (st.config) {
         document.getElementById('mqttEnabled').checked = Boolean(st.config.enabled);
         document.getElementById('mqttHost').value = st.config.host || '';
@@ -84,7 +91,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         if (haEl) haEl.checked = st.config.haDiscovery !== false;
       }
     } catch (err) {
-      if (badge) badge.textContent = 'Offline';
+      if (badge) badge.textContent = t('offline');
     }
 
     await this.loadHaActionHelper().catch(() => {});
@@ -108,7 +115,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
 
     const devs = this.inventory?.devices || [];
     const prevDevVal = devSelect.value;
-    devSelect.innerHTML = devs.map(d => `<option value="${this.escapeHtml(d.id)}">${this.escapeHtml(d.name || ('Device ' + d.id))} (ID: ${this.escapeHtml(d.id)})</option>`).join('');
+    devSelect.innerHTML = devs.map(d => `<option value="${this.escapeHtml(d.id)}">${this.escapeHtml(tf('device_option_label', { name: d.name || tf('device_n', { id: d.id }), id: d.id }))}</option>`).join('');
 
     if (prevDevVal && devs.some(d => String(d.id) === String(prevDevVal))) {
       devSelect.value = prevDevVal;
@@ -128,7 +135,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
 
     const devId = devSelect.value;
     if (!devId) {
-      cmdSelect.innerHTML = '<option value="">No device selected</option>';
+      cmdSelect.innerHTML = `<option value="">${t('no_device_selected')}</option>`;
       return;
     }
 
@@ -149,7 +156,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     }
 
     if (!cmds || !cmds.length) {
-      cmdSelect.innerHTML = '<option value="">No commands available</option>';
+      cmdSelect.innerHTML = `<option value="">${t('no_commands_available')}</option>`;
       return;
     }
 
@@ -168,7 +175,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (countEl) countEl.textContent = queue.length;
 
     if (!queue.length) {
-      container.innerHTML = '<div class="muted mini" style="text-align: center; padding: 10px;">No commands added yet. Pick a command above and click "+ Add".</div>';
+      container.innerHTML = `<div class="muted mini" style="text-align: center; padding: 10px;">${escapeHtml(t('no_commands_added_yet'))}</div>`;
       return;
     }
 
@@ -179,9 +186,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           <strong style="color: var(--text-main);">${this.escapeHtml(cmd)}</strong>
         </div>
         <div style="display: flex; gap: 4px; align-items: center;">
-          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-up" data-idx="${idx}" ${idx === 0 ? 'disabled style="opacity:0.3"' : ''} title="Move up">▲</button>
-          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-down" data-idx="${idx}" ${idx === queue.length - 1 ? 'disabled style="opacity:0.3"' : ''} title="Move down">▼</button>
-          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-del" data-idx="${idx}" style="color: var(--danger);" title="Remove">✕</button>
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-up" data-idx="${idx}" ${idx === 0 ? 'disabled style="opacity:0.3"' : ''} title="${escapeHtml(t('move_up'))}">▲</button>
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-down" data-idx="${idx}" ${idx === queue.length - 1 ? 'disabled style="opacity:0.3"' : ''} title="${escapeHtml(t('move_down'))}">▼</button>
+          <button type="button" class="btn btn-xs btn-ghost btn-ha-cmd-del" data-idx="${idx}" style="color: var(--danger);" title="${escapeHtml(t('remove_btn'))}">✕</button>
         </div>
       </div>
     `).join('');
@@ -285,14 +292,14 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
 
     try {
       if (!(await copyText(previewEl.textContent))) throw new Error('clipboard unavailable');
-      if (copyBtn) copyBtn.textContent = '✓ Copied!';
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">Copied to clipboard</span>';
+      if (copyBtn) copyBtn.textContent = `✓ ${t('copied_excl')}`;
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--success)">${t('copied_to_clipboard')}</span>`;
       setTimeout(() => {
-        if (copyBtn) copyBtn.textContent = '📋 Copy YAML';
+        if (copyBtn) copyBtn.textContent = t('copy_yaml_btn');
         if (statusEl) statusEl.textContent = '';
       }, 2000);
     } catch (err) {
-      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Copy failed: ${err.message}</span>`;
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('copy_failed_error', { error: err.message }))}</span>`;
     }
   }
 
@@ -304,11 +311,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const testBtn = document.getElementById('btnHaHelperTest');
 
     if (!devId) {
-      if (statusEl) statusEl.textContent = 'Select device first';
+      if (statusEl) statusEl.textContent = t('select_device_first_short');
       return;
     }
     if (!queue.length) {
-      if (statusEl) statusEl.textContent = 'Add commands first';
+      if (statusEl) statusEl.textContent = t('add_commands_first');
       return;
     }
 
@@ -316,7 +323,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const repeats = parseInt(document.getElementById('haHelperRepeats')?.value, 10) || 1;
 
     if (testBtn) testBtn.disabled = true;
-    if (statusEl) statusEl.textContent = 'Running sequence...';
+    if (statusEl) statusEl.textContent = t('running_sequence');
 
     try {
       for (let r = 0; r < repeats; r++) {
@@ -324,8 +331,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           const cmd = queue[i];
           if (statusEl) {
             statusEl.textContent = repeats > 1
-              ? `Rep ${r + 1}/${repeats} • Cmd ${i + 1}/${queue.length}: ${cmd}`
-              : `Cmd ${i + 1}/${queue.length}: ${cmd}`;
+              ? tf('seq_progress_rep', { rep: r + 1, reps: repeats, cmd: i + 1, cmds: queue.length, name: cmd })
+              : tf('seq_progress', { cmd: i + 1, cmds: queue.length, name: cmd });
           }
           await this.client.sendCommand(devId, cmd);
           if (i < queue.length - 1 || r < repeats - 1) {
@@ -333,9 +340,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           }
         }
       }
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success)">✓ Test completed!</span>';
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--success)">✓ ${t('test_completed')}</span>`;
     } catch (err) {
-      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     } finally {
       if (testBtn) testBtn.disabled = false;
       setTimeout(() => {
@@ -359,17 +366,110 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     };
 
     try {
-      if (status) status.textContent = 'Saving MQTT settings...';
+      if (status) status.textContent = t('saving_mqtt_settings');
       await this.client.saveMqtt(data);
-      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (status) status.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
   /* -------------------------------------------------------------
    * 10. Network View (Wi-Fi & Ethernet)
    * ------------------------------------------------------------- */
+  // The network status (connection, interface, IP, Ethernet and Wi-Fi state, ifconfig):
+  // drawn after a load and after a language change; the forms are not touched
+  renderNetworkStatus(st) {
+    // Active Connection & Interface
+    const setText = (id, text) => { const e = document.getElementById(id); if (e) e.textContent = text; };
+    setText('netConnType', st.connection_type || t('unknown'));
+    const activeIfEl = document.getElementById('netActiveIf');
+    if (activeIfEl) {
+      if (st.eth_present && st.wifi_connected) {
+        const isEthActive = (st.active_interface === st.eth_interface) || (st.mode === 'ethernet');
+        if (isEthActive) {
+          activeIfEl.textContent = tf('net_if_eth_active_wifi_standby', { iface: st.active_interface });
+        } else {
+          activeIfEl.textContent = (st.eth_carrier)
+            ? tf('net_if_wifi_active_eth_linking', { iface: st.active_interface })
+            : tf('net_if_wifi_active_eth_standby', { iface: st.active_interface });
+        }
+      } else {
+        activeIfEl.textContent = st.active_interface || t('net_none_lc');
+      }
+    }
+
+    // IP Address
+    const ipEl = document.getElementById('netIp');
+    if (ipEl) {
+      if (st.eth_ip && st.wifi_ip && st.eth_ip === st.wifi_ip) {
+        ipEl.textContent = tf('net_ip_unified', { ip: st.ip });
+      } else if (st.eth_ip && st.wifi_ip) {
+        ipEl.textContent = `${st.ip} (Eth: ${st.eth_ip} | Wi-Fi: ${st.wifi_ip})`;
+      } else {
+        ipEl.textContent = st.ip || t('val_none');
+      }
+    }
+    setText('netMask', st.netmask || '-');
+    setText('netGw', st.gateway || '-');
+    setText('netMac', st.mac || '-');
+
+    // USB Controller Mode
+    const usbEl = document.getElementById('netUsbMode');
+    if (usbEl) {
+      if (st.eth_onboard) {
+        usbEl.innerHTML = `<span style="color:var(--success); font-weight:600;">${t('net_usb_gadget_native')}</span>`;
+      } else {
+        usbEl.innerHTML = st.usb_host_mode
+          ? `<span style="color:var(--success); font-weight:600;">${t('net_usb_host_mode')}</span>`
+          : `<span style="color:var(--text-muted);">${t('net_usb_gadget_console')}</span>`;
+      }
+    }
+
+    // Ethernet Adapter Status
+    const ethEl = document.getElementById('netEthStatus');
+    if (ethEl) {
+      if (st.eth_present) {
+        const ifStr = st.eth_interface ? ` [${st.eth_interface}]` : '';
+        const devType = st.eth_onboard ? t('net_eth_onboard_poe') : '100Base-TX';
+        if (st.eth_carrier) {
+          const ipStr = escapeHtml(st.eth_ip ? ` (IP: ${st.eth_ip})` : ` ${t('net_acquiring_ip')}`);
+          ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">${escapeHtml(tf('net_eth_connected_link', { type: devType }) + ifStr)}</span>${ipStr}`;
+        } else {
+          const devLabel = st.eth_onboard ? t('net_eth_onboard_port') : t('net_adapter_detected');
+          ethEl.innerHTML = `<span style="color:var(--warning);">${escapeHtml(devLabel)}${escapeHtml(ifStr)} ${escapeHtml(t('net_cable_unplugged'))}</span>`;
+        }
+      } else {
+        ethEl.innerHTML = `<span style="color:var(--text-muted);">${t('net_not_detected')}</span>`;
+      }
+    }
+
+    // Wi-Fi Status
+    const wifiEl = document.getElementById('netWifiStatus');
+    if (wifiEl) {
+      if (st.wifi_connected) {
+        const ssidStr = st.wifi_ssid ? ` [${st.wifi_ssid}]` : '';
+        const ipStr = st.wifi_ip ? ` (IP: ${st.wifi_ip})` : '';
+        wifiEl.innerHTML = `<span style="color:var(--success); font-weight:600;">${escapeHtml(t('connected') + ssidStr)}</span>${escapeHtml(ipStr)}`;
+      } else {
+        wifiEl.innerHTML = `<span style="color:var(--danger);">${t('disconnected')}</span>`;
+      }
+    }
+
+    const ifcPre = document.getElementById('netIfconfigPre');
+    if (ifcPre) {
+      ifcPre.textContent = st.ifconfig ? st.ifconfig.trim() : t('no_ifconfig_output');
+    }
+  }
+
+  async refreshNetworkStatus() {
+    try {
+      this.renderNetworkStatus(await this.client.getNetworkStatus());
+    } catch (err) {
+      console.warn('Network status error:', err);
+    }
+  }
+
   async loadNetworkView() {
     try {
       const [st, sys] = await Promise.all([
@@ -377,80 +477,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         this.client.getSystemInfo().catch(() => ({}))
       ]);
 
-      // Active Connection & Interface
-      document.getElementById('netConnType').textContent = st.connection_type || 'Unknown';
-      const activeIfEl = document.getElementById('netActiveIf');
-      if (activeIfEl) {
-        if (st.eth_present && st.wifi_connected) {
-          const isEthActive = (st.active_interface === st.eth_interface) || (st.mode === 'ethernet');
-          if (isEthActive) {
-            activeIfEl.textContent = `${st.active_interface} (Ethernet Active + Wi-Fi Standby)`;
-          } else {
-            activeIfEl.textContent = (st.eth_carrier)
-              ? `${st.active_interface} (Wi-Fi Active + Ethernet Linking)`
-              : `${st.active_interface} (Wi-Fi Active + Ethernet Standby)`;
-          }
-        } else {
-          activeIfEl.textContent = st.active_interface || 'none';
-        }
-      }
-
-      // IP Address
-      const ipEl = document.getElementById('netIp');
-      if (ipEl) {
-        if (st.eth_ip && st.wifi_ip && st.eth_ip === st.wifi_ip) {
-          ipEl.textContent = `${st.ip} (Unified Static IP across Eth & Wi-Fi)`;
-        } else if (st.eth_ip && st.wifi_ip) {
-          ipEl.textContent = `${st.ip} (Eth: ${st.eth_ip} | Wi-Fi: ${st.wifi_ip})`;
-        } else {
-          ipEl.textContent = st.ip || 'None';
-        }
-      }
-      document.getElementById('netMask').textContent = st.netmask || '-';
-      document.getElementById('netGw').textContent = st.gateway || '-';
-      document.getElementById('netMac').textContent = st.mac || '-';
-
-      // USB Controller Mode
-      const usbEl = document.getElementById('netUsbMode');
-      if (usbEl) {
-        if (st.eth_onboard) {
-          usbEl.innerHTML = '<span style="color:var(--success); font-weight:600;">Gadget Mode (Native PC USB Control Active)</span>';
-        } else {
-          usbEl.innerHTML = st.usb_host_mode
-            ? '<span style="color:var(--success); font-weight:600;">Host Mode (High-Speed 480Mbps active)</span>'
-            : '<span style="color:var(--text-muted);">Gadget Mode (USB Console/PC)</span>';
-        }
-      }
-
-      // Ethernet Adapter Status
-      const ethEl = document.getElementById('netEthStatus');
-      if (ethEl) {
-        if (st.eth_present) {
-          const ifStr = st.eth_interface ? ` [${st.eth_interface}]` : '';
-          const devType = st.eth_onboard ? 'Onboard RJ45 / PoE' : '100Base-TX';
-          if (st.eth_carrier) {
-            const ipStr = st.eth_ip ? ` (IP: ${st.eth_ip})` : ' (Acquiring IP...)';
-            ethEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected (${devType} Link Up)${ifStr}</span>${ipStr}`;
-          } else {
-            const devLabel = st.eth_onboard ? 'Onboard RJ45 Port' : 'Adapter Detected';
-            ethEl.innerHTML = `<span style="color:var(--warning);">${escapeHtml(devLabel)}${escapeHtml(ifStr)} (Cable Unplugged)</span>`;
-          }
-        } else {
-          ethEl.innerHTML = '<span style="color:var(--text-muted);">Not Detected</span>';
-        }
-      }
-
-      // Wi-Fi Status
-      const wifiEl = document.getElementById('netWifiStatus');
-      if (wifiEl) {
-        if (st.wifi_connected) {
-          const ssidStr = st.wifi_ssid ? ` [${st.wifi_ssid}]` : '';
-          const ipStr = st.wifi_ip ? ` (IP: ${st.wifi_ip})` : '';
-          wifiEl.innerHTML = `<span style="color:var(--success); font-weight:600;">Connected${ssidStr}</span>${ipStr}`;
-        } else {
-          wifiEl.innerHTML = '<span style="color:var(--danger);">Disconnected</span>';
-        }
-      }
+      this.renderNetworkStatus(st);
 
       // Pre-fill Ethernet & IP configuration form
       if (st.config) {
@@ -476,10 +503,6 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         });
       }
 
-      const ifcPre = document.getElementById('netIfconfigPre');
-      if (ifcPre) {
-        ifcPre.textContent = st.ifconfig ? st.ifconfig.trim() : 'No ifconfig output available.';
-      }
       const netPre = document.getElementById('sysNetInfoPre');
       if (netPre && sys && sys.network_details) {
         netPre.textContent = sys.network_details.trim();
@@ -502,11 +525,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       eth_dns: document.getElementById('ethDns')?.value.trim()
     };
     try {
-      if (status) status.textContent = 'Saving IP settings...';
+      if (status) status.textContent = t('saving_ip_settings');
       await this.client.saveEthernet(data);
-      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (status) status.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -527,16 +550,16 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const status = document.getElementById('wifiSaveStatus');
     if (!dropdown) return;
 
-    const originalText = btnText ? btnText.textContent : 'Scan Networks';
+    const originalText = btnText ? btnText.textContent : t('scan_networks');
     if (btn) btn.disabled = true;
-    if (btnText) btnText.textContent = 'Scanning...';
-    if (status) status.innerHTML = '<span class="subtle">Scanning 2.4GHz channels...</span>';
+    if (btnText) btnText.textContent = t('scanning_ellipsis');
+    if (status) status.innerHTML = `<span class="subtle">${t('scanning_channels')}</span>`;
 
     try {
       const res = await this.client.scanWifi();
       const networks = (res && res.networks) ? res.networks : [];
       if (networks.length === 0) {
-        dropdown.innerHTML = '<div style="padding:12px; font-size:12px; color:var(--text-dim); text-align:center;">No networks found</div>';
+        dropdown.innerHTML = `<div style="padding:12px; font-size:12px; color:var(--text-dim); text-align:center;">${t('no_networks_found')}</div>`;
         dropdown.style.display = 'block';
         if (status) status.textContent = '';
         return;
@@ -565,7 +588,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             </div>
             <div class="wifi-scan-meta">
               <span class="wifi-scan-badge">${secBadge}</span>
-              <span class="wifi-scan-signal" title="${sig} dBm (Ch ${net.channel || '?'})">${bars}</span>
+              <span class="wifi-scan-signal" title="${this.escapeHtml(tf('wifi_signal_title', { signal: sig, channel: net.channel || '?' }))}">${bars}</span>
             </div>
           </div>
         `;
@@ -601,7 +624,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         });
       });
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Scan error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('b25_scan_error', { error: err.message }))}</span>`;
     } finally {
       if (btn) btn.disabled = false;
       if (btnText) btnText.textContent = originalText;
@@ -612,7 +635,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const status = document.getElementById('wifiSaveStatus');
     const ssid = document.getElementById('wifiSsidInput')?.value.trim();
     if (!ssid) {
-      if (status) status.innerHTML = '<span style="color:var(--danger)">Please enter an SSID first</span>';
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${t('enter_ssid_first')}</span>`;
       return;
     }
 
@@ -633,16 +656,16 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     if (testBtn) testBtn.disabled = true;
 
     try {
-      if (status) status.innerHTML = '<span class="subtle">Testing Wi-Fi connection with AP (10-15s)...</span>';
+      if (status) status.innerHTML = `<span class="subtle">${t('testing_wifi')}</span>`;
       const res = await this.client.testWifi(data);
       if (res && res.ok) {
-        if (status) status.innerHTML = '<span style="color:var(--success); font-weight:600;">Connection test passed!</span>';
+        if (status) status.innerHTML = `<span style="color:var(--success); font-weight:600;">${t('conn_test_passed')}</span>`;
       } else {
-        const errMsg = (res && res.error) ? res.error : 'Connection test failed';
+        const errMsg = (res && res.error) ? res.error : t('conn_test_failed');
         if (status) status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${errMsg}</span>`;
       }
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger); font-weight:600;">Test failed: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${escapeHtml(tf('test_failed_error', { error: err.message }))}</span>`;
     } finally {
       if (testBtn) testBtn.disabled = false;
     }
@@ -652,7 +675,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const status = document.getElementById('wifiSaveStatus');
     const ssid = document.getElementById('wifiSsidInput')?.value.trim();
     if (!ssid) {
-      if (status) status.innerHTML = '<span style="color:var(--danger)">Please enter an SSID</span>';
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${t('enter_ssid')}</span>`;
       return;
     }
 
@@ -675,21 +698,21 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     try {
       if (status) {
         status.innerHTML = isApplying
-          ? '<span class="subtle">Testing connection before switching...</span>'
-          : '<span class="subtle">Saving Wi-Fi...</span>';
+          ? `<span class="subtle">${t('wifi_testing_before_switch')}</span>`
+          : `<span class="subtle">${t('saving_wifi')}</span>`;
       }
       const res = await this.client.saveWifi(data);
       if (res && res.ok === false) {
-        throw new Error(res.error || 'Failed to save Wi-Fi');
+        throw new Error(res.error || t('failed_save_wifi'));
       }
       if (status) {
         status.innerHTML = isApplying
-          ? '<span style="color:var(--success); font-weight:600;">Wi-Fi verified & applied!</span>'
-          : '<span style="color:var(--success); font-weight:600;">Wi-Fi settings saved!</span>';
+          ? `<span style="color:var(--success); font-weight:600;">${t('wifi_verified_applied')}</span>`
+          : `<span style="color:var(--success); font-weight:600;">${t('wifi_settings_saved')}</span>`;
       }
     } catch (err) {
       if (status) {
-        status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${err.message}</span>`;
+        status.innerHTML = `<span style="color:var(--danger); font-weight:600;">${escapeHtml(err.message)}</span>`;
       }
     }
   }
@@ -705,7 +728,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       const res = await fetch(url, { headers: this.client.getHeaders() });
       if (!res.ok) {
         if (res.status === 404) {
-          showToast(t('no_saved_data_export').replace('{target}', target), 'info');
+          showToast(tf('no_saved_data_export', { target: target }), 'info');
           return;
         }
         throw new Error(`HTTP ${res.status}`);
@@ -735,8 +758,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const status = document.getElementById('backupImportStatus');
     if (!payload) return alert(t("enter_backup_payload"));
     const confirmMsg = restoreNet ?
-      t('restore_backup_net_confirm').replace('{target}', target) :
-      t('restore_backup_safe_confirm').replace('{target}', target);
+      tf('restore_backup_net_confirm', { target: target }) :
+      tf('restore_backup_safe_confirm', { target: target });
     if (!await showConfirm(confirmMsg, { title: t('title_restore_backup'), okText: t('btn_restore') })) return;
     try {
       if (status) status.textContent = t('restoring_status');
@@ -750,7 +773,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         await this.showSwitchCheck();
       }
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">${t('restore_failed_status')}${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${t('restore_failed_status')}${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -785,7 +808,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
             // Custom timezone not in preset list
             const opt = document.createElement('option');
             opt.value = st.timezone;
-            opt.textContent = `Custom (${st.timezone})`;
+            opt.textContent = tf('timezone_custom', { tz: st.timezone });
             opt.selected = true;
             tzEl.appendChild(opt);
             tzEl.value = st.timezone;
@@ -831,20 +854,20 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       badge.className = 'badge badge-success';
       badge.style.background = 'rgba(16, 185, 129, 0.15)';
       badge.style.color = '#10b981';
-      badge.textContent = `${count} Icons Cached`;
-      if (detail) detail.textContent = 'Offline icon pack ready';
+      badge.textContent = tf('icons_cached_count', { count: count });
+      if (detail) detail.textContent = t('icons_offline_ready');
     } else if (stockIconsAvailable) {
       badge.className = 'badge';
       badge.style.background = 'rgba(59, 130, 246, 0.15)';
       badge.style.color = 'var(--accent)';
-      badge.textContent = 'Streaming from Hub';
-      if (detail) detail.textContent = 'Hub icons active; sync recommended for offline use';
+      badge.textContent = t('icons_streaming_hub');
+      if (detail) detail.textContent = t('icons_streaming_hint');
     } else {
       badge.className = 'badge';
       badge.style.background = 'rgba(239, 68, 68, 0.15)';
       badge.style.color = '#ef4444';
-      badge.textContent = 'No Icons Cached';
-      if (detail) detail.textContent = 'Sync from Hub or OTA mirror';
+      badge.textContent = t('icons_none_cached');
+      if (detail) detail.textContent = t('icons_sync_hint');
     }
   }
 
@@ -855,7 +878,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const pctLabel = document.getElementById('iconSyncPct');
 
     if (progressWrap) progressWrap.style.display = 'block';
-    if (statusText) statusText.textContent = `Starting ${source === 'hub' ? 'Hub' : 'OTA'} icon sync...`;
+    if (statusText) statusText.textContent = t(source === 'hub' ? 'icons_sync_starting_hub' : 'icons_sync_starting_ota');
     if (progressBar) progressBar.style.width = '0%';
     if (pctLabel) pctLabel.textContent = '0%';
 
@@ -865,7 +888,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       if (pctLabel) pctLabel.textContent = `${pct}%`;
       if (statusText) {
         if (p.message) statusText.textContent = p.message;
-        else if (p.filename) statusText.textContent = `Caching ${p.filename} (${p.current}/${p.total})...`;
+        else if (p.filename) statusText.textContent = tf('icons_caching_file', { file: p.filename, current: p.current, total: p.total });
       }
     };
 
@@ -879,8 +902,8 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       setStockIconsAvailable(true);
       if (progressBar) progressBar.style.width = '100%';
       if (pctLabel) pctLabel.textContent = '100%';
-      if (statusText) statusText.textContent = `Completed! ${res.count} icons cached locally.`;
-      showToast(t('cached_icons_offline').replace('{count}', res.count), 'success');
+      if (statusText) statusText.textContent = tf('icons_sync_completed', { count: res.count });
+      showToast(tf('cached_icons_offline', { count: res.count }), 'success');
       this.updateIconCacheUI();
       await this.loadAvailableIcons(true);
       if (this.currentTab === 'activity-remote') this.renderActivityRemote();
@@ -890,7 +913,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       }, 4000);
     } catch (err) {
       console.error('Icon sync error:', err);
-      if (statusText) statusText.textContent = `Failed: ${err.message}`;
+      if (statusText) statusText.textContent = tf('failed_msg', { error: err.message });
       showToast(t("icon_sync_failed") + err.message, 'error');
       setTimeout(() => {
         if (progressWrap) progressWrap.style.display = 'none';
@@ -923,13 +946,13 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       if (rfBadge && rfBtn) {
         if (svcs.rf_enabled) {
           rfBadge.className = svcs.rf_running ? 'badge badge-success' : 'badge badge-warning';
-          rfBadge.textContent = svcs.rf_running ? 'Running' : 'Enabled (Idle)';
-          rfBtn.textContent = 'Disable RF';
+          rfBadge.textContent = svcs.rf_running ? t('service_running') : t('service_enabled_idle');
+          rfBtn.textContent = t('disable_rf_btn');
           rfBtn.className = 'btn btn-sm btn-danger';
         } else {
           rfBadge.className = 'badge badge-danger';
-          rfBadge.textContent = 'Disabled';
-          rfBtn.textContent = 'Enable RF';
+          rfBadge.textContent = t('disabled');
+          rfBtn.textContent = t('enable_rf_btn');
           rfBtn.className = 'btn btn-sm btn-primary';
         }
       }
@@ -937,19 +960,19 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       if (btBadge && btBtn) {
         if (svcs.bt_enabled) {
           btBadge.className = svcs.bt_running ? 'badge badge-success' : 'badge badge-warning';
-          btBadge.textContent = svcs.bt_running ? 'Running' : 'Enabled (Idle)';
-          btBtn.textContent = 'Disable Bluetooth';
+          btBadge.textContent = svcs.bt_running ? t('service_running') : t('service_enabled_idle');
+          btBtn.textContent = t('disable_bluetooth_btn');
           btBtn.className = 'btn btn-sm btn-danger';
         } else {
           btBadge.className = 'badge badge-danger';
-          btBadge.textContent = 'Disabled';
-          btBtn.textContent = 'Enable Bluetooth';
+          btBadge.textContent = t('disabled');
+          btBtn.textContent = t('enable_bluetooth_btn');
           btBtn.className = 'btn btn-sm btn-primary';
         }
       }
     } catch (err) {
-      if (rfBadge) { rfBadge.className = 'badge badge-danger'; rfBadge.textContent = 'Offline'; }
-      if (btBadge) { btBadge.className = 'badge badge-danger'; btBadge.textContent = 'Offline'; }
+      if (rfBadge) { rfBadge.className = 'badge badge-danger'; rfBadge.textContent = t('offline'); }
+      if (btBadge) { btBadge.className = 'badge badge-danger'; btBadge.textContent = t('offline'); }
     }
   }
 
@@ -985,11 +1008,11 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     try {
       const res = await this.client.getLogs(source);
       if (logsEl) {
-        logsEl.textContent = (res && (res.log || res.logs)) ? (res.log || res.logs) : (typeof res === 'string' ? res : 'No log entries available.');
+        logsEl.textContent = (res && (res.log || res.logs)) ? (res.log || res.logs) : (typeof res === 'string' ? res : t('no_log_entries'));
         logsEl.scrollTop = logsEl.scrollHeight;
       }
     } catch (err) {
-      if (logsEl) logsEl.textContent = 'Failed to load logs: ' + err.message;
+      if (logsEl) logsEl.textContent = tf('failed_load_logs', { error: err.message });
     }
   }
 
@@ -1001,13 +1024,19 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
       const sys = await this.client.getSystemInfo();
       if (sys && sys.ok) {
         if (infoEl) {
-          let text = `Kernel:        ${sys.kernel || 'Linux'}\n`;
-          text += `Firmware:      ${sys.firmware || '4.15.600'}\n`;
-          text += `Uptime:        ${sys.uptime || 'Unknown'}\n`;
-          text += `Load Average:  ${sys.loadavg || 'N/A'}\n`;
-          text += `Memory Total:  ${sys.mem_total_kb ? Math.round(sys.mem_total_kb / 1024) + ' MB (' + sys.mem_total_kb + ' kB)' : 'N/A'}\n`;
-          text += `Memory Free:   ${sys.mem_free_kb ? Math.round(sys.mem_free_kb / 1024) + ' MB (' + sys.mem_free_kb + ' kB)' : 'N/A'}\n`;
-          text += `Memory Avail:  ${sys.mem_available_kb ? Math.round(sys.mem_available_kb / 1024) + ' MB (' + sys.mem_available_kb + ' kB)' : 'N/A'}\n`;
+          const mem = kb => (kb ? `${Math.round(kb / 1024)} MB (${kb} kB)` : 'N/A');
+          const rows = [
+            [t('sysinfo_kernel'), sys.kernel || 'Linux'],
+            [t('firmware'), sys.firmware || '4.15.600'],
+            [t('uptime'), sys.uptime || t('unknown')],
+            [t('sysinfo_load_average'), sys.loadavg || 'N/A'],
+            [t('sysinfo_memory_total'), mem(sys.mem_total_kb)],
+            [t('sysinfo_memory_free'), mem(sys.mem_free_kb)],
+            [t('sysinfo_memory_avail'), mem(sys.mem_available_kb)],
+          ];
+          // values in one column after the longest label of the chosen language
+          const width = Math.max(...rows.map(([label]) => label.length)) + 2;
+          const text = rows.map(([label, value]) => `${(label + ':').padEnd(width)}${value}\n`).join('');
           infoEl.textContent = text;
         }
         if (netEl && sys.network_details) {
@@ -1015,7 +1044,7 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
         }
       }
     } catch (err) {
-      if (infoEl) infoEl.textContent = 'Failed to load system info: ' + err.message;
+      if (infoEl) infoEl.textContent = tf('failed_load_sysinfo', { error: err.message });
     }
   }
 
@@ -1024,9 +1053,9 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
     const on = document.getElementById('sysDebugCheck')?.checked ? 1 : 0;
     try {
       await this.client.saveSystemAction('debug_logging', { debugLogging: on });
-      if (status) status.innerHTML = '<span style="color:var(--success)">Saved!</span>';
+      if (status) status.innerHTML = `<span style="color:var(--success)">${t('saved_status')}</span>`;
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -1056,14 +1085,14 @@ export class HarmonyAppSettingsSystem extends HarmonyAppRemotesRf {
           b.style.marginLeft = '6px';
           b.style.background = isUser ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)';
           b.style.color = isUser ? 'var(--accent)' : '#10b981';
-          b.textContent = `${this.currentUser} (${isUser ? 'User' : 'Admin'})`;
+          b.textContent = `${this.currentUser} (${isUser ? t('role_user') : t('role_admin')})`;
           wrap.appendChild(b);
         }
       } else {
         userBadge.style.display = '';
         userBadge.style.background = isUser ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)';
         userBadge.style.color = isUser ? 'var(--accent)' : '#10b981';
-        userBadge.textContent = `${this.currentUser} (${isUser ? 'User' : 'Admin'})`;
+        userBadge.textContent = `${this.currentUser} (${isUser ? t('role_user') : t('role_admin')})`;
       }
     } else if (userBadge) {
       userBadge.style.display = 'none';

@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -63,8 +63,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const log = document.getElementById('irdbLog');
     const resBox = document.getElementById('irdbResults');
 
-    if (status) status.textContent = 'Searching index...';
-    if (log) log.textContent = `Searching for "${q}" in ${src}...`;
+    if (status) status.textContent = t('irdb_searching_index');
+    if (log) log.textContent = tf('irdb_searching_for', { query: q, source: src });
 
     try {
       let entries = [];
@@ -75,7 +75,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         entries = await loadIrdSource(src);
       }
       const matches = rankIrdEntries(entries, q);
-      if (status) status.textContent = `Found ${matches.length} files.`;
+      if (status) status.textContent = tf('irdb_found_files', { count: matches.length });
 
       if (resBox) {
         resBox.style.display = matches.length ? 'block' : 'none';
@@ -99,7 +99,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         });
       }
     } catch (err) {
-      if (status) status.textContent = 'Search failed: ' + err.message;
+      if (status) status.textContent = tf('search_failed_error', { error: err.message });
     }
   }
 
@@ -111,12 +111,12 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
     if (!p) return alert(t("select_file_path_first"));
     try {
-      if (status) status.textContent = 'Loading file...';
+      if (status) status.textContent = t('irdb_loading_file');
       const text = await fetchIrdFile(p, s);
       const rows = parseIrText(text, s, p);
       this.renderIrdbPreview(rows);
     } catch (err) {
-      if (status) status.textContent = 'Failed to load file: ' + err.message;
+      if (status) status.textContent = tf('irdb_file_load_failed', { error: err.message });
     }
   }
 
@@ -134,20 +134,20 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
     previewBox.style.display = 'block';
     if (!rows.length) {
-      previewBox.innerHTML = '<div class="muted mini">No valid commands parsed.</div>';
+      previewBox.innerHTML = `<div class="muted mini">${t('irdb_no_valid_commands')}</div>`;
       return;
     }
 
     const updateIrdbCount = () => {
       const checked = previewBox.querySelectorAll('.irdb-cmd-cb:checked').length;
-      if (status) status.innerHTML = `Parsed ${rows.length} commands (<strong>${checked}</strong> of ${rows.length} selected).`;
+      if (status) status.textContent = tf('irdb_parsed_selected', { count: rows.length, checked: checked });
     };
 
     previewBox.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border);">
         <div style="display:flex; gap:6px;">
-          <button type="button" id="btnIrdbSelectAll" class="btn btn-xs btn-secondary" style="padding:2px 8px; font-size:11px;">Select All</button>
-          <button type="button" id="btnIrdbSelectNone" class="btn btn-xs btn-ghost" style="padding:2px 8px; font-size:11px;">Select None</button>
+          <button type="button" id="btnIrdbSelectAll" class="btn btn-xs btn-secondary" style="padding:2px 8px; font-size:11px;">${t('select_all')}</button>
+          <button type="button" id="btnIrdbSelectNone" class="btn btn-xs btn-ghost" style="padding:2px 8px; font-size:11px;">${t('select_none')}</button>
         </div>
       </div>
       <div id="irdbCheckboxesList">
@@ -197,8 +197,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     if (!cmdPayloads.length) return alert(t("no_cmds_selected"));
     try {
       const res = await this.client.saveBatchCommands(devId, cmdPayloads);
-      if (!res || !res.ok) throw new Error(res?.error || 'the Hub did not save the commands');
-      alert(t("imported_cmds_to").replace("{count}", cmdPayloads.length).replace("{device}", targetDev?.name || devId));
+      if (!res || !res.ok) throw new Error(res?.error || t('hub_did_not_save_cmds'));
+      alert(tf("imported_cmds_to", { count: cmdPayloads.length, device: targetDev?.name || devId }));
       await this.refreshData();
       this.renderIrView(devId);
     } catch (err) {
@@ -213,18 +213,18 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const keyBox = document.getElementById('wizardKeycode');
 
     try {
-      if (status) status.textContent = 'Listening for IR signal (press remote button)...';
+      if (status) status.textContent = t('irdb_listening');
       const res = await this.client.captureIr();
       if (res && res.raw) {
         if (rawBox) rawBox.value = res.raw;
         if (necBox && res.nec) necBox.value = res.nec;
         if (keyBox && res.keycode) keyBox.value = res.keycode;
-        if (status) status.textContent = `Captured signal! Mode: ${res.mode || 'raw'}`;
+        if (status) status.textContent = tf('irdb_captured_signal', { mode: res.mode || 'raw' });
       } else {
-        if (status) status.textContent = 'No signal received or timed out.';
+        if (status) status.textContent = t('irdb_no_signal');
       }
     } catch (err) {
-      if (status) status.textContent = 'Capture failed: ' + err.message;
+      if (status) status.textContent = tf('irdb_capture_failed', { error: err.message });
     }
   }
 
@@ -238,11 +238,11 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const status = document.getElementById('wizardLearnStatus');
 
     try {
-      if (status) status.textContent = 'Sending test signal...';
+      if (status) status.textContent = t('irdb_sending_test');
       await this.client.testLearnedIr({ deviceId: devId, raw, nec, keycode, mode, protocolId: proto });
-      if (status) status.textContent = 'Test signal transmitted!';
+      if (status) status.textContent = t('irdb_test_sent');
     } catch (err) {
-      if (status) status.textContent = 'Test failed: ' + err.message;
+      if (status) status.textContent = tf('test_failed_error', { error: err.message });
     }
   }
 
@@ -259,14 +259,14 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     if (!devId || !name) return alert(t("dev_cmd_name_required"));
 
     try {
-      if (status) status.textContent = 'Saving command...';
+      if (status) status.textContent = t('saving_command');
       const res = await this.client.saveLearnedCommand({ deviceId: devId, name, raw, nec, keycode, mode, protocol });
       /* /ir/command answers 200 with ok:false when it stored nothing (e.g. unknown device) */
-      if (res && res.ok === false) throw new Error('the Hub did not store the command');
-      if (status) status.innerHTML = '<span style="color:var(--success)">✓ Command saved!</span>';
+      if (res && res.ok === false) throw new Error(t('hub_did_not_store_cmd'));
+      if (status) status.innerHTML = `<span style="color:var(--success)">✓ ${t('command_saved_excl')}</span>`;
       await this.refreshData();
     } catch (err) {
-      if (status) status.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
+      if (status) status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
     }
   }
 
@@ -291,11 +291,11 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
     const status = document.getElementById('wizardVerifyStatus');
     if (!devId || !cmd) return alert(t("select_dev_cmd_first"));
     try {
-      if (status) status.textContent = `Sending ${cmd}...`;
+      if (status) status.textContent = tf('sending_name', { name: cmd });
       await this.client.sendCommand(devId, cmd);
-      if (status) status.textContent = `Sent ${cmd} successfully!`;
+      if (status) status.textContent = tf('sent_name_ok', { name: cmd });
     } catch (err) {
-      if (status) status.textContent = `Send failed: ${err.message}`;
+      if (status) status.textContent = tf('send_failed_error', { error: err.message });
     }
   }
 
@@ -374,7 +374,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
                 <button type="button" class="btn btn-xs btn-ghost btn-insert-token" data-token="{state}">{state}</button>
               </div>
             </div>
-            <div><label>Pulse (ms)</label><input id="mgrDevMqttPulse" type="number" class="form-control" value="${dev.mqttPulseMs || 1000}"></div>
+            <div><label>${t('pulse_ms_lbl')}</label><input id="mgrDevMqttPulse" type="number" class="form-control" value="${dev.mqttPulseMs || 1000}"></div>
           </div>
           <div class="actions" style="margin-top: 12px; display: flex; gap: 8px;">
             <button type="button" id="btnMgrSaveMqtt" class="btn btn-sm btn-secondary">${t('save_mqtt_btn', 'Save MQTT')}</button>
@@ -384,8 +384,8 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
 
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="font-size: 15px; margin: 0;">Saved Commands (<span id="mgrCmdCount">${(dev.commands || []).length}</span>)</h3>
-            <span class="muted mini">Device: ${escapeHtml(dev.name || dev.id)}</span>
+            <h3 style="font-size: 15px; margin: 0;">${t('saved_commands_count')} (<span id="mgrCmdCount">${(dev.commands || []).length}</span>)</h3>
+            <span class="muted mini">${escapeHtml(tf('device_with_name', { name: dev.name || dev.id }))}</span>
           </div>
           <div style="margin-bottom: 8px;">
             <input type="text" id="mgrCmdSearch" class="form-control" placeholder="${t('ph_search_cmds')}">
@@ -424,13 +424,13 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
       });
 
       editor.querySelector('#btnMgrDelDev')?.addEventListener('click', async () => {
-        if (!await showConfirm(t('delete_device_confirm', 'Delete device {name}?').replace('{name}', dev.name), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
+        if (!await showConfirm(tf('delete_device_confirm', { name: dev.name }, 'Delete device {name}?'), { title: t('delete_device', 'Delete Device'), okText: t('delete', 'Delete') })) return;
         try {
           await this.client.deleteDevice(dev.id);
         } catch (err) {
           const users = deviceUsersOf(err);
           if (users) await showAlert(deviceUsersText(users), { title: t('device_in_use_title', 'Device in use'), icon: '⚠️' });
-          else alert(`Error: ${err.message}`);
+          else alert(tf('error_msg', { error: err.message }));
           return;
         }
         alert(t("device_deleted"));
@@ -491,18 +491,18 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         if (countEl) countEl.textContent = q ? `${filtered.length} / ${allCmds.length}` : allCmds.length;
         if (!listEl) return;
         if (!filtered.length) {
-          listEl.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${allCmds.length === 0 ? 'No commands saved for this device.' : 'No commands matching search.'}</div>`;
+          listEl.innerHTML = `<div class="muted mini" style="padding: 12px; text-align: center;">${allCmds.length === 0 ? t('no_cmds_saved_for_device') : t('no_cmds_matching_search')}</div>`;
           return;
         }
         listEl.innerHTML = filtered.map(c => `
           <div class="queue-row" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 4px; background: rgba(255,255,255,0.02);">
             <div>
               <strong style="font-size: 13px;">${escapeHtml(c.name)}</strong>
-              <div class="muted mini">Proto ${escapeHtml(c.protocolId || c.protocol_id || 'IR')}${c.learned ? ' • Learned' : ''}${c.raw ? ' • Raw' : ''}</div>
+              <div class="muted mini">${escapeHtml(tf('cmd_meta_protocol', { protocol: c.protocolId || c.protocol_id || 'IR' }))}${c.learned ? ` • ${t('cmd_meta_learned')}` : ''}${c.raw ? ` • ${t('lab_badge_raw')}` : ''}</div>
             </div>
             <div style="display: flex; gap: 6px;">
-              <button type="button" class="btn btn-xs btn-primary btn-mgr-test-cmd" data-cmd="${escapeHtml(c.name)}">Send</button>
-              <button type="button" class="btn btn-xs btn-danger btn-mgr-del-cmd" data-cmd="${escapeHtml(c.name)}">Delete</button>
+              <button type="button" class="btn btn-xs btn-primary btn-mgr-test-cmd" data-cmd="${escapeHtml(c.name)}">${t('send')}</button>
+              <button type="button" class="btn btn-xs btn-danger btn-mgr-del-cmd" data-cmd="${escapeHtml(c.name)}">${t('delete')}</button>
             </div>
           </div>
         `).join('');
@@ -514,7 +514,7 @@ export class HarmonyAppDevicesIrdb extends HarmonyAppDevicesStudio {
         listEl.querySelectorAll('.btn-mgr-del-cmd').forEach(b => {
           b.addEventListener('click', async () => {
             const cmd = b.getAttribute('data-cmd');
-            if (!await showConfirm(t('delete_cmd_confirm', 'Delete command {name}?').replace('{name}', cmd), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
+            if (!await showConfirm(tf('delete_cmd_confirm', { name: cmd }, 'Delete command {name}?'), { title: t('delete_cmd', 'Delete Command'), okText: t('delete', 'Delete') })) return;
             await this.client.deleteCommand(dev.id, cmd);
             await this.refreshData();
             render();

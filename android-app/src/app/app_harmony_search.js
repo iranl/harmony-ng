@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -97,7 +97,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       if (importBtnCountEl) importBtnCountEl.textContent = selCount;
       if (importBtn) {
         importBtn.disabled = selCount === 0;
-        importBtn.textContent = `Import Selected Commands (${selCount})`;
+        importBtn.textContent = tf('hs_import_selected_count', { count: selCount });
       }
     };
 
@@ -165,15 +165,15 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
 
     const loadModelsForMfg = async (mfg) => {
       if (!mfg) return;
-      if (statusEl) statusEl.textContent = `Loading model index for ${mfg}...`;
+      if (statusEl) statusEl.textContent = tf('hs_loading_models', { mfg: mfg });
       try {
         currentModels = await fetchHarmonyModels(mfg);
         if (modelDatalist) {
           modelDatalist.innerHTML = currentModels.filter(item => typeof item?.m === 'string' && item.m.trim()).slice(0, 300).map(item => `<option value="${escapeHtml(item.m)}"></option>`).join('');
         }
-        if (statusEl) statusEl.textContent = `Found ${currentModels.length} models for ${mfg}. Enter or pick model:`;
+        if (statusEl) statusEl.textContent = tf('hs_found_models', { count: currentModels.length, mfg: mfg });
       } catch (err) {
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Failed to load models for ${escapeHtml(mfg)}: ${escapeHtml(err.message)}</span>`;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('hs_models_load_failed', { mfg: mfg, error: err.message }))}</span>`;
       }
     };
 
@@ -197,7 +197,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         alert(t("specify_mfg_model"));
         return;
       }
-      if (statusEl) statusEl.textContent = `Looking up specs & codeset for ${mfg} ${modelName}...`;
+      if (statusEl) statusEl.textContent = tf('hs_looking_up', { mfg: mfg, model: modelName });
       if (specsCard) specsCard.style.display = 'none';
 
       try {
@@ -208,7 +208,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         const match = currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase() === targetModel) ||
           currentModels.find(item => typeof item?.m === 'string' && item.m.toLowerCase().includes(targetModel));
         if (!match || !match.f) {
-          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Model "${escapeHtml(modelName)}" not found under ${escapeHtml(mfg)}.</span>`;
+          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('hs_model_not_found', { model: modelName, mfg: mfg }))}</span>`;
           return;
         }
 
@@ -216,7 +216,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         currentDetail = detail;
 
         if (!detail.codeset) {
-          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">No IR codeset linked to this model.</span>`;
+          if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(t('no_ir_codeset_model'))}</span>`;
           return;
         }
 
@@ -224,7 +224,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         currentCodeset = codeset;
 
         const totalCmdCount = codeset.commands ? codeset.commands.length : 0;
-        if (statusEl) statusEl.textContent = `✓ Loaded ${totalCmdCount} commands from Harmony Archive!`;
+        if (statusEl) statusEl.textContent = `✓ ${tf('hs_loaded_commands', { count: totalCmdCount })}`;
         if (specsCard) specsCard.style.display = 'block';
         if (titleEl) titleEl.textContent = `${detail.manufacturer || mfg} ${detail.model || modelName}`;
         if (catEl) catEl.textContent = mapHarmonyDeviceType(detail.deviceType);
@@ -246,7 +246,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
             <label class="cmd-chip harmony-cmd-item" data-idx="${i}" style="display:inline-flex; align-items:center; gap:6px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:4px 8px; margin:3px; font-size:12px; cursor:pointer; user-select:none;">
               <input type="checkbox" class="harmony-cmd-cb" data-idx="${i}" checked style="cursor:pointer; margin:0;">
               <span class="cmd-chip-name">${escapeHtml(c.name)}</span>
-              ${c.pronto ? `<button type="button" class="btn btn-xs btn-ghost btn-test-archive-cmd" data-idx="${i}" title="Test Blast Pronto Hex" style="padding:1px 5px; font-size:10px; margin-left:2px;">▶ Test</button>` : ''}
+              ${c.pronto ? `<button type="button" class="btn btn-xs btn-ghost btn-test-archive-cmd" data-idx="${i}" title="${escapeHtml(t('hs_test_blast_title'))}" style="padding:1px 5px; font-size:10px; margin-left:2px;">▶ ${escapeHtml(t('test'))}</button>` : ''}
             </label>
           `).join('');
 
@@ -265,11 +265,11 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
               try {
                 await this.client.sendDirectPronto(cmd.pronto, 7, 1);
                 btn.textContent = '✓';
-                setTimeout(() => { btn.textContent = '▶ Test'; }, 1000);
+                setTimeout(() => { btn.textContent = `▶ ${t('test')}`; }, 1000);
               } catch (err) {
                 btn.textContent = '✗';
                 alert(t('test_blast_failed', 'Test blast failed: ') + err.message);
-                setTimeout(() => { btn.textContent = '▶ Test'; }, 1500);
+                setTimeout(() => { btn.textContent = `▶ ${t('test')}`; }, 1500);
               }
             });
           });
@@ -279,7 +279,7 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
         if (importStatusEl) importStatusEl.innerHTML = '';
         updateSelectedCount();
       } catch (err) {
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">Error: ${err.message}</span>`;
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
       }
     };
 
@@ -305,8 +305,8 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
       }).filter(Boolean);
 
       importBtn.disabled = true;
-      importBtn.textContent = `Importing ${selectedCmds.length} commands...`;
-      if (importStatusEl) importStatusEl.innerHTML = `Importing ${selectedCmds.length} commands into "${escapeHtml(targetDev.name)}"...`;
+      importBtn.textContent = tf('hs_importing_count', { count: selectedCmds.length });
+      if (importStatusEl) importStatusEl.innerHTML = escapeHtml(tf('hs_importing_into', { count: selectedCmds.length, name: targetDev.name }));
 
       try {
         const targetPort = (targetDev.controlPort !== undefined) ? targetDev.controlPort : ((targetDev.control_port !== undefined) ? targetDev.control_port : 7);
@@ -337,12 +337,12 @@ export class HarmonyAppHarmonySearch extends HarmonyAppBluetooth {
           }
         }
 
-        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--success)">✓ Successfully imported ${cmdPayloads.length} commands into "${escapeHtml(targetDev.name)}"!</span>`;
+        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--success)">✓ ${escapeHtml(tf('hs_imported_into', { count: cmdPayloads.length, name: targetDev.name }))}</span>`;
         await this.refreshData();
         this.renderIrView(targetDevId);
       } catch (err) {
         alert(t('failed_import_cmds', 'Failed to import commands: ') + err.message);
-        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(err.message)}</span>`;
+        if (importStatusEl) importStatusEl.innerHTML = `<span style="color:var(--danger)">${escapeHtml(tf('error_msg', { error: err.message }))}</span>`;
       } finally {
         importBtn.disabled = false;
         updateSelectedCount();

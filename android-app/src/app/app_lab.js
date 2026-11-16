@@ -17,7 +17,7 @@ import {
   sourceLabel,
   safeImportName
 } from '../irdb.js';
-import { t, setLanguage, getInitialLanguage } from '../i18n.js';
+import { t, setLanguage, getInitialLanguage, tf } from '../i18n.js';
 import iconMetadata from '../icon-metadata.json';
 import {
   initIconCache,
@@ -57,7 +57,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
   initLabView() {
     const sel = document.getElementById('labDevice');
     if (sel) {
-      sel.innerHTML = '<option value="__auto_lab__">Temporary test device</option>' +
+      sel.innerHTML = `<option value="__auto_lab__">${t('lab_temp_test_device')}</option>` +
         (this.inventory.devices || []).map(d => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
     }
   }
@@ -68,11 +68,11 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     const status = document.getElementById('labStatus');
     const box = document.getElementById('labCandidates');
 
-    if (status) status.textContent = 'Searching candidate files...';
+    if (status) status.textContent = t('lab_searching_files');
     try {
       const entries = await loadIrdSource(src === 'all' ? 'irdb' : src);
       const matches = rankIrdEntries(entries, q);
-      if (status) status.textContent = `Found ${matches.length} matching files.`;
+      if (status) status.textContent = tf('lab_found_files', { count: matches.length });
       if (box) {
         box.style.display = matches.length ? 'block' : 'none';
         box.innerHTML = matches.slice(0, 30).map(m => `
@@ -83,7 +83,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
         `).join('');
       }
     } catch (err) {
-      if (status) status.textContent = 'Search failed: ' + err.message;
+      if (status) status.textContent = tf('search_failed_error', { error: err.message });
     }
   }
 
@@ -93,7 +93,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     const cmdFilter = (document.getElementById('labCommandFilter')?.value || '').toLowerCase();
     const status = document.getElementById('labStatus');
 
-    if (status) status.textContent = 'Loading commands from files...';
+    if (status) status.textContent = t('lab_loading_commands');
     try {
       const entries = await loadIrdSource(src === 'all' ? 'irdb' : src);
       const matches = rankIrdEntries(entries, q).slice(0, 5);
@@ -108,9 +108,9 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
       }
       this.labQueue = allRows.slice(0, 300);
       this.renderLabQueue();
-      if (status) status.textContent = `Loaded ${this.labQueue.length} commands into queue.`;
+      if (status) status.textContent = tf('lab_loaded_commands', { count: this.labQueue.length });
     } catch (err) {
-      if (status) status.textContent = 'Failed to load: ' + err.message;
+      if (status) status.textContent = tf('failed_to_load_error', { error: err.message });
     }
   }
 
@@ -120,7 +120,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     if (!dev) return alert(t("select_stored_device"));
     this.labQueue = (dev.commands || []).map(c => ({
       name: c.name,
-      meta: 'Stored command',
+      meta: t('lab_stored_command'),
       keycode: c.keycode,
       raw: c.raw,
       stored: true
@@ -131,10 +131,10 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
   renderLabQueue() {
     const box = document.getElementById('labQueue');
     const sum = document.getElementById('labSummary');
-    if (sum) sum.textContent = `${this.labQueue.length} queued`;
+    if (sum) sum.textContent = tf('lab_queued_count', { count: this.labQueue.length });
     if (!box) return;
     if (!this.labQueue.length) {
-      box.innerHTML = '<div class="muted mini" style="padding: 8px;">No commands queued.</div>';
+      box.innerHTML = `<div class="muted mini" style="padding: 8px;">${t('lab_no_commands_queued')}</div>`;
       return;
     }
     box.innerHTML = this.labQueue.map((c, i) => `
@@ -143,7 +143,7 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
           <input type="checkbox" class="lab-pick" data-index="${i}" checked>
           <span><strong>${escapeHtml(c.name)}</strong> <span class="muted mini">(${escapeHtml(c.meta)})</span></span>
         </label>
-        <span class="badge ${c.raw ? 'ok' : 'primary'}">${c.raw ? 'Raw' : 'Code'}</span>
+        <span class="badge ${c.raw ? 'ok' : 'primary'}">${c.raw ? t('lab_badge_raw') : t('lab_badge_code')}</span>
       </div>
     `).join('');
   }
@@ -182,8 +182,8 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
     if (!cmds.length) return alert(t('no_cmds_selected', 'No commands selected.'));
     try {
       const res = await this.client.saveBatchCommands(devId, cmds);
-      if (res && res.ok === false) throw new Error(res.error || 'Import failed');
-      alert(t("imported_n_cmds").replace("{count}", cmds.length));
+      if (res && res.ok === false) throw new Error(res.error || t('import_failed_short'));
+      alert(tf("imported_n_cmds", { count: cmds.length }));
       await this.refreshData();
     } catch (err) {
       alert(t('import_failed', 'Import failed: ') + err.message);
@@ -212,19 +212,19 @@ export class HarmonyAppLab extends HarmonyAppDevicesIrdb {
       if (!this.labRunning) break;
       done++;
       if (meter) meter.style.width = `${Math.round((done / selected.length) * 100)}%`;
-      if (log) log.textContent = `[${done}/${selected.length}] Sending ${cmd.name}...`;
+      if (log) log.textContent = tf('lab_sending_progress', { done: done, total: selected.length, name: cmd.name });
       if (!dry) {
         try {
           await this.client.sendCommand(devId, cmd.name);
         } catch (e) {
-          if (log) log.textContent += ` (error: ${e.message})`;
+          if (log) log.textContent += tf('lab_send_error_suffix', { error: e.message });
         }
       }
       await new Promise(r => setTimeout(r, delay));
     }
 
     this.labRunning = false;
-    if (log) log.textContent = 'Bulk test completed.';
+    if (log) log.textContent = t('lab_bulk_test_done');
   }
 
   stopLabQueue() {
