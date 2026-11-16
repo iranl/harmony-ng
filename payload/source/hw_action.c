@@ -200,7 +200,7 @@ static cJSON *find_device(const cJSON *devs, const char *target, int match_mode,
     return NULL;
 }
 
-static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
+static void check_and_trigger_bt_reconnect_for_command(const cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
     if (!devs || !executed_cmd || !executed_cmd[0]) return;
 
     /* Do not trigger BT reconnect while stopping or in PowerOff */
@@ -217,9 +217,9 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         return;
     }
 
-    cJSON *item = NULL;
+    const cJSON *item = NULL;
     cJSON_ArrayForEach(item, devs) {
-        cJSON *dev = item;
+        const cJSON *dev = item;
 
         int is_bt = 0;
         cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
