@@ -2026,6 +2026,15 @@ Saves Wi-Fi credentials to `/etc/wpa_supplicant.conf` and `/etc/wpa_supplicant.a
 - **Response `500`**: the two files could not be written.
 - **Values**: the SSID and the password are written as typed (wpa_supplicant reads a quoted value without escapes). Refused with `400` and the reason: an SSID that is empty or longer than 32 bytes, a password outside 8 to 63 characters (unless the network is open, or the password is the 64 hex digit raw key, which is written unquoted), and a line break or another control character in either.
 
+#### Wi-Fi over USB (no HTTP)
+A computer on the Hub's USB port can read and set the Wi-Fi network with the stock USB HID file
+protocol (`/sys/wifi/connect`), answered by `hub_usbwifi`: `tools/set_wifi_usb.py`, or
+`tools/harmony_hid.py` `provision_wifi()` / `get_wifi_status()`. It tests the network the way
+`POST /api/wifi-save` with `apply` does (same code, same rules for the values) and shares its
+one-at-a-time lock: a web UI test while a USB attempt runs gets `"Another Wi-Fi test is running,
+try again in a few seconds"`, and the other way round. Protocol and limits:
+[ETHERNET_AND_NETWORK_SETUP.md](ETHERNET_AND_NETWORK_SETUP.md) section 5.
+
 ### 8.3 USB Ethernet Configuration
 #### `POST /api/ethernet-save` or `POST /ethernet`
 Configures USB Ethernet interface mode (DHCP or static IP). Every save rewrites the whole

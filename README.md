@@ -192,7 +192,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
 │       ├── rf_main.c       # hub_rf: CC2544 RF protocol engine (with rf_*.c)
 │       ├── hub_btstack/    # BTstack Bluetooth HID daemon integration
 │       ├── remote/         # Remote framebuffer GUI & input application (remote_ui)
-│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, sntp, ota-verify)
+│       └── hub_util.c      # Multicall utility (sync, mknod, ehci, eth_fix, sntp, ota-verify, usbwifi)
 └── tools/
     ├── backup_hub.py       # Golden and rolling tar backups of the Hub's configuration over SSH
     ├── factory_reset.py    # Revert to stock: runs the device's factory_reset.sh (deletes settings and keys)
@@ -204,6 +204,7 @@ While HarmonyNG restores complete local independence and dramatically reduces me
     ├── restore_stock.py    # All-in-one stock restore and configuration recovery tool
     ├── rf_debug/           # rf_query and rf_sniff: CC2544 radio debug tools for the Hub
     ├── root_hub_usb.py     # USB HID root unlock tool with auto stock backup (.tar)
+    ├── set_wifi_usb.py     # Read or set the Hub's Wi-Fi over USB when it is on no network
     ├── setup_remote_driver.ps1 # Windows: RNDIS driver and 192.168.2.2 for the remote's USB network
     ├── ssh_hostkeys.py     # SSH host key policy shared by the host tools (--reset-host-key)
     ├── unbrick_recovery/   # Tools to get Dropbear back onto a Hub without SSH (file receiver + sender)
