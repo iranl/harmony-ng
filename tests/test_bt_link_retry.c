@@ -13,6 +13,8 @@
  *   - a newer link of the same device replaces the waiting one; one replaced while its request is
  *     out is sent again after that answer, so the older address cannot land last
  *   - a link dropped while its request is out (host forgotten) is not sent again
+ *   - the front link dropped during the pause before its next try: the next link is sent at once
+ *     and starts its own pause at 1 s (it waited for the dropped link's pause, up to 60 s)
  *   - {"ok": true} with a space after the colon is taken (it was no answer)
  *   - at most 8 links wait; a 9th replaces the newest waiting one */
 #define TEST_DIR "/tmp/hng_bt_link_test"
@@ -219,7 +221,6 @@ int main(void) {
     }
     CHECK(okf == 3 && pending_links() == 0 && retry_pause_ms() == 0,
           "an older hub_daemon's {\"ok\":false} (no such device) ends the link after 3 answers (%d answers)", okf);
-
     link_bt_device_to_addr("12", "00:11:22:33:44:0C");
     got = serve_one(ls, "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"ok\": true}", req, sizeof(req));
     CHECK(got && pending_links() == 0 && retry_pause_ms() == 0, "{\"ok\": true} with a space links it (it was no answer)");
@@ -271,8 +272,31 @@ int main(void) {
 #else
     CHECK(0, "8 links wait; the 9th replaces the newest");
 #endif
+
+    printf("[-] the front link dropped during the pause before its next try\n");
+    link_bt_device_to_addr("30", "00:11:22:33:46:01");
+    pump(500);
+    link_bt_device_to_addr("31", "00:11:22:33:46:02");
+    pump(500);
+    for (int i = 0; i < 3; i++) {
+        fire_retry();
+        pump(500);
+    }
+    CHECK(pending_links() == 2 && retry_pause_ms() == 8000, "two links wait, the front one after several tries without an answer (pause %u ms)",
+          retry_pause_ms());
     ls = listen_daemon();
     if (ls < 0) return 1;
+#ifdef LINK_PENDING_MAX
+    bd_addr_t a30 = {0x00, 0x11, 0x22, 0x33, 0x46, 0x01};
+    link_drop_host(a30);
+#endif
+    c = accept_read(ls, req, sizeof(req));
+    CHECK(c >= 0 && strstr(req, "\"deviceId\":\"31\""), "its host forgotten: the next link is sent at once (it waited out the 8 s pause)");
+    if (c >= 0) answer(c, BUSY_ANSWER);
+    CHECK(pending_links() == 1 && retry_pause_ms() == 1000, "and a miss starts its own pause at 1 s (%u ms)", retry_pause_ms());
+    fire_retry();
+    got = serve_one(ls, OK_ANSWER, req, sizeof(req));
+    CHECK(got && pending_links() == 0, "then it is linked");
 
     printf("[-] hub_daemon alive but not answering\n");
     clock_gettime(CLOCK_MONOTONIC, &t0);

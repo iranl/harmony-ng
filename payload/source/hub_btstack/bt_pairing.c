@@ -589,12 +589,16 @@ static void link_queue(const char *dev_id, const char *addr_str) {
     link_try_next();
 }
 
-/* Drop waiting links to this host (it was forgotten); one being sent is abandoned */
+/* Drop waiting links to this host (it was forgotten); one being sent is abandoned. The pause and
+ * the count of tries without an answer belong to the front link: when it goes, they go with it and
+ * the next link is sent at once (hub_daemon just sent the forget command, so it answers). */
 static void link_drop_host(const bd_addr_t addr) {
     int w = 0;
+    bool front_gone = false;
     for (int r = 0; r < s_links_n; r++) {
         bd_addr_t a;
         if (parse_bd_addr(s_links[r].addr, a) && memcmp(a, addr, 6) == 0) {
+            if (r == 0) front_gone = true;
             if (r == 0 && s_link_phase != LINK_IDLE) {
                 s_link_resend = false;
                 if (s_link_fd >= 0) {
@@ -611,14 +615,13 @@ static void link_drop_host(const bd_addr_t addr) {
         w++;
     }
     s_links_n = w;
-    if (s_links_n == 0) {
+    if (s_links_n == 0 || front_gone) {
         btstack_run_loop_remove_timer(&s_link_retry_timer);
         s_link_pause = false;
         s_link_failures = 0;
         s_link_retry_ms = LINK_RETRY_FIRST_MS;
-    } else if (s_link_phase == LINK_IDLE && !s_link_pause) {
-        link_try_next();
     }
+    if (s_links_n > 0 && s_link_phase == LINK_IDLE && !s_link_pause) link_try_next();
 }
 
 void link_bt_device_to_addr(const char *dev_id, const char *addr_str) {
