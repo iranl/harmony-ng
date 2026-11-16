@@ -277,19 +277,17 @@ export function createSystemApi(client) {
     },
 
     async logout() {
-      try {
-        if (client.token) {
-          await client.request('/api/auth/logout', { method: 'POST' });
+      // Forget the session on this device first: a slow or failed request to the Hub must
+      // never leave the user logged in here
+      const token = client.token;
+      client.clearStoredToken();
+      if (token) {
+        const bearer = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+        try {
+          await client.request('/api/auth/logout', { method: 'POST', headers: { Authorization: bearer }, ignoreUnauthorized: true });
+        } catch {
+          /* the session ends on the Hub anyway when it expires */
         }
-      } catch {
-        /* ignore */
-      }
-      client.token = null;
-      client.authHeader = null;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem('harmony_auth_token');
-        localStorage.removeItem('harmony_auth_user');
-        localStorage.removeItem('harmony_auth_role');
       }
       client.connectWebSocket(true);
     }

@@ -51,6 +51,7 @@ import {
   getDeviceIconSvg,
   getRawDeviceIconSvg
 } from './app_icons_ui.js';
+import { deviceDelayError } from './form_limits.js';
 import { HarmonyAppIconPicker } from './app_icons_picker.js';
 
 export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
@@ -466,6 +467,12 @@ export class HarmonyAppEventsNav extends HarmonyAppIconPicker {
       }
 
       const stat = document.getElementById('devEditStatus');
+      const delayProblem = deviceDelayError('Inter-device delay', idd) || deviceDelayError('Inter-key delay', ikd) ||
+        deviceDelayError('Hold inter-key delay', hikd) || (pod < 0 ? 'Power-on delay must not be negative' : null);
+      if (delayProblem) {
+        if (stat) stat.innerHTML = `<span style="color:var(--danger)">${delayProblem}</span>`;
+        return;
+      }
       if (stat) stat.textContent = 'Saving...';
       try {
         await this.client.saveDeviceDetails({

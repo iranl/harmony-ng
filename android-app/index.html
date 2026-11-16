@@ -1117,21 +1117,21 @@
                       title="Delay before sending command to this device after another device"
                       data-i18n="inter_device_delay" data-i18n-title="inter_device_delay_title">Inter-Device Delay (ms)</label>
                     <input type="number" id="devInterDeviceDelay" class="form-control form-control-sm" placeholder="100"
-                      min="0" max="5000" step="25">
+                      min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devInterKeyDelay"
                       title="Delay between successive key presses to this device" data-i18n-title="tooltip_interkey"
                       data-i18n="inter_key_delay">Inter-Key Delay (ms)</label>
                     <input type="number" id="devInterKeyDelay" class="form-control form-control-sm" placeholder="100"
-                      min="0" max="5000" step="25">
+                      min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devHoldInterKeyDelay"
                       title="Delay between repeated commands when holding a button" data-i18n-title="tooltip_repeats"
                       data-i18n="hold_inter_key_delay">Hold Inter-Key Delay (ms)</label>
                     <input type="number" id="devHoldInterKeyDelay" class="form-control form-control-sm"
-                      placeholder="200" min="0" max="5000" step="25">
+                      placeholder="200" min="0" max="10000" step="25">
                   </div>
                   <div>
                     <label class="mini muted" for="devPowerOnDelay"
@@ -4183,7 +4183,7 @@ harmony_send_command:
             <div class="row">
               <div>
                 <label for="authUsername" class="mini muted" data-i18n="admin_username">Admin Username</label>
-                <input id="authUsername" class="form-control form-control-sm" value="admin">
+                <input id="authUsername" maxlength="31" class="form-control form-control-sm" value="admin">
               </div>
               <div>
                 <label for="authPassword" class="mini muted" data-i18n="admin_password">Admin Password</label>
@@ -4216,7 +4216,7 @@ harmony_send_command:
               <div class="row" style="gap: 8px;">
                 <div>
                   <label for="newUserName" class="mini muted" data-i18n="username">Username</label>
-                  <input id="newUserName" class="form-control form-control-sm" placeholder="e.g. family or guest"
+                  <input id="newUserName" maxlength="31" class="form-control form-control-sm" placeholder="e.g. family or guest"
                     data-i18n-placeholder="placeholder_user_example">
                 </div>
                 <div>
@@ -4689,7 +4689,7 @@ harmony_send_command:
         <div style="margin-bottom: 14px;">
           <label for="loginUsername"
             style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;" data-i18n="username">Username</label>
-          <input type="text" id="loginUsername" class="form-control" placeholder="admin" required
+          <input type="text" id="loginUsername" maxlength="31" class="form-control" placeholder="admin" required
             autocomplete="username" style="width: 100%;">
         </div>
         <div style="margin-bottom: 16px;">

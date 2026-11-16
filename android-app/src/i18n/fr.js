@@ -1238,4 +1238,5 @@ export default {
     "wifi_credentials_desc": "Entrez les identifiants du réseau Wi-Fi. Sert de connexion sans fil ou de secours automatique lorsque l'Ethernet est déconnecté.",
     "wifi_ssid": "Nom du réseau Wi-Fi (SSID)",
     "wifi_status_lbl": "État Wi-Fi",
+    "hold_repeat": "Répétition en maintien",
 };
