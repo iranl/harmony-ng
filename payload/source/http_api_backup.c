@@ -342,6 +342,9 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         int nfiles = 0;
         const char *refused = NULL; /* the section that is not valid */
         int write_failed = 0;
+        int auth_before = 0; /* an import that turns authentication on answers what to check */
+        load_user_accounts(NULL, 0, &auth_before);
+        cJSON *import_check = NULL;
         if (params) {
             cJSON *p_tgt = cJSON_GetObjectItemCaseSensitive(params, "target");
             cJSON *p_pay = cJSON_GetObjectItemCaseSensitive(params, "payload");
@@ -350,7 +353,8 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *p_net = cJSON_GetObjectItemCaseSensitive(params, "restore_network");
             int allow_network = (p_net && (cJSON_IsTrue(p_net) || (cJSON_IsNumber(p_net) && p_net->valueint > 0)));
 
-            if (strcmp(tgt, "bundle") == 0) {
+            /* "all": the new web UI's name for the whole backup */
+            if (strcmp(tgt, "bundle") == 0 || strcmp(tgt, "all") == 0) {
                 cJSON *bundle = NULL;
                 if (p_pay && cJSON_IsString(p_pay)) bundle = cJSON_ParseWithOpts(p_pay->valuestring, NULL, 1);
                 else if (p_pay && cJSON_IsObject(p_pay)) bundle = p_pay;
@@ -435,6 +439,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (!auth_before && tmp_en && tmp_c > 0) {
+                                import_check = cJSON_CreateObject();
+                                http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
+                            }
                             http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                             success = 1;
                         }
@@ -482,6 +490,10 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
                             int tmp_en = 0;
                             int tmp_c = load_user_accounts(tmp_u, MAX_HTTP_USERS, &tmp_en);
                             if (tmp_c > 0) save_user_accounts(tmp_u, tmp_c, tmp_en);
+                            if (!auth_before && tmp_en && tmp_c > 0) {
+                                import_check = cJSON_CreateObject();
+                                http_auth_add_switch_check(import_check, tmp_u, tmp_c, NULL);
+                            }
                             http_auth_drop_all_sessions(); /* accounts replaced: end every session */
                         }
                     }
@@ -508,6 +520,12 @@ static int backup_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", success);
         cJSON_AddStringToObject(resp, "message", success ? "Restored successfully" : "Import failed");
+        if (import_check) {
+            /* the import turned authentication on: what to check, as the other switches answer */
+            cJSON_AddBoolToObject(resp, "auth_enabled", 1);
+            cJSON_AddItemToObject(resp, "to_check", cJSON_DetachItemFromObjectCaseSensitive(import_check, "to_check"));
+            cJSON_Delete(import_check);
+        }
         send_cjson_resp(client_fd, success ? 200 : 400, resp);
         cJSON_Delete(resp);
         close(client_fd);

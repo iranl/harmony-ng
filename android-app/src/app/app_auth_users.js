@@ -54,6 +54,7 @@ import {
 } from './app_icons_ui.js';
 import { credentialsError } from './form_limits.js';
 import { HarmonyAppSettingsSystem } from './app_settings_system.js';
+import { askToCheck, checkItems } from './decision_dialogs.js';
 
 export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
   async loadUserAccounts() {
@@ -68,6 +69,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
 
       if (chk) chk.checked = Boolean(data.auth_enabled);
       const users = data.users || [];
+      this.renderSwitchCheckNotice(data, listEl);
 
       const admin = users.find(u => u.role === 'admin');
       if (admin && adminUser) adminUser.value = admin.username;
@@ -109,6 +111,55 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
     } catch (err) {
       if (listEl) listEl.innerHTML = `<div class="subtle mini" style="color:var(--danger)">Failed to load users: ${err.message}</div>`;
     }
+  }
+
+  // The accounts and tokens to check that the Hub answered when authentication was turned on,
+  // shown once there is a login from after the switch to act with
+  async showSwitchCheck() {
+    const pending = this.pendingSwitchCheck;
+    if (!pending || !this.client?.token) return;
+    // the switch ended every session: only a login made after it can delete anything
+    let session = null;
+    try {
+      session = await this.client.getAuthMe();
+    } catch {
+      session = null;
+    }
+    if (!session?.authenticated) {
+      this.showLoginModal(); /* the list stays pending until the login succeeds */
+      return;
+    }
+    if (session.role !== 'admin') return; /* a user account cannot delete them: the list waits for an admin */
+    this.pendingSwitchCheck = null;
+    const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+    this.lastSwitchCheck = pending;
+    await askToCheck(this.client, pending, me);
+    await this.loadUserAccounts();
+  }
+
+  // Users page: the result of the last switch in this session, to open again
+  renderSwitchCheckNotice(usersData, listEl) {
+    if (!listEl?.parentNode) return;
+    let box = document.getElementById('switchCheckNotice');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'switchCheckNotice';
+      box.style.cssText = 'margin: 6px 0;';
+      listEl.parentNode.insertBefore(box, listEl);
+    }
+    box.replaceChildren();
+    if (!usersData?.auth_enabled || !this.lastSwitchCheck) return;
+    const me = (typeof localStorage !== 'undefined' && localStorage.getItem('harmony_auth_user')) || '';
+    if (!checkItems(this.lastSwitchCheck, me).length) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-xs btn-secondary';
+    btn.textContent = t('auth_check_title', 'Check accounts and access tokens');
+    btn.addEventListener('click', async () => {
+      await askToCheck(this.client, this.lastSwitchCheck, me);
+      await this.loadUserAccounts();
+    });
+    box.appendChild(btn);
   }
 
   async addNonAdminUser() {
@@ -153,7 +204,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
       return;
     }
     try {
-      await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
+      const authReply = await this.client.saveSystemAction('auth', { authEnabled: on, authUsername: u, authPassword: p });
       if (status) {
         status.innerHTML = `<span style="color:var(--success)">${on ? 'Authentication requirement enabled & admin saved!' : 'Authentication requirement disabled!'}</span>`;
         setTimeout(() => { if (status) status.textContent = ''; }, 3500);
@@ -172,6 +223,9 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
         } else if (!this.client.token) {
           this.showLoginModal();
         }
+        // the accounts and tokens to check: shown now, or right after the login when one is needed
+        this.pendingSwitchCheck = authReply?.to_check || null;
+        await this.showSwitchCheck();
       }
 
       await this.loadUserAccounts();
@@ -295,6 +349,7 @@ export class HarmonyAppAuthUsers extends HarmonyAppSettingsSystem {
           this.recordSuccess();
           this.setHubStatus(true);
           await this.checkAuthStatus();
+          await this.showSwitchCheck();
           await this.refreshData();
           if (this.currentTab === 'system') {
             await this.loadUserAccounts();

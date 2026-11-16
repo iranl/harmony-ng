@@ -654,6 +654,10 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON_AddBoolToObject(resp, "ok", 1);
                 cJSON_AddBoolToObject(resp, "auth_enabled", new_auth_enabled);
                 cJSON_AddStringToObject(resp, "message", "Authentication settings updated");
+                if (!curr_auth_enabled && new_auth_enabled) {
+                    /* turned on: the accounts and tokens to check, but the admin set here */
+                    http_auth_add_switch_check(resp, ulist, ucnt, admin_idx >= 0 ? ulist[admin_idx].username : NULL);
+                }
                 send_cjson_resp(client_fd, 200, resp);
                 cJSON_Delete(resp);
                 close(client_fd);

@@ -282,10 +282,12 @@ Executes system maintenance operations.
   {
     "action": "mqtt_publish",
     "topic": "harmony/hub/custom",
-    "payload": "{\"test\":1}",
-    "retain": false
+    "payload": "{\"test\":1}"
   }
   ```
+- **Authentication**: `{"action": "auth", "authEnabled": true, "authUsername": "admin", "authPassword": "..."}`
+  sets the first admin account; a request that turns authentication on also answers `auth_enabled`
+  and `to_check`, the accounts and access tokens to check (11.1).
 
 ---
 
@@ -411,6 +413,12 @@ Checks for newer release bundles.
 #### `POST /api/update-apply`
 Executes `/data/harmony/update.sh` in the background and restarts services.
 - **Signed releases only**: the update source (the official `ota` branch, or `repo`) must publish `manifest.json` and `manifest.json.sig`, the Ed25519 signature of the manifest by a release key built into the Hub firmware (`payload/source/ota_keys.h`). `update.sh` checks the signature with `hub_util ota-verify`, takes the version from the signed manifest, and installs a file only when its SHA-256 matches the manifest. Without a valid signature nothing is changed, whatever server `repo` names. TLS is not relied on: the Hub's `wget` does not verify certificates.
+- **Not during an activity switch**: the update ends with a reboot, which must not cut an activity switch in the middle. While a switch runs, a request is queued behind it, or the steps after the switch point are still being sent, the request is refused with **`409 Conflict`** and starts nothing:
+  ```json
+  {"ok": false, "status": "activity_switch", "error": "An activity switch is running: start the update again when it has finished",
+   "busy": true, "sending": true, "queued": null}
+  ```
+  Send it again when `GET /api/activity` shows `busy` and `sending` false and `queued` null. A switch that starts while the update downloads holds the reboot: `update.sh` waits until `GET /api/activity` shows no switch twice in a row, 1 s apart (at most 10 minutes, then it reboots anyway, the new files being installed already). A query that fails counts as unknown: `update.sh` keeps asking, and reboots only when `hub_daemon` is not running or has not answered for 60 s. Both limits are real time from `/proc/uptime` (a query can take 3 s; a clock set by SNTP during the wait does not end it). Not covered: the fallback without an executable `update.sh` (`init.sh restart` 1 s after the request, so only the 409 at the request protects it); the first update to this version, which the old `update.sh` runs (the wait starts with the update after it); a switch started in the second between the last idle answer and the reboot; `build/deploy_hub.py` and `POST /api/system-action` `reboot`, which do not look at a running switch.
 - **Response `200 OK`**:
   ```json
   {
@@ -487,9 +495,51 @@ Creates or updates a device definition.
 
 ### 3.3 Delete Device
 #### `POST /api/device-delete` or `POST /ir/delete-device`
-Deletes a device and scrubs its references from activities.
-- **Request Body**: `{"deviceId": "70321456"}`
-- **Response `200 OK`**: `{"ok": true}`
+Deletes a device that nothing uses any more. References are not removed: while an activity (its
+`startSequence`, `stopSequence`, `deviceIds` or any other step), another device's
+`btTriggerDeviceId`, or a key binding of a remote map (`remote_slot1_map.json`,
+`remote_slot2_map.json`, `bt_remote_map.json`) names the device, the delete is refused and nothing
+changes. Not counted, so a device never becomes impossible to delete: the map's own page for the
+device (`devices/<id>`, removed from the maps together with the device, so a new device given the
+same id starts without it), map sections of activities and pages of devices that no longer exist,
+and the map of a touchscreen slot that has no remote: a slot counts when `hub_rf` reports it active
+(`GET /api/rf/status`, asked for at most 1.5 s), or, not active, when its
+`remote_slot<N>_version.json` still names a remote (`remote_id` or `skin`; an unpair clears both);
+when `hub_rf` does not answer, when that file exists. Any other slot does not count. Deleting an activity
+(`POST /api/activity-delete`) removes its sections (`activities/<id>`) from the three maps; a device
+delete removes its page and pages of devices deleted earlier. Both only once the configuration in
+memory no longer has the activity or device. The maps are written compact (as the editors save
+them, so a large map stays under the 200000 bytes `GET /api/rf-mapping` reads), to a temporary
+file compared with the map once more right before the rename: an editor save in the meantime is
+read again instead of being overwritten (one in the last instant before the rename can still be
+lost: the editors take no lock). The web remote layouts (`web_remote_layouts.json`) are not
+scanned: the web remote drops buttons of a device that no longer exists by itself.
+- **Request Body**: `{"deviceId": "70321456"}`. `DELETE` is accepted as well as `POST`, `id` as
+  well as `deviceId` (a string or a number), and the body may also be form fields
+  (`deviceId=70321456`). Without a body the id comes from the query (`?deviceId=` or `?id=`).
+- **Response `200 OK`**: `{"ok": true}` (`{"ok": false}` for an unknown device)
+- **Response `409 Conflict`**: the device is in use; `users` lists what uses it: activities (with
+  `name` and the `fields` that name the device), devices whose Bluetooth trigger names it, and per
+  remote map the key bindings (`keys`: paths, at most 32, `count`: the total) and `groups`: the
+  bindings counted per section, with its name (`type` `activity`, `device_page` for another device's
+  page, `no_activity` for the default page `-1`/`default`, `other`). A screen button counts as a key
+  of its activity. Both web UIs show this as text, e.g. "Activities: Shield TV, Xbox (device list,
+  start steps)", "Remote slot 1: 46 keys in TV (DTT)":
+  ```json
+  {
+    "ok": false,
+    "error": "Device is in use: remove it from these activities, devices and remote keys first",
+    "deviceId": "1",
+    "users": [
+      {"type": "activity", "id": "10", "name": "Watch TV", "fields": ["startSequence", "stopSequence"]},
+      {"type": "device", "id": "5", "name": "Receiver", "field": "btTriggerDeviceId"},
+      {"type": "remote_map", "slot": 1, "count": 2, "keys": ["activities/10/VolumeUp", "activities/10/VolumeDown"],
+       "groups": [{"type": "activity", "id": "10", "name": "Watch TV", "count": 2}]},
+      {"type": "bt_remote_map", "count": 1, "keys": ["activities/10/OK"],
+       "groups": [{"type": "activity", "id": "10", "name": "Watch TV", "count": 1}]}
+    ]
+  }
+  ```
 
 ### 3.4 Get Device Commands
 #### `GET /api/device-commands?deviceId=70321456`
@@ -1508,12 +1558,13 @@ Exports complete hub configuration bundle or individual configuration elements.
   - `elite_remote_map`
   - `ui_remote_layout`
   - `auth`
-  - `hub_id`
 - Only one export or import runs at a time: another one meanwhile is answered `409`.
 
 ### 9.2 Import Configuration
 #### `POST /import`
-Imports and atomically applies configuration files or full bundle.
+Imports and atomically applies configuration files or full bundle (`target` `bundle`, or `all`
+as the new web UI calls it). An import of the accounts that turns authentication on also answers
+`auth_enabled` and `to_check`, the accounts and access tokens to check (11.1).
 - **Request Body**:
   ```json
   {
@@ -1708,6 +1759,13 @@ the Hub restarts its services when the update is installed. Both are admin actio
   "message": "Update available: v2.4.0 (Current: v2.3.0)",
   "commit": "...", "firmware": "...", "local_version": "...", "build_time": "..."
 }
+```
+`update_apply` during an activity switch is refused like the REST request (2.3), with the same
+fields:
+```json
+{"type": "ack", "action": "update_apply", "msgId": 42, "ok": false, "code": 409,
+ "error": "An activity switch is running: start the update again when it has finished",
+ "status": "activity_switch", "busy": true, "sending": true, "queued": null}
 ```
 
 #### 10.6b Activity Help
@@ -1941,8 +1999,37 @@ Harmony Hub supports a multi-tier authentication model:
   personal access tokens it created. Turning authentication on or off ends every session.
 - Personal access tokens can be created only while authentication is on (`409` otherwise), carry the
   creating account as `owner`, end with it, and never have more rights than it.
+- **Turning authentication on lists the accounts and access tokens to check.** Every request that
+  turns authentication from off to on answers with every account except the one the request names,
+  and every personal access token (no hashes): `POST /api/users` with `"auth_enabled": true` (the
+  account it saves is not listed), `POST /api/system-action` with `"action": "auth"` and
+  `authEnabled` (the admin it sets is not listed), an import (`POST /import`) of a users file with
+  authentication on (every account listed); `hub_user.sh set-admin`, `add-user`, `delete` and
+  `enable-auth` over SSH print the same list when they turn it on. This happens at every switch from
+  off to on:
+  ```json
+  {"ok": true, "auth_enabled": true,
+   "to_check": {"users": [{"username": "guest", "role": "admin"}],
+                "tokens": [{"id": "tok_1a2b3c4d", "name": "Old script", "owner": "guest", "role": "admin", "created_at": 1729940000}]}}
+  ```
+  A token whose owner account is gone (it no longer works) carries `"owner_missing": true`.
+  Both web UIs show the list right after the switch, with Delete per item (`DELETE /api/users`,
+  `DELETE /api/auth/tokens`; deleting an account also deletes its tokens; one already gone counts as
+  deleted) and Keep all; the account logged in is never offered. The switch ends every session, so
+  the list is kept until an admin is logged in: the legacy UI asks for the login and shows it then,
+  and its Users page can open the last list of the session again; the new web UI (whose only way to
+  turn authentication on is a restore) keeps it for the browser session, shows the names with a
+  hint to log in on the Users page while nobody is logged in, and the full list once an admin is.
+  Nothing is stored on the Hub, kept or blocked: accounts and tokens that are not deleted keep
+  working as before.
+
+  **Limit:** while authentication is off anybody on the network is admin. This list is a check at
+  the moment authentication is turned on, not a protection during the off period: what somebody did
+  while it was off (an account or token made and used, a setting changed) is not undone, and only
+  accounts and tokens can be listed. Keep authentication on.
 - If `config/users.json` exists but cannot be read (cut, empty, broken) and `webui_auth.conf` has no
-  account either, every request except from loopback is refused (`401`) until the file is fixed.
+  account either, every request that needs a login (all API routes except `POST /api/auth/token`;
+  the web UI files stay open) is refused (`401`), except from loopback, until the file is fixed.
 - `GET /api/mqtt-status` never returns the stored broker password (`config.has_password` instead).
 
 ```bash

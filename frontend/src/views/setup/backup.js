@@ -4,6 +4,10 @@ import { api } from '../../api/index.js';
 import { t } from '../../i18n/index.js';
 import { toast } from '../../components/toast.js';
 import { confirm } from '../../components/confirm.js';
+import { installSwitchCheck } from '../../components/hub-decisions.js';
+
+// A restore that turned authentication on (api/system.js): the accounts and tokens to check
+installSwitchCheck(api);
 
 export function createView() {
   const container = h('div', { className: 'setup-subview-backup', style: { display: 'flex', flexDirection: 'column', gap: '16px' } });

@@ -12,6 +12,9 @@ extern "C" {
 cJSON *ota_update_status(void);
 cJSON *ota_update_check(const cJSON *params);
 cJSON *ota_update_apply(const cJSON *params);
+/* NULL when an update may start now; else the 409 reply: an update ends with a reboot, which must
+ * not cut an activity switch in the middle (callers check it before ota_update_apply) */
+cJSON *ota_update_apply_blocked(void);
 
 int http_api_ota_handle(int client_fd, const char *method, const char *clean_path,
                         const char *query, const char *body, const char *req);

@@ -698,3 +698,45 @@ void http_auth_send_challenge(int client_fd, const char *client_ip) {
     send(client_fd, unauth, strlen(unauth), 0);
     close(client_fd);
 }
+
+void http_auth_add_switch_check(cJSON *reply, const struct user_account *users, int count, const char *owner) {
+    if (!reply) return;
+    cJSON *o = cJSON_CreateObject();
+    cJSON *ua = cJSON_CreateArray();
+    for (int i = 0; users && i < count; i++) {
+        if (owner && strcmp(users[i].username, owner) == 0) continue;
+        cJSON *u = cJSON_CreateObject();
+        cJSON_AddStringToObject(u, "username", users[i].username);
+        cJSON_AddStringToObject(u, "role", users[i].role == ROLE_USER ? "user" : "admin");
+        cJSON_AddItemToArray(ua, u);
+    }
+    cJSON_AddItemToObject(o, "users", ua);
+    cJSON *ta = cJSON_CreateArray();
+    size_t flen = 0;
+    char *txt = read_file_text_alloc(HARMONY_TOKENS_JSON, 65536, &flen);
+    cJSON *root = txt ? cJSON_Parse(txt) : NULL;
+    free(txt);
+    const cJSON *toks = root ? cJSON_GetObjectItemCaseSensitive(root, "tokens") : (const cJSON *)0;
+    const cJSON *it;
+    cJSON_ArrayForEach(it, toks) {
+        cJSON *tk = cJSON_CreateObject();
+        static const char *const keys[] = { "id", "name", "owner", "role" };
+        for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+            const cJSON *v = cJSON_GetObjectItemCaseSensitive(it, keys[k]);
+            if (cJSON_IsString(v) && v->valuestring) cJSON_AddStringToObject(tk, keys[k], v->valuestring);
+        }
+        const cJSON *ca = cJSON_GetObjectItemCaseSensitive(it, "created_at");
+        if (cJSON_IsNumber(ca)) cJSON_AddNumberToObject(tk, "created_at", ca->valuedouble);
+        /* a token whose account is gone no longer works (the owner check refuses it): say so */
+        const cJSON *ow = cJSON_GetObjectItemCaseSensitive(it, "owner");
+        if (cJSON_IsString(ow) && ow->valuestring[0]) {
+            int found = 0;
+            for (int i = 0; users && i < count && !found; i++) found = strcmp(users[i].username, ow->valuestring) == 0;
+            if (!found) cJSON_AddBoolToObject(tk, "owner_missing", 1);
+        }
+        cJSON_AddItemToArray(ta, tk);
+    }
+    cJSON_Delete(root);
+    cJSON_AddItemToObject(o, "tokens", ta);
+    cJSON_AddItemToObject(reply, "to_check", o);
+}

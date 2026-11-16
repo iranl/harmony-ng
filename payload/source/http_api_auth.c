@@ -442,6 +442,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         struct user_account ulist[MAX_HTTP_USERS];
         int auth_on = 0;
         int ucnt = load_user_accounts(ulist, MAX_HTTP_USERS, &auth_on);
+        int auth_before = auth_on;
 
         int found_idx = -1;
         for (int i = 0; i < ucnt; i++) {
@@ -517,6 +518,12 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "message", "User account saved");
+        if (!auth_before && auth_on) {
+            /* turned on: the accounts and tokens to check, but the one named here */
+            cJSON_AddBoolToObject(resp, "auth_enabled", 1);
+            /* new_user pointed into the request, freed by now: the account list has the name */
+            http_auth_add_switch_check(resp, ulist, ucnt, ulist[found_idx >= 0 ? found_idx : ucnt - 1].username);
+        }
         send_cjson_resp(client_fd, 200, resp);
         cJSON_Delete(resp);
         close(client_fd);

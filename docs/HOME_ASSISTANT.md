@@ -25,6 +25,8 @@ remote key, infrared emitters on Home Assistant's infrared platform (so any core
 use the Hub as its blaster), a firmware update entity, and one child device with its own remote for
 every configured IR or Bluetooth device. Services for raw IR, Bluetooth keys, the activity Help flow
 and cancel. Entities are keyed on the Hub's factory unit id, so an IP change never breaks them.
+The Hub refuses to install an update while an activity switch runs (`409`, status
+`activity_switch`): install it again once the switch has finished.
 
 **Pros.** The complete feature set and the lowest latency; no broker; nothing to configure on the
 Hub; one integration for several Hubs.
@@ -33,8 +35,12 @@ Hub; one integration for several Hubs.
 Home Assistant must reach port 8089 of the Hub directly.
 
 **Configure.**
-1. Hub: nothing. If "Require authentication" is on (System page), create a Personal Access Token
-   on the Users page (role User is enough) and keep it for the next step.
+1. Hub: nothing. If "Require authentication" is on (legacy web UI: System page, card "User Accounts
+   & Access Control"), create a Personal Access Token there with role Admin and keep it for the
+   next step (the new web UI has the tokens on its "Users & Auth" page). A User token covers only
+   activities, device commands, raw IR and Bluetooth keys.
+   Each time authentication is turned on, the web UI lists every other account and every token
+   (this one too) to check: keep this token (Keep all, or simply do not delete it).
 2. Home Assistant: install `ha-harmony-ng` through HACS. The Hub appears under Settings, Devices
    and services as a discovered device (mDNS); confirm it, choose the API transport and paste the
    token if you created one. Without mDNS across your network, add the integration by hand with

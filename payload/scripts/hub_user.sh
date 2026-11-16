@@ -176,6 +176,48 @@ pass="$3"
 trap 'rm -f "$ACCOUNTS"' EXIT
 load_accounts
 
+# A command that turns authentication on prints the accounts and access tokens to check, as
+# hub_daemon answers at that switch: while it was off anybody on the network was admin. The account
+# the command sets (set-admin, add-user) is not listed.
+CHECK_WAS_ON=0
+grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null && CHECK_WAS_ON=1
+# no users.json: hub_daemon counts accounts in webui_auth.conf as authentication on
+[ ! -f "$USERS_JSON" ] && [ -n "$(conf_accounts)" ] && CHECK_WAS_ON=1
+print_switch_check() {
+    [ "$CHECK_WAS_ON" = "0" ] || return 0
+    grep -q '"auth_enabled"[[:space:]]*:[[:space:]]*true' "$USERS_JSON" 2>/dev/null || return 0
+    _own=""
+    case "$cmd" in set-admin|add-user) _own="$user" ;; esac
+    _list=$(json_accounts | while IFS=: read -r u h r; do [ "$u" = "$_own" ] || echo "    account $u ($r)"; done)
+    tokens_json="${USERS_JSON%/*}/tokens.json"
+    if [ -f "$tokens_json" ]; then
+        _list="$_list
+$(awk '
+            {
+                line = $0
+                while (match(line, /"(id|name|role)"[ \t]*:[ \t]*"[^"]*"/)) {
+                    kv = substr(line, RSTART, RLENGTH)
+                    line = substr(line, RSTART + RLENGTH)
+                    k = kv; sub(/^"/, "", k); sub(/".*/, "", k)
+                    v = kv; sub(/^"[^"]*"[ \t]*:[ \t]*"/, "", v); sub(/"$/, "", v)
+                    if (k == "id") { if (id != "") print "    token " id " " nm " (" rl ")"; id = v; nm = ""; rl = "" }
+                    else if (k == "name") nm = v
+                    else if (k == "role") rl = v
+                }
+            }
+            END { if (id != "") print "    token " id " " nm " (" rl ")" }
+        ' "$tokens_json")"
+    fi
+    _list=$(echo "$_list" | grep -v '^$')
+    if [ -n "$_list" ]; then
+        echo "[!] Authentication is on. Check the accounts and access tokens on the Hub and delete any you"
+        echo "    do not recognise (web UI Users page, or DELETE /api/users and /api/auth/tokens):"
+        echo "$_list"
+    fi
+}
+trap 'rc=$?; [ "$rc" = "0" ] && print_switch_check; rm -f "$ACCOUNTS"; exit $rc' EXIT
+trap 'rm -f "$ACCOUNTS" "$TMP_CONF" "$USERS_JSON.tmp"; exit 1' INT TERM HUP
+
 case "$cmd" in
     set-admin)
         if [ -z "$user" ] || [ -z "$pass" ]; then

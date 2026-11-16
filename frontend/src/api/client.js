@@ -199,7 +199,11 @@ export class HarmonyClientCore {
         if (res.status === 409 && errMsg.startsWith('Hub returned')) {
           errMsg = 'Activity switch already in progress';
         }
-        throw new Error(errMsg);
+        // the reply stays readable for a caller that shows more than the message (lists of a 409)
+        const httpErr = new Error(errMsg);
+        httpErr.status = res.status;
+        httpErr.data = j;
+        throw httpErr;
       }
 
       return j !== null ? j : text;
