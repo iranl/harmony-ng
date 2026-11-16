@@ -27,6 +27,31 @@
 #include "../payload/source/hub_btstack/bt_cmd.c"
 #include "../payload/source/hub_btstack/bt_pairing.c"
 
+/* The sleep calls of libc, counted. The code above is built into this file, so these definitions
+ * are the ones it calls; each still sleeps (straight system call). The text check counts calls
+ * instead of timing them, so a slow machine cannot fail it. */
+#include <sys/syscall.h>
+#include <unistd.h>
+static int s_sleep_calls;
+int nanosleep(const struct timespec *req, struct timespec *rem) {
+    s_sleep_calls++;
+    return (int)syscall(SYS_nanosleep, req, rem);
+}
+int clock_nanosleep(clockid_t clk, int flags, const struct timespec *req, struct timespec *rem) {
+    s_sleep_calls++;
+    return (int)syscall(SYS_clock_nanosleep, clk, flags, req, rem) == 0 ? 0 : errno;
+}
+int usleep(useconds_t us) {
+    s_sleep_calls++;
+    struct timespec ts = { (time_t)(us / 1000000), (long)(us % 1000000) * 1000 };
+    return (int)syscall(SYS_nanosleep, &ts, NULL);
+}
+unsigned int sleep(unsigned int s) {
+    s_sleep_calls++;
+    struct timespec ts = { (time_t)s, 0 };
+    return syscall(SYS_nanosleep, &ts, NULL) == 0 ? 0 : s;
+}
+
 static int s_fail;
 #define CHECK(cond, ...) do { if (!(cond)) { printf("[-] FAIL: " __VA_ARGS__); printf("\n"); s_fail = 1; } else { printf("  ok  " __VA_ARGS__); printf("\n"); } } while (0)
 
@@ -194,12 +219,10 @@ static void test_text(void) {
     setup_hosts();
     g_hosts[1].connected = true;
     g_hosts[1].hid_cid = 0x42;
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    s_sleep_calls = 0;
     send_host_text("abc");
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    long ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
-    CHECK(s_reports[0] == 1 && s_text_timer.armed && ms < 20, "one character typed at once, the rest from a timer (no sleep: %ld ms)", ms);
+    int sleeps = s_sleep_calls;
+    CHECK(s_reports[0] == 1 && s_text_timer.armed && sleeps == 0, "one character typed at once, the rest from a timer (no sleep: %d sleep calls)", sleeps);
     g_active_host_idx = 1; /* another key chooses host B meanwhile */
     while (s_text_timer.armed) fire(&s_text_timer);
     fire(&g_host_key_release_timer);
