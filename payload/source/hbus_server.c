@@ -302,8 +302,9 @@ static const char *param_str(const cJSON *params, const char *key, char *buf, si
 
 static int activity_exists(const char *id) {
     if (strcmp(id, ORCH_POWEROFF_ID) == 0) return 1;
-    cJSON *root = config_store_activities_copy();
-    cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_activities_acquire(&snap);
+    const cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
     cJSON *a = NULL;
     int found = 0;
     cJSON_ArrayForEach(a, list) {
@@ -316,7 +317,7 @@ static int activity_exists(const char *id) {
             break;
         }
     }
-    cJSON_Delete(root);
+    config_store_release(&snap);
     return found;
 }
 
@@ -391,9 +392,9 @@ static cJSON *cmd_holdaction(const char *cmd, const cJSON *id, const cJSON *para
 }
 
 /* The running activity's channel device: the first of its devices with a digit command */
-static int channel_device_in(cJSON *aroot, cJSON *droot, const char *cur, char *out, size_t cap) {
-    cJSON *acts = aroot ? (cJSON_IsArray(aroot) ? aroot : cJSON_GetObjectItemCaseSensitive(aroot, "activities")) : NULL;
-    cJSON *devs = droot ? (cJSON_IsArray(droot) ? droot : cJSON_GetObjectItemCaseSensitive(droot, "devices")) : NULL;
+static int channel_device_in(const cJSON *aroot, const cJSON *droot, const char *cur, char *out, size_t cap) {
+    const cJSON *acts = aroot ? (cJSON_IsArray(aroot) ? aroot : cJSON_GetObjectItemCaseSensitive(aroot, "activities")) : NULL;
+    const cJSON *devs = droot ? (cJSON_IsArray(droot) ? droot : cJSON_GetObjectItemCaseSensitive(droot, "devices")) : NULL;
     cJSON *a = NULL;
     cJSON_ArrayForEach(a, acts) {
         const cJSON *j = cJSON_GetObjectItemCaseSensitive(a, "id");
@@ -435,11 +436,12 @@ static int channel_device_in(cJSON *aroot, cJSON *droot, const char *cur, char *
 static int channel_device(char *out, size_t cap) {
     const char *cur = orch_get_current_activity();
     if (!cur || !cur[0] || strcmp(cur, ORCH_POWEROFF_ID) == 0) return 0;
-    cJSON *aroot = config_store_activities_copy();
-    cJSON *droot = config_store_devices_copy();
+    cfg_snap_t *asnap = NULL, *dsnap = NULL;
+    const cJSON *aroot = config_store_activities_acquire(&asnap);
+    const cJSON *droot = config_store_devices_acquire(&dsnap);
     int found = channel_device_in(aroot, droot, cur, out, cap);
-    cJSON_Delete(aroot);
-    cJSON_Delete(droot);
+    config_store_release(&asnap);
+    config_store_release(&dsnap);
     return found;
 }
 

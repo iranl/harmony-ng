@@ -207,7 +207,8 @@ int orch_get_queued_activity(char *buf, size_t len) {
 /* True when id names a configured activity (PowerOff's "-1" included) */
 static int activity_known(const char *id) {
     if (strcmp(id, ORCH_POWEROFF_ID) == 0) return 1;
-    cJSON *root = config_store_activities_copy();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_activities_acquire(&snap);
     const cJSON *list = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "activities")) : NULL;
     const cJSON *a = NULL;
     int found = 0;
@@ -221,7 +222,7 @@ static int activity_known(const char *id) {
             break;
         }
     }
-    cJSON_Delete(root);
+    config_store_release(&snap);
     return found;
 }
 

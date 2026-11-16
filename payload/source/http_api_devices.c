@@ -24,7 +24,8 @@
 static uint8_t device_ir_ports(const char *dev_id) {
     uint8_t ports = 7;
     if (!dev_id || !dev_id[0]) return ports;
-    cJSON *root = config_store_devices_copy();
+    cfg_snap_t *snap = NULL;
+    const cJSON *root = config_store_devices_acquire(&snap);
     if (!root) return ports;
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     cJSON *d = NULL;
@@ -38,7 +39,7 @@ static uint8_t device_ir_ports(const char *dev_id) {
         if (cp && cJSON_IsNumber(cp) && cp->valueint >= 0 && cp->valueint <= 7) ports = (uint8_t)cp->valueint;
         break;
     }
-    cJSON_Delete(root);
+    config_store_release(&snap);
     return ports;
 }
 
@@ -110,10 +111,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
     /* Route: GET /api/inventory */
     if (strcmp(clean_path, "/api/inventory") == 0 && strcmp(method, "GET") == 0) {
-        cJSON *devs = get_device_list_copy();
+        cfg_snap_t *snap = NULL;
+        const cJSON *devs = config_store_devices_acquire(&snap);
         if (devs) {
-            send_cjson_resp(client_fd, 200, devs);
-            cJSON_Delete(devs);
+            send_cjson_resp(client_fd, 200, (cJSON *)devs); /* printed only */
+            config_store_release(&snap);
         } else {
             send_json_error(client_fd, 404, "DeviceList not found");
         }
@@ -123,10 +125,11 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
 
     /* Route: GET /api/devices */
     if (strcmp(clean_path, "/api/devices") == 0 && strcmp(method, "GET") == 0) {
-        cJSON *root = config_store_devices_copy();
+        cfg_snap_t *snap = NULL;
+        const cJSON *root = config_store_devices_acquire(&snap);
         if (root) {
-            send_cjson_resp(client_fd, 200, root);
-            cJSON_Delete(root);
+            send_cjson_resp(client_fd, 200, (cJSON *)root); /* printed only */
+            config_store_release(&snap);
         } else {
             send_json_error(client_fd, 404, "Devices not found");
         }
@@ -192,6 +195,15 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
     /* Harness only: the arguments of the last hw_ir_send_raw() call */
     if (strcmp(clean_path, "/api/test/ir-raw-last") == 0 && strcmp(method, "GET") == 0) {
         cJSON *o = hw_test_last_raw_json();
+        send_cjson_resp(client_fd, 200, o);
+        cJSON_Delete(o);
+        close(client_fd);
+        return 1;
+    }
+    /* Harness only: shared configuration trees not released yet (a missed release leaks a tree) */
+    if (strcmp(clean_path, "/api/test/config-snapshots-held") == 0 && strcmp(method, "GET") == 0) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddNumberToObject(o, "held", config_store_snapshots_held());
         send_cjson_resp(client_fd, 200, o);
         cJSON_Delete(o);
         close(client_fd);
@@ -390,7 +402,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
         }
         cJSON *res_cmds = cJSON_CreateArray();
         if (dev_id[0]) {
-            cJSON *root = config_store_devices_copy();
+            cfg_snap_t *snap = NULL;
+            const cJSON *root = config_store_devices_acquire(&snap);
             if (root) {
                 cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
                 if (devs && cJSON_IsArray(devs)) {
@@ -412,7 +425,7 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                         }
                     }
                 }
-                cJSON_Delete(root);
+                config_store_release(&snap);
             }
         }
         cJSON *resp = cJSON_CreateObject();

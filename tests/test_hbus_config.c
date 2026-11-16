@@ -29,8 +29,20 @@ static char *slurp(const char *p) {
     fclose(f);
     return b;
 }
-cJSON *config_store_devices_copy(void) { return g_devs ? cJSON_Duplicate(g_devs, 1) : NULL; }
-cJSON *config_store_activities_copy(void) { return g_acts ? cJSON_Duplicate(g_acts, 1) : NULL; }
+static int g_held; /* acquires not released yet */
+static char g_handle;
+static const cJSON *acquire(const cJSON *tree, cfg_snap_t **snap) {
+    *snap = tree ? (cfg_snap_t *)&g_handle : NULL;
+    if (tree) g_held++;
+    return tree;
+}
+const cJSON *config_store_devices_acquire(cfg_snap_t **snap) { return acquire(g_devs, snap); }
+const cJSON *config_store_activities_acquire(cfg_snap_t **snap) { return acquire(g_acts, snap); }
+void config_store_release(cfg_snap_t **snap) {
+    if (!*snap) return;
+    *snap = NULL;
+    g_held--;
+}
 
 static int g_failures;
 #define CHECK(cond, msg) do { if (!(cond)) { g_failures++; printf("  FAIL %s (line %d)\n", msg, __LINE__); } } while (0)
@@ -139,6 +151,7 @@ int main(int argc, char **argv) {
     cJSON_ArrayForEach(it, devs) { char *e; strtol(s_of(it, "id"), &e, 10); if (*e) ids_ok = 0; }
     CHECK(ids_ok, "every id is int()-convertible");
     cJSON_Delete(cfg);
+    CHECK(g_held == 0, "every acquired configuration tree was released");
 
     if (g_failures) {
         printf("%d check(s) FAILED\n", g_failures);
