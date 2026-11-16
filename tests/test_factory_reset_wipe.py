@@ -543,9 +543,11 @@ esac
         kit = self.base / "kit"
         kit.mkdir()
         (kit / "deploy_remote.py").write_bytes((REPO_DIR / "remote" / "deploy_remote.py").read_bytes())
-        # deploy_remote.py imports tools/ssh_hostkeys.py, which a release bundle ships in tools/
-        (kit / "tools").mkdir()
-        (kit / "tools" / "ssh_hostkeys.py").write_bytes((REPO_DIR / "tools" / "ssh_hostkeys.py").read_bytes())
+        # when deploy_remote.py imports tools/ssh_hostkeys.py, a release bundle ships it in tools/
+        hostkeys = REPO_DIR / "tools" / "ssh_hostkeys.py"
+        if hostkeys.is_file():
+            (kit / "tools").mkdir()
+            (kit / "tools" / "ssh_hostkeys.py").write_bytes(hostkeys.read_bytes())
         (kit / "factory_reset.sh").write_text("")
         res = subprocess.run([sys.executable, str(kit / "deploy_remote.py"), "--factory-reset"],
                              input="RESET\n", env=dict(self.env, FAKE_MACHINE="armv5tejl"),
