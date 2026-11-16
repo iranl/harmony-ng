@@ -109,6 +109,25 @@ await t.check('new UI IR Lab abort stops the run', async () => {
   view.remove();
 });
 
+await t.check('new UI IR Lab can run again after a send fails in an odd way', async () => {
+  const { api } = await import('../frontend/src/api/index.js');
+  const send = api.sendCommand;
+  const view = createIrLab();
+  body.appendChild(view);
+  view.querySelector('textarea').value = 'A';
+  view.querySelector('input').value = '0';
+  api.sendCommand = () => Promise.reject(undefined); // not an Error: no .message
+  try {
+    await buttonByText(view, '▶ Run Batch Send').fire('click').catch(() => {});
+  } finally {
+    api.sendCommand = send;
+  }
+  calls = [];
+  await buttonByText(view, '▶ Run Batch Send').fire('click');
+  assert.equal(hubCalls().filter(c => c.path === '/api/ir-send').length, 1, 'the next run was refused');
+  view.remove();
+});
+
 // ── New UI: Harmony DB search ──
 const { createView: createSearch } = await import('../frontend/src/views/setup/harmony-search.js');
 

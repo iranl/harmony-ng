@@ -55,16 +55,19 @@ export function createView() {
           const thisRun = (run = { aborted: false });
           let failed = 0;
           toast.info(`Starting batch run of ${lines.length} commands...`);
-          for (let i = 0; i < lines.length && !thisRun.aborted; i++) {
-            try {
-              await api.sendCommand(deviceId, lines[i]);
-            } catch (e) {
-              failed++;
-              toast.error(`${lines[i]}: ${e.message}`);
+          try {
+            for (let i = 0; i < lines.length && !thisRun.aborted; i++) {
+              try {
+                await api.sendCommand(deviceId, lines[i]);
+              } catch (e) {
+                failed++;
+                toast.error(`${lines[i]}: ${e?.message || e}`);
+              }
+              if (i < lines.length - 1 && !thisRun.aborted) await new Promise(r => setTimeout(r, delayMs));
             }
-            if (i < lines.length - 1 && !thisRun.aborted) await new Promise(r => setTimeout(r, delayMs));
+          } finally {
+            run = null; // also after an error here, or the next run would be refused for ever
           }
-          run = null;
           if (thisRun.aborted) return;
           if (failed) toast.warn(`Batch finished, ${failed} of ${lines.length} failed`);
           else toast.success('Batch execution finished');
