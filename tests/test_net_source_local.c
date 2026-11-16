@@ -70,6 +70,23 @@ int main(void) {
         sa = addr_of(far[k]);
         CHECK(!net_source_is_local(&sa), "an address outside every interface subnet is not local");
     }
+    /* SSDP: private sources (also routed ones from another private network) get the answer,
+     * public ones only when on a link of this host */
+    const uint32_t priv[] = { 0x0A000001u, 0xAC100001u, 0xAC1FFFFEu, 0xC0A80101u, 0xA9FE0001u };
+    for (unsigned k = 0; k < sizeof(priv) / sizeof(priv[0]); k++) {
+        sa = addr_of(priv[k]);
+        CHECK(net_source_is_private(&sa), "a private address is a private source");
+    }
+    const uint32_t pub[] = { 0xAC200001u /* 172.32.0.1 */, 0xC6336409u, 0x08080808u };
+    for (unsigned k = 0; k < sizeof(pub) / sizeof(pub[0]); k++) {
+        if (host_covers(pub[k])) continue;
+        sa = addr_of(pub[k]);
+        CHECK(!net_source_is_private(&sa), "a public address off our links is not");
+    }
+    sa = addr_of(0x7F000001u);
+    CHECK(net_source_is_private(&sa), "loopback is");
+    sa.sin_family = AF_INET6;
+    CHECK(!net_source_is_private(&sa) && !net_source_is_private(NULL), "a non-IPv4 or missing source is not");
     sa.sin_family = AF_INET6;
     CHECK(!net_source_is_local(&sa) && !net_source_is_local(NULL), "a non-IPv4 or missing source is not local");
 

@@ -550,3 +550,10 @@ int net_source_is_local(const struct sockaddr_in *from) {
     freeifaddrs(list);
     return local;
 }
+
+int net_source_is_private(const struct sockaddr_in *from) {
+    if (!from || from->sin_family != AF_INET) return 0;
+    uint32_t src = ntohl(from->sin_addr.s_addr);
+    if ((src >> 24) == 10 || (src >> 20) == 0xAC1 || (src >> 16) == 0xC0A8 || (src >> 16) == 0xA9FE) return 1;
+    return net_source_is_local(from);
+}
