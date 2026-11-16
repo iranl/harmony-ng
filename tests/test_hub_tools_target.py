@@ -116,7 +116,7 @@ class BackupHubTarget(unittest.TestCase):
             self.assertTrue(self.run_backup())
             time.sleep(1.05)  # one file name per second
         mine = list(self.backups.glob("hub_backup_001122334455_*.tar"))
-        self.assertEqual(len(mine), backup_hub.KEEP_RECENT + 1)  # 5 newest + the week before them
+        self.assertEqual(len(mine), backup_hub.KEEP_RECENT)  # all in this week: the 5 newest only
         self.assertTrue(all(f.exists() for f in other), "backups of another Hub were deleted")
         self.assertTrue(legacy.exists())
         self.assertTrue((self.backups / "golden_hub_backup_001122334455.tar").is_file())
@@ -152,6 +152,21 @@ class BackupHubTarget(unittest.TestCase):
         weeks = {datetime.date.fromtimestamp(f.stat().st_mtime).isocalendar()[:2] for f in older}
         self.assertEqual(len(older), backup_hub.KEEP_WEEKS)
         self.assertEqual(len(weeks), backup_hub.KEEP_WEEKS, "one kept backup per week")
+
+    def test_no_extra_backup_in_a_recent_week(self):
+        """The weekly ones are for the weeks before the newest five: a week that already holds
+        one of them gets no sixth file."""
+        wed = datetime.datetime(2026, 11, 11, 12, 0).timestamp()  # a Wednesday
+        files = []
+        stamps = [wed - h * 3600 for h in range(7)] + [wed - d * 86400 for d in (7, 14, 21)]
+        for i, ts in enumerate(stamps):
+            f = self.backups / f"hub_backup_y_{i:02d}.tar"
+            f.parent.mkdir(exist_ok=True)
+            f.write_bytes(b"x")
+            os.utime(f, (ts, ts))
+            files.append(f)
+        removed = set(backup_hub.backups_to_remove(files))
+        self.assertEqual(removed, set(files[5:7]), "older backups of the newest five's week were kept")
 
 
 class DeployHubTarget(unittest.TestCase):

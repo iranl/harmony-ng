@@ -67,7 +67,8 @@ ROLLING_PATHS = ("/data/harmony /data/resources /data/stock_backup /etc/passwd /
                  "/etc/wpa_supplicant.conf /etc/dropbear")
 
 # Rotation: the newest KEEP_RECENT rolling backups of a Hub, plus the newest one of each of
-# the KEEP_WEEKS calendar weeks before them
+# the KEEP_WEEKS calendar weeks before them (a week that already has one of the newest
+# backups gets no extra one)
 KEEP_RECENT = 5
 KEEP_WEEKS = 8
 
@@ -85,11 +86,16 @@ def hub_tag(ssh_base: list[str], hub_host: str) -> str:
 def backups_to_remove(backups: list[pathlib.Path]) -> list[pathlib.Path]:
     """Rolling backups of one Hub that rotation deletes (see KEEP_RECENT, KEEP_WEEKS)."""
     newest_first = sorted(backups, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def week_of(b: pathlib.Path) -> tuple[int, int]:
+        return datetime.date.fromtimestamp(b.stat().st_mtime).isocalendar()[:2]
+
     keep = set(newest_first[:KEEP_RECENT])
+    recent_weeks = {week_of(b) for b in keep}
     weeks_kept: set[tuple[int, int]] = set()
     for b in newest_first[KEEP_RECENT:]:
-        week = datetime.date.fromtimestamp(b.stat().st_mtime).isocalendar()[:2]
-        if week not in weeks_kept and len(weeks_kept) < KEEP_WEEKS:
+        week = week_of(b)
+        if week not in recent_weeks and week not in weeks_kept and len(weeks_kept) < KEEP_WEEKS:
             weeks_kept.add(week)
             keep.add(b)
     return [b for b in newest_first if b not in keep]
