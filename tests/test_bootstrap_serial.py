@@ -12,6 +12,9 @@ decodes base64 like the stock Lua running the tool's decoder script; the native 
 - With Lua every file arrives intact, the key is in all three places, and dropbear starts
   without -B.
 - A line lost on the way is caught by the MD5 check: nothing is replaced.
+- Without --ssh-pubkey the owner key (~/.ssh/harmony_owner_*.pub) is installed: the stock
+  root password is unknown, so Dropbear without a key would let nobody in. Without any key
+  the bootstrap sends nothing.
 """
 
 from __future__ import annotations
@@ -126,22 +129,30 @@ class BootstrapSerial(unittest.TestCase):
             f"import base64, sys\nif open(sys.argv[1]).read() != open({str(expected)!r}).read(): sys.exit(3)\n"))
         lua.chmod(0o755)
 
-    def run_tool(self, drop_line: int | None = None) -> tuple[int, str, FakeConsole]:
-        console = FakeConsole(self.root, self.path_dir, self.host_decoder, drop_line)
+    def load_tool(self, console: FakeConsole):
         fake_serial = types.ModuleType("serial")
         fake_serial.Serial = lambda *a, **k: console
-        keyfile = pathlib.Path(self.tmp.name) / "key.pub"
-        keyfile.write_text(self.pubkey)
         with mock.patch.dict(sys.modules, {"serial": fake_serial}):
             sys.modules.pop("bootstrap_serial", None)
             mod = importlib.import_module("bootstrap_serial")
         mod.BIN_DIR = self.bin_dir
         if hasattr(mod, "DROPBEAR_PATH"):
             mod.DROPBEAR_PATH = self.dropbear
+        return mod
+
+    def run_tool(self, drop_line: int | None = None, key_arg: bool = True,
+                 home: pathlib.Path | None = None) -> tuple[int, str, FakeConsole]:
+        console = FakeConsole(self.root, self.path_dir, self.host_decoder, drop_line)
+        keyfile = pathlib.Path(self.tmp.name) / "key.pub"
+        keyfile.write_text(self.pubkey)
+        mod = self.load_tool(console)
+        argv = ["bootstrap_serial.py", "--port", "fake"] + (["--ssh-pubkey", str(keyfile)] if key_arg else [])
+        home = home or pathlib.Path(self.tmp.name) / "home"
         out = io.StringIO()
         code = 0
         with mock.patch.object(mod.time, "sleep", lambda s: None), \
-             mock.patch.object(sys, "argv", ["bootstrap_serial.py", "--port", "fake", "--ssh-pubkey", str(keyfile)]), \
+             mock.patch.object(sys, "argv", argv), \
+             mock.patch.dict(os.environ, {"HOME": str(home)}), \
              contextlib.redirect_stdout(out):
             try:
                 mod.main()
@@ -181,6 +192,30 @@ class BootstrapSerial(unittest.TestCase):
         self.assertIn("did not arrive intact", out)
         self.assertEqual(self.rcs_on_device.read_bytes(), before)
         self.assertFalse((self.root / "data" / "dropbearmulti").exists())
+
+    def test_owner_key_without_option(self):
+        """No --ssh-pubkey: the newest ~/.ssh/harmony_owner_* key goes in, as setup_remote.py does."""
+        self.install_lua()
+        home = pathlib.Path(self.tmp.name) / "home"
+        ssh = home / ".ssh"
+        ssh.mkdir(parents=True)
+        (ssh / "harmony_owner_ed25519").write_text("private\n")
+        (ssh / "harmony_owner_ed25519.pub").write_text(self.pubkey)
+        code, out, _ = self.run_tool(key_arg=False, home=home)
+        self.assertEqual(code, 0, out)
+        for p in ("etc/dropbear/authorized_keys", "home/root/.ssh/authorized_keys", "root/.ssh/authorized_keys"):
+            self.assertTrue((self.root / p).is_file(), f"{p} missing: nobody could log in")
+            self.assertEqual((self.root / p).read_text(), self.pubkey, p)
+
+    def test_no_key_sends_nothing(self):
+        console = FakeConsole(self.root, self.path_dir, self.host_decoder, None)
+        mod = self.load_tool(console)
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(mod.BootstrapError):
+                mod.bootstrap(console, None)
+            with self.assertRaises(mod.BootstrapError):
+                mod.bootstrap(console, "  \n")
+        self.assertEqual(console.lines, [], "commands were sent although no key can be installed")
 
 
 if __name__ == "__main__":

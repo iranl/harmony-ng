@@ -12,6 +12,10 @@ is left as it is.
 
 Usage:
     python remote/bootstrap_serial.py --port COM3 [--ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub]
+
+Without --ssh-pubkey the owner key setup_remote.py uses is installed (the newest
+~/.ssh/harmony_owner_* key, created when there is none): the stock root account has a
+password nobody knows, so Dropbear without a key would let nobody in.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from setup_remote import DROPBEAR_PATH, LUA_DECODER_ONELINE, TINY_PATH  # noqa: E402
+from setup_remote import DROPBEAR_PATH, LUA_DECODER_ONELINE, TINY_PATH, ensure_ssh_key  # noqa: E402
 
 BIN_DIR = SCRIPT_DIR / "bin"
 RCS_LOCAL_FILE = SCRIPT_DIR / "rcS.local"
@@ -126,6 +130,11 @@ def stage_decoder(ser) -> None:
 
 
 def bootstrap(ser, pubkey: str | None) -> None:
+    # Dropbear only takes key logins (step 6) and the stock root password is unknown: without
+    # a key the remote would end up with an SSH server nobody can log in to
+    if not pubkey or not pubkey.strip():
+        raise BootstrapError("no SSH public key to install; nothing was changed")
+
     # 1. Enable USB Ethernet
     print("[*] Starting USB Ethernet gadget...")
     exec_cmd(ser, "/usr/bin/usbeth start")
@@ -149,13 +158,12 @@ def bootstrap(ser, pubkey: str | None) -> None:
 
     # 4. Install the SSH public key where the other tools put it (sent as base64: a key
     #    comment may hold quotes)
-    if pubkey:
-        print("[*] Installing SSH public key...")
-        install_file(ser, (pubkey.strip() + "\n").encode("utf-8"), "/etc/dropbear/authorized_keys", mode="600")
-        exec_cmd(ser, "cp -f /etc/dropbear/authorized_keys /home/root/.ssh/authorized_keys; "
-                      "cp -f /etc/dropbear/authorized_keys /root/.ssh/authorized_keys; "
-                      "chmod 600 /home/root/.ssh/authorized_keys /root/.ssh/authorized_keys; "
-                      "chmod 700 /home/root/.ssh /root/.ssh")
+    print("[*] Installing SSH public key...")
+    install_file(ser, (pubkey.strip() + "\n").encode("utf-8"), "/etc/dropbear/authorized_keys", mode="600")
+    exec_cmd(ser, "cp -f /etc/dropbear/authorized_keys /home/root/.ssh/authorized_keys; "
+                  "cp -f /etc/dropbear/authorized_keys /root/.ssh/authorized_keys; "
+                  "chmod 600 /home/root/.ssh/authorized_keys /root/.ssh/authorized_keys; "
+                  "chmod 700 /home/root/.ssh /root/.ssh")
 
     # 5. The boot script: replaced only by a verified copy
     if RCS_LOCAL_FILE.is_file():
@@ -174,7 +182,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bootstrap Dropbear SSH on a Harmony remote via Serial")
     parser.add_argument("--port", required=True, help="Serial port (e.g. COM3 or /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default 115200)")
-    parser.add_argument("--ssh-pubkey", type=pathlib.Path, help="Path to SSH public key to authorize")
+    parser.add_argument("--ssh-pubkey", type=pathlib.Path,
+                        help="Path to SSH public key to authorize (default: the owner key setup_remote.py uses, "
+                             "~/.ssh/harmony_owner_*.pub, created when missing)")
     args = parser.parse_args()
 
     if serial is None:
@@ -184,12 +194,15 @@ def main() -> None:
         if not f.is_file():
             print(f"[-] Missing {f}")
             sys.exit(1)
-    pubkey = None
-    if args.ssh_pubkey:
-        if not args.ssh_pubkey.is_file():
-            print(f"[-] Public key not found: {args.ssh_pubkey}")
-            sys.exit(1)
-        pubkey = args.ssh_pubkey.read_text()
+    pub_path = args.ssh_pubkey or ensure_ssh_key()
+    if not pub_path.is_file():
+        print(f"[-] Public key not found: {pub_path}")
+        sys.exit(1)
+    pubkey = pub_path.read_text()
+    if not pubkey.strip():
+        print(f"[-] Public key file is empty: {pub_path}")
+        sys.exit(1)
+    print(f"[*] Authorizing the key in {pub_path}")
 
     print("=" * 60)
     print("  Harmony Remote Serial Bootstrap Utility")
