@@ -343,7 +343,47 @@ static int is_bt_device_connected(const char *target_bdaddr) {
     return 1;
 }
 
-static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
+/* A device's id as text ("" when it has none) */
+static void device_id_text(const cJSON *dev, char *out, size_t len) {
+    const cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
+    out[0] = '\0';
+    if (j_id && cJSON_IsNumber(j_id)) snprintf(out, len, "%ld", (long)j_id->valuedouble);
+    else if (j_id && cJSON_IsString(j_id) && j_id->valuestring) snprintf(out, len, "%s", j_id->valuestring);
+}
+
+/*
+ * The device a command is for. match_mode 1 = id, 2 = name (any case), 0 = id or name. For 0
+ * every id is tried before any name: in one pass the first device whose id OR name matched won,
+ * so a device named after another device's id (a switch called "2") took that device's commands.
+ * id_out (may be NULL) receives the device's id.
+ */
+static cJSON *find_device(const cJSON *devs, const char *target, int match_mode, char *id_out, size_t id_len) {
+    if (!devs || !target || !target[0]) return NULL;
+    cJSON *dev = NULL;
+    char id_str[64];
+    if (match_mode != 2) {
+        cJSON_ArrayForEach(dev, devs) {
+            device_id_text(dev, id_str, sizeof(id_str));
+            if (id_str[0] && strcmp(id_str, target) == 0) {
+                if (id_out) snprintf(id_out, id_len, "%s", id_str);
+                return dev;
+            }
+        }
+    }
+    if (match_mode != 1) {
+        cJSON_ArrayForEach(dev, devs) {
+            const cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
+            if (j_name && cJSON_IsString(j_name) && j_name->valuestring && j_name->valuestring[0] &&
+                strcasecmp(j_name->valuestring, target) == 0) {
+                if (id_out) device_id_text(dev, id_out, id_len);
+                return dev;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void check_and_trigger_bt_reconnect_for_command(const cJSON *devs, const char *executed_dev_id, const char *executed_dev_name, const char *executed_cmd) {
     if (!devs || !executed_cmd || !executed_cmd[0]) return;
 
     /* Do not trigger BT reconnect while stopping or in PowerOff */
@@ -360,9 +400,9 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
         return;
     }
 
-    cJSON *item = NULL;
+    const cJSON *item = NULL;
     cJSON_ArrayForEach(item, devs) {
-        cJSON *dev = item;
+        const cJSON *dev = item;
 
         int is_bt = 0;
         cJSON *j_type = cJSON_GetObjectItemCaseSensitive(dev, "type");
@@ -503,7 +543,11 @@ static void check_and_trigger_bt_reconnect_for_command(cJSON *devs, const char *
                executed_dev_name ? executed_dev_name : "",
                executed_dev_id ? executed_dev_id : "");
 
-        if (dly > 0) {
+        if (dly > 0 && g_dry_run) {
+            /* dry run: the delayed reconnect script is not started (the immediate one below goes
+             * through hub_send_btstack_cmd(), which prints it) */
+            printf("[DRY-RUN] BT reconnect simulated: %s in %ds\n", target_bdaddr[0] ? target_bdaddr : "default host", dly);
+        } else if (dly > 0) {
             char sh_cmd[256];
             snprintf(sh_cmd, sizeof(sh_cmd),
                      "/data/harmony/bt_reconnect.sh %s %d %d >/dev/null 2>&1 &",
@@ -531,44 +575,9 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         return -5;
     }
 
-    cJSON *target_item = NULL;
-    cJSON *target_dev = NULL;
     char target_id_str[64] = {0};
-    cJSON *item = NULL;
-
-    /* Match device: match_mode 1 = ID only, 2 = Name only, 0 = ID or Name */
-    cJSON_ArrayForEach(item, devs) {
-        cJSON *dev = item;
-
-        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
-        char id_str[64] = {0};
-        if (j_id) {
-            if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
-            else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
-        }
-
-        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
-        const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
-
-        int matched = 0;
-        if (match_mode == 1) {
-            matched = (id_str[0] && strcmp(id_str, target) == 0);
-        } else if (match_mode == 2) {
-            matched = (name_str && name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0));
-        } else {
-            matched = ((id_str[0] && strcmp(id_str, target) == 0) ||
-                       (name_str && name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)));
-        }
-
-        if (matched) {
-            target_item = item;
-            target_dev = dev;
-            strncpy(target_id_str, id_str, sizeof(target_id_str) - 1);
-            break;
-        }
-    }
-
-    if (!target_item || !target_dev) {
+    cJSON *target_dev = find_device(devs, target, match_mode, target_id_str, sizeof(target_id_str));
+    if (!target_dev) {
         return -5;
     }
 
@@ -661,15 +670,17 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
 
     check_and_trigger_bt_reconnect_for_command(devs, target_id_str[0] ? target_id_str : target, dev_name, command);
 
-    char keycode_str[4096] = {0};
+    /* The code as saved (the device list stays held until the send is done): a copy of 4095
+     * characters cut longer raw and Pronto codes and the cut code was sent as if complete */
+    const char *keycode_str = "";
     if (target_cmd) {
         cJSON *j_kc = cJSON_GetObjectItemCaseSensitive(target_cmd, "keyCode");
         if (j_kc && cJSON_IsString(j_kc) && j_kc->valuestring && j_kc->valuestring[0]) {
-            strncpy(keycode_str, j_kc->valuestring, sizeof(keycode_str) - 1);
+            keycode_str = j_kc->valuestring;
         } else {
             cJSON *j_raw = cJSON_GetObjectItemCaseSensitive(target_cmd, "raw");
             if (j_raw && cJSON_IsString(j_raw) && j_raw->valuestring && j_raw->valuestring[0]) {
-                strncpy(keycode_str, j_raw->valuestring, sizeof(keycode_str) - 1);
+                keycode_str = j_raw->valuestring;
             }
         }
     }
@@ -996,26 +1007,7 @@ int hw_device_command_send_by_name(const char *device_name, const char *command)
 static int device_exists_in(const cJSON *root, const char *target, int match_mode) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
-    const cJSON *dev = NULL;
-    cJSON_ArrayForEach(dev, devs) {
-        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
-        char id_str[64] = {0};
-        if (j_id) {
-            if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
-            else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
-        }
-        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
-        const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
-        if (match_mode == 1) {
-            if (id_str[0] && strcmp(id_str, target) == 0) return 1;
-        } else if (match_mode == 2) {
-            if (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)) return 1;
-        } else {
-            if ((id_str[0] && strcmp(id_str, target) == 0) ||
-                (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0))) return 1;
-        }
-    }
-    return 0;
+    return find_device(devs, target, match_mode, NULL, 0) != NULL;
 }
 
 int hw_device_exists(const char *target, int match_mode) {
@@ -1031,31 +1023,7 @@ int hw_device_exists(const char *target, int match_mode) {
 static int device_command_exists_in(const cJSON *root, const char *target, int match_mode, const char *command) {
     cJSON *devs = cJSON_GetObjectItemCaseSensitive(root, "devices");
     if (!devs || !cJSON_IsArray(devs)) return 0;
-    const cJSON *target_dev = NULL;
-    const cJSON *dev = NULL;
-    cJSON_ArrayForEach(dev, devs) {
-        cJSON *j_id = cJSON_GetObjectItemCaseSensitive(dev, "id");
-        char id_str[64] = {0};
-        if (j_id) {
-            if (cJSON_IsNumber(j_id)) snprintf(id_str, sizeof(id_str), "%ld", (long)j_id->valuedouble);
-            else if (cJSON_IsString(j_id) && j_id->valuestring) strncpy(id_str, j_id->valuestring, sizeof(id_str) - 1);
-        }
-        cJSON *j_name = cJSON_GetObjectItemCaseSensitive(dev, "name");
-        const char *name_str = (j_name && cJSON_IsString(j_name)) ? j_name->valuestring : "";
-        int matched = 0;
-        if (match_mode == 1) {
-            matched = (id_str[0] && strcmp(id_str, target) == 0);
-        } else if (match_mode == 2) {
-            matched = (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0));
-        } else {
-            matched = ((id_str[0] && strcmp(id_str, target) == 0) ||
-                       (name_str[0] && (strcmp(name_str, target) == 0 || strcasecmp(name_str, target) == 0)));
-        }
-        if (matched) {
-            target_dev = dev;
-            break;
-        }
-    }
+    const cJSON *target_dev = find_device(devs, target, match_mode, NULL, 0);
     if (!target_dev) return 0;
 
     int is_mqtt = 0;
@@ -1073,10 +1041,9 @@ static int device_command_exists_in(const cJSON *root, const char *target, int m
     if (j_mtop && cJSON_IsString(j_mtop) && j_mtop->valuestring && j_mtop->valuestring[0]) is_mqtt = 1;
     if (is_mqtt) return 1;
 
-    if (strcasecmp(command, "Connect") == 0 || strcasecmp(command, "Disconnect") == 0 ||
-        strcasecmp(command, "BT_CONNECT") == 0 || strcasecmp(command, "BT_DISCONNECT") == 0) {
-        return 1;
-    }
+    /* Connect and Disconnect are found in the list like any command, as the sender looks them
+     * up (the sanitizer adds both to every Bluetooth device). Accepted for any device, a job
+     * with Connect for an infrared device was acknowledged and that step sent nothing. */
 
     cJSON *cmds = cJSON_GetObjectItemCaseSensitive(target_dev, "commands");
     if (cmds && cJSON_IsArray(cmds)) {

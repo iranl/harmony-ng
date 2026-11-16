@@ -6,6 +6,7 @@
 #include "orchestrator.h"
 #include "hw_action.h"
 #include "ws_server.h"
+#include "hub_ws.h"
 #include "cJSON.h"
 
 #include <stdio.h>
@@ -274,9 +275,43 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
 
     /* Route: POST /api/activity-progress */
     if (strcmp(clean_path, "/api/activity-progress") == 0 && strcmp(method, "POST") == 0) {
-        if (body && body[0]) {
-            ws_broadcast_text(body);
+        /* An activity_progress frame built from the known fields and sent through the event bus
+         * (WebSocket and MQTT, from the main loop). The body used to go to every WebSocket client
+         * as it was, from this worker thread: any text, as any event type. */
+        cJSON *req_j = (body && body[0]) ? cJSON_Parse(body) : NULL;
+        if (!req_j || !cJSON_IsObject(req_j)) {
+            cJSON_Delete(req_j);
+            send_json_error(client_fd, 400, "JSON object required");
+            close(client_fd);
+            return 1;
         }
+        char act[32] = "-1", desc[128] = "";
+        const cJSON *ja = cJSON_GetObjectItemCaseSensitive(req_j, "activity");
+        if (!ja) ja = cJSON_GetObjectItemCaseSensitive(req_j, "activityId");
+        if (ja && cJSON_IsString(ja) && ja->valuestring && ja->valuestring[0]) snprintf(act, sizeof(act), "%s", ja->valuestring);
+        else if (ja && cJSON_IsNumber(ja)) snprintf(act, sizeof(act), "%ld", (long)ja->valuedouble);
+        const cJSON *jd = cJSON_GetObjectItemCaseSensitive(req_j, "desc");
+        if (!jd) jd = cJSON_GetObjectItemCaseSensitive(req_j, "stepDesc");
+        if (jd && cJSON_IsString(jd) && jd->valuestring) snprintf(desc, sizeof(desc), "%s", jd->valuestring);
+        orch_state_t st = orch_get_state();
+        const cJSON *js = cJSON_GetObjectItemCaseSensitive(req_j, "stateCode");
+        if (!js || !cJSON_IsNumber(js)) js = cJSON_GetObjectItemCaseSensitive(req_j, "state");
+        if (js && cJSON_IsNumber(js) && js->valueint >= ORCH_STATE_IDLE && js->valueint <= ORCH_STATE_STOPPING) {
+            st = (orch_state_t)js->valueint;
+        } else if (js && cJSON_IsString(js) && js->valuestring) {
+            if (strcasecmp(js->valuestring, "starting") == 0) st = ORCH_STATE_STARTING;
+            else if (strcasecmp(js->valuestring, "running") == 0) st = ORCH_STATE_RUNNING;
+            else if (strcasecmp(js->valuestring, "stopping") == 0) st = ORCH_STATE_STOPPING;
+            else if (strcasecmp(js->valuestring, "idle") == 0) st = ORCH_STATE_IDLE;
+        }
+        const cJSON *jstep = cJSON_GetObjectItemCaseSensitive(req_j, "step");
+        if (!jstep) jstep = cJSON_GetObjectItemCaseSensitive(req_j, "currentStep");
+        const cJSON *jtot = cJSON_GetObjectItemCaseSensitive(req_j, "total");
+        if (!jtot) jtot = cJSON_GetObjectItemCaseSensitive(req_j, "totalSteps");
+        int step = (jstep && cJSON_IsNumber(jstep)) ? jstep->valueint : 0;
+        int total = (jtot && cJSON_IsNumber(jtot)) ? jtot->valueint : 0;
+        cJSON_Delete(req_j);
+        on_orch_progress(act, st, step, total, desc, 0, -1, NULL);
         cJSON *ok = cJSON_CreateObject();
         cJSON_AddBoolToObject(ok, "ok", 1);
         send_cjson_resp(client_fd, 200, ok);
@@ -727,6 +762,15 @@ int http_api_activities_handle(int client_fd, const char *method, const char *cl
                 if (!act_id_str[0] && cJSON_IsNumber(p_id)) {
                     snprintf(id_buf, sizeof(id_buf), "%ld", (long)p_id->valuedouble);
                     act_id_str = id_buf;
+                }
+                /* The running activity's definition is what its power off is built from: deleted,
+                 * the Hub stayed "running" in it and Off sent nothing */
+                if (act_id_str[0] && strcmp(act_id_str, ORCH_POWEROFF_ID) != 0 &&
+                    strcmp(act_id_str, orch_get_current_activity()) == 0) {
+                    cJSON_Delete(params);
+                    send_json_error(client_fd, 409, "Activity is running: power off or start another activity first");
+                    close(client_fd);
+                    return 1;
                 }
                 config_store_lock();
                 cJSON *root = config_store_activities_copy();

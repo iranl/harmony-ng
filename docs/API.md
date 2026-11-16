@@ -680,6 +680,9 @@ Saves activity configuration with start and stop sequence steps.
 Deletes an activity by ID.
 - **Request Body**: `{"id": "123456"}`
 - **Response `200 OK`**: `{"ok": true}`
+- **Error `409 Conflict`**: the activity is running (its power off is built from its definition):
+  power off or start another activity first. If the activity file loses the running activity in
+  another way (a restore, a reload), the Hub reports PowerOff (`-1`, idle).
 
 ### 4.8 Test Sequence Execution
 #### `POST /api/activity-test-sequence`
@@ -697,7 +700,12 @@ Executes a test sequence immediately without modifying activity state.
 
 ### 4.9 Activity Progress Webhook
 #### `POST /api/activity-progress`
-Internal step progress notification. Broadcasts state payload to WebSockets and MQTT.
+Internal step progress notification: sends an `activity_progress` event (10.9) to the WebSocket
+clients and MQTT. The body is a JSON object; only these fields are taken: `activity` (or
+`activityId`), `state` (name or number, or `stateCode`), `step` (or `currentStep`), `total` (or
+`totalSteps`), `desc` (or `stepDesc`). Anything else in the body is not sent.
+- **Response `200 OK`**: `{"ok": true}`
+- **Error `400`**: the body is not a JSON object.
 
 ### 4.10 Reload / Sync Config
 #### `POST /api/sync` or `POST /api/reload`
@@ -857,16 +865,17 @@ Home Assistant's `infrared` platform produces). Capability flag: `ir_raw`.
   ```json
   {"frequency": 38000, "timings": [9000, -4500, 560, -560, 560, -1690], "port": 1, "repeats": 1}
   ```
-  - `frequency`: carrier in Hz, `0` for unmodulated, otherwise 20000 to 60000. Default 38000.
+  - `frequency`: carrier in Hz, 20000 to 60000. Default 38000; `0` also means the default (the
+    blaster has no unmodulated output).
   - `timings`: microseconds, 2 to 2048 values, each 1 to 65535 in absolute value. Either signed
     (positive mark, negative space, alternating) or all positive alternating mark/space starting
     with a mark. Mark/space pairs ending with the gap after the frame are the usual form; an odd
     count (ending with a mark) is accepted and the Hub adds 40 ms of silence after the last mark
     (not counted in `duration_ms`).
   - `port`: bitmask as `/api/ir-send` (`1` front blaster, `2` jack 1, `4` jack 2, `7` all). Default 7.
-  - `repeats`: 1 to 10, default 1.
-- **Response `200 OK`**: `{"ok": true, "count": 6, "duration_ms": 17}` (`duration_ms` = sum of the
-  timings times `repeats`).
+  - `repeats`: 1 to 10, default 1. Written into the code; the Hub's IR player sends the frame once.
+- **Response `200 OK`**: `{"ok": true, "count": 6, "frequency": 38000, "duration_ms": 17}`
+  (`frequency` = the carrier sent, `duration_ms` = sum of the timings: the frame that went out).
 - **Error `400`**: `{"ok": false, "error": "<field>: ..."}` naming the offending field.
 - **Error `409`**: `{"ok": false, "error": "busy"}` while another IR transmission holds the I2S
   blaster (the same lock the orchestrator and `/api/ir-send` take).
@@ -1369,7 +1378,7 @@ Publish to `<base>/cmd`:
 `id` is an opaque client string (up to 64 characters), echoed in the reply; a request without `id`
 is executed and not answered. Actions and fields mirror the WebSocket actions (section 10):
 `ping`, `get_state`, `get_snapshot` (the reply carries the snapshot), `start_activity` (`activity`),
-`stop_activity`, `cancel_activity`, `send_command` (`deviceId`, `command`, `status` = `press`,
+`stop_activity`, `cancel_activity`, `cancel_commands`, `send_command` (`deviceId`, `command`, `status` = `press`,
 `hold`, `release` or omitted for a tap), `bt_key` (`key`, `keyAction`, `target`), `bt_text`,
 `bt_mouse`, `rf_wake` (`slot`), `rf_sleep` (`slot`), `sync`, `ir_raw` (fields of 5.4),
 `ir_capture` (`enabled`, 5.5; the reply carries `enabled`),
@@ -1593,6 +1602,10 @@ Multiple commands or repeats can be queued as an array:
   "msgId": 3
 }
 ```
+A list, repeats or a hold run as a job of the command sequencer, one job after the other (at most
+16 waiting). The ack of a job carries `"state": "started"`, or `"queued"` when another job runs
+first. A job may last at most 300 s (commands x repeats x (gap + hold)); a longer one is refused
+with code 400. Errors: 404 unknown device or command, 409 queue full.
 
 #### 10.4 Start Activity
 ```json
@@ -1642,9 +1655,13 @@ Multiple commands or repeats can be queued as an array:
   "type": "ack",
   "action": "cancel_activity",
   "ok": true,
+  "commandsCancelled": 0,
   "msgId": 6
 }
 ```
+`cancel_activity` also drops the command jobs of 10.3 (`commandsCancelled` = how many; a held
+command is released first). `cancel_commands` drops the jobs only, with the same reply; it needs
+the rights of `send_command`.
 
 #### 10.6a Firmware Update Check and Install
 `update_check` runs the check of `POST /api/update-check` (optional `repo`, `token`,
@@ -1757,6 +1774,10 @@ or `stopping`) or is dropped.
 
 #### 10.9 Activity Progress
 One frame per executed step of an activity switch (unchanged shape, now carrying `seq` and `ts`).
+A step whose command could not be sent (unknown device -5, unknown command -6, IR or Bluetooth
+send failed) carries `"error": <code>`; the `Transition completed` frame carries `failedSteps`,
+the number of such steps. A new request no longer drops the commands that follow the Switched
+marker of the transition before it: they are sent first, as steps named `Tail of the last switch:`.
 ```json
 {
   "type": "activity_progress",

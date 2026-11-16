@@ -534,6 +534,7 @@ static void handle_activity_set(const char *payload) {
  * "repeats", "delay"/"delay_ms", "hold"/"hold_ms", "action"}; a list, repeats or a hold run
  * from the sequencer in hub_mqtt_tick() */
 #define MQTT_SEQ_QUEUE_MAX 16
+#define MQTT_SEQ_MAX_JOB_SECS 300 /* longest job: commands x repeats x (gap + hold) */
 
 typedef struct {
     char dev[128];
@@ -640,6 +641,19 @@ static void seq_tick(void) {
     }
 }
 
+int hub_mqtt_queue_clear(void) {
+    int dropped = g_mqtt_q_count;
+    if (dropped > 0) {
+        mqtt_cmd_seq_t *q = &g_mqtt_queue[g_mqtt_q_head];
+        /* a held command is released, so no key stays down */
+        if (q->hold_ms > 0 && q->state == 1) seq_send(q, q->cmd_list[q->cur_cmd], HW_BTN_ACTION_RELEASE);
+        printf("[*] MQTT send_command: %d queued job(s) cancelled\n", dropped);
+    }
+    g_mqtt_q_head = 0;
+    g_mqtt_q_count = 0;
+    return dropped;
+}
+
 static double num_of(const cJSON *root, const char *k1, const char *k2, const char *k3, double dflt) {
     const cJSON *j = cJSON_GetObjectItemCaseSensitive(root, k1);
     if (!j && k2) j = cJSON_GetObjectItemCaseSensitive(root, k2);
@@ -676,6 +690,14 @@ int hub_mqtt_queue_commands(const char *dev, int is_id, const char cmd_list[32][
     if (delay_secs > 60.0) delay_secs = 60.0;
     if (hold_secs > 10.0) hold_secs = 10.0;
     if (hold_secs < 0.0) hold_secs = 0.0;
+    /* Each factor alone was capped, not the whole job: 32 commands, 50 repeats and 60 s apart
+     * held the sequencer for more than a day, and every later command waited behind it */
+    double gap = delay_secs < 0.1 ? 0.1 : delay_secs;
+    double total = (double)cmd_count * (double)num_repeats * (gap + hold_secs);
+    if (total > MQTT_SEQ_MAX_JOB_SECS) {
+        printf("[-] MQTT send_command: job of about %.0f s refused (limit %d s)\n", total, MQTT_SEQ_MAX_JOB_SECS);
+        return -3;
+    }
 
     int slot = (g_mqtt_q_head + g_mqtt_q_count) % MQTT_SEQ_QUEUE_MAX;
     mqtt_cmd_seq_t *q = &g_mqtt_queue[slot];
