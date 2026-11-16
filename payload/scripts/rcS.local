@@ -87,6 +87,13 @@ EOF
 		chmod 644 "$prof" 2>/dev/null || true
 	done
 
+	# Wi-Fi setup over USB (see init.sh 5.1): the stock boot script ends with this file in this
+	# mode, before it would start usbhid, so both are started here. The port stays a USB device.
+	if [ -x /data/harmony/bin/hub_util ]; then
+		/data/harmony/bin/hub_util usbwifi >> /tmp/emergency_recovery.log 2>&1 &
+		[ -x /usr/bin/usbhid ] && /usr/bin/usbhid -s &
+	fi
+
 	# Start Dropbear SSH, key logins only (/usr/sbin/dropbear is set above; the server binary
 	# directly when that file is not usable)
 	if [ -s /usr/sbin/dropbear ] && [ -x /usr/sbin/dropbear ]; then

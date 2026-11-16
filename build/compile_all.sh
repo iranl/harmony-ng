@@ -63,8 +63,9 @@ TARGET="${1:-all}"
 
 build_util() {
     echo "[-] Building hub_util..."
-    "$CC" $CFLAGS $OTA_KEY_CFLAGS -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c $COMPAT_SRC -lm
-    for app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do
+    # unused functions are left out (the Wi-Fi code shares http_util.c with hub_daemon)
+    "$CC" $CFLAGS $OTA_KEY_CFLAGS -ffunction-sections -fdata-sections -Wl,--gc-sections -Ipayload/source -o "$BIN/hub_util" payload/source/hub_util.c payload/source/hub_ntp.c payload/source/ota_verify.c payload/source/tweetnacl.c payload/source/sha256.c payload/source/cJSON.c payload/source/usb_wifi.c payload/source/wifi_config.c payload/source/http_util.c $COMPAT_SRC -lm
+    for app in hub_sync sync mknod register_ehci eth_fix hub_sntp hub_usbwifi; do
         ln -sf hub_util "$BIN/$app"
     done
 }
@@ -282,7 +283,7 @@ fi
 # an earlier build left in payload/bin is not copied, and its old copy in build/output goes,
 # so build/output and MANIFEST.txt describe one build
 BUILT=""
-for f in hub_util hub_btstack hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod dropbearmulti; do
+for f in hub_util hub_btstack hub_daemon hub_sntp hub_rf hub_sync sync register_ehci eth_fix mknod hub_usbwifi dropbearmulti; do
     if [ -e "$BIN/$f" ] && { [ "$f" = dropbearmulti ] || [ "$BIN/$f" -nt "$BUILD_STAMP" ] || \
             { [ -L "$BIN/$f" ] && [ "$BIN/$(readlink "$BIN/$f")" -nt "$BUILD_STAMP" ]; }; }; then
         cp -a "$BIN/$f" "$OUT/" 2>/dev/null || cp -f "$BIN/$f" "$OUT/"

@@ -12,7 +12,12 @@ network commands replaced by shell functions. Checks:
   also when the older wpa_supplicant.ath0.conf copy exists;
 - a boot with no Ethernet link, no Wi-Fi link and no Wi-Fi network stored starts no access
   point: a recovery_ap.sh left by an older release is not run, and the scripts no longer
-  name it.
+  name it;
+- USB port mode (Wi-Fi setup over USB): with Ethernet on, a boot keeps the port a USB device
+  and starts no Ethernet over USB when a computer talks to it (/proc/udc counts interrupts, or
+  usbhid connected to hub_usbwifi a second time); with neither, it waits USB_PC_WAIT seconds at
+  most and switches to host mode as before; without /proc/udc it does not wait; the onboard
+  Ethernet of the Pro never looks at the USB port.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ class NetworkManagerScript(unittest.TestCase):
         text = text.replace("/data/harmony", f"{self.root}/data/harmony")
         text = text.replace("/etc/", f"{self.root}/etc/")
         text = text.replace("/var/run/", f"{self.root}/run/")
+        text = text.replace("/proc/udc", f"{self.root}/proc_udc")
         # functions only: drop the command dispatch at the end
         text = text[: text.rindex('case "$1" in')]
         self.lib = self.root / "nm_lib.sh"
@@ -124,6 +130,57 @@ class NetworkManagerScript(unittest.TestCase):
             text = (SCRIPTS / name).read_text()
             for word in ("recovery_ap", "hub_portal", "hub_dhcpd", "hub-recovery-ap"):
                 self.assertNotIn(word, text, f"{name} still refers to {word}")
+
+    # ---- USB port mode: a computer at boot keeps the port a USB device ----
+
+    PORT_STUBS = (
+        "start_eth() { echo START_ETH; return 1; }\nensure_wifi() { return 0; }\nstart_monitor() { :; }\n"
+        "killall() { :; }\nfind_eth_interface() { return 1; }\nsleep() { echo SLEPT; }\n"
+    )
+
+    def udc(self, count: int) -> None:
+        (self.root / "proc_udc").write_text(
+            "Atheros USB Device Controller\nTotal interrupt count = %d\nEndpoints: 3\n" % count)
+
+    def test_udc_interrupt_count_read(self):
+        self.udc(1234)
+        self.assertIn("I=1234\n", self.run_sh('echo "I=$(udc_interrupts)"'))
+
+    def test_computer_keeps_device_mode(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(57)
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertNotIn("START_ETH", out, "Ethernet over USB was started with a computer on the port")
+        log = (self.root / "tmp" / "harmony-network.log").read_text()
+        self.assertIn("A computer is using the USB port", log)
+
+    def test_second_usbhid_connection_keeps_device_mode(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(0)
+        (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=2\nrequests=0\nlast_attempt=none\n")
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertNotIn("START_ETH", out)
+
+    def test_no_computer_switches_to_host_mode(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(0)
+        (self.root / "tmp" / "harmony_usbwifi.state").write_text("connections=1\nrequests=0\nlast_attempt=none\n")
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertIn("START_ETH", out, "a charger or an adapter on the port: Ethernet over USB as before")
+        self.assertEqual(out.count("SLEPT"), 6, "waits USB_PC_WAIT seconds for a computer, no more")
+
+    def test_no_udc_no_wait(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 1; }\ndo_boot")
+        self.assertIn("START_ETH", out)
+        self.assertNotIn("SLEPT", out, "no device controller: no wait")
+
+    def test_onboard_ethernet_ignores_usb_port(self):
+        self.conf.write_text('ETH_ENABLED=1\nETH_MODE="dhcp"\n')
+        self.udc(57)
+        out = self.run_sh(self.PORT_STUBS + "is_onboard_eth() { return 0; }\ndo_boot")
+        self.assertIn("START_ETH", out)
+
 
 if __name__ == "__main__":
     unittest.main()

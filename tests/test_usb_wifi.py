@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""Wi-Fi setup over USB: hub_util usbwifi (payload/source/usb_wifi.c, wifi_config.c).
+
+hub_util is built for the host (TEST_HARNESS: the wpa_supplicant files, wpa_cli, the lock and
+the state file live under a temporary root). The stock usbhid is replaced by the test: it
+connects to the applet on a test port, sends the connection type byte 0x06, then passes 64-byte
+frames, exactly as usbhid relays the USB reports. The PC side is tools/harmony_hid.py itself
+(HarmonyHid with a transport that writes the frames to that socket), so provision_wifi() and
+get_wifi_status() are tested unchanged against the applet. wpa_cli is a shell script: a
+network whose password is "goodpassword" (or an open one named "OpenNet") connects, the
+password "wrongpassword" fails the handshake, any other never connects. Nothing on the host's
+network is touched; the applet listens on 127.0.0.1 only.
+
+Checks: status before a set (stock keys, no password); a set with a wrong password is
+acknowledged, the status says failed with the reason, both configuration files keep their old
+content; a good set saves both files and the status says connected; a timeout keeps the old
+files; bad input (short password, WEP, unknown encryption, no SSID, an oversized request) is
+refused without touching the files; a set while another Wi-Fi test runs is refused; a lock left
+by a dead process is taken over; every other file, flush, device control, commands and the
+reset are refused with stock's error answer (byte 2 = 0xFF); malformed and unknown handles get
+the parse and handle codes; ping answers; a new connection from usbhid replaces the old one and
+is counted in the state file; the password never appears in the status or the log; the DHCP
+client is asked for a new lease after a good set.
+"""
+
+from __future__ import annotations
+
+import os
+import pathlib
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
+SRC = REPO_DIR / "payload" / "source"
+sys.path.insert(0, str(REPO_DIR))
+
+from tools.harmony_hid import HarmonyHid, HidErrorResponse, build_primary_frames, encode_param_byte, encode_param_string  # noqa: E402
+
+PORT = 9174
+OLD_CONF = ('ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n\tssid="OldNet"\n'
+            '\tpsk="oldpassword1"\n}\n')
+
+FAKE_WPA_CLI = r'''#!/bin/sh
+# fake wpa_cli: the state follows the network in the configuration file
+ROOT="@ROOT@"
+CONF="$ROOT/etc/wpa_supplicant.conf"
+echo "$*" >> "$ROOT/wpa_cli.log"
+ssid=$(sed -n 's/^[[:space:]]*ssid="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
+psk=$(sed -n 's/^[[:space:]]*psk="\(.*\)"$/\1/p' "$CONF" 2>/dev/null)
+open=$(grep -c 'key_mgmt=NONE' "$CONF" 2>/dev/null)
+case "$3" in
+  ping) echo PONG ;;
+  reconfigure) echo OK ;;
+  status)
+    if [ -f "$ROOT/no_wpa" ]; then exit 1; fi
+    if [ "$psk" = "goodpassword" ] || [ "$psk" = "oldpassword1" ] || { [ "$open" = 1 ] && [ "$ssid" = "OpenNet" ]; }; then
+      echo "bssid=02:00:00:00:00:01"
+      echo "ssid=$ssid"
+      echo "key_mgmt=WPA2-PSK"
+      echo "wpa_state=COMPLETED"
+      echo "ip_address=192.0.2.10"
+    elif [ "$psk" = "wrongpassword" ]; then
+      echo "wpa_state=4WAY_HANDSHAKE"
+      echo "auth_failures=1"
+    else
+      echo "wpa_state=SCANNING"
+    fi
+    ;;
+esac
+'''
+
+
+def hub_util_sources() -> list[str]:
+    """hub_util's sources as build/compile_all.sh lists them"""
+    for line in (REPO_DIR / "build" / "compile_all.sh").read_text().splitlines():
+        if '-o "$BIN/hub_util"' in line:
+            return [str(REPO_DIR / t) for t in line.split() if t.startswith("payload/source/") and t.endswith(".c")]
+    raise RuntimeError("hub_util build line not found in build/compile_all.sh")
+
+
+class SocketTransport:
+    """usbhid's side: 64-byte reports in and out over the applet's TCP connection"""
+
+    def __init__(self, port: int):
+        self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self.sock.sendall(b"\x06")  # connection type, as usbhid sends it
+        self.buf = b""
+
+    def write_report(self, data: bytes) -> bool:
+        if len(data) == 65:
+            data = data[1:]
+        self.sock.sendall(bytes(data).ljust(64, b"\x00"))
+        return True
+
+    def read_report(self, timeout_ms: int = 5000) -> bytes:
+        self.sock.settimeout(max(0.01, timeout_ms / 1000.0))
+        try:
+            while len(self.buf) < 64:
+                chunk = self.sock.recv(256)
+                if not chunk:
+                    return b""
+                self.buf += chunk
+        except (socket.timeout, BlockingIOError):
+            return b""
+        rep, self.buf = self.buf[:64], self.buf[64:]
+        return rep
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+class UsbWifi(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.bin = pathlib.Path(cls.tmp.name) / "hub_util"
+        subprocess.run(["gcc", "-Wall", "-O2", "-DTEST_HARNESS", f"-I{SRC}", "-o", str(cls.bin),
+                        *hub_util_sources(), "-lm"], check=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        self.rootdir = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.rootdir.name)
+        for d in ("etc", "tmp", "usr/sbin", "var/run"):
+            (self.root / d).mkdir(parents=True)
+        (self.root / "etc" / "wpa_supplicant.conf").write_text(OLD_CONF)
+        (self.root / "etc" / "wpa_supplicant.ath0.conf").write_text(OLD_CONF)
+        cli = self.root / "usr" / "sbin" / "wpa_cli"
+        cli.write_text(FAKE_WPA_CLI.replace("@ROOT@", str(self.root)))
+        cli.chmod(0o755)
+        self.env = dict(os.environ, HARMONY_WIFI_ROOT=str(self.root), HARMONY_WIFI_TEST_WAIT="2")
+        self.log = open(self.root / "applet.log", "w+")
+        self.proc = subprocess.Popen([str(self.bin), "usbwifi", "--port", str(PORT), "--verbose"],
+                                     env=self.env, stdout=self.log, stderr=subprocess.STDOUT)
+        for _ in range(100):
+            try:
+                socket.create_connection(("127.0.0.1", PORT), timeout=0.2).close()
+                break
+            except OSError:
+                time.sleep(0.05)
+        self.transports = []
+        self.dhcp = None
+
+    def tearDown(self):
+        for t in self.transports:
+            t.close()
+        self.proc.kill()
+        self.proc.wait()
+        if self.dhcp:
+            self.dhcp.kill()
+            self.dhcp.wait()
+        self.log.close()
+        self.rootdir.cleanup()
+
+    def hid(self) -> HarmonyHid:
+        t = SocketTransport(PORT)
+        self.transports.append(t)
+        h = HarmonyHid()
+        h.dev = t
+        return h
+
+    def confs(self) -> tuple[str, str]:
+        return ((self.root / "etc" / "wpa_supplicant.conf").read_text(),
+                (self.root / "etc" / "wpa_supplicant.ath0.conf").read_text())
+
+    def state(self) -> dict[str, str]:
+        p = self.root / "tmp" / "harmony_usbwifi.state"
+        return dict(line.split("=", 1) for line in p.read_text().splitlines() if "=" in line)
+
+    def applet_log(self) -> str:
+        self.log.flush()
+        return (self.root / "applet.log").read_text()
+
+    # ---- the two PC functions, unchanged ----
+
+    def test_status_before_any_set(self):
+        st = self.hid().get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "connected")
+        self.assertEqual(st.get("ssid"), "OldNet")
+        self.assertEqual(st.get("ip_address"), "192.0.2.10")
+        self.assertEqual(st.get("password"), "")
+        self.assertEqual(st.get("error_code"), "none")
+        self.assertEqual(st.get("firmware"), "harmony-ng")
+        self.assertEqual(st.get("last_attempt"), "none")
+
+    def test_good_set_saves_both_files(self):
+        # a DHCP client on ath0 that records the renew signal
+        mark = self.root / "renewed"
+        self.dhcp = subprocess.Popen(["sh", "-c", f"trap 'echo r > {mark}' USR1; while :; do sleep 0.05; done"])
+        (self.root / "var" / "run" / "udhcpc.ath0.pid").write_text(f"{self.dhcp.pid}\n")
+        time.sleep(0.2)
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("New Net,2", "goodpassword"))
+        conf, ath0 = self.confs()
+        self.assertEqual(conf, ath0, "both files hold the same configuration")
+        self.assertIn('ssid="New Net,2"\n', conf)
+        self.assertIn('psk="goodpassword"\n', conf)
+        self.assertIn("scan_ssid=1", conf)
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "connected")
+        self.assertEqual(st.get("ssid"), "New Net,2", "an SSID with a comma comes back whole")
+        self.assertEqual(st.get("last_attempt"), "ok")
+        self.assertEqual(self.state().get("last_attempt"), "ok")
+        for _ in range(40):
+            if mark.exists():
+                break
+            time.sleep(0.05)
+        self.assertTrue(mark.exists(), "the DHCP client on ath0 was asked for a new lease")
+        self.assertNotIn("goodpassword", self.applet_log())
+
+    def test_open_network(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("OpenNet", "", "NONE"))
+        conf, _ = self.confs()
+        self.assertIn("key_mgmt=NONE", conf)
+        self.assertNotIn("psk=", conf)
+        self.assertEqual(hid.get_wifi_status().get("connect_status"), "connected")
+
+    def test_wrong_password_keeps_old_config(self):
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "wrongpassword"), "the write is acknowledged")
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF), "the previous configuration is kept")
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("Incorrect Wi-Fi password", st.get("error_code", ""))
+        self.assertEqual(st.get("password"), "")
+        self.assertNotIn("wrongpassword", "".join(st.values()))
+        self.assertNotIn("wrongpassword", self.applet_log())
+        self.assertEqual(self.state().get("last_attempt"), "failed")
+        # wpa_supplicant was pointed back at the old network
+        self.assertGreaterEqual((self.root / "wpa_cli.log").read_text().count("reconfigure"), 2)
+
+    def test_timeout_keeps_old_config(self):
+        hid = self.hid()
+        t0 = time.time()
+        self.assertTrue(hid.provision_wifi("FarAway", "unreachable1"))
+        self.assertLess(time.time() - t0, 15)
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("timed out", st.get("error_code", ""))
+
+    def test_bad_input_refused_without_writing(self):
+        cases = [
+            (("NewNet", "short", "WPA2-PSK"), "8 to 63"),
+            (("NewNet", "0123456789", "WEP"), "WEP"),
+            (("NewNet", "goodpassword", "TKIP-ENTERPRISE"), "Unknown encryption"),
+            (("", "goodpassword", "WPA2-PSK"), "SSID missing"),
+            (("x" * 33, "goodpassword", "WPA2-PSK"), "32 bytes"),
+            (("NewNet", "good\tpassword", "WPA2-PSK"), "control character"),
+        ]
+        hid = self.hid()
+        for (ssid, pw, enc), reason in cases:
+            with self.subTest(ssid=ssid[:8], enc=enc):
+                self.assertTrue(hid.provision_wifi(ssid, pw, enc))
+                st = hid.get_wifi_status()
+                self.assertEqual(st.get("connect_status"), "failed")
+                self.assertIn(reason, st.get("error_code", ""))
+                self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        self.assertNotIn("reconfigure", (self.root / "wpa_cli.log").read_text())
+
+    def test_oversized_request_refused(self):
+        hid = self.hid()
+        handle = hid.open_file_write("/sys/wifi/connect", size=1500)
+        self.assertTrue(hid.write_file_chunks(handle, b"ssid,Big\npassword," + b"p" * 1500 + b"\n",
+                                              packets_per_chunk=40, count_width="byte"))
+        self.assertTrue(hid.close_file(handle))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("too long", st.get("error_code", ""))
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+
+    def test_busy_while_another_test_runs(self):
+        lock = self.root / "tmp" / "harmony_wifi_test.lock"
+        lock.write_text(f"{os.getpid()}\n")  # a live process holds it
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        st = hid.get_wifi_status()
+        self.assertEqual(st.get("connect_status"), "failed")
+        self.assertIn("Another Wi-Fi test", st.get("error_code", ""))
+        self.assertEqual(self.confs(), (OLD_CONF, OLD_CONF))
+        self.assertTrue(lock.exists(), "another holder's lock is left alone")
+
+    def test_stale_lock_taken_over(self):
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = self.root / "tmp" / "harmony_wifi_test.lock"
+        lock.write_text(f"{dead.pid}\n")
+        hid = self.hid()
+        self.assertTrue(hid.provision_wifi("NewNet", "goodpassword"))
+        self.assertEqual(hid.get_wifi_status().get("connect_status"), "connected")
+        self.assertFalse(lock.exists(), "the lock is released after the set")
+
+    # ---- everything else is refused ----
+
+    def raw(self, hid: HarmonyHid, cmd: int, params: list[bytes]) -> bytes:
+        return hid.command(cmd, params, timeout_ms=3000)
+
+    def test_other_files_and_commands_refused(self):
+        hid = self.hid()
+        for path in ("/sys/dropbear", "/tde/enable", "/sys/reboot", "/sys/factoryreset", "/sys/sysinfo",
+                     "/sys/wifi/connectX", "/sys/wifi", "/fw/otaupdate"):
+            with self.subTest(path=path):
+                with self.assertRaises(HidErrorResponse) as cm:
+                    hid.open_file_write(path, size=4)
+                self.assertEqual(cm.exception.code, 0x0B)
+        self.assertFalse(hid.set_tde_enable(True))
+        self.assertEqual(hid.get_sysinfo(), {})
+        with self.assertRaises(HidErrorResponse):
+            hid.write_full_file("/sys/dropbear", b"x" * 100)
+        for cmd in (0x05, 0x06, 0x08, 0x09, 0x02, 0x42):
+            resp = self.raw(hid, cmd, [encode_param_byte(1)])
+            self.assertEqual(resp[:6], bytes([0xFF, cmd, 0xFF, 0x01, 0x01, 0x0B]), hex(cmd))
+        resp = self.raw(hid, 0xFF, [encode_param_byte(0x66)])
+        self.assertEqual(resp[:6], bytes([0xFF, 0xFF, 0xFF, 0x01, 0x01, 0x0B]), "the firmware reset is refused")
+        self.assertFalse(hid.reset_filesystem())
+
+    def test_ping_parse_and_handle_errors(self):
+        hid = self.hid()
+        resp = self.raw(hid, 0x00, [])
+        self.assertEqual(resp[:4], bytes([0xFF, 0x00, (hid.seq - 1) | 0x80, 0x00]))
+        # a string without its NUL byte runs past the frame
+        bad = bytearray(build_primary_frames(0x01, 5, [encode_param_string("/sys/wifi/connect")])[0])
+        bad[4] = 0x80
+        for i in range(5, 64):
+            bad[i] = 0x41
+        hid.dev.write_report(bytes(bad))
+        resp = hid.dev.read_report(3000)
+        self.assertEqual(resp[:6], bytes([0xFF, 0x01, 0xFF, 0x01, 0x01, 0x0C]))
+        # read and close of a handle that was never opened
+        self.assertEqual(self.raw(hid, 0x04, [encode_param_byte(9), encode_param_byte(1)])[:6],
+                         bytes([0xFF, 0x04, 0xFF, 0x01, 0x01, 0x04]))
+        self.assertFalse(hid.close_file(9))
+        # an open without a mode letter
+        resp = self.raw(hid, 0x01, [encode_param_string("/sys/wifi/connect"), encode_param_string("X")])
+        self.assertEqual(resp[:6], bytes([0xFF, 0x01, 0xFF, 0x01, 0x01, 0x0C]))
+        # still serving after all of it
+        self.assertEqual(hid.get_wifi_status().get("ssid"), "OldNet")
+
+    def test_new_connection_replaces_old(self):
+        first = self.hid()
+        self.assertEqual(first.get_wifi_status().get("ssid"), "OldNet")
+        before = int(self.state().get("connections", "0"))
+        second = self.hid()  # usbhid connects again when a computer configures the device
+        self.assertEqual(second.get_wifi_status().get("ssid"), "OldNet")
+        self.assertEqual(int(self.state().get("connections", "0")), before + 1)
+        first.dev.sock.settimeout(2)
+        self.assertEqual(first.dev.sock.recv(64), b"", "the old connection is closed")
+
+    def test_status_command_line(self):
+        res = subprocess.run([str(self.bin), "usbwifi", "--status"], env=self.env, capture_output=True,
+                             text=True, timeout=20)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("connect_status,connected\n", res.stdout)
+        self.assertIn("password,\n", res.stdout)
+
+    def test_listens_on_loopback_only(self):
+        listen = [l for l in pathlib.Path("/proc/net/tcp").read_text().splitlines()[1:]
+                  if l.split()[1].endswith(":%04X" % PORT) and l.split()[3] == "0A"]
+        self.assertEqual(len(listen), 1)
+        self.assertTrue(listen[0].split()[1].startswith("0100007F:"), listen[0])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

@@ -52,7 +52,7 @@ case "$1" in
       [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
     # Terminate all daemon processes
-    killall -9 hub_rf hub_daemon hub_btstack hal luaworks luadraws lua 2>/dev/null || true
+    killall -9 hub_rf hub_daemon hub_btstack hub_usbwifi hal luaworks luadraws lua 2>/dev/null || true
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
     sync_fs
     exit 0
@@ -239,6 +239,45 @@ if [ -n "$_sntp_bin" ]; then
       sleep 3
     done
   ) &
+fi
+
+# 5.1 Wi-Fi setup over USB. The stock /usr/bin/usbhid (started by the stock boot script) shows
+# the Hub to a computer as its USB HID device and relays the reports to a program on
+# 127.0.0.1:16716, which was the stock hal (not run by harmony-ng). hub_usbwifi (hub_util) listens
+# there and answers the Wi-Fi requests only (set and read /sys/wifi/connect). Started before the
+# network manager: it keeps the USB port a USB device while a computer is using it at boot.
+link_if_changed /data/harmony/bin/hub_util /data/harmony/bin/hub_usbwifi 2>/dev/null || true
+if [ -x /data/harmony/bin/hub_util ]; then
+(
+  _delay=5
+  while true; do
+    [ -f /tmp/harmony_stop ] && exit 0
+    # Not the first start of this boot (init.sh restart, an exit): usbhid still holds its
+    # connection to the old listener, so it is started again while the port is a USB device.
+    # The first time, the stock boot script starts it.
+    if [ -f /tmp/harmony_usbwifi.started ] && [ -x /usr/bin/usbhid ] &&
+       grep -q '^ath_udc ' /proc/modules 2>/dev/null; then
+      killall -9 usbhid 2>/dev/null || true
+      umount /dev/gadget 2>/dev/null || true
+      (trap - HUP; /usr/bin/usbhid -s >/dev/null 2>&1 &)
+    fi
+    touch /tmp/harmony_usbwifi.started
+    echo "$(date) Starting hub_usbwifi..." >> "$LOG"
+    _started=$(date +%s)
+    if [ -x /data/harmony/bin/hub_usbwifi ]; then
+      /data/harmony/bin/hub_usbwifi >> "$LOG" 2>&1
+    else
+      /data/harmony/bin/hub_util usbwifi >> "$LOG" 2>&1
+    fi
+    [ -f /tmp/harmony_stop ] && exit 0
+    _ran=$(expr "$(date +%s)" - "$_started" 2>/dev/null || echo 0)
+    [ "$_ran" -ge 60 ] 2>/dev/null && _delay=5
+    echo "$(date) hub_usbwifi exited, retry in ${_delay}s" >> "$LOG"
+    sleep "$_delay"
+    [ "$_delay" -lt 60 ] && _delay=$(expr "$_delay" + "$_delay")
+  done
+) &
+echo "$!" >> /tmp/harmony_supervisors.pid
 fi
 
 # 5.2 Network Manager (USB Gadget 15s check, Ethernet startup & Wi-Fi fallback)

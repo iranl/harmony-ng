@@ -26,6 +26,40 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [NET] $*" >> "$LOG"
 }
 
+# USB port mode. The Hub's one USB port is either a USB device (a computer can set the Wi-Fi
+# over USB: stock usbhid + hub_usbwifi) or a USB host (Ethernet over USB, start_usb_eth.sh); a
+# switch back to device mode needs a restart. As the stock firmware did (usbmgr.lua
+# autoUSBSwap), the port stays a device when a computer is talking to it at boot: the device
+# controller has counted interrupts (/proc/udc), or usbhid connected to hub_usbwifi again, which
+# it does each time a computer configures the device. A charger or an Ethernet adapter does
+# neither, so those boots switch to host mode as before, USB_PC_WAIT seconds later at most.
+UDC_PROC=/proc/udc
+USBWIFI_STATE=/tmp/harmony_usbwifi.state
+USB_PC_WAIT=6
+
+udc_interrupts() {
+  sed -n 's/.*Total interrupt count = \([0-9][0-9]*\).*/\1/p' "$UDC_PROC" 2>/dev/null | sed -n 1p
+}
+
+usbwifi_connections() {
+  sed -n 's/^connections=\([0-9][0-9]*\)$/\1/p' "$USBWIFI_STATE" 2>/dev/null | sed -n 1p
+}
+
+usb_computer_attached() {
+  # no device controller driver: the port is already a host (or not a USB device at all)
+  [ -e "$UDC_PROC" ] || return 1
+  _wait=0
+  while :; do
+    _irq=$(udc_interrupts)
+    _con=$(usbwifi_connections)
+    [ -n "$_irq" ] && [ "$_irq" -gt 0 ] 2>/dev/null && return 0
+    [ -n "$_con" ] && [ "$_con" -ge 2 ] 2>/dev/null && return 0
+    [ "$_wait" -ge "$USB_PC_WAIT" ] && return 1
+    sleep 1
+    _wait=$(expr "$_wait" + 1)
+  done
+}
+
 # Load configuration with safe defaults
 ETH_ENABLED=1
 ETH_FALLBACK_WIFI=1
@@ -613,6 +647,9 @@ do_boot() {
   if [ "$ETH_ENABLED" != "1" ]; then
     # Ethernet turned off in the settings: the USB port stays in device mode
     log "Ethernet is disabled in the settings; not starting it."
+    false
+  elif ! is_onboard_eth && usb_computer_attached; then
+    log "A computer is using the USB port: it stays a USB device for this boot (Wi-Fi setup over USB); Ethernet over USB is not started. Restart the Hub with the Ethernet adapter plugged in to use it."
     false
   elif start_eth; then
     if is_onboard_eth; then
