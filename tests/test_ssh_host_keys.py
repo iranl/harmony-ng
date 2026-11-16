@@ -148,8 +148,9 @@ class HelperTests(unittest.TestCase):
         conf = pathlib.Path(self.tmp.name) / "ssh_config"
         conf.write_text("Host myhub\n  HostName 192.168.1.20\n  Port 2222\n  CheckHostIP yes\n"
                         "  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n")
+        # No input: Windows OpenSSH waits on an inherited pipe (a run over SSH hung there)
         res = subprocess.run(["ssh", "-G", "-F", str(conf), *ssh_hostkeys.ssh_options("MyHub"), "root@myhub"],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         self.assertEqual(res.returncode, 0, res.stderr)
         cfg = dict(line.split(" ", 1) for line in res.stdout.splitlines() if " " in line)
         self.assertEqual(cfg.get("stricthostkeychecking"), "accept-new")
