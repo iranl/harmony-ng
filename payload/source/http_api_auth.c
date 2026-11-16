@@ -16,17 +16,6 @@
 
 #define MAX_PASSWORD_BYTES 128 /* compute_ha1 hashes "user:realm:password" from a 256-byte buffer */
 
-/* Value of one query parameter, decoded (parse_request_params splits at '&'), or "" */
-static void query_param(const char *query, const char *name, char *out, size_t out_sz) {
-    out[0] = '\0';
-    if (!query || !query[0]) return;
-    cJSON *q = parse_request_params(query);
-    if (!q) return;
-    cJSON *v = cJSON_GetObjectItemCaseSensitive(q, name);
-    if (cJSON_IsString(v) && v->valuestring) snprintf(out, out_sz, "%s", v->valuestring);
-    cJSON_Delete(q);
-}
-
 /* Delete the personal access tokens created by owner. Returns how many were removed. */
 static int remove_tokens_of(const char *owner) {
     size_t flen = 0;
@@ -90,6 +79,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             char lock_msg[96];
             snprintf(lock_msg, sizeof(lock_msg), "Too many failed attempts. Try again in %d seconds", lock_secs);
             cJSON_AddStringToObject(err, "error", lock_msg);
+            cJSON_AddNumberToObject(err, "retry_after", lock_secs);
             send_cjson_resp(client_fd, 429, err);
             cJSON_Delete(err);
             close(client_fd);
@@ -335,7 +325,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *jid = cJSON_GetObjectItemCaseSensitive(params, "id");
             if (jid && cJSON_IsString(jid)) snprintf(del_id, sizeof(del_id), "%s", jid->valuestring);
         }
-        if (!del_id[0]) query_param(query, "id", del_id, sizeof(del_id));
+        if (!del_id[0]) http_query_param(query, "id", del_id, sizeof(del_id));
 
         if (!del_id[0]) {
             if (params) cJSON_Delete(params);
@@ -543,7 +533,7 @@ int http_api_auth_handle(int client_fd, const char *method, const char *clean_pa
             cJSON *ju = cJSON_GetObjectItemCaseSensitive(params, "username");
             if (ju && cJSON_IsString(ju)) snprintf(del_user, sizeof(del_user), "%s", ju->valuestring);
         }
-        if (!del_user[0]) query_param(query, "username", del_user, sizeof(del_user));
+        if (!del_user[0]) http_query_param(query, "username", del_user, sizeof(del_user));
 
         if (!del_user[0]) {
             if (params) cJSON_Delete(params);

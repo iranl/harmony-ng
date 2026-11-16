@@ -784,13 +784,8 @@ int http_api_devices_handle(int client_fd, const char *method, const char *clean
                 dev_id = dev_buf;
             }
             if (!dev_id[0] && query) {
-                const char *q = strstr(query, "id=");
-                if (q) {
-                    strncpy(dev_buf, q + 3, sizeof(dev_buf) - 1);
-                    char *amp = strchr(dev_buf, '&');
-                    if (amp) *amp = '\0';
-                    dev_id = dev_buf;
-                }
+                http_query_param(query, "id", dev_buf, sizeof(dev_buf));
+                dev_id = dev_buf;
             }
             if (dev_id[0]) {
                 config_store_lock();

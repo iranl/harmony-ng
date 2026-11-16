@@ -22,6 +22,32 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/stat.h>
+
+/* Slot number 1 or 2 from a query parameter, else def */
+static int query_slot(const char *query, const char *name, int def) {
+    char v[8];
+    http_query_param(query, name, v, sizeof(v));
+    if (strcmp(v, "1") == 0) return 1;
+    if (strcmp(v, "2") == 0) return 2;
+    return def;
+}
+
+/* The key map and layout saves store the body itself as the file. Their readers load at most
+ * REMOTE_MAP_FILE_MAX bytes of valid JSON and fall back to an empty default otherwise, so a
+ * body they would not load is refused: NULL when the body is fine, else the error (*code). */
+#define REMOTE_MAP_FILE_MAX (256 * 1024) /* = the HTTP limit of these routes (http_server.c) */
+static const char *map_body_problem(const char *body, int *code) {
+    *code = 400;
+    if (!body || !body[0]) return "Request body required";
+    if (strlen(body) >= REMOTE_MAP_FILE_MAX) {
+        *code = 413;
+        return "Mapping too large";
+    }
+    cJSON *j = cJSON_ParseWithOpts(body, NULL, 1);
+    int ok = cJSON_IsObject(j);
+    cJSON_Delete(j);
+    return ok ? NULL : "Body must be a JSON object";
+}
 #include <sys/un.h>
 #include "hw_action.h"
 #include "hub_key_channel.h"
@@ -42,6 +68,18 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     (void)query;
     (void)req;
 
+    if (strcmp(method, "POST") == 0 && (strcmp(clean_path, "/api/remote-mapping-save") == 0 ||
+                                        strcmp(clean_path, "/api/rf-mapping-save") == 0 ||
+                                        strcmp(clean_path, "/api/ui-remote-layout") == 0)) {
+        int code = 400;
+        const char *problem = map_body_problem(body, &code);
+        if (problem) {
+            send_json_error(client_fd, code, problem);
+            close(client_fd);
+            return 1;
+        }
+    }
+
     /* Route: GET /api/remote-mapping */
     if (strcmp(clean_path, "/api/remote-mapping") == 0 && strcmp(method, "GET") == 0) {
         FILE *f = fopen(config_store_path("bt_remote_map.json"), "r");
@@ -49,7 +87,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             fseek(f, 0, SEEK_END);
             long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
-            if (sz > 0 && sz < 200000) {
+            if (sz > 0 && sz < REMOTE_MAP_FILE_MAX) {
                 char *buf = (char *)malloc((size_t)sz + 1);
                 if (buf) {
                     size_t nr = fread(buf, 1, (size_t)sz, f);
@@ -82,7 +120,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
 
     /* Route: GET /api/rf-mapping */
     if (strcmp(clean_path, "/api/rf-mapping") == 0 && strcmp(method, "GET") == 0) {
-        int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
+        int slot = query_slot(query, "slot", 1);
         char fname[64];
         snprintf(fname, sizeof(fname), "remote_slot%d_map.json", slot);
         const char *path = config_store_path(fname);
@@ -91,7 +129,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             fseek(f, 0, SEEK_END);
             long sz = ftell(f);
             fseek(f, 0, SEEK_SET);
-            if (sz > 0 && sz < 200000) {
+            if (sz > 0 && sz < REMOTE_MAP_FILE_MAX) {
                 char *buf = (char *)malloc((size_t)sz + 1);
                 if (buf) {
                     size_t nr = fread(buf, 1, (size_t)sz, f);
@@ -242,7 +280,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 fseek(mf, 0, SEEK_END);
                 long sz = ftell(mf);
                 fseek(mf, 0, SEEK_SET);
-                if (sz > 0 && sz < 200000) {
+                if (sz > 0 && sz < REMOTE_MAP_FILE_MAX) {
                     char *b = (char *)malloc((size_t)sz + 1);
                     if (b) {
                         size_t nr = fread(b, 1, (size_t)sz, mf);
@@ -291,7 +329,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             long sz = 0;
             if (fseek(mf, 0, SEEK_END) == 0) sz = ftell(mf);
             fseek(mf, 0, SEEK_SET);
-            if (sz > 0 && sz < 200000) b = (char *)malloc((size_t)sz + 1);
+            if (sz > 0 && sz < REMOTE_MAP_FILE_MAX) b = (char *)malloc((size_t)sz + 1);
             if (b) {
                 size_t nr = fread(b, 1, (size_t)sz, mf);
                 b[nr] = '\0';
@@ -402,7 +440,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 char resp_buf[1024];
                 ssize_t rn;
                 while ((rn = read(rfsock, resp_buf, sizeof(resp_buf))) > 0) {
-                    write(client_fd, resp_buf, (size_t)rn);
+                    if (http_send_all(client_fd, resp_buf, (size_t)rn) != 0) break;
                 }
                 close(rfsock);
                 close(client_fd);
@@ -544,7 +582,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     /* Route: POST /api/rf-mapping-save */
     if (strcmp(clean_path, "/api/rf-mapping-save") == 0 && strcmp(method, "POST") == 0) {
         if (body && body[0]) {
-            int slot = (query && strstr(query, "slot=2")) ? 2 : 1;
+            int slot = query_slot(query, "slot", 1);
             cJSON *bj = cJSON_Parse(body);
             if (bj) {
                 cJSON *js = cJSON_GetObjectItemCaseSensitive(bj, "slot");
@@ -575,12 +613,8 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     if (strcmp(clean_path, "/api/rf-mapping-copy") == 0 && strcmp(method, "POST") == 0) {
         int from_slot = 1;
         int to_slot = 2;
-        if (query) {
-            if (strstr(query, "from=2")) from_slot = 2;
-            else if (strstr(query, "from=1")) from_slot = 1;
-            if (strstr(query, "to=1")) to_slot = 1;
-            else if (strstr(query, "to=2")) to_slot = 2;
-        }
+        from_slot = query_slot(query, "from", from_slot);
+        to_slot = query_slot(query, "to", to_slot);
         if (body && body[0]) {
             cJSON *bj = cJSON_Parse(body);
             if (bj) {
@@ -647,7 +681,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             return 1;
         } else if (strcmp(method, "GET") == 0) {
             size_t flen = 0;
-            char *buf = read_file_text_alloc(config_store_path("web_remote_layouts.json"), 200000, &flen);
+            char *buf = read_file_text_alloc(config_store_path("web_remote_layouts.json"), REMOTE_MAP_FILE_MAX, &flen);
             if (buf) {
                 cJSON *mj = cJSON_Parse(buf);
                 free(buf);

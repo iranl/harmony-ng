@@ -21,6 +21,7 @@
 #include <string.h>
 #include <unistd.h>
 
+static void mlog(bt_migrate_log_fn log_fn, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static void mlog(bt_migrate_log_fn log_fn, const char *fmt, ...) {
     if (!log_fn) return;
     char buf[320];

@@ -206,17 +206,18 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
     /* Route: GET /api/logs */
     if (strcmp(clean_path, "/api/logs") == 0 && strcmp(method, "GET") == 0) {
         const char *src = "daemon";
-        if (query) {
-            if (strstr(query, "source=btstack")) src = "btstack";
-            else if (strstr(query, "source=rf")) src = "rf";
-            else if (strstr(query, "source=system")) src = "system";
-            else if (strstr(query, "source=network")) src = "network";
-        }
+        char qsrc[16];
+        http_query_param(query, "source", qsrc, sizeof(qsrc));
+        if (strcmp(qsrc, "btstack") == 0) src = "btstack";
+        else if (strcmp(qsrc, "rf") == 0) src = "rf";
+        else if (strcmp(qsrc, "system") == 0) src = "system";
+        else if (strcmp(qsrc, "network") == 0) src = "network";
 
-        const char *filepath = "/tmp/hub_daemon.log";
+        /* init.sh sends the output of hub_daemon and hub_rf to harmony-init.log (hub_btstack keeps
+         * its own file), the network scripts write harmony-network.log */
+        const char *filepath = "/tmp/harmony-init.log";
         if (strcmp(src, "btstack") == 0) filepath = "/tmp/hub-btstack.log";
-        else if (strcmp(src, "rf") == 0) filepath = "/tmp/harmony-init.log";
-        else if (strcmp(src, "network") == 0) filepath = "/tmp/hub-network.log";
+        else if (strcmp(src, "network") == 0) filepath = "/tmp/harmony-network.log";
 
         char log_buf[16384] = {0};
         if (strcmp(src, "system") == 0) {
@@ -530,6 +531,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 cJSON *p_conf = cJSON_GetObjectItemCaseSensitive(params, "confirm");
                 if (p_conf && cJSON_IsString(p_conf) && strcmp(p_conf->valuestring, "RESET") == 0) {
                     cJSON_Delete(params);
+                    /* The installers do not put the script here: say so instead of answering
+                     * "initiated" for a reset that never runs */
+                    if (access("/data/harmony/bin/factory_reset.sh", X_OK) != 0) {
+                        send_json_error(client_fd, 500, "Factory reset script not installed on this Hub");
+                        close(client_fd);
+                        return 1;
+                    }
                     cJSON *resp = cJSON_CreateObject();
                     cJSON_AddBoolToObject(resp, "ok", 1);
                     cJSON_AddStringToObject(resp, "message", "Factory reset initiated. Reverting to stock firmware and rebooting.");
@@ -703,6 +711,13 @@ int http_api_system_handle(int client_fd, const char *method, const char *clean_
                 s.ntp_server[sizeof(s.ntp_server) - 1] = '\0';
             }
             item = cJSON_GetObjectItemCaseSensitive(p, "timezone");
+            if (item && cJSON_IsString(item) && item->valuestring && !timezone_is_known(item->valuestring)) {
+                /* it used to be stored and silently run as Central European time */
+                cJSON_Delete(p);
+                send_json_error(client_fd, 400, "Unknown timezone: use a name from the list or a POSIX TZ string");
+                close(client_fd);
+                return 1;
+            }
             if (item && cJSON_IsString(item) && item->valuestring) {
                 strncpy(s.timezone, item->valuestring, sizeof(s.timezone) - 1);
                 s.timezone[sizeof(s.timezone) - 1] = '\0';

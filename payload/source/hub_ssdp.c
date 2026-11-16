@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -39,6 +40,22 @@ static int g_disabled;
 #define SSDP_LOOPBACK_ONLY 0
 #endif
 static struct hub_settings g_settings;
+
+/* Settings saved by an HTTP worker (POST /api/settings) wait here for the main loop, which owns
+ * the responder socket and its state: the worker used to close and reopen the socket and rebuild
+ * the record while the main loop was reading the socket and sending from the record. */
+static struct hub_settings g_settings_next;
+static int g_settings_next_pending;
+static pthread_mutex_t g_settings_next_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int take_settings_next(struct hub_settings *out) {
+    pthread_mutex_lock(&g_settings_next_lock);
+    int pending = g_settings_next_pending;
+    if (pending) *out = g_settings_next;
+    g_settings_next_pending = 0;
+    pthread_mutex_unlock(&g_settings_next_lock);
+    return pending;
+}
 static int g_have_settings;
 static char g_uuid[40] = "";
 static char g_ip[32] = "127.0.0.1";
@@ -235,6 +252,7 @@ int hub_ssdp_init(int port, int shim_port) {
         printf("[*] SSDP: off in the test build (pass --ssdp-port N, N != %d, to test it)\n", SSDP_PORT);
         return 0;
     }
+    if (take_settings_next(&g_settings)) g_have_settings = 1;
     if (!g_have_settings) {
         config_store_get_settings(&g_settings);
         g_have_settings = 1;
@@ -254,6 +272,14 @@ void hub_ssdp_shutdown(void) {
 
 void hub_ssdp_apply_settings(const struct hub_settings *s) {
     if (!s) return;
+    pthread_mutex_lock(&g_settings_next_lock);
+    g_settings_next = *s;
+    g_settings_next_pending = 1;
+    pthread_mutex_unlock(&g_settings_next_lock);
+}
+
+/* Main loop: the settings of the last hub_ssdp_apply_settings() */
+static void apply_settings_now(const struct hub_settings *s) {
     g_settings = *s;
     g_have_settings = 1;
     if (!g_initialized || g_disabled) return;
@@ -288,6 +314,8 @@ void hub_ssdp_handle(void) {
 }
 
 void hub_ssdp_tick(void) {
+    struct hub_settings next;
+    if (take_settings_next(&next)) apply_settings_now(&next);
     if (g_fd < 0) return;
     time_t now = time(NULL);
     if (now - g_last_alive >= SSDP_ALIVE_INTERVAL_S) {

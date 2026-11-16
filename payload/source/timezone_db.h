@@ -22,6 +22,10 @@ extern "C" {
  */
 void timezone_to_posix(const char *in, char *out, size_t out_sz);
 
+/* 1 when timezone_to_posix() knows in (a listed IANA name, a POSIX TZ string, or empty for the
+ * default), 0 for an Area/City name it would replace with the default */
+int timezone_is_known(const char *in);
+
 /**
  * Extracts a safe prefix for RF transmission in RF_MSG_TIME_SYNC (0x10).
  * Maximum length is TZ_MAX_RF_PREFIX_LEN (14 bytes) to prevent overwriting

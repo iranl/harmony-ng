@@ -11,8 +11,14 @@ extern "C" {
 
 void send_cjson_resp(int fd, int code, cJSON *obj);
 void send_json_error(int fd, int code, const char *msg);
+/* send() until every byte is out. A send that takes only part of the data (the socket's send
+ * timeout passed while a slow client read) is continued; returns -1 when the peer is gone or
+ * takes nothing within the send timeout. */
+int http_send_all(int fd, const void *buf, size_t len);
 char *url_decode(const char *src);
 cJSON *parse_request_params(const char *body);
+/* The decoded value of one query parameter (split at '&', matched by its whole name), or "" */
+void http_query_param(const char *query, const char *name, char *out, size_t out_sz);
 int write_file_content(const char *filepath, const char *content);
 int write_file_atomic_sized(const char *filepath, const char *content, size_t len);
 char *read_file_text_alloc(const char *path, size_t max_sz, size_t *out_len);

@@ -17,6 +17,19 @@
 #include <signal.h>
 #include <errno.h>
 
+/* Reason phrase for the codes the routes use besides the common ones of send_cjson_resp(); other
+ * codes keep the phrase given */
+static const char *http_status_reason(int code, const char *phrase) {
+    switch (code) {
+        case 408: return "Request Timeout";
+        case 413: return "Content Too Large";
+        case 429: return "Too Many Requests";
+        case 502: return "Bad Gateway";
+        case 507: return "Insufficient Storage";
+        default: return phrase;
+    }
+}
+
 void send_cjson_resp(int fd, int code, cJSON *obj) {
     const char *status_str = (code == 200) ? "OK" :
                             (code == 201) ? "Created" :
@@ -29,16 +42,22 @@ void send_cjson_resp(int fd, int code, cJSON *obj) {
                             (code == 503) ? "Service Unavailable" : "Internal Server Error";
     char *json = obj ? cJSON_PrintUnformatted(obj) : NULL;
     size_t body_len = json ? strlen(json) : 0;
-    char header[256];
+    /* A 429 says when to try again: the "retry_after" seconds of its body */
+    char retry[40] = "";
+    const cJSON *ra = (code == 429 && obj) ? cJSON_GetObjectItemCaseSensitive(obj, "retry_after") : NULL;
+    if (cJSON_IsNumber(ra) && ra->valuedouble >= 0 && ra->valuedouble < 86400) {
+        snprintf(retry, sizeof(retry), "Retry-After: %d\r\n", ra->valueint);
+    }
+    char header[288];
     int hlen = snprintf(header, sizeof(header),
                        "HTTP/1.1 %d %s\r\n"
                        "Content-Type: application/json; charset=utf-8\r\n"
                        "Content-Length: %zu\r\n"
+                       "%s"
                        "Access-Control-Allow-Origin: *\r\n"
                        "Connection: close\r\n\r\n",
-                       code, status_str, body_len);
-    send(fd, header, (size_t)hlen, 0);
-    if (body_len && json) send(fd, json, body_len, 0);
+                       code, http_status_reason(code, status_str), body_len, retry);
+    if (http_send_all(fd, header, (size_t)hlen) == 0 && body_len && json) http_send_all(fd, json, body_len);
     if (json) free(json);
 }
 
@@ -50,6 +69,29 @@ void send_json_error(int fd, int code, const char *msg) {
         send_cjson_resp(fd, code, obj);
         cJSON_Delete(obj);
     }
+}
+
+int http_send_all(int fd, const void *buf, size_t len) {
+    const char *p = (const char *)buf;
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1; /* error, or the send timeout passed without a byte taken */
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+void http_query_param(const char *query, const char *name, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!query || !query[0] || !name) return;
+    cJSON *q = parse_request_params(query);
+    if (!q) return;
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(q, name);
+    if (cJSON_IsString(v) && v->valuestring) snprintf(out, out_sz, "%s", v->valuestring);
+    cJSON_Delete(q);
 }
 
 char *url_decode(const char *src) {
@@ -228,7 +270,8 @@ int is_safe_ipv4(const char *ip) {
             digits = 0;
             val = 0;
         } else if (isdigit((unsigned char)*p)) {
-            digits++;
+            /* checked before the multiply: a long run of digits must not overflow val */
+            if (++digits > 3) return 0;
             val = val * 10 + (*p - '0');
         } else {
             return 0;

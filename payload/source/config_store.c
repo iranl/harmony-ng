@@ -8,6 +8,7 @@
 #include "bt_common.h"
 #include "state_watch.h"
 #include "cJSON.h"
+#include "json_number.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -300,14 +301,17 @@ int load_ir_inventory(struct ir_inventory *inv) {
     if (clean_devs && cJSON_IsArray(clean_devs)) {
         const cJSON *d = NULL;
         cJSON_ArrayForEach(d, clean_devs) {
-            if (inv->device_count >= MAX_IR_DEVICES) break;
+            if (inv->device_count >= MAX_IR_DEVICES) {
+                fprintf(stderr, "[!] Config: more than %d devices, the rest get no power steps\n", MAX_IR_DEVICES);
+                break;
+            }
             /* The id as the rest of the daemon sees it (steps, deviceIds, the dispatcher compare
              * strings): a device imported from the Harmony database has "d_<number>", which
              * atol() turned into 0 and the device was left out of the automatic power steps */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(d, "id");
             char id_str[32] = "";
             if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
-            else if (jid && cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
+            else if (jid && cJSON_IsNumber(jid)) json_number_text(jid, id_str, sizeof(id_str));
             if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
             long id = atol(id_str);
 
@@ -453,13 +457,16 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
     int cnt = 0;
     const cJSON *item = NULL;
     cJSON_ArrayForEach(item, arr) {
-        if (cnt >= max_steps) break;
+        if (cnt >= max_steps) {
+            fprintf(stderr, "[!] Config: a sequence has more than %d steps, the rest are not sent\n", max_steps);
+            break;
+        }
         struct activity_step *st = &steps[cnt];
         memset(st, 0, sizeof(*st));
 
         const cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "deviceId");
         if (jid) {
-            if (cJSON_IsNumber(jid)) snprintf(st->device_id, sizeof(st->device_id), "%ld", (long)jid->valuedouble);
+            if (cJSON_IsNumber(jid)) json_number_text(jid, st->device_id, sizeof(st->device_id));
             else if (cJSON_IsString(jid) && jid->valuestring) strncpy(st->device_id, jid->valuestring, sizeof(st->device_id) - 1);
         }
 
@@ -481,12 +488,12 @@ static void parse_activity_steps_array(const cJSON *arr, struct activity_step *s
 
         const cJSON *del = cJSON_GetObjectItemCaseSensitive(item, "delay");
         if (del) {
-            if (cJSON_IsNumber(del)) st->delay_ms = (int)del->valuedouble;
+            if (cJSON_IsNumber(del)) st->delay_ms = json_number_int(del, INT_MIN, INT_MAX, 0);
             else if (cJSON_IsString(del) && del->valuestring) st->delay_ms = atoi(del->valuestring);
         }
 
         const cJSON *order = cJSON_GetObjectItemCaseSensitive(item, "order");
-        if (order && cJSON_IsNumber(order)) st->order = (int)order->valuedouble;
+        if (order && cJSON_IsNumber(order)) st->order = json_number_int(order, INT_MIN, INT_MAX, 0);
 
         cnt++;
     }
@@ -514,13 +521,16 @@ int load_activity_inventory(struct activity_inventory *inv) {
     if (arr && cJSON_IsArray(arr)) {
         const cJSON *a = NULL;
         cJSON_ArrayForEach(a, arr) {
-            if (inv->count >= MAX_ACTIVITIES) break;
+            if (inv->count >= MAX_ACTIVITIES) {
+                fprintf(stderr, "[!] Config: more than %d activities, the rest start with no steps\n", MAX_ACTIVITIES);
+                break;
+            }
 
             /* the id as stored, like activity_known() and the requests see it ("movie", "007") */
             const cJSON *jid = cJSON_GetObjectItemCaseSensitive(a, "id");
             char id_str[32] = "";
             if (jid && cJSON_IsString(jid) && jid->valuestring) snprintf(id_str, sizeof(id_str), "%s", jid->valuestring);
-            else if (jid && cJSON_IsNumber(jid)) snprintf(id_str, sizeof(id_str), "%ld", (long)jid->valuedouble);
+            else if (jid && cJSON_IsNumber(jid)) json_number_text(jid, id_str, sizeof(id_str));
             if (!id_str[0] || strcmp(id_str, "0") == 0) continue; /* "0" means no device / activity */
             long id = atol(id_str);
 
@@ -543,11 +553,14 @@ int load_activity_inventory(struct activity_inventory *inv) {
             if (devs && cJSON_IsArray(devs)) {
                 const cJSON *d = NULL;
                 cJSON_ArrayForEach(d, devs) {
-                    if (act->device_count >= 16) break;
+                    if (act->device_count >= 16) {
+                        fprintf(stderr, "[!] Config: activity %s lists more than 16 devices, the rest are not powered\n", id_str);
+                        break;
+                    }
                     if (cJSON_IsString(d) && d->valuestring) {
                         strncpy(act->device_ids[act->device_count++], d->valuestring, 31);
-                    } else if (cJSON_IsNumber(d)) {
-                        snprintf(act->device_ids[act->device_count++], 31, "%ld", (long)d->valuedouble);
+                    } else if (cJSON_IsNumber(d) && json_number_text(d, act->device_ids[act->device_count], 31)) {
+                        act->device_count++;
                     }
                 }
             }
