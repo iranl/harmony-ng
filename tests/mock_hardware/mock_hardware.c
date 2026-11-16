@@ -151,6 +151,18 @@ static const char *resolve_mock_path(const char *pathname, char *resolved, size_
         return resolved;
     }
 
+    /* 4b. hub_btstack's key pipe: under the mock root when one is set, so a test reads what
+     * hub_daemon hands over and no pipe of the host is touched */
+    if (strcmp(pathname, "/tmp/bthid_input") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
+        snprintf(resolved, max_len, "%s/bthid_input", md);
+        return resolved;
+    }
+    /* and hub_daemon's Bluetooth send log (debug logging) */
+    if (strcmp(pathname, "/tmp/bt_sent.log") == 0 && getenv("HARMONY_MOCK_DIR") != NULL) {
+        snprintf(resolved, max_len, "%s/bt_sent.log", md);
+        return resolved;
+    }
+
     /* 5. Sysfs Power, Backlight, Display */
     if (strcmp(pathname, "/sys/class/graphics/fb0/blank") == 0) {
         snprintf(resolved, max_len, "%s/sysfs/fb0_blank", md);

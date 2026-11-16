@@ -32,6 +32,10 @@ void hw_set_mqtt_button_handler(hw_mqtt_button_handler_t handler) {
 
 int g_dry_run = 0;
 
+__thread int g_live_remote_key = 0;
+__thread unsigned long long g_key_trace_rx_ms = 0;
+__thread unsigned long long g_key_trace_daemon_ms = 0;
+
 int hw_ir_send_pronto(const char *pronto_hex, uint8_t ports, uint8_t repeats) {
     if (!pronto_hex || !pronto_hex[0]) return -1;
     if (ports == 0) return 0; /* 0 = No blasters / IR disabled */
@@ -558,7 +562,10 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         snprintf(s_last_press_cmd, sizeof(s_last_press_cmd), "%s", command);
     }
 
-    if (action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
+    /* The gaps between two commands are for sequences (activity steps, command lists, API
+     * calls): a device may need time between two commands sent back to back by a program. A key
+     * the user just pressed on a remote goes out at once: the user sets its pace. */
+    if (!g_live_remote_key && action != HW_BTN_ACTION_RELEASE && action != HW_BTN_ACTION_REPEAT && s_last_cmd_time_ms > 0) {
         uint64_t elapsed = (now_ms > s_last_cmd_time_ms) ? (now_ms - s_last_cmd_time_ms) : 0;
         int req_delay = 0;
         if (strcmp(s_last_device_id, actual_dev_id) != 0) {
@@ -675,12 +682,29 @@ static int send_match_in(const cJSON *root, const char *target, int match_mode, 
         if (pipe_cmd[0]) {
             int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
             if (bfd >= 0) {
-                char target_hdr[64];
-                snprintf(target_hdr, sizeof(target_hdr), "TARGET %s\n", bdaddr);
-                write(bfd, target_hdr, strlen(target_hdr));
-                write(bfd, pipe_cmd, strlen(pipe_cmd));
+                /* Target and command in one write: whole or not at all, and never with another
+                 * writer's command between the two. They were two unchecked writes: a full pipe
+                 * could take the target and lose the command, and the key counted as sent.
+                 * With debug logging on, a key from a remote also carries its times (key trace). */
+                char msg[320];
+                int mlen;
+                if (g_key_trace_rx_ms && is_debug_log_enabled()) {
+                    struct timespec tts;
+                    clock_gettime(CLOCK_MONOTONIC, &tts);
+                    unsigned long long write_ms = (unsigned long long)tts.tv_sec * 1000ULL + (unsigned long long)tts.tv_nsec / 1000000ULL;
+                    mlen = snprintf(msg, sizeof(msg), "TARGET %s\nTS %llu %llu %llu\n%s", bdaddr,
+                                    g_key_trace_rx_ms, g_key_trace_daemon_ms, write_ms, pipe_cmd);
+                } else {
+                    mlen = snprintf(msg, sizeof(msg), "TARGET %s\n%s", bdaddr, pipe_cmd);
+                }
+                ssize_t w = (mlen > 0 && mlen < (int)sizeof(msg)) ? write(bfd, msg, (size_t)mlen) : -1;
+                int werr = errno;
                 close(bfd);
-                ret = 0;
+                ret = (w == mlen) ? 0 : -1;
+                if (ret != 0) {
+                    printf("[!] Bluetooth key not handed to hub_btstack (%s): %.*s\n", w < 0 ? strerror(werr) : "short write",
+                           (int)strcspn(pipe_cmd, "\n"), pipe_cmd);
+                }
             } else {
                 ret = -1;
             }

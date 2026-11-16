@@ -177,6 +177,24 @@ Returns tail (up to 12KB) of requested daemon or system log.
   }
   ```
 
+**Debug logs.** While `/data/harmony/debug_logging.conf` (or `/data/harmony/bt_remote_debug`)
+exists on the Hub, two more logs are written. `touch` the file over SSH to turn them on and `rm` it
+to turn them off; no restart is needed. Both are in RAM (`/tmp`, gone after a reboot) and are not
+served by `/api/logs`: read them over SSH.
+- `/tmp/bt_sent.log`: one line per Bluetooth command that `hub_daemon` hands to `hub_btstack`
+  (device, command, action, HID page and usage, result). At 64 KB it becomes `/tmp/bt_sent.log.1`.
+- `/tmp/key_trace.log`: one line per key from a remote that goes to a Bluetooth device, with the
+  time the key spent in each part of the Hub, in milliseconds:
+  ```
+  21:04:07.512 KBD_DOWN 4F      rf>daemon=1 daemon=1 pipe=0 bt=1 total=3 ms
+  ```
+  `rf>daemon`: from `hub_rf` receiving the key from the remote until `hub_daemon` took it from
+  the key channel. `daemon`: until `hub_daemon` wrote the command to the key pipe. `pipe`: until
+  `hub_btstack` read it. `bt`: until the report was handed to the Bluetooth stack; the line ends
+  with `(waiting in the report queue)` when the stack did not take the report at once. `total`:
+  from `hub_rf` to the stack. The time on the radio link before `hub_rf` and after the stack is
+  not in it. At 256 KB the file becomes `/tmp/key_trace.log.1`.
+
 ### 1.8 Hub Assets & Icons
 #### `GET /api/icons`
 Returns list of available device and activity PNG icon filenames.
@@ -452,6 +470,8 @@ Creates or updates a device definition.
   repeats of the same command) are milliseconds from 0 to 10000. The sender waits them out before
   the command, so a save with a value outside that range is refused with `400` and nothing is
   changed; a larger value already in `devices.json` is lowered to 10000 when the file is loaded.
+  The three waits are for commands a program sends (API, MQTT, activity sequences); a key pressed
+  on a remote is sent without them.
 - **Response `200 OK`**: `{"ok": true}`
 - **Response `400`**: `{"ok": false}` when a timing field is not a number (or numeric string) or a
   delay is out of range.
@@ -797,8 +817,11 @@ posting the key as `command`.
 main loop): `{"seq", "ts", "slot", "button", "action", "deviceId", "command"}`, `ts` being
 `CLOCK_MONOTONIC` in ms when `hub_rf` received the key. `hub_daemon` sends the device command as
 `POST /api/ir-send` with that `action` does and gives the same button event as this route. A
-press or hold older than 300 ms is skipped (logged), a release always runs. Not an API for other
-callers: format in `payload/source/hub_key_channel.h`.
+press or hold older than 1000 ms is skipped (logged), a release always runs. A key from this
+channel is sent at once: the device's `interDeviceDelay`, `interKeyDelay` and
+`holdInterKeyDelay` apply to commands from every other source (this API, MQTT, activity
+sequences), not to a key the user just pressed on a remote. Not an API for other callers: format
+in `payload/source/hub_key_channel.h`.
 - **Request Body**:
   ```json
   {

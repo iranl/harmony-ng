@@ -1,7 +1,123 @@
 #include "bt_hid.h"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
+#include "bt_hid_queue.h"
 #include "bt_pairing.h"
 
 btstack_timer_source_t g_host_key_release_timer;
+
+/* Report queue (bt_hid_queue.c) on BTstack: the send, the "can send now" request, the log, and a
+ * retry timer that runs while a report waits */
+#define HIDQ_RETRY_MS 20
+static btstack_timer_source_t s_hidq_timer;
+
+static uint8_t hidq_btstack_send(uint16_t cid, const uint8_t *report, uint16_t len) {
+    return hid_device_send_interrupt_message(cid, report, len);
+}
+
+static void hidq_timer_handler(btstack_timer_source_t *ts);
+
+static void hidq_arm_timer(void) {
+    btstack_run_loop_remove_timer(&s_hidq_timer);
+    if (!hidq_pending_any()) return;
+    btstack_run_loop_set_timer_handler(&s_hidq_timer, hidq_timer_handler);
+    btstack_run_loop_set_timer(&s_hidq_timer, HIDQ_RETRY_MS);
+    btstack_run_loop_add_timer(&s_hidq_timer);
+}
+
+static void hidq_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    hidq_service_all(btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+}
+
+static bool s_hidq_ready;
+
+void bt_hid_queue_init(void) {
+    if (s_hidq_ready) return;
+    hidq_init(hidq_btstack_send, hid_device_request_can_send_now_event, log_msg);
+    s_hidq_ready = true;
+}
+
+/* ---- Key trace (debug logging) ----
+ * hub_daemon sends "TS <rx> <daemon> <write>" before the command of a key from a remote: when
+ * hub_rf received the key, when hub_daemon took it from the key channel and when it wrote it to
+ * the pipe, all CLOCK_MONOTONIC in ms. Without that line nothing here runs. */
+#ifndef KEY_TRACE_LOG
+#define KEY_TRACE_LOG "/tmp/key_trace.log"
+#endif
+#define KEY_TRACE_MAX_BYTES 262144
+static unsigned long long s_trace_rx_ms, s_trace_daemon_ms, s_trace_write_ms, s_trace_read_ms;
+static char s_trace_cmd[32];
+
+static unsigned long long trace_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long)ts.tv_sec * 1000ULL + (unsigned long long)ts.tv_nsec / 1000000ULL;
+}
+
+static unsigned long long trace_span(unsigned long long from, unsigned long long to) {
+    return to > from ? to - from : 0;
+}
+
+void bt_hid_trace_begin(const char *times) {
+    s_trace_rx_ms = s_trace_daemon_ms = s_trace_write_ms = 0;
+    s_trace_cmd[0] = '\0';
+    if (!times || sscanf(times, "%llu %llu %llu", &s_trace_rx_ms, &s_trace_daemon_ms, &s_trace_write_ms) != 3) {
+        s_trace_rx_ms = 0;
+    }
+}
+
+void bt_hid_trace_command(const char *cmd) {
+    if (!s_trace_rx_ms || s_trace_cmd[0]) return;
+    snprintf(s_trace_cmd, sizeof(s_trace_cmd), "%s", cmd ? cmd : "");
+    s_trace_read_ms = trace_now_ms();
+}
+
+/* One line per key from a remote: where its time went between hub_rf and the Bluetooth stack.
+ *   rf>daemon  hub_rf's queue and the key channel, until hub_daemon took the key
+ *   daemon     hub_daemon, until it wrote the command to the pipe
+ *   pipe       until hub_btstack read the command
+ *   bt         hub_btstack, until the report was handed to the stack (or queued behind another) */
+static void trace_report_sent(uint16_t cid) {
+    if (!s_trace_rx_ms || !s_trace_cmd[0]) return;
+    unsigned long long now = trace_now_ms();
+    struct stat st;
+    if (stat(KEY_TRACE_LOG, &st) == 0 && st.st_size > KEY_TRACE_MAX_BYTES) rename(KEY_TRACE_LOG, KEY_TRACE_LOG ".1");
+    FILE *f = fopen(KEY_TRACE_LOG, "a");
+    if (f) {
+        struct timespec wall;
+        clock_gettime(CLOCK_REALTIME, &wall);
+        struct tm tmv;
+        localtime_r(&wall.tv_sec, &tmv);
+        fprintf(f, "%02d:%02d:%02d.%03ld %-16s rf>daemon=%llu daemon=%llu pipe=%llu bt=%llu total=%llu ms%s\n",
+                tmv.tm_hour, tmv.tm_min, tmv.tm_sec, wall.tv_nsec / 1000000L, s_trace_cmd,
+                trace_span(s_trace_rx_ms, s_trace_daemon_ms), trace_span(s_trace_daemon_ms, s_trace_write_ms),
+                trace_span(s_trace_write_ms, s_trace_read_ms), trace_span(s_trace_read_ms, now),
+                trace_span(s_trace_rx_ms, now), hidq_pending(cid) ? " (waiting in the report queue)" : "");
+        fclose(f);
+    }
+    s_trace_rx_ms = 0;
+    s_trace_cmd[0] = '\0';
+}
+
+void bt_hid_send_report(uint16_t cid, const uint8_t *report, uint16_t len) {
+    bt_hid_queue_init(); /* a report sent before main() set it up must not be lost */
+    hidq_send(cid, report, len, btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+    trace_report_sent(cid);
+}
+
+void bt_hid_can_send_now(uint16_t cid) {
+    hidq_service(cid, btstack_run_loop_get_time_ms());
+    hidq_arm_timer();
+}
+
+void bt_hid_link_closed(uint16_t cid) {
+    hidq_drop(cid);
+    hidq_arm_timer();
+}
 uint8_t g_host_pending_release_type = 0; // 1 = keyboard, 2 = consumer, 3 = custom
 uint8_t g_host_custom_release_buf[16];
 int     g_host_custom_release_len = 0;
@@ -47,7 +163,7 @@ static void host_crelease_timer_handler(btstack_timer_source_t *ts) {
     s_crelease_cid = 0;
     if (cid != 0) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
-        hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
+        bt_hid_send_report(cid, crelease, sizeof(crelease));
     }
 }
 
@@ -57,7 +173,7 @@ static void host_mrelease_timer_handler(btstack_timer_source_t *ts) {
     s_mrelease_cid = 0;
     if (cid != 0) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+        bt_hid_send_report(cid, mrelease, sizeof(mrelease));
     }
     g_host_mouse_buttons = 0;
 }
@@ -93,17 +209,17 @@ void send_host_release_all(void) {
     /* One report now; a second kind of release goes out on a timer, never back to back */
     if (prev_type == 2) {
         uint8_t crelease[4] = {0xa1, 0x02, 0, 0};
-        hid_device_send_interrupt_message(cid, crelease, sizeof(crelease));
+        bt_hid_send_report(cid, crelease, sizeof(crelease));
     } else if (prev_type == 3 && g_host_custom_release_len > 0) {
-        hid_device_send_interrupt_message(cid, g_host_custom_release_buf, g_host_custom_release_len);
+        bt_hid_send_report(cid, g_host_custom_release_buf, g_host_custom_release_len);
     } else if (prev_type == 4) {
         uint8_t mrelease[6] = {0xa1, 0x03, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, mrelease, sizeof(mrelease));
+        bt_hid_send_report(cid, mrelease, sizeof(mrelease));
         g_host_mouse_buttons = 0;
     } else {
         /* keyboard (type 1), or unknown: keyboard release now, consumer release 20 ms later */
         uint8_t release[10] = {0xa1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
-        hid_device_send_interrupt_message(cid, release, sizeof(release));
+        bt_hid_send_report(cid, release, sizeof(release));
         if (prev_type != 1) {
             s_crelease_cid = cid;
             btstack_run_loop_remove_timer(&g_host_crelease_timer);
@@ -137,7 +253,7 @@ void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel)
         return;
     }
     uint8_t report[6] = {0xa1, 0x03, buttons, (uint8_t)dx, (uint8_t)dy, (uint8_t)wheel};
-    hid_device_send_interrupt_message(cid, report, sizeof(report));
+    bt_hid_send_report(cid, report, sizeof(report));
     if (buttons) g_host_pending_cid = cid;
     g_keys_sent++;
     update_bthid_status();
@@ -181,7 +297,7 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
         host_key_release_timer_handler(NULL);
     }
     uint8_t press[10] = {0xa1, 0x01, modifier, 0, keycode, 0, 0, 0, 0, 0};
-    hid_device_send_interrupt_message(cid, press, sizeof(press));
+    bt_hid_send_report(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 1;
     arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);
@@ -213,7 +329,7 @@ void send_host_consumer_report(uint16_t usage_id) {
         host_key_release_timer_handler(NULL);
     }
     uint8_t press[4] = {0xa1, 0x02, (uint8_t)(usage_id & 0xff), (uint8_t)((usage_id >> 8) & 0xff)};
-    hid_device_send_interrupt_message(cid, press, sizeof(press));
+    bt_hid_send_report(cid, press, sizeof(press));
     g_host_pending_cid = cid;
     g_host_pending_release_type = 2;
     arm_host_key_release_timer(g_host_send_hold_mode ? 10000 : 40);

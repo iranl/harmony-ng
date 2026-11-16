@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <fcntl.h>
+#include <poll.h>
 
 static cJSON *g_remote_map_cache[2] = {NULL, NULL};
 pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -533,14 +535,40 @@ static int g_rf_q_tail = 0;
 static pthread_mutex_t g_rf_q_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_rf_q_cond = PTHREAD_COND_INITIALIZER;
 
+/* Wakes the dispatch worker when an event is queued: the worker sleeps in poll() on the read
+ * end, the enqueue functions write a byte to the other end */
+static int s_wake_pipe[2] = { -1, -1 };
+
+static void rf_queue_wake_init(void) {
+    if (s_wake_pipe[0] >= 0) return;
+    if (pipe(s_wake_pipe) != 0) {
+        s_wake_pipe[0] = s_wake_pipe[1] = -1;
+        return;
+    }
+    for (int i = 0; i < 2; i++) {
+        fcntl(s_wake_pipe[i], F_SETFL, fcntl(s_wake_pipe[i], F_GETFL, 0) | O_NONBLOCK);
+        fcntl(s_wake_pipe[i], F_SETFD, FD_CLOEXEC);
+    }
+}
+
+static void rf_queue_wake(void) {
+    if (s_wake_pipe[1] >= 0) {
+        ssize_t w = write(s_wake_pipe[1], "k", 1);
+        (void)w; /* a full pipe already holds a wake-up */
+    }
+}
+
 void enqueue_remote_button(uint8_t slot, const char *name, const char *action, const char *dev_id) {
     pthread_mutex_lock(&g_rf_q_mutex);
     if (action && strcmp(action, "release") == 0) {
-        /* On button release, purge any pending queued repeats for this button to stop runaway execution */
+        /* On button release, purge the queued hold repeats of this button to stop runaway
+         * execution. The press stays: a quick tap whose release came in before its press was
+         * sent used to lose the press, and the key did nothing. */
         int purged = 0;
         int i = g_rf_q_tail;
         while (i != g_rf_q_head) {
             if (g_rf_queue[i].kind == RF_EV_BUTTON && g_rf_queue[i].slot == slot &&
+                strcmp(g_rf_queue[i].param2, "hold") == 0 &&
                 strcmp(g_rf_queue[i].param1, name ? name : "") == 0) {
                 g_rf_queue[i].kind = RF_EV_NONE;
                 purged++;
@@ -548,7 +576,7 @@ void enqueue_remote_button(uint8_t slot, const char *name, const char *action, c
             i = (i + 1) % RF_QUEUE_SIZE;
         }
         if (purged > 0) {
-            printf("[*] Purged %d queued repeated presses on release of %s\n", purged, name ? name : "");
+            printf("[*] Purged %d queued hold repeats on release of %s\n", purged, name ? name : "");
         }
     }
     int next = (g_rf_q_head + 1) % RF_QUEUE_SIZE;
@@ -564,6 +592,7 @@ void enqueue_remote_button(uint8_t slot, const char *name, const char *action, c
         g_rf_queue[g_rf_q_head].ts_ms = get_monotonic_ms();
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
+        rf_queue_wake();
     } else {
         printf("[-] Warning: RF dispatch queue overflow!\n");
     }
@@ -583,6 +612,7 @@ void enqueue_remote_device_cmd(const char *dev_id, const char *cmd) {
         g_rf_queue[g_rf_q_head].param2[sizeof(g_rf_queue[0].param2) - 1] = '\0';
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
+        rf_queue_wake();
     } else {
         printf("[-] Warning: RF dispatch queue overflow on dev_cmd!\n");
     }
@@ -601,6 +631,7 @@ void enqueue_remote_activity(const char *act_id) {
         g_rf_queue[g_rf_q_head].param2[0] = '\0';
         g_rf_q_head = next;
         pthread_cond_signal(&g_rf_q_cond);
+        rf_queue_wake();
     } else {
         printf("[-] Warning: RF dispatch queue overflow on activity!\n");
     }
@@ -722,6 +753,7 @@ void handle_companion_packet(const uint8_t *pkt, size_t len) {
 
 void *dispatch_worker(void *arg) {
     (void)arg;
+    rf_queue_wake_init();
     while (g_running) {
         check_companion_timeouts();
 
@@ -737,7 +769,15 @@ void *dispatch_worker(void *arg) {
         pthread_mutex_unlock(&g_rf_q_mutex);
 
         if (!has_event) {
-            usleep(20000);
+            /* Sleep until something is queued, 20 ms at most for the companion timeouts. It
+             * was a flat 20 ms sleep, so a key waited up to 20 ms here. */
+            struct pollfd pfd = { .fd = s_wake_pipe[0], .events = POLLIN };
+            if (s_wake_pipe[0] < 0) {
+                usleep(20000);
+            } else if (poll(&pfd, 1, 20) > 0) {
+                char drain[32];
+                while (read(s_wake_pipe[0], drain, sizeof(drain)) > 0) {}
+            }
             continue;
         }
 

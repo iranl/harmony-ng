@@ -2,7 +2,7 @@
 """
 Key events from hub_rf reach hub_daemon on one ordered channel (hub_key_channel.h): a UNIX
 datagram per press, hold and release, read by one thread of hub_daemon. A press or hold older
-than HUB_KEY_STALE_MS (300 ms) is skipped, a release always runs.
+than HUB_KEY_STALE_MS (1000 ms) is skipped, a release always runs.
 
 hub_rf used to send each key event as two HTTP requests (POST /api/ir-send, then
 /api/button-press), give each up after 400 ms and go on. While hub_daemon's main loop was busy
@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hub_harness import HubHarness, REPO_ROOT, BUILD_DIR, MOCK_LIB, SAMPLE_CONFIG  # noqa: E402
 
 PORT = 8938
-STALE_MS = 300
+STALE_MS = 1000
 IR_LINE = b"[DRY-RUN] IR Keycode simulated"
 failed = 0
 

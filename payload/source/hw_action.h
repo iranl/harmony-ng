@@ -13,6 +13,18 @@
 #define BT_DEBUG_FLAG "/data/harmony/bt_remote_debug"
 #endif
 
+/* Set while this thread sends a key that just came from a remote (the key channel from hub_rf):
+ * the gaps between commands (interDeviceDelay, interKeyDelay, holdInterKeyDelay) are for sequences, a live key goes
+ * out at once */
+extern __thread int g_live_remote_key;
+
+/* Key trace (debug logging only): when hub_rf received the key this thread is sending and when
+ * hub_daemon took it from the key channel, both CLOCK_MONOTONIC in ms; 0 = not a key from a
+ * remote. With debug logging on they go to hub_btstack in a "TS" line before the command;
+ * hub_btstack adds its own times and writes one line per key to /tmp/key_trace.log. */
+extern __thread unsigned long long g_key_trace_rx_ms;
+extern __thread unsigned long long g_key_trace_daemon_ms;
+
 static inline int is_debug_log_enabled(void) {
     return (access(DEBUG_LOG_CONFIG, F_OK) == 0 || access(BT_DEBUG_FLAG, F_OK) == 0);
 }
