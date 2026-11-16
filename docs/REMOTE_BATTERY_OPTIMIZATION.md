@@ -4,6 +4,8 @@ The Logitech Harmony touchscreen remotes contain a rechargeable lithium-ion batt
 
 Expected standby battery life on a fully charged battery is **~3 days**. This is achieved through a combination of hardware and software optimizations that reduce power consumption while the remote is not in use.
 
+This guide covers the hardware power states. How the battery percentage is worked out is in [REMOTE.md](REMOTE.md#4-power) (`Battery Level`); when the remote suspends, how it counts the time asleep and when it reports its battery to the Hub is in [REMOTE.md](REMOTE.md#sleep-behavior--expected-run-times).
+
 ---
 
 ## Hardware Power Breakdown (Subsystems)
@@ -28,10 +30,10 @@ minutes, or never. On the cradle, on USB or while charging the remote never susp
 In standard Linux framebuffers, `ioctl(fb_fd, FBIOBLANK, 1)` (`FB_BLANK_NORMAL`) is common. However, the TI DaVinci DM365 `davincifb` driver rejects value `1` with `EINVAL` (`-22`). As a result, the framebuffer remained active in the background, keeping the display controller and DDR memory DMA engine running continuously (~68 mA continuous waste).
 
 ### Fix:
-In `remote_ui.c`:
+In `fb_set_blank()` (`payload/source/remote/remote_power.c`):
 ```c
-/* Pass FB_BLANK_POWERDOWN (4) to actually shut down DaVinci LCD DMA */
-ioctl(fb_fd, FBIOBLANK, 4);
+/* FB_BLANK_POWERDOWN (4) actually shuts down the DaVinci LCD DMA */
+ioctl(g_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
 ```
 This properly cuts power to the display controller, saving ~68.5 mA and extending standby from 12.8h to 40h.
 
@@ -83,12 +85,12 @@ The ST LIS3DH 3-axis accelerometer provides lift-to-wake functionality. In `remo
 
 ## 4. Main Event Loop & Power Watcher Throttling
 
-The remote's UI and input dispatch thread runs an event-driven `select()` loop monitoring `/dev/input/event0` (physical buttons), `/dev/input/event1` (accelerometer motion interrupt), and `/dev/rfspi`.
+The remote's UI and input dispatch thread runs an event-driven `select()` loop monitoring `/dev/input/event0` (physical buttons), `/dev/input/event2` (touchscreen and capacitive keys) and, with the screen off, motion wake on and the remote on battery, `/dev/input/event1` (accelerometer motion interrupt). The radio (`/dev/rfspi`) cannot be polled: a thread of its own reads it with a blocking `read()`.
 - When active: `select()` timeout is **100 ms**.
 - With the screen off: **2 seconds**.
 - Once deep standby is due on battery: **30 seconds** (the remote then normally suspends).
-- Background `power_manager` sleeps for **10 seconds** in standby (reduced from 1s).
-- Battery voltage sampling (`read_remote_battery()`) throttles from every 60s to **300s (5 min)** in standby.
+- The background `power_manager` thread wakes every **0.2 to 0.5 seconds**, with the screen on or off.
+- Battery voltage sampling (`read_remote_battery()`) happens at most **once a second**; with the screen off on battery the power thread asks for it on every round.
 
 ---
 
@@ -96,7 +98,7 @@ The remote's UI and input dispatch thread runs an event-driven `select()` loop m
 
 | Standby State | Duration | Wake Triggers | Active Sensors |
 | :--- | :--- | :--- | :--- |
-| **Docked / Charging** | Unlimited | • **Dock Connect / Disconnect** (cradle ↔ battery transition)<br>• **Any Physical Button**<br>• **A touch or a capacitive key** (when enabled)<br>• **The Hub** over RF | LIS3DH INT1 & TPS6507x PMIC (AC powered, no battery drain) |
+| **Docked / Charging** | Unlimited | • **Dock Connect / Disconnect** (cradle ↔ battery transition)<br>• **Any Physical Button**<br>• **A touch or a capacitive key** (when enabled)<br>• **The Hub** over RF | TPS6507x PMIC (AC powered, no battery drain); motion is not watched while powered |
 | **Light Standby** | From the blank until deep standby starts | • **Motion / Pickup** (LIS3DH INT1 hardware IRQ)<br>• **Any Physical Button**<br>• **A touch or a capacitive key** (when enabled)<br>• **The Hub** over RF | LIS3DH INT1 (Hardware IRQ only, 0 I2C reads) |
 | **Deep Standby** | Suspend to RAM on battery (at once by default) | • **Any Physical Button** (Power, Activities, Devices, OK, Vol, etc.)<br>• **Placing on Dock** (cradle connect)<br>• **The hourly MSP430 alarm** (reports, then suspends again) | None (Hardware IRQ only) |
 

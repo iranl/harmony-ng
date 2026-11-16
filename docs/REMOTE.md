@@ -16,14 +16,14 @@ boot
 ```
 
 ### Serial Bootstrap (`remote/bootstrap_serial.py`)
-To push Dropbear, generate SSH keys, enable USB Ethernet, and install the recovery boot script directly over serial:
+To push Dropbear, generate SSH keys, enable USB Ethernet, and install the boot script directly over serial (`--baud` sets the speed, default 115200):
 ```sh
 pip install pyserial
 python remote/bootstrap_serial.py --port COM3 --ssh-pubkey ~/.ssh/harmony_owner_ed25519.pub
 ```
 This utility:
 1. Starts `/usr/bin/usbeth start` on the remote.
-2. Streams base64-encoded static binaries (`dropbear`, `dropbearkey`, `scp`, `remote_sync`) to `/data/`.
+2. Streams base64-encoded static binaries (the Dropbear multi-call binary, which serves as `dropbear`, `dropbearkey` and `scp`, and `remote_sync`) to `/data/`.
 3. Generates Dropbear host keys in `/etc/dropbear/`.
 4. Installs your SSH public key into `/home/root/.ssh/authorized_keys`. Without `--ssh-pubkey` it takes the owner key `setup_remote.py` uses (the newest `~/.ssh/harmony_owner_*.pub`, created when there is none): the stock root password is not known, so without a key nobody could log in.
 5. Installs the boot script `/etc/init.d/rcS.local` (`remote/rcS.local`).
@@ -45,8 +45,9 @@ Architecture: ARMv5TE little-endian (`armv5tejl`, uClibc-0.9.30.1).
   ```
 - **SCP File Transfer** (requires legacy `-O` flag):
   ```sh
-  scp -O file.bin remote:/data/
+  scp -O -i ~/.ssh/harmony_owner_ed25519 file.bin root@192.168.2.1:/data/
   ```
+  With the `harmony-remote` entry for `~/.ssh/config` that `setup_remote.py` prints (and writes when it is run with `--ssh-config`), `scp -O file.bin harmony-remote:/data/` works too.
 
 ---
 
@@ -69,15 +70,23 @@ This script uploads, to `/data/`:
 - the scripts `init.sh`, `remote_watchdog.sh`, `safe_reboot.sh`, `factory_reset.sh`
 - the themes, and the boot script `remote/rcS.local` as `/etc/init.d/rcS.local`
 
+A file is uploaded only when its MD5 differs from the copy on the remote (the themes are always unpacked again). `remote_ui` keeps running during the upload; at the end the tool stops and starts the runtime (`/data/init.sh stop`, then `start`). It reboots the remote instead with `--reboot`, or when another process still holds the hardware watchdog. If a file fails to upload, nothing is restarted.
+
+Other options:
+- `--user`: SSH user (default `root`). Without `--key` the tool takes `$SSH_KEY`, else the newest `~/.ssh/harmony_owner_*` key.
+- `--no-sync`: do not create `/data/force_sync`. Without it, `remote_ui` asks the Hub for a full config push at its next start.
+- `--no-screen`: writes `no_screen=1` to `/data/remote_settings.conf` (a remote with a broken screen).
+- `--factory-reset`: returns the remote to the stock firmware after you type `RESET`; nothing is deployed.
+
 ---
 
 ## Files Named `elite_*` (Older Builds)
 Builds before the elite -> remote rename used `elite_*` names. Nothing has to be done by hand:
 
-- On the remote, `remote_ui` renames them at start (`init.sh start` and `init.sh migrate` do the same): `/data/elite_ui`, `elite_sync`, `elite_watchdog.sh`, `elite_settings.conf`, `elite_ui.conf`, `elite_rf_config.json`, `elite_activity_usage.conf`, `elite_ui.bak` and `elite_conf_p/` become `remote_*`. A file that already exists under the new name is kept. The old binary, sync and watchdog names stay as symlinks, so an older supervisor or a rollback still finds them.
+- On the remote, `remote_ui` renames them at start (`init.sh start` and `init.sh migrate` do the same): `/data/elite_ui`, `elite_sync`, `elite_watchdog.sh`, `elite_settings.conf`, `elite_ui.conf`, `elite_rf_config.json`, `elite_activity_usage.conf`, `elite_ui.bak` and `elite_conf_p/` become `remote_*`. A settings or data file that already exists under the new name is kept; a regular file `/data/elite_ui` or `/data/elite_sync` (put there by an older installer) replaces the new binary. The old file names stay as symlinks to the new ones, so an older supervisor or a rollback still finds them.
 - An RF update from a remote on an older build works: the package also carries the binary as `elite_ui`, the name older installers look for.
 - `deploy_remote.py` renames the files before it uploads.
-- On the Hub, `hub_rf` renames `elite_slot<N>_version.json`, `elite_slot<N>_config.json` and a staged `elite_ui.ota.gz` / `elite_ui.version`. The per-remote MQTT keys (`eliteRemoteTopic` / `eliteRemoteEvents`, and `remoteTopic` / `remoteEvents`) are ignored and removed at the next MQTT save: button events always go to `<base>/remote/<slot>/button` (API.md 8.1). The button event source `elite_rf` is still accepted next to `remote_rf`.
+- On the Hub, `hub_rf` renames `elite_slot<N>_version.json`, `elite_slot<N>_config.json` and `elite_ui.version`, and deletes an update image left on flash under either name (`elite_ui.ota.gz`, `remote_ui.ota.gz` in `/data/harmony` and `/cache`): images are staged in `/tmp` only. The per-remote MQTT keys (`eliteRemoteTopic` / `eliteRemoteEvents`, and `remoteTopic` / `remoteEvents`) are ignored and removed at the next MQTT save: button events always go to `<base>/remote/<slot>/button` (API.md 8.1). Button events of an RF remote carry the source `remote_rf`; the Hub no longer sends or checks the older `elite_rf`.
 - The tools still accept `--target elite` and `compile_all.sh elite` as aliases of `remote`.
 
 ---
@@ -95,6 +104,52 @@ back from a build that crashes or hangs:
 - **Hardware factory reset**: hold `Menu` and `Off` for about 20 s (FIRST_INSTALL_REMOTE.md,
   section 7). It removes the HarmonyNG files and returns the remote to stock; root it again with
   `setup_remote.py`.
+
+What the runtime does by itself: the supervisor in `/data/init.sh` starts `remote_ui` again when it
+ends. When `/data/remote_ui` is missing, or failed 3 times in a row within a minute of its start,
+the supervisor starts the previous version instead, which an RF update keeps as
+`/data/remote_ui.bak`. After a failed start it waits 1 s (the first three times), then 5 s, 30 s
+and from then on 300 s before the next one.
+
+---
+
+## Runtime Reference (`remote_ui`, Supervisor, Files)
+- **Supervisor**: `/data/init.sh start | stop | restart | status | migrate`. `start` (run by the boot
+  script) renames files of older builds, makes the stock UI binaries non-executable, sets the kernel
+  to reboot 3 s after a panic, an oops or a task hung for 30 s, starts USB Ethernet and Dropbear on
+  USB power, and runs `remote_ui` in a loop until `/tmp/remote_stop` exists (`stop` creates it).
+- **`remote_ui` options**: `--no-touch`, `--no-gyro`, `--no-cap` (capacitive keys off), `--blank`
+  (start with the screen off), `--pair` (start pairing), `--no-screen`. The supervisor passes none.
+- **Signals**: `SIGUSR1` wakes the screen, `SIGUSR2` blanks it and suspends at once (on battery).
+- **Trigger files** (checked in every round of the main loop, then deleted): `/tmp/trigger_wake`
+  wakes the screen, `/tmp/trigger_rf_pair` starts pairing, `/tmp/trigger_rf_unpair` unpairs.
+  `/data/force_sync` makes the next start of `remote_ui` ask the Hub for a full config push.
+- **Hardware watchdog**: `remote_ui` opens `/dev/watchdog` and writes to it every 5 s, from the
+  main loop and the power thread. The driver resets the remote after 10 s without a write and cannot
+  be stopped once armed, so `remote_ui` must not stay stopped for longer (the deploy tool stops and
+  starts it in one command). It closes the device before a suspend and opens it again after.
+- **Logs**: `/tmp/remote_ui.log` (output of `remote_ui`, moved to `/tmp/remote_ui.log.1` at 512 KB),
+  `/tmp/remote-init.log` (supervisor), `/tmp/power_debug.log` (with Debug Logging on),
+  `/data/crash.log` (written by the crash handler). When `remote_ui` ends with an error the
+  supervisor adds a line to `/tmp/harmony_crash.log` and saves the kernel log as
+  `/tmp/last_kmsg.log`; with Debug Logging on both go to `/data` instead. Everything in `/tmp` is
+  lost at a reboot (see the flight recorder below).
+- **Files in `/data`**: `remote_settings.conf` (the settings, one `key=value` per line: `touch`,
+  `physical_nav`, `cap_buttons`, `touch_sens`, `gyro`, `gyro_rate`, `deep_standby` (`-1` at once,
+  `0` never, or 15, 30, 60, 120, 240 minutes), `btn_backlight`, `night_start`, `night_end`,
+  `timeout`, `brightness`, `no_screen`, `log_level`, `debug_logging`, `confirm_act`, `slot`,
+  `language`, `theme`, `layout` (`theme`, `list`, `grid`, `carousel`), `order` (`yours`, `used`),
+  `tz`), `remote_rf_config.json` (the config the Hub pushed), `remote_activity_usage.conf` (for
+  the Most Used order), `debug_logging.conf` (exists while Debug Logging is on), `themes/<name>/`
+  and `assets/custom/` (icons the Hub sent).
+- **Update package** (`remote_ui.ota.gz`, built by `build/compile_all.sh remote`): a gzipped tar
+  with `remote_ui` (also as `elite_ui` for installers of older builds), `remote_sync`, `rcS.local`,
+  `init.sh`, `remote_watchdog.sh`, `factory_reset.sh`, `safe_reboot.sh` and `themes/`. After an RF
+  transfer the remote checks the SHA-256 digest, unpacks to `/tmp/remote_ota_pkg`, checks that
+  `remote_ui` is an ELF file, writes every file as `<target>.new` next to its target, replaces
+  the packaged themes, then renames each file into place and keeps the previous one as
+  `<target>.bak`. It then reboots on the cradle or USB, and restarts `remote_ui` in place on
+  battery.
 
 ---
 
@@ -154,7 +209,7 @@ rm /tmp/remote_frame_timing        # stop
 Each line is `ms screen theme layout render_us present_us flipped decodes scales`:
 - `ms`: monotonic time;
 - `screen`: what the frame shows (`activities`, `activity`, `devices`, `settings/N`, `menu`, `help`, …);
-- `theme`, `layout`: the theme's name and the home layout (`list` or `grid`);
+- `theme`, `layout`: the theme's name and the home layout (`list`, `grid` or `carousel`);
 - `render_us`: time to draw the frame;
 - `present_us`: time to show it;
 - `flipped`: `1` when the frame was shown by page flipping, `0` when it was copied into every framebuffer page;
@@ -218,10 +273,10 @@ Live hardware telemetry was captured via battery ADC moving-average tracking (`/
 3. **Hardware Interrupt-Driven Motion Wake (LIS3DH INT1)**:
    - Configures LIS3DH hardware motion threshold (`int1_threshold=5`, `int1_duration=1`).
    - Motion assertions trigger Linux GPIO IRQ 108 directly on `/dev/input/event1`.
-   - The main loop watches `/dev/input/event1` next to the buttons whenever the screen is off, Tilt / Pickup Wake is on and the remote is off the cradle.
+   - The main loop watches `/dev/input/event1` next to the buttons whenever the screen is off, Tilt / Pickup Wake is on and the remote runs on battery (on the cradle, on USB or while charging, motion does not wake it).
    - Eliminates 100% of I2C bus traffic while stationary (0 I2C reads/hour, saving ~4.0 mA).
 4. **No processor frequency change**: `remote_ui` used to drop the processor to 96 MHz while the screen was off and go back to 456 MHz at the wake. It no longer does. The stock kernel's I2C driver puts its controller in reset on every frequency change without waiting for a running transfer, on the bus shared by the keypad controller, the PMIC, the touch controller and the accelerometer; two remotes stopped dead at the first blank after a wake from suspend, until their battery was pulled. The stock firmware never changes the frequency. The standby figures in this section were measured with the 96 MHz step, so a remote that stays awake with the screen off (deep standby later than "at once", or never) now draws more than they say; asleep it draws the same.
-5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout is 100 ms with the screen on, 2 s with the screen off, and 30 s once deep standby is due on battery (the remote then normally suspends). Background `power_manager` sleeps for 10 seconds in standby, and battery ADC sampling throttles to every 300s (5 min).
+5. **Event Loop & Watcher Throttling**: The main `select()` event loop timeout is 100 ms with the screen on, 2 s with the screen off, and 30 s once deep standby is due on battery (the remote then normally suspends). The background `power_manager` thread wakes every 0.2 to 0.5 s, with the screen on or off, and the battery voltage is read at most once a second.
 
 ---
 
@@ -235,16 +290,16 @@ The remote can be operated **100% via physical buttons**, allowing full control 
 *These buttons never transmit over RF to the Hub; they exclusively control UI navigation.*
 
 ### Bottom Navigation Row (Dimmer & Smart Home Buttons)
-With touch enabled, these keys go to the Hub like every other button, except in the **SETTINGS** and **PAIRING** views. With touch disabled in Settings (`touch=0`), they drive the screen everywhere, and a NAV indicator shows in the status bar:
+With touch enabled, these keys go to the Hub like every other button, except in the **SETTINGS** and **PAIRING** views. With touch disabled in Settings (`touch=0`), or with **Physical Button Nav** on (Settings, TOUCH; touch stays on and the home layout is locked to the list), they drive the screen everywhere. A NAV indicator shows in the status bar while touch is disabled:
 
 | Button Name | Linux Input Code | Function when driving the screen |
 | :--- | :---: | :--- |
 | **Rocker Up (Dimmer +)** | `78` (`KEY_KPPLUS`) | Cursor Up / Previous card or item |
 | **Rocker Down (Dimmer -)** | `74` (`KEY_KPMINUS`) | Cursor Down / Next card or item |
 | **Light On** | `148` (`KEY_PROG1`) | Select / OK / Execute / Confirm switch |
-| **Light Off** | `149` (`KEY_PROG2`) | Tab Left / Previous Category |
-| **Plug On** | `202` (`KEY_PROG3`) | Back / Cancel / Dismiss confirmation |
-| **Plug Off** | `203` (`KEY_PROG4`) | Tab Right / Next Category |
+| **Light Off** | `149` (`KEY_PROG2`) | Previous tab; inside a Settings page or a device, one level up; cancels a confirmation |
+| **Plug On** | `202` (`KEY_PROG3`) | Same as Light Off |
+| **Plug Off** | `203` (`KEY_PROG4`) | Next tab; cancels a confirmation |
 | **Back Key** | `158` (`KEY_BACK`) | Back / Cancel / Dismiss confirmation |
 
 ---
@@ -290,14 +345,14 @@ The remote's settings menu has six categories (`payload/source/remote/remote_ui_
 Pages have no Back item: swipe left to right, or press `Back`, to return to the categories. From the categories the same goes back to the home screen. A change made on the remote is sent to the Hub as a settings backup while the RF link is up (`RF_MSG_REMOTE_CONFIG_BACKUP`, kept in `/data/harmony/remote_slot<slot>_config.json`).
 
 ### 1. `CONFIG`
-- **`Confirm Switch`**: `[ PROMPT ]` or `[ INSTANT ]`. With `PROMPT`, an activity change or power off asks for confirmation first.
+- **`Confirm Switch`**: `[ PROMPT ]` or `[ INSTANT ]`. With `PROMPT`, an activity change or power off asks for confirmation first: the remote shows a notice for 3 s ("Press OK or tap to confirm" after a tap on the list, "Press again or OK to confirm" after a start or stop key), and a second tap or press, or `OK`, within 4 s starts the switch.
 - **`Language`**: English, Deutsch, Francais, Nederlands, Espanol, Italiano.
 - **`Sync Config from Hub`**: shows the config version (`[NEW]` when the Hub has a newer one) and asks the Hub for a full config push.
 - **`Activity Order`**: `[ YOURS ]` (the Hub's order) or `[ MOST USED ]`.
 
 ### 2. `DISPLAY`
 - **`Display Brightness`**: `[ LVL 1 ]` to `[ LVL 5 ]`. Adjusts LCD backlight PWM duty cycle.
-- **`Display Timeout`**: `[ 10s ]`, `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 120s ]`. Screen idle blanking timer.
+- **`Display Timeout`**: `[ 10s ]`, `[ 15s ]`, `[ 30s ]`, `[ 60s ]`, `[ 120s ]`. Screen idle blanking timer. The Hub can set any value from 5 to 600 s.
 - **`Button Backlight`**: `[ OFF ]`, `[ ON ]`, `[ NIGHT ]`.
   - `OFF`: Keypad white LEDs disabled.
   - `ON`: Keypad LEDs illuminated while screen is awake.
@@ -320,7 +375,7 @@ Pages have no Back item: swipe left to right, or press `Back`, to return to the 
 - **`Battery Level`**: `[ XX% XXXXmV ]`.
   - The percentage (`remote_battery.c`): the voltage maps to a curve through the stock firmware's points for this remote (3.55 V shutdown = 0 %, 3.70 V = 30 %, 3.85 V = 75 %, 3.90 V = 90 %, 3.95 V and up = 100 %, linear between them).
 - **`Debug Logging`**: `[ ON ]` or `[ OFF ]`. Verbose power and RF logging to `/tmp/power_debug.log` (RAM, lost at reboot). The Hub can set it in its settings push; the remote does not report it back.
-- **`Suspend to RAM`**: `[ SLEEP ]`, after a confirmation: suspend now.
+- **`Suspend to RAM`**: `[ SLEEP ]` opens a page that counts down 10 s and then suspends; its two buttons cancel or suspend at once. On USB power it refuses ("Unplug USB first!"), on the cradle it only blanks the screen, and it does not suspend while a sync, an update, a pairing or an activity switch runs.
 
 ### 5. `SYSTEM`
 - **`RF Pairing & Link`**: `[ LINKED ]` or `[ OPEN ]`.
@@ -334,6 +389,7 @@ USB Ethernet and SSH need no setting: they start when the remote boots on USB po
 hardware reset on battery switches the remote off).
 
 ### 6. `FIRMWARE UPDATE`
+The page shows the remote's version (`Remote SW`), whether the Hub offers a newer one (`Hub Image: <version> [READY]` or `[UP TO DATE]`) and the battery level.
 - **`Pull Firmware OTA from Hub`**: asks the Hub to start an RF update (`RF_MSG_OTA_REQUEST`); refused below 40 % battery unless charging.
 - **`Check for Updates`**: sends a version report and a sync query, so the Hub offers a waiting config or firmware.
 
@@ -403,6 +459,8 @@ Content-Type: application/json
 }
 ```
 
+The POST replaces the stored settings; it does not merge. A field that is left out takes its default: `touchEnabled`, `confirmActivity`, `usbEth`, `debugLogging`, `noScreen` and `physicalNavEnabled` off, `gyroEnabled` and `capButtonsEnabled` on, `brightness` 2, `timeout` 10, `touchSensitivity` 2, `gyroRate` 50, `btnBacklight` 2, `nightStart` 22, `nightEnd` 7, `language` `en`. So send the whole object, as read with the GET. Besides the fields shown, the object carries `language` (`en`, `de`, `fr`, `nl`, `es`, `it`), `theme`, `layout`, `physicalNavEnabled`, `noScreen` and `debugLogging`, and each field also under a snake_case name (`touch`, `cap_buttons`, `gyro_rate`, ...), which the POST accepts as well. The answer is `saved_and_pushed` even when the remote did not acknowledge the push (asleep or out of range); the Hub then keeps a pending note and the remote gets the settings with its next config push.
+
 ### Bidirectional RF Protocol Synchronization
 The Hub and the remote keep the settings in step with two frames (byte layouts in
 `HARMONY_RF_PROTOCOL.md`, section 5.2; the two layouts differ):
@@ -412,7 +470,7 @@ The Hub and the remote keep the settings in step with two frames (byte layouts i
    - Requires ACK from Remote (`RF_FLAG_ACK_REQ`).
    - The Remote applies all display, timeout, and sensor settings immediately, updates `/data/remote_settings.conf`, and repaints the screen.
 2. **Remote -> Hub Backup (`RF_MSG_REMOTE_CONFIG_BACKUP`, `0x19`, 23 bytes)**:
-   - Sent whenever settings are modified in the remote's on-screen menu, and when the Hub asks for them (`RF_MSG_CONFIG_PULL_REQ`, `/api/rf/pull-config`).
+   - Sent whenever settings are modified in the remote's on-screen menu, after the remote applied a settings push, and when the Hub asks for them (`RF_MSG_CONFIG_PULL_REQ`, `/api/rf/pull-config`).
    - The Hub receives the frame and persists the configuration to `/data/harmony/remote_slot<slot>_config.json`.
 
 ---
