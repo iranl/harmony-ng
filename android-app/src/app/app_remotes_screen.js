@@ -513,8 +513,9 @@ export class HarmonyAppRemotesScreen extends HarmonyAppRemotesB25 {
     const slot = this.selectedRemoteSlot || 1;
     this.remoteMapLoadError = null;
     try {
-      const m = await this.client.getRFMapping(slot);
-      if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error('unexpected reply');
+      const reply = await this.client.getRFMapping(slot);
+      if (!reply || typeof reply !== 'object' || Array.isArray(reply)) throw new Error('unexpected reply');
+      const m = { ...reply }; // a copy: the reply object itself is left as the client returned it
       delete m.ok; delete m.mappings; // the Hub's reply when it has no map yet
       if (!m.activities) m.activities = {};
       if (!m.devices) m.devices = {};
