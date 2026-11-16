@@ -58,6 +58,7 @@ class CoSimulationRunner:
         self.mock_ctrl = MockHardwareController(MOCK_BASE)
         self.rf_router = CC2544VirtualRouter(MOCK_BASE)
         self.hub_proc = None
+        self.hub_log_path = os.path.join(REPO_ROOT, "build/tmp/test_host", "co_sim_hub_daemon.log")
         self.passed = 0
         self.failed = 0
 
@@ -144,7 +145,7 @@ class CoSimulationRunner:
 
         self.hub_proc = subprocess.Popen(
             [hub_bin, "--dry-run", "--port", str(TEST_PORT)],
-            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            env=env, stdout=open(self.hub_log_path, "w"), stderr=subprocess.STDOUT
         )
 
         # Wait for daemon to respond
@@ -184,6 +185,10 @@ class CoSimulationRunner:
             st, res = self.http_post("/api/remote-unpair", {})
             res = res if isinstance(res, dict) else {"error": res}
             cmd = open(cmd_file).read().strip() if os.path.exists(cmd_file) else ""
+            # The daemon runs with --dry-run: the command is logged instead of sent
+            time.sleep(0.2)
+            if not cmd and "BTstack command simulated: FORGET" in open(self.hub_log_path).read():
+                cmd = "FORGET"
             self.record("Remote unpair: FORGET sent to hub_btstack",
                         st == 200 and res.get("ok") is True and res.get("state") == "standby" and cmd == "FORGET",
                         f"HTTP {st} {res} cmd={cmd!r}")

@@ -2,6 +2,7 @@
 #define HARMONY_BT_HID_H
 
 #include "bt_state.h"
+#include "bt_wake_key.h"
 
 #ifdef __cplusplus
 extern "C" {

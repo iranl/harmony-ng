@@ -237,9 +237,34 @@ void send_host_release_all(void) {
     }
 }
 
+/* The target host's link is down: keep the key (when there is one) for when it opens, and start a
+ * reconnect. A target that could not be resolved gets neither: its keys are dropped. */
+static void host_link_down(const char *wake_key) {
+    if (g_active_host_idx == BT_HOST_IDX_NONE) {
+        hub_bt_log_debug("Host key dropped: the target host is unknown");
+        return;
+    }
+    if (wake_key) wake_key_keep(wake_key);
+    if (!g_host_reconnect_active) {
+        bd_addr_t tgt;
+        if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
+            start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
+        } else if (get_pinned_host_target(tgt)) {
+            start_host_reconnect(tgt, 20);
+        } else {
+            try_connect_host();
+        }
+    }
+}
+
+/* A mouse button held with no later mouse report (MOUSE_DOWN, then the client went away) is
+ * released after this long, like a held key; every mouse report starts the time again */
+#define HOST_MOUSE_HOLD_MS 10000
+
 void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
     uint16_t cid = get_target_host_hid_cid();
     if (cid == 0) {
+        if (g_active_host_idx == BT_HOST_IDX_NONE) return;
         if (!g_host_reconnect_active) {
             bd_addr_t tgt;
             if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
@@ -257,6 +282,13 @@ void send_host_mouse_report(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel)
     if (buttons) g_host_pending_cid = cid;
     g_keys_sent++;
     update_bthid_status();
+    btstack_run_loop_remove_timer(&g_host_mrelease_timer);
+    if (buttons) {
+        s_mrelease_cid = cid;
+        btstack_run_loop_set_timer_handler(&g_host_mrelease_timer, host_mrelease_timer_handler);
+        btstack_run_loop_set_timer(&g_host_mrelease_timer, HOST_MOUSE_HOLD_MS);
+        btstack_run_loop_add_timer(&g_host_mrelease_timer);
+    }
 }
 
 void send_host_mouse_click(uint8_t button) {
@@ -276,20 +308,9 @@ void send_host_mouse_click(uint8_t button) {
 void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
     uint16_t cid = get_target_host_hid_cid();
     if (cid == 0) {
-        if (!g_pending_wake_btn[0]) {
-            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "KEY %02x %02x", modifier, keycode);
-            g_pending_wake_time = time(NULL);
-        }
-        if (!g_host_reconnect_active) {
-            bd_addr_t tgt;
-            if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
-                start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
-            } else if (get_pinned_host_target(tgt)) {
-                start_host_reconnect(tgt, 20);
-            } else {
-                try_connect_host();
-            }
-        }
+        char wake[24];
+        snprintf(wake, sizeof(wake), "KEY %02x %02x", modifier, keycode);
+        host_link_down(wake);
         return;
     }
     if (g_host_pending_release_type != 0) {
@@ -308,20 +329,9 @@ void send_host_keyboard_report(uint8_t modifier, uint8_t keycode) {
 void send_host_consumer_report(uint16_t usage_id) {
     uint16_t cid = get_target_host_hid_cid();
     if (cid == 0) {
-        if (!g_pending_wake_btn[0]) {
-            snprintf(g_pending_wake_btn, sizeof(g_pending_wake_btn), "CONSUMER %04x", usage_id);
-            g_pending_wake_time = time(NULL);
-        }
-        if (!g_host_reconnect_active) {
-            bd_addr_t tgt;
-            if (g_active_host_idx >= 0 && g_active_host_idx < MAX_HOST_CONNS && !is_null_bd_addr(g_hosts[g_active_host_idx].addr)) {
-                start_host_reconnect(g_hosts[g_active_host_idx].addr, 20);
-            } else if (get_pinned_host_target(tgt)) {
-                start_host_reconnect(tgt, 20);
-            } else {
-                try_connect_host();
-            }
-        }
+        char wake[24];
+        snprintf(wake, sizeof(wake), "CONSUMER %04x", usage_id);
+        host_link_down(wake);
         return;
     }
     if (g_host_pending_release_type != 0) {
@@ -486,38 +496,95 @@ bool send_host_named_key_ex(const char *name, int hold_mode) {
     return ret;
 }
 
+/* Text is typed from a run loop timer, one character every HOST_TEXT_CHAR_MS, each on the host
+ * that was the target when the text arrived. It used to be typed in one loop with a 25 ms sleep
+ * per character: the single hub_btstack thread then served no HCI event, no timer and no other
+ * command until the whole text was typed (about 25 s for 1000 characters). */
+#define HOST_TEXT_CHAR_MS 25
+#define HOST_TEXT_MAX 1024
+static btstack_timer_source_t s_text_timer;
+static char s_text_chars[HOST_TEXT_MAX];
+static int8_t s_text_host[HOST_TEXT_MAX];
+static size_t s_text_len = 0, s_text_pos = 0;
+
+static bool text_char_key(unsigned char c, uint8_t *mod, uint8_t *keycode) {
+    *mod = 0;
+    *keycode = 0;
+    if (c >= 'a' && c <= 'z') { *keycode = 0x04 + (c - 'a'); }
+    else if (c >= 'A' && c <= 'Z') { *mod = 0x02; *keycode = 0x04 + (c - 'A'); }
+    else if (c >= '1' && c <= '9') { *keycode = 0x1E + (c - '1'); }
+    else if (c == '0') { *keycode = 0x27; }
+    else if (c == ' ') { *keycode = 0x2c; }
+    else if (c == '\n' || c == '\r') { *keycode = 0x28; }
+    else if (c == '\t') { *keycode = 0x2b; }
+    else if (c == '-') { *keycode = 0x2d; }
+    else if (c == '_') { *mod = 0x02; *keycode = 0x2d; }
+    else if (c == '=') { *keycode = 0x2e; }
+    else if (c == '+') { *mod = 0x02; *keycode = 0x2e; }
+    else if (c == '.') { *keycode = 0x37; }
+    else if (c == '/') { *keycode = 0x38; }
+    else if (c == ':') { *mod = 0x02; *keycode = 0x33; }
+    else if (c == ';') { *keycode = 0x33; }
+    else if (c == ',') { *keycode = 0x36; }
+    else if (c == '<') { *mod = 0x02; *keycode = 0x36; }
+    else if (c == '>') { *mod = 0x02; *keycode = 0x37; }
+    else if (c == '?') { *mod = 0x02; *keycode = 0x38; }
+    else if (c == '!') { *mod = 0x02; *keycode = 0x1e; }
+    else if (c == '@') { *mod = 0x02; *keycode = 0x1f; }
+    else if (c == '#') { *mod = 0x02; *keycode = 0x20; }
+    else if (c == '$') { *mod = 0x02; *keycode = 0x21; }
+    else if (c == '%') { *mod = 0x02; *keycode = 0x22; }
+    return *keycode != 0;
+}
+
+/* Types the next character that has a key; true when one was sent */
+static bool text_type_next(void) {
+    while (s_text_pos < s_text_len) {
+        uint8_t mod, keycode;
+        unsigned char c = (unsigned char)s_text_chars[s_text_pos];
+        int host = s_text_host[s_text_pos];
+        s_text_pos++;
+        if (!text_char_key(c, &mod, &keycode)) continue;
+        /* the host of this text, not whatever host a later TARGET line chose */
+        int saved = g_active_host_idx;
+        g_active_host_idx = host;
+        bool up = get_target_host_hid_cid() != 0;
+        if (up) send_host_keyboard_report(mod, keycode);
+        g_active_host_idx = saved;
+        if (up) return true;
+    }
+    return false;
+}
+
+static void text_timer_handler(btstack_timer_source_t *ts) {
+    UNUSED(ts);
+    if (text_type_next() && s_text_pos < s_text_len) {
+        btstack_run_loop_set_timer_handler(&s_text_timer, text_timer_handler);
+        btstack_run_loop_set_timer(&s_text_timer, HOST_TEXT_CHAR_MS);
+        btstack_run_loop_add_timer(&s_text_timer);
+        return;
+    }
+    s_text_len = s_text_pos = 0;
+}
+
 void send_host_text(const char *text) {
     if (!text || get_target_host_hid_cid() == 0) return;
-    for (size_t i = 0; text[i]; i++) {
-        uint8_t mod = 0, keycode = 0;
-        unsigned char c = (unsigned char)text[i];
-        if (c >= 'a' && c <= 'z') { keycode = 0x04 + (c - 'a'); }
-        else if (c >= 'A' && c <= 'Z') { mod = 0x02; keycode = 0x04 + (c - 'A'); }
-        else if (c >= '1' && c <= '9') { keycode = 0x1E + (c - '1'); }
-        else if (c == '0') { keycode = 0x27; }
-        else if (c == ' ') { keycode = 0x2c; }
-        else if (c == '\n' || c == '\r') { keycode = 0x28; }
-        else if (c == '\t') { keycode = 0x2b; }
-        else if (c == '-') { keycode = 0x2d; }
-        else if (c == '_') { mod = 0x02; keycode = 0x2d; }
-        else if (c == '=') { keycode = 0x2e; }
-        else if (c == '+') { mod = 0x02; keycode = 0x2e; }
-        else if (c == '.') { keycode = 0x37; }
-        else if (c == '/') { keycode = 0x38; }
-        else if (c == ':') { mod = 0x02; keycode = 0x33; }
-        else if (c == ';') { keycode = 0x33; }
-        else if (c == ',') { keycode = 0x36; }
-        else if (c == '<') { mod = 0x02; keycode = 0x36; }
-        else if (c == '>') { mod = 0x02; keycode = 0x37; }
-        else if (c == '?') { mod = 0x02; keycode = 0x38; }
-        else if (c == '!') { mod = 0x02; keycode = 0x1e; }
-        else if (c == '@') { mod = 0x02; keycode = 0x1f; }
-        else if (c == '#') { mod = 0x02; keycode = 0x20; }
-        else if (c == '$') { mod = 0x02; keycode = 0x21; }
-        else if (c == '%') { mod = 0x02; keycode = 0x22; }
-        if (keycode) {
-            send_host_keyboard_report(mod, keycode);
-            usleep(25000);
-        }
+    bool busy = s_text_pos < s_text_len;
+    if (!busy) s_text_len = s_text_pos = 0;
+    else if (s_text_pos > 0) {
+        /* move what is still to be typed to the front: the characters already typed used to
+         * keep their room, so a second text was cut although the queue was nearly empty */
+        memmove(s_text_chars, s_text_chars + s_text_pos, s_text_len - s_text_pos);
+        memmove(s_text_host, s_text_host + s_text_pos, s_text_len - s_text_pos);
+        s_text_len -= s_text_pos;
+        s_text_pos = 0;
     }
+    size_t n = strlen(text), added = 0;
+    while (added < n && s_text_len < HOST_TEXT_MAX) {
+        s_text_chars[s_text_len] = text[added++];
+        s_text_host[s_text_len++] = (int8_t)g_active_host_idx;
+    }
+    if (added < n) hub_bt_log_debug("Host text: too much text waiting to be typed, the rest is dropped");
+    if (busy) return; /* the timer types it after the text before */
+    text_timer_handler(&s_text_timer);
 }

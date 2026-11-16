@@ -321,7 +321,8 @@ paths:
             application/json:
               example:
                 ok: true
-                bt_running: true
+                bt_enabled: true
+                bt_running: false
 
   /api/logs:
     get:

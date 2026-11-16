@@ -150,14 +150,38 @@ void hub_bt_log_debug(const char *msg) {
     }
 }
 
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* "XX:XX:XX:XX:XX:XX" exactly (two hex digits per byte), then the end of the string or white
+ * space. sscanf("%02x:...") also took one-digit bytes, leading blanks and any text after the
+ * sixth byte, so a mistyped address could still name a host. */
 int parse_bd_addr(const char *str, bd_addr_t addr) {
-    int b[6];
-    if (sscanf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
-               &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) == 6) {
-        for (int i = 0; i < 6; i++) addr[i] = (uint8_t)b[i];
-        return 1;
+    if (!str) return 0;
+    for (int i = 0; i < 17; i++) {
+        if (i % 3 == 2) {
+            if (str[i] != ':') return 0;
+        } else if (hex_nibble(str[i]) < 0) {
+            return 0;
+        }
     }
-    return 0;
+    if (str[17] != '\0' && !isspace((unsigned char)str[17])) return 0;
+    for (int i = 0; i < 6; i++) addr[i] = (uint8_t)(hex_nibble(str[i * 3]) << 4 | hex_nibble(str[i * 3 + 1]));
+    return 1;
+}
+
+/* BTstack's file store appends a record for every store_tag(), also for the value it already
+ * holds, and never compacts the file: store a tag only when its value changes */
+int bt_tlv_store_if_changed(uint32_t tag, const uint8_t *value, uint32_t len) {
+    if (!tlv_impl || !value || len == 0 || len > 64) return -1;
+    uint8_t cur[64];
+    int have = tlv_impl->get_tag(&tlv_context, tag, cur, sizeof(cur));
+    if (have == (int)len && memcmp(cur, value, len) == 0) return 0;
+    return tlv_impl->store_tag(&tlv_context, tag, value, len);
 }
 
 int is_null_bd_addr(const bd_addr_t addr) {

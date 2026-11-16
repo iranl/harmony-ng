@@ -173,7 +173,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
         }
         cJSON_AddBoolToObject(st, "ok", 1);
 
-        int running = (access("/tmp/hub_btstack.pid", F_OK) == 0 || is_proc_running("hub_btstack"));
+        int running = is_proc_running("hub_btstack"); /* the pid file stays after a kill -9 */
         cJSON_AddBoolToObject(st, "running", running);
 
         FILE *sf = fopen("/tmp/hub_btstack_scan.json", "r");
@@ -228,11 +228,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
 
     /* Route: POST /api/remote-scan */
     if (strcmp(clean_path, "/api/remote-scan") == 0 && strcmp(method, "POST") == 0) {
-        FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
-        if (cf) {
-            fputs("SCAN\n", cf);
-            fclose(cf);
-        }
+        hub_send_btstack_cmd("SCAN");
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "state", "scanning");
@@ -245,11 +241,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
 
     /* Route: POST /api/remote-scan-stop */
     if (strcmp(clean_path, "/api/remote-scan-stop") == 0 && strcmp(method, "POST") == 0) {
-        FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
-        if (cf) {
-            fputs("stop_scan\n", cf);
-            fclose(cf);
-        }
+        hub_send_btstack_cmd("stop_scan");
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "state", "idle");
@@ -269,12 +261,16 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
         }
+        /* The address goes into a hub_btstack command line and into bt_remote_map.json */
+        if (bdaddr[0] && !hub_valid_bdaddr(bdaddr)) {
+            send_json_error(client_fd, 400, "bdaddr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
+        }
         if (bdaddr[0]) {
-            FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
-            if (cf) {
-                fprintf(cf, "PAIR %s\n", bdaddr);
-                fclose(cf);
-            }
+            char pair_cmd[48];
+            snprintf(pair_cmd, sizeof(pair_cmd), "PAIR %s", bdaddr);
+            hub_send_btstack_cmd(pair_cmd);
             FILE *mf = fopen(config_store_path("bt_remote_map.json"), "r");
             if (mf) {
                 fseek(mf, 0, SEEK_END);
@@ -348,11 +344,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             }
             cJSON_Delete(mj);
         }
-        FILE *cf = fopen("/tmp/hub_btstack_cmd", "w");
-        if (cf) {
-            fputs("FORGET\n", cf);
-            fclose(cf);
-        }
+        hub_send_btstack_cmd("FORGET");
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddBoolToObject(resp, "ok", 1);
         cJSON_AddStringToObject(resp, "state", "standby");
@@ -541,7 +533,10 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
          * key (hub_rf reports a held key as "hold" repeats, which are not events) */
         if (!req_action[0] || strcmp(req_action, "press") == 0 || strcmp(req_action, "release") == 0) {
             const char *ev_cmd = mapped_cmd[0] ? mapped_cmd : ((dev_id[0] && !req_source[0]) ? cmd_name : "");
-            http_api_remotes_button_event((has_slot || req_source[0]) ? req_slot : 0, cmd_name,
+            /* Only a request that names a slot is an RF remote key: the Bluetooth remote (source
+             * "bt_remote") and other callers have none, and their keys used to be published as
+             * keys of RF remote slot 1 */
+            http_api_remotes_button_event(has_slot ? req_slot : 0, cmd_name,
                                           req_action[0] ? req_action : "press",
                                           req_source[0] ? req_source : "api", dev_id, ev_cmd);
         }
@@ -731,7 +726,7 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
                 fclose(bf);
             }
         }
-        int bt_running = (access("/tmp/hub_btstack.pid", F_OK) == 0 || is_proc_running("hub_btstack"));
+        int bt_running = is_proc_running("hub_btstack"); /* the pid file stays after a kill -9 */
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddBoolToObject(st, "running", bt_running);
@@ -749,13 +744,13 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
     if (strcmp(clean_path, "/api/services") == 0 && strcmp(method, "GET") == 0) {
         int rf_disabled = (access(config_store_path("rf_disabled.conf"), F_OK) == 0);
         int rf_running = is_proc_running("hub_rf");
-        int bt_running = (access("/tmp/hub_btstack.pid", F_OK) == 0 || is_proc_running("hub_btstack"));
+        int bt_running = is_proc_running("hub_btstack"); /* the pid file stays after a kill -9 */
 
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
         cJSON_AddBoolToObject(st, "rf_enabled", !rf_disabled);
         cJSON_AddBoolToObject(st, "rf_running", rf_running);
-        cJSON_AddBoolToObject(st, "bt_enabled", bt_running);
+        cJSON_AddBoolToObject(st, "bt_enabled", access(config_store_path("bt_disabled.conf"), F_OK) != 0);
         cJSON_AddBoolToObject(st, "bt_running", bt_running);
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
@@ -809,14 +804,25 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             }
             cJSON_Delete(params);
         }
+        /* The flag tells the init.sh supervisor to keep hub_btstack stopped. Without it the
+         * supervisor started hub_btstack again 5 s after it was killed, so "off" never lasted;
+         * "on" started a second copy outside the supervisor. Now the supervisor starts it. */
         if (enable) {
-            system("killall -9 hub_btstack 2>/dev/null; /data/harmony/bin/hub_btstack &");
+            unlink(config_store_path("bt_disabled.conf"));
         } else {
+            if (write_file_content(config_store_path("bt_disabled.conf"), "1\n") != 0) {
+                send_json_error(client_fd, 500, "Could not save the Bluetooth setting");
+                close(client_fd);
+                return 1;
+            }
             system("killall -9 hub_btstack 2>/dev/null");
         }
+        /* bt_running is the process now, not the request: after "on" the supervisor starts
+         * hub_btstack within about 5 s, so it is usually still false here */
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", 1);
-        cJSON_AddBoolToObject(st, "bt_running", enable);
+        cJSON_AddBoolToObject(st, "bt_enabled", enable);
+        cJSON_AddBoolToObject(st, "bt_running", enable ? is_proc_running("hub_btstack") : 0);
         send_cjson_resp(client_fd, 200, st);
         cJSON_Delete(st);
         close(client_fd);
@@ -884,6 +890,12 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
         }
+        if (bdaddr[0] && !hub_valid_bdaddr(bdaddr)) {
+            /* hub_btstack took an address it could not read as "every host" */
+            send_json_error(client_fd, 400, "bdaddr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
+        }
         char pipe_cmd[128];
         if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host %s\n", bdaddr);
         else snprintf(pipe_cmd, sizeof(pipe_cmd), "connect_host\n");
@@ -904,6 +916,12 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             cJSON *ja = cJSON_GetObjectItem(params, "bdaddr");
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
+        }
+        if (bdaddr[0] && !hub_valid_bdaddr(bdaddr)) {
+            /* hub_btstack took an address it could not read as "every host" */
+            send_json_error(client_fd, 400, "bdaddr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
         }
         char pipe_cmd[128];
         if (bdaddr[0]) snprintf(pipe_cmd, sizeof(pipe_cmd), "disconnect_host %s\n", bdaddr);
@@ -932,6 +950,12 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             cJSON *ja = cJSON_GetObjectItem(params, "bdaddr");
             if (ja && cJSON_IsString(ja)) strncpy(bdaddr, ja->valuestring, sizeof(bdaddr) - 1);
             cJSON_Delete(params);
+        }
+        if (bdaddr[0] && !hub_valid_bdaddr(bdaddr)) {
+            /* stored in devices.json and put in front of every key of the device */
+            send_json_error(client_fd, 400, "bdaddr must be a Bluetooth address (XX:XX:XX:XX:XX:XX)");
+            close(client_fd);
+            return 1;
         }
         int success = 0;
         if (dev_id[0]) {
@@ -1007,32 +1031,22 @@ int http_api_remotes_handle(int client_fd, const char *method, const char *clean
             close(client_fd);
             return 1;
         }
-        int ok = 0;
-        int bfd = open("/tmp/bthid_input", O_WRONLY | O_NONBLOCK);
-        if (bfd >= 0) {
-            if (target[0]) {
-                char thdr[64];
-                snprintf(thdr, sizeof(thdr), "TARGET %s\n", target);
-                write(bfd, thdr, strlen(thdr));
-            }
-            char pipe_cmd[128];
-            if (strcasecmp(action, "click") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", b);
-            } else if (strcasecmp(action, "down") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", b);
-            } else if (strcasecmp(action, "up") == 0) {
-                const char *b = button[0] ? button : "left";
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", b);
-            } else if (strcasecmp(action, "wheel") == 0) {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
-            } else {
-                snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
-            }
-            if (write(bfd, pipe_cmd, strlen(pipe_cmd)) > 0) ok = 1;
-            close(bfd);
+        char pipe_cmd[128];
+        if (strcasecmp(action, "click") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_CLICK %s\n", b);
+        } else if (strcasecmp(action, "down") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_DOWN %s\n", b);
+        } else if (strcasecmp(action, "up") == 0) {
+            const char *b = button[0] ? button : "left";
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_UP %s\n", b);
+        } else if (strcasecmp(action, "wheel") == 0) {
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE_WHEEL %d\n", wheel);
+        } else {
+            snprintf(pipe_cmd, sizeof(pipe_cmd), "MOUSE %d %d %d %d\n", buttons, dx, dy, wheel);
         }
+        int ok = hub_bt_pipe_send(target, pipe_cmd);
         cJSON *st = cJSON_CreateObject();
         cJSON_AddBoolToObject(st, "ok", ok);
         send_cjson_resp(client_fd, 200, st);
