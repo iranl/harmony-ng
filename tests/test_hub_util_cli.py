@@ -4,7 +4,9 @@
 - mknod with a type other than c or b is refused; it used to create a regular file where the
   device node should be;
 - eth_fix on an interface that does not exist exits 1 and does not print the success line; it
-  printed "All ... offloads disabled successfully" whatever the ioctl calls returned.
+  printed "All ... offloads disabled successfully" whatever the ioctl calls returned;
+- the recovery access point helpers are gone: "portal" and "dhcpd" are unknown commands (usage,
+  exit 1, nothing listens) and the usage text does not list them.
 """
 
 from __future__ import annotations
@@ -49,6 +51,14 @@ class HubUtilCli(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertNotIn("successfully", res.stdout)
 
+
+    def test_no_portal_or_dhcpd_command(self):
+        for cmd in (["portal", "9141"], ["dhcpd", "lo", "127.0.0.1", "127.0.0.2", "127.0.0.3"]):
+            res = subprocess.run([str(self.bin), *cmd], capture_output=True, text=True, timeout=10)
+            self.assertEqual(res.returncode, 1, cmd)
+            self.assertIn("Usage:", res.stderr)
+        self.assertNotIn("portal", res.stderr)
+        self.assertNotIn("dhcpd", res.stderr)
 
 if __name__ == "__main__":
     unittest.main()

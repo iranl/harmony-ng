@@ -8,14 +8,11 @@
  *   - mknod
  *   - register_ehci
  *   - eth_fix / hub_eth_fix
- *   - hub_dhcpd / dhcpd
- *   - hub_portal / portal
  *   - hub_sntp / sntp
  */
 
 #include <stdio.h>
 #include "ota_verify.h"
-#include "atomic_file.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -29,21 +26,11 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/sockios.h>
 #include <linux/ethtool.h>
 
 #include "hub_ntp.h"
-#include "wpa_conf.h"
-#include <signal.h>
-#include <strings.h>
-#include <sys/time.h>
-
-#ifndef SO_BINDTODEVICE
-#define SO_BINDTODEVICE 25
-#endif
 
 #ifndef __NR_sethostname
 #define __NR_sethostname (4000 + 148)
@@ -202,383 +189,6 @@ static int run_eth_fix(int argc, char **argv) {
 }
 
 /* =========================================================================
- * Subcommand: dhcpd / hub_dhcpd
- * ========================================================================= */
-#define DHCP_SERVER_PORT 67
-#define DHCP_CLIENT_PORT 68
-#define DHCP_MAGIC 0x63825363U
-
-#define DHCP_DISCOVER 1
-#define DHCP_OFFER    2
-#define DHCP_REQUEST  3
-#define DHCP_ACK      5
-
-#define OPT_SUBNET       1
-#define OPT_ROUTER       3
-#define OPT_DNS          6
-#define OPT_LEASE_TIME   51
-#define OPT_MSG_TYPE     53
-#define OPT_SERVER_ID    54
-#define OPT_END          255
-
-struct dhcp_packet {
-    uint8_t  op;
-    uint8_t  htype;
-    uint8_t  hlen;
-    uint8_t  hops;
-    uint32_t xid;
-    uint16_t secs;
-    uint16_t flags;
-    uint32_t ciaddr;
-    uint32_t yiaddr;
-    uint32_t siaddr;
-    uint32_t giaddr;
-    uint8_t  chaddr[16];
-    char     sname[64];
-    char     file[128];
-    uint32_t magic;
-    uint8_t  options[308];
-} __attribute__((packed));
-
-static uint8_t *find_dhcp_option(uint8_t *opts, int max_len, uint8_t code) {
-    int i = 0;
-    while (i < max_len) {
-        uint8_t c = opts[i++];
-        if (c == 0) continue;
-        if (c == OPT_END) break;
-        if (i >= max_len) break;
-        uint8_t len = opts[i++];
-        if (i + len > max_len) break;
-        if (c == code) return &opts[i - 2];
-        i += len;
-    }
-    return NULL;
-}
-
-static void append_dhcp_opt(uint8_t **p, uint8_t code, const void *data, uint8_t len) {
-    *(*p)++ = code;
-    *(*p)++ = len;
-    if (len > 0 && data) {
-        memcpy(*p, data, len);
-        *p += len;
-    }
-}
-
-static int run_dhcpd(int argc, char **argv) {
-    if (argc < 5) {
-        fprintf(stderr, "Usage: %s <interface> <server_ip> <start_ip> <end_ip>\n", argv[0]);
-        return 1;
-    }
-
-    const char *ifname = argv[1];
-    struct in_addr server_addr, start_addr, end_addr;
-    if (inet_aton(argv[2], &server_addr) == 0 ||
-        inet_aton(argv[3], &start_addr) == 0 ||
-        inet_aton(argv[4], &end_addr) == 0) {
-        fprintf(stderr, "[-] Invalid IP addresses\n");
-        return 1;
-    }
-
-    uint32_t start_u32 = ntohl(start_addr.s_addr);
-    uint32_t end_u32 = ntohl(end_addr.s_addr);
-    uint32_t pool_size = (end_u32 >= start_u32) ? (end_u32 - start_u32 + 1) : 1;
-
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) { perror("socket"); return 1; }
-
-    int opt = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
-
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
-    if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) != 0) {
-        perror("SO_BINDTODEVICE");
-    }
-
-    struct sockaddr_in srv;
-    memset(&srv, 0, sizeof(srv));
-    srv.sin_family = AF_INET;
-    srv.sin_port = htons(DHCP_SERVER_PORT);
-    srv.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if (bind(sock, (struct sockaddr *)&srv, sizeof(srv)) != 0) {
-        perror("bind");
-        close(sock);
-        return 1;
-    }
-
-    printf("[+] Clean DHCP server listening on %s (%s)...\n", ifname, argv[2]);
-
-    while (1) {
-        struct dhcp_packet req;
-        struct sockaddr_in client;
-        socklen_t clen = sizeof(client);
-        ssize_t n = recvfrom(sock, &req, sizeof(req), 0, (struct sockaddr *)&client, &clen);
-        if (n < 240) continue;
-        if (req.op != 1 || ntohl(req.magic) != DHCP_MAGIC) continue;
-
-        uint8_t *msg_type_opt = find_dhcp_option(req.options, (int)(n - 240), OPT_MSG_TYPE);
-        if (!msg_type_opt || msg_type_opt[1] != 1) continue;
-        uint8_t msg_type = msg_type_opt[2];
-
-        uint8_t reply_type = 0;
-        if (msg_type == DHCP_DISCOVER) reply_type = DHCP_OFFER;
-        else if (msg_type == DHCP_REQUEST) reply_type = DHCP_ACK;
-        else continue;
-
-        uint32_t hash = req.chaddr[3] ^ req.chaddr[4] ^ req.chaddr[5];
-        uint32_t assigned_u32 = start_u32 + (hash % pool_size);
-
-        struct dhcp_packet reply;
-        memset(&reply, 0, sizeof(reply));
-        reply.op = 2;
-        reply.htype = req.htype;
-        reply.hlen = req.hlen;
-        reply.xid = req.xid;
-        reply.flags = req.flags;
-        reply.yiaddr = htonl(assigned_u32);
-        reply.siaddr = server_addr.s_addr;
-        memcpy(reply.chaddr, req.chaddr, sizeof(reply.chaddr));
-        reply.magic = htonl(DHCP_MAGIC);
-
-        uint8_t *p = reply.options;
-        append_dhcp_opt(&p, OPT_MSG_TYPE, &reply_type, 1);
-        append_dhcp_opt(&p, OPT_SERVER_ID, &server_addr.s_addr, 4);
-
-        uint32_t netmask = htonl(0xFFFFFF00);
-        append_dhcp_opt(&p, OPT_SUBNET, &netmask, 4);
-        append_dhcp_opt(&p, OPT_ROUTER, &server_addr.s_addr, 4);
-        append_dhcp_opt(&p, OPT_DNS, &server_addr.s_addr, 4);
-
-        uint32_t lease = htonl(86400);
-        append_dhcp_opt(&p, OPT_LEASE_TIME, &lease, 4);
-        *p++ = OPT_END;
-
-        struct sockaddr_in dest;
-        memset(&dest, 0, sizeof(dest));
-        dest.sin_family = AF_INET;
-        dest.sin_port = htons(DHCP_CLIENT_PORT);
-        dest.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-
-        sendto(sock, &reply, (size_t)(p - (uint8_t *)&reply), 0, (struct sockaddr *)&dest, sizeof(dest));
-    }
-
-    close(sock);
-    return 0;
-}
-
-/* =========================================================================
- * Subcommand: portal / hub_portal
- * ========================================================================= */
-#ifdef TEST_HARNESS
-/* host test build: never touch /etc and never reboot (tests/test_recovery_portal.py) */
-#define WPA_CONF (getenv("HARMONY_PORTAL_WPA_CONF") ? getenv("HARMONY_PORTAL_WPA_CONF") : "/nonexistent/wpa_supplicant.conf")
-#else
-#define WPA_CONF "/etc/wpa_supplicant.conf"
-#endif
-
-static const char *HTML_FORM =
-    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
-    "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>Harmony Recovery Setup</title><style>"
-    "body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;margin:2rem auto;max-width:28rem;padding:0 1rem}"
-    "h1{font-size:1.4rem;color:#58a6ff;margin-bottom:0.25rem}.sub{color:#8b949e;font-size:0.9rem;margin-bottom:1.5rem}"
-    "label{display:block;margin:1rem 0 0.35rem;font-size:0.85rem;color:#8b949e}"
-    "input[type=text],input[type=password]{font-size:1rem;padding:0.6rem;width:100%;box-sizing:border-box;background:#161b22;border:1px solid #30363d;border-radius:6px;color:#fff}"
-    "button{margin-top:1.5rem;padding:0.75rem 1.25rem;font-size:1rem;font-weight:600;background:#238636;color:#fff;border:0;border-radius:6px;width:100%;cursor:pointer}"
-    "button:hover{background:#2ea043}"
-    ".check{display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.9rem}"
-    "</style></head><body>"
-    "<h1>Harmony Hub Setup</h1><div class='sub'>Connect hub to your local Wi-Fi</div>"
-    "<form method='POST' action='/wifi'>"
-    "<label>Wi-Fi Network (SSID)</label><input type='text' name='ssid' required autofocus autocomplete='off'>"
-    "<label>Password</label><input type='password' name='psk'>"
-    "<div class='check'><input type='checkbox' name='hidden' value='1' id='h'><label for='h' style='margin:0'>Hidden Network</label></div>"
-    "<button type='submit'>Save and Connect</button></form></body></html>";
-
-static const char *HTML_SAVED =
-    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
-    "<!doctype html><html><body style='font-family:sans-serif;background:#0d1117;color:#58a6ff;text-align:center;padding:3rem'>"
-    "<h2>Wi-Fi Saved!</h2><p style='color:#8b949e'>Hub is now connecting to Wi-Fi. LED will turn green when ready.</p></body></html>";
-
-static void portal_url_decode(char *dst, const char *src, size_t dst_len) {
-    size_t d = 0;
-    while (*src && d < dst_len - 1) {
-        if (*src == '+') {
-            dst[d++] = ' ';
-            src++;
-        } else if (*src == '%' && isxdigit((unsigned char)src[1]) && isxdigit((unsigned char)src[2])) {
-            char hex[3] = { src[1], src[2], '\0' };
-            dst[d++] = (char)strtol(hex, NULL, 16);
-            src += 3;
-        } else {
-            dst[d++] = *src++;
-        }
-    }
-    dst[d] = '\0';
-}
-
-static void portal_extract_param(const char *body, const char *name, char *out, size_t outlen) {
-    out[0] = '\0';
-    if (!body || !name) return;
-    size_t nlen = strlen(name);
-    const char *p = body;
-    while (p && *p) {
-        if (strncmp(p, name, nlen) == 0 && p[nlen] == '=') {
-            const char *val_start = p + nlen + 1;
-            const char *val_end = strchr(val_start, '&');
-            size_t vlen = val_end ? (size_t)(val_end - val_start) : strlen(val_start);
-            char enc[256] = {0};
-            if (vlen >= sizeof(enc)) vlen = sizeof(enc) - 1;
-            strncpy(enc, val_start, vlen);
-            portal_url_decode(out, enc, outlen);
-            return;
-        }
-        p = strchr(p, '&');
-        if (p) p++;
-    }
-}
-
-/* Written to a synced temporary file and renamed: a power cut never leaves an empty config */
-static int portal_save_wifi_config(const char *ssid, const char *psk, int hidden) {
-    char conf[512];
-    int n;
-    if (psk && psk[0]) {
-        n = snprintf(conf, sizeof(conf),
-                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
-                     "    ssid=\"%s\"\n    psk=\"%s\"\n%s}\n",
-                     ssid, psk, hidden ? "    scan_ssid=1\n" : "");
-    } else {
-        n = snprintf(conf, sizeof(conf),
-                     "ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\n\nnetwork={\n"
-                     "    ssid=\"%s\"\n    key_mgmt=NONE\n%s}\n",
-                     ssid, hidden ? "    scan_ssid=1\n" : "");
-    }
-    if (n < 0 || (size_t)n >= sizeof(conf)) return -1;
-    return atomic_file_write(WPA_CONF, conf, (size_t)n);
-}
-
-/* Reads one request: the header, then the body up to its Content-Length (as far as buf holds).
- * A body sent in a second segment used to be lost, and the form came back without an error.
- * The socket has a receive timeout (run_portal), so a client that stops sending ends the read. */
-static ssize_t portal_read_request(int fd, char *buf, size_t cap) {
-    size_t got = 0;
-    buf[0] = '\0';
-    while (got + 1 < cap) {
-        ssize_t n = recv(fd, buf + got, cap - 1 - got, 0);
-        if (n <= 0) break;
-        got += (size_t)n;
-        buf[got] = '\0';
-        char *hdr_end = strstr(buf, "\r\n\r\n");
-        if (!hdr_end) continue;
-        unsigned long clen = 0;
-        for (const char *line = buf; line && line < hdr_end;) {
-            if (strncasecmp(line, "Content-Length:", 15) == 0) clen = strtoul(line + 15, NULL, 10);
-            const char *nl = strstr(line, "\r\n");
-            line = nl ? nl + 2 : NULL;
-        }
-        if (got >= (size_t)(hdr_end + 4 - buf) + clen) break;
-    }
-    return got ? (ssize_t)got : -1;
-}
-
-static int run_portal(int argc, char **argv) {
-    int port = (argc > 1) ? atoi(argv[1]) : 80;
-    if (port <= 0) port = 80;
-    /* a client that closes before the answer must not end the portal (send() raised SIGPIPE) */
-    signal(SIGPIPE, SIG_IGN);
-
-    int srv = socket(AF_INET, SOCK_STREAM, 0);
-    if (srv < 0) { perror("socket"); return 1; }
-
-    int opt = 1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-#ifdef TEST_HARNESS
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); /* a host test never listens on the LAN */
-#else
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-#endif
-
-    if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        perror("bind");
-        close(srv);
-        return 1;
-    }
-
-    if (listen(srv, 4) != 0) {
-        perror("listen");
-        close(srv);
-        return 1;
-    }
-
-    printf("[+] Wi-Fi recovery portal listening on port %d...\n", port);
-
-    while (1) {
-        struct sockaddr_in client;
-        socklen_t clen = sizeof(client);
-        int cfd = accept(srv, (struct sockaddr *)&client, &clen);
-        if (cfd < 0) continue;
-        /* one client at a time: one that connects and sends nothing (a browser preconnect, a
-         * stalled captive-portal probe) must not hold the portal for everybody else */
-        struct timeval tmo = { .tv_sec = 5, .tv_usec = 0 };
-        setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tmo, sizeof(tmo));
-        setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &tmo, sizeof(tmo));
-
-        char buf[2048] = {0};
-        ssize_t n = portal_read_request(cfd, buf, sizeof(buf));
-        if (n <= 0) { close(cfd); continue; }
-
-        if (strncmp(buf, "GET ", 4) == 0) {
-            send(cfd, HTML_FORM, strlen(HTML_FORM), 0);
-            close(cfd);
-            continue;
-        }
-
-        if (strncmp(buf, "POST /wifi", 10) == 0) {
-            char *body = strstr(buf, "\r\n\r\n");
-            if (body) body += 4;
-            char ssid[128] = {0}, psk[128] = {0}, hid_str[16] = {0};
-            portal_extract_param(body, "ssid", ssid, sizeof(ssid));
-            portal_extract_param(body, "psk", psk, sizeof(psk));
-            /* values wpa_supplicant cannot take as written here (a line break, a pass phrase
-             * outside 8 to 63 characters, a raw 64 hex digit key): the form is shown again */
-            if (wpa_conf_value_error(ssid, 0) || (psk[0] && (wpa_conf_value_error(psk, 1) || wpa_psk_is_hex(psk)))) ssid[0] = '\0';
-            portal_extract_param(body, "hidden", hid_str, sizeof(hid_str));
-
-            if (ssid[0] && portal_save_wifi_config(ssid, psk, hid_str[0] == '1') != 0) {
-                printf("[-] Could not save the Wi-Fi configuration to %s\n", WPA_CONF);
-            } else if (ssid[0]) {
-                printf("[+] Received Wi-Fi credentials for SSID: '%s'\n", ssid);
-                send(cfd, HTML_SAVED, strlen(HTML_SAVED), 0);
-                close(cfd);
-
-                sync();
-#ifndef TEST_HARNESS
-                sleep(2);
-                /* the safe reboot (supervisors and daemons stopped, flash flushed and
-                 * remounted read-only), as the other reboot paths; plain reboot without it */
-                system("(/data/harmony/bin/safe_reboot.sh || reboot) >/dev/null 2>&1 &");
-#endif
-                break;
-            }
-        }
-
-        send(cfd, HTML_FORM, strlen(HTML_FORM), 0);
-        close(cfd);
-    }
-
-    close(srv);
-    return 0;
-}
-
-/* =========================================================================
  * Subcommand: sntp / hub_sntp
  * ========================================================================= */
 static int run_sntp(int argc, char **argv) {
@@ -663,10 +273,6 @@ int main(int argc, char **argv) {
         return run_register_ehci(argc, argv);
     if (strcmp(name, "eth_fix") == 0 || strcmp(name, "hub_eth_fix") == 0)
         return run_eth_fix(argc, argv);
-    if (strcmp(name, "hub_dhcpd") == 0 || strcmp(name, "dhcpd") == 0)
-        return run_dhcpd(argc, argv);
-    if (strcmp(name, "hub_portal") == 0 || strcmp(name, "portal") == 0)
-        return run_portal(argc, argv);
     if (strcmp(name, "hub_sntp") == 0 || strcmp(name, "sntp") == 0)
         return run_sntp(argc, argv);
 
@@ -681,10 +287,6 @@ int main(int argc, char **argv) {
             return run_register_ehci(argc - 1, argv + 1);
         if (strcmp(cmd, "eth_fix") == 0 || strcmp(cmd, "hub_eth_fix") == 0)
             return run_eth_fix(argc - 1, argv + 1);
-        if (strcmp(cmd, "dhcpd") == 0 || strcmp(cmd, "hub_dhcpd") == 0)
-            return run_dhcpd(argc - 1, argv + 1);
-        if (strcmp(cmd, "portal") == 0 || strcmp(cmd, "hub_portal") == 0)
-            return run_portal(argc - 1, argv + 1);
         if (strcmp(cmd, "sntp") == 0 || strcmp(cmd, "hub_sntp") == 0)
             return run_sntp(argc - 1, argv + 1);
         if (strcmp(cmd, "ota-verify") == 0)
@@ -698,8 +300,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "  mknod         Create block/character special devices\n");
     fprintf(stderr, "  register_ehci Register EHCI host controller on Atheros AR9344\n");
     fprintf(stderr, "  eth_fix       Disable offloads for USB Ethernet\n");
-    fprintf(stderr, "  dhcpd         Minimal DHCP server for recovery AP\n");
-    fprintf(stderr, "  portal        Wi-Fi recovery captive portal\n");
     fprintf(stderr, "  sntp          SNTP time synchronization client\n");
     fprintf(stderr, "  ota-verify    Check a signed OTA manifest and files against it\n");
     return 1;

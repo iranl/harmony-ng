@@ -76,7 +76,6 @@ run_monitor() {
                 send_garp "$cur_eth" "$e_ip"
                 echo 1 > /tmp/eth_conn_pipe 2>/dev/null || true
                 echo "$cur_eth:ethernet:$e_ip" > "$STATE_FILE"
-                stop_recovery_ap 2>/dev/null || true
                 log "Ethernet connected via DHCP: $cur_eth has IP $e_ip"
               fi
             fi

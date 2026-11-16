@@ -178,7 +178,7 @@ install_bundle() {
 
 # The helpers built into hub_util are symlinks to it
 link_hub_util() {
-  for _app in hub_sync sync mknod register_ehci eth_fix hub_dhcpd hub_portal hub_sntp; do
+  for _app in hub_sync sync mknod register_ehci eth_fix hub_sntp; do
     [ -f "/data/harmony/bin/$_app" ] && [ ! -L "/data/harmony/bin/$_app" ] && rm -f "/data/harmony/bin/$_app" 2>/dev/null || true
     ln -sf /data/harmony/bin/hub_util "/data/harmony/bin/$_app" 2>/dev/null || true
   done
@@ -440,6 +440,10 @@ do_apply() {
       if [ -f "$TMPDIR/pkg/bin/hub_util" ]; then
         link_hub_util
       fi
+      # The package no longer has the recovery access point: its script, settings and the
+      # hub_util links it used go (the reboot after the update stops one still running)
+      rm -f /data/harmony/recovery_ap.sh /data/harmony/scripts/recovery_ap.sh /data/harmony/bin/recovery_ap.sh \
+            /data/harmony/recovery_ap.conf /data/harmony/bin/hub_portal /data/harmony/bin/hub_dhcpd 2>/dev/null || true
       for b in $BUNDLE_BINS; do
         [ -f "$TMPDIR/pkg/bin/$b" ] && rm -f "/cache/bin/$b" 2>/dev/null
       done

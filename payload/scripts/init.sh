@@ -52,7 +52,7 @@ case "$1" in
       [ -n "$_p" ] && [ "$_p" != "$$" ] && [ "$_p" != "$PPID" ] && kill -9 "$_p" 2>/dev/null || true
     done
     # Terminate all daemon processes
-    killall -9 hub_rf hub_daemon hub_btstack hub_dhcpd hub_portal hal luaworks luadraws lua 2>/dev/null || true
+    killall -9 hub_rf hub_daemon hub_btstack hal luaworks luadraws lua 2>/dev/null || true
     rm -f /tmp/harmony_watchdog.pid 2>/dev/null || true
     sync_fs
     exit 0
@@ -392,7 +392,7 @@ cap_log() {
   while true; do
     sleep 60
     [ -f /tmp/harmony_stop ] && exit 0
-    for _log in "$LOG" /tmp/harmony-network.log /tmp/harmony-recovery.log; do
+    for _log in "$LOG" /tmp/harmony-network.log; do
       cap_log "$_log"
     done
   done
